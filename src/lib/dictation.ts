@@ -1,0 +1,34 @@
+// iOS dictation sometimes commits the recognized phrase concatenated with
+// whatever was already in the field instead of replacing it — e.g. speaking
+// "airworthiness criteria" can land as "airworthiness criteriaairworthiness
+// criteria" or "airworthiness criteria airworthiness criteria" the moment the
+// mic button is released or the keyboard loses focus. Neither the uncontrolled
+// TextInput fix nor avoiding remounts touches this — it's the native dictation
+// commit itself delivering a duplicate. Collapse an exact whole-string
+// duplicate (with zero or one separating space, case-insensitive) back down
+// to a single occurrence before it ever reaches state.
+export function collapseDictationDuplicate(text: string): string {
+  const trimmed = text.trim()
+  if (trimmed.length < 4) return text
+  const lower = trimmed.toLowerCase()
+
+  // "word word" — duplicate separated by exactly one space
+  if (trimmed.length % 2 === 1) {
+    const mid = (trimmed.length - 1) / 2
+    if (trimmed[mid] === ' ') {
+      const a = lower.slice(0, mid)
+      const b = lower.slice(mid + 1)
+      if (a.length > 0 && a === b) return trimmed.slice(mid + 1)
+    }
+  }
+
+  // "wordword" — duplicate concatenated with no separator
+  if (trimmed.length % 2 === 0) {
+    const half = trimmed.length / 2
+    const a = lower.slice(0, half)
+    const b = lower.slice(half)
+    if (a === b) return trimmed.slice(half)
+  }
+
+  return text
+}

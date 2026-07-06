@@ -1,0 +1,5238 @@
+[
+  {
+    "pattern": "sy stem",
+    "fix": "system",
+    "totalCount": 37,
+    "acCount": 11,
+    "topACs": "150/5200-31C(19), 36-4D(5), 150/5190-6(3), 150/5320-15A(2), 20-191(2)",
+    "examples": [
+      "fed tanks must have a waste-feed cutoff or bypass sy stem; and 6) ignitable, rea",
+      "water from aircraft wash racks by an air flotation sy stem. This is one option f"
+    ]
+  },
+  {
+    "pattern": "shou ld",
+    "fix": "should",
+    "totalCount": 36,
+    "acCount": 13,
+    "topACs": "20-170(11), 20-42D(7), 21-26A(7), 120-117(2), 20-158B(1)",
+    "examples": [
+      "12.4 Aircraft or system modifications shou ld be assessed for the impact any cha",
+      "symmetrical position as possible. The ATD shou ld be placed in the seat in a uni"
+    ]
+  },
+  {
+    "pattern": "inform ation",
+    "fix": "information",
+    "totalCount": 28,
+    "acCount": 10,
+    "topACs": "150/5200-31C(18), 91-86(2), 150/5320-15A(1), 36-4D(1), 21-29D(1)",
+    "examples": [
+      "chemical releases, and provide public access to inform ation relating to hazardo",
+      "certificated noise level compliance inform ation. The certificated noise levels "
+    ]
+  },
+  {
+    "pattern": "airc raft",
+    "fix": "aircraft",
+    "totalCount": 23,
+    "acCount": 13,
+    "topACs": "36-4D(4), 150/5320-15A(3), 20-170(3), 150/5210-15A(2), 150/5370-13A(2)",
+    "examples": [
+      "controlling aircraft and airfield deicing runoff. Airc raft operators are includ",
+      "spills and releases occur mostly during fueling of airc raft by fuelers, dispens"
+    ]
+  },
+  {
+    "pattern": "comp liance",
+    "fix": "compliance",
+    "totalCount": 22,
+    "acCount": 5,
+    "topACs": "20-170(15), 36-4D(3), 21-49(2), 33.87-1A(1), 33.70-1(1)",
+    "examples": [
+      "Section 36.9 defines the noise comp liance requirements for propeller-driven sma",
+      "representing extensions of data used to demonstrate comp liance with part 36 for"
+    ]
+  },
+  {
+    "pattern": "compo nent",
+    "fix": "component",
+    "totalCount": 22,
+    "acCount": 2,
+    "topACs": "20-170(21), 23-10(1)",
+    "examples": [
+      "sources of heat due to the failure of some compo nent in another",
+      "3-3. Essen tial Elements of the IMA Compo nent Acceptance Cover Letter.........."
+    ]
+  },
+  {
+    "pattern": "sho uld",
+    "fix": "should",
+    "totalCount": 20,
+    "acCount": 7,
+    "topACs": "20-170(8), 120-117(4), 21-26A(3), 20-42D(2), 150/5320-12C(1)",
+    "examples": [
+      "(3) That the waste material sho uld not be",
+      "Therefore, specific techniques for identi fication of clear ice sho uld be"
+    ]
+  },
+  {
+    "pattern": "equipm ent",
+    "fix": "equipment",
+    "totalCount": 19,
+    "acCount": 8,
+    "topACs": "150/5200-31C(12), 150/5345-54B(1), 23-15A(1), 150/5345-51B(1), 150/5190-6(1)",
+    "examples": [
+      "(5) use a suitable base for mounting the equipm ent on a concrete pad (see AC 15",
+      "Section 23.1431 Electronic equipm ent."
+    ]
+  },
+  {
+    "pattern": "th ave",
+    "fix": "thave",
+    "totalCount": 18,
+    "acCount": 15,
+    "topACs": "65-2D(2), 21-40A(2), 00-59(2), 150/5345-54B(1), 150/5345-51B(1)",
+    "examples": [
+      "3341 Q 75th Ave.",
+      "th Ave."
+    ]
+  },
+  {
+    "pattern": "po rtable",
+    "fix": "portable",
+    "totalCount": 16,
+    "acCount": 2,
+    "topACs": "150/5200-31C(15), 120-76E(1)",
+    "examples": [
+      "12.7.1 Po rtable EFBs . The Master Minimum Equipment List (MMEL) and MEL are not",
+      "(e) Test station and po rtable radios."
+    ]
+  },
+  {
+    "pattern": "emer gency",
+    "fix": "emergency",
+    "totalCount": 14,
+    "acCount": 4,
+    "topACs": "150/5200-31C(10), 150/5320-15A(2), 36-4D(1), 90-89C(1)",
+    "examples": [
+      "undertaken by facility personnel, a detailed list and location of emer gency equ",
+      "or using sorbent pads and gels. Additionally, MSDSs provide emer gency phone num"
+    ]
+  },
+  {
+    "pattern": "sys tem",
+    "fix": "system",
+    "totalCount": 13,
+    "acCount": 4,
+    "topACs": "20-170(10), 120-97A(1), 20-42D(1), 21-26A(1)",
+    "examples": [
+      "3-4. Fuel Tank Sys tem Airworthiness Limitations ...............................",
+      "Howeve r, if a supplemental diluter demand personal oxygen sys tem at CPAs above"
+    ]
+  },
+  {
+    "pattern": "ai rcraft",
+    "fix": "aircraft",
+    "totalCount": 12,
+    "acCount": 10,
+    "topACs": "36-4D(3), 91-61(1), 107-2A(1), 43-209A(1), 150/5370-13A(1)",
+    "examples": [
+      "aerobatics to be the load limit s of the ai rcraft. For the exceptional pilot",
+      "omplete the online Part 107 Small Unmanned Ai rcraft Systems (small UAS)"
+    ]
+  },
+  {
+    "pattern": "com ponent",
+    "fix": "component",
+    "totalCount": 12,
+    "acCount": 3,
+    "topACs": "20-170(10), 25.562-1B(1), 150/5345-52A(1)",
+    "examples": [
+      "seated position. It is the com ponent of the seat that is typically forward of a",
+      "will only issue IMA Com ponent Acceptance Letters for IMA modules and applicatio"
+    ]
+  },
+  {
+    "pattern": "softwa re",
+    "fix": "software",
+    "totalCount": 12,
+    "acCount": 4,
+    "topACs": "20-170(9), 36-4D(1), 25.1581-1(1), 20-173(1)",
+    "examples": [
+      "302(e)(3)(E) Softwa re verification",
+      "(1) The applicant should propose the softwa re development process in the plan f"
+    ]
+  },
+  {
+    "pattern": "aircra ft",
+    "fix": "aircraft",
+    "totalCount": 11,
+    "acCount": 9,
+    "topACs": "36-4D(3), 20-158B(1), 91-84(1), 33-2C(1), 20-161(1)",
+    "examples": [
+      "aircraft tests or previous coupling/attenuation data from similar aircra ft type",
+      "2. DRY-LEASE AIRCRA FT EXCHANGE. An arrangement, documented by the written"
+    ]
+  },
+  {
+    "pattern": "cha pter",
+    "fix": "chapter",
+    "totalCount": 11,
+    "acCount": 4,
+    "topACs": "43-4B(5), 120-96A(2), 91-79B(2), 120-102B(2)",
+    "examples": [
+      "Cha pter 2. Operations Control Center (OCC) Functions ..........................",
+      "Cha pter 6. Drug and Alcohol Testing Requirements .............................."
+    ]
+  },
+  {
+    "pattern": "safe ty",
+    "fix": "safety",
+    "totalCount": 10,
+    "acCount": 8,
+    "topACs": "23-8C(2), 150/5200-31C(2), 91-61(1), 43.13-2B(1), 20-107B(1)",
+    "examples": [
+      "lower tolerance and jeopardize safe ty.",
+      "5. § 23.785 Seats, Berths, Litters, Safe ty Belts and Shoulder Harnesses. ......"
+    ]
+  },
+  {
+    "pattern": "ai rport",
+    "fix": "airport",
+    "totalCount": 10,
+    "acCount": 6,
+    "topACs": "150/5190-6(4), 150/5370-13A(2), 150/5320-15A(1), 150/5210-15A(1), 150/5370-16(1)",
+    "examples": [
+      "after the initial transporter accepted the waste, the ai rport facility operator",
+      "(4) Data Collection . Data relating to existing ai rport inventory and/or airpor"
+    ]
+  },
+  {
+    "pattern": "mainte nance",
+    "fix": "maintenance",
+    "totalCount": 10,
+    "acCount": 6,
+    "topACs": "120-16G(4), 150/5200-31C(2), 150/5320-15A(1), 150/5370-16(1), 43-10C(1)",
+    "examples": [
+      "chamber and must be removed with periodic mainte nance. As the biomass creates a",
+      "mainte nance schedule. Your scheduled maintenance activities should include proc"
+    ]
+  },
+  {
+    "pattern": "flig ht",
+    "fix": "flight",
+    "totalCount": 10,
+    "acCount": 7,
+    "topACs": "36-4D(3), 20-191(2), 43-207(1), 33.70-3(1), 33.75-1A(1)",
+    "examples": [
+      "An applicant should attempt to obtain static engine or flig ht test noise data a",
+      "401(h)(6) Takeoff flig ht test procedures"
+    ]
+  },
+  {
+    "pattern": "app ly",
+    "fix": "apply",
+    "totalCount": 10,
+    "acCount": 2,
+    "topACs": "150/5200-31C(7), 20-170(3)",
+    "examples": [
+      "app ly for an IMA Component Acceptance Letter has no bearing on the final approv",
+      "show tbat the TSO requirements app ly to the installation into the aircraft or e"
+    ]
+  },
+  {
+    "pattern": "alte rnate",
+    "fix": "alternate",
+    "totalCount": 10,
+    "acCount": 1,
+    "topACs": "194-2(10)",
+    "examples": [
+      "Chapter 3. Alte rnate Cross-Country Requirements ...............................",
+      "Chapter 4. Alte rnate Requirements for Practical Tests and Training in a Powered"
+    ]
+  },
+  {
+    "pattern": "appe ndix",
+    "fix": "appendix",
+    "totalCount": 9,
+    "acCount": 3,
+    "topACs": "91-70D(6), 150/5320-15A(2), 120-78B(1)",
+    "examples": [
+      "proposal. It is noted that the worksheets in Appe ndix C and the example SWPPP m",
+      "is developed for the entire site and it includes, in Appe ndix E, an attached su"
+    ]
+  },
+  {
+    "pattern": "spec ific",
+    "fix": "specific",
+    "totalCount": 9,
+    "acCount": 4,
+    "topACs": "150/5200-31C(5), 20-170(2), 21-47(1), 36-4D(1)",
+    "examples": [
+      "g. Substantiated Applicable Requirements: Indicate the spec ific applicable",
+      "Table 8. Cross references to spec ific guidelines in this ACfor VNRS"
+    ]
+  },
+  {
+    "pattern": "cont rol",
+    "fix": "control",
+    "totalCount": 9,
+    "acCount": 7,
+    "topACs": "20-106(2), 21-26A(2), 33.70-2(1), 150/5370-16(1), 23-8C(1)",
+    "examples": [
+      "Table A6-1. Process Controls, Cont rol Definitions and Credit Factor",
+      "should be established by the airport operator to main tain coordination and cont"
+    ]
+  },
+  {
+    "pattern": "samp le",
+    "fix": "sample",
+    "totalCount": 9,
+    "acCount": 2,
+    "topACs": "61-98E(7), 91-86(2)",
+    "examples": [
+      "Appendix B. Samp le Airplane Pilot’s Proficiency Practice Plan .................",
+      "Appendix C. Samp le Pilot’s Personal Aeronautical Goals ........................"
+    ]
+  },
+  {
+    "pattern": "equi pment",
+    "fix": "equipment",
+    "totalCount": 8,
+    "acCount": 8,
+    "topACs": "20-169(1), 150/5345-55A(1), 150/5370-13A(1), 23-8C(1), 150/5345-45C(1)",
+    "examples": [
+      "dispensers). Military modifications or equi pment may require first investigatin",
+      "Qualification tests must be conducted on the equi pment to ensure the requiremen"
+    ]
+  },
+  {
+    "pattern": "agreem ent",
+    "fix": "agreement",
+    "totalCount": 8,
+    "acCount": 2,
+    "topACs": "150/5200-31C(5), 150/5190-6(3)",
+    "examples": [
+      "space leased under an existing agreem ent between one FBO and the airport sponso",
+      "amended, 49 U.S.C. § 47101, et seq ., and the airport sponsor’s agreem ent to co"
+    ]
+  },
+  {
+    "pattern": "rela tive",
+    "fix": "relative",
+    "totalCount": 8,
+    "acCount": 3,
+    "topACs": "150/5200-31C(6), 23-8C(1), 20-191(1)",
+    "examples": [
+      "(9) Wind Speed. The wind speed and direction rela tive to the active runway shou",
+      "(2) Provide news releases rela tive to the airport’s operational capability."
+    ]
+  },
+  {
+    "pattern": "wa rning",
+    "fix": "warning",
+    "totalCount": 8,
+    "acCount": 2,
+    "topACs": "150/5200-31C(7), 25-7D(1)",
+    "examples": [
+      "42.1 Design and Function of Artificial Stall Wa rning and Identification Systems",
+      "d. Alert Notification and Wa rning."
+    ]
+  },
+  {
+    "pattern": "ac one",
+    "fix": "acone",
+    "totalCount": 7,
+    "acCount": 6,
+    "topACs": "25.562-1B(2), 23.562-1(1), 25-8(1), 90-120(1), 150/5345-13B(1)",
+    "examples": [
+      "this AC. One concern is the rapid sequence of acceleration and deceleration whic",
+      "AC one can find additional guidance."
+    ]
+  },
+  {
+    "pattern": "fli ght",
+    "fix": "flight",
+    "totalCount": 7,
+    "acCount": 7,
+    "topACs": "120-90(1), 120-125(1), 120-26P(1), 150/5200-28G(1), 20-88A(1)",
+    "examples": [
+      "(Name) Director, Fli ght Training and Standards",
+      "afety of Fli ght Issues. If it is evident from a maintenance or operational pers"
+    ]
+  },
+  {
+    "pattern": "appli cable",
+    "fix": "applicable",
+    "totalCount": 7,
+    "acCount": 6,
+    "topACs": "91-86(2), 150/5320-15A(1), 23.1309-1E(1), 91-85B(1), 21-40A(1)",
+    "examples": [
+      "are dictated by discharge permit limits that are appli cable to the waste stream",
+      "workload in another aircraft. See the appli cable AC and TSO for additional guid"
+    ]
+  },
+  {
+    "pattern": "th ese",
+    "fix": "these",
+    "totalCount": 7,
+    "acCount": 5,
+    "topACs": "25.562-1B(3), 36-4D(1), 150/5370-16(1), 91-82A(1), 23-17C(1)",
+    "examples": [
+      "government and commercial test facilities. Th ese procedures have been modified ",
+      "other factors such as occupant clothing. Th ese typical materials can be used on"
+    ]
+  },
+  {
+    "pattern": "appli cant",
+    "fix": "applicant",
+    "totalCount": 7,
+    "acCount": 5,
+    "topACs": "20-170(3), 23-1523(1), 36-4D(1), 33.70-1(1), 23-13A(1)",
+    "examples": [
+      "demands on any crewmember or increase error likelihood. Usually, the appli cant ",
+      "date of the standard that the appli cant has elected to comply with. Furt her, i"
+    ]
+  },
+  {
+    "pattern": "emerge ncy",
+    "fix": "emergency",
+    "totalCount": 7,
+    "acCount": 2,
+    "topACs": "150/5200-31C(6), 150/5210-15A(1)",
+    "examples": [
+      "functions to avoid delayed emerge ncy vehicle responses and internal",
+      "(6) Alerts emerge ncy response personnel of the presence of hazards at the scene"
+    ]
+  },
+  {
+    "pattern": "airp lane",
+    "fix": "airplane",
+    "totalCount": 7,
+    "acCount": 6,
+    "topACs": "120-104(2), 36-4D(1), 120-60B(1), 23-8C(1), 20-42D(1)",
+    "examples": [
+      "atmospheric data for all test runs are made to the airp lane height at the time ",
+      "under-wing frost that degrades airp lane performance beyond a minimal"
+    ]
+  },
+  {
+    "pattern": "proce ss",
+    "fix": "process",
+    "totalCount": 7,
+    "acCount": 5,
+    "topACs": "120-104(2), 21-26A(2), 20-107B(1), 120-117(1), 20-153B(1)",
+    "examples": [
+      "14 CFR 21.31. Changes to the material and proce ss specifications are often majo",
+      "desi gnate d emp loyee of the Drug Abateme nt Division assigned to proce ss and"
+    ]
+  },
+  {
+    "pattern": "mu tual",
+    "fix": "mutual",
+    "totalCount": 7,
+    "acCount": 1,
+    "topACs": "150/5200-31C(7)",
+    "examples": [
+      "As appropriate, consideration should be given to mu tual assistance and coordina",
+      "(2) In some locations there are regulations or laws governing mu tual aid activi"
+    ]
+  },
+  {
+    "pattern": "ci rcular",
+    "fix": "circular",
+    "totalCount": 6,
+    "acCount": 6,
+    "topACs": "33-12(1), 150/5320-15A(1), 43.13-2B(1), 20-167B(1), 25.785-1B(1)",
+    "examples": [
+      "If you find an error in this Advisory Ci rcular, have recommendations for improv",
+      "defensible from a wildlife standpoint. Square or ci rcular retention basins are "
+    ]
+  },
+  {
+    "pattern": "sa mple",
+    "fix": "sample",
+    "totalCount": 6,
+    "acCount": 6,
+    "topACs": "107-2A(1), 20-154A(1), 90-120(1), 90-89C(1), 91-67A(1)",
+    "examples": [
+      "Appendix E. Sa mple Preflight Assessment and Inspection Checklist ..............",
+      "contents in this AC, and Appendix B provides a sa mple documentation matrix for "
+    ]
+  },
+  {
+    "pattern": "fol lowing",
+    "fix": "following",
+    "totalCount": 6,
+    "acCount": 5,
+    "topACs": "25-12(2), 25.1329-1C(1), 25-8(1), 20-42D(1), 150/5345-56B(1)",
+    "examples": [
+      "b. Design considerations. The design of the FGS should address the fol lowing sp",
+      "consider the fol lowing:"
+    ]
+  },
+  {
+    "pattern": "syst em",
+    "fix": "system",
+    "totalCount": 6,
+    "acCount": 6,
+    "topACs": "25.1329-1C(1), 25.1302-1(1), 23-8C(1), 20-167B(1), 00-63B(1)",
+    "examples": [
+      "b. Syst em degradation. Information should be provided to the flightcrew about t",
+      "inadequate displays. An example would be a syst em that removes flight director "
+    ]
+  },
+  {
+    "pattern": "ch apter",
+    "fix": "chapter",
+    "totalCount": 6,
+    "acCount": 5,
+    "topACs": "20-186A(2), 150/5320-15A(1), 36-4D(1), 91-70D(1), 91-79B(1)",
+    "examples": [
+      "they exhibit any of the characteristics noted in Ch apter 2. Chapter 6 contains ",
+      "Environmental Assessment (EA) as specified in Ch apter 4 of FAA Order 1050.1F (R"
+    ]
+  },
+  {
+    "pattern": "pr ocess",
+    "fix": "process",
+    "totalCount": 6,
+    "acCount": 6,
+    "topACs": "150/5320-15A(1), 25.562-1B(1), 25.1581-1(1), 150/5200-28G(1), 21-40A(1)",
+    "examples": [
+      "9.4.2. Reverse Osmosis (RO). Reverse osmosis is a separation pr ocess that uses ",
+      "tracks are straightened (unwarped). The pr ocess of straightening the seat track"
+    ]
+  },
+  {
+    "pattern": "exam ple",
+    "fix": "example",
+    "totalCount": 6,
+    "acCount": 5,
+    "topACs": "150/5190-6(2), 33.70-2(1), 150/5210-15A(1), 23-8C(1), 91-85B(1)",
+    "examples": [
+      "NOTE: Refer to Appendix 1 for an exam ple of the use of this data and to",
+      "machines. Some stations combine forms; for exam ple, a station might have vendin"
+    ]
+  },
+  {
+    "pattern": "sh ould",
+    "fix": "should",
+    "totalCount": 6,
+    "acCount": 5,
+    "topACs": "36-4D(2), 150/5210-15A(1), 150/5320-12C(1), 29-2C(1), 91-82A(1)",
+    "examples": [
+      "poles should be avoided. When used, they sh ould be located to minimize the time",
+      "triggering is employed, the operator sh ould use extreme care to perform the tr "
+    ]
+  },
+  {
+    "pattern": "af ter",
+    "fix": "after",
+    "totalCount": 6,
+    "acCount": 4,
+    "topACs": "36-4D(3), 150/5345-51B(1), 43.13-2B(1), 20-191(1)",
+    "examples": [
+      "§21.93(b)(2)(iii)of part 21 to continue to be used af ter December 31, 1999, but",
+      "accuracy of such a survey was classified by the amount that the sum of the inter"
+    ]
+  },
+  {
+    "pattern": "pe riod",
+    "fix": "period",
+    "totalCount": 6,
+    "acCount": 3,
+    "topACs": "150/5370-13A(3), 150/5370-16(2), 36-4D(1)",
+    "examples": [
+      "measurements are required throughout the 10 dB-down pe riod. If additional test ",
+      "limits of construction scheduled for the next work pe riod to ensure that the se"
+    ]
+  },
+  {
+    "pattern": "na nce",
+    "fix": "nance",
+    "totalCount": 6,
+    "acCount": 1,
+    "topACs": "120-16G(6)",
+    "examples": [
+      "depth. Your air carrier mainte na nce program include s the following 10 element",
+      "completio n of mainte na nce"
+    ]
+  },
+  {
+    "pattern": "equ ipment",
+    "fix": "equipment",
+    "totalCount": 5,
+    "acCount": 4,
+    "topACs": "20-158B(2), 150/5220-22B(1), 20-106(1), 150/5220-26(1)",
+    "examples": [
+      "• Susceptibility. Aspect of a piece of equ ipment that describes its inability t",
+      "rather depends on when HIRF penetration of the equ ipment case becomes a signifi"
+    ]
+  },
+  {
+    "pattern": "perfor mance",
+    "fix": "performance",
+    "totalCount": 5,
+    "acCount": 5,
+    "topACs": "20-158B(1), 150/5345-45C(1), 20-42D(1), 20-191(1), 23-17C(1)",
+    "examples": [
+      "they relate to the applicable HIRF regulation perfor mance criteria. Paragraph 5",
+      "NOTE: In addition to the products that meet the perfor mance specifications cont"
+    ]
+  },
+  {
+    "pattern": "add ition",
+    "fix": "addition",
+    "totalCount": 5,
+    "acCount": 5,
+    "topACs": "20-158B(1), 150/5370-16(1), 33.64-1(1), 43-12A(1), 21-26A(1)",
+    "examples": [
+      "equivalent to metal. In add ition, wire bundles passing through bulkheads in the",
+      "necessary to remove disabled equipment. In add ition, standby cleanup equipment "
+    ]
+  },
+  {
+    "pattern": "guidan ce",
+    "fix": "guidance",
+    "totalCount": 5,
+    "acCount": 5,
+    "topACs": "25.1329-1C(1), 36-4D(1), 150/5345-55A(1), 23-19A(1), 20-170(1)",
+    "examples": [
+      "under the law or agency policies. The guidan ce in this AC is neither mandatory ",
+      "in activation/actuation for these systems. General guidan ce on noise certificat"
+    ]
+  },
+  {
+    "pattern": "failu re",
+    "fix": "failure",
+    "totalCount": 5,
+    "acCount": 4,
+    "topACs": "150/5345-52A(2), 25.1329-1C(1), 23-8C(1), 23-19A(1)",
+    "examples": [
+      "3 Reliability and the possibility of latent failu re of those alternative means.",
+      "Note: Before selecting the system failu re and emergency procedures that will"
+    ]
+  },
+  {
+    "pattern": "requi re",
+    "fix": "require",
+    "totalCount": 5,
+    "acCount": 3,
+    "topACs": "25.1329-1C(2), 150/5370-16(2), 150/5320-15A(1)",
+    "examples": [
+      "documented in AFM limitations or procedures, if those failure conditions requi r",
+      "documented in AFM limitations or procedures, if those failure conditions requi r"
+    ]
+  },
+  {
+    "pattern": "gui dance",
+    "fix": "guidance",
+    "totalCount": 5,
+    "acCount": 5,
+    "topACs": "26-1(1), 150/5210-5D(1), 20-167B(1), 150/5220-25(1), 25-12(1)",
+    "examples": [
+      "Appendix B). Specific technical gui dance for each of the safety initiatives app",
+      "1. PURPOSE. This advisory circular (AC) provides gui dance, specifications, and "
+    ]
+  },
+  {
+    "pattern": "engi ne",
+    "fix": "engine",
+    "totalCount": 5,
+    "acCount": 5,
+    "topACs": "150/5320-15A(1), 25.939-1(1), 33.70-1(1), 23-8C(1), 90-89C(1)",
+    "examples": [
+      "aircraft maintenance and repair work (including pa inting and metalwork), engi n",
+      "5. ENGi NE OPERATING CHARACTERISTICS. Adverse engine operating characteristics"
+    ]
+  },
+  {
+    "pattern": "iden tify",
+    "fix": "identify",
+    "totalCount": 5,
+    "acCount": 2,
+    "topACs": "150/5200-31C(4), 150/5320-15A(1)",
+    "examples": [
+      "“HAZARDOUS WASTE” or with other words that iden tify the contents of the contain",
+      "f. Plan Development and Maintenance. This section should iden tify who is respon"
+    ]
+  },
+  {
+    "pattern": "desi gn",
+    "fix": "design",
+    "totalCount": 5,
+    "acCount": 5,
+    "topACs": "150/5320-15A(1), 21-50(1), 36-4D(1), 150/5370-16(1), 20-73A(1)",
+    "examples": [
+      "appropriate aircraft anti-icing fluid. For desi gn of traditional and infra-red ",
+      "paragraph 21.619(c), titled \"Desi gn Changes - Changes by person other than manu"
+    ]
+  },
+  {
+    "pattern": "sp ecific",
+    "fix": "specific",
+    "totalCount": 5,
+    "acCount": 5,
+    "topACs": "150/5320-15A(1), 150/5210-15A(1), 120-16G(1), 21-40A(1), 23-17C(1)",
+    "examples": [
+      "for these major airport industrial wastes, including sp ecific systems for the t",
+      "b. Design. The interior design of rooms with sp ecific functional use, work area"
+    ]
+  },
+  {
+    "pattern": "wh ich",
+    "fix": "which",
+    "totalCount": 5,
+    "acCount": 5,
+    "topACs": "150/5320-15A(1), 25.562-1B(1), 36-4D(1), 150/5370-16(1), 150/5370-13A(1)",
+    "examples": [
+      "provide airport authorities those special requirements wh ich should be addresse",
+      "of the load path. In general, members for wh ich the failure mode is not catastr"
+    ]
+  },
+  {
+    "pattern": "st orm",
+    "fix": "storm",
+    "totalCount": 5,
+    "acCount": 1,
+    "topACs": "150/5320-15A(5)",
+    "examples": [
+      "exposed significant materials that may contaminate st orm water runoff dischargi",
+      "divert, infiltrate, reuse, and otherwise manage st orm water runoff to reduce po"
+    ]
+  },
+  {
+    "pattern": "sma ll",
+    "fix": "small",
+    "totalCount": 5,
+    "acCount": 4,
+    "topACs": "23-13A(2), 25.562-1B(1), 150/5325-4B(1), 20-42D(1)",
+    "examples": [
+      "performance during the structural tests. Sma ll weight variations are acceptable",
+      "(3) Sma ll Airplane. An airplane of 12,500 pounds (5,670 kg) or less maximum cer"
+    ]
+  },
+  {
+    "pattern": "st andard",
+    "fix": "standard",
+    "totalCount": 5,
+    "acCount": 4,
+    "topACs": "150/5345-54B(2), 20-161(1), 150/5370-13A(1), 150/5210-5D(1)",
+    "examples": [
+      "Standard Voltages (Volts in) St andard Frequency (Hertz (Hz))",
+      "ust be designed to operate from any st andard utility single-phase a lternating "
+    ]
+  },
+  {
+    "pattern": "appl icant",
+    "fix": "applicant",
+    "totalCount": 5,
+    "acCount": 4,
+    "topACs": "20-170(2), 33.76-1B(1), 23-8C(1), 21-26A(1)",
+    "examples": [
+      "At Least 50% Rated Thrust/P ower to Suit Appl icant.",
+      "operated at sea level. If an appl icant elects not to take the airplane to a low"
+    ]
+  },
+  {
+    "pattern": "measur ement",
+    "fix": "measurement",
+    "totalCount": 5,
+    "acCount": 1,
+    "topACs": "36-4D(5)",
+    "examples": [
+      "f) the specifications of the measur ement system and calibration procedures for ",
+      "201(b)(1) Noise measur ement and evaluation"
+    ]
+  },
+  {
+    "pattern": "se rvice",
+    "fix": "service",
+    "totalCount": 5,
+    "acCount": 3,
+    "topACs": "120-16G(3), 33.70-1(1), 00-63B(1)",
+    "examples": [
+      "performed and/or issued the approval for re turn to se rvice.",
+      "re turn to se rvice. They are two separate and distinct records."
+    ]
+  },
+  {
+    "pattern": "ac table",
+    "fix": "actable",
+    "totalCount": 5,
+    "acCount": 3,
+    "topACs": "25-11B(3), 20-197(1), 25-25A(1)",
+    "examples": [
+      "AC. Table 1-1 requires steady-state 15-minute durations representing",
+      "The following ACs are related to the guidance in this AC. Table E-2 identifies t"
+    ]
+  },
+  {
+    "pattern": "appli cation",
+    "fix": "application",
+    "totalCount": 5,
+    "acCount": 5,
+    "topACs": "150/5345-51B(1), 00-58C(1), 65-2D(1), 21-40A(1), 20-170(1)",
+    "examples": [
+      "b. Flash capacitors must be suitable for the appli cation and have a service lif",
+      "A.3.3 Web-Based VDRP Appli cation Provisions. The web-based VDRP application con"
+    ]
+  },
+  {
+    "pattern": "pertin ent",
+    "fix": "pertinent",
+    "totalCount": 5,
+    "acCount": 4,
+    "topACs": "150/5200-31C(2), 150/5370-16(1), 120-60B(1), 20-170(1)",
+    "examples": [
+      "routes, restricted areas, and any other details pertin ent to the construction o",
+      "should be established to relay pertin ent deicing/anti icin g information and"
+    ]
+  },
+  {
+    "pattern": "avai lable",
+    "fix": "available",
+    "totalCount": 5,
+    "acCount": 5,
+    "topACs": "121.321-1(1), 29-2C(1), 20-42D(1), 20-170(1), 20-106(1)",
+    "examples": [
+      "(1) If there is an automatic cycling mode with more than one rate of cycling ava",
+      "SHAFT HORSEPOWER AVAi LABLE"
+    ]
+  },
+  {
+    "pattern": "app licant",
+    "fix": "applicant",
+    "totalCount": 5,
+    "acCount": 4,
+    "topACs": "20-170(2), 25.571-1D(1), 23-8C(1), 23-17C(1)",
+    "examples": [
+      "the airplane. Section 25.571(b) requires the app licant to demonstrate with suff",
+      "(2) Design Data. Section 23.1(b) requires an app licant to demonstrate complianc"
+    ]
+  },
+  {
+    "pattern": "ai rplane",
+    "fix": "airplane",
+    "totalCount": 5,
+    "acCount": 3,
+    "topACs": "23-8C(3), 23.1309-1E(1), 120-102B(1)",
+    "examples": [
+      "with the engines idling. If the ai rplane has a flight idle position, this would",
+      "(1) Stall. Section 23.201(b) defines when the ai rplane can be considered stalle"
+    ]
+  },
+  {
+    "pattern": "determ ine",
+    "fix": "determine",
+    "totalCount": 5,
+    "acCount": 5,
+    "topACs": "23-8C(1), 25.1322-1(1), 65-2D(1), 150/5200-31C(1), 20-106(1)",
+    "examples": [
+      "(2) Takeoff Profile. Tests are required to determ ine the performance throughout",
+      "b. Visual Alerts. Following the guidance in paragraphs 5 and 6 of this AC, deter"
+    ]
+  },
+  {
+    "pattern": "nece ssary",
+    "fix": "necessary",
+    "totalCount": 5,
+    "acCount": 2,
+    "topACs": "150/5200-31C(4), 23-8C(1)",
+    "examples": [
+      "for safety. If it is found that a lower force is nece ssary for safety, then tha",
+      "Ensure that each tasked organization or individual develops the SOPs nece ssary "
+    ]
+  },
+  {
+    "pattern": "surfa ce",
+    "fix": "surface",
+    "totalCount": 5,
+    "acCount": 2,
+    "topACs": "20-106(4), 65-2D(1)",
+    "examples": [
+      "with surfa ce tape at least 3 inches wide. Prior",
+      "surfa ce, which means that the protecti ve film"
+    ]
+  },
+  {
+    "pattern": "assoc iated",
+    "fix": "associated",
+    "totalCount": 5,
+    "acCount": 3,
+    "topACs": "20-170(3), 20-42D(1), 150/5345-56B(1)",
+    "examples": [
+      "assoc iated toxicity hazard of the decomposition products of that agent. This te",
+      "CCRs, circuit selector switches and actual lighting loads. All control outputs w"
+    ]
+  },
+  {
+    "pattern": "compon ent",
+    "fix": "component",
+    "totalCount": 5,
+    "acCount": 1,
+    "topACs": "20-170(5)",
+    "examples": [
+      "3-6. lMA Compon ent Accept anc e Letters For Revised IMA Component s . ..... ...",
+      "f. A request for an IMA Compon ent Acceptance Letter is not limited to the devel"
+    ]
+  },
+  {
+    "pattern": "accept ance",
+    "fix": "acceptance",
+    "totalCount": 5,
+    "acCount": 2,
+    "topACs": "20-170(4), 150/5345-53D(1)",
+    "examples": [
+      "develope r may apply for an £MA Compo nent Accept ance Letter . The intent to re",
+      "compone nt accept ance and concurrent/future reuse."
+    ]
+  },
+  {
+    "pattern": "num ber",
+    "fix": "number",
+    "totalCount": 5,
+    "acCount": 3,
+    "topACs": "150/5200-31C(3), 20-170(1), 21-26A(1)",
+    "examples": [
+      "TSO NUM BER D ATE",
+      "d. Record of Changes. A record of changes can be a chart containing a num ber as"
+    ]
+  },
+  {
+    "pattern": "neces sary",
+    "fix": "necessary",
+    "totalCount": 5,
+    "acCount": 2,
+    "topACs": "150/5200-31C(4), 20-153B(1)",
+    "examples": [
+      "No_. approval neces sary",
+      "d. Prepare neces sary graphics, charts, maps, etc."
+    ]
+  },
+  {
+    "pattern": "establ ished",
+    "fix": "established",
+    "totalCount": 5,
+    "acCount": 2,
+    "topACs": "150/5200-31C(4), 21-26A(1)",
+    "examples": [
+      "(1) Provide assistance on a voluntary basis or in accordance with establ ished a",
+      "(a) Provide assistance on a voluntary basis or in accordance with establ ished a"
+    ]
+  },
+  {
+    "pattern": "oth er",
+    "fix": "other",
+    "totalCount": 5,
+    "acCount": 4,
+    "topACs": "25-27A(2), 150/5220-22B(1), 150/5345-53D(1), 21-26A(1)",
+    "examples": [
+      "structures and oth er approved facilities within its",
+      "fixture, complete photometry and chromaticity testing, and any oth er testing re"
+    ]
+  },
+  {
+    "pattern": "attac hment",
+    "fix": "attachment",
+    "totalCount": 5,
+    "acCount": 2,
+    "topACs": "20-106(4), 120-104(1)",
+    "examples": [
+      "attac hment fittings. Look for distQrtion,",
+      "bolts for condition and securit y of attac hment."
+    ]
+  },
+  {
+    "pattern": "inspe ct",
+    "fix": "inspect",
+    "totalCount": 5,
+    "acCount": 1,
+    "topACs": "20-106(5)",
+    "examples": [
+      "is fully charged. Inspe ct for general condi­",
+      "Inspe ct en~ine cowling for defects such as"
+    ]
+  },
+  {
+    "pattern": "fun ction",
+    "fix": "function",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "20-158B(1), 65-2D(1), 20-170(1), 20-106(1)",
+    "examples": [
+      "based on the expected aircraft attenuation or transfer fun ction.",
+      "The basic fun ction of a manual mixture"
+    ]
+  },
+  {
+    "pattern": "aircr aft",
+    "fix": "aircraft",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "20-158B(1), 120-26P(1), 65-2D(1), 20-191(1)",
+    "examples": [
+      "10.12.2 The similarity assessment for the new aircraft should consider the aircr",
+      "2.3. TYPES OF AIRCR AFT CALL SIGNS"
+    ]
+  },
+  {
+    "pattern": "gear box",
+    "fix": "gearbox",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "25.629-1C(1), 33.7-1(1), 33.63-1(1), 25.1435-1(1)",
+    "examples": [
+      "mount, engine gear box support, or shaft failures that result in a node line",
+      "turbopropeller engine indicate whether the shaft torque is measured before or af"
+    ]
+  },
+  {
+    "pattern": "th eir",
+    "fix": "their",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "33-12(1), 150/5190-6(1), 150/5345-45C(1), 150/5200-31C(1)",
+    "examples": [
+      "5.8.2 The replacement part manufacturer develops its dimensioning system for th ",
+      "operators of aircraft regarding the servicing of th eir own aircraft may be cons"
+    ]
+  },
+  {
+    "pattern": "red uce",
+    "fix": "reduce",
+    "totalCount": 4,
+    "acCount": 2,
+    "topACs": "150/5200-31C(3), 91-61(1)",
+    "examples": [
+      "Alcohol and hangove rs will red uce you r ability to perform ae r oba tic",
+      "(a) Provide training to red uce the potential for Vehicle/Pedestrian Deviations "
+    ]
+  },
+  {
+    "pattern": "tr aining",
+    "fix": "training",
+    "totalCount": 4,
+    "acCount": 3,
+    "topACs": "142-1(2), 150/5200-12C(1), 90-106B(1)",
+    "examples": [
+      "Chapter 3. Tr aining Center Instructors and Check Pilots .......................",
+      "Chapter 4. Tr aining Center Authorization ......................................"
+    ]
+  },
+  {
+    "pattern": "duri ng",
+    "fix": "during",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "25.1329-1C(1), 150/5380-9(1), 150/5370-16(1), 150/5200-31C(1)",
+    "examples": [
+      "rationally relevant mode that should be ann unciated because pilot actions duri ",
+      "2.6 TEMPORARY PAVEMENT TRANSTIONS DURI NG CONSTRUCTION."
+    ]
+  },
+  {
+    "pattern": "associ ated",
+    "fix": "associated",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "25.1329-1C(1), 150/5380-9(1), 36-4D(1), 150/5200-31C(1)",
+    "examples": [
+      "systems, modes, and functions not associ ated with PFDs.",
+      "d. Number of Straightedges Associ ated with a Survey Interval. ................."
+    ]
+  },
+  {
+    "pattern": "funct ional",
+    "fix": "functional",
+    "totalCount": 4,
+    "acCount": 3,
+    "topACs": "20-170(2), 25.1701-1(1), 23-10(1)",
+    "examples": [
+      "Aircraft Funct ional Hazard",
+      "description and funct ional schematic arrangement should be provided."
+    ]
+  },
+  {
+    "pattern": "inte nded",
+    "fix": "intended",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "150/5320-15A(1), 25.1581-1(1), 21-45(1), 20-156(1)",
+    "examples": [
+      "designated uses of the receiving water and are inte nded to maintain water quali",
+      "(2) If the computerized AFM is inte nded for a COTS hardware and software"
+    ]
+  },
+  {
+    "pattern": "fede ral",
+    "fix": "federal",
+    "totalCount": 4,
+    "acCount": 3,
+    "topACs": "150/5370-16(2), 150/5320-15A(1), 150/5370-13A(1)",
+    "examples": [
+      "Resource Conservation and Recovery Act (RCRA), Fede ral regulations require th a",
+      "airport are subject to arrest for a punishable Fede ral offense and will be prom"
+    ]
+  },
+  {
+    "pattern": "fe deral",
+    "fix": "federal",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "150/5320-15A(1), 150/5200-12C(1), 135-7B(1), 150/5200-31C(1)",
+    "examples": [
+      "substance meets the thresholds outlined in RCRA re gulations (40 Code of Fe dera",
+      "AC is mandatory for all projects funded with fe deral grant monies through the A"
+    ]
+  },
+  {
+    "pattern": "wa ter",
+    "fix": "water",
+    "totalCount": 4,
+    "acCount": 1,
+    "topACs": "150/5320-15A(4)",
+    "examples": [
+      "solvents, are highly toxic at low concentrations in wa ter. Mixed solutions of m",
+      "material with a specific gravity greater than that of wa ter tend to settle, but"
+    ]
+  },
+  {
+    "pattern": "follo wing",
+    "fix": "following",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "150/5320-15A(1), 25.1581-1(1), 150/5370-13A(1), 23-8C(1)",
+    "examples": [
+      "transported over 200 miles) provided that the follo wing conditions are met: 1) ",
+      "(d) Smoke control. At least the follo wing should be clearly stated in the AFM:"
+    ]
+  },
+  {
+    "pattern": "becau se",
+    "fix": "because",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "150/5320-15A(1), 150/5370-13A(1), 20-42D(1), 20-170(1)",
+    "examples": [
+      "with the treatment of most industrial wastes becau se it produces a substantial ",
+      "ATCT and the airport. This is important becau se the number of people having con"
+    ]
+  },
+  {
+    "pattern": "additi onal",
+    "fix": "additional",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "150/5320-15A(1), 20-138D(1), 20-161(1), 23-8C(1)",
+    "examples": [
+      "can lead to lower compliance cost. Some additi onal strategies to improve compli",
+      "performance. For example, if the equipment shares a GNSS antenna there will be a"
+    ]
+  },
+  {
+    "pattern": "compos ite",
+    "fix": "composite",
+    "totalCount": 4,
+    "acCount": 3,
+    "topACs": "21-26A(2), 150/5320-15A(1), 20-107B(1)",
+    "examples": [
+      "is required to collect and analyze grab and compos ite samples in accordance wit",
+      "Appendix 3. Change of Compos ite Material and/or Process"
+    ]
+  },
+  {
+    "pattern": "docum ent",
+    "fix": "document",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "150/5320-15A(1), 23-15A(1), 36-4D(1), 20-170(1)",
+    "examples": [
+      "\"I certify under penalty of law that this docum ent and all attachments were pre",
+      "Docum ent RTCA/DO-178B"
+    ]
+  },
+  {
+    "pattern": "ot her",
+    "fix": "other",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "25.562-1B(1), 150/5210-15A(1), 150/5370-13A(1), 150/5200-31C(1)",
+    "examples": [
+      "position Zone C test is achieved. Ot her methods that achieve the same",
+      "characteristics and number of ARFF and ot her non-ARFF vehicles to be housed. Th"
+    ]
+  },
+  {
+    "pattern": "speci fic",
+    "fix": "specific",
+    "totalCount": 4,
+    "acCount": 3,
+    "topACs": "25-27A(2), 25.856-2A(1), 20-42D(1)",
+    "examples": [
+      "crash fire safety. This regulation has a speci fic provision that excludes from ",
+      "be carried for each speci fic aircraft mode] as certified by the authority havin"
+    ]
+  },
+  {
+    "pattern": "paragr aph",
+    "fix": "paragraph",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "150/5345-54B(1), 150/5345-51B(1), 91-70D(1), 23-13A(1)",
+    "examples": [
+      "NOTE: The temperature rise requirements in this paragr aph are applicable only t",
+      "the particular test methods must consist of a least one operational cycle per pa"
+    ]
+  },
+  {
+    "pattern": "infor mation",
+    "fix": "information",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "33.67-1(1), 150/5100-19D(1), 89-1(1), 120-126A(1)",
+    "examples": [
+      "System Component Testing contains additional infor mation on potential contamina",
+      "financial officer must certify to the accuracy of the infor mation reported."
+    ]
+  },
+  {
+    "pattern": "ve hicle",
+    "fix": "vehicle",
+    "totalCount": 4,
+    "acCount": 3,
+    "topACs": "150/5210-15A(2), 150/5210-20A(1), 450.108-1(1)",
+    "examples": [
+      "located to meet, or exceed, FAR Part 139.319 ARFF ve hicle response time require",
+      "b. Apparatus bay dimensions depend on the ve hicle parking concept and the physi"
+    ]
+  },
+  {
+    "pattern": "engine ering",
+    "fix": "engineering",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "36-4D(1), 33.70-1(1), 20-178(1), 20-170(1)",
+    "examples": [
+      "measurements. This will normally require sound engine ering judgment, seeking ou",
+      "for type certification. The engine design engine ering and service management pl"
+    ]
+  },
+  {
+    "pattern": "prov ided",
+    "fix": "provided",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "36-4D(1), 20-170(1), 150/5200-31C(1), 20-106(1)",
+    "examples": [
+      "When internal heaters are prov ided, microphones are less likely to be affected ",
+      "Capability of the aircraft prov ided by the hardware and"
+    ]
+  },
+  {
+    "pattern": "cert ain",
+    "fix": "certain",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "36-4D(1), 20-169(1), 23-8C(1), 20-106(1)",
+    "examples": [
+      "of the displayed indication when levels fall below a cert ain value), amplitude ",
+      "14 CFR § 21.8. If appropriate, cert ain GFE items may be classified as “commerci"
+    ]
+  },
+  {
+    "pattern": "proce dure",
+    "fix": "procedure",
+    "totalCount": 4,
+    "acCount": 2,
+    "topACs": "120-16G(3), 36-4D(1)",
+    "examples": [
+      "a) when the example background noise adjustment proce dure presented in 306(c)(2",
+      "Proce dure s."
+    ]
+  },
+  {
+    "pattern": "fi gure",
+    "fix": "figure",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "36-4D(1), 29-2C(1), 91-85B(1), 23-19A(1)",
+    "examples": [
+      "If the test conditions fall within the “zero attenuation adju stment window” sho",
+      "FI GURE AC 29.45-5 INSTALLED TAKEOFF POWER AVAILABLE, ANTI-ICE OFF. 400 RPM"
+    ]
+  },
+  {
+    "pattern": "saf ety",
+    "fix": "safety",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "120-16G(1), 90-120(1), 121-24E(1), 20-109B(1)",
+    "examples": [
+      "11-2. CASS is a Saf ety Management Tool ........................................",
+      "Appendix C. Saf ety Management System (SMS) Considerations for ACAS II TA-ONLY"
+    ]
+  },
+  {
+    "pattern": "ru nway",
+    "fix": "runway",
+    "totalCount": 4,
+    "acCount": 3,
+    "topACs": "150/5200-28G(2), 150/5345-51B(1), 150/5340-1M(1)",
+    "examples": [
+      "Current Regulators Regulator Monitor. When the ru nway edge lights are on, the d",
+      "Ru nway ."
+    ]
+  },
+  {
+    "pattern": "accord ance",
+    "fix": "accordance",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "150/5345-51B(1), 25.1581-1(1), 150/5190-6(1), 150/5200-31C(1)",
+    "examples": [
+      "a. A sunshine test must be conducted in accord ance with MIL-STD-810F (1 January",
+      "(1) Weight Limitations. In accord ance with §§ 25.25(a), 25.1519, and 25.1583(c)"
+    ]
+  },
+  {
+    "pattern": "cha nge",
+    "fix": "change",
+    "totalCount": 4,
+    "acCount": 3,
+    "topACs": "20-161(2), 20-169(1), 20-146A(1)",
+    "examples": [
+      "this appendix). Therefore, the weight cha nge that results in a 1.5-knot change ",
+      "this appendix). Therefore, the weight cha nge that results in a 1.5-knot change "
+    ]
+  },
+  {
+    "pattern": "ra pid",
+    "fix": "rapid",
+    "totalCount": 4,
+    "acCount": 1,
+    "topACs": "150/5370-16(4)",
+    "examples": [
+      "can create significant off-airport noise impacts. Ra pid construction methods ca",
+      "airfield pavement area that is being constructed. Ra pid construction projects g"
+    ]
+  },
+  {
+    "pattern": "pa vement",
+    "fix": "pavement",
+    "totalCount": 4,
+    "acCount": 2,
+    "topACs": "150/5370-16(3), 150/5370-13A(1)",
+    "examples": [
+      "e. The development of a construction phasing and pa vement closure plan should b",
+      "not be warranted for the structural design of the pa vement, it will negate the "
+    ]
+  },
+  {
+    "pattern": "availa bility",
+    "fix": "availability",
+    "totalCount": 4,
+    "acCount": 2,
+    "topACs": "150/5200-31C(3), 150/5370-16(1)",
+    "examples": [
+      "increase the project cost. In addition, the availa bility of a nighttime testing",
+      "(c) Ensures availa bility and operability of all necessary emergency response eq"
+    ]
+  },
+  {
+    "pattern": "pr oject",
+    "fix": "project",
+    "totalCount": 4,
+    "acCount": 2,
+    "topACs": "150/5370-16(2), 150/5370-13A(2)",
+    "examples": [
+      "f. Consider whether particular parts of the pr oject could be opened before fina",
+      "along with the same rapid schedule as the rest of the pr oject. Details of in-pa"
+    ]
+  },
+  {
+    "pattern": "im pact",
+    "fix": "impact",
+    "totalCount": 4,
+    "acCount": 2,
+    "topACs": "150/5200-31C(3), 450.115-1B(1)",
+    "examples": [
+      "Im pact Speed (ft/s)",
+      "The Law Enforcement Section should also address limitations or situations which "
+    ]
+  },
+  {
+    "pattern": "tim ely",
+    "fix": "timely",
+    "totalCount": 4,
+    "acCount": 2,
+    "topACs": "150/5200-31C(3), 150/5370-13A(1)",
+    "examples": [
+      "permit completion of the project in a tim ely fashion in the event of a major",
+      "(c) Ensures tim ely preparation of EPI materials and their dissemination."
+    ]
+  },
+  {
+    "pattern": "accep table",
+    "fix": "acceptable",
+    "totalCount": 4,
+    "acCount": 4,
+    "topACs": "150/5370-13A(1), 25-19A(1), 25.785-1B(1), 20-170(1)",
+    "examples": [
+      "followed to ensure that the construction is of accep table quality, particularly",
+      "regulation. It describes an accep table means, but not the only means, for showi"
+    ]
+  },
+  {
+    "pattern": "altitu de",
+    "fix": "altitude",
+    "totalCount": 4,
+    "acCount": 3,
+    "topACs": "91-85B(2), 90-120(1), 20-42D(1)",
+    "examples": [
+      "A.6.41.1 Altitu de Excursion. There is an altitude excursion of more than 1,000 ",
+      "A.4.1.1.2 Altitu de Display. Equipment for measuring static pressure sensed by t"
+    ]
+  },
+  {
+    "pattern": "addit ional",
+    "fix": "additional",
+    "totalCount": 4,
+    "acCount": 3,
+    "topACs": "91-86(2), 20-131A(1), 20-170(1)",
+    "examples": [
+      "12. Addit ional modifications inco rporate d for the purp ose of complian ce wit",
+      "12. Addit ional modifications incorporated for the purpose of complian ce with t"
+    ]
+  },
+  {
+    "pattern": "deve lop",
+    "fix": "develop",
+    "totalCount": 4,
+    "acCount": 3,
+    "topACs": "20-170(2), 150/5220-25(1), 20-42D(1)",
+    "examples": [
+      "(c) Inspection. The manufacturer must deve lop and provide to the purchaser writ",
+      "presented in appendix 4, paragraph 2 of this AC. The methodolo gy used to deve l"
+    ]
+  },
+  {
+    "pattern": "compl iance",
+    "fix": "compliance",
+    "totalCount": 4,
+    "acCount": 2,
+    "topACs": "20-170(3), 23-10(1)",
+    "examples": [
+      "(ii) For certification compl iance, a report addressing",
+      "provide some of the previously accepted dnta. Only compl iance data spec ific to"
+    ]
+  },
+  {
+    "pattern": "accep ted",
+    "fix": "accepted",
+    "totalCount": 4,
+    "acCount": 1,
+    "topACs": "20-170(4)",
+    "examples": [
+      "existing lMA Compon ent Acceptance Letter . [f you chang e a previously accep te",
+      "4-1. Reuse of an Accep ted IMA Component."
+    ]
+  },
+  {
+    "pattern": "hardwa re",
+    "fix": "hardware",
+    "totalCount": 4,
+    "acCount": 1,
+    "topACs": "20-170(4)",
+    "examples": [
+      "micro- coded components , which are a subset of \"hardwa re items.\" This is AC 20",
+      "4-6. Reuse Of SEH or Hardwa re Component Containing SEH. As with CEH, there's no"
+    ]
+  },
+  {
+    "pattern": "supp ort",
+    "fix": "support",
+    "totalCount": 4,
+    "acCount": 2,
+    "topACs": "150/5200-31C(3), 20-170(1)",
+    "examples": [
+      "reso urces supp ort at least one application.",
+      "(a) Provide supp ort to public inquiry telephone lines, as requested by the PIO."
+    ]
+  },
+  {
+    "pattern": "approp riate",
+    "fix": "appropriate",
+    "totalCount": 4,
+    "acCount": 1,
+    "topACs": "150/5200-31C(4)",
+    "examples": [
+      "(4) Ensure approp riate mutual aid organizations have been notified and are taki",
+      "(2) Ensure approp riate mutual aid organizations have been notified and are taki"
+    ]
+  },
+  {
+    "pattern": "ge neral",
+    "fix": "general",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "91-61(1), 150/5320-15A(1), 61-135A(1)",
+    "examples": [
+      "amount of blood available to the ge neral circulation.",
+      "cause operational difficulties if combined with the ge neral waste flow. Materia"
+    ]
+  },
+  {
+    "pattern": "ef fects",
+    "fix": "effects",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "36-4D(2), 91-61(1)",
+    "examples": [
+      "reduce the ef fects of accel e rati on . For example, some of the circulatory",
+      "compensating change to achieve NAC, a nd an appropriate analysis of the ef fects"
+    ]
+  },
+  {
+    "pattern": "feder al",
+    "fix": "federal",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5300-16B(1), 121.195-1A(1), 20-106(1)",
+    "examples": [
+      "Feder al Aviation",
+      "not the only 11eans, of showing co111p1iance with Feder .al Aviation R.e;ulation"
+    ]
+  },
+  {
+    "pattern": "cons idered",
+    "fix": "considered",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "25.1329-1C(1), 150/5210-15A(1), 150/5370-16(1)",
+    "examples": [
+      "ightcrew not recognizing mode changes should be cons idered. If necessary, an ap",
+      "(3) The use of drive-thru bays should be cons idered to facilitate parking of ve"
+    ]
+  },
+  {
+    "pattern": "effect ive",
+    "fix": "effective",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "25.1329-1C(1), 120-117(1), 21-26A(1)",
+    "examples": [
+      "been shown to be safe in these conditions and provides effect ive automatic wind",
+      "effect ive?"
+    ]
+  },
+  {
+    "pattern": "contr ol",
+    "fix": "control",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "25.1329-1C(1), 65-2D(1), 150/5200-31C(1)",
+    "examples": [
+      "Capture, the Altitude Hold mode should provide guidance or contr ol to the selec",
+      "matic fuel contr ol unit used on a turbojet"
+    ]
+  },
+  {
+    "pattern": "condit ion",
+    "fix": "condition",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "20-106(2), 25.1329-1C(1)",
+    "examples": [
+      "cts of the override condit ion should be asses sed during this evaluation.",
+      "brakes to chatter. Check the condit ion of fric­"
+    ]
+  },
+  {
+    "pattern": "fl ight",
+    "fix": "flight",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "25.1329-1C(1), 20-154A(1), 43.13-2B(1)",
+    "examples": [
+      "(1) Worst-case failure condition. The primary concern for the takeoff phase of f",
+      "• FAA Order 8900.1, Fl ight Standards Information Management System."
+    ]
+  },
+  {
+    "pattern": "append ix",
+    "fix": "appendix",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "20-42D(2), 36-2C(1)",
+    "examples": [
+      "APPEND IX 111",
+      "configu ration, extingu isher throw range (see append ix 4, paragraph 1 of this "
+    ]
+  },
+  {
+    "pattern": "gr ound",
+    "fix": "ground",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5320-15A(1), 20-136C(1), 150/5200-31C(1)",
+    "examples": [
+      "complexes, daily activities, such as aircraft and gr ound vehicle washing and cl",
+      "GR OUND."
+    ]
+  },
+  {
+    "pattern": "wh ere",
+    "fix": "where",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "91-36D(2), 150/5320-15A(1)",
+    "examples": [
+      "streams, information should be compiled on how and wh ere the waste is generated",
+      "characteristics), wild life refug es, an d cu ltural and historical sites wh ere"
+    ]
+  },
+  {
+    "pattern": "experi ence",
+    "fix": "experience",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5320-15A(1), 150/5370-13A(1), 23-8C(1)",
+    "examples": [
+      "facilities that anticipate process changes or that experi ence fluctuations in w",
+      "construction inspection professional, with experi ence working within an airport"
+    ]
+  },
+  {
+    "pattern": "notifi cation",
+    "fix": "notification",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "89-2(2), 150/5320-15A(1)",
+    "examples": [
+      "has been contacted, an USEPA Form 8700-12, Notifi cation of Regulated Waste Acti",
+      "Pursuant to § 89.515(b) or § 89.520(b), as applicable, I declare that the produc"
+    ]
+  },
+  {
+    "pattern": "st atus",
+    "fix": "status",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "150/5320-15A(2), 150/5370-13A(1)",
+    "examples": [
+      "Identification Number, regardless of their generator st atus. Also, because the ",
+      "facilities. Since airport facilities can change st atus based upon monthly chang"
+    ]
+  },
+  {
+    "pattern": "pe rmit",
+    "fix": "permit",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "150/5320-15A(2), 150/5370-16(1)",
+    "examples": [
+      "allowable methods previously described needs a pe rmit as described in 40 CFR §2",
+      "when identifying BMPs. During the term of the pe rmit, the list should be update"
+    ]
+  },
+  {
+    "pattern": "fac ility",
+    "fix": "facility",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5320-15A(1), 150/5370-16(1), 150/5370-13A(1)",
+    "examples": [
+      "Section 313 water priority chemical for which the fac ility reports in the basel",
+      "vehicles, and Aircraft Rescue and Firefighting Fac ility (ARFF) vehicles based o"
+    ]
+  },
+  {
+    "pattern": "runw ay",
+    "fix": "runway",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5320-15A(1), 150/5220-22B(1), 20-191(1)",
+    "examples": [
+      "implemented to cover specific topics, such as runw ay deicing/anti-icing applica",
+      "traveling within the confines of the runw ay and"
+    ]
+  },
+  {
+    "pattern": "acco rdance",
+    "fix": "accordance",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5320-15A(1), 150/5370-13A(1), 150/5345-56B(1)",
+    "examples": [
+      "classified as \"water priority chemicals,\" in acco rdance with the definition in ",
+      "supplement vehicle markings also in acco rdance with the circular. Additionally,"
+    ]
+  },
+  {
+    "pattern": "possi ble",
+    "fix": "possible",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "25.562-1B(1), 36-4D(1), 150/5370-13A(1)",
+    "examples": [
+      "certificated seat. It is possi ble that some unusual seat surfaces that exhibit ",
+      "microphone, as far removed from the first two as possi ble, will be sufficient. "
+    ]
+  },
+  {
+    "pattern": "dete rmined",
+    "fix": "determined",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "36-4D(2), 25.562-1B(1)",
+    "examples": [
+      "ATD. For test 2, this can normally be dete rmined when two fingers fit snugly be",
+      "The output level of the sound calibrator should be dete rmined using means which"
+    ]
+  },
+  {
+    "pattern": "aff ect",
+    "fix": "affect",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "25.562-1B(1), 23-19A(1), 23-17C(1)",
+    "examples": [
+      "NOTE: EA variations that do not aff ect the fundamental performance or",
+      "required from torque loads. These loads aff ect the engine mount, and either the"
+    ]
+  },
+  {
+    "pattern": "op tional",
+    "fix": "optional",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "120-107(2), 150/5390-2D(1)",
+    "examples": [
+      "Tests Optional witnessing. Conducts tests. Op tional witnessing. See AS 5681 sec",
+      "Performance Tests Optional witnessing. Conducts tests. Op tional witnessing. See"
+    ]
+  },
+  {
+    "pattern": "desi gned",
+    "fix": "designed",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5345-54B(1), 150/5345-51B(1), 43.13-2B(1)",
+    "examples": [
+      "the unit for maintenance. The switch must be desi gned so that when it is operat",
+      "a. Style A, C, and E optical heads must be desi gned so the light beam may be ai"
+    ]
+  },
+  {
+    "pattern": "furnis hed",
+    "fix": "furnished",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5345-54B(1), 150/5345-51B(1), 150/5345-55A(1)",
+    "examples": [
+      "ying equipment to be furnis hed under the Federal grant assistance program for",
+      "Procedures for qualifying equipment to be furnis hed under the Federal grant ass"
+    ]
+  },
+  {
+    "pattern": "fa ilure",
+    "fix": "failure",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "23-15A(1), 33.70-2(1), 150/5210-15A(1)",
+    "examples": [
+      "(a) For those airplanes with equipment installations whose fa ilure conditions a",
+      "g. Event. A rotor structural part separation, fa ilure, or burst, with no assess"
+    ]
+  },
+  {
+    "pattern": "nu mber",
+    "fix": "number",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "25.1581-1(2), 33.70-2(1)",
+    "examples": [
+      "(d) Propagation Life. Nu mber of cycles for a given size anomaly to grow to a",
+      "(10) Minimum Flightcrew. The minimum nu mber of flightcrew approved to operate t"
+    ]
+  },
+  {
+    "pattern": "constr uct",
+    "fix": "construct",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "150/5370-13A(2), 150/5210-15A(1)",
+    "examples": [
+      "an existing station or to constr uct a new one in meeting ARFF",
+      "should be determined if it is advisable to constr uct the project during off-pea"
+    ]
+  },
+  {
+    "pattern": "servi ce",
+    "fix": "service",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "150/5210-15A(2), 150/5200-31C(1)",
+    "examples": [
+      "sponsor desires such an inspection servi ce, it must be addressed within the",
+      "for physically handicapped or disabled servi ce personnel should be designed by "
+    ]
+  },
+  {
+    "pattern": "squa re",
+    "fix": "square",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "150/5210-15A(3)",
+    "examples": [
+      "Consideration for a small conference room of 100 squa re feet (9.3 square meters",
+      "while the work area itself should be 300 squa re feet (27.9 square meters) for l"
+    ]
+  },
+  {
+    "pattern": "provi de",
+    "fix": "provide",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5210-15A(1), 120-82(1), 25-8(1)",
+    "examples": [
+      "firefighters vary greatly; however, many now provi de individual rooms which sho",
+      "the engineering department) may provi de a more synergistic approach than"
+    ]
+  },
+  {
+    "pattern": "chan ge",
+    "fix": "change",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5210-15A(1), 36-4D(1), 120-104(1)",
+    "examples": [
+      "shifts, thereby eliminating delays-when shifts chan ge or when all firefighters ",
+      "An aircraft can employ noise reduction systems that chan ge its configuration or"
+    ]
+  },
+  {
+    "pattern": "pers onnel",
+    "fix": "personnel",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5210-15A(1), 150/5370-16(1), 150/5370-13A(1)",
+    "examples": [
+      "a. Circulation. The circulation of service pers onnel and equipment should be sa",
+      "identifying and maintaining key pers onnel (airport operations, airport users, e"
+    ]
+  },
+  {
+    "pattern": "materi al",
+    "fix": "material",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5210-15A(1), 25.795-1A(1), 21-26A(1)",
+    "examples": [
+      "acoustic materials available. Each acoustic materi al serves specific purposes. ",
+      "as a basis for finding compliance. The materi al in this AC does not change, cre"
+    ]
+  },
+  {
+    "pattern": "mechan ical",
+    "fix": "mechanical",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "25-27A(2), 150/5210-15A(1)",
+    "examples": [
+      "introduction of fresh air by either natural or mechan ical means. Mechanical sys",
+      "backup hydraulic , mechan ical, or electrical flight controls? -OR-"
+    ]
+  },
+  {
+    "pattern": "sp ecial",
+    "fix": "special",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5210-15A(1), 91-94(1), 120-85B(1)",
+    "examples": [
+      "from other occupied airport buildings, may require sp ecial security devices or ",
+      "and 119.1(e)(2)). If a person wishes to operate an aircraft with a Sp ecial Airw"
+    ]
+  },
+  {
+    "pattern": "progr am",
+    "fix": "program",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "25.981-2A(1), 120-124(1), 23-13A(1)",
+    "examples": [
+      "evolution. The results of the test progr am are contained in FAA Report, Ground ",
+      "Chapter 3 Training Progr am Basic Components ..................................."
+    ]
+  },
+  {
+    "pattern": "furt her",
+    "fix": "further",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "36-4D(1), 20-169(1), 20-106(1)",
+    "examples": [
+      "date of the standard that the appli cant has elected to comply with. Furt her, i",
+      "certification procedures. Furt her analysis or testing may be required if the eq"
+    ]
+  },
+  {
+    "pattern": "th rust",
+    "fix": "thrust",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "36-4D(1), 25.1581-1(1), 25-7D(1)",
+    "examples": [
+      "estimated reference conditions including airspeeds, th rust (power) reduction di",
+      "(3) Power or Thrust Setting. Power or th rust settings should be provided for at"
+    ]
+  },
+  {
+    "pattern": "determ ined",
+    "fix": "determined",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "36-4D(1), 150/5370-13A(1), 23-17C(1)",
+    "examples": [
+      "It is recommended that all calibration corrections be determ ined and presented ",
+      "individual project will have to be determ ined by trial. Light towers should be"
+    ]
+  },
+  {
+    "pattern": "calcu lated",
+    "fix": "calculated",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "36-4D(1), 20-42D(1), 150/5345-52A(1)",
+    "examples": [
+      "band levels can be performed. Note that sound emission co ordinates must also be",
+      "increase the calcu lated safe-use concentration. See chapter 4, paragraph 4b(3) "
+    ]
+  },
+  {
+    "pattern": "mea sured",
+    "fix": "measured",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "36-4D(3)",
+    "examples": [
+      "Figure 10. Comparison of mea sured and reference takeoff profiles",
+      "Figure 15. Comparison of mea sured and reference flyover profiles"
+    ]
+  },
+  {
+    "pattern": "dire ctive",
+    "fix": "directive",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "120-16G(2), 20-42D(1)",
+    "examples": [
+      "(2) Airworthine ss Dire ctive s (AD). You are required to accomplish the provisi",
+      "c. Airworthine ss Dire ctive s (AD). FAA regulatio ns (§§ 121.380(a)(2)(vii) and"
+    ]
+  },
+  {
+    "pattern": "includ ed",
+    "fix": "included",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "120-16G(1), 20-42D(1), 20-170(1)",
+    "examples": [
+      "effort. Although in the past the schedule includ ed only basic overhaul limits a",
+      "25. Listed refers to equipment materials or serv ices includ ed in a list publi "
+    ]
+  },
+  {
+    "pattern": "le ase",
+    "fix": "lease",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "120-16G(3)",
+    "examples": [
+      "g. Airworthine ss Re le ase Form. All the records necessary to show that all req",
+      "Airworthine ss Re le ase Form or make a maintenance log entry unless you"
+    ]
+  },
+  {
+    "pattern": "immed iate",
+    "fix": "immediate",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "120-16G(1), 120-117(1), 00-58C(1)",
+    "examples": [
+      "should design competency-based training to fix an immed iate knowledge or skill ",
+      "7.1.3.3 A Brief Description of Immed iate Action Taken. The employer or contract"
+    ]
+  },
+  {
+    "pattern": "pr oduced",
+    "fix": "produced",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "20-154A(3)",
+    "examples": [
+      "C.3.3.2 Pr oduced in accordance with a TSOA issued under part 21 subpart O",
+      "C.3.3.3 Pr oduced during the TC application process under part 21 subpart B, or "
+    ]
+  },
+  {
+    "pattern": "op tical",
+    "fix": "optical",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "150/5345-51B(3)",
+    "examples": [
+      "Cables for connecting between the control unit and op tical assemblies or betwee",
+      "The color of light emitted by the op tical head assemblies must be equi valent t"
+    ]
+  },
+  {
+    "pattern": "equi valent",
+    "fix": "equivalent",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5345-51B(1), 20-42D(1), 20-191(1)",
+    "examples": [
+      "The color of light emitted by the op tical head assemblies must be equi valent t",
+      "or equi valent specification."
+    ]
+  },
+  {
+    "pattern": "eviden ce",
+    "fix": "evidence",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5345-51B(1), 25.571-1D(1), 20-106(1)",
+    "examples": [
+      "c. Inspect circuit boards and components for eviden ce of corrosion, swelling, o",
+      "evidence. The primary source of this test eviden ce should be full-scale fatigue"
+    ]
+  },
+  {
+    "pattern": "paris ii",
+    "fix": "parisii",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "36-3H(3)",
+    "examples": [
+      "MORANE-SAULNIER MS 760B (PARIS II) MARBORE VI C2 8.65 80.9 10 19",
+      "MORANE-SAULNIER MS 760B (PARIS II) MARBORE VI C2 6.96 91.5 55 19"
+    ]
+  },
+  {
+    "pattern": "appr oach",
+    "fix": "approach",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "33.14-1(1), 33.70-1(1), 20-191(1)",
+    "examples": [
+      "The new generic damage tolerance appr oach does not replace existing safe-life",
+      "crack initiation point. This appr oach requires an inspection technique with a l"
+    ]
+  },
+  {
+    "pattern": "passe nger",
+    "fix": "passenger",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5370-16(1), 20-42D(1), 121-24E(1)",
+    "examples": [
+      "aircraft operators, as well as the reduction in passe nger volume, all account f",
+      "the passe nger s."
+    ]
+  },
+  {
+    "pattern": "constr uction",
+    "fix": "construction",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "150/5370-13A(2), 150/5370-16(1)",
+    "examples": [
+      "project managers is not recommended in the constr uction phase. The construction",
+      "prior to starting the next off-peak constr uction work shift, and confer with th"
+    ]
+  },
+  {
+    "pattern": "furth er",
+    "fix": "further",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "20-176A(2), 120-82(1)",
+    "examples": [
+      "of these phase elements w ill be furth er discussed in the follow ing sections.",
+      "FURTH ER F LIGHT FURTH ER"
+    ]
+  },
+  {
+    "pattern": "appl icable",
+    "fix": "applicable",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "121.321-1(1), 91-86(1), 20-170(1)",
+    "examples": [
+      "appl icable regulations we will not be bound by the tenns of this AC, and we may",
+      "Power Level (if Level (if appli cable) Level (if applica ble) Level (if appli ca"
+    ]
+  },
+  {
+    "pattern": "maxi mum",
+    "fix": "maximum",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "150/5325-4B(1), 90-89C(1), 23-19A(1)",
+    "examples": [
+      "a. Maxi mum Allowable Landing Weight. The airplane’s maximum allowable landing w",
+      "Section 1. Maxi mum Gross Weight Tests ........................................."
+    ]
+  },
+  {
+    "pattern": "maint enance",
+    "fix": "maintenance",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "120-124(1), 150/5200-31C(1), 20-106(1)",
+    "examples": [
+      "Chapter 4 Maint enance Training Course Subjects ................................",
+      "(b) Designate an Airport Maint enance Coordinator (AMC) to report to the EOC, wh"
+    ]
+  },
+  {
+    "pattern": "testi ng",
+    "fix": "testing",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "25.571-1D(1), 150/5370-13A(1), 20-106(1)",
+    "examples": [
+      "or reports to the FAA. Testi ng philosophies and protocols were not standardized",
+      "detailed field monitoring, rapid acceptance testi ng, and the need to reopen the"
+    ]
+  },
+  {
+    "pattern": "lubri cation",
+    "fix": "lubrication",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "20-106(2), 150/5220-10F(1)",
+    "examples": [
+      "Lubri cation system:",
+      "If the lubri cation s ystem incorporate s an oil"
+    ]
+  },
+  {
+    "pattern": "bl ade",
+    "fix": "blade",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "35.37-1B(2), 23-8C(1)",
+    "examples": [
+      "Fixture Bl ade",
+      "Bl ade"
+    ]
+  },
+  {
+    "pattern": "warni ng",
+    "fix": "warning",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "23-8C(1), 20-131A(1), 23-17C(1)",
+    "examples": [
+      "(5) Margin. The stall warni ng margin, as defined in the rule, is applicable whe",
+      "Takeoff Speed3 Stal Warni ng5"
+    ]
+  },
+  {
+    "pattern": "pr imary",
+    "fix": "primary",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "23-8C(1), 150/5200-12C(1), 121-24E(1)",
+    "examples": [
+      "(1) Disconnect Switch. A switch, which has the pr imary purpose of stopping all",
+      "a. Saving of aircraft occupants’ lives is the pr imary objective. All other cons"
+    ]
+  },
+  {
+    "pattern": "su pport",
+    "fix": "support",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "150/5200-31C(2), 43.13-2B(1)",
+    "examples": [
+      "method is to fabricate su pport racks, brackets, or",
+      "technology su pport"
+    ]
+  },
+  {
+    "pattern": "howe ver",
+    "fix": "however",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "43.13-2B(1), 20-170(1), 21-26A(1)",
+    "examples": [
+      "the cockpit floor. Howe ver, it may be more",
+      "that of the pre vious target hardware . Howe ver, coming from the same family of"
+    ]
+  },
+  {
+    "pattern": "rel ated",
+    "fix": "related",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "90-114C(1), 21.17-4(1), 20-135A(1)",
+    "examples": [
+      "Appendix E. Rel ated Regulations and Reading Material ..........................",
+      "2 REL ATED MATERIAL."
+    ]
+  },
+  {
+    "pattern": "sam ple",
+    "fix": "sample",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "91-67A(2), 20-167B(1)",
+    "examples": [
+      "Figure 6-1. Sam ple LOA D095 Request Letter ....................................",
+      "Figure 6-2. Sam ple LOA D195 Request Letter for an Operator-Developed MEL That C"
+    ]
+  },
+  {
+    "pattern": "atl atl",
+    "fix": "atlatl",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "150/5200-28G(3)",
+    "examples": [
+      "!ATL ATL RWY 08R/26L RCLL U/S YYMMDD2300-",
+      "!ATL ATL RWY 08R RTZL U/S YYMMDD2300-YYMMDD1200"
+    ]
+  },
+  {
+    "pattern": "proc ess",
+    "fix": "process",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "150/5200-31C(2), 91-82A(1)",
+    "examples": [
+      "§ 21.50(b)). As a part of the design approval proc ess, when the applicant submi",
+      "c. Operations. This section provides general information on the proc ess of how "
+    ]
+  },
+  {
+    "pattern": "cond ition",
+    "fix": "condition",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "20-106(2), 91-82A(1)",
+    "examples": [
+      "conditions. If the FAA determines an unsafe cond ition exists (based largely on ",
+      "engine. Inspect in!;u}ation for cond ition,"
+    ]
+  },
+  {
+    "pattern": "applic able",
+    "fix": "applicable",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "91-86(1), 150/5200-31C(1), 20-191(1)",
+    "examples": [
+      "12. Addit ional modifications inco rporate d for the purp ose of complian ce wit",
+      "• Single command is applic able when there is no overlap of jurisdictional"
+    ]
+  },
+  {
+    "pattern": "estab lished",
+    "fix": "established",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "20-178(1), 150/5345-52A(1), 21-26A(1)",
+    "examples": [
+      "must meet heat release or smoke emissions standards estab lished by Title 14 of ",
+      "glideslope equipment meets the same criteria estab lished in the photometric dat"
+    ]
+  },
+  {
+    "pattern": "addre ss",
+    "fix": "address",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "23-13A(1), 150/5200-31C(1), 20-128A(1)",
+    "examples": [
+      "shortest fatigue life. An applicant should addre ss the possibility that other s",
+      "(6) Describes any pre-scripted public addre ss system announcements which have b"
+    ]
+  },
+  {
+    "pattern": "manufa cturer",
+    "fix": "manufacturer",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "65-2D(2), 20-106(1)",
+    "examples": [
+      "scribed by the manufa cturer as a check­",
+      "by product manufa cturer. (Sub. GPO)"
+    ]
+  },
+  {
+    "pattern": "ta ble",
+    "fix": "table",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "145-10(2), 23-19A(1)",
+    "examples": [
+      "TA BLE 2 -1. EXAMPLE REPAIR STATION CATEGORIES .................................",
+      "TA BLE 4 -1. CAPABILITIES EVALUATION ..........................................."
+    ]
+  },
+  {
+    "pattern": "repla cement",
+    "fix": "replacement",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "20-42D(2), 20-106(1)",
+    "examples": [
+      "a. Repla cement halocarbon clean agents were devel oped in response to restricti",
+      "Setting Sqfe Acute Exposure Limits/or Halon Repla cement Chemicals Using Physiol"
+    ]
+  },
+  {
+    "pattern": "portab le",
+    "fix": "portable",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "20-42D(3)",
+    "examples": [
+      "19. Hand Fire Extinguisher is an approved , aircraft portab le fire extinguis he",
+      "so lutions. Lithjum ion batteries are used in sma ll electronic devices such as "
+    ]
+  },
+  {
+    "pattern": "operat ional",
+    "fix": "operational",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "150/5345-56B(2), 20-170(1)",
+    "examples": [
+      "The tests are designed to demonstrate all operat ional requirements using an act",
+      "All the touchscreen GUI pages must have the following common buttons, indicators"
+    ]
+  },
+  {
+    "pattern": "indi cate",
+    "fix": "indicate",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "20-106(2), 150/5345-56B(1)",
+    "examples": [
+      "At a minimum, the designer must specify the equipment manufacturer and indi cate",
+      "paint bubbles or blisters. These indi cate cor­"
+    ]
+  },
+  {
+    "pattern": "pass enger",
+    "fix": "passenger",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "121-24E(3)",
+    "examples": [
+      "A.5.3.1 Pass enger Compliance With Safety Information. The instructions on the",
+      "B.5.3.1 Pass enger Compliance With Safety Information. The instructions on the"
+    ]
+  },
+  {
+    "pattern": "capabi lity",
+    "fix": "capability",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "21-31A(1), 20-170(1), 21-26A(1)",
+    "examples": [
+      "controls, and tool design changes). Process capabi lity should be demonstrated b",
+      "capabi lity of the aircraft or the abi lity of the flight crew to respo nd to an"
+    ]
+  },
+  {
+    "pattern": "examp le",
+    "fix": "example",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "21-26A(2), 20-170(1)",
+    "examples": [
+      "specific definitions of \"acceptance\" are not identical. This examp le illu strat",
+      "affect the manufacturing process. For examp le, release agents or material conta"
+    ]
+  },
+  {
+    "pattern": "assura nce",
+    "fix": "assurance",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "20-170(2), 21-26A(1)",
+    "examples": [
+      "(2) AC 20-152, RTCA, Inc., Document R.TCAID0 -254, Design Assura nce Guidance.fo",
+      "ofthe various assura nce levels (both hardwar e and soflll'are) wit/,;11 the £MA"
+    ]
+  },
+  {
+    "pattern": "advi sory",
+    "fix": "advisory",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "20-170(1), 20-106(1), 20-191(1)",
+    "examples": [
+      "Part 25. See § 25. 170 I. Refer to Advi sory Circular 25.170 1-1. Certificatio11",
+      "Advi sory circulars are available either free"
+    ]
+  },
+  {
+    "pattern": "demon strate",
+    "fix": "demonstrate",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "20-170(3)",
+    "examples": [
+      "(7) The applicant should demon strate that the airborne equipment software part ",
+      "demon strate that the individual hardwar e com ponent s meet the MPS and defined"
+    ]
+  },
+  {
+    "pattern": "addr ess",
+    "fix": "address",
+    "totalCount": 3,
+    "acCount": 3,
+    "topACs": "20-170(1), 150/5200-31C(1), 20-106(1)",
+    "examples": [
+      "there are multipl e DALs 0 11 u single CEHISEH device, then addr ess each ofthos",
+      "(iii) Augmentation. The section should addr ess how the airport will address res"
+    ]
+  },
+  {
+    "pattern": "respo nse",
+    "fix": "response",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "150/5200-31C(3)",
+    "examples": [
+      "(2) Coordinate planning, respo nse, and recovery efforts with hospitals, fire an",
+      "(b) Methods used to advise mutual aid emergency respo nse organizations of:"
+    ]
+  },
+  {
+    "pattern": "emerg ency",
+    "fix": "emergency",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "150/5200-31C(3)",
+    "examples": [
+      "(c) Protect emerg ency response staff:",
+      "(e) Ensure emerg ency response personnel have received appropriate equipment and"
+    ]
+  },
+  {
+    "pattern": "eme rgency",
+    "fix": "emergency",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "150/5200-31C(3)",
+    "examples": [
+      "(4) For some types of emergencies, the local eme rgency management agency may ac",
+      "(1) Provide eme rgency medical assistance, as needed."
+    ]
+  },
+  {
+    "pattern": "ov erall",
+    "fix": "overall",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "150/5200-31C(3)",
+    "examples": [
+      "Provide ov erall airport familiarization and training program for designated on ",
+      "(3) Critique the ov erall operation and apply lessons learned to planning and tr"
+    ]
+  },
+  {
+    "pattern": "ac cess",
+    "fix": "access",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "150/5200-31C(2), 150/5220-22B(1)",
+    "examples": [
+      "(2) Provisions for controlled scene ac cess for the media.",
+      "(2) Provisions for controlled scene ac cess for the media."
+    ]
+  },
+  {
+    "pattern": "preve nt",
+    "fix": "prevent",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "150/5200-31C(3)",
+    "examples": [
+      "(g) Prepare sand bags to preve nt entry of water into key station areas.",
+      "(g) Prepare sand bags to preve nt entry of water into key building areas."
+    ]
+  },
+  {
+    "pattern": "insp ection",
+    "fix": "inspection",
+    "totalCount": 3,
+    "acCount": 2,
+    "topACs": "150/5200-31C(2), 20-106(1)",
+    "examples": [
+      "(1) A routine insp ection checklist for those on-airport facilities identified a",
+      "(1) A change to the airport insp ection checklist, as deemed necessary, based on"
+    ]
+  },
+  {
+    "pattern": "atta chment",
+    "fix": "attachment",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "20-106(3)",
+    "examples": [
+      "securit y of atta chment. Determi ne that actuat­",
+      "cleanlin ess, condi tion, securit y of atta chment,"
+    ]
+  },
+  {
+    "pattern": "poss ible",
+    "fix": "possible",
+    "totalCount": 3,
+    "acCount": 1,
+    "topACs": "120-104(3)",
+    "examples": [
+      "Type and poss ible location of MSD and MED",
+      "Type and poss ible location of MED"
+    ]
+  },
+  {
+    "pattern": "qual ity",
+    "fix": "quality",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "00-41B(2)",
+    "examples": [
+      "b . The qual ity of a product is achieved through a process whichTfirst,",
+      "a. Applicability. The FAA Qual ity Control System Certification Program"
+    ]
+  },
+  {
+    "pattern": "elect rical",
+    "fix": "electrical",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-158B(1), 150/5345-53D(1)",
+    "examples": [
+      "environment to which installed elect rical and electronic systems will be expose",
+      "If acceptable and required, it will issue a revised Certificate of Conformance. "
+    ]
+  },
+  {
+    "pattern": "airpl ane",
+    "fix": "airplane",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-158B(1), 120-104(1)",
+    "examples": [
+      "Note: Generic transfer function normalized to 1 V/m for an airpl ane with a fuse",
+      "I. Design Approval Holder: AAC Airpl ane Company ..............................."
+    ]
+  },
+  {
+    "pattern": "th one",
+    "fix": "thone",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-74(1), 25-7D(1)",
+    "examples": [
+      ".t1H .81113.0101 ....,.0001.00t2 .020 1110 .TITO.0002.OOT8 .OH u::,Ill .,... :33",
+      "42.9 Authorization for Ferry Flight wi th One Engine Inoperative—§ 91.611. ....."
+    ]
+  },
+  {
+    "pattern": "practi cal",
+    "fix": "practical",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-74(1), 65-2D(1)",
+    "examples": [
+      "173 FOR PRACTI CAL",
+      "(a) At least 18 months of practi cal experi­"
+    ]
+  },
+  {
+    "pattern": "tem porary",
+    "fix": "temporary",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25-22(1), 150/5200-31C(1)",
+    "examples": [
+      "Tem porary Repairs",
+      "(c) Identification of potential locations for the placement of tem porary levees"
+    ]
+  },
+  {
+    "pattern": "incr ease",
+    "fix": "increase",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "91-61(1), 36-4D(1)",
+    "examples": [
+      "tensing all pe r iphe ral muscles), can incr ease blood flo~ through the brain",
+      "For the first group, any acoustical change must not incr ease noise levels beyon"
+    ]
+  },
+  {
+    "pattern": "tes ting",
+    "fix": "testing",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5345-28H(1), 35.37-1B(1)",
+    "examples": [
+      "LM-46-04 Photometric Tes ting of Indoor Luminaires Using HID or",
+      "stresses in critical areas. Hub and retention tes ting develops S-N curve fatigu"
+    ]
+  },
+  {
+    "pattern": "la nding",
+    "fix": "landing",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.1329-1C(1), 150/5345-45C(1)",
+    "examples": [
+      "from instrument la nding system L ocalizer (LOC) Capture to Localizer Track) nee",
+      "of an accidental impact with an aircraft during la nding or take-off operations."
+    ]
+  },
+  {
+    "pattern": "expe rience",
+    "fix": "experience",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.1329-1C(1), 21-26A(1)",
+    "examples": [
+      "(3) Use of alerts. In-service expe rience has shown that mode annunciation alone",
+      "Expe rience has shown that one method of testing a particular sample may yield t"
+    ]
+  },
+  {
+    "pattern": "remo ved",
+    "fix": "removed",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.1329-1C(1), 20-170(1)",
+    "examples": [
+      "elements are essential or critical and should not be remo ved by any de-clutter ",
+      "within that cabinet or rack, such that the electr ical power input cannot be rem"
+    ]
+  },
+  {
+    "pattern": "envelo pe",
+    "fix": "envelope",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.1329-1C(1), 120-109A(1)",
+    "examples": [
+      "compliance have included a reversion to an envelo pe protection mode or a timely",
+      "1 Refer to Flight Simulation Training Device Qualification Standards for Extende"
+    ]
+  },
+  {
+    "pattern": "sel ected",
+    "fix": "selected",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.1329-1C(1), 23-8C(1)",
+    "examples": [
+      "wheel, without causing the autopilot system itself to disengage or lose its curr",
+      "paragraph 23.55c(1). At the sel ected speed that corresponds to the required ene"
+    ]
+  },
+  {
+    "pattern": "autopi lot",
+    "fix": "autopilot",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.1329-1C(1), 65-2D(1)",
+    "examples": [
+      "tomatic disengagement. I f the system design is suc h that the autopi lot",
+      "device used in an autopi lot system."
+    ]
+  },
+  {
+    "pattern": "mat erial",
+    "fix": "material",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5345-47C(1), 20-154A(1)",
+    "examples": [
+      "and encapsulated in a watertight case with rubber (or an equivalent rubber -like",
+      "C.3.4 Article. A mat erial, part, component, process, or appliance."
+    ]
+  },
+  {
+    "pattern": "temper ature",
+    "fix": "temperature",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5345-47C(1), 150/5370-13A(1)",
+    "examples": [
+      "b. To shorten test time, transformers may be pre -heated to an internal temper a",
+      "of paved surfaces. If the temper ature of the mat is too high when the tape is p"
+    ]
+  },
+  {
+    "pattern": "diam eter",
+    "fix": "diameter",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.1701-1(1), 150/5370-16(1)",
+    "examples": [
+      "bend radius shall be ten tim es the outside diam eter of the largest",
+      "paving the lane. After paving, a 4-inch (100 mm) diam eter core should be drille"
+    ]
+  },
+  {
+    "pattern": "functi onal",
+    "fix": "functional",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.1701-1(1), 21-26A(1)",
+    "examples": [
+      "* FHA: Functi onal Hazard Assessment",
+      "reactive functi onal grou p per unit of material, and other design requirements "
+    ]
+  },
+  {
+    "pattern": "elem ent",
+    "fix": "element",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.1529-1A(1), 120-16G(1)",
+    "examples": [
+      "elem ent.",
+      "Elem ent Part 121 and 135 Air Carrie rs Part 91 Owne rs/Ope rato rs"
+    ]
+  },
+  {
+    "pattern": "adviso ry",
+    "fix": "advisory",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 25.783-1A(1)",
+    "examples": [
+      "the management of airport storm water. This adviso ry circular is in response to",
+      "12. WARNING, CAUTION, AND ADVISO RY INDICATIONS (§ 25.783(e))."
+    ]
+  },
+  {
+    "pattern": "pa inting",
+    "fix": "painting",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 150/5210-5D(1)",
+    "examples": [
+      "aircraft maintenance and repair work (including pa inting and metalwork), engi n",
+      "2. CANCELLATION. This AC cancels AC 150/5210-5C, Pa inting, Marking, and Lightin"
+    ]
+  },
+  {
+    "pattern": "cr iteria",
+    "fix": "criteria",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 20-191(1)",
+    "examples": [
+      "the CWA also outlines provisions for ocean discharge cr iteria. In addition to t",
+      "as amended, or equivalent cr iteria for the type of aircraft. The"
+    ]
+  },
+  {
+    "pattern": "pr ogram",
+    "fix": "program",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 23-17C(1)",
+    "examples": [
+      "regulate storm water discharges under the NPDES pr ogram. The USEPA published a ",
+      "feet. Under the recodification pr ogram in 1965, part 25 replaced part"
+    ]
+  },
+  {
+    "pattern": "conc rete",
+    "fix": "concrete",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 150/5370-16(1)",
+    "examples": [
+      "operations, can corrode metal and conc rete sewer pipes. Acidic wastes interfere",
+      "minimize the potential for random cracking. After conc rete placement, the fille"
+    ]
+  },
+  {
+    "pattern": "cleani ng",
+    "fix": "cleaning",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5320-15A(2)",
+    "examples": [
+      "detergents. These wastes are generated during cleani ng of aircraft and ground v",
+      "spills and container leaks. Common BMPs for cleani ng small spills or releases a"
+    ]
+  },
+  {
+    "pattern": "recove ry",
+    "fix": "recovery",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 20-170(1)",
+    "examples": [
+      "recovery of paint solvents by distillation, the recove ry of electroplating chem",
+      "recove ry features in both normal and failed condition s for all phases of fligh"
+    ]
+  },
+  {
+    "pattern": "pr oper",
+    "fix": "proper",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 150/5370-16(1)",
+    "examples": [
+      "involved employees are thoroughly familiar with pr oper waste handling and emerg",
+      "and reopenings through all phases of the project. Pr oper communication procedur"
+    ]
+  },
+  {
+    "pattern": "gene ral",
+    "fix": "general",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 150/5200-31C(1)",
+    "examples": [
+      "inexpensive to operate and, in gene ral, provide the best type of biological tre",
+      "(1) General. Gene ral policies might include:"
+    ]
+  },
+  {
+    "pattern": "capac ity",
+    "fix": "capacity",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 150/5060-5(1)",
+    "examples": [
+      "organic compounds which extends the adsorption capac ity of the activated carbon",
+      "No, AIRFIELD CONFIGURATION PERCENT TOUCH-AND-GO CAPAC ITY. 10 TO 25 26 TO 50 IN "
+    ]
+  },
+  {
+    "pattern": "al uminum",
+    "fix": "aluminum",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 150/5345-50B(1)",
+    "examples": [
+      "trivalent chromium, copper in plating solutions and al uminum in anodizing solut",
+      "b. Copper bearing hardware in contact with al uminum must be nickel or zinc plat"
+    ]
+  },
+  {
+    "pattern": "su rface",
+    "fix": "surface",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 150/5370-13A(1)",
+    "examples": [
+      "Metal finishing processes are used to prepare the su rface of a part for better ",
+      "certificated airports, the partially milled su rface must not violate any of the"
+    ]
+  },
+  {
+    "pattern": "ensu re",
+    "fix": "ensure",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 33.15-2(1)",
+    "examples": [
+      "maintenance, and revision. The team also should ensu re that tenants develop, im",
+      "(d) Take appropriate measures to ensu re that the ESR starter material (plate) i"
+    ]
+  },
+  {
+    "pattern": "evalua te",
+    "fix": "evaluate",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 23-8C(1)",
+    "examples": [
+      "pavement deicing/anti-icing activities should evalua te their procedures for eff",
+      "field of view. To properly evalua te internal fogging, the test airplane should "
+    ]
+  },
+  {
+    "pattern": "preven tive",
+    "fix": "preventive",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 43-10C(1)",
+    "examples": [
+      "12.36.2. Specific Requirements. To address the risk, specific preven tive or con",
+      "3.6 AMOs Performing Maintenance, Preven tive Maintenance, or Alterations for"
+    ]
+  },
+  {
+    "pattern": "pa rking",
+    "fix": "parking",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5320-15A(1), 150/5210-15A(1)",
+    "examples": [
+      "deice non-aeronautical operational areas, such as public pa rking lots or sidewa",
+      "(2) Exterior amenities, such as employee pa rking, exterior patio, and ARFF vehi"
+    ]
+  },
+  {
+    "pattern": "ev aluate",
+    "fix": "evaluate",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.562-1B(1), 23-13A(1)",
+    "examples": [
+      "a. Intent of Tests. The intent of the tests is to ev aluate airplane seats, rest",
+      "of construction. You should also ev aluate the effect of any change to the airpl"
+    ]
+  },
+  {
+    "pattern": "ri gid",
+    "fix": "rigid",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.562-1B(1), 150/5370-16(1)",
+    "examples": [
+      "manner appropriate to the intended installation. Either a ri gid bulkhead simula",
+      "Concrete) airfield pavements. This AC focuses on ri gid airfield pavement constr"
+    ]
+  },
+  {
+    "pattern": "usua lly",
+    "fix": "usually",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.562-1B(1), 23-17C(1)",
+    "examples": [
+      "weight it supports. This correction will usua lly be necessary only when the ine",
+      "hypoxia. The effects of hypoxia are usua lly encountered when the flight"
+    ]
+  },
+  {
+    "pattern": "object ive",
+    "fix": "objective",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.562-1B(1), 20-193(1)",
+    "examples": [
+      "with caution. Since the object ive of this process is to minimize the amount of ",
+      "the project in the same manner as in this object ive and these explanatory notes"
+    ]
+  },
+  {
+    "pattern": "comp ly",
+    "fix": "comply",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "21-50(1), 20-170(1)",
+    "examples": [
+      "means, but not the only means, to comp ly with the applicable requirements . How",
+      "emjssions. However, the EMC demonstration to comp ly with regulations such as §§"
+    ]
+  },
+  {
+    "pattern": "elec trical",
+    "fix": "electrical",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.899-1(1), 20-170(1)",
+    "examples": [
+      "• 25.1701-1 Certification of Elec trical Wiring Interconnection Systems on",
+      "regulation s, you must demonstrate that the functions performed by elec trical a"
+    ]
+  },
+  {
+    "pattern": "possib le",
+    "fix": "possible",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.15-1A(1), 120-104(1)",
+    "examples": [
+      "inspection, crucibles should be stored in a manner to minimize possib le",
+      "Type and possib le location of MSD and MED"
+    ]
+  },
+  {
+    "pattern": "relati onship",
+    "fix": "relationship",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.15-1A(1), 150/5370-16(1)",
+    "examples": [
+      "A.5 RELATI ONSHIP BETWEEN MICROTEXTURE REGIONS AND DWELL",
+      "better project coordination. Partnering is a relati onship (not necessarily a le"
+    ]
+  },
+  {
+    "pattern": "ma ximum",
+    "fix": "maximum",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5345-54B(1), 150/5370-13A(1)",
+    "examples": [
+      "ust not exceed the following ma ximum dimensions: width 24 in. (0.61 m), height",
+      "contract specifications. This will maintain ma ximum flexibility in the scheduli"
+    ]
+  },
+  {
+    "pattern": "verti cal",
+    "fix": "vertical",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "23-15A(1), 150/5210-15A(1)",
+    "examples": [
+      "(2) Wing, horizontal stabilizer and verti cal stabilizer spars, ribs, and skins",
+      "consideration should be placed on verti cal traffic circulation. THE STANDARD"
+    ]
+  },
+  {
+    "pattern": "corr ected",
+    "fix": "corrected",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "23-15A(1), 20-106(1)",
+    "examples": [
+      "4. All takeoff performance data are corr ected to sea level standard conditions",
+      "the leakage corr ected."
+    ]
+  },
+  {
+    "pattern": "airpla ne",
+    "fix": "airplane",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "23.1311-1C(1), 25.729-1(1)",
+    "examples": [
+      "by § 23.1559(b). Coordination with the Small Airpla ne Directorate is required. ",
+      "' Manager , Transport Airpla ne Directorate"
+    ]
+  },
+  {
+    "pattern": "eith er",
+    "fix": "either",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "23.1311-1C(1), 33.15-2(1)",
+    "examples": [
+      "conditions are provided in RTCA/DO-160F. Eith er test or analysis, or both, ensu",
+      "(2) Chips and turnings may be charged eith er in loose or consolidated form if t"
+    ]
+  },
+  {
+    "pattern": "thru st",
+    "fix": "thrust",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.76-1B(1), 150/5220-22B(1)",
+    "examples": [
+      "MCL: Fan spee d and thru st needed to climb throu gh an altit ude of",
+      "conditions, i.e. 75 -foot set -back, no reverse thru st,"
+    ]
+  },
+  {
+    "pattern": "altit ude",
+    "fix": "altitude",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.76-1B(1), 20-106(1)",
+    "examples": [
+      "MCL: Fan spee d and thru st needed to climb throu gh an altit ude of",
+      "freeze at altit ude, making switches inop erative."
+    ]
+  },
+  {
+    "pattern": "cr ack",
+    "fix": "crack",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.70-2(1), 120-104(1)",
+    "examples": [
+      "d. Crack growth calculations. Perform cr ack growth calculations using the predi",
+      "grow, residual strength begins to degrade. Cr ack growth continues until the cap"
+    ]
+  },
+  {
+    "pattern": "gaini ng",
+    "fix": "gaining",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "43-209A(1), 150/5370-16(1)",
+    "examples": [
+      "(3) Upon transfer of ownership, the gaini ng FSDO will require the new owner to",
+      "allow the use of an accelerated early strength gaini ng concrete mixture to reop"
+    ]
+  },
+  {
+    "pattern": "ow ner",
+    "fix": "owner",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "43-209A(1), 120-85B(1)",
+    "examples": [
+      "submit a new program letter to ensure the new ow ner is familiar with the limita",
+      "2. Address how frequently the operator, ow ner, or repair vendor"
+    ]
+  },
+  {
+    "pattern": "th rough",
+    "fix": "through",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5210-15A(1), 150/5370-13A(1)",
+    "examples": [
+      "team meetings from the earliest decisions th rough the completion of schematic d",
+      "oversee all phases of the project, from planning th rough final inspection of th"
+    ]
+  },
+  {
+    "pattern": "fu rther",
+    "fix": "further",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5210-15A(1), 23-8C(1)",
+    "examples": [
+      "be considered on a case by case basis. Fu rther, as previously underscored, the",
+      "the early engine cut. Fu rther, in those tests where the airspeed achieved at a "
+    ]
+  },
+  {
+    "pattern": "res ponse",
+    "fix": "response",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5210-15A(1), 23-19A(1)",
+    "examples": [
+      "water rescue, or hazardous material res ponse functions. Training evolutions",
+      "performance standards? Yes. The seat cushion static and dynamic res ponse charac"
+    ]
+  },
+  {
+    "pattern": "depe nding",
+    "fix": "depending",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5210-15A(1), 150/5200-31C(1)",
+    "examples": [
+      "(9.3 square meters), depe nding upon station size, to include storage space for",
+      "(a) General. Depe nding on specific job responsibilities, airport personnel shou"
+    ]
+  },
+  {
+    "pattern": "cons istent",
+    "fix": "consistent",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5210-15A(1), 33.15-2(1)",
+    "examples": [
+      "cameras – and other security devices cons istent with the airport’s approved",
+      "(a) Forging Controls. Controlled, cons istent, and detailed procedures must be"
+    ]
+  },
+  {
+    "pattern": "cap acity",
+    "fix": "capacity",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5210-15A(2)",
+    "examples": [
+      "an underground (preferably) fuel tank of sufficient cap acity to run the generat",
+      "temperature above 50°F (10°C). Sufficient cap acity should be provided to mainta"
+    ]
+  },
+  {
+    "pattern": "comme rcial",
+    "fix": "commercial",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5210-15A(1), 20-42D(1)",
+    "examples": [
+      "several forms: a counter, a locker, or a small comme rcial freezer where provisi",
+      "pressure in the cabin or compartme nt of a comme rcial airliner and it must not "
+    ]
+  },
+  {
+    "pattern": "ed ition",
+    "fix": "edition",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5210-15A(1), 91-70D(1)",
+    "examples": [
+      "feet (1 to 1.5 M) above the floor line. Refer to the latest ed ition of the ASHR",
+      "early 2025, ICAO Doc 9869 Second Ed ition was still current and listed the RCP 2"
+    ]
+  },
+  {
+    "pattern": "ma terial",
+    "fix": "material",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.981-2A(1), 150/5370-16(1)",
+    "examples": [
+      "(1) MIL-B-83054, Baffle and Inerting Ma terial, Aircraft Fuel Tank (March",
+      "evaluation of test results and data based on actual ma terial production may all"
+    ]
+  },
+  {
+    "pattern": "st age",
+    "fix": "stage",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "36-4D(2)",
+    "examples": [
+      "Chapter 9 provides guide lines for recertification of airplanes to Stage 4 or St",
+      "may exceed the Stage 1 limit for a given flight procedure and yet achieve St age"
+    ]
+  },
+  {
+    "pattern": "ad dition",
+    "fix": "addition",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "36-4D(2)",
+    "examples": [
+      "e) tracking of an aircraft/engine model should, in ad dition to engine design ch",
+      "b) changes to the airframe made to accommodate the ad dition or removal of exter"
+    ]
+  },
+  {
+    "pattern": "analy tical",
+    "fix": "analytical",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 33.70-1(1)",
+    "examples": [
+      "or, subject to approval of the FAA, by analytical means; if analy tical means ar",
+      "design and internal flow analyses. The analy tical model should incorporate the "
+    ]
+  },
+  {
+    "pattern": "inst rument",
+    "fix": "instrument",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 25.1581-1(1)",
+    "examples": [
+      "“external equipment” means any inst rument, mechanism, part, appurtenan ce, or n",
+      "(e) Operations under inst rument flight rules (IFR)."
+    ]
+  },
+  {
+    "pattern": "refe rence",
+    "fix": "reference",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "36-4D(2)",
+    "examples": [
+      "a) decrease in the height of the airplane at the refe rence distance of 8200 ft ",
+      "Each flyover noise test must be conducted such that the adjusted refe rence true"
+    ]
+  },
+  {
+    "pattern": "diffe rent",
+    "fix": "different",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 20-138D(1)",
+    "examples": [
+      "airplanes in a series where the series has several diffe rent engine sizes certi",
+      "meeting the original TSOA are no longer available. Using a diffe rent antenna sp"
+    ]
+  },
+  {
+    "pattern": "pe rform",
+    "fix": "perform",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 120-16G(1)",
+    "examples": [
+      "show \"no acoustical change,\" it will be necessary to pe rform FAA approved takeo",
+      "a. Authority to Pe rform Maintenance. As a maintenance entity, you have authoriz"
+    ]
+  },
+  {
+    "pattern": "standa rd",
+    "fix": "standard",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 20-42D(1)",
+    "examples": [
+      "provisions of §21.183 of part 21, or may have received a standa rd airworthiness",
+      "b. ASTM D5632-0 8. Standa rd Specification/or Halon 1301, Bromotrijluoro methane"
+    ]
+  },
+  {
+    "pattern": "provid ed",
+    "fix": "provided",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "36-4D(2)",
+    "examples": [
+      "limits. However, a Stage, 2 airplane may be recertif icated as Stage 3, provid e",
+      "Definitions of the terms used in this section are provid ed in 306(b). Although "
+    ]
+  },
+  {
+    "pattern": "genera lly",
+    "fix": "generally",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 121.321-1(1)",
+    "examples": [
+      "sections of this chapter should be considered as genera lly appropriate for all ",
+      "is genera lly done with a timer, and there may be more than one timing mode."
+    ]
+  },
+  {
+    "pattern": "late ral",
+    "fix": "lateral",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 25-7D(1)",
+    "examples": [
+      "The criteria for the measurement of aircraft height and late ral position relati",
+      "5.3 Directional and Late ral Control—§ 25.147. ................................."
+    ]
+  },
+  {
+    "pattern": "gro und",
+    "fix": "ground",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 120-16G(1)",
+    "examples": [
+      "identical transceivers would be used on the ground and in the aircraft. This ena",
+      "11-1. Back gro und o f the Continuing Analysis and Surveillance System (CASS)..."
+    ]
+  },
+  {
+    "pattern": "esta blish",
+    "fix": "establish",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 23-8C(1)",
+    "examples": [
+      "the FROM and TO waypoints which will be used to esta blish the test program coor",
+      "needle deflection. Then, fly the airplane to esta blish localizer on-course oper"
+    ]
+  },
+  {
+    "pattern": "befo re",
+    "fix": "before",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 20-106(1)",
+    "examples": [
+      "The above tests should be performed, as a minimum, befo re and after each measur",
+      "sufficient operating time befo re conducting a"
+    ]
+  },
+  {
+    "pattern": "du ring",
+    "fix": "during",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 150/5345-56B(1)",
+    "examples": [
+      "302(e)(2)(C)(i) Data stored du ring aircraft noise testing when a real-time data",
+      "An airport’s CCRs may be new or existing. Du ring qualification testing, the ALC"
+    ]
+  },
+  {
+    "pattern": "pos ition",
+    "fix": "position",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 90-120(1)",
+    "examples": [
+      "a) the three-dimensional aircraft pos ition copied directly from the receiver’s ",
+      "A.6.34 Passive Surveillance. The use of ADS-B Out pos ition messages to update t"
+    ]
+  },
+  {
+    "pattern": "gro ss",
+    "fix": "gross",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 23-8C(1)",
+    "examples": [
+      "Typical parameters would include airsp eed, climb angle, height/altitude, gro ss",
+      "(3) Weight and C.G. Forward c.g. at maximum gro ss weight is usually the most"
+    ]
+  },
+  {
+    "pattern": "int erval",
+    "fix": "interval",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "36-4D(2)",
+    "examples": [
+      "305(b) Confidence Int erval for the Mean of Flight Test Data",
+      "305(f)(4) Confidence int erval for a second order regression curve"
+    ]
+  },
+  {
+    "pattern": "gr eater",
+    "fix": "greater",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 25.1581-1(1)",
+    "examples": [
+      "It is not recommended in any case that polynomials of gr eater complexity than a",
+      "(6) It may be necessary to provide a gr eater amount of descriptive and procedur"
+    ]
+  },
+  {
+    "pattern": "le vel",
+    "fix": "level",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 25.1581-1(1)",
+    "examples": [
+      "in place of the masked level. If the average is used, the le vel should be categ",
+      "(a) Re-assess the software integrity le vel (paragraph 6a of this appendix) of t"
+    ]
+  },
+  {
+    "pattern": "octa ve",
+    "fix": "octave",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "36-4D(2)",
+    "examples": [
+      "levels for bands at frequencies higher than LGB for each spectral record. One-th",
+      "and must be averaged or faired to more accurately correct one-third octa ve band"
+    ]
+  },
+  {
+    "pattern": "reco rd",
+    "fix": "record",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 23-8C(1)",
+    "examples": [
+      "M represents the reco rd associated with",
+      "landing go-around in accordance with § 23.77. Reco rd cooling data at one-minute"
+    ]
+  },
+  {
+    "pattern": "po int",
+    "fix": "point",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 120-104(1)",
+    "examples": [
+      "level is to be the average of the measured noise levels for each noise measureme",
+      "a. Structural Modification Po int and Inspection Start Point. Fatigue damage"
+    ]
+  },
+  {
+    "pattern": "ap proval",
+    "fix": "approval",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 25.1581-1(1)",
+    "examples": [
+      "to adjust the height/location of position C. With prior ap proval of the FAA, th",
+      "(d) The AFM is not subject to the ap proval coordination process described in"
+    ]
+  },
+  {
+    "pattern": "typi cal",
+    "fix": "typical",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "36-4D(1), 43.13-1B(1)",
+    "examples": [
+      "helicopters with high airspeed capabilities, the typi cal cruise airspeed will b",
+      "Figure 4-17. Typi cal stringer and flange splices .............................."
+    ]
+  },
+  {
+    "pattern": "sched ule",
+    "fix": "schedule",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "120-16G(2)",
+    "examples": [
+      "6-2. The FAA’s Ro le in Re la t ion to the Maintenance Sched ule................",
+      "6-3. Maintenance Sched ule Co ntents............................................"
+    ]
+  },
+  {
+    "pattern": "regul atory",
+    "fix": "regulatory",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "120-16G(1), 61-98E(1)",
+    "examples": [
+      "12-2. Regul atory Ref erences...................................................",
+      "Appendix E. Regul atory Review Guide ..........................................."
+    ]
+  },
+  {
+    "pattern": "ref erence",
+    "fix": "reference",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "120-16G(1), 43.13-2B(1)",
+    "examples": [
+      "12-4. Obtaining Ref erence Material(current ed itio ns).........................",
+      "has been revised. (Ref erence Order 8310.6,"
+    ]
+  },
+  {
+    "pattern": "corre ctive",
+    "fix": "corrective",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "120-16G(1), 23-13A(1)",
+    "examples": [
+      "(3) Corre ctive Action. A planning process you use to ensure that your correctiv",
+      "repair. Deferral of corre ctive action should not be approached as either busine"
+    ]
+  },
+  {
+    "pattern": "segm ent",
+    "fix": "segment",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-138D(1), 150/5200-31C(1)",
+    "examples": [
+      "12-8. Final Approach Segm ent Step-Down Fixes in Navigation Databases. .........",
+      "(b) Reinforce a segm ent of the program for an individual who has not performed "
+    ]
+  },
+  {
+    "pattern": "tab le",
+    "fix": "table",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.87-1A(1), 150/5200-31C(1)",
+    "examples": [
+      "co ntinuous OEI and the maximum continuous ratings (see tab le 2).",
+      "f. Table of Contents. A Tab le of Contents makes finding information easier and "
+    ]
+  },
+  {
+    "pattern": "adv isory",
+    "fix": "advisory",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "43-207(1), 20-42D(1)",
+    "examples": [
+      "AC adv isory circular",
+      "Adv isory"
+    ]
+  },
+  {
+    "pattern": "pr essure",
+    "fix": "pressure",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-197(1), 23-19A(1)",
+    "examples": [
+      "temperature and pr essure probes, and static pressure probes in mixed-phase, ICI",
+      "part 23, § 23.303). The maximum differential pr essure loads should include the "
+    ]
+  },
+  {
+    "pattern": "deta iled",
+    "fix": "detailed",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5345-51B(1), 150/5370-16(1)",
+    "examples": [
+      "c. See IEEE C62.41-1991 Section 9.4 for a deta iled combination and ring wave ge",
+      "planning and development of deta iled construction specifications and drawings f"
+    ]
+  },
+  {
+    "pattern": "ch ecked",
+    "fix": "checked",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5345-51B(1), 23.629-1B(1)",
+    "examples": [
+      "a. Style A, C, and E production units shall be ch ecked at the beam center, ± 15",
+      "c. At least two altitudes should be ch ecked, if appropriate to the design. One"
+    ]
+  },
+  {
+    "pattern": "cont inued",
+    "fix": "continued",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-161(1), 20-170(1)",
+    "examples": [
+      "2-10. INSTRUCTIONS FOR CONT INUED AIRWORTHINESS (ICA).",
+      "must include the ability to restart any hosted function or functions whose cont "
+    ]
+  },
+  {
+    "pattern": "cl ass",
+    "fix": "class",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "25-18(2)",
+    "examples": [
+      "b. A Cl ass B compartment is one that is more remote than a Cl ass A",
+      "b. A Cl ass B compartment is one that is more remote than a Cl ass A"
+    ]
+  },
+  {
+    "pattern": "en gine",
+    "fix": "engine",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.70-3(1), 23-8C(1)",
+    "examples": [
+      "The guidance in this AC is for en gine manufacturers, modifiers, and Federal Avi",
+      "inoperative. The propeller on the inoperative en gine should be windmilling, or "
+    ]
+  },
+  {
+    "pattern": "stre ss",
+    "fix": "stress",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.70-3(1), 23-13A(1)",
+    "examples": [
+      "ume represents the volume of material at a specific stre ss",
+      "fatigue details. A one percent increase in stre ss level can shorten the expecte"
+    ]
+  },
+  {
+    "pattern": "asse ssment",
+    "fix": "assessment",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.70-3(1), 150/5200-31C(1)",
+    "examples": [
+      "obabilistic asse ssment technique or the assumptions.",
+      "(a) Needs Asse ssment. The first step in the process is to identify difficult ar"
+    ]
+  },
+  {
+    "pattern": "se ction",
+    "fix": "section",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.70-3(1), 91-85B(1)",
+    "examples": [
+      "ately implemented and communicated to the fiel d using the AL se ction of the IC",
+      "part 91 appendix G, se ction 2 ."
+    ]
+  },
+  {
+    "pattern": "ap pendix",
+    "fix": "appendix",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.70-3(1), 145-10(1)",
+    "examples": [
+      "AP PENDIX C. DEFAULT ANOMALY DISTRIBUTION CURVES",
+      "AP PENDIX 1. SAMPLE TRAINING PROGRAM F OR A LARGE/MEDIUM"
+    ]
+  },
+  {
+    "pattern": "fi eld",
+    "fix": "field",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5370-16(1), 150/5370-13A(1)",
+    "examples": [
+      "supplemental funds to pay for design changes, and fi eld changes, can ensure tha",
+      "specified intervals during each work period and fi eld samples obtained from the"
+    ]
+  },
+  {
+    "pattern": "pe ople",
+    "fix": "people",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5370-16(2)",
+    "examples": [
+      "example, establish a distribution list of the pe ople with whom all corresponden",
+      "airport. This is important because the number of pe ople having contact with the"
+    ]
+  },
+  {
+    "pattern": "ade quate",
+    "fix": "adequate",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5370-16(1), 150/5370-13A(1)",
+    "examples": [
+      "for each plant, and one paving inspector, with an ade quate number of helpers, a",
+      "It is particularly important to establish an ade quate lead time for notifying t"
+    ]
+  },
+  {
+    "pattern": "lighti ng",
+    "fix": "lighting",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5370-16(1), 150/5345-53D(1)",
+    "examples": [
+      "on the use of blockouts for installing in-pavement lighti ng systems. It should ",
+      "a. RATED LAMP LIFE. The mean life of the lamp while installed and operated in a "
+    ]
+  },
+  {
+    "pattern": "reco rding",
+    "fix": "recording",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "120-82(1), 23.629-1B(1)",
+    "examples": [
+      "will be a function of the aircraft reco rding capability, available parameters,",
+      "c. The complete excitation and data reco rding system should be thoroughly check"
+    ]
+  },
+  {
+    "pattern": "conti nued",
+    "fix": "continued",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-168(1), 23-8C(1)",
+    "examples": [
+      "(f) 4.7 Instructions for Conti nued Airworthiness (ICA), and",
+      "in service. Tests are conti nued beyond these \"appropriate\" angles up to the poi"
+    ]
+  },
+  {
+    "pattern": "author ize",
+    "fix": "authorize",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "121.321-1(1), 120-60B(1)",
+    "examples": [
+      "c. Disclaimer. This material does not change, create any additional, author ize ",
+      "NOTE: The Adminis trator may author ize “Takeoff” with frost under the"
+    ]
+  },
+  {
+    "pattern": "vi deo",
+    "fix": "video",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "120-80B(2)",
+    "examples": [
+      "8 Refer to the Portable Electronic Device (PED) Fire Training – Flight Deck vi d",
+      "9 Refer to the Portable Electronic Device (PED) Fire Training – Cabin vi deo."
+    ]
+  },
+  {
+    "pattern": "alti tude",
+    "fix": "altitude",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.1581-1(1), 20-73A(1)",
+    "examples": [
+      "Minimum and maximum pressure alti tude for which operation is limited",
+      "and E-5 of this AC). Or you may select from average or extreme values for the fl"
+    ]
+  },
+  {
+    "pattern": "resp ect",
+    "fix": "respect",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.1581-1(1), 25.785-1B(1)",
+    "examples": [
+      "(3) Approval status of results with resp ect to requirement basis of the computa",
+      "(2) Extent Possible. As used in § 25.785(h)(2) [§ 25.785(h)(1)], with resp ect t"
+    ]
+  },
+  {
+    "pattern": "appr oval",
+    "fix": "approval",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.1581-1(1), 150/5210-22(1)",
+    "examples": [
+      "(6) The applicant may request FAA appr oval of supplementary computerized AFM",
+      "a. Appr oval. Part 139 mandates two levels of approval for the ACM:"
+    ]
+  },
+  {
+    "pattern": "applic ation",
+    "fix": "application",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.1581-1(1), 150/5070-7(1)",
+    "examples": [
+      "(3) The computerized AFM software applic ation is not intended to be user-modifi",
+      "APPLIC ATION"
+    ]
+  },
+  {
+    "pattern": "prev entive",
+    "fix": "preventive",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "120-124(1), 20-106(1)",
+    "examples": [
+      "1.9.2 Those Who Perform Maintenance, Prev entive Maintenance, and Alterations an",
+      "Section 2. Prev entive Maintenance --------------------------- 4"
+    ]
+  },
+  {
+    "pattern": "serv ice",
+    "fix": "service",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25.571-1D(1), 120-104(1)",
+    "examples": [
+      "data. The data obtained from airplanes in serv ice provide a basis for correlati",
+      "evaluation process. Engineering data from serv ice experience or laboratory test"
+    ]
+  },
+  {
+    "pattern": "cas ualty",
+    "fix": "casualty",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "450.115-1B(2)",
+    "examples": [
+      "- CT Cas ualty",
+      "- - - Jumbo CT Cas ualty"
+    ]
+  },
+  {
+    "pattern": "tu rbine",
+    "fix": "turbine",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.83-1(1), 23-8C(1)",
+    "examples": [
+      "a. Blade. A blade or vane of a tu rbine engine or an APU.",
+      "propeller. Power output is a function of the gas tu rbine airflow, pressure, and"
+    ]
+  },
+  {
+    "pattern": "dist rict",
+    "fix": "district",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5370-13A(1), 150/5190-6(1)",
+    "examples": [
+      "airports district office, the flight standards dist rict office, and the airway ",
+      "is encouraged to contact the local Airports Dist rict Office (ADO) or the Region"
+    ]
+  },
+  {
+    "pattern": "pa ving",
+    "fix": "paving",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5370-13A(2)",
+    "examples": [
+      "successful accomplishment of a quality off-peak pa ving job, particularly if the",
+      "grid system to supplement the survey. Where pa ving lane widths are le ss than 2"
+    ]
+  },
+  {
+    "pattern": "va luable",
+    "fix": "valuable",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5370-13A(1), 150/5200-12C(1)",
+    "examples": [
+      "for FAA funded projects, can be va luable as immediate on-site density indicator",
+      "unnecessary disturbance and eradication of va luable evidence, such as ground sc"
+    ]
+  },
+  {
+    "pattern": "lim ited",
+    "fix": "limited",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5190-6(1), 150/5200-31C(1)",
+    "examples": [
+      "aeronautical service provider be lim ited to the amount of land the service prov",
+      "(2) Logistics. Requirements to be covered include, but are not lim ited to:"
+    ]
+  },
+  {
+    "pattern": "com ply",
+    "fix": "comply",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5190-6(2)",
+    "examples": [
+      "amended, 49 U.S.C. § 47101, et seq ., and the airport sponsor’s agreem ent to co",
+      "agreement to which the recipient of Federal airpor t development assistance has "
+    ]
+  },
+  {
+    "pattern": "transf er",
+    "fix": "transfer",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5190-6(1), 23-17C(1)",
+    "examples": [
+      "terms and conditions of all instruments of transf er by which surplus airport pr",
+      "by tests. Assessing heat effects needs to include all heat transf er mechanisms "
+    ]
+  },
+  {
+    "pattern": "howev er",
+    "fix": "however",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "29-2C(1), 20-170(1)",
+    "examples": [
+      "are anticipated. Additionally, reasonable extrapolation may be warranted. Howev ",
+      "for accepted reuse of either RTCA/DO- 254 or RTCA/DO- I60F compliance data. Howe"
+    ]
+  },
+  {
+    "pattern": "ty pical",
+    "fix": "typical",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "29-2C(1), 150/5300-20(1)",
+    "examples": [
+      "(ii) Takeoff Profile. A ty pical vertical takeoff profile for a ground level",
+      "solar panels (Ty pical)"
+    ]
+  },
+  {
+    "pattern": "stabi lity",
+    "fix": "stability",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "29-2C(1), 23-8C(1)",
+    "examples": [
+      "(2) Ambient Conditions. Smooth air is necessary for stabi lity testing.",
+      "(3) Directional. To check static directional stabi lity with the airplane in the"
+    ]
+  },
+  {
+    "pattern": "anal ysis",
+    "fix": "analysis",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "29-2C(1), 23-8C(1)",
+    "examples": [
+      "as specified. The flight loads anal ysis data must comply with the rule.",
+      "loss, and stall break. The anal ysis should show the relationship of pitch, roll"
+    ]
+  },
+  {
+    "pattern": "reson ant",
+    "fix": "resonant",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "35.37-1B(2)",
+    "examples": [
+      "• Reson ant test",
+      "• Reson ant test"
+    ]
+  },
+  {
+    "pattern": "audi ence",
+    "fix": "audience",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "61-143(1), 21-26A(1)",
+    "examples": [
+      "2 AUDI ENCE. This AC is intended for persons converting an EU Part-FCL license t",
+      "2. Audi ence. This AC affects all manufacturers or approva l holders producing u"
+    ]
+  },
+  {
+    "pattern": "advis ory",
+    "fix": "advisory",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.70-1(1), 45-3A(1)",
+    "examples": [
+      "1. PURPOSE. This advis ory circular (AC) provi",
+      "http://www.faa.gov/regulations _policies /advis ory_ circulars/."
+    ]
+  },
+  {
+    "pattern": "stab ility",
+    "fix": "stability",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "23-8C(2)",
+    "examples": [
+      "(j) § 23.233 Directional stab ility and control.",
+      "between 1.2 VS1 and VA. The directional stab ility tests are conducted at speeds"
+    ]
+  },
+  {
+    "pattern": "ef fect",
+    "fix": "effect",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "23-8C(1), 20-73A(1)",
+    "examples": [
+      "(1) Explanation. To take advantage of ground ef fect, AFM takeoff paths utilize ",
+      "Figure R-15(b). Reynolds number ef fect on drag for a NACA 23012 airfoil with an"
+    ]
+  },
+  {
+    "pattern": "wei ght",
+    "fix": "weight",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "23-8C(1), 43.13-2B(1)",
+    "examples": [
+      "on large part 23 airplanes. The effect of wei ght on the landing distance due to",
+      "banner maximum wei ght of _____**_____"
+    ]
+  },
+  {
+    "pattern": "stat ic",
+    "fix": "static",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "23-8C(1), 20-106(1)",
+    "examples": [
+      "3. § 23.175 Demonstration of Stat ic Longitudinal Stability.",
+      "Pitot and stat ic ports~free of obstruc­"
+    ]
+  },
+  {
+    "pattern": "th rottle",
+    "fix": "throttle",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "23-8C(2)",
+    "examples": [
+      "(8) Recovery. Recoveries should consist of th rottle reduced to idle, ailerons",
+      "manufacturer’s design schedule. For these, the full th rottle values must be ide"
+    ]
+  },
+  {
+    "pattern": "expos ed",
+    "fix": "exposed",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "23-8C(1), 20-42D(1)",
+    "examples": [
+      "(2) Field of view. The airplane should be expos ed to cold temperatures (cold",
+      "q. Vinegar , A (2001) , .Nfodeling Cardia c Sensitization Potential o/Hwnan s Ex"
+    ]
+  },
+  {
+    "pattern": "repa ir",
+    "fix": "repair",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "43.13-2B(1), 20-176A(1)",
+    "examples": [
+      "a. Inspection and Repa ir Data Sources.",
+      "YOKE YOKE ANO REPA IR OR"
+    ]
+  },
+  {
+    "pattern": "st atic",
+    "fix": "static",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "43.13-2B(1), 23-13A(1)",
+    "examples": [
+      "be determined by either st atic test or structural",
+      "conditions. Loads applied in the st atic test should conservatively represent ac"
+    ]
+  },
+  {
+    "pattern": "poi nt",
+    "fix": "point",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "43.13-2B(1), 23.629-1B(1)",
+    "examples": [
+      "angle is limited to a poi nt that will prevent",
+      "b. Testing should begin at a low airspeed poi nt to establish a database; i.e., "
+    ]
+  },
+  {
+    "pattern": "ulti mate",
+    "fix": "ultimate",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "43.13-2B(1), 20-106(1)",
+    "examples": [
+      "conditions. The critical ulti mate static load is",
+      "made known by the ulti mate failure of a part."
+    ]
+  },
+  {
+    "pattern": "pu rpose",
+    "fix": "purpose",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "90-101A(2)",
+    "examples": [
+      "1. PU RPOSE. This advisory circular (AC) provides airworthiness and operational ",
+      "1. PU RPOSE. This advisory circular (AC) provides airworthiness and operational "
+    ]
+  },
+  {
+    "pattern": "im pair",
+    "fix": "impair",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "90-114C(2)",
+    "examples": [
+      "F.6.1 ATC Identifies IM Pair ...................................................",
+      "F.6.1 ATC Identifies IM Pair. Using automation support tools, ATC identifies the"
+    ]
+  },
+  {
+    "pattern": "estab lish",
+    "fix": "establish",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-107B(1), 33.15-2(1)",
+    "examples": [
+      "3). It is important to estab lish processing tolerances; material handling and s",
+      "f. The PAH and its suppliers must estab lish a system of handling deviations and"
+    ]
+  },
+  {
+    "pattern": "depe nd",
+    "fix": "depend",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-107B(1), 20-170(1)",
+    "examples": [
+      "expansion. This component of stress will depe nd on the service temperature duri",
+      "unti l aJJ acceptances at the subordinate leve ls on which those higher tasks de"
+    ]
+  },
+  {
+    "pattern": "overa ll",
+    "fix": "overall",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-107B(1), 150/5200-31C(1)",
+    "examples": [
+      "its extent. For example, the overa ll effects of composite fuselage structures e",
+      "(5) General overa ll policies, plans and procedures of the airport fire and resc"
+    ]
+  },
+  {
+    "pattern": "typica lly",
+    "fix": "typically",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5210-5D(1), 20-170(1)",
+    "examples": [
+      "construction vehicles). These vehicles are typica lly owned by airlines, vendors",
+      "e. Due to the high integration, functi\\mal TSO data packages for IMA systems are"
+    ]
+  },
+  {
+    "pattern": "disp lay",
+    "fix": "display",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5210-5D(1), 20-170(1)",
+    "examples": [
+      "(1) Airport operator owned vehicles must disp lay an identification number on ea",
+      "(4) Allowing the clectronfo disp lay ofTSO ide ntificat ion."
+    ]
+  },
+  {
+    "pattern": "ho urly",
+    "fix": "hourly",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5060-5(2)",
+    "examples": [
+      "FIGURE 3-5, HO URLY CAPACITY OF RUNWAY - USE DIAGRAM NO. 3 FOR '\\(Ffl CONDITIONS",
+      "hURE 3-29. HO URLY CAPACITY OF RUNWAY - USE DIAGRAH NOS.: 55,51 FOR VFR CONDITIO"
+    ]
+  },
+  {
+    "pattern": "betw een",
+    "fix": "between",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.15-2(1), 150/5345-52A(1)",
+    "examples": [
+      "(d) Furnace pressure and difference betw een consecutive leak rates to indicate",
+      "signal axis is misaligned between 0.25 and 0.5 degree below or betw een 0.5 and "
+    ]
+  },
+  {
+    "pattern": "curr ent",
+    "fix": "current",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "33.15-2(1), 150/5220-22B(1)",
+    "examples": [
+      "(b) Furnace pressure, voltage, and curr ent profile during start up and transien",
+      "inability to accommodate its curr ent or planned"
+    ]
+  },
+  {
+    "pattern": "acce ptable",
+    "fix": "acceptable",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-24D(1), 20-42D(1)",
+    "examples": [
+      "laboratory testing, engine bench testing, and engine flight testing. It represen",
+      "of an organization that is acce ptable to the authority having jurisdiction and "
+    ]
+  },
+  {
+    "pattern": "fam iliar",
+    "fix": "familiar",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5200-12C(1), 150/5200-31C(1)",
+    "examples": [
+      "d. Airport management should ensure that all first responders are thoroughly fam",
+      "(2) All responding law enforcement units will be fam iliar with their responsibi"
+    ]
+  },
+  {
+    "pattern": "po licy",
+    "fix": "policy",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "91-36D(2)",
+    "examples": [
+      "sensitive” area an d add referen ces to Public Law 1 00-91; th e FAA No ise Po l",
+      "and other federally managed areas th at h ave unique noise-sensitive v alues. Th"
+    ]
+  },
+  {
+    "pattern": "cu ltural",
+    "fix": "cultural",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "91-36D(2)",
+    "examples": [
+      "characteristics), wild life refug es, an d cu ltural and historical sites wh ere",
+      "characteristics), wild life refug es, an d cu ltural and historical sites wh ere"
+    ]
+  },
+  {
+    "pattern": "ma rking",
+    "fix": "marking",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5340-1M(1), 23-17C(1)",
+    "examples": [
+      "Ma rking for Arresting G ear.",
+      "range for takeoff. Therefore, the proposed ma rking requirement would not have a"
+    ]
+  },
+  {
+    "pattern": "autho rized",
+    "fix": "authorized",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "43-12A(1), 20-170(1)",
+    "examples": [
+      "(1) The following are autho rized to perform preventive maintenance and other",
+      "b. The generic hardware componen ts autho rized by TSO-C 153 must be permanently"
+    ]
+  },
+  {
+    "pattern": "author ized",
+    "fix": "authorized",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "43-12A(1), 20-170(1)",
+    "examples": [
+      "(2) Because these persons are author ized to perform maintenance functions as bo",
+      "(3) Identify the usage domain in wluch the TSO author ized IMA compo nent was sh"
+    ]
+  },
+  {
+    "pattern": "emp loyee",
+    "fix": "employee",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "120-117(2)",
+    "examples": [
+      "desi gnate d emp loyee of the Drug Abateme nt Division assigned to proce ss and",
+      "emp loyee within 10 working -days from the date of the LOA. Any delays require"
+    ]
+  },
+  {
+    "pattern": "respon sible",
+    "fix": "responsible",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "120-117(1), 20-170(1)",
+    "examples": [
+      "the apparent violation, as well as the person respon sible for taking the",
+      "respon sible ACO if you have any question s you cannot answer."
+    ]
+  },
+  {
+    "pattern": "comp letion",
+    "fix": "completion",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "120-117(1), 21-26A(1)",
+    "examples": [
+      "implementing those correct ive steps, and a time schedule for comp letion of the",
+      "place before comp letion of windi ng."
+    ]
+  },
+  {
+    "pattern": "inci dent",
+    "fix": "incident",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "91-82A(1), 150/5200-31C(1)",
+    "examples": [
+      "structure. In an accident or inci dent, the FAA is a party to the NTSB1 led inve",
+      "(2) Aircraft Inci dent. An incident is an occurrence other than an accident that"
+    ]
+  },
+  {
+    "pattern": "incl ude",
+    "fix": "include",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "89-1(1), 23-19A(1)",
+    "examples": [
+      "[Please incl ude sufficient documentation to demonstrate that the means of compl",
+      "design. (The damage tolerance evaluations incl ude damage sizes ranging from sma"
+    ]
+  },
+  {
+    "pattern": "append ices",
+    "fix": "appendices",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "91-86(2)",
+    "examples": [
+      "b. This AC contains background information and three append ices. Two of the app",
+      "Append ices 2 or 3. The samp le form in Appendi x 2 is for aircraft with certifi"
+    ]
+  },
+  {
+    "pattern": "weig ht",
+    "fix": "weight",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "91-86(1), 20-42D(1)",
+    "examples": [
+      "9. Maximum Takeoff Weight/ Mass: 10. Maximum Landing Weig ht/ 11. Noise Standard",
+      "weig ht is not su fficient to predict perfonnance . Nozzle design, super pressur"
+    ]
+  },
+  {
+    "pattern": "purp ose",
+    "fix": "purpose",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "91-86(1), 65-2D(1)",
+    "examples": [
+      "12. Addit ional modifications inco rporate d for the purp ose of complian ce wit",
+      "The purp ose of and requir ements for ven­"
+    ]
+  },
+  {
+    "pattern": "prop eller",
+    "fix": "propeller",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "91-86(1), 20-106(1)",
+    "examples": [
+      "7. Engine : 8. Prop eller : (If applicable)",
+      "7-3. Three-blade prop eller checkpoints------------- - ---------- - -- 67"
+    ]
+  },
+  {
+    "pattern": "circul ar",
+    "fix": "circular",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "25-7D(1), 150/5345-53D(1)",
+    "examples": [
+      "1.1 This change, advisory circul ar (AC) 25-7D Change 1, incorporates updates an",
+      "iii. If the FAA determines that a revision to the Advisory Circul ar is required"
+    ]
+  },
+  {
+    "pattern": "autom atic",
+    "fix": "automatic",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "91-85B(1), 20-170(1)",
+    "examples": [
+      "the new Part 91 Appendix G, Section 9, Aircraft Equipped with Autom atic Depende",
+      "b. lf an autom atic recovery feat ure is not feasible and a crew- initiated - th"
+    ]
+  },
+  {
+    "pattern": "wo uld",
+    "fix": "would",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "91-85B(1), 23-19A(1)",
+    "examples": [
+      "A.1.3.1 It wo uld be difficult to show all of the gross weight, altitude, and sp",
+      "manufactured on, or before, December 12, 1986. I wo uld like to install side-fac"
+    ]
+  },
+  {
+    "pattern": "popul ation",
+    "fix": "population",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "450.123-1(2)",
+    "examples": [
+      "Popul ation cente rs comp arable",
+      "Popul ation centers vary in size ,"
+    ]
+  },
+  {
+    "pattern": "fati gue",
+    "fix": "fatigue",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "23-13A(1), 20-106(1)",
+    "examples": [
+      "2-2. What is the definition of a fati gue failure in a safe-life structure?",
+      "result in rapid fati gue failure of critica l areas,"
+    ]
+  },
+  {
+    "pattern": "meth od",
+    "fix": "method",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "23-13A(1), 23-10(1)",
+    "examples": [
+      "2-19. What about the ‘3-sigma’ meth od of computing the safe-life?",
+      "type of nonmetallic material, meth od of processing, and design"
+    ]
+  },
+  {
+    "pattern": "adju st",
+    "fix": "adjust",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "23-13A(1), 65-2D(1)",
+    "examples": [
+      "curves. Applicants should adju st the S-N curves for differences in geometry, be",
+      "3. pre -rig the rear struts and adju st the"
+    ]
+  },
+  {
+    "pattern": "cons ist",
+    "fix": "consist",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5345-45C(1), 150/5345-52A(1)",
+    "examples": [
+      "The lamp fixtures to be installed on the structures cons ist of several configur",
+      "a. Type L-882. The overall beam pattern must cons ist of an oval shape with the "
+    ]
+  },
+  {
+    "pattern": "beco mes",
+    "fix": "becomes",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5345-45C(1), 23-17C(1)",
+    "examples": [
+      "the structure. If the impactor beco mes entangled with electrical cabling or str",
+      "specific installation. After the rule beco mes effective, the FAA generally will"
+    ]
+  },
+  {
+    "pattern": "ident ify",
+    "fix": "identify",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "65-2D(1), 150/5200-31C(1)",
+    "examples": [
+      "ident ify components.",
+      "Helps planning teams ident ify, illuminate, and correct problems with the airpor"
+    ]
+  },
+  {
+    "pattern": "proced ure",
+    "fix": "procedure",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "65-2D(1), 150/5345-53D(1)",
+    "examples": [
+      "~he proced ure for computing \"minimum",
+      "accordance with the procedures contained in Appendix 5, Lamp Life Test Proced ur"
+    ]
+  },
+  {
+    "pattern": "identi fy",
+    "fix": "identify",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "65-2D(1), 150/5200-31C(1)",
+    "examples": [
+      "Identi fy the degree of temper for alumi­",
+      "• Move ash only once (identi fy approved dump site; cap with emulsion or soil an"
+    ]
+  },
+  {
+    "pattern": "purpo se",
+    "fix": "purpose",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "65-2D(2)",
+    "examples": [
+      "The purpo se and operating prin ciples of",
+      "The purpo se an'd operating principles of"
+    ]
+  },
+  {
+    "pattern": "seco ndary",
+    "fix": "secondary",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-42D(1), 23-10(1)",
+    "examples": [
+      "specific selection criteria i s impractical. The tox icity hazard is a seco ndar",
+      "(2) Fuel Containment Seco ndary Barriers (§§ 23.967 and"
+    ]
+  },
+  {
+    "pattern": "comp liant",
+    "fix": "compliant",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-42D(1), 20-170(1)",
+    "examples": [
+      "new or revised products. but a11 current comp liant product s covered under US -",
+      "compone nt to be comp liant with the applicable requ irements as documented"
+    ]
+  },
+  {
+    "pattern": "age nt",
+    "fix": "agent",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-42D(2)",
+    "examples": [
+      "effectiveness of the device on a given size fire. This is dependent on the age n",
+      "hazard. Minimum safe volumes are dependent on the age nt, the agent weigh t, ven"
+    ]
+  },
+  {
+    "pattern": "discha rge",
+    "fix": "discharge",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-42D(2)",
+    "examples": [
+      "e. Do not direct the initial discha rge at the burning surface at close range _,",
+      "(b) The time to recognize the completion of the discha rge, to walk to the"
+    ]
+  },
+  {
+    "pattern": "vo lume",
+    "fix": "volume",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-42D(2)",
+    "examples": [
+      "category aircraft. Large aircraft with small vo lume occupied spaces (flight dec",
+      "vo lume of an extinguisher by dividing the char ge weight of the agent in the la"
+    ]
+  },
+  {
+    "pattern": "cou ld",
+    "fix": "could",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-42D(1), 20-170(1)",
+    "examples": [
+      "extinguished, or a smolderin g fire exists, increasing airflow cou ld promote fi",
+      "systems, whose failure cou ld prevent continued safe flight and landing, are not"
+    ]
+  },
+  {
+    "pattern": "chem ical",
+    "fix": "chemical",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-42D(1), 21-26A(1)",
+    "examples": [
+      "paragraph 5b of this AC. Agent physicaJ and chem ical propertjes may also be con",
+      "linking together a large number of repeating chem ical units (monomers). When tw"
+    ]
+  },
+  {
+    "pattern": "locat ion",
+    "fix": "location",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-42D(1), 120-104(1)",
+    "examples": [
+      "it's locat ion obvious.",
+      "Type and possible locat ion of MSD and MED"
+    ]
+  },
+  {
+    "pattern": "sing le",
+    "fix": "single",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-42D(1), 20-128A(1)",
+    "examples": [
+      "3. How to Locate and Mount Hand Fire Extinguishers in Small Sing le Engine and",
+      "These methods have been effective in mitigating the hazards from both sing le an"
+    ]
+  },
+  {
+    "pattern": "ther efore",
+    "fix": "therefore",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-42D(1), 23-17C(1)",
+    "examples": [
+      "the m.inimwn safe voJume used, the comparatively less toxic the agent. Ther efor",
+      "equal to the unusable fuel supply. Ther efore, fuel quantity indicators should"
+    ]
+  },
+  {
+    "pattern": "secur ity",
+    "fix": "security",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "23-10(1), 20-106(1)",
+    "examples": [
+      "as well as structural secur ity should be considered.",
+      "dition, secur ity of attachment , and for other"
+    ]
+  },
+  {
+    "pattern": "prod uced",
+    "fix": "produced",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "23-10(1), 20-170(1)",
+    "examples": [
+      "prod uced proble ms in the past .",
+      "determine the components are prod uced in conformity to type design."
+    ]
+  },
+  {
+    "pattern": "airpo rt",
+    "fix": "airport",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5345-56B(1), 150/5200-31C(1)",
+    "examples": [
+      "DESIGNER NOTE: If an airpo rt is requesting integration of the approach lighting",
+      "(b) ICS to be used at crowd control incidents on the airpo rt."
+    ]
+  },
+  {
+    "pattern": "multip le",
+    "fix": "multiple",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5345-56B(1), 20-170(1)",
+    "examples": [
+      "This test must verify correct execution of the failsafe. Multip le tests must be",
+      "the system. Or, they may apply for multip le TSOs) since no single TSO covers al"
+    ]
+  },
+  {
+    "pattern": "guida nce",
+    "fix": "guidance",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "23-19A(1), 120-104(1)",
+    "examples": [
+      "revised July 1, 1944. (See 23.365 guida nce about pressure tests.)",
+      "LOV. See Chapter 3 of this AC for further guida nce. To operate an airplane to i"
+    ]
+  },
+  {
+    "pattern": "sa fety",
+    "fix": "safety",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "121-24E(1), 150/5220-17B(1)",
+    "examples": [
+      "and 125.204. Passengers’ sa fety education should include operator policy",
+      "OSHA United States Occupational Sa fety and Health Administration"
+    ]
+  },
+  {
+    "pattern": "accep tance",
+    "fix": "acceptance",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-170(2)",
+    "examples": [
+      "3- 1. General Guidance Regar din g LM A Component Accep tance Letters ........ .",
+      "3-4. Esse ntial Elements of the IMA Compone nt Accep tance Letter Data Sheet. .."
+    ]
+  },
+  {
+    "pattern": "acce pted",
+    "fix": "accepted",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-170(2)",
+    "examples": [
+      "4-4. Reuse of Previous ly Acce pted Software-O nl y or Hardware Componen t Conta",
+      "Note: RTCA/D0-297 , subsection 4.6 (Task 5) deals with change s to acce pted mod"
+    ]
+  },
+  {
+    "pattern": "acce ptance",
+    "fix": "acceptance",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-170(2)",
+    "examples": [
+      "of ''acce ptance\" may vary, given 1ts context. Make sure you understand the cont",
+      "Subjec t: Integrated Modu lar Avio nics (lMA) Compo nent Acce ptance Letter (uni"
+    ]
+  },
+  {
+    "pattern": "otherw ise",
+    "fix": "otherwise",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-170(1), 20-106(1)",
+    "examples": [
+      "certification ofthe aircraft or engine. Otherw ise, this request for an IMA Comp",
+      "system is otherw ise rendered inopera­"
+    ]
+  },
+  {
+    "pattern": "norma lly",
+    "fix": "normally",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-170(1), 23-17C(1)",
+    "examples": [
+      "ACO that you would norma lly apply to for a TSO authorization . The manufacturer",
+      "full yaw at a lower speed. These procedures norma lly do not result in a test th"
+    ]
+  },
+  {
+    "pattern": "reu se",
+    "fix": "reuse",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-170(2)",
+    "examples": [
+      "a. RTCA/DO-297 , paragraph 4.7.2 , addre sses reu se of a software module or app",
+      "4-5. Reu se of CEH or Hardware Component Containing CEH."
+    ]
+  },
+  {
+    "pattern": "und er",
+    "fix": "under",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-170(1), 20-106(1)",
+    "examples": [
+      "requirements appropriate for the equipment und er test. There are many aspect s ",
+      "tory, where in fabric samples are tested und er"
+    ]
+  },
+  {
+    "pattern": "circ uit",
+    "fix": "circuit",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-170(2)",
+    "examples": [
+      "b. If arc fault circuit breakers (AFCB) are utilized for IMA cabinet or rack cir",
+      "software controlled circ uit breakers that are controlled by microprocessors hos"
+    ]
+  },
+  {
+    "pattern": "showi ng",
+    "fix": "showing",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-170(2)",
+    "examples": [
+      "in showi ng complian ce with the applicable requirements for that LMA system. Se",
+      "The activity associated with showi ng compliance to RTCA/D0-297,"
+    ]
+  },
+  {
+    "pattern": "abi lity",
+    "fix": "ability",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-170(2)",
+    "examples": [
+      "systems for which the abi lity to remove or reset power during nonnal operations",
+      "capabi lity of the aircraft or the abi lity of the flight crew to respo nd to an"
+    ]
+  },
+  {
+    "pattern": "seeki ng",
+    "fix": "seeking",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-170(2)",
+    "examples": [
+      "FLS can refer to either exec utable code or data, such as a database. When seeki",
+      "level is appropriat e. With hard ware compon ents.for which you are seeki ng acc"
+    ]
+  },
+  {
+    "pattern": "cons ider",
+    "fix": "consider",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-170(1), 120-104(1)",
+    "examples": [
+      "use FLS, you should cons ider the following:",
+      "evaluation results. You should therefore cons ider the effects of load redistrib"
+    ]
+  },
+  {
+    "pattern": "integr ity",
+    "fix": "integrity",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-170(1), 20-73A(1)",
+    "examples": [
+      "commensu rate with the integr ity requir ed for the softwar e level of the data ",
+      "the aircraft. This includes the integr ity of the airframe and the operation of "
+    ]
+  },
+  {
+    "pattern": "prop erly",
+    "fix": "properly",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-170(1), 20-106(1)",
+    "examples": [
+      "the IMA system configurat ion by ensuring hard ware components are prop erly loc",
+      "justing nut. When prop erly adjusted , safety"
+    ]
+  },
+  {
+    "pattern": "marki ng",
+    "fix": "marking",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-170(1), 23-17C(1)",
+    "examples": [
+      "marki ng.",
+      "investigations. The particular marki ng means are those of § 23.811. § 23.783(c)"
+    ]
+  },
+  {
+    "pattern": "prov ide",
+    "fix": "provide",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-170(1), 21-26A(1)",
+    "examples": [
+      "Appendix A. See§ 2 I .616(c). TSO-Cl 53 does not prov ide either functional or i",
+      "a. Final acceptance require ments and quality system procedures should prov ide"
+    ]
+  },
+  {
+    "pattern": "conta ct",
+    "fix": "contact",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-170(1), 20-106(1)",
+    "examples": [
+      "OMPA NY CONTA CT INFORMATION",
+      "tive motion between two bodies in conta ct."
+    ]
+  },
+  {
+    "pattern": "capab le",
+    "fix": "capable",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-170(1), 21-26A(1)",
+    "examples": [
+      "Capab le of pe1forming its intended function without failure under a",
+      "attachment. Structural adhesives produce attachments capab le of transmitting si"
+    ]
+  },
+  {
+    "pattern": "pot ential",
+    "fix": "potential",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5200-31C(2)",
+    "examples": [
+      "e. A representative list of pot ential team members can be found in Table 3-1.",
+      "(2) Pre-fire plans for those on-airport facilities identified as being a pot ent"
+    ]
+  },
+  {
+    "pattern": "accom plish",
+    "fix": "accomplish",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5200-31C(2)",
+    "examples": [
+      "(b) Ensure readiness in the procedures and coordination needed to accom plish an",
+      "(d) Prepare for, and accom plish, return to normal operations."
+    ]
+  },
+  {
+    "pattern": "tit le",
+    "fix": "title",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5200-31C(2)",
+    "examples": [
+      "c. Dated Title Page. The tit le page should contain the date of publication, as ",
+      "NOTE: PL 104-264, Tit le VII - Aviation Disaster Family Assistance Act (ADFAA) r"
+    ]
+  },
+  {
+    "pattern": "defi ne",
+    "fix": "define",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5200-31C(1), 23-17C(1)",
+    "examples": [
+      "f. Plan Development and Maintenance. This section should defi ne who is responsi",
+      "to wipe the windows. It does, however, defi ne requirements to assure that a mea"
+    ]
+  },
+  {
+    "pattern": "med ia",
+    "fix": "media",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5200-31C(2)",
+    "examples": [
+      "(d) Refer all med ia requests for information to the Law Enforcement Coordinator",
+      "(d) Refer all med ia requests for information to the HMC or PIO, as appropriate."
+    ]
+  },
+  {
+    "pattern": "mu ltiple",
+    "fix": "multiple",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5200-31C(2)",
+    "examples": [
+      "(c) During mu ltiple scene emergencies or disasters, monitors resource demands f",
+      "(b) When mu ltiple scene emergencies or disasters occur, establishes liaison wit"
+    ]
+  },
+  {
+    "pattern": "comp lex",
+    "fix": "complex",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5200-31C(2)",
+    "examples": [
+      "(1) Due to the comp lex and specialized nature of aircraft incidents/accidents, ",
+      "(1) Due to the comp lex and specialized nature of aircraft incidents/accidents, "
+    ]
+  },
+  {
+    "pattern": "am ateur",
+    "fix": "amateur",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5200-31C(2)",
+    "examples": [
+      "(6) Consider use of am ateur radio operators (RACES, REACT) as source of communi",
+      "(5) Consider use of am ateur radio operators (RACES, REACT) as source of communi"
+    ]
+  },
+  {
+    "pattern": "schedu le",
+    "fix": "schedule",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "150/5200-31C(1), 120-104(1)",
+    "examples": [
+      "a. General Response Schedu le. A Hurricane Response Schedule may be developed an",
+      "XI. Schedu le..................................................................."
+    ]
+  },
+  {
+    "pattern": "condem ned",
+    "fix": "condemned",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5200-31C(2)",
+    "examples": [
+      "(d) Arrangements for the demolition of condem ned structures.",
+      "(d) Arrangements for the demolition of condem ned structures."
+    ]
+  },
+  {
+    "pattern": "form ation",
+    "fix": "formation",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5200-31C(2)",
+    "examples": [
+      "(1) As with other emergencies, the form ation of a Situation Analysis Team consi",
+      "(1) As with other emergencies, the form ation of a Situation Analysis Team consi"
+    ]
+  },
+  {
+    "pattern": "di sorder",
+    "fix": "disorder",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5200-31C(2)",
+    "examples": [
+      "(11) Provide Critical Incident Stress Di sorder support, as appropriate.",
+      "(6) Provide Critical Incident Stress Di sorder support, as appropriate."
+    ]
+  },
+  {
+    "pattern": "ope rator",
+    "fix": "operator",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5200-31C(2)",
+    "examples": [
+      "f. Aircraft Ope rator or designated representative. If an aircraft is directly i",
+      "(1) Agencies and organizations other than the airport ope rator are tasked by la"
+    ]
+  },
+  {
+    "pattern": "publ ic",
+    "fix": "public",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5200-31C(2)",
+    "examples": [
+      "NOTE: Publ ic Law 104-264, Title VII - Aviation Disaster Family Assistance Act (",
+      "E: Publ ic Law 104-264, Title VII - Aviation Disaster Family Assistance Act (ADF"
+    ]
+  },
+  {
+    "pattern": "mecha nic",
+    "fix": "mechanic",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-106(2)",
+    "examples": [
+      "mecha nic, or the manufacturer must be utilized",
+      "certificated mecha nic or certificated repair sta­"
+    ]
+  },
+  {
+    "pattern": "prot ective",
+    "fix": "protective",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-106(2)",
+    "examples": [
+      "ever the prot ective coating deteriorat es, decay",
+      "ing: cracked fittings , failure of glued joints, gated bolt holes. Inspect. prot"
+    ]
+  },
+  {
+    "pattern": "tra vel",
+    "fix": "travel",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-106(2)",
+    "examples": [
+      "for possible interference, full tra vel, abnormal",
+      "tabs for full tra vel, right or left , up"
+    ]
+  },
+  {
+    "pattern": "stru cture",
+    "fix": "structure",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-106(1), 120-104(1)",
+    "examples": [
+      "roding the adjacent stru cture.",
+      "b. WFD-Susceptible Stru cture [§ 26.21(b)(1)]—Describe how you will determine"
+    ]
+  },
+  {
+    "pattern": "attac hed",
+    "fix": "attached",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-106(2)",
+    "examples": [
+      "landing gear is attac hed for distortion, cracks,",
+      "are free from chafing and securely attac hed to"
+    ]
+  },
+  {
+    "pattern": "stab ilizer",
+    "fix": "stabilizer",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-106(2)",
+    "examples": [
+      "Inspect . fixed surfaces for damage or defects, Examine condition of ribs and st",
+      "adju stabl e stab ilizer or trim tab, it must op­"
+    ]
+  },
+  {
+    "pattern": "insp ect",
+    "fix": "inspect",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "20-106(2)",
+    "examples": [
+      "movement and full travel. Insp ect wiring for",
+      "Insp ect the autopilot system for general con­"
+    ]
+  },
+  {
+    "pattern": "conta iner",
+    "fix": "container",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-106(1), 21-26A(1)",
+    "examples": [
+      "ficient amount of fuel into a conta iner",
+      "bag or conta iner may be opene d is generally empirically determined. Physical"
+    ]
+  },
+  {
+    "pattern": "mi nimum",
+    "fix": "minimum",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "150/5220-26(2)",
+    "examples": [
+      "(1) RTCA/DO-260B, Mi nimum Operational Performance Standards for 1090",
+      "(2) RTCA/DO-282B, Mi nimum Operational Performance Standards for"
+    ]
+  },
+  {
+    "pattern": "eff ects",
+    "fix": "effects",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "20-156(1), 23-17C(1)",
+    "examples": [
+      "wires. You should address and mitigate the eff ects of electromagnetic susceptib",
+      "conditions. For indirect eff ects of lightning or HIRF, additional guidance is i"
+    ]
+  },
+  {
+    "pattern": "forwa rd",
+    "fix": "forward",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "120-104(1), 25-27A(1)",
+    "examples": [
+      "- Skin- forwa rd and aft rivet row of splice plate",
+      "anti-ice ducting.\" or \"Zone contains IDG, RAT, APU and forwa rd galley"
+    ]
+  },
+  {
+    "pattern": "quali ty",
+    "fix": "quality",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "21-26A(2)",
+    "examples": [
+      "7. Quali ty System. A quality system established for manufacturing of composites",
+      "9. Materials and Specific Quali ty System Pro cedures."
+    ]
+  },
+  {
+    "pattern": "assemb ly",
+    "fix": "assembly",
+    "totalCount": 2,
+    "acCount": 2,
+    "topACs": "21-26A(1), 21-49(1)",
+    "examples": [
+      "the assemb ly of manufactured composite parts and structures that a manufacturer",
+      "responsible to make sure that all the parts, components, subassemblies and assem"
+    ]
+  },
+  {
+    "pattern": "perf orm",
+    "fix": "perform",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "23-16A(2)",
+    "examples": [
+      "Condition b.—Turbulent Air. Perf orm the following until the first indication of",
+      "Condition b.—Turbulent air. Perf orm the following until the first indication of"
+    ]
+  },
+  {
+    "pattern": "contin ue",
+    "fix": "continue",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "25-27A(2)",
+    "examples": [
+      "Contin ue the analysis",
+      "and then contin ue the analysis on Workshee t 4 in"
+    ]
+  },
+  {
+    "pattern": "figu re",
+    "fix": "figure",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "25-27A(2)",
+    "examples": [
+      "(step 8 of figu re 1, refer to figure 2)",
+      "(step 8 of figu re 1, refer to figure 2)"
+    ]
+  },
+  {
+    "pattern": "enh anced",
+    "fix": "enhanced",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "25-27A(2)",
+    "examples": [
+      "Enh anced Zon al Analysi s - Task Summary",
+      "Enh anced Zon al Analysi s - Task Summary"
+    ]
+  },
+  {
+    "pattern": "zon al",
+    "fix": "zonal",
+    "totalCount": 2,
+    "acCount": 1,
+    "topACs": "25-27A(2)",
+    "examples": [
+      "Enh anced Zon al Analysi s - Task Summary",
+      "Enh anced Zon al Analysi s - Task Summary"
+    ]
+  }
+]

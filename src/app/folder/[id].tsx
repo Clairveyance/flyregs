@@ -1,0 +1,515 @@
+import { useState, useCallback, useRef } from 'react'
+import {
+  View,
+  Text,
+  SectionList,
+  Pressable,
+  TextInput,
+  Alert,
+  StyleSheet,
+  Animated,
+  PanResponder,
+} from 'react-native'
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { useTheme } from '@/context/theme'
+import { useFS } from '@/context/fontScale'
+import { useAuth } from '@/context/auth'
+import { OverlayHeader } from '@/components/ScreenHeader'
+import { Icon } from '@/components/Icon'
+import {
+  getFolders,
+  getItemsInFolder,
+  renameFolder,
+  deleteFolder,
+  removeFromFolder,
+  Folder,
+  FolderItem,
+} from '@/lib/folders'
+import { getBookmarks, BookmarkAC } from '@/lib/bookmarks'
+import { useShareActions } from '@/lib/share'
+
+// ── Local Note type (mirrors notes.tsx — local-first AsyncStorage notes) ──────
+interface Note {
+  id: string
+  title: string
+  body: string
+  linked_ac: string | null
+  updated_at: string
+}
+
+const NOTES_KEY = '@flyregs/notes'
+
+// ── Unified entry for the mixed-content list ──────────────────────────────────
+type ACEntry  = { kind: 'ac';   data: BookmarkAC;  folderItem: FolderItem }
+type NoteEntry = { kind: 'note'; data: Note;        folderItem: FolderItem }
+type Entry = ACEntry | NoteEntry
+
+export default function FolderDetail() {
+  const { tokens } = useTheme()
+  const fs = useFS()
+  const { isPremium } = useAuth()
+  const { shareAC, shareNote } = useShareActions()
+  const { id } = useLocalSearchParams<{ id: string }>()
+
+  const [folder, setFolder] = useState<Folder | null>(null)
+  const [acEntries, setAcEntries] = useState<ACEntry[]>([])
+  const [noteEntries, setNoteEntries] = useState<NoteEntry[]>([])
+
+  const [renaming, setRenaming] = useState(false)
+  const [renameText, setRenameText] = useState('')
+
+  const load = useCallback(async () => {
+    const [folders, items, bookmarks, notesRaw] = await Promise.all([
+      getFolders(),
+      getItemsInFolder(id),
+      getBookmarks(),
+      AsyncStorage.getItem(NOTES_KEY),
+    ])
+
+    const thisFolder = folders.find((f) => f.id === id) ?? null
+    setFolder(thisFolder)
+
+    const notes: Note[] = notesRaw ? JSON.parse(notesRaw) : []
+    const bookmarkMap = new Map(bookmarks.map((b) => [b.id, b]))
+    const noteMap = new Map(notes.map((n) => [n.id, n]))
+
+    const acs: ACEntry[] = []
+    const notesList: NoteEntry[] = []
+
+    for (const item of items) {
+      if (item.item_type === 'ac') {
+        const bm = bookmarkMap.get(item.item_id)
+        if (bm) acs.push({ kind: 'ac', data: bm, folderItem: item })
+      } else {
+        const note = noteMap.get(item.item_id)
+        if (note) notesList.push({ kind: 'note', data: note, folderItem: item })
+      }
+    }
+
+    setAcEntries(acs)
+    setNoteEntries(notesList)
+  }, [id])
+
+  useFocusEffect(useCallback(() => { load() }, [load]))
+
+  const startRename = () => {
+    if (!folder) return
+    setRenameText(folder.name)
+    setRenaming(true)
+  }
+
+  const handleRename = async () => {
+    if (!renameText.trim() || !folder) { setRenaming(false); return }
+    await renameFolder(folder.id, renameText.trim())
+    setFolder((f) => f ? { ...f, name: renameText.trim() } : f)
+    setRenaming(false)
+  }
+
+  const handleDeleteFolder = () => {
+    if (!folder) return
+    Alert.alert(
+      'Delete Folder',
+      `Delete "${folder.name}"? The ACs and notes inside will not be deleted.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteFolder(folder.id)
+            router.back()
+          },
+        },
+      ]
+    )
+  }
+
+  const handleRemove = (item: FolderItem) => {
+    const label = item.item_type === 'ac' ? 'this AC' : 'this note'
+    Alert.alert('Remove from Folder', `Remove ${label} from the folder?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          await removeFromFolder(folder!.id, item.item_type, item.item_id)
+          if (item.item_type === 'ac') {
+            setAcEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
+          } else {
+            setNoteEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
+          }
+        },
+      },
+    ])
+  }
+
+  const handleShareAC = (item: BookmarkAC) => {
+    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    shareAC(item)
+  }
+
+  const handleShareNote = (note: Note) => {
+    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    shareNote(note)
+  }
+
+  const totalCount = acEntries.length + noteEntries.length
+
+  const sections = [
+    ...(acEntries.length > 0
+      ? [{ title: `SAVED ACS (${acEntries.length})`, data: acEntries as Entry[] }]
+      : []),
+    ...(noteEntries.length > 0
+      ? [{ title: `NOTES (${noteEntries.length})`, data: noteEntries as Entry[] }]
+      : []),
+  ]
+
+  const rightSlot = (
+    <View style={styles.headerRight}>
+      <Pressable onPress={startRename} hitSlop={10} style={styles.headerBtn}>
+        <Icon name="pencil" size={fs(21)} color={tokens.t2} />
+      </Pressable>
+      <Pressable onPress={handleDeleteFolder} hitSlop={10} style={styles.headerBtn}>
+        <Icon name="trash" size={fs(21)} color={tokens.t4} />
+      </Pressable>
+    </View>
+  )
+
+  return (
+    <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+      <OverlayHeader
+        title={folder?.name ?? 'Folder'}
+        onBack={() => router.back()}
+        right={rightSlot}
+      />
+
+      {/* Inline rename bar */}
+      {renaming && (
+        <View style={[styles.renameBar, { backgroundColor: tokens.bg2, borderBottomColor: tokens.bdr }]}>
+          <TextInput
+            style={[styles.renameInput, { color: tokens.t1, fontSize: fs(15) }]}
+            value={renameText}
+            onChangeText={setRenameText}
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={handleRename}
+            maxLength={60}
+            placeholder="Folder name"
+            placeholderTextColor={tokens.t3}
+          />
+          <Pressable onPress={handleRename} hitSlop={8}>
+            <Icon name="checkmark.circle.fill" size={22} color={tokens.blu} />
+          </Pressable>
+          <Pressable onPress={() => setRenaming(false)} hitSlop={8}>
+            <Icon name="xmark.circle.fill" size={22} color={tokens.t3} />
+          </Pressable>
+        </View>
+      )}
+
+      {totalCount === 0 ? (
+        <View style={styles.empty}>
+          <Icon name="folder" size={40} color={tokens.t4} />
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Folder is empty</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            Add ACs from the Saved tab or notes from the Notes tab using the folder icon on each card.
+          </Text>
+        </View>
+      ) : (
+        <SectionList
+          sections={sections}
+          keyExtractor={(item) => item.folderItem.id}
+          contentContainerStyle={styles.list}
+          stickySectionHeadersEnabled={false}
+          renderSectionHeader={({ section }) => (
+            <Text style={[styles.sectionLabel, { color: tokens.t3, fontSize: fs(11) }]}>{section.title}</Text>
+          )}
+          renderItem={({ item }) =>
+            item.kind === 'ac' ? (
+              <SwipeableACRow
+                entry={item}
+                tokens={tokens}
+                onPress={() => router.push(`/ac/${item.data.id}`)}
+                onRemove={() => handleRemove(item.folderItem)}
+                onShare={() => handleShareAC(item.data)}
+              />
+            ) : (
+              <SwipeableNoteRow
+                entry={item}
+                tokens={tokens}
+                onPress={() => router.push({ pathname: '/(tabs)/notes', params: { openId: item.data.id } })}
+                onRemove={() => handleRemove(item.folderItem)}
+                onShare={() => handleShareNote(item.data)}
+              />
+            )
+          }
+        />
+      )}
+    </View>
+  )
+}
+
+// ── Swipeable AC row ──────────────────────────────────────────────────────────
+
+function SwipeableACRow({
+  entry, tokens, onPress, onRemove, onShare,
+}: {
+  entry: ACEntry
+  tokens: ReturnType<typeof useTheme>['tokens']
+  onPress: () => void
+  onRemove: () => void
+  onShare: () => void
+}) {
+  const fs = useFS()
+  const translateX = useRef(new Animated.Value(0)).current
+  const swiped = useRef(false)
+
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) =>
+        Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy),
+      onPanResponderMove: (_, g) => {
+        translateX.setValue(Math.min(0, Math.max(-84, g.dx)))
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dx < -42) {
+          Animated.spring(translateX, { toValue: -76, useNativeDriver: true, damping: 18, stiffness: 280 }).start()
+          swiped.current = true
+        } else {
+          Animated.spring(translateX, { toValue: 0, useNativeDriver: true, damping: 18, stiffness: 280 }).start()
+          swiped.current = false
+        }
+      },
+    })
+  ).current
+
+  const handlePress = () => {
+    if (swiped.current) {
+      Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start()
+      swiped.current = false
+    } else {
+      onPress()
+    }
+  }
+
+  const { data: item } = entry
+
+  return (
+    <View style={styles.swipeWrap}>
+      <View style={styles.removeBg}>
+        <Pressable style={styles.removeAction} onPress={() => {
+          Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start()
+          swiped.current = false
+          onRemove()
+        }}>
+          <Text style={[styles.removeActionText, { fontSize: fs(12) }]}>Remove</Text>
+        </Pressable>
+      </View>
+      <Animated.View style={{ transform: [{ translateX }] }} {...pan.panHandlers}>
+        <Pressable
+          style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+          onPress={handlePress}
+        >
+          <View style={[styles.typeBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
+            <Text style={[styles.typeBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>AC</Text>
+          </View>
+          <View style={styles.rowBody}>
+            <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12) }]}>{item.document_number}</Text>
+            <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>{item.title}</Text>
+            {item.office && (
+              <Text style={[styles.rowMeta, { color: tokens.t4, fontSize: fs(11) }]}>{item.office}</Text>
+            )}
+          </View>
+          <Pressable onPress={onShare} hitSlop={8} style={styles.rowShareBtn}>
+            <Icon name="square.and.arrow.up" size={fs(17)} color={tokens.t3} />
+          </Pressable>
+        </Pressable>
+      </Animated.View>
+    </View>
+  )
+}
+
+// ── Swipeable Note row ────────────────────────────────────────────────────────
+
+function SwipeableNoteRow({
+  entry, tokens, onPress, onRemove, onShare,
+}: {
+  entry: NoteEntry
+  tokens: ReturnType<typeof useTheme>['tokens']
+  onPress: () => void
+  onRemove: () => void
+  onShare: () => void
+}) {
+  const fs = useFS()
+  const translateX = useRef(new Animated.Value(0)).current
+  const swiped = useRef(false)
+
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) =>
+        Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy),
+      onPanResponderMove: (_, g) => {
+        translateX.setValue(Math.min(0, Math.max(-84, g.dx)))
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dx < -42) {
+          Animated.spring(translateX, { toValue: -76, useNativeDriver: true, damping: 18, stiffness: 280 }).start()
+          swiped.current = true
+        } else {
+          Animated.spring(translateX, { toValue: 0, useNativeDriver: true, damping: 18, stiffness: 280 }).start()
+          swiped.current = false
+        }
+      },
+    })
+  ).current
+
+  const handlePress = () => {
+    if (swiped.current) {
+      Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start()
+      swiped.current = false
+    } else {
+      onPress()
+    }
+  }
+
+  const { data: note } = entry
+
+  function timeAgo(iso: string): string {
+    const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
+    if (secs < 3600) return `${Math.max(1, Math.floor(secs / 60))}m ago`
+    if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`
+    const days = Math.floor(secs / 86400)
+    if (days === 1) return 'yesterday'
+    if (days < 7) return `${days} days ago`
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+
+  return (
+    <View style={styles.swipeWrap}>
+      <View style={styles.removeBg}>
+        <Pressable style={styles.removeAction} onPress={() => {
+          Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start()
+          swiped.current = false
+          onRemove()
+        }}>
+          <Text style={[styles.removeActionText, { fontSize: fs(12) }]}>Remove</Text>
+        </Pressable>
+      </View>
+      <Animated.View style={{ transform: [{ translateX }] }} {...pan.panHandlers}>
+        <Pressable
+          style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+          onPress={handlePress}
+        >
+          <View style={[styles.typeBadge, { backgroundColor: tokens.gdim ?? 'rgba(52,211,153,.10)', borderColor: tokens.gbdr ?? 'rgba(52,211,153,.24)' }]}>
+            <Text style={[styles.typeBadgeText, { color: tokens.grn, fontSize: fs(9.5) }]}>NOTE</Text>
+          </View>
+          <View style={styles.rowBody}>
+            <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
+              {note.title || 'Untitled'}
+            </Text>
+            <Text style={[styles.rowPreview, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={2}>
+              {note.body}
+            </Text>
+            <View style={styles.rowFooter}>
+              <Text style={[styles.rowMeta, { color: tokens.t4, fontSize: fs(11) }]}>{timeAgo(note.updated_at)}</Text>
+              {note.linked_ac && (
+                <View style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
+                  <Icon name="link" size={9} color={tokens.blu} />
+                  <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>AC {note.linked_ac}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+          <Pressable onPress={onShare} hitSlop={8} style={styles.rowShareBtn}>
+            <Icon name="square.and.arrow.up" size={fs(17)} color={tokens.t3} />
+          </Pressable>
+        </Pressable>
+      </Animated.View>
+    </View>
+  )
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  headerBtn: { padding: 6 },
+
+  renameBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  renameInput: { flex: 1, fontSize: 15, fontWeight: '500', paddingVertical: 2 },
+
+  empty: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+    gap: 8,
+  },
+  emptyTitle: { fontWeight: '600', fontSize: 16, marginTop: 8, textAlign: 'center' },
+  emptySub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 300 },
+
+  list: { padding: 12, paddingBottom: 40 },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    marginTop: 8,
+    marginBottom: 6,
+    paddingLeft: 2,
+  },
+
+  swipeWrap: { marginBottom: 8, borderRadius: 14, overflow: 'hidden' },
+  removeBg: {
+    position: 'absolute',
+    top: 0, bottom: 0, right: 0,
+    width: 76,
+    backgroundColor: '#F87171',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  removeAction: {
+    flex: 1, width: '100%',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  removeActionText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+  },
+  rowShareBtn: { padding: 6, flexShrink: 0 },
+  typeBadge: {
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    alignSelf: 'flex-start',
+    flexShrink: 0,
+  },
+  typeBadgeText: { fontSize: 9.5, fontWeight: '800', letterSpacing: 0.4 },
+  rowBody: { flex: 1, gap: 3 },
+  acNum: { fontWeight: '700', fontSize: 12 },
+  rowTitle: { fontWeight: '500', fontSize: 14, lineHeight: 20 },
+  rowPreview: { fontSize: 12.5, lineHeight: 18 },
+  rowFooter: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  rowMeta: { fontSize: 11 },
+  acChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    borderRadius: 6, borderWidth: 1,
+    paddingHorizontal: 5, paddingVertical: 1,
+  },
+  acChipText: { fontSize: 10.5, fontWeight: '600' },
+})

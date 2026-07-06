@@ -1,0 +1,75 @@
+name: Weekly FAA Sync
+
+# Runs the same 5-stage pipeline that used to run via launchd on a single
+# Mac (scrape -> OCR fixes -> parse backfill -> parser audit -> update
+# alerts). Moving it here means the weekly update no longer depends on any
+# one machine being powered on and awake at 3am.
+#
+# Manual runs: use the "Run workflow" button in the Actions tab (the
+# workflow_dispatch trigger below) — handy for testing without waiting for
+# the schedule, and lets you pass --full or --dry-run.
+
+on:
+  schedule:
+    # 10:00 UTC every Monday. Adjust to your preferred time — GitHub Actions
+    # cron is always UTC, unlike the old launchd job which ran in local time.
+    - cron: '0 10 * * 1'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Sync mode'
+        required: false
+        default: 'incremental'
+        type: choice
+        options:
+          - incremental
+          - full
+          - dry-run
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: ac-app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Python dependencies
+        run: pip install -r sync/requirements.txt
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Write .env.scraper from secrets
+        run: |
+          cat > .env.scraper <<EOF
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          EOF
+
+      - name: Run sync
+        run: |
+          chmod +x sync.sh
+          case "${{ github.event.inputs.mode }}" in
+            full)     ./sync.sh --full ;;
+            dry-run)  ./sync.sh --dry-run ;;
+            *)        ./sync.sh ;;
+          esac
+
+      - name: Clean up secrets file
+        if: always()
+        run: rm -f .env.scraper

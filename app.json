@@ -1,18 +1,31 @@
 {
   "expo": {
-    "name": "ac-app",
+    "name": "FlyRegs",
     "slug": "ac-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "acapp",
+    "scheme": "flyregs",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/icon.png",
+      "bundleIdentifier": "com.clairveyance.flyregs",
+      "supportsTablet": true,
+      "ITSAppUsesNonExemptEncryption": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "UISupportedInterfaceOrientations~ipad": [
+          "UIInterfaceOrientationPortrait",
+          "UIInterfaceOrientationPortraitUpsideDown",
+          "UIInterfaceOrientationLandscapeLeft",
+          "UIInterfaceOrientationLandscapeRight"
+        ]
+      }
     },
     "android": {
+      "package": "com.clairveyance.flyregs",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#07111E",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -20,7 +33,7 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
@@ -28,17 +41,35 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#07111E",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 120,
           "android": {
             "image": "./assets/images/splash-icon.png",
-            "imageWidth": 76
+            "imageWidth": 120
           }
         }
-      ]
+      ],
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "color": "#C6A224",
+          "mode": "production"
+        }
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "3c43ad1e-f244-4270-b088-8db775b0dbe7"
+      }
+    },
+    "owner": "clairveyance"
   }
 }
