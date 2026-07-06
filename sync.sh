@@ -37,7 +37,7 @@ set -euo pipefail
 
 APP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$APP/.env.scraper"
-TOUCHED_FILE="$(mktemp -t flyregs-touched)"
+TOUCHED_FILE="$(mktemp -t flyregs-touched.XXXXXX)"
 
 PYTHON3="${PYTHON3:-python3}"
 NODE="${NODE:-node}"
