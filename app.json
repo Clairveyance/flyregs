@@ -58,7 +58,16 @@
           "mode": "production"
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "FlyRegs uses your photo library to set a profile picture, shown when you share content with other users.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      "expo-file-system"
     ],
     "experiments": {
       "typedRoutes": true,
