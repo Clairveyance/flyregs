@@ -30,10 +30,10 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files (catch-all -- .env.example below is the one deliberate exception)
 .env
-.env*.local
-.env.scraper
+.env.*
+!.env.example
 
 # credentials
 google-service-account.json
