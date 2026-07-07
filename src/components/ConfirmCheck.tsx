@@ -24,14 +24,17 @@ export function ConfirmCheck({ trigger, label }: { trigger: number; label?: stri
 
   useEffect(() => {
     if (trigger === 0) return
+    // A bare checkmark reads instantly, but "Added to <folder name>" needs
+    // real time to read — hold it on screen substantially longer.
+    const holdMs = label ? 1600 : 550
     opacity.value = withSequence(
       withTiming(1, { duration: 120 }),
-      withDelay(550, withTiming(0, { duration: 220 }))
+      withDelay(holdMs, withTiming(0, { duration: 220 }))
     )
     scale.value = withSequence(
       withTiming(1.15, { duration: 200, easing: Easing.out(Easing.back(2)) }),
       withTiming(1, { duration: 120 }),
-      withDelay(550, withTiming(0.85, { duration: 220 }))
+      withDelay(holdMs, withTiming(0.85, { duration: 220 }))
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trigger])
