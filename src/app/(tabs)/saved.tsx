@@ -330,7 +330,7 @@ export default function SavedScreen() {
       {/* Back up & sync row */}
       {tab === 'all' && (
         <View style={styles.syncWrap}>
-          <View style={[styles.syncRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+          <View style={[styles.syncRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}>
             <View style={styles.syncTopRow}>
               <Text style={[styles.syncLabel, { color: tokens.t1, fontSize: fs(13) }]}>Back up & sync</Text>
               {syncBusy ? (
