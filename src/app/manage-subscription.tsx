@@ -125,6 +125,22 @@ export default function ManageSubscriptionScreen() {
           </Pressable>
         )}
 
+        {/* Downgrading to a lower paid tier (not cancelling outright) is only
+            a meaningful action from Premium -- Pro has nowhere lower to go
+            except Free, which is just cancellation, covered by the row
+            below. Moving to a lower tier within the same subscription group
+            has to happen in Apple/Google's own UI, same hand-off as manage/
+            cancel, just labeled for this specific case so it isn't mistaken
+            for cancelling entirely. */}
+        {tier === 'premium' && (
+          <Row
+            icon="arrow.down"
+            label="Downgrade to Pro"
+            tokens={tokens}
+            onPress={handleManage}
+          />
+        )}
+
         {/* Manage / cancel — has to hand off to the platform store, Apple
             and Google don't allow in-app cancellation of IAP subscriptions */}
         {tier !== 'free' && (

@@ -20,6 +20,7 @@ const SF_TO_IONICONS: Record<string, string> = {
   'crown.fill': 'ribbon',
   'arrow.clockwise': 'refresh-outline',
   'arrow.down.circle': 'cloud-download-outline',
+  'arrow.down': 'arrow-down-outline',
   'arrow.up.circle': 'arrow-up-circle-outline',
   'moon.stars': 'moon-outline',
   'clock.badge': 'timer-outline',
