@@ -15,12 +15,14 @@ function makeShareToken(): string {
   return Array.from({ length: 24 }, () => Math.random().toString(36)[2] ?? '0').join('')
 }
 
-// Deep link opened via the app's own URL scheme (see app.json's "scheme").
-// Requires the recipient to already have FlyRegs installed -- a universal
-// link with a smart web fallback would be a nicer v2, but needs hosting an
-// apple-app-site-association file on the website, which is separate scope.
+// Routes through a flyregs.com/join/{token} landing page rather than the raw
+// flyregs:// custom scheme -- if the recipient doesn't have the app
+// installed, a bare custom-scheme link fails silently with no prompt. The
+// web page attempts the same custom-scheme handoff itself and falls back to
+// an App Store link if that fails. See the app's own src/app/join/[token].tsx
+// for the in-app handler this ultimately hands off to.
 export function buildShareLink(token: string): string {
-  return `flyregs://join/${token}`
+  return `https://flyregs.com/join/${token}`
 }
 
 // Returns the existing share link if this folder already has one, generating
@@ -49,12 +51,72 @@ export async function joinSharedFolder(token: string): Promise<SharedFolderSumma
 }
 
 export async function getMyCollaborations(): Promise<SharedFolderSummary[]> {
-  const { data: memberships } = await supabase.from('folder_collaborators').select('folder_id')
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  // folder_collaborators has two RLS policies (one for the collaborator, one
+  // for the owner) that combine with OR -- a user who both owns shared
+  // folders AND has joined someone else's would otherwise get both mixed
+  // into one unfiltered select. Explicitly scope to rows where THIS user is
+  // the joining collaborator, not the owner.
+  const { data: memberships } = await supabase
+    .from('folder_collaborators')
+    .select('folder_id')
+    .eq('user_id', user.id)
   const folderIds = (memberships ?? []).map((m) => m.folder_id)
   if (!folderIds.length) return []
 
-  const { data: folders } = await supabase.from('synced_folders').select('id, name').in('id', folderIds)
+  // Exclude folders the owner has since (soft-)deleted -- deleteFolder() only
+  // flips a `deleted` flag rather than removing the row, so without this
+  // filter a collaborator would keep seeing a folder the owner thinks is gone.
+  const { data: folders } = await supabase
+    .from('synced_folders')
+    .select('id, name')
+    .in('id', folderIds)
+    .eq('deleted', false)
   return (folders ?? []).map((f) => ({ folder_id: f.id, folder_name: f.name }))
+}
+
+export interface SharedByMeFolder extends SharedFolderSummary {
+  collaboratorCount: number
+}
+
+// The owner-facing counterpart to getMyCollaborations -- every folder this
+// user owns that currently has at least one collaborator, with a count, so
+// they don't have to open each folder individually to see what's shared.
+export async function getMySharedFolders(): Promise<SharedByMeFolder[]> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  const { data: rows } = await supabase
+    .from('folder_collaborators')
+    .select('folder_id')
+    .eq('owner_id', user.id)
+  if (!rows?.length) return []
+
+  const counts = new Map<string, number>()
+  for (const r of rows) counts.set(r.folder_id, (counts.get(r.folder_id) ?? 0) + 1)
+  const folderIds = [...counts.keys()]
+
+  const { data: folders } = await supabase
+    .from('synced_folders')
+    .select('id, name')
+    .in('id', folderIds)
+    .eq('deleted', false)
+  return (folders ?? []).map((f) => ({
+    folder_id: f.id,
+    folder_name: f.name,
+    collaboratorCount: counts.get(f.id) ?? 0,
+  }))
+}
+
+// Revokes sharing entirely: removes every collaborator and invalidates the
+// share link (a new one is generated next time the owner shares again). The
+// folder itself and its contents are untouched -- this only undoes sharing,
+// it's not folder deletion.
+export async function unshareFolder(folderId: string): Promise<void> {
+  await supabase.from('folder_collaborators').delete().eq('folder_id', folderId)
+  await supabase.from('synced_folders').update({ share_token: null }).eq('id', folderId)
 }
 
 export interface SharedFolderACItem {

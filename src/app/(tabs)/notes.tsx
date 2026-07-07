@@ -306,6 +306,7 @@ export default function NotesScreen() {
                     value={syncEnabled}
                     onValueChange={toggleSync}
                     trackColor={{ true: tokens.blu, false: undefined }}
+                    thumbColor="#fff"
                     style={styles.syncSwitch}
                   />
                 )}

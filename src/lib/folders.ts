@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { syncPushFolder, syncPushFolderDelete, syncPushFolderItems, syncPushFolderItemDeletes } from '@/lib/syncPush'
+import { unshareFolder } from '@/lib/sharedFolders'
 
 const FOLDERS_KEY = '@flyregs/folders'
 const FOLDER_ITEMS_KEY = '@flyregs/folder_items'
@@ -61,6 +62,9 @@ export async function deleteFolder(id: string): Promise<void> {
   ])
   syncPushFolderDelete(id)
   syncPushFolderItemDeletes(itemsInFolder.map((i) => i.id))
+  // Deleting a folder should also drop anyone it was shared with -- otherwise
+  // stale folder_collaborators rows linger forever with no owning folder.
+  unshareFolder(id).catch(() => {})
 }
 
 // ── Folder items ──────────────────────────────────────────────────────────────

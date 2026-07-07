@@ -34,7 +34,7 @@ import {
 } from '@/lib/folders'
 import { getNotes } from '@/lib/notes'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
-import { getMyCollaborations, SharedFolderSummary } from '@/lib/sharedFolders'
+import { getMyCollaborations, getMySharedFolders, unshareFolder, SharedFolderSummary, SharedByMeFolder } from '@/lib/sharedFolders'
 import { FolderListView } from '@/components/FolderListView'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
@@ -59,6 +59,8 @@ export default function SavedScreen() {
   const [downloads, setDownloads] = useState<DownloadedAC[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
   const [collaborations, setCollaborations] = useState<SharedFolderSummary[]>([])
+  const [sharedByMe, setSharedByMe] = useState<SharedByMeFolder[]>([])
+  const [sharedSubTab, setSharedSubTab] = useState<'withMe' | 'fromMe'>('withMe')
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({})
   const [pickerAC, setPickerAC] = useState<BookmarkAC | null>(null)
   const [pickerDownloadId, setPickerDownloadId] = useState<string | null>(null)
@@ -80,7 +82,10 @@ export default function SavedScreen() {
     })
     // Joining a shared folder is open to any tier (only the owner needs
     // Premium to create one), so this is gated on being signed in, not Premium.
-    if (session?.user?.id) getMyCollaborations().then(setCollaborations)
+    if (session?.user?.id) {
+      getMyCollaborations().then(setCollaborations)
+      getMySharedFolders().then(setSharedByMe)
+    }
   }, [session?.user?.id])
 
   useFocusEffect(useCallback(() => {
@@ -213,6 +218,24 @@ export default function SavedScreen() {
     load()
   }
 
+  const handleUnshare = (item: SharedByMeFolder) => {
+    Alert.alert(
+      'Stop Sharing',
+      `Remove everyone's access to "${item.folder_name}"? The folder itself won't be deleted -- you can share it again later with a new invite link.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Stop Sharing',
+          style: 'destructive',
+          onPress: async () => {
+            await unshareFolder(item.folder_id)
+            setSharedByMe((prev) => prev.filter((f) => f.folder_id !== item.folder_id))
+          },
+        },
+      ]
+    )
+  }
+
   const handleDeleteFolder = (folder: Folder) => {
     Alert.alert('Delete Folder', `Delete "${folder.name}"? The ACs and notes inside will not be deleted.`, [
       { text: 'Cancel', style: 'cancel' },
@@ -342,6 +365,7 @@ export default function SavedScreen() {
                   value={syncEnabled}
                   onValueChange={toggleSync}
                   trackColor={{ true: tokens.blu, false: undefined }}
+                  thumbColor="#fff"
                   style={styles.syncSwitch}
                 />
               )}
@@ -408,33 +432,86 @@ export default function SavedScreen() {
           onCreateFolder={() => setNewFolderVisible(true)}
         />
       ) : tab === 'shared' ? (
-        collaborations.length === 0 ? (
-          <View style={styles.center}>
-            <Icon name="person.2.fill" size={40} color={tokens.t4} />
-            <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Nothing shared with you yet</Text>
-            <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-              When someone invites you to a folder, it'll show up here.
-            </Text>
+        <>
+          <View style={styles.subSegWrap}>
+            <View style={[styles.subSeg, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+              {(['withMe', 'fromMe'] as const).map((s) => (
+                <Pressable
+                  key={s}
+                  style={[styles.subSegBtn, sharedSubTab === s && { backgroundColor: tokens.blu }]}
+                  onPress={() => setSharedSubTab(s)}
+                >
+                  <Text style={[styles.subSegText, { color: sharedSubTab === s ? '#fff' : tokens.t3, fontSize: fs(12.5) }]}>
+                    {s === 'withMe' ? 'With Me' : 'From Me'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
-        ) : (
-          <FlatList
-            data={collaborations}
-            keyExtractor={(c) => c.folder_id}
-            contentContainerStyle={styles.sharedList}
-            renderItem={({ item }) => (
-              <Pressable
-                style={[styles.sharedRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
-                onPress={() => router.push(`/folder/shared/${item.folder_id}`)}
-              >
-                <Icon name="person.2.fill" size={18} color={tokens.t2} />
-                <Text style={[styles.sharedRowText, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
-                  {item.folder_name}
+
+          {sharedSubTab === 'withMe' ? (
+            collaborations.length === 0 ? (
+              <View style={styles.center}>
+                <Icon name="person.2.fill" size={40} color={tokens.t4} />
+                <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Nothing shared with you yet</Text>
+                <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+                  When someone invites you to a folder, it'll show up here.
                 </Text>
-                <Icon name="chevron.right" size={14} color={tokens.t4} />
-              </Pressable>
-            )}
-          />
-        )
+              </View>
+            ) : (
+              <FlatList
+                data={collaborations}
+                keyExtractor={(c) => c.folder_id}
+                contentContainerStyle={styles.sharedList}
+                renderItem={({ item }) => (
+                  <Pressable
+                    style={[styles.sharedRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
+                    onPress={() => router.push(`/folder/shared/${item.folder_id}`)}
+                  >
+                    <Icon name="person.2.fill" size={18} color={tokens.t2} />
+                    <Text style={[styles.sharedRowText, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
+                      {item.folder_name}
+                    </Text>
+                    <Icon name="chevron.right" size={14} color={tokens.t4} />
+                  </Pressable>
+                )}
+              />
+            )
+          ) : sharedByMe.length === 0 ? (
+            <View style={styles.center}>
+              <Icon name="person.2.fill" size={40} color={tokens.t4} />
+              <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>You haven't shared anything yet</Text>
+              <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+                Open a folder in the Folders tab and tap the people icon to invite someone.
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={sharedByMe}
+              keyExtractor={(c) => c.folder_id}
+              contentContainerStyle={styles.sharedList}
+              renderItem={({ item }) => (
+                <Pressable
+                  style={[styles.sharedRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
+                  onPress={() => router.push(`/folder/${item.folder_id}`)}
+                >
+                  <Icon name="folder" size={18} color={tokens.t2} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.sharedRowText, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
+                      {item.folder_name}
+                    </Text>
+                    <Text style={{ color: tokens.t4, fontSize: fs(11.5) }}>
+                      {item.collaboratorCount} {item.collaboratorCount === 1 ? 'person' : 'people'}
+                    </Text>
+                  </View>
+                  <Pressable onPress={() => handleUnshare(item)} hitSlop={10} style={{ padding: 4 }}>
+                    <Icon name="xmark.circle" size={20} color={tokens.t4} />
+                  </Pressable>
+                </Pressable>
+              )}
+            />
+          )}
+        </>
       ) : (
         <OfflineListView
           downloads={downloads}
@@ -970,6 +1047,19 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   segText: { fontSize: 13, fontWeight: '600' },
+
+  subSegWrap: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 10 },
+  subSeg: {
+    flexDirection: 'row',
+    borderRadius: 9,
+    borderWidth: 1,
+    overflow: 'hidden',
+    padding: 2,
+    gap: 2,
+    alignSelf: 'flex-start',
+  },
+  subSegBtn: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 7 },
+  subSegText: { fontSize: 12.5, fontWeight: '600' },
 
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   selectBtn: { fontSize: 13, fontWeight: '600' },

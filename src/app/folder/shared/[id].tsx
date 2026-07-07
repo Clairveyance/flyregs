@@ -25,15 +25,21 @@ export default function SharedFolderDetail() {
   const [folderName, setFolderName] = useState('')
   const [acs, setAcs] = useState<ACRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [removed, setRemoved] = useState(false)
 
   const load = useCallback(async () => {
     if (typeof id !== 'string') return
     setLoading(true)
     const [{ data: folder }, items] = await Promise.all([
-      supabase.from('synced_folders').select('name').eq('id', id).maybeSingle(),
+      supabase.from('synced_folders').select('name').eq('id', id).eq('deleted', false).maybeSingle(),
       getSharedFolderACItems(id),
     ])
-    setFolderName(folder?.name ?? 'Shared folder')
+    if (!folder) {
+      setRemoved(true)
+      setLoading(false)
+      return
+    }
+    setFolderName(folder.name)
 
     const acIds = items.map((i) => i.item_id)
     if (acIds.length) {
@@ -87,6 +93,16 @@ export default function SharedFolderDetail() {
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
+      ) : removed ? (
+        <View style={styles.center}>
+          <Icon name="folder" size={36} color={tokens.t4} />
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(15) }]}>
+            This folder is no longer shared
+          </Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13) }]}>
+            The owner deleted it or stopped sharing.
+          </Text>
+        </View>
       ) : acs.length === 0 ? (
         <View style={styles.center}>
           <Icon name="folder" size={36} color={tokens.t4} />
@@ -129,7 +145,8 @@ const styles = StyleSheet.create({
   },
   badgeText: { fontWeight: '600' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
-  emptyTitle: { fontWeight: '600' },
+  emptyTitle: { fontWeight: '600', textAlign: 'center' },
+  emptySub: { textAlign: 'center', marginTop: 2 },
   list: { padding: 16, gap: 10 },
   row: {
     flexDirection: 'row',
