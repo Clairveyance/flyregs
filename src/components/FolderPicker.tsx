@@ -29,8 +29,10 @@ interface Props {
   itemType: 'ac' | 'note'
   itemId: string
   onClose: () => void
-  /** Called right before closing after adding to a folder (not on remove). */
-  onAdded?: (folderName: string) => void
+  /** Called on close with a ready-to-show confirmation message, only if at
+   * least one folder was added to during this session (not on remove-only,
+   * not if nothing changed). */
+  onAdded?: (message: string) => void
 }
 
 export function FolderPicker({ visible, itemType, itemId, onClose, onAdded }: Props) {
@@ -39,12 +41,14 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded }: Pr
   const { isPro } = useAuth()
   const [folders, setFolders] = useState<Folder[]>([])
   const [memberIds, setMemberIds] = useState<Set<string>>(new Set())
+  const [addedNames, setAddedNames] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const inputRef = useRef<TextInput>(null)
 
   useEffect(() => {
     if (!visible) return
+    setAddedNames([])
     load()
   }, [visible, itemId])
 
@@ -61,14 +65,20 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded }: Pr
     setMemberIds(new Set(memberFolderIds))
   }
 
+  // Multi-select: tapping a folder toggles membership without closing, so
+  // the user can add to several folders in one visit. The sheet only closes
+  // via Done (or the backdrop/X), at which point a single summarized toast
+  // fires for everything added this session.
   const toggle = async (folder: Folder) => {
     if (memberIds.has(folder.id)) {
       await removeFromFolder(folder.id, itemType, itemId)
+      setMemberIds((prev) => { const s = new Set(prev); s.delete(folder.id); return s })
+      setAddedNames((prev) => prev.filter((n) => n !== folder.name))
     } else {
       await addToFolder(folder.id, itemType, itemId)
-      onAdded?.(folder.name)
+      setMemberIds((prev) => new Set([...prev, folder.id]))
+      setAddedNames((prev) => [...prev, folder.name])
     }
-    handleClose()
   }
 
   const handleCreate = async () => {
@@ -76,13 +86,18 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded }: Pr
     if (!name) return
     const folder = await createFolder(name)
     await addToFolder(folder.id, itemType, itemId)
-    onAdded?.(folder.name)
-    handleClose()
+    setFolders((prev) => [...prev, folder])
+    setMemberIds((prev) => new Set([...prev, folder.id]))
+    setAddedNames((prev) => [...prev, folder.name])
+    setNewName('')
+    setCreating(false)
   }
 
   const cancelCreate = () => { setCreating(false); setNewName('') }
 
   const handleClose = () => {
+    if (addedNames.length === 1) onAdded?.(`Added to ${addedNames[0]}`)
+    else if (addedNames.length > 1) onAdded?.('Added to multiple folders')
     setCreating(false)
     setNewName('')
     onClose()
@@ -109,8 +124,8 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded }: Pr
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: tokens.bdr }]}>
             <Text style={[styles.headerTitle, { color: tokens.t1, fontSize: fs(15) }]}>Add to Folder</Text>
-            <Pressable onPress={handleClose} hitSlop={10}>
-              <Icon name="xmark" size={15} color={tokens.t3} />
+            <Pressable onPress={handleClose} style={[styles.doneBtn, { backgroundColor: tokens.blu }]} hitSlop={4}>
+              <Text style={[styles.doneBtnText, { fontSize: fs(13) }]}>Done</Text>
             </Pressable>
           </View>
 
@@ -216,6 +231,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   headerTitle: { flex: 1, fontWeight: '600', fontSize: 15 },
+  doneBtn: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 7 },
+  doneBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
   list: { maxHeight: 300 },
   emptyText: { fontSize: 13, textAlign: 'center', paddingVertical: 24, paddingHorizontal: 20 },
   folderRow: {

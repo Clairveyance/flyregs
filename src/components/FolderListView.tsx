@@ -74,6 +74,17 @@ export function FolderListView({
     onRenamed()
   }
 
+  const cancelRename = () => setEditingId(null)
+
+  // Renaming happens inline among other rows (not a full-screen overlay), so
+  // "tap outside to cancel" means: tapping any other row, or the empty space
+  // below the list, cancels the edit instead of performing that row's normal
+  // action.
+  const handleRowPress = (action: () => void) => {
+    if (editingId) { cancelRename(); return }
+    action()
+  }
+
   const guardPro = (action: () => void) => {
     if (!isPro) { router.push('/paywall'); return }
     action()
@@ -111,6 +122,7 @@ export function FolderListView({
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={listHeader}
+        ListFooterComponent={editingId ? <Pressable style={styles.dismissFooter} onPress={cancelRename} /> : null}
         onScrollToIndexFailed={({ index }) => {
           setTimeout(() => {
             try {
@@ -138,7 +150,7 @@ export function FolderListView({
                 <Pressable onPress={handleRename} hitSlop={8}>
                   <Icon name="checkmark.circle.fill" size={22} color={tokens.blu} />
                 </Pressable>
-                <Pressable onPress={() => setEditingId(null)} hitSlop={8}>
+                <Pressable onPress={() => setEditName('')} hitSlop={8}>
                   <Icon name="xmark.circle.fill" size={22} color={tokens.t3} />
                 </Pressable>
               </View>
@@ -152,7 +164,7 @@ export function FolderListView({
               tokens={tokens}
               selectMode={selectMode}
               selected={selected.has(item.id)}
-              onPress={() => (selectMode ? onToggleSelect(item.id) : onOpen(item))}
+              onPress={() => handleRowPress(() => (selectMode ? onToggleSelect(item.id) : onOpen(item)))}
               onRename={() => startRename(item, index)}
               onDelete={() => onDelete(item)}
               onShare={() => onShare(item)}
@@ -270,6 +282,11 @@ function SwipeableFolderRow({
 const styles = StyleSheet.create({
   avoidingView: { flex: 1 },
   list: { padding: 12, paddingBottom: 40 },
+  // flexGrow doesn't reliably cascade through FlatList's internal content
+  // wrapper on web, so this can't stretch to fill exactly the remaining
+  // viewport -- a generous fixed height is a simpler, more reliable way to
+  // give "tap empty space to cancel" a large real target.
+  dismissFooter: { minHeight: 600 },
 
   empty: {
     flex: 1,

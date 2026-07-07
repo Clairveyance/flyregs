@@ -586,7 +586,7 @@ export default function SavedScreen() {
         itemType="ac"
         itemId={pickerAC?.id ?? ''}
         onClose={() => setPickerAC(null)}
-        onAdded={(name) => { setConfirmLabel(`Added to ${name}`); setConfirmTick((t) => t + 1) }}
+        onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1) }}
       />
 
       {/* Folder picker for offline downloads */}
@@ -595,7 +595,7 @@ export default function SavedScreen() {
         itemType="ac"
         itemId={pickerDownloadId ?? ''}
         onClose={() => setPickerDownloadId(null)}
-        onAdded={(name) => { setConfirmLabel(`Added to ${name}`); setConfirmTick((t) => t + 1) }}
+        onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1) }}
       />
 
       {/* Bulk folder picker */}
