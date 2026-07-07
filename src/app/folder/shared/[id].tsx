@@ -23,6 +23,7 @@ export default function SharedFolderDetail() {
   const fs = useFS()
   const { id } = useLocalSearchParams<{ id: string }>()
   const [folderName, setFolderName] = useState('')
+  const [ownerName, setOwnerName] = useState<string | null>(null)
   const [acs, setAcs] = useState<ACRow[]>([])
   const [loading, setLoading] = useState(true)
   const [removed, setRemoved] = useState(false)
@@ -40,6 +41,14 @@ export default function SharedFolderDetail() {
       return
     }
     setFolderName(folder.name)
+
+    // Best-effort -- owner name is a nice-to-have, not load-bearing.
+    try {
+      const { data } = await supabase.rpc('get_shared_folder_owners', { p_folder_ids: [id] })
+      setOwnerName(data?.[0]?.out_owner_display_name ?? null)
+    } catch {
+      setOwnerName(null)
+    }
 
     const acIds = items.map((i) => i.item_id)
     if (acIds.length) {
@@ -85,7 +94,7 @@ export default function SharedFolderDetail() {
       <View style={[styles.badgeRow, { borderBottomColor: tokens.bdr }]}>
         <Icon name="person.2.fill" size={13} color={tokens.t3} />
         <Text style={[styles.badgeText, { color: tokens.t3, fontSize: fs(12) }]}>
-          Shared with you — view only
+          {ownerName ? `Shared by ${ownerName} — view only` : 'Shared with you — view only'}
         </Text>
       </View>
 

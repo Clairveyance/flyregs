@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   View,
   Text,
+  Image,
   FlatList,
   Pressable,
   TextInput,
@@ -468,10 +469,17 @@ export default function SavedScreen() {
                     style={[styles.sharedRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
                     onPress={() => router.push(`/folder/shared/${item.folder_id}`)}
                   >
-                    <Icon name="person.2.fill" size={18} color={tokens.t2} />
-                    <Text style={[styles.sharedRowText, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
-                      {item.folder_name}
-                    </Text>
+                    <OwnerAvatar avatarUrl={item.ownerAvatarUrl} name={item.ownerDisplayName} tokens={tokens} fs={fs} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.sharedRowText, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
+                        {item.folder_name}
+                      </Text>
+                      {item.ownerDisplayName && (
+                        <Text style={[styles.sharedRowSub, { color: tokens.t3, fontSize: fs(11.5) }]} numberOfLines={1}>
+                          Shared by {item.ownerDisplayName}
+                        </Text>
+                      )}
+                    </View>
                     <Icon name="chevron.right" size={14} color={tokens.t4} />
                   </Pressable>
                 )}
@@ -974,6 +982,30 @@ function OfflineRow({
   )
 }
 
+// Small circular badge showing who shared a folder -- their photo if set,
+// otherwise an initial, matching the avatar treatment used everywhere else
+// in the app (Drawer, My Account).
+function OwnerAvatar({
+  avatarUrl,
+  name,
+  tokens,
+  fs,
+}: {
+  avatarUrl?: string | null
+  name?: string | null
+  tokens: ReturnType<typeof useTheme>['tokens']
+  fs: (n: number) => number
+}) {
+  const initial = name ? name.charAt(0).toUpperCase() : '?'
+  return avatarUrl ? (
+    <Image source={{ uri: avatarUrl }} style={styles.ownerAvatarImg} />
+  ) : (
+    <View style={[styles.ownerAvatarFallback, { backgroundColor: tokens.blu }]}>
+      <Text style={[styles.ownerAvatarText, { fontSize: fs(13) }]}>{initial}</Text>
+    </View>
+  )
+}
+
 function EmptyState({
   tokens,
   signedIn,
@@ -1015,7 +1047,11 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  sharedRowText: { flex: 1, fontWeight: '600' },
+  sharedRowText: { fontWeight: '600' },
+  sharedRowSub: { marginTop: 2 },
+  ownerAvatarImg: { width: 30, height: 30, borderRadius: 15 },
+  ownerAvatarFallback: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  ownerAvatarText: { color: '#fff', fontWeight: '700' },
   center: {
     flex: 1,
     justifyContent: 'center',
