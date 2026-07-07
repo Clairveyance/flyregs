@@ -25,17 +25,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isPremium, setIsPremium] = useState(false)
 
   useEffect(() => {
-    // RevenueCat entitlements are tied to the device/App Store account, not
-    // to a FlyRegs sign-in — FlyRegs doesn't require an account to purchase
-    // or use Pro/Premium, so this must run regardless of session state, or
-    // a paying customer who never signs in loses their unlock on every
-    // restart.
-    initRevenueCat(undefined)
-    getSubscriptionStatus().then((status) => {
-      setIsPro(status.isPro)
-      setIsPremium(status.isPremium)
-    })
-
+    // Pro/Premium require an account as part of the plan (see paywall.tsx's
+    // sign-in gate before any purchase) — so RevenueCat's appUserID is always
+    // the FlyRegs account id, and subscription status is only ever checked
+    // while signed in. Signing out means the paid entitlement isn't carried
+    // forward until signing back in with that same account.
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session)
       if (session?.user) {
@@ -61,6 +55,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const status = await getSubscriptionStatus()
         setIsPro(status.isPro)
         setIsPremium(status.isPremium)
+      } else {
+        setIsPro(false)
+        setIsPremium(false)
       }
     })
 
@@ -80,8 +77,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     const { error } = await supabase.auth.signOut()
     if (error) throw error
-    // Pro/Premium is a device/App Store entitlement, not tied to the FlyRegs
-    // account — signing out must not revoke a subscription the user paid for.
+    // Paid tiers require an account as part of the plan — signing out means
+    // the paid entitlement isn't available again until signing back in.
+    setIsPro(false)
+    setIsPremium(false)
   }
 
   return (
