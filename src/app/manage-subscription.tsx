@@ -4,7 +4,6 @@ import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme, ThemeTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
-import { useReturnToMenu } from '@/context/drawer'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { useFS } from '@/context/fontScale'
@@ -25,7 +24,6 @@ export default function ManageSubscriptionScreen() {
   const fs = useFS()
   const { isPro, isPremium, setIsPro, setIsPremium } = useAuth()
   const insets = useSafeAreaInsets()
-  const backToMenu = useReturnToMenu()
   const [details, setDetails] = useState<SubscriptionDetails | null>(null)
   const [restoring, setRestoring] = useState(false)
 
@@ -78,7 +76,7 @@ export default function ManageSubscriptionScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title="Manage Subscription" onBack={backToMenu} />
+      <OverlayHeader title="Manage Subscription" onBack={() => router.back()} />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}>
         {/* Current plan card */}
         <View style={[styles.planCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
