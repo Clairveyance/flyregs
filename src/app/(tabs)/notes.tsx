@@ -18,7 +18,7 @@ import {
 } from 'react-native'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
-import { router, useLocalSearchParams } from 'expo-router'
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -131,6 +131,14 @@ export default function NotesScreen() {
     getNotes().then(setNotes)
     isSyncEnabled().then(setSyncEnabled)
   }, [])
+
+  useFocusEffect(useCallback(() => {
+    // The sync flag can change in the background (applyRemoteSyncPreference,
+    // triggered on app launch from context/auth.tsx, isn't awaited there so
+    // this screen's initial mount can render before it finishes) — re-check
+    // on every focus rather than only once on mount.
+    isSyncEnabled().then(setSyncEnabled)
+  }, []))
 
   // Opening a note from outside this screen (e.g. tapping it inside a Folder,
   // which has no note-editing UI of its own) navigates here with ?openId=.

@@ -78,7 +78,14 @@ export default function SavedScreen() {
     })
   }, [])
 
-  useFocusEffect(useCallback(() => { load() }, [load]))
+  useFocusEffect(useCallback(() => {
+    load()
+    // The sync flag can change in the background (applyRemoteSyncPreference,
+    // triggered on app launch from context/auth.tsx, isn't awaited there so
+    // this screen's initial mount can render before it finishes) — re-check
+    // on every focus rather than only once on mount.
+    isSyncEnabled().then(setSyncEnabled)
+  }, [load]))
 
   const toggleSync = async (v: boolean) => {
     if (v && !isPremium) { router.push('/paywall?tier=premium'); return }

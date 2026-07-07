@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { initRevenueCat, getSubscriptionStatus } from '@/lib/revenuecat'
-import { isSyncEnabled, pullAndMergeAll } from '@/lib/sync'
+import { applyRemoteSyncPreference } from '@/lib/sync'
 
 interface AuthContextType {
   session: Session | null
@@ -32,10 +32,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const status = await getSubscriptionStatus()
         setIsPro(status.isPro)
         setIsPremium(status.isPremium)
-        // Converge with any changes made on other devices since this app was
-        // last opened — the sync toggle itself only pulls when flipped on.
-        if (status.isPremium && (await isSyncEnabled())) {
-          pullAndMergeAll(session.user.id)
+        // The sync on/off preference lives on the account (user_metadata),
+        // not just this device — reconcile so a device that's never toggled
+        // it manually still picks up the same state (and pulls the account's
+        // data down) the first time it opens with this account signed in.
+        if (status.isPremium) {
+          applyRemoteSyncPreference(session.user.id, session.user.user_metadata?.sync_enabled)
         }
       }
       setLoading(false)

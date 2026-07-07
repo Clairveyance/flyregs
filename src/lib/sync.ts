@@ -159,9 +159,14 @@ async function mergeNotes(userId: string) {
 // ── Turning sync on/off ────────────────────────────────────────────────────────
 // Turning on pushes everything currently on this device up, then reconciles
 // with whatever's already on the server (covers the case where sync was
-// previously enabled on a different device with different content).
+// previously enabled on a different device with different content). The
+// preference itself is also written to the account (user_metadata), not just
+// this device's local storage, so signing into a *different* device with the
+// same account picks up the same on/off state automatically — see
+// applyRemoteSyncPreference, called on app launch in context/auth.tsx.
 export async function enableSync(userId: string): Promise<void> {
   await AsyncStorage.setItem(SYNC_ENABLED_KEY, 'true')
+  await supabase.auth.updateUser({ data: { sync_enabled: true } })
   const [bookmarks, folders, folderItems, notes] = await Promise.all([
     getBookmarks(),
     getFolders(),
@@ -179,4 +184,25 @@ export async function enableSync(userId: string): Promise<void> {
 
 export async function disableSync(): Promise<void> {
   await AsyncStorage.setItem(SYNC_ENABLED_KEY, 'false')
+  await supabase.auth.updateUser({ data: { sync_enabled: false } })
+}
+
+// Called once per app launch (see context/auth.tsx). Reconciles this
+// device's local sync flag against the account-level preference:
+//   - remote true, local off  -> turn on here too (pulls the account's data down)
+//   - remote false, local on  -> turn off here too
+//   - remote never set        -> this is either a fresh account, or an
+//     existing device that enabled sync before this cross-device preference
+//     existed. Seed the remote value from whatever's already true locally
+//     (a false local default needs no seeding — false is already the
+//     implicit default for an unset preference).
+export async function applyRemoteSyncPreference(userId: string, remoteSyncEnabled: unknown): Promise<void> {
+  const local = await isSyncEnabled()
+  if (remoteSyncEnabled === true && !local) {
+    await enableSync(userId)
+  } else if (remoteSyncEnabled === false && local) {
+    await disableSync()
+  } else if (remoteSyncEnabled == null && local) {
+    await supabase.auth.updateUser({ data: { sync_enabled: true } })
+  }
 }
