@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { syncPushBookmark, syncPushBookmarkDeletes } from '@/lib/sync'
+import { syncPushBookmark, syncPushBookmarkDeletes } from '@/lib/syncPush'
 
 const KEY = '@flyregs/bookmarks'
 

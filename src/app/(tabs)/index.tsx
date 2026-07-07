@@ -608,9 +608,12 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 13.5,
-    // @ts-ignore — web-only property to suppress the native focus ring
+    // outlineStyle is web-only (suppresses the native focus ring) and isn't
+    // part of RN's TextStyle type in any form, so `as TextStyle` would just
+    // trade this error for a "conversion may be a mistake" one — `as any`
+    // is the correct escape hatch here, not a stronger type.
     outlineStyle: 'none',
-  },
+  } as any,
   cancelWrap: { paddingRight: 2 },
   cancelText: { fontSize: 14, fontWeight: '500' },
 

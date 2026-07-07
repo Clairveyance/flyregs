@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { syncPushFolder, syncPushFolderDelete, syncPushFolderItems, syncPushFolderItemDeletes } from '@/lib/sync'
+import { syncPushFolder, syncPushFolderDelete, syncPushFolderItems, syncPushFolderItemDeletes } from '@/lib/syncPush'
 
 const FOLDERS_KEY = '@flyregs/folders'
 const FOLDER_ITEMS_KEY = '@flyregs/folder_items'

@@ -35,7 +35,8 @@ import { getACIndex, ACIndexEntry } from '@/lib/acIndex'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions } from '@/lib/share'
 import { getNotes, saveNotes, makeNoteId, type Note } from '@/lib/notes'
-import { isSyncEnabled, enableSync, disableSync, syncPushNote, syncPushNoteDeletes } from '@/lib/sync'
+import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
+import { syncPushNote, syncPushNoteDeletes } from '@/lib/syncPush'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
