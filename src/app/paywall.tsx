@@ -136,7 +136,7 @@ export default function PaywallScreen() {
         <View style={styles.hero}>
           <Image
             source={require('@/assets/images/flyregs-wing.png')}
-            style={{ width: fs(40), height: fs(40) / WING_ASPECT, marginBottom: 2 }}
+            style={{ width: fs(54), height: fs(54) / WING_ASPECT, marginBottom: 2 }}
             resizeMode="contain"
           />
           <TierBadge tier={badgeTier} tokens={tokens} fs={fs} />
