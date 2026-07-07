@@ -67,7 +67,8 @@
           "microphonePermission": false
         }
       ],
-      "expo-file-system"
+      "expo-file-system",
+      "@sentry/react-native"
     ],
     "experiments": {
       "typedRoutes": true,

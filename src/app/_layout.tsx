@@ -20,11 +20,14 @@ import { Drawer } from '@/components/Drawer'
 import { PersistentTabBar } from '@/components/PersistentTabBar'
 import { AnimatedSplash } from '@/components/AnimatedSplash'
 import { ShareCardProvider } from '@/components/ShareCardCapture'
+import { initSentry } from '@/lib/sentry'
 
 // Prevent the native splash screen from auto-hiding (no-op on web)
 if (Platform.OS !== 'web') {
   SplashScreen.preventAutoHideAsync()
 }
+
+initSentry()
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const { resolved } = useTheme()
