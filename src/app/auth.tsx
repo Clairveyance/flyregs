@@ -94,7 +94,7 @@ export default function AuthScreen() {
         </Text>
         <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
           {mode === 'signin'
-            ? 'Sign in to sync bookmarks and access Pro features.'
+            ? 'Sign in to manage your account and subscription.'
             : "It's free to create an account — Pro and Premium features unlock once you subscribe."}
         </Text>
 
@@ -159,7 +159,15 @@ export default function AuthScreen() {
         </Pressable>
 
         <Text style={[styles.legal, { color: tokens.t4, fontSize: fs(11.5) }]}>
-          By continuing you agree to our Terms of Use and Privacy Policy.
+          By continuing you agree to our{' '}
+          <Text style={{ color: tokens.blu }} onPress={() => router.push('/terms')}>
+            Terms of Use
+          </Text>{' '}
+          and{' '}
+          <Text style={{ color: tokens.blu }} onPress={() => router.push('/privacy')}>
+            Privacy Policy
+          </Text>
+          .
         </Text>
       </ScrollView>
     </KeyboardAvoidingView>
