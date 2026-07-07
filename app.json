@@ -63,7 +63,7 @@
         "expo-image-picker",
         {
           "photosPermission": "FlyRegs uses your photo library to set a profile picture, shown when you share content with other users.",
-          "cameraPermission": false,
+          "cameraPermission": "FlyRegs uses your camera to take a profile picture, shown when you share content with other users.",
           "microphonePermission": false
         }
       ],

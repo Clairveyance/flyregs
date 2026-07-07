@@ -22,18 +22,12 @@ import { Icon } from '@/components/Icon'
 import { restorePurchases } from '@/lib/revenuecat'
 import { useFS } from '@/context/fontScale'
 import { SUPPORT_EMAIL } from '@/lib/appInfo'
-import { getAvatarUrl, pickAndUploadAvatar } from '@/lib/avatar'
+import { getAvatarUrl, pickAndUploadAvatar, takeAndUploadAvatar } from '@/lib/avatar'
 import {
   isAcUpdateAlertsEnabled,
   enableAcUpdateAlerts,
   disableAcUpdateAlerts,
 } from '@/lib/notifications'
-
-const MANAGE_SUBS_URL = Platform.select({
-  ios: 'https://apps.apple.com/account/subscriptions',
-  android: 'https://play.google.com/store/account/subscriptions',
-  default: 'https://apps.apple.com/account/subscriptions',
-})
 
 export default function AccountScreen() {
   const { tokens } = useTheme()
@@ -85,17 +79,17 @@ export default function AccountScreen() {
     setAlertsBusy(false)
   }
 
-  const handlePickAvatar = async () => {
+  const runAvatarPick = async (source: () => Promise<string>) => {
     if (!session?.user?.id || avatarBusy) return
     setAvatarBusy(true)
     try {
-      const url = await pickAndUploadAvatar(session.user.id)
+      const url = await source()
       setAvatarOverride(url)
     } catch (err: any) {
       if (err?.message === 'PERMISSION_DENIED') {
         Alert.alert(
-          'Photo Access Disabled',
-          'FlyRegs needs access to your photos to set a profile picture. Enable it in Settings.',
+          'Access Disabled',
+          'FlyRegs needs access to your camera or photos to set a profile picture. Enable it in Settings.',
           [
             { text: 'Cancel', style: 'cancel' },
             { text: 'Open Settings', onPress: () => Linking.openSettings() },
@@ -106,6 +100,19 @@ export default function AccountScreen() {
       }
     }
     setAvatarBusy(false)
+  }
+
+  const handlePickAvatar = () => {
+    if (!session?.user?.id || avatarBusy) return
+    if (Platform.OS === 'web') {
+      runAvatarPick(() => pickAndUploadAvatar(session.user.id))
+      return
+    }
+    Alert.alert('Profile Photo', undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Take Photo', onPress: () => runAvatarPick(() => takeAndUploadAvatar(session.user.id)) },
+      { text: 'Choose from Library', onPress: () => runAvatarPick(() => pickAndUploadAvatar(session.user.id)) },
+    ])
   }
 
   const email = session?.user?.email ?? null
@@ -247,7 +254,7 @@ export default function AccountScreen() {
             icon="creditcard"
             label="Manage Subscription"
             tokens={tokens}
-            onPress={() => Linking.openURL(MANAGE_SUBS_URL)}
+            onPress={() => router.push('/manage-subscription')}
           />
           <Row
             icon="arrow.clockwise"

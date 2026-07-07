@@ -47,6 +47,42 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
   }
 }
 
+export interface SubscriptionDetails {
+  tier: 'free' | 'pro' | 'premium'
+  plan: 'monthly' | 'annual' | null
+  willRenew: boolean
+  expirationDate: string | null
+  managementURL: string | null
+}
+
+// Richer than getSubscriptionStatus() -- backs the in-app Manage Subscription
+// screen, which needs to show plan/billing period/renewal state rather than
+// just a boolean. If both entitlements are somehow active, Premium wins
+// since it's the superset tier.
+export async function getSubscriptionDetails(): Promise<SubscriptionDetails> {
+  try {
+    const customerInfo = await Purchases.getCustomerInfo()
+    const active = customerInfo.entitlements.active
+    const premiumEnt = active[ENTITLEMENT_PREMIUM]
+    const proEnt = active[ENTITLEMENT_PRO]
+    const ent = premiumEnt ?? proEnt
+
+    if (!ent) {
+      return { tier: 'free', plan: null, willRenew: false, expirationDate: null, managementURL: null }
+    }
+
+    return {
+      tier: premiumEnt ? 'premium' : 'pro',
+      plan: ent.productIdentifier.includes('annual') ? 'annual' : ent.productIdentifier.includes('monthly') ? 'monthly' : null,
+      willRenew: ent.willRenew,
+      expirationDate: ent.expirationDate,
+      managementURL: customerInfo.managementURL,
+    }
+  } catch {
+    return { tier: 'free', plan: null, willRenew: false, expirationDate: null, managementURL: null }
+  }
+}
+
 export async function purchaseSubscription(
   tier: SubscriptionTier,
   plan: SubscriptionPlan

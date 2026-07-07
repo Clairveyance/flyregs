@@ -15,6 +15,7 @@ const TABS = [
 function activeTabForPath(pathname: string): string {
   if (pathname.startsWith('/search'))  return 'search'
   if (pathname.startsWith('/saved'))   return 'saved'
+  if (pathname.startsWith('/folder'))  return 'saved'
   if (pathname.startsWith('/recents')) return 'recents'
   if (pathname.startsWith('/notes'))   return 'notes'
   return 'index'

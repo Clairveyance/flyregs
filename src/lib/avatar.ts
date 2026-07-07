@@ -17,26 +17,10 @@ export function getDisplayName(session: Session | null): string {
   return email ? email.split('@')[0] : 'A FlyRegs user'
 }
 
-// Opens the photo library, uploads the chosen image to the "avatars" Storage
-// bucket at <user_id>/avatar.jpg (upsert — always the same path, so re-picking
-// just replaces it), and saves the resulting public URL to the user's own
-// auth metadata. Throws 'PERMISSION_DENIED' if photo library access is denied.
-export async function pickAndUploadAvatar(userId: string): Promise<string> {
-  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
-  if (!perm.granted) throw new Error('PERMISSION_DENIED')
-
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ['images'],
-    allowsEditing: true,
-    aspect: [1, 1],
-    quality: 0.7,
-  })
-  if (result.canceled || !result.assets?.[0]) throw new Error('CANCELLED')
-
-  const asset = result.assets[0]
+async function uploadAvatarAsset(userId: string, uri: string): Promise<string> {
   const path = `${userId}/avatar.jpg`
 
-  const response = await fetch(asset.uri)
+  const response = await fetch(uri)
   const blob = await response.blob()
 
   const { error: uploadError } = await supabase.storage
@@ -54,4 +38,40 @@ export async function pickAndUploadAvatar(userId: string): Promise<string> {
   if (updateError) throw updateError
 
   return publicUrl
+}
+
+// Opens the photo library, uploads the chosen image to the "avatars" Storage
+// bucket at <user_id>/avatar.jpg (upsert — always the same path, so re-picking
+// just replaces it), and saves the resulting public URL to the user's own
+// auth metadata. Throws 'PERMISSION_DENIED' if photo library access is denied.
+export async function pickAndUploadAvatar(userId: string): Promise<string> {
+  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
+  if (!perm.granted) throw new Error('PERMISSION_DENIED')
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.7,
+  })
+  if (result.canceled || !result.assets?.[0]) throw new Error('CANCELLED')
+
+  return uploadAvatarAsset(userId, result.assets[0].uri)
+}
+
+// Same as pickAndUploadAvatar but takes a fresh photo instead of picking an
+// existing one. Throws 'PERMISSION_DENIED' if camera access is denied.
+export async function takeAndUploadAvatar(userId: string): Promise<string> {
+  const perm = await ImagePicker.requestCameraPermissionsAsync()
+  if (!perm.granted) throw new Error('PERMISSION_DENIED')
+
+  const result = await ImagePicker.launchCameraAsync({
+    mediaTypes: ['images'],
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.7,
+  })
+  if (result.canceled || !result.assets?.[0]) throw new Error('CANCELLED')
+
+  return uploadAvatarAsset(userId, result.assets[0].uri)
 }

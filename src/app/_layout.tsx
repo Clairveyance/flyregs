@@ -81,6 +81,7 @@ export default function RootLayout() {
               <Stack.Screen name="auth" options={{ presentation: 'modal' }} />
               <Stack.Screen name="paywall" options={{ presentation: 'modal' }} />
               <Stack.Screen name="account" />
+              <Stack.Screen name="manage-subscription" />
               <Stack.Screen name="faq" />
               <Stack.Screen name="feedback" />
               <Stack.Screen name="about" />

@@ -86,7 +86,7 @@ function DrawerContent({
   tokens: ThemeTokens
   onClose: () => void
 }) {
-  const { session, isPro, setIsPro, setIsPremium } = useAuth()
+  const { session, isPro, isPremium, setIsPro, setIsPremium } = useAuth()
   const { mode, setMode } = useTheme()
   const { fontScale, setFontScale } = useFontScale()
   const fs = useFS()
@@ -163,9 +163,12 @@ function DrawerContent({
           <Text style={[styles.avatarText, { fontSize: fs(17) }]}>{initials}</Text>
         </View>
         <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={[styles.profileName, { color: tokens.t1, fontSize: fs(15) }]}>
-            {session ? 'My Account' : 'Sign In'}
-          </Text>
+          <View style={styles.profileNameRow}>
+            <Text style={[styles.profileName, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={1}>
+              {session ? 'My Account' : 'Sign In'}
+            </Text>
+            {session && <TierPill isPro={isPro} isPremium={isPremium} tokens={tokens} fs={fs} />}
+          </View>
           <Text style={[styles.profileEmail, { color: tokens.t2, fontSize: fs(12) }]} numberOfLines={1}>
             {email}
           </Text>
@@ -173,14 +176,10 @@ function DrawerContent({
         <Icon name="chevron.right" size={13} color={tokens.t3} />
       </Pressable>
 
-      {/* Account group */}
-      <DrawerRow
-        icon="crown"
-        label="Subscription"
-        value={isPro ? 'Pro' : 'Free'}
-        tokens={tokens}
-        onPress={() => nav('/paywall')}
-      />
+      {/* Account group -- subscription management now lives entirely in
+          My Account (tapping the profile card above); the tier pill there
+          is enough visibility here without a second, redundant entry point
+          that used to just dump straight into the paywall. */}
       <DrawerRow
         icon="arrow.clockwise"
         label="Restore Purchases"
@@ -437,6 +436,25 @@ function Divider({ tokens }: { tokens: ThemeTokens }) {
   return <View style={[styles.divider, { backgroundColor: tokens.bdr }]} />
 }
 
+function TierPill({
+  isPro, isPremium, tokens, fs,
+}: {
+  isPro: boolean
+  isPremium: boolean
+  tokens: ThemeTokens
+  fs: (n: number) => number
+}) {
+  const tier = isPremium ? 'Premium' : isPro ? 'Pro' : 'Free'
+  const color = isPremium ? tokens.gold : isPro ? tokens.blu : tokens.t3
+  const bg = isPremium ? tokens.goldlt : isPro ? tokens.bdim : tokens.bg3
+  const bdr = isPremium ? tokens.goldbdr : isPro ? tokens.bbdr : tokens.bdr
+  return (
+    <View style={[styles.tierPill, { backgroundColor: bg, borderColor: bdr }]}>
+      <Text style={[styles.tierPillText, { color, fontSize: fs(8.5) }]} numberOfLines={1}>{tier.toUpperCase()}</Text>
+    </View>
+  )
+}
+
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -486,9 +504,23 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 17,
   },
+  profileNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   profileName: {
     fontWeight: '600',
     fontSize: 15,
+    flexShrink: 1,
+  },
+  tierPill: {
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    flexShrink: 0,
+  },
+  tierPillText: {
+    fontSize: 8.5,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   profileEmail: {
     fontSize: 12,

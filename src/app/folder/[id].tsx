@@ -61,6 +61,7 @@ export default function FolderDetail() {
 
   const [renaming, setRenaming] = useState(false)
   const [renameText, setRenameText] = useState('')
+  const [dismissTop, setDismissTop] = useState(0)
   const [collaborators, setCollaborators] = useState<FolderCollaborator[]>([])
   const [collabExpanded, setCollabExpanded] = useState(false)
 
@@ -117,6 +118,8 @@ export default function FolderDetail() {
     setFolder((f) => f ? { ...f, name: renameText.trim() } : f)
     setRenaming(false)
   }
+
+  const cancelRename = () => setRenaming(false)
 
   const handleDeleteFolder = () => {
     if (!folder) return
@@ -232,34 +235,36 @@ export default function FolderDetail() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader
-        title={folder?.name ?? 'Folder'}
-        onBack={() => router.back()}
-        right={rightSlot}
-      />
+      <View onLayout={(e) => setDismissTop(e.nativeEvent.layout.y + e.nativeEvent.layout.height)}>
+        <OverlayHeader
+          title={folder?.name ?? 'Folder'}
+          onBack={() => router.back()}
+          right={rightSlot}
+        />
 
-      {/* Inline rename bar */}
-      {renaming && (
-        <View style={[styles.renameBar, { backgroundColor: tokens.bg2, borderBottomColor: tokens.bdr }]}>
-          <TextInput
-            style={[styles.renameInput, { color: tokens.t1, fontSize: fs(15) }]}
-            value={renameText}
-            onChangeText={setRenameText}
-            autoFocus
-            returnKeyType="done"
-            onSubmitEditing={handleRename}
-            maxLength={60}
-            placeholder="Folder name"
-            placeholderTextColor={tokens.t3}
-          />
-          <Pressable onPress={handleRename} hitSlop={8}>
-            <Icon name="checkmark.circle.fill" size={22} color={tokens.blu} />
-          </Pressable>
-          <Pressable onPress={() => setRenaming(false)} hitSlop={8}>
-            <Icon name="xmark.circle.fill" size={22} color={tokens.t3} />
-          </Pressable>
-        </View>
-      )}
+        {/* Inline rename bar */}
+        {renaming && (
+          <View style={[styles.renameBar, { backgroundColor: tokens.bg2, borderBottomColor: tokens.bdr }]}>
+            <TextInput
+              style={[styles.renameInput, { color: tokens.t1, fontSize: fs(15) }]}
+              value={renameText}
+              onChangeText={setRenameText}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={handleRename}
+              maxLength={60}
+              placeholder="Folder name"
+              placeholderTextColor={tokens.t3}
+            />
+            <Pressable onPress={handleRename} hitSlop={8}>
+              <Icon name="checkmark.circle.fill" size={22} color={tokens.blu} />
+            </Pressable>
+            <Pressable onPress={() => setRenameText('')} hitSlop={8}>
+              <Icon name="xmark.circle.fill" size={22} color={tokens.t3} />
+            </Pressable>
+          </View>
+        )}
+      </View>
 
       {collaborators.length > 0 && (
         <View style={[styles.collabSection, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}>
@@ -319,6 +324,16 @@ export default function FolderDetail() {
               />
             )
           }
+        />
+      )}
+
+      {/* Tapping anywhere below the header/rename-bar while renaming cancels
+          the edit without saving -- sits on top of the list so it also
+          blocks accidentally opening an item mid-rename. */}
+      {renaming && (
+        <Pressable
+          style={[StyleSheet.absoluteFill, { top: dismissTop }]}
+          onPress={cancelRename}
         />
       )}
     </View>
