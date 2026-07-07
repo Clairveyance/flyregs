@@ -2,13 +2,20 @@ import { createContext, useContext, useRef, useState, ReactNode } from 'react'
 import { View, Text, Image, StyleSheet } from 'react-native'
 import { captureRef } from 'react-native-view-shot'
 
+export interface ShareCardItem {
+  label?: string
+  title: string
+}
+
 export interface ShareCardContent {
   avatarUrl: string | null
   displayName: string
-  kind: 'ac' | 'note'
+  kind: 'ac' | 'note' | 'multi'
   documentNumber?: string
   title: string
   subtitle?: string
+  /** Only for kind: 'multi' -- the list of items being shared together. */
+  items?: ShareCardItem[]
 }
 
 interface ShareCardContextValue {
@@ -76,11 +83,28 @@ export function ShareCardProvider({ children }: { children: ReactNode }) {
               <Text style={styles.sharedBy} numberOfLines={1}>{content.displayName} shared via FlyRegs</Text>
             </View>
 
-            <View style={styles.body}>
-              {content.documentNumber && <Text style={styles.docNumber}>{content.documentNumber}</Text>}
-              <Text style={styles.title} numberOfLines={3}>{content.title}</Text>
-              {content.subtitle ? <Text style={styles.subtitle} numberOfLines={2}>{content.subtitle}</Text> : null}
-            </View>
+            {content.kind === 'multi' ? (
+              <View style={styles.body}>
+                <Text style={styles.title} numberOfLines={2}>{content.title}</Text>
+                <View style={styles.multiList}>
+                  {(content.items ?? []).slice(0, MULTI_ITEM_CAP).map((item, i) => (
+                    <View key={i} style={styles.multiItemRow}>
+                      {item.label ? <Text style={styles.multiItemLabel}>{item.label}</Text> : null}
+                      <Text style={styles.multiItemTitle} numberOfLines={1}>{item.title}</Text>
+                    </View>
+                  ))}
+                  {(content.items?.length ?? 0) > MULTI_ITEM_CAP && (
+                    <Text style={styles.multiMore}>+{(content.items?.length ?? 0) - MULTI_ITEM_CAP} more</Text>
+                  )}
+                </View>
+              </View>
+            ) : (
+              <View style={styles.body}>
+                {content.documentNumber && <Text style={styles.docNumber}>{content.documentNumber}</Text>}
+                <Text style={styles.title} numberOfLines={3}>{content.title}</Text>
+                {content.subtitle ? <Text style={styles.subtitle} numberOfLines={2}>{content.subtitle}</Text> : null}
+              </View>
+            )}
 
             <Image source={require('@/assets/images/flyregs-wing.png')} style={styles.wing} resizeMode="contain" />
           </View>
@@ -91,6 +115,7 @@ export function ShareCardProvider({ children }: { children: ReactNode }) {
 }
 
 const CARD_WIDTH = 600
+const MULTI_ITEM_CAP = 6
 
 const styles = StyleSheet.create({
   offscreen: { position: 'absolute', top: -10000, left: -10000 },
@@ -109,4 +134,10 @@ const styles = StyleSheet.create({
   title: { color: '#fff', fontSize: 26, fontWeight: '700', lineHeight: 34 },
   subtitle: { color: 'rgba(255,255,255,0.6)', fontSize: 16, lineHeight: 22, marginTop: 4 },
   wing: { width: 48, height: 53, alignSelf: 'flex-end', marginTop: 24 },
+
+  multiList: { marginTop: 12, gap: 10 },
+  multiItemRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+  multiItemLabel: { color: '#4B8EF5', fontSize: 15, fontWeight: '800', flexShrink: 0 },
+  multiItemTitle: { color: 'rgba(255,255,255,0.85)', fontSize: 15, fontWeight: '500', flex: 1 },
+  multiMore: { color: 'rgba(255,255,255,0.5)', fontSize: 14, fontWeight: '600', marginTop: 2 },
 })

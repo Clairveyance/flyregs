@@ -28,23 +28,10 @@ function noteLine(note: ShareableNote): string {
   return `${note.title || 'Untitled'}${ref}\n${note.body}`
 }
 
-// Bulk share for a multi-select action bar — combines everything selected
-// into one plain-text message rather than firing the native share sheet once
-// per item, so it stays text-only (no per-item branded card).
-export async function shareMany(acs: ShareableAC[], notes: ShareableNote[] = []) {
-  const parts: string[] = []
-  if (acs.length) parts.push(acs.map(acLine).join('\n\n'))
-  if (notes.length) parts.push(notes.map(noteLine).join('\n\n'))
-  if (!parts.length) return
-  try {
-    await Share.share({ message: parts.join('\n\n') })
-  } catch {}
-}
-
-// Single-item shares render a branded card (sharer's avatar + name baked
-// into the image) via ShareCardProvider, then hand the image to the native
-// share sheet through expo-sharing — RN's bare Share.share() can't reliably
-// attach a local image file on Android, only iOS.
+// All shares render a branded card (sharer's avatar + name baked into the
+// image) via ShareCardProvider, then hand the image to the native share
+// sheet through expo-sharing — RN's bare Share.share() can't reliably attach
+// a local image file on Android, only iOS.
 export function useShareActions() {
   const { session } = useAuth()
   const { capture } = useShareCard()
@@ -82,6 +69,32 @@ export function useShareActions() {
         return
       }
       await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: note.title || 'Note' })
+    } catch {}
+  }
+
+  const shareMany = async (acs: ShareableAC[], notes: ShareableNote[] = []) => {
+    const total = acs.length + notes.length
+    if (!total) return
+    try {
+      const items = [
+        ...acs.map((ac) => ({ label: ac.document_number, title: ac.title })),
+        ...notes.map((n) => ({ label: undefined, title: n.title || 'Untitled' })),
+      ]
+      const uri = await capture({
+        avatarUrl: getAvatarUrl(session),
+        displayName: getDisplayName(session),
+        kind: 'multi',
+        title: `${total} item${total !== 1 ? 's' : ''} shared`,
+        items,
+      })
+      if (Platform.OS === 'web' || !(await Sharing.isAvailableAsync())) {
+        const parts: string[] = []
+        if (acs.length) parts.push(acs.map(acLine).join('\n\n'))
+        if (notes.length) parts.push(notes.map(noteLine).join('\n\n'))
+        await Share.share({ message: parts.join('\n\n') })
+        return
+      }
+      await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: `${total} items` })
     } catch {}
   }
 
