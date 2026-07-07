@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { View, StyleSheet } from 'react-native'
+import { View, Text, StyleSheet } from 'react-native'
 import Reanimated, {
   useSharedValue,
   useAnimatedStyle,
@@ -11,11 +11,13 @@ import Reanimated, {
 import { Icon } from '@/components/Icon'
 import { useTheme } from '@/context/theme'
 
-// Brief centered checkmark confirmation — pops in, holds, fades out. Used
-// after a bulk action (e.g. "Add N items to Folder") completes, so there's a
-// visible cue the move actually happened instead of items just silently
-// disappearing from a select list.
-export function ConfirmCheck({ trigger }: { trigger: number }) {
+// Brief centered confirmation — pops in, holds, fades out. Used after a bulk
+// action (e.g. "Add N items to Folder") completes, so there's a visible cue
+// the move actually happened instead of items just silently disappearing
+// from a select list. When `label` is given, shows a wider pill with the
+// destination name (e.g. "Added to Checkride Prep") instead of a bare
+// checkmark, so the user can actually confirm where things landed.
+export function ConfirmCheck({ trigger, label }: { trigger: number; label?: string }) {
   const { tokens } = useTheme()
   const scale = useSharedValue(0)
   const opacity = useSharedValue(0)
@@ -38,6 +40,17 @@ export function ConfirmCheck({ trigger }: { trigger: number }) {
     opacity: opacity.value,
     transform: [{ scale: scale.value }],
   }))
+
+  if (label) {
+    return (
+      <View style={styles.wrap} pointerEvents="none">
+        <Reanimated.View style={[styles.pill, { backgroundColor: tokens.blu }, animStyle]}>
+          <Icon name="checkmark" size={20} color="#fff" />
+          <Text style={styles.pillText} numberOfLines={2}>{label}</Text>
+        </Reanimated.View>
+      </View>
+    )
+  }
 
   return (
     <View style={styles.wrap} pointerEvents="none">
@@ -70,5 +83,25 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 8,
+  },
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    maxWidth: '80%',
+    paddingVertical: 16,
+    paddingHorizontal: 22,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  pillText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    flexShrink: 1,
   },
 })

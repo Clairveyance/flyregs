@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { initRevenueCat, getSubscriptionStatus } from '@/lib/revenuecat'
+import { isSyncEnabled, pullAndMergeAll } from '@/lib/sync'
 
 interface AuthContextType {
   session: Session | null
@@ -31,6 +32,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const status = await getSubscriptionStatus()
         setIsPro(status.isPro)
         setIsPremium(status.isPremium)
+        // Converge with any changes made on other devices since this app was
+        // last opened — the sync toggle itself only pulls when flipped on.
+        if (status.isPremium && (await isSyncEnabled())) {
+          pullAndMergeAll(session.user.id)
+        }
       }
       setLoading(false)
     })

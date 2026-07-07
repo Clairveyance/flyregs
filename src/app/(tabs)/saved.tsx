@@ -8,11 +8,11 @@ import {
   StyleSheet,
   Alert,
   Switch,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -32,24 +32,13 @@ import {
   addManyToFolder,
   Folder,
 } from '@/lib/folders'
+import { getNotes } from '@/lib/notes'
+import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
 import { FolderListView } from '@/components/FolderListView'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions, ShareableAC, ShareableNote } from '@/lib/share'
-
-const SYNC_KEY = '@flyregs/sync-bookmarks'
-// Mirrors notes.tsx's local key — notes are still a local-first AsyncStorage
-// store outside this screen, but folder-share needs to resolve note titles/
-// bodies for any note items a folder contains.
-const NOTES_KEY = '@flyregs/notes'
-
-interface LocalNote {
-  id: string
-  title: string
-  body: string
-  linked_ac: string | null
-}
 
 type Tab = 'all' | 'folders' | 'offline'
 
@@ -60,9 +49,10 @@ export default function SavedScreen() {
   const { shareAC, shareMany } = useShareActions()
   const [tab, setTab] = useState<Tab>('all')
   const [syncEnabled, setSyncEnabled] = useState(false)
+  const [syncBusy, setSyncBusy] = useState(false)
 
   useEffect(() => {
-    AsyncStorage.getItem(SYNC_KEY).then((v) => { if (v === 'true') setSyncEnabled(true) })
+    isSyncEnabled().then(setSyncEnabled)
   }, [])
   const [bookmarks, setBookmarks] = useState<BookmarkAC[]>([])
   const [downloads, setDownloads] = useState<DownloadedAC[]>([])
@@ -77,6 +67,7 @@ export default function SavedScreen() {
   const [newFolderVisible, setNewFolderVisible] = useState(false)
   const [folderSheetVisible, setFolderSheetVisible] = useState(false)
   const [confirmTick, setConfirmTick] = useState(0)
+  const [confirmLabel, setConfirmLabel] = useState('')
 
   const load = useCallback(() => {
     getBookmarks().then(setBookmarks)
@@ -89,10 +80,17 @@ export default function SavedScreen() {
 
   useFocusEffect(useCallback(() => { load() }, [load]))
 
-  const toggleSync = (v: boolean) => {
+  const toggleSync = async (v: boolean) => {
     if (v && !isPremium) { router.push('/paywall?tier=premium'); return }
+    if (v && session?.user?.id) {
+      setSyncBusy(true)
+      await enableSync(session.user.id)
+      load()
+      setSyncBusy(false)
+    } else {
+      await disableSync()
+    }
     setSyncEnabled(v)
-    AsyncStorage.setItem(SYNC_KEY, String(v))
   }
 
   const toggleSelect = () => {
@@ -164,6 +162,8 @@ export default function SavedScreen() {
     setFolderSheetVisible(false)
     setSelected(new Set())
     setSelectMode(false)
+    const folder = folders.find((f) => f.id === folderId)
+    setConfirmLabel(folder ? `Added to ${folder.name}` : 'Added to folder')
     setConfirmTick((t) => t + 1)
   }
 
@@ -219,11 +219,10 @@ export default function SavedScreen() {
   // store {item_type, item_id} pointers, so sharing needs to cross-reference
   // the actual bookmark/note data.
   const resolveFolderContents = useCallback(async (folderIds: string[]) => {
-    const [items, notesRaw] = await Promise.all([
+    const [items, notes] = await Promise.all([
       Promise.all(folderIds.map((id) => getItemsInFolder(id))).then((lists) => lists.flat()),
-      AsyncStorage.getItem(NOTES_KEY),
+      getNotes(),
     ])
-    const notes: LocalNote[] = notesRaw ? JSON.parse(notesRaw) : []
     const bookmarkMap = new Map(bookmarks.map((b) => [b.id, b]))
     const noteMap = new Map(notes.map((n) => [n.id, n]))
 
@@ -324,12 +323,16 @@ export default function SavedScreen() {
           <View style={[styles.syncRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
             <View style={styles.syncTopRow}>
               <Text style={[styles.syncLabel, { color: tokens.t1, fontSize: fs(13) }]}>Back up & sync</Text>
-              <Switch
-                value={syncEnabled}
-                onValueChange={toggleSync}
-                trackColor={{ true: tokens.blu, false: undefined }}
-                style={styles.syncSwitch}
-              />
+              {syncBusy ? (
+                <ActivityIndicator size="small" color={tokens.blu} />
+              ) : (
+                <Switch
+                  value={syncEnabled}
+                  onValueChange={toggleSync}
+                  trackColor={{ true: tokens.blu, false: undefined }}
+                  style={styles.syncSwitch}
+                />
+              )}
             </View>
             <View style={styles.syncBadgeRow}>
               <View style={[styles.premBadge, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
@@ -342,7 +345,7 @@ export default function SavedScreen() {
                   : { backgroundColor: tokens.gdim, borderColor: tokens.gbdr },
               ]}>
                 <Text style={[styles.statusPillText, { color: syncEnabled ? tokens.blu : tokens.grn, fontSize: fs(10) }]}>
-                  {syncEnabled ? 'Synced' : 'Local Only'}
+                  {syncBusy ? 'Syncing…' : syncEnabled ? 'Synced' : 'Local Only'}
                 </Text>
               </View>
             </View>
@@ -484,7 +487,7 @@ export default function SavedScreen() {
         onClose={() => setFolderSheetVisible(false)}
       />
 
-      <ConfirmCheck trigger={confirmTick} />
+      <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
     </View>
   )
 }

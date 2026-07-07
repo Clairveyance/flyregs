@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { syncPushBookmark, syncPushBookmarkDeletes } from '@/lib/sync'
 
 const KEY = '@flyregs/bookmarks'
 
@@ -29,9 +30,9 @@ export async function isBookmarked(id: string): Promise<boolean> {
 export async function addBookmark(ac: Omit<BookmarkAC, 'savedAt'>) {
   const list = await getBookmarks()
   if (list.some((b) => b.id === ac.id)) return
-  const updated = [{ ...ac, savedAt: new Date().toISOString() }, ...list]
-  await AsyncStorage.setItem(KEY, JSON.stringify(updated))
-  // Cloud sync is Premium-gated — see saved.tsx toggleSync
+  const bookmark = { ...ac, savedAt: new Date().toISOString() }
+  await AsyncStorage.setItem(KEY, JSON.stringify([bookmark, ...list]))
+  syncPushBookmark(bookmark)
 }
 
 export async function removeBookmark(id: string) {
@@ -46,7 +47,7 @@ export async function removeManyBookmarks(ids: string[]) {
   const list = await getBookmarks()
   const idSet = new Set(ids)
   await AsyncStorage.setItem(KEY, JSON.stringify(list.filter((b) => !idSet.has(b.id))))
-  // Cloud sync is Premium-gated — see saved.tsx toggleSync
+  syncPushBookmarkDeletes(ids)
 }
 
 /** Toggle and return the new bookmarked state. */

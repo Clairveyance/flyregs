@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { syncPushFolder, syncPushFolderDelete, syncPushFolderItems, syncPushFolderItemDeletes } from '@/lib/sync'
 
 const FOLDERS_KEY = '@flyregs/folders'
 const FOLDER_ITEMS_KEY = '@flyregs/folder_items'
@@ -38,27 +39,28 @@ export async function createFolder(name: string): Promise<Folder> {
   const now = new Date().toISOString()
   const folder: Folder = { id: makeId(), name: name.trim(), created_at: now, updated_at: now }
   await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify([...folders, folder]))
+  syncPushFolder(folder)
   return folder
 }
 
 export async function renameFolder(id: string, name: string): Promise<void> {
   const folders = await getFolders()
-  await AsyncStorage.setItem(
-    FOLDERS_KEY,
-    JSON.stringify(
-      folders.map((f) =>
-        f.id === id ? { ...f, name: name.trim(), updated_at: new Date().toISOString() } : f
-      )
-    )
-  )
+  const updated_at = new Date().toISOString()
+  const next = folders.map((f) => (f.id === id ? { ...f, name: name.trim(), updated_at } : f))
+  await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(next))
+  const renamed = next.find((f) => f.id === id)
+  if (renamed) syncPushFolder(renamed)
 }
 
 export async function deleteFolder(id: string): Promise<void> {
   const [folders, items] = await Promise.all([getFolders(), getFolderItems()])
+  const itemsInFolder = items.filter((i) => i.folder_id === id)
   await Promise.all([
     AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(folders.filter((f) => f.id !== id))),
     AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(items.filter((i) => i.folder_id !== id))),
   ])
+  syncPushFolderDelete(id)
+  syncPushFolderItemDeletes(itemsInFolder.map((i) => i.id))
 }
 
 // ── Folder items ──────────────────────────────────────────────────────────────
@@ -119,6 +121,7 @@ export async function addManyToFolder(
     }))
   if (newItems.length === 0) return
   await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify([...items, ...newItems]))
+  syncPushFolderItems(newItems)
 }
 
 export async function removeFromFolder(
@@ -127,14 +130,14 @@ export async function removeFromFolder(
   itemId: string
 ): Promise<void> {
   const items = await getFolderItems()
+  const removed = items.filter(
+    (i) => i.folder_id === folderId && i.item_type === itemType && i.item_id === itemId
+  )
   await AsyncStorage.setItem(
     FOLDER_ITEMS_KEY,
-    JSON.stringify(
-      items.filter(
-        (i) => !(i.folder_id === folderId && i.item_type === itemType && i.item_id === itemId)
-      )
-    )
+    JSON.stringify(items.filter((i) => !removed.some((r) => r.id === i.id)))
   )
+  syncPushFolderItemDeletes(removed.map((i) => i.id))
 }
 
 /** Returns a map of folderId → item count, useful for rendering folder cards. */

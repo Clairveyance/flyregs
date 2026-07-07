@@ -16,7 +16,6 @@ import {
   Dimensions,
   ActivityIndicator,
 } from 'react-native'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import { router, useLocalSearchParams } from 'expo-router'
@@ -31,15 +30,15 @@ import { ACBlock } from '@/lib/acFormat'
 import { supabase } from '@/lib/supabase'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
-import { addManyToFolder } from '@/lib/folders'
+import { addManyToFolder, getFolders } from '@/lib/folders'
 import { getACIndex, ACIndexEntry } from '@/lib/acIndex'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions } from '@/lib/share'
+import { getNotes, saveNotes, makeNoteId, type Note } from '@/lib/notes'
+import { isSyncEnabled, enableSync, disableSync, syncPushNote, syncPushNoteDeletes } from '@/lib/sync'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const NOTES_KEY = '@flyregs/notes'
-const SYNC_KEY = '@flyregs/sync-notes'
 // Candidate shape only — e.g. "61-65K", "20-172", "135-17". Real ACs are
 // validated afterwards against the live AC index so arbitrary number pairs
 // (phone numbers, dates, ratios) never get linked.
@@ -54,14 +53,6 @@ const REST = SHEET_H - PEEK // resting translateY (collapsed, peeking)
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface Note {
-  id: string
-  title: string
-  body: string
-  linked_ac: string | null
-  updated_at: string
-}
-
 interface ACPreview {
   id: string
   document_number: string
@@ -72,44 +63,7 @@ interface ACPreview {
   pdf_blocks: ACBlock[] | null
 }
 
-// ─── Seed data ────────────────────────────────────────────────────────────────
-
-const SEED_NOTES: Note[] = [
-  {
-    id: 'seed-1',
-    title: 'CFI checkride prep',
-    body: 'Re-read 61-65K on flight instructor endorsements before the ride. Confirm the §61.195 limitations and the spin-training endorsement wording.',
-    linked_ac: '61-65K',
-    updated_at: new Date(Date.now() - 172_800_000).toISOString(),
-  },
-  {
-    id: 'seed-2',
-    title: 'Icing brief for students',
-    body: 'Holdover times vs. AC 91-74B — add a slide to syllabus lesson 7. Mention the difference between known vs. forecast icing.',
-    linked_ac: '91-74B',
-    updated_at: new Date(Date.now() - 432_000_000).toISOString(),
-  },
-  {
-    id: 'seed-3',
-    title: 'DPE question',
-    body: 'Logging PIC vs. sole manipulator — re-check 61.51(e) before I answer the student. Bring up at next standardization meeting.',
-    linked_ac: null,
-    updated_at: new Date(Date.now() - 604_800_000).toISOString(),
-  },
-  {
-    id: 'seed-4',
-    title: 'Reg change to watch',
-    body: "FAA fatigue rule changes for Part 135 operations — check if our pilot schedules need updating. Follow up after the new guidance has been in effect 90 days.",
-    linked_ac: null,
-    updated_at: new Date(Date.now() - 1_209_600_000).toISOString(),
-  },
-]
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function makeId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
-}
 
 function timeAgo(iso: string): string {
   const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
@@ -155,29 +109,26 @@ function detectACs(text: string, index: ACIndexEntry[]): string[] {
 export default function NotesScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { isPro, isPremium } = useAuth()
+  const { isPro, isPremium, session } = useAuth()
   const { shareNote, shareMany } = useShareActions()
   const { openId } = useLocalSearchParams<{ openId?: string }>()
   const [notes, setNotes] = useState<Note[]>([])
   const [syncEnabled, setSyncEnabled] = useState(false)
+  const [syncBusy, setSyncBusy] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [editorNote, setEditorNote] = useState<Note | null>(null)
   const [pickerNote, setPickerNote] = useState<Note | null>(null)
   const [folderSheetVisible, setFolderSheetVisible] = useState(false)
   const [confirmTick, setConfirmTick] = useState(0)
+  const [confirmLabel, setConfirmLabel] = useState('')
   // Guards the auto-open-from-navigation effect below so it fires once per
   // distinct openId, not every time `notes` re-renders for an unrelated reason.
   const openedIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    AsyncStorage.getItem(NOTES_KEY).then((raw) => {
-      setNotes(raw ? JSON.parse(raw) : SEED_NOTES)
-      if (!raw) AsyncStorage.setItem(NOTES_KEY, JSON.stringify(SEED_NOTES))
-    })
-    AsyncStorage.getItem(SYNC_KEY).then((v) => {
-      if (v === 'true') setSyncEnabled(true)
-    })
+    getNotes().then(setNotes)
+    isSyncEnabled().then(setSyncEnabled)
   }, [])
 
   // Opening a note from outside this screen (e.g. tapping it inside a Folder,
@@ -193,7 +144,7 @@ export default function NotesScreen() {
 
   const persist = useCallback((updated: Note[]) => {
     setNotes(updated)
-    AsyncStorage.setItem(NOTES_KEY, JSON.stringify(updated))
+    saveNotes(updated)
   }, [])
 
   const openNew = () => {
@@ -216,15 +167,16 @@ export default function NotesScreen() {
 
   const handleSave = (note: Note) => {
     const now = new Date().toISOString()
-    if (note.id) {
-      persist(notes.map((n) => (n.id === note.id ? { ...note, updated_at: now } : n)))
-    } else {
-      persist([{ ...note, id: makeId(), updated_at: now }, ...notes])
-    }
+    const saved: Note = note.id ? { ...note, updated_at: now } : { ...note, id: makeNoteId(), updated_at: now }
+    persist(note.id ? notes.map((n) => (n.id === note.id ? saved : n)) : [saved, ...notes])
+    syncPushNote(saved)
     setEditorNote(null)
   }
 
-  const deleteNote = (id: string) => persist(notes.filter((n) => n.id !== id))
+  const deleteNote = (id: string) => {
+    persist(notes.filter((n) => n.id !== id))
+    syncPushNoteDeletes([id])
+  }
 
   const confirmDelete = (id: string) =>
     Alert.alert('Delete Note', 'This note will be permanently deleted.', [
@@ -240,7 +192,9 @@ export default function NotesScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
+          const ids = [...selected]
           persist(notes.filter((n) => !selected.has(n.id)))
+          syncPushNoteDeletes(ids)
           setSelected(new Set())
           setSelectMode(false)
         },
@@ -259,6 +213,8 @@ export default function NotesScreen() {
     setFolderSheetVisible(false)
     setSelected(new Set())
     setSelectMode(false)
+    const folder = (await getFolders()).find((f) => f.id === folderId)
+    setConfirmLabel(folder ? `Added to ${folder.name}` : 'Added to folder')
     setConfirmTick((t) => t + 1)
   }
 
@@ -275,15 +231,22 @@ export default function NotesScreen() {
     setSelectMode(false)
   }
 
-  const toggleSync = (v: boolean) => {
+  const toggleSync = async (v: boolean) => {
     // Back up & sync is a Premium feature — turning it on without Premium opens
     // the paywall (works on web too, where Alert.alert is a no-op).
     if (v && !isPremium) {
       router.push('/paywall?tier=premium')
       return // leave the switch off
     }
+    if (v && session?.user?.id) {
+      setSyncBusy(true)
+      await enableSync(session.user.id)
+      setNotes(await getNotes())
+      setSyncBusy(false)
+    } else {
+      await disableSync()
+    }
     setSyncEnabled(v)
-    AsyncStorage.setItem(SYNC_KEY, String(v))
   }
 
   const rightSlot = isPro ? (
@@ -327,12 +290,16 @@ export default function NotesScreen() {
             <View style={[styles.syncRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
               <View style={styles.syncTopRow}>
                 <Text style={[styles.syncLabel, { color: tokens.t1, fontSize: fs(13) }]}>Back up & sync</Text>
-                <Switch
-                  value={syncEnabled}
-                  onValueChange={toggleSync}
-                  trackColor={{ true: tokens.blu, false: undefined }}
-                  style={styles.syncSwitch}
-                />
+                {syncBusy ? (
+                  <ActivityIndicator size="small" color={tokens.blu} />
+                ) : (
+                  <Switch
+                    value={syncEnabled}
+                    onValueChange={toggleSync}
+                    trackColor={{ true: tokens.blu, false: undefined }}
+                    style={styles.syncSwitch}
+                  />
+                )}
               </View>
               <View style={styles.syncBadgeRow}>
                 <View style={[styles.premBadge, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
@@ -345,7 +312,7 @@ export default function NotesScreen() {
                     : { backgroundColor: tokens.gdim, borderColor: tokens.gbdr },
                 ]}>
                   <Text style={[styles.statusPillText, { color: syncEnabled ? tokens.blu : tokens.grn, fontSize: fs(10) }]}>
-                    {syncEnabled ? 'Synced' : 'Local Only'}
+                    {syncBusy ? 'Syncing…' : syncEnabled ? 'Synced' : 'Local Only'}
                   </Text>
                 </View>
               </View>
@@ -454,7 +421,7 @@ export default function NotesScreen() {
         onClose={() => setFolderSheetVisible(false)}
       />
 
-      <ConfirmCheck trigger={confirmTick} />
+      <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
     </View>
   )
 }

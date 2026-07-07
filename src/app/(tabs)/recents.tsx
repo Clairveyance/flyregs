@@ -18,7 +18,7 @@ import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { getRecents, removeRecent, removeManyRecents, clearRecents, type RecentAC } from '@/lib/recents'
 import { getBookmarks, toggleBookmark } from '@/lib/bookmarks'
-import { addManyToFolder } from '@/lib/folders'
+import { addManyToFolder, getFolders } from '@/lib/folders'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
@@ -65,6 +65,7 @@ export default function RecentsScreen() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [folderSheetVisible, setFolderSheetVisible] = useState(false)
   const [confirmTick, setConfirmTick] = useState(0)
+  const [confirmLabel, setConfirmLabel] = useState('')
 
   const load = useCallback(() => {
     Promise.all([getRecents(), getBookmarks()]).then(([recents, bookmarks]) => {
@@ -135,6 +136,8 @@ export default function RecentsScreen() {
     setFolderSheetVisible(false)
     setSelected(new Set())
     setSelectMode(false)
+    const folder = (await getFolders()).find((f) => f.id === folderId)
+    setConfirmLabel(folder ? `Added to ${folder.name}` : 'Added to folder')
     setConfirmTick((t) => t + 1)
   }
 
@@ -289,7 +292,7 @@ export default function RecentsScreen() {
         onClose={() => setFolderSheetVisible(false)}
       />
 
-      <ConfirmCheck trigger={confirmTick} />
+      <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
     </View>
   )
 }

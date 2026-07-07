@@ -6,20 +6,20 @@ const SECTIONS: ProseSection[] = [
     heading: 'What we collect',
     body: [
       `${APP_NAME} is designed to work without an account. Browsing the Advisory Circular library, searching, and viewing recently opened ACs all happen on your device and require no sign-in.`,
-      'If you create an account, we collect your email address to authenticate you and to sync your bookmarks. We never sell your data.',
+      'If you create an account, we collect your email address to authenticate you. If you turn on AC Update Alerts (Premium), we store a device push token so we can notify you. If you upload a profile picture, it is stored and may be visible to people you share content with. We never sell your data.',
     ],
   },
   {
-    heading: 'Notes & on-device data',
+    heading: 'Notes, bookmarks & on-device data',
     body: [
-      'By default, your notes, recently viewed list, and appearance settings are stored privately on this device and are never uploaded to our servers.',
-      'If you enable Back up & sync (a Premium feature), your notes are stored end-to-end encrypted in your account so they survive a reinstall and sync across your devices. Because they are encrypted on your device before upload, we cannot read them.',
+      'By default, your notes, bookmarks, folders, and recently viewed list are stored privately on this device and are never uploaded to our servers.',
+      'If you enable Back up & sync (a Premium feature), your notes, bookmarks, and folders are uploaded to your account so they survive a reinstall and sync across your devices. This data is protected in transit (HTTPS) and at rest, and access is restricted to your account — but it is not end-to-end encrypted, meaning it is technically readable by our infrastructure provider under our data-access controls, the same as most cloud-synced apps. If that distinction matters to you, you can leave Back up & sync off and your notes will stay device-only.',
     ],
   },
   {
     heading: 'Analytics',
     body: [
-      'We collect anonymous, aggregated usage metrics (for example, which screens are opened) to improve the app. These metrics are not tied to your identity and never include the contents of your notes or searches.',
+      `${APP_NAME} does not currently use any analytics or usage-tracking service. We may add basic, anonymous, aggregated usage metrics in the future to improve the app; if we do, this policy will be updated first.`,
     ],
   },
   {
@@ -37,7 +37,7 @@ const SECTIONS: ProseSection[] = [
   {
     heading: 'Your choices',
     body: [
-      'You can delete your account at any time from Account → Delete Account, which removes your email and any synced data from our servers.',
+      'You can request account deletion at any time from Account → Delete Account, which opens a message to our support team. We process deletion requests, removing your email and any synced data from our servers, within 30 days.',
       `Questions about your privacy? Email ${SUPPORT_EMAIL}.`,
     ],
   },
