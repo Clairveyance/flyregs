@@ -42,6 +42,8 @@ const SF_TO_IONICONS: Record<string, string> = {
   'ellipsis': 'ellipsis-horizontal-outline',
   'checkmark': 'checkmark-outline',
   'checkmark.circle': 'checkmark-circle-outline',
+  'checkmark.circle.fill': 'checkmark-circle',
+  'xmark.circle.fill': 'close-circle',
   'lock': 'lock-closed-outline',
   'lock.fill': 'lock-closed',
   'person.crop.circle': 'person-circle-outline',
@@ -68,6 +70,7 @@ const SF_TO_IONICONS: Record<string, string> = {
   'arrow.up.right.square': 'open-outline',
   'list.bullet': 'list-outline',
   'camera.fill': 'camera',
+  'textformat.size': 'text-outline',
 }
 
 export function Icon({ name, size = 22, color, style }: IconProps) {

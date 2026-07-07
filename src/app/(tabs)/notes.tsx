@@ -421,6 +421,7 @@ export default function NotesScreen() {
         itemType="note"
         itemId={pickerNote?.id ?? ''}
         onClose={() => setPickerNote(null)}
+        onAdded={(name) => { setConfirmLabel(`Added to ${name}`); setConfirmTick((t) => t + 1) }}
       />
 
       {/* Bulk folder assignment */}

@@ -586,6 +586,7 @@ export default function SavedScreen() {
         itemType="ac"
         itemId={pickerAC?.id ?? ''}
         onClose={() => setPickerAC(null)}
+        onAdded={(name) => { setConfirmLabel(`Added to ${name}`); setConfirmTick((t) => t + 1) }}
       />
 
       {/* Folder picker for offline downloads */}
@@ -594,6 +595,7 @@ export default function SavedScreen() {
         itemType="ac"
         itemId={pickerDownloadId ?? ''}
         onClose={() => setPickerDownloadId(null)}
+        onAdded={(name) => { setConfirmLabel(`Added to ${name}`); setConfirmTick((t) => t + 1) }}
       />
 
       {/* Bulk folder picker */}
@@ -1048,7 +1050,7 @@ const styles = StyleSheet.create({
   },
   segText: { fontSize: 13, fontWeight: '600' },
 
-  subSegWrap: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 10 },
+  subSegWrap: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 10, alignItems: 'center' },
   subSeg: {
     flexDirection: 'row',
     borderRadius: 9,
@@ -1056,7 +1058,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     padding: 2,
     gap: 2,
-    alignSelf: 'flex-start',
   },
   subSegBtn: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 7 },
   subSegText: { fontSize: 12.5, fontWeight: '600' },

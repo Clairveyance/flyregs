@@ -29,9 +29,11 @@ interface Props {
   itemType: 'ac' | 'note'
   itemId: string
   onClose: () => void
+  /** Called right before closing after adding to a folder (not on remove). */
+  onAdded?: (folderName: string) => void
 }
 
-export function FolderPicker({ visible, itemType, itemId, onClose }: Props) {
+export function FolderPicker({ visible, itemType, itemId, onClose, onAdded }: Props) {
   const { tokens } = useTheme()
   const fs = useFS()
   const { isPro } = useAuth()
@@ -62,11 +64,11 @@ export function FolderPicker({ visible, itemType, itemId, onClose }: Props) {
   const toggle = async (folder: Folder) => {
     if (memberIds.has(folder.id)) {
       await removeFromFolder(folder.id, itemType, itemId)
-      setMemberIds((prev) => { const s = new Set(prev); s.delete(folder.id); return s })
     } else {
       await addToFolder(folder.id, itemType, itemId)
-      setMemberIds((prev) => new Set([...prev, folder.id]))
+      onAdded?.(folder.name)
     }
+    handleClose()
   }
 
   const handleCreate = async () => {
@@ -74,10 +76,8 @@ export function FolderPicker({ visible, itemType, itemId, onClose }: Props) {
     if (!name) return
     const folder = await createFolder(name)
     await addToFolder(folder.id, itemType, itemId)
-    setFolders((prev) => [...prev, folder])
-    setMemberIds((prev) => new Set([...prev, folder.id]))
-    setNewName('')
-    setCreating(false)
+    onAdded?.(folder.name)
+    handleClose()
   }
 
   const cancelCreate = () => { setCreating(false); setNewName('') }

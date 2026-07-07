@@ -283,6 +283,7 @@ export default function RecentsScreen() {
         itemType="ac"
         itemId={pickerItem?.id ?? ''}
         onClose={() => setPickerItem(null)}
+        onAdded={(name) => { setConfirmLabel(`Added to ${name}`); setConfirmTick((t) => t + 1) }}
       />
 
       <FolderSelectSheet
