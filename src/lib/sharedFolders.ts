@@ -77,3 +77,28 @@ export async function getSharedFolderACItems(folderId: string): Promise<SharedFo
 export async function leaveSharedFolder(folderId: string): Promise<void> {
   await supabase.from('folder_collaborators').delete().eq('folder_id', folderId)
 }
+
+export interface FolderCollaborator {
+  userId: string
+  email: string
+  joinedAt: string
+}
+
+export async function getFolderCollaborators(folderId: string): Promise<FolderCollaborator[]> {
+  const { data, error } = await supabase.rpc('get_folder_collaborators', { p_folder_id: folderId })
+  if (error) throw error
+  return (data ?? []).map((row: any) => ({
+    userId: row.out_user_id,
+    email: row.out_email,
+    joinedAt: row.out_joined_at,
+  }))
+}
+
+export async function removeCollaborator(folderId: string, userId: string): Promise<void> {
+  const { error } = await supabase
+    .from('folder_collaborators')
+    .delete()
+    .eq('folder_id', folderId)
+    .eq('user_id', userId)
+  if (error) throw error
+}

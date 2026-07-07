@@ -29,7 +29,7 @@ import {
 } from '@/lib/folders'
 import { getBookmarks, BookmarkAC } from '@/lib/bookmarks'
 import { useShareActions } from '@/lib/share'
-import { getOrCreateShareLink } from '@/lib/sharedFolders'
+import { getOrCreateShareLink, getFolderCollaborators, removeCollaborator, FolderCollaborator } from '@/lib/sharedFolders'
 import { isSyncEnabled } from '@/lib/sync'
 
 // ── Local Note type (mirrors notes.tsx — local-first AsyncStorage notes) ──────
@@ -61,6 +61,8 @@ export default function FolderDetail() {
 
   const [renaming, setRenaming] = useState(false)
   const [renameText, setRenameText] = useState('')
+  const [collaborators, setCollaborators] = useState<FolderCollaborator[]>([])
+  const [collabExpanded, setCollabExpanded] = useState(false)
 
   const load = useCallback(async () => {
     const [folders, items, bookmarks, notesRaw] = await Promise.all([
@@ -92,6 +94,13 @@ export default function FolderDetail() {
 
     setAcEntries(acs)
     setNoteEntries(notesList)
+
+    // Only owned, previously-shared folders have collaborators to show — a
+    // folder that's never been shared has no share_token and this RPC just
+    // returns an empty list, so it's safe to always attempt.
+    if (typeof id === 'string') {
+      getFolderCollaborators(id).then(setCollaborators).catch(() => setCollaborators([]))
+    }
   }, [id])
 
   useFocusEffect(useCallback(() => { load() }, [load]))
@@ -171,6 +180,21 @@ export default function FolderDetail() {
     setInvitingBusy(false)
   }
 
+  const handleRemoveCollaborator = (c: FolderCollaborator) => {
+    if (!folder) return
+    Alert.alert('Remove Access', `Remove ${c.email} from "${folder.name}"? They can rejoin later with a new invite link.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          await removeCollaborator(folder.id, c.userId)
+          setCollaborators((prev) => prev.filter((x) => x.userId !== c.userId))
+        },
+      },
+    ])
+  }
+
   const handleShareAC = (item: BookmarkAC) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     shareAC(item)
@@ -234,6 +258,28 @@ export default function FolderDetail() {
           <Pressable onPress={() => setRenaming(false)} hitSlop={8}>
             <Icon name="xmark.circle.fill" size={22} color={tokens.t3} />
           </Pressable>
+        </View>
+      )}
+
+      {collaborators.length > 0 && (
+        <View style={[styles.collabSection, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}>
+          <Pressable style={styles.collabHeader} onPress={() => setCollabExpanded((v) => !v)}>
+            <Icon name="person.2.fill" size={15} color={tokens.t2} />
+            <Text style={[styles.collabHeaderText, { color: tokens.t2, fontSize: fs(13) }]}>
+              {collaborators.length} {collaborators.length === 1 ? 'person has' : 'people have'} joined
+            </Text>
+            <Icon name={collabExpanded ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+          </Pressable>
+          {collabExpanded && collaborators.map((c) => (
+            <View key={c.userId} style={[styles.collabRow, { borderTopColor: tokens.bdr }]}>
+              <Text style={[styles.collabEmail, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
+                {c.email}
+              </Text>
+              <Pressable onPress={() => handleRemoveCollaborator(c)} hitSlop={8}>
+                <Icon name="xmark.circle" size={18} color={tokens.t4} />
+              </Pressable>
+            </View>
+          ))}
         </View>
       )}
 
@@ -466,6 +512,20 @@ const styles = StyleSheet.create({
 
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   headerBtn: { padding: 6 },
+
+  collabSection: { marginHorizontal: 16, marginTop: 12, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+  collabHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12 },
+  collabHeaderText: { flex: 1, fontWeight: '600' },
+  collabRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  collabEmail: { flex: 1 },
 
   renameBar: {
     flexDirection: 'row',
