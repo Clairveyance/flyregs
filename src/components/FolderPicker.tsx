@@ -123,7 +123,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded }: Pr
 
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: tokens.bdr }]}>
-            <Text style={[styles.headerTitle, { color: tokens.t1, fontSize: fs(15) }]}>Add to Folder</Text>
+            <Text style={[styles.headerTitle, { color: tokens.t1, fontSize: fs(15) }]}>Add to Folder(s)</Text>
             <Pressable onPress={handleClose} style={[styles.doneBtn, { backgroundColor: tokens.blu }]} hitSlop={4}>
               <Text style={[styles.doneBtnText, { fontSize: fs(13) }]}>Done</Text>
             </Pressable>
