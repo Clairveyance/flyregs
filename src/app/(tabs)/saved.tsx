@@ -34,6 +34,7 @@ import {
 } from '@/lib/folders'
 import { getNotes } from '@/lib/notes'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
+import { getMyCollaborations, SharedFolderSummary } from '@/lib/sharedFolders'
 import { FolderListView } from '@/components/FolderListView'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
@@ -57,6 +58,7 @@ export default function SavedScreen() {
   const [bookmarks, setBookmarks] = useState<BookmarkAC[]>([])
   const [downloads, setDownloads] = useState<DownloadedAC[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
+  const [collaborations, setCollaborations] = useState<SharedFolderSummary[]>([])
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({})
   const [pickerAC, setPickerAC] = useState<BookmarkAC | null>(null)
   const [pickerDownloadId, setPickerDownloadId] = useState<string | null>(null)
@@ -76,7 +78,8 @@ export default function SavedScreen() {
       setFolders(f)
       setFolderCounts(c)
     })
-  }, [])
+    if (isPremium) getMyCollaborations().then(setCollaborations)
+  }, [isPremium])
 
   useFocusEffect(useCallback(() => {
     load()
@@ -401,6 +404,28 @@ export default function SavedScreen() {
           onDelete={handleDeleteFolder}
           onShare={handleShareFolder}
           onCreateFolder={() => setNewFolderVisible(true)}
+          listHeader={
+            collaborations.length > 0 ? (
+              <View style={styles.sharedSection}>
+                <Text style={[styles.sharedSectionTitle, { color: tokens.t3, fontSize: fs(12) }]}>
+                  SHARED WITH ME
+                </Text>
+                {collaborations.map((c) => (
+                  <Pressable
+                    key={c.folder_id}
+                    style={[styles.sharedRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                    onPress={() => router.push(`/folder/shared/${c.folder_id}`)}
+                  >
+                    <Icon name="person.2.fill" size={18} color={tokens.t2} />
+                    <Text style={[styles.sharedRowText, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
+                      {c.folder_name}
+                    </Text>
+                    <Icon name="chevron.right" size={14} color={tokens.t4} />
+                  </Pressable>
+                ))}
+              </View>
+            ) : undefined
+          }
         />
       ) : (
         <OfflineListView
@@ -894,6 +919,17 @@ function EmptyState({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  sharedSection: { paddingHorizontal: 16, paddingTop: 12, gap: 8 },
+  sharedSectionTitle: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 2 },
+  sharedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  sharedRowText: { flex: 1, fontWeight: '600' },
   center: {
     flex: 1,
     justifyContent: 'center',

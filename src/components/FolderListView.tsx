@@ -32,6 +32,7 @@ interface Props {
   onDelete: (folder: Folder) => void
   onShare: (folder: Folder) => void
   onCreateFolder: () => void
+  listHeader?: React.ReactElement
 }
 
 export function FolderListView({
@@ -45,6 +46,7 @@ export function FolderListView({
   onDelete,
   onShare,
   onCreateFolder,
+  listHeader,
 }: Props) {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -80,6 +82,7 @@ export function FolderListView({
   if (folders.length === 0) {
     return (
       <View style={styles.empty}>
+        {listHeader}
         <Icon name="folder" size={40} color={tokens.t4} />
         <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No folders yet</Text>
         <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
@@ -107,6 +110,7 @@ export function FolderListView({
         keyExtractor={(f) => f.id}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
+        ListHeaderComponent={listHeader}
         onScrollToIndexFailed={({ index }) => {
           setTimeout(() => {
             try {

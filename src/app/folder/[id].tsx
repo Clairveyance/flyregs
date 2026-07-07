@@ -6,6 +6,7 @@ import {
   Pressable,
   TextInput,
   Alert,
+  Share,
   StyleSheet,
   Animated,
   PanResponder,
@@ -28,6 +29,8 @@ import {
 } from '@/lib/folders'
 import { getBookmarks, BookmarkAC } from '@/lib/bookmarks'
 import { useShareActions } from '@/lib/share'
+import { getOrCreateShareLink } from '@/lib/sharedFolders'
+import { isSyncEnabled } from '@/lib/sync'
 
 // ── Local Note type (mirrors notes.tsx — local-first AsyncStorage notes) ──────
 interface Note {
@@ -144,6 +147,30 @@ export default function FolderDetail() {
     ])
   }
 
+  const [invitingBusy, setInvitingBusy] = useState(false)
+
+  const handleInvite = async () => {
+    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!folder) return
+    if (!(await isSyncEnabled())) {
+      Alert.alert(
+        'Turn on Back up & sync first',
+        'Inviting others requires this folder to exist in the cloud. Turn on Back up & sync in Saved, then try again.'
+      )
+      return
+    }
+    setInvitingBusy(true)
+    try {
+      const link = await getOrCreateShareLink(folder.id)
+      await Share.share({
+        message: `Join my "${folder.name}" folder on FlyRegs — view-only access to the ACs I've saved there. You'll need your own Pro or Premium subscription to read full AC text.\n\n${link}`,
+      })
+    } catch {
+      Alert.alert('Error', 'Could not create an invite link. Try again in a moment.')
+    }
+    setInvitingBusy(false)
+  }
+
   const handleShareAC = (item: BookmarkAC) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     shareAC(item)
@@ -167,6 +194,9 @@ export default function FolderDetail() {
 
   const rightSlot = (
     <View style={styles.headerRight}>
+      <Pressable onPress={handleInvite} hitSlop={10} style={styles.headerBtn} disabled={invitingBusy}>
+        <Icon name="person.2.fill" size={fs(21)} color={tokens.t2} />
+      </Pressable>
       <Pressable onPress={startRename} hitSlop={10} style={styles.headerBtn}>
         <Icon name="pencil" size={fs(21)} color={tokens.t2} />
       </Pressable>
