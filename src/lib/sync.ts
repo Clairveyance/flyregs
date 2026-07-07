@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { getBookmarks } from '@/lib/bookmarks'
 import { getFolders, getFolderItems } from '@/lib/folders'
-import { getNotes, saveNotes } from '@/lib/notes'
+import { getNotes, saveNotes, isSeedNote } from '@/lib/notes'
 import {
   SYNC_ENABLED_KEY,
   isSyncEnabled,
@@ -147,6 +147,7 @@ async function mergeNotes(userId: string) {
     }
   }
   const toPushUp = local.filter((loc) => {
+    if (isSeedNote(loc.id)) return false
     const r = (remote ?? []).find((x) => x.id === loc.id)
     return !r || new Date(loc.updated_at) > new Date(r.updated_at)
   })
@@ -171,7 +172,7 @@ export async function enableSync(userId: string): Promise<void> {
     ...bookmarks.map((b) => syncPushBookmark(b)),
     ...folders.map((f) => syncPushFolder(f)),
     syncPushFolderItems(folderItems),
-    ...notes.map((n) => syncPushNote(n)),
+    ...notes.filter((n) => !isSeedNote(n.id)).map((n) => syncPushNote(n)),
   ])
   await pullAndMergeAll(userId)
 }

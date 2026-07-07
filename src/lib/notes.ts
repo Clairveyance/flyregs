@@ -45,6 +45,14 @@ export function makeNoteId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 }
 
+// Example notes shown on a fresh install (id starts with "seed-") are local
+// placeholder content, not real user data — they must never be pushed to a
+// synced account, or every new Premium user's cloud notes would start out
+// polluted with the same 4 fake demo notes.
+export function isSeedNote(id: string): boolean {
+  return id.startsWith('seed-')
+}
+
 export async function getNotes(): Promise<Note[]> {
   try {
     const raw = await AsyncStorage.getItem(NOTES_KEY)
