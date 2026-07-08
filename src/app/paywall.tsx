@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   View,
   Text,
@@ -74,6 +74,15 @@ export default function PaywallScreen() {
   const [tier, setTier] = useState<Tier>(upgradeMode || premiumOnlyMode ? 'premium' : 'pro')
   const [plan, setPlan] = useState<Plan>('annual')
   const [loading, setLoading] = useState(false)
+
+  // isPro (and therefore upgradeMode) loads asynchronously in AuthProvider —
+  // it's still false on this screen's first render for a real Pro user, so
+  // the tier useState above locks in 'pro' before the real status arrives.
+  // Re-sync once upgradeMode/premiumOnlyMode flip true so the pricing shown
+  // always matches the "Upgrade to Premium" messaging around it.
+  useEffect(() => {
+    if (upgradeMode || premiumOnlyMode) setTier('premium')
+  }, [upgradeMode, premiumOnlyMode])
 
   const features = tier === 'pro' ? PRO_FEATURES : (upgradeMode ? PREMIUM_ADDITIONS : PREMIUM_FEATURES)
   const pricing = PRICING[tier]
