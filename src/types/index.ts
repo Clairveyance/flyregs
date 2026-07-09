@@ -22,6 +22,14 @@ export interface AdvisoryCircular {
   related_lois?: LetterOfInterpretation[]
 }
 
+export interface AcFigure {
+  id: string
+  label: string          // e.g. "Figure C-6", "Table 3-1"
+  caption: string | null
+  page: number
+  image_url: string
+}
+
 export interface ACSeries {
   id: string
   series_prefix: string

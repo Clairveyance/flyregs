@@ -29,8 +29,9 @@ type Tier = 'pro' | 'premium'
 // account needed — don't list either here. These bullets are specifically
 // what Pro adds on top of that free baseline.
 const PRO_FEATURES = [
-  { icon: 'doc.text',          label: 'The complete text of every Advisory Circular — not just a preview' },
+  { icon: 'doc.text',          label: 'The complete text of every Advisory Circular — not just a preview, plus the original PDF' },
   { icon: 'magnifyingglass',   label: 'In-document search — find any phrase across 30,000+ pages of AC text' },
+  { icon: 'photo',             label: 'Every figure and table pulled out of the PDF and linked right in the text — tap "Figure 3-1" or "Table C-5" to see it instantly' },
   { icon: 'folder.fill',       label: 'Custom folders — organize the AC library the FAA never built' },
   { icon: 'bookmark.fill',     label: 'Bookmarks — save any AC for one-tap access' },
   { icon: 'square.and.pencil', label: 'Personal notes linked directly to your ACs' },

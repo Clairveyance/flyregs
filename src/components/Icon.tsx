@@ -73,6 +73,7 @@ const SF_TO_IONICONS: Record<string, string> = {
   'camera.fill': 'camera',
   'textformat.size': 'text-outline',
   'highlighter': 'color-wand-outline',
+  'photo': 'image-outline',
   'exclamationmark.triangle': 'warning-outline',
 }
 

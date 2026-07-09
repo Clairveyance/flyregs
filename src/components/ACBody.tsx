@@ -7,10 +7,11 @@ import {
   ScrollView,
   Platform,
 } from 'react-native'
-import { useTheme } from '@/context/theme'
+import { useTheme, ThemeTokens } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { parseAC, cleanGlyphs, blockText, ACBlock } from '@/lib/acFormat'
+import type { AcFigure } from '@/types'
 
 type Heading = Extract<ACBlock, { id: string }>
 
@@ -92,6 +93,70 @@ function highlightSpans(
   return <>{result}</>
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Builds a match pattern that tolerates a stray space around a label's "-"/"."
+// separator (e.g. matches "Table 5 -1" as well as "Table 5-1"). This is a real,
+// pre-existing quirk of the pypdf-based body-text extraction (confirmed via a
+// direct pypdf vs. PyMuPDF comparison on the same PDF page — pypdf sometimes
+// inserts a space at a hyphen glyph boundary that PyMuPDF doesn't), not
+// something introduced by this feature. Labels themselves (from
+// extract_figures.py, which uses PyMuPDF) are always clean, so this only
+// needs to widen matching against body text, never the stored label itself.
+function toTolerantLabelPattern(label: string): string {
+  return escapeRegExp(label)
+    .replace(/-/g, '\\s*-\\s*')
+    .replace(/\\\./g, '\\s*\\.\\s*')
+}
+
+// Undoes the whitespace tolerance above so a match like "Table 5 -1" still
+// looks up the canonical "Table 5-1" entry in figuresByLabel.
+function normalizeMatchedLabel(matched: string): string {
+  return matched.replace(/\s*-\s*/g, '-').replace(/\s*\.\s*/g, '.')
+}
+
+// Auto-links inline mentions of a known Figure/Table label ("...as shown in
+// Figure 3-1 below") to open that figure's rendered page. Only labels we
+// actually have image data for are linked — this is deliberately a plain
+// substring match against the AC's own extracted labels, not a general
+// "Figure \d+" regex, so it can never link to a figure that doesn't exist.
+function linkifyFigures(
+  text: string,
+  labelRe: RegExp | null,
+  figuresByLabel: Map<string, AcFigure>,
+  onOpenFigure: (f: AcFigure) => void,
+  tokens: ThemeTokens
+): React.ReactNode {
+  if (!labelRe || !text) return text
+  labelRe.lastIndex = 0
+  const result: React.ReactNode[] = []
+  let pos = 0
+  let m: RegExpExecArray | null
+  while ((m = labelRe.exec(text))) {
+    if (m.index > pos) result.push(text.slice(pos, m.index))
+    const label = m[0]
+    const figure = figuresByLabel.get(normalizeMatchedLabel(label))
+    if (figure) {
+      result.push(
+        <Text
+          key={m.index}
+          style={{ color: tokens.blu, textDecorationLine: 'underline' }}
+          onPress={() => onOpenFigure(figure)}
+        >
+          {label}
+        </Text>
+      )
+    } else {
+      result.push(label)
+    }
+    pos = m.index + label.length
+  }
+  if (pos < text.length) result.push(text.slice(pos))
+  return <>{result}</>
+}
+
 // Repairs a PDF line-break mid-word split stored in block data.
 // Pattern: title is a bare ALL-CAPS fragment (e.g. "CO"), body begins with
 // more ALL-CAPS letters + punctuation completing the word (e.g. "NDITIONS.").
@@ -154,8 +219,14 @@ export const ACBody = React.forwardRef<
     /** Long-press a section/item/paragraph block to toggle a highlight on it.
      * Not offered on chapter headings — those aren't "content" to save. */
     onToggleHighlight?: (block: ACBlock, index: number) => void
+    /** Figures/Tables extracted from this AC's source PDF (see
+     * scripts/extract_figures.py) — rendered as a "Figures & Tables" list
+     * (mirroring the Contents card) and auto-linked inline wherever their
+     * exact label ("Figure 3-1", "Table C-5") appears in the body text. */
+    figures?: AcFigure[]
+    onOpenFigure?: (figure: AcFigure) => void
   }
->(function ACBody({ text, blocks: precomputed, scrollRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight }, ref) {
+>(function ACBody({ text, blocks: precomputed, scrollRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight, figures, onOpenFigure }, ref) {
   const changedSet = useMemo(() => new Set(changedIndices ?? []), [changedIndices])
   const { tokens } = useTheme()
   const fs = useFS()
@@ -189,7 +260,21 @@ export const ACBody = React.forwardRef<
     [blocks]
   )
 
+  // Longest-label-first so "Figure C-10" matches before "Figure C-1" would
+  // otherwise grab its first few characters.
+  const figuresByLabel = useMemo(() => {
+    const m = new Map<string, AcFigure>()
+    for (const f of figures ?? []) m.set(f.label, f)
+    return m
+  }, [figures])
+  const figureLabelRe = useMemo(() => {
+    if (!figures || !figures.length) return null
+    const labels = [...figuresByLabel.keys()].sort((a, b) => b.length - a.length)
+    return new RegExp(labels.map(toTolerantLabelPattern).join('|'), 'g')
+  }, [figures, figuresByLabel])
+
   const [showToc, setShowToc] = useState(false)
+  const [showFigures, setShowFigures] = useState(false)
   const headingRefs = useRef<Record<string, View | null>>({})
   const matchRefs = useRef<Record<number, View | null>>({})
   // Per-occurrence (not per-block) refs to the actual highlighted <Text> span,
@@ -367,6 +452,30 @@ export const ACBody = React.forwardRef<
         </View>
       )}
 
+      {/* Figures & Tables — extracted page images, hidden while searching */}
+      {figures && figures.length > 0 && !searching && (
+        <View style={[styles.tocCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+          <Pressable style={styles.tocHead} onPress={() => setShowFigures((s) => !s)}>
+            <Icon name="photo" size={14} color={tokens.blu} />
+            <Text style={[styles.tocHeadText, { color: tokens.t1, fontSize: fs(13.5) }]}>Figures & Tables</Text>
+            <Text style={[styles.tocCount, { color: tokens.t3 }]}>{figures.length}</Text>
+            <Icon name={showFigures ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+          </Pressable>
+          {showFigures && (
+            <View style={[styles.tocList, { borderTopColor: tokens.bdr }]}>
+              {figures.map((f) => (
+                <Pressable key={f.id} style={styles.tocRow} onPress={() => onOpenFigure?.(f)}>
+                  <Text numberOfLines={1} style={[styles.tocEntry, { color: tokens.t2, fontSize: fs(13) }]}>
+                    <Text style={{ color: tokens.t1, fontWeight: '700' }}>{f.label}</Text>
+                    {f.caption ? ` ${f.caption}` : ''}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+
       {/* Document body — capped to bodyLimit blocks for the free-tier preview */}
       {(bodyLimit != null ? blocks.slice(0, bodyLimit) : blocks).map((b, i) => {
         const isMatch = searching && matchingBlockSet.has(i)
@@ -396,6 +505,10 @@ export const ACBody = React.forwardRef<
           active: activeMatch,
           onOccRef: (ordinal: number, node: any) => { occurrenceRefs.current[ordinal] = node },
         })
+        // Only auto-link body prose (not headings/labels) — a caption never
+        // legitimately appears inside a section/item label.
+        const linkify = (t: string) =>
+          onOpenFigure ? linkifyFigures(t, figureLabelRe, figuresByLabel, onOpenFigure, tokens) : t
         switch (b.kind) {
           case 'chapter':
             return (
@@ -411,7 +524,7 @@ export const ACBody = React.forwardRef<
               >
                 {UpdatedTag}
                 <Text style={[styles.chapter, { color: tokens.t1, fontSize: fs(14.5) }]}>
-                  {activeHq ? highlightSpans(b.text, activeHq, hOpts(base)) : b.text}
+                  {activeHq ? highlightSpans(b.text, activeHq, hOpts(base)) : linkify(b.text)}
                 </Text>
               </View>
             )
@@ -448,7 +561,7 @@ export const ACBody = React.forwardRef<
                 </Text>
                 {rawBody ? (
                   <Text selectable style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13.5) }]}>
-                    {activeHq ? highlightSpans(rawBody, activeHq, hOpts(bodyBase)) : rawBody}
+                    {activeHq ? highlightSpans(rawBody, activeHq, hOpts(bodyBase)) : linkify(rawBody)}
                   </Text>
                 ) : null}
               </Pressable>
@@ -475,7 +588,7 @@ export const ACBody = React.forwardRef<
                   <Text style={{ color: tokens.t1, fontWeight: '600' }}>
                     {activeHq ? highlightSpans(labelText, activeHq, hOpts(base)) : labelText}{' '}
                   </Text>
-                  {activeHq ? highlightSpans(b.body, activeHq, hOpts(bodyBase)) : b.body}
+                  {activeHq ? highlightSpans(b.body, activeHq, hOpts(bodyBase)) : linkify(b.body)}
                 </Text>
               </Pressable>
             )
@@ -496,7 +609,7 @@ export const ACBody = React.forwardRef<
                 {UpdatedTag}
                 {HighlightTag}
                 <Text selectable style={[styles.para, { color: tokens.t2, fontSize: fs(13.5) }]}>
-                  {activeHq ? highlightSpans(b.text, activeHq, hOpts(base)) : b.text}
+                  {activeHq ? highlightSpans(b.text, activeHq, hOpts(base)) : linkify(b.text)}
                 </Text>
               </Pressable>
             )

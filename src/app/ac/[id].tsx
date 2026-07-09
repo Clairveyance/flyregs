@@ -29,7 +29,8 @@ import { collapseDictationDuplicate } from '@/lib/dictation'
 import { blockText, ACBlock } from '@/lib/acFormat'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
-import type { AdvisoryCircular } from '@/types'
+import { FigureViewer } from '@/components/FigureViewer'
+import type { AdvisoryCircular, AcFigure } from '@/types'
 
 // Maps a block to the fields a highlight bookmark needs — chapter headings
 // return null (not "content" worth saving) so long-press only does anything
@@ -65,6 +66,8 @@ export default function ACDetailScreen() {
   const [bookmarked, setBookmarked] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
   const [highlightedBlockTexts, setHighlightedBlockTexts] = useState<Set<string>>(new Set())
+  const [figures, setFigures] = useState<AcFigure[]>([])
+  const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
   const [changedIdx, setChangedIdx] = useState(0)
   const [loading, setLoading] = useState(true)
   const [scrollY, setScrollY] = useState(0)
@@ -184,6 +187,12 @@ export default function ACDetailScreen() {
     isBookmarked(id).then(setBookmarked)
     isDownloaded(id).then(setDownloaded)
     getHighlightsForAC(id).then((hs) => setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!))))
+    supabase
+      .from('ac_figures')
+      .select('id,label,caption,page,image_url')
+      .eq('ac_id', id)
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => setFigures((data as AcFigure[]) ?? []))
   }, [id])
 
   // Opened from a highlight row in Saved (?hlId=<highlight bookmark id>) —
@@ -351,6 +360,10 @@ export default function ACDetailScreen() {
   }, [ac?.pdf_blocks, changedList])
 
   const openPDF = async () => {
+    if (!isPro) {
+      router.push('/paywall')
+      return
+    }
     const url =
       ac?.pdf_url_cached ??
       ac?.pdf_url_faa ??
@@ -611,6 +624,8 @@ export default function ACDetailScreen() {
                 changedIndices={ac.changed_block_indices}
                 highlightedBlockTexts={isPro ? highlightedBlockTexts : undefined}
                 onToggleHighlight={isPro ? handleToggleHighlight : undefined}
+                figures={isPro ? figures : undefined}
+                onOpenFigure={isPro ? setViewerFigure : undefined}
               />
               {!isPro && ac.pdf_blocks.length > previewBlockCount(ac.pdf_blocks.length) && (
                 <Pressable
@@ -646,6 +661,7 @@ export default function ACDetailScreen() {
           </Text>
         </ScrollView>
       )}
+      <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
     </View>
   )
 }
