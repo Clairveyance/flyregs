@@ -12,7 +12,8 @@ import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
-import { getBadgeLifespanDays, isWithinBadgeLifespan, DEFAULT_BADGE_LIFESPAN_DAYS } from '@/lib/badgeLifespan'
+import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
+import { useBadgeLifespan } from '@/context/badgeLifespan'
 
 interface SeriesAC {
   id: string
@@ -52,11 +53,7 @@ export default function SeriesScreen() {
   const [acs, setACs] = useState<SeriesAC[]>([])
   const [seriesName, setSeriesName] = useState('')
   const [loading, setLoading] = useState(true)
-  const [badgeDays, setBadgeDays] = useState(DEFAULT_BADGE_LIFESPAN_DAYS)
-
-  useEffect(() => {
-    getBadgeLifespanDays().then(setBadgeDays)
-  }, [])
+  const { badgeDays } = useBadgeLifespan()
 
   useEffect(() => {
     Promise.all([

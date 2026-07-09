@@ -50,7 +50,7 @@ function countOcc(text: string, phrase: string): number {
 function highlightSpans(
   text: string,
   query: string,
-  opts?: { base?: number; active?: number }
+  opts?: { base?: number; active?: number; onOccRef?: (globalOrdinal: number, node: any) => void }
 ): React.ReactNode {
   const phrase = searchPhrase(query)
   if (phrase.length < 2 || !text) return text
@@ -75,8 +75,13 @@ function highlightSpans(
   for (const { start, end } of matches) {
     if (start > pos) result.push(text.slice(pos, start))
     const isActive = base + occ === active
+    const globalOrdinal = base + occ
     result.push(
-      <Text key={start} style={isActive ? styles.highlightActive : styles.highlight}>
+      <Text
+        key={start}
+        ref={opts?.onOccRef ? ((node: any) => opts.onOccRef!(globalOrdinal, node)) as any : undefined}
+        style={isActive ? styles.highlightActive : styles.highlight}
+      >
         {text.slice(start, end)}
       </Text>
     )
@@ -187,6 +192,13 @@ export const ACBody = React.forwardRef<
   const [showToc, setShowToc] = useState(false)
   const headingRefs = useRef<Record<string, View | null>>({})
   const matchRefs = useRef<Record<number, View | null>>({})
+  // Per-occurrence (not per-block) refs to the actual highlighted <Text> span,
+  // keyed by global occurrence ordinal — lets scrollToMatch land on the exact
+  // phrase instead of just the top of its containing block. Matters a lot for
+  // long blocks (e.g. a paragraph-length bulleted list): scrolling to the
+  // block's top could leave the actual match several screens below the fold,
+  // looking exactly like "no highlight here" to the user.
+  const occurrenceRefs = useRef<Record<number, any>>({})
   // Populated for any block a caller might need to imperatively scroll to
   // later (changed-in-revision blocks AND saved highlights) — see
   // scrollToBlockIndex above.
@@ -260,17 +272,18 @@ export const ACBody = React.forwardRef<
         return
       }
 
-      // Native: scroll to the block containing the nth occurrence; the brighter
-      // active highlight shows which occurrence within the block is current.
-      const blockIndex = occurrences[n]
-      if (blockIndex == null) return
-      const node = matchRefs.current[blockIndex]
-      if (!node) return
+      // Native: prefer scrolling to the exact highlighted span for this
+      // occurrence — falls back to the containing block's top only if that
+      // span hasn't mounted a ref for some reason (shouldn't normally happen).
       const scroller = scrollRef?.current
       if (!scroller) return
+      const occNode = occurrenceRefs.current[n]
+      const blockIndex = occurrences[n]
+      const node = occNode ?? (blockIndex != null ? matchRefs.current[blockIndex] : null)
+      if (!node) return
       node.measureLayout(
         scroller as any,
-        (_x, y) => scroller.scrollTo({ y: Math.max(0, y - 80), animated: true }),
+        (_x: number, y: number) => scroller.scrollTo({ y: Math.max(0, y - 80), animated: true }),
         () => {}
       )
     },
@@ -378,7 +391,11 @@ export const ACBody = React.forwardRef<
         // stays continuous with the occurrences[] array.
         const activeHq = hq
         const base = phrase ? blockBase.get(i) ?? 0 : 0
-        const hOpts = (segBase: number) => ({ base: segBase, active: activeMatch })
+        const hOpts = (segBase: number) => ({
+          base: segBase,
+          active: activeMatch,
+          onOccRef: (ordinal: number, node: any) => { occurrenceRefs.current[ordinal] = node },
+        })
         switch (b.kind) {
           case 'chapter':
             return (

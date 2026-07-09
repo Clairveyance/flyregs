@@ -13,6 +13,7 @@ import {
   Switch,
 } from 'react-native'
 import { router } from 'expo-router'
+import * as Sentry from '@sentry/react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme, ThemeTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -22,6 +23,7 @@ import { Icon } from '@/components/Icon'
 import { restorePurchases } from '@/lib/revenuecat'
 import { useFS } from '@/context/fontScale'
 import { SUPPORT_EMAIL } from '@/lib/appInfo'
+import { supabase } from '@/lib/supabase'
 import { getAvatarUrl, pickAndUploadAvatar, takeAndUploadAvatar } from '@/lib/avatar'
 import {
   isAcUpdateAlertsEnabled,
@@ -40,6 +42,7 @@ export default function AccountScreen() {
   const [avatarOverride, setAvatarOverride] = useState<string | null>(null)
   const [alertsEnabled, setAlertsEnabled] = useState(false)
   const [alertsBusy, setAlertsBusy] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     if (session?.user?.id && isPremium) {
@@ -96,6 +99,7 @@ export default function AccountScreen() {
           ]
         )
       } else if (err?.message !== 'CANCELLED') {
+        Sentry.captureException(err)
         Alert.alert('Error', 'Could not update your profile picture.')
       }
     }
@@ -153,18 +157,52 @@ export default function AccountScreen() {
     ])
   }
 
+  const runAccountDelete = async () => {
+    setDeleting(true)
+    try {
+      const { error } = await supabase.functions.invoke('delete-account', { method: 'POST' })
+      if (error) throw error
+      await signOut()
+      router.back()
+    } catch (err: any) {
+      Sentry.captureException(err)
+      Alert.alert(
+        'Couldn’t Delete Account',
+        'Something went wrong. Please try again, or email our support team if this keeps happening.',
+        [
+          { text: 'OK', style: 'cancel' },
+          {
+            text: 'Email Support',
+            onPress: () =>
+              Linking.openURL(
+                `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Delete my account')}`
+              ),
+          },
+        ]
+      )
+    }
+    setDeleting(false)
+  }
+
   const handleDelete = () => {
     Alert.alert(
       'Delete Account',
-      'This permanently deletes your account and any synced data. This cannot be undone. To proceed, email our support team and we will process your request within 30 days.',
+      'This permanently deletes your account and all synced data (bookmarks, folders, notes, highlights). This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Email Support',
-          onPress: () =>
-            Linking.openURL(
-              `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Delete my account')}`
-            ),
+          text: 'Delete Everything',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Are You Sure?',
+              'There is no way to recover your account or data after this.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Delete Permanently', style: 'destructive', onPress: runAccountDelete },
+              ]
+            )
+          },
         },
       ]
     )
@@ -310,7 +348,8 @@ export default function AccountScreen() {
             label="Delete Account"
             tint={tokens.red}
             tokens={tokens}
-            onPress={handleDelete}
+            onPress={deleting ? () => {} : handleDelete}
+            trailing={deleting ? <ActivityIndicator color={tokens.red} /> : undefined}
             last
           />
         </View>

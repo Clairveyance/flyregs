@@ -1,4 +1,5 @@
 import * as ImagePicker from 'expo-image-picker'
+import { File } from 'expo-file-system'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 
@@ -20,12 +21,18 @@ export function getDisplayName(session: Session | null): string {
 async function uploadAvatarAsset(userId: string, uri: string): Promise<string> {
   const path = `${userId}/avatar.jpg`
 
-  const response = await fetch(uri)
-  const blob = await response.blob()
+  // Read the picked/captured photo's raw bytes directly from the filesystem
+  // rather than `fetch(uri).blob()` — React Native's fetch/Blob polyfill is
+  // unreliable for local file:// URIs (can silently produce an empty or
+  // corrupt blob depending on device/OS version), a well-documented gotcha
+  // for Supabase Storage uploads from Expo apps. `File.arrayBuffer()` reads
+  // the real bytes natively, avoiding that layer entirely.
+  const file = new File(uri)
+  const arrayBuffer = await file.arrayBuffer()
 
   const { error: uploadError } = await supabase.storage
     .from('avatars')
-    .upload(path, blob, { contentType: 'image/jpeg', upsert: true })
+    .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: true })
   if (uploadError) throw uploadError
 
   const { data } = supabase.storage.from('avatars').getPublicUrl(path)

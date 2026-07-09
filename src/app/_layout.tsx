@@ -16,6 +16,7 @@ import { ThemeProvider, useTheme } from '@/context/theme'
 import { AuthProvider } from '@/context/auth'
 import { DrawerProvider } from '@/context/drawer'
 import { FontScaleProvider } from '@/context/fontScale'
+import { BadgeLifespanProvider } from '@/context/badgeLifespan'
 import { Drawer } from '@/components/Drawer'
 import { PersistentTabBar } from '@/components/PersistentTabBar'
 import { AnimatedSplash } from '@/components/AnimatedSplash'
@@ -70,6 +71,7 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
       <FontScaleProvider>
+      <BadgeLifespanProvider>
       <AuthProvider>
         <ShareCardProvider>
         <DrawerProvider>
@@ -92,6 +94,7 @@ export default function RootLayout() {
         </DrawerProvider>
         </ShareCardProvider>
       </AuthProvider>
+      </BadgeLifespanProvider>
       </FontScaleProvider>
     </ThemeProvider>
   )

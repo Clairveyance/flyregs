@@ -27,7 +27,8 @@ import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHig
 import { getDownloads, isDownloaded, addDownload, removeDownload } from '@/lib/downloads'
 import { collapseDictationDuplicate } from '@/lib/dictation'
 import { blockText, ACBlock } from '@/lib/acFormat'
-import { getBadgeLifespanDays, isWithinBadgeLifespan, DEFAULT_BADGE_LIFESPAN_DAYS } from '@/lib/badgeLifespan'
+import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
+import { useBadgeLifespan } from '@/context/badgeLifespan'
 import type { AdvisoryCircular } from '@/types'
 
 // Maps a block to the fields a highlight bookmark needs — chapter headings
@@ -67,11 +68,7 @@ export default function ACDetailScreen() {
   const [changedIdx, setChangedIdx] = useState(0)
   const [loading, setLoading] = useState(true)
   const [scrollY, setScrollY] = useState(0)
-  const [badgeDays, setBadgeDays] = useState(DEFAULT_BADGE_LIFESPAN_DAYS)
-
-  useEffect(() => {
-    getBadgeLifespanDays().then(setBadgeDays)
-  }, [])
+  const { badgeDays } = useBadgeLifespan()
 
   const [acSearch, setAcSearch] = useState('')
   // The raw input updates instantly for a responsive typing feel, but the
@@ -415,45 +412,52 @@ export default function ACDetailScreen() {
               },
             ]}
           >
-            <Icon name="magnifyingglass" size={15} color={tokens.t3} />
-            <View style={[styles.acSearchScope, { backgroundColor: tokens.bdim }]}>
-              <Text style={[styles.acSearchScopeText, { color: tokens.blu, fontSize: fs(9) }]}>IN DOC</Text>
+            <View style={styles.acSearchRow}>
+              <Icon name="magnifyingglass" size={15} color={tokens.t3} />
+              <View style={[styles.acSearchScope, { backgroundColor: tokens.bdim }]}>
+                <Text style={[styles.acSearchScopeText, { color: tokens.blu, fontSize: fs(9) }]}>IN DOC</Text>
+              </View>
+              <TextInput
+                style={[
+                  styles.acSearchInput,
+                  { color: tokens.t1, fontSize: fs(15) },
+                  Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : undefined,
+                ]}
+                placeholder="Search..."
+                placeholderTextColor={tokens.t4}
+                value={acSearch}
+                onChangeText={handleAcSearchChange}
+                returnKeyType="search"
+                autoCorrect={false}
+                autoCapitalize="none"
+                clearButtonMode="never"
+              />
+              {acSearch.length > 0 && (
+                <Pressable hitSlop={10} onPress={clearSearch} style={{ padding: 6 }}>
+                  <Icon name="xmark" size={14} color={tokens.t3} />
+                </Pressable>
+              )}
             </View>
-            <TextInput
-              style={[
-                styles.acSearchInput,
-                { color: tokens.t1, fontSize: fs(15) },
-                Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : undefined,
-              ]}
-              placeholder="Search..."
-              placeholderTextColor={tokens.t4}
-              value={acSearch}
-              onChangeText={handleAcSearchChange}
-              returnKeyType="search"
-              autoCorrect={false}
-              autoCapitalize="none"
-              clearButtonMode="never"
-            />
-            {acSearch.length >= 2 && matchCount > 0 && (
-              <>
-                <Text style={[styles.acSearchCount, { color: tokens.t3, fontSize: fs(12.5) }]}>
-                  {matchIdx + 1}/{matchCount}
-                </Text>
-                <Pressable hitSlop={14} onPress={goToPrev} style={{ padding: 8 }}>
-                  <Icon name="chevron.up" size={18} color={tokens.t2} />
-                </Pressable>
-                <Pressable hitSlop={14} onPress={goToNext} style={{ padding: 8 }}>
-                  <Icon name="chevron.down" size={18} color={tokens.t2} />
-                </Pressable>
-              </>
-            )}
-            {acSearch.length >= 2 && matchCount === 0 && (
-              <Text style={[styles.acSearchCount, { color: tokens.t4, fontSize: fs(12.5) }]}>No results</Text>
-            )}
-            {acSearch.length > 0 && (
-              <Pressable hitSlop={10} onPress={clearSearch} style={{ padding: 6 }}>
-                <Icon name="xmark" size={14} color={tokens.t3} />
-              </Pressable>
+            {acSearch.length >= 2 && (
+              <View style={[styles.acSearchResultRow, { borderTopColor: tokens.bdr2 }]}>
+                {matchCount > 0 ? (
+                  <>
+                    <Text style={[styles.acSearchCount, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                      {matchIdx + 1}/{matchCount} results
+                    </Text>
+                    <View style={styles.acSearchNav}>
+                      <Pressable hitSlop={14} onPress={goToPrev} style={{ padding: 8 }}>
+                        <Icon name="chevron.up" size={18} color={tokens.t2} />
+                      </Pressable>
+                      <Pressable hitSlop={14} onPress={goToNext} style={{ padding: 8 }}>
+                        <Icon name="chevron.down" size={18} color={tokens.t2} />
+                      </Pressable>
+                    </View>
+                  </>
+                ) : (
+                  <Text style={[styles.acSearchCount, { color: tokens.t4, fontSize: fs(12.5) }]}>No results</Text>
+                )}
+              </View>
             )}
           </View>
         </View>
@@ -810,24 +814,35 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   acSearchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
     borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 9,
     width: '100%',
     maxWidth: 700,
     alignSelf: 'center',
   },
+  acSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  acSearchResultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  acSearchNav: { flexDirection: 'row' },
   acSearchScope: {
     borderRadius: 4,
     paddingHorizontal: 5,
     paddingVertical: 2,
   },
   acSearchScopeText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
-  acSearchInput: { flex: 1, fontSize: 15 },
+  acSearchInput: { flex: 1, fontSize: 15, paddingVertical: 4 },
   acSearchCount: { fontSize: 12.5, fontWeight: '600' },
 
   fullTextSection: { marginTop: 16 },

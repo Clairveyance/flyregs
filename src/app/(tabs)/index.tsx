@@ -21,7 +21,8 @@ import { Icon } from '@/components/Icon'
 import type { ACSeries } from '@/types'
 import { rankSearchResults, isPhrasedQuery, extractPhrase } from '@/lib/searchRank'
 import { collapseDictationDuplicate } from '@/lib/dictation'
-import { getBadgeLifespanDays, isWithinBadgeLifespan, DEFAULT_BADGE_LIFESPAN_DAYS } from '@/lib/badgeLifespan'
+import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
+import { useBadgeLifespan } from '@/context/badgeLifespan'
 
 const HOME_CACHE_KEY = '@flyregs/home-cache'
 
@@ -54,11 +55,7 @@ export default function HomeScreen() {
   const [totalCount, setTotalCount] = useState<number | null>(null)
   const [whatsNew, setWhatsNew] = useState<WhatsNewAC[]>([])
   const [loading, setLoading] = useState(true)
-  const [badgeDays, setBadgeDays] = useState(DEFAULT_BADGE_LIFESPAN_DAYS)
-
-  useEffect(() => {
-    getBadgeLifespanDays().then(setBadgeDays)
-  }, [])
+  const { badgeDays } = useBadgeLifespan()
 
   // Inline search state
   const [searchQuery, setSearchQuery] = useState('')
@@ -89,10 +86,13 @@ export default function HomeScreen() {
       // Same rolling clock as the NEW/UPD badges (Drawer > Badge Lifespan) —
       // this isn't a separately-fixed 90-day feed alongside an adjustable
       // badge display; 90 is just the long-limit default, shortened by the
-      // same setting that controls badge visibility everywhere else.
-      const days = await getBadgeLifespanDays()
+      // same setting that controls badge visibility everywhere else. `load`
+      // is recreated whenever `badgeDays` changes (see its dependency array
+      // below), which re-triggers the `useEffect(() => { load() }, [load])`
+      // effect further down — so this refetches immediately when the Drawer's
+      // live badgeDays context value changes, not just on next screen focus.
       const cutoffDate = new Date()
-      cutoffDate.setDate(cutoffDate.getDate() - days)
+      cutoffDate.setDate(cutoffDate.getDate() - badgeDays)
       const cutoff = cutoffDate.toISOString().split('T')[0]
 
       const [seriesRes, countRes, whatsNewRes] = await Promise.all([
@@ -129,7 +129,7 @@ export default function HomeScreen() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [badgeDays])
 
   useEffect(() => { load() }, [load])
 
