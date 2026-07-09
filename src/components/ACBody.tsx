@@ -452,14 +452,21 @@ export const ACBody = React.forwardRef<
         </View>
       )}
 
-      {/* Figures & Tables — extracted page images, hidden while searching */}
-      {figures && figures.length > 0 && !searching && (
+      {/* Figures & Tables — extracted page images, hidden while searching.
+          Always shown once loaded (even at 0) so an AC with none doesn't
+          look like the feature is broken/missing data. */}
+      {figures && !searching && (
         <View style={[styles.tocCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-          <Pressable style={styles.tocHead} onPress={() => setShowFigures((s) => !s)}>
+          <Pressable
+            style={styles.tocHead}
+            onPress={figures.length > 0 ? () => setShowFigures((s) => !s) : undefined}
+          >
             <Icon name="photo" size={14} color={tokens.blu} />
             <Text style={[styles.tocHeadText, { color: tokens.t1, fontSize: fs(13.5) }]}>Figures & Tables</Text>
             <Text style={[styles.tocCount, { color: tokens.t3 }]}>{figures.length}</Text>
-            <Icon name={showFigures ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+            {figures.length > 0 && (
+              <Icon name={showFigures ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+            )}
           </Pressable>
           {showFigures && (
             <View style={[styles.tocList, { borderTopColor: tokens.bdr }]}>

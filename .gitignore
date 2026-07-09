@@ -47,3 +47,6 @@ example
 # generated native folders
 /ios
 /android
+
+# one-off analysis reports (regenerate via their scripts, not source of truth)
+header_leak_report.json

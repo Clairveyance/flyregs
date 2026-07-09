@@ -66,7 +66,7 @@ export default function ACDetailScreen() {
   const [bookmarked, setBookmarked] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
   const [highlightedBlockTexts, setHighlightedBlockTexts] = useState<Set<string>>(new Set())
-  const [figures, setFigures] = useState<AcFigure[]>([])
+  const [figures, setFigures] = useState<AcFigure[] | null>(null)
   const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
   const [changedIdx, setChangedIdx] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -187,6 +187,7 @@ export default function ACDetailScreen() {
     isBookmarked(id).then(setBookmarked)
     isDownloaded(id).then(setDownloaded)
     getHighlightsForAC(id).then((hs) => setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!))))
+    setFigures(null)
     supabase
       .from('ac_figures')
       .select('id,label,caption,page,image_url')
@@ -624,7 +625,7 @@ export default function ACDetailScreen() {
                 changedIndices={ac.changed_block_indices}
                 highlightedBlockTexts={isPro ? highlightedBlockTexts : undefined}
                 onToggleHighlight={isPro ? handleToggleHighlight : undefined}
-                figures={isPro ? figures : undefined}
+                figures={isPro ? (figures ?? undefined) : undefined}
                 onOpenFigure={isPro ? setViewerFigure : undefined}
               />
               {!isPro && ac.pdf_blocks.length > previewBlockCount(ac.pdf_blocks.length) && (
@@ -851,7 +852,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  acSearchNav: { flexDirection: 'row' },
+  acSearchNav: { flexDirection: 'row', gap: 14 },
   acSearchScope: {
     borderRadius: 4,
     paddingHorizontal: 5,
