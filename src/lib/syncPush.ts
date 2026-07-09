@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
+import { getSubscriptionStatus } from '@/lib/revenuecat'
 import type { BookmarkAC } from '@/lib/bookmarks'
 import type { Folder, FolderItem } from '@/lib/folders'
 import type { Note } from '@/lib/notes'
@@ -20,6 +21,12 @@ export async function isSyncEnabled(): Promise<boolean> {
 
 async function currentUserId(): Promise<string | null> {
   if (!(await isSyncEnabled())) return null
+  // The sync_enabled flag only reflects that the user turned it on at some
+  // point -- it doesn't get flipped off if their subscription later lapses.
+  // Re-check live entitlement on every push so a downgraded Premium user
+  // can't keep getting free cloud sync just because the local flag is stale.
+  const { isPremium } = await getSubscriptionStatus()
+  if (!isPremium) return null
   const { data } = await supabase.auth.getSession()
   return data.session?.user?.id ?? null
 }
@@ -39,6 +46,11 @@ export async function syncPushBookmark(b: BookmarkAC) {
       saved_at: b.savedAt,
       updated_at: new Date().toISOString(),
       deleted: false,
+      ac_id: b.acId ?? b.id,
+      block_kind: b.blockKind ?? null,
+      block_label: b.blockLabel ?? null,
+      block_snippet: b.blockSnippet ?? null,
+      block_text: b.blockText ?? null,
     },
     { onConflict: 'user_id,id' }
   )

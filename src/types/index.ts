@@ -15,6 +15,9 @@ export interface AdvisoryCircular {
   cancels: string[]
   document_id: number | null
   updated_at: string
+  // Indices into pdf_blocks that changed in the most recent revision (null if
+  // no diff is available yet — see migrations/add_changed_block_indices.sql)
+  changed_block_indices: number[] | null
   // Client-side join only — not a DB column
   related_lois?: LetterOfInterpretation[]
 }

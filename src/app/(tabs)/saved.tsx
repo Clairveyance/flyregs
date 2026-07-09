@@ -20,6 +20,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
+import { supabase } from '@/lib/supabase'
+import { blockText } from '@/lib/acFormat'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { getBookmarks, removeBookmark, removeManyBookmarks, BookmarkAC } from '@/lib/bookmarks'
@@ -73,6 +75,38 @@ export default function SavedScreen() {
   const [folderSheetVisible, setFolderSheetVisible] = useState(false)
   const [confirmTick, setConfirmTick] = useState(0)
   const [confirmLabel, setConfirmLabel] = useState('')
+  // Highlight ids whose saved section no longer matches anything in the AC's
+  // CURRENT content (the FAA revised that exact paragraph since it was
+  // saved) — see the "Section changed" row indicator below and the matching
+  // FAQ entry. Content-based, same blockText() identity used everywhere else
+  // this session (changed_block_indices, the highlight-to-block matcher).
+  const [staleHighlightIds, setStaleHighlightIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    const highlights = bookmarks.filter((b) => b.blockText && b.acId)
+    if (highlights.length === 0) {
+      setStaleHighlightIds(new Set())
+      return
+    }
+    const acIds = [...new Set(highlights.map((h) => h.acId!))]
+    supabase
+      .from('advisory_circulars')
+      .select('id, pdf_blocks')
+      .in('id', acIds)
+      .then(({ data }) => {
+        if (!data) return
+        const blockTextSetByAc = new Map<string, Set<string>>()
+        for (const row of data) {
+          blockTextSetByAc.set(row.id, new Set((row.pdf_blocks ?? []).map(blockText)))
+        }
+        const stale = new Set<string>()
+        for (const h of highlights) {
+          const set = blockTextSetByAc.get(h.acId!)
+          if (!set || !set.has(h.blockText!)) stale.add(h.id)
+        }
+        setStaleHighlightIds(stale)
+      })
+  }, [bookmarks])
 
   const load = useCallback(() => {
     getBookmarks().then(setBookmarks)
@@ -97,6 +131,18 @@ export default function SavedScreen() {
     // on every focus rather than only once on mount.
     isSyncEnabled().then(setSyncEnabled)
   }, [load]))
+
+  // The stored sync_enabled flag doesn't get flipped off automatically if a
+  // Premium subscription lapses -- self-correct so the UI (and syncPush.ts's
+  // own live isPremium check) both agree with reality instead of the row
+  // claiming "Synced" forever off a stale local flag.
+  const displaySyncEnabled = syncEnabled && isPremium
+  useEffect(() => {
+    if (syncEnabled && !isPremium) {
+      disableSync()
+      setSyncEnabled(false)
+    }
+  }, [syncEnabled, isPremium])
 
   const toggleSync = async (v: boolean) => {
     if (v && !isPremium) { router.push('/paywall?tier=premium'); return }
@@ -174,14 +220,21 @@ export default function SavedScreen() {
     ])
   }
 
-  const handleBulkAddToFolder = async (folderId: string) => {
+  const handleBulkAddToFolder = async (folderIds: string[]) => {
     const ids = [...selected]
-    await addManyToFolder(folderId, 'ac', ids)
+    // Sequential, not Promise.all -- addManyToFolder does its own read-modify-
+    // write on the shared folder_items list, so concurrent calls for different
+    // folders would race and clobber each other (only the last write survives).
+    for (const folderId of folderIds) {
+      await addManyToFolder(folderId, 'ac', ids)
+    }
     setFolderSheetVisible(false)
     setSelected(new Set())
     setSelectMode(false)
-    const folder = folders.find((f) => f.id === folderId)
-    setConfirmLabel(folder ? `Added to ${folder.name}` : 'Added to folder')
+    const names = folderIds.map((id) => folders.find((f) => f.id === id)?.name).filter(Boolean)
+    setConfirmLabel(
+      names.length === 1 ? `Added to ${names[0]}` : names.length > 1 ? 'Added to multiple folders' : 'Added to folder'
+    )
     setConfirmTick((t) => t + 1)
   }
 
@@ -326,7 +379,7 @@ export default function SavedScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <ScreenHeader
         title="Saved"
-        right={tab === 'all' ? rightSlot : tab === 'folders' ? folderRightSlot : undefined}
+        right={!isPro ? undefined : tab === 'all' ? rightSlot : tab === 'folders' ? folderRightSlot : undefined}
       />
 
       {/* Segmented control */}
@@ -354,7 +407,7 @@ export default function SavedScreen() {
       </View>
 
       {/* Back up & sync row */}
-      {tab === 'all' && (
+      {tab === 'all' && isPro && (
         <View style={styles.syncWrap}>
           <View style={[styles.syncRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}>
             <View style={styles.syncTopRow}>
@@ -363,7 +416,7 @@ export default function SavedScreen() {
                 <ActivityIndicator size="small" color={tokens.blu} />
               ) : (
                 <Switch
-                  value={syncEnabled}
+                  value={displaySyncEnabled}
                   onValueChange={toggleSync}
                   trackColor={{ true: tokens.blu, false: undefined }}
                   thumbColor="#fff"
@@ -377,12 +430,12 @@ export default function SavedScreen() {
               </View>
               <View style={[
                 styles.statusPill,
-                syncEnabled
+                displaySyncEnabled
                   ? { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }
                   : { backgroundColor: tokens.gdim, borderColor: tokens.gbdr },
               ]}>
-                <Text style={[styles.statusPillText, { color: syncEnabled ? tokens.blu : tokens.grn, fontSize: fs(10) }]}>
-                  {syncBusy ? 'Syncing…' : syncEnabled ? 'Synced' : 'Local Only'}
+                <Text style={[styles.statusPillText, { color: displaySyncEnabled ? tokens.blu : tokens.grn, fontSize: fs(10) }]}>
+                  {syncBusy ? 'Syncing…' : displaySyncEnabled ? 'Synced' : 'Local Only'}
                 </Text>
               </View>
             </View>
@@ -391,47 +444,58 @@ export default function SavedScreen() {
       )}
 
       {tab === 'all' ? (
-        <>
-          {bookmarks.length === 0 ? (
-            <EmptyState tokens={tokens} signedIn={!!session} />
-          ) : (
-            <FlatList
-              data={bookmarks}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.list}
-              ListHeaderComponent={
-                <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
-                  {bookmarks.length} SAVED AC{bookmarks.length !== 1 ? 'S' : ''}
-                </Text>
-              }
-              renderItem={({ item }) => (
-                <BookmarkRow
-                  item={item}
-                  tokens={tokens}
-                  selectMode={selectMode}
-                  selected={selected.has(item.id)}
-                  onPress={selectMode ? () => toggleRow(item.id) : () => router.push(`/ac/${item.id}`)}
-                  onRemove={() => handleRemove(item)}
-                  onFolder={() => setPickerAC(item)}
-                  onShare={() => handleShare(item)}
-                />
-              )}
-            />
-          )}
-        </>
+        !isPro ? (
+          <ProWall tokens={tokens} label="Bookmarks" />
+        ) : (
+          <>
+            {bookmarks.length === 0 ? (
+              <EmptyState tokens={tokens} signedIn={!!session} />
+            ) : (
+              <FlatList
+                data={bookmarks}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={styles.list}
+                ListHeaderComponent={
+                  <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
+                    {bookmarks.length} SAVED AC{bookmarks.length !== 1 ? 'S' : ''}
+                  </Text>
+                }
+                renderItem={({ item }) => (
+                  <BookmarkRow
+                    item={item}
+                    tokens={tokens}
+                    selectMode={selectMode}
+                    selected={selected.has(item.id)}
+                    stale={staleHighlightIds.has(item.id)}
+                    onPress={selectMode ? () => toggleRow(item.id) : () => router.push(
+                      item.blockText ? `/ac/${item.acId}?hlId=${encodeURIComponent(item.id)}` : `/ac/${item.acId ?? item.id}`
+                    )}
+                    onRemove={() => handleRemove(item)}
+                    onFolder={() => setPickerAC(item)}
+                    onShare={() => handleShare(item)}
+                  />
+                )}
+              />
+            )}
+          </>
+        )
       ) : tab === 'folders' ? (
-        <FolderListView
-          folders={folders}
-          counts={folderCounts}
-          selectMode={folderSelectMode}
-          selected={selectedFolders}
-          onToggleSelect={toggleFolderRow}
-          onOpen={(folder) => router.push(`/folder/${folder.id}`)}
-          onRenamed={load}
-          onDelete={handleDeleteFolder}
-          onShare={handleShareFolder}
-          onCreateFolder={() => setNewFolderVisible(true)}
-        />
+        !isPro ? (
+          <ProWall tokens={tokens} label="Folders" />
+        ) : (
+          <FolderListView
+            folders={folders}
+            counts={folderCounts}
+            selectMode={folderSelectMode}
+            selected={selectedFolders}
+            onToggleSelect={toggleFolderRow}
+            onOpen={(folder) => router.push(`/folder/${folder.id}`)}
+            onRenamed={load}
+            onDelete={handleDeleteFolder}
+            onShare={handleShareFolder}
+            onCreateFolder={() => setNewFolderVisible(true)}
+          />
+        )
       ) : tab === 'shared' ? (
         <>
           <View style={styles.subSegWrap}>
@@ -610,7 +674,7 @@ export default function SavedScreen() {
       <FolderSelectSheet
         visible={folderSheetVisible}
         title={`Add ${selected.size} AC${selected.size !== 1 ? 's' : ''} to Folder`}
-        onSelect={handleBulkAddToFolder}
+        onConfirm={handleBulkAddToFolder}
         onClose={() => setFolderSheetVisible(false)}
       />
 
@@ -688,6 +752,7 @@ function BookmarkRow({
   tokens,
   selectMode,
   selected,
+  stale,
   onPress,
   onRemove,
   onFolder,
@@ -697,6 +762,7 @@ function BookmarkRow({
   tokens: ReturnType<typeof useTheme>['tokens']
   selectMode: boolean
   selected: boolean
+  stale?: boolean
   onPress: () => void
   onRemove: () => void
   onFolder: () => void
@@ -772,6 +838,26 @@ function BookmarkRow({
                 <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={2}>
                   {item.title}
                 </Text>
+                {item.blockText ? (
+                  <>
+                    <View style={[styles.highlightTag, { backgroundColor: 'rgba(255, 213, 0, 0.12)', borderColor: 'rgba(255, 213, 0, 0.4)' }]}>
+                      <Text style={{ color: '#8a6d00', fontWeight: '700', fontSize: fs(10.5) }}>
+                        {item.blockLabel ? `§ ${item.blockLabel} ` : 'HIGHLIGHT '}
+                      </Text>
+                      <Text numberOfLines={1} style={{ color: tokens.t2, fontSize: fs(11.5), flex: 1 }}>
+                        {item.blockSnippet}
+                      </Text>
+                    </View>
+                    {stale && (
+                      <View style={styles.staleTag}>
+                        <Icon name="exclamationmark.triangle" size={11} color="#b45309" />
+                        <Text style={{ color: '#b45309', fontSize: fs(10.5), fontWeight: '600' }}>
+                          Section changed — won't jump to this spot anymore
+                        </Text>
+                      </View>
+                    )}
+                  </>
+                ) : null}
                 <View style={styles.metaActionRow}>
                   <Text style={[styles.savedAt, { color: tokens.t4, fontSize: fs(11) }]} numberOfLines={1}>
                     Saved{' '}
@@ -783,9 +869,11 @@ function BookmarkRow({
                   </Text>
                   {!selectMode && (
                     <View style={styles.metaActions}>
-                      <Pressable onPress={onFolder} hitSlop={10} style={styles.actionBtn}>
-                        <Icon name="folder.badge.plus" size={fs(24)} color={tokens.t3} />
-                      </Pressable>
+                      {!item.blockText && (
+                        <Pressable onPress={onFolder} hitSlop={10} style={styles.actionBtn}>
+                          <Icon name="folder.badge.plus" size={fs(24)} color={tokens.t3} />
+                        </Pressable>
+                      )}
                       <Pressable onPress={onShare} hitSlop={10} style={styles.actionBtn}>
                         <Icon name="square.and.arrow.up" size={fs(22)} color={tokens.t3} />
                       </Pressable>
@@ -1006,6 +1094,30 @@ function OwnerAvatar({
   )
 }
 
+// Full wall for a Pro-gated tab, matching the pattern already used by the
+// whole Notes tab and the Offline sub-tab -- viewing/organizing existing
+// bookmarks or folders is the Pro feature just as much as creating new ones,
+// so a downgraded user gets the same "upgrade to see this" treatment here
+// instead of free continued access to whatever they saved while still Pro.
+function ProWall({ tokens, label }: { tokens: ReturnType<typeof useTheme>['tokens']; label: string }) {
+  const fs = useFS()
+  return (
+    <View style={styles.center}>
+      <Icon name="lock.fill" size={36} color={tokens.blu} />
+      <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>{label} is a Pro feature</Text>
+      <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+        Upgrade to Pro to unlock {label.toLowerCase()}.
+      </Text>
+      <Pressable
+        style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]}
+        onPress={() => router.push('/paywall')}
+      >
+        <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Upgrade to Pro</Text>
+      </Pressable>
+    </View>
+  )
+}
+
 function EmptyState({
   tokens,
   signedIn,
@@ -1061,6 +1173,8 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontWeight: '600', fontSize: 16, marginTop: 8, textAlign: 'center' },
   emptySub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, marginTop: 4, maxWidth: 300 },
+  upgradeBtn: { marginTop: 8, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 28 },
+  upgradeBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   signInBtn: {
     marginTop: 16,
     borderRadius: 13,
@@ -1217,6 +1331,20 @@ const styles = StyleSheet.create({
   },
   metaActions: { flexDirection: 'row', alignItems: 'center', gap: 14, flexShrink: 0 },
   actionBtn: { padding: 1 },
+  highlightTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  staleTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
 
   selectBar: {
     flexDirection: 'row',

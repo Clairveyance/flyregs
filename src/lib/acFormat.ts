@@ -44,6 +44,25 @@ export function cleanGlyphs(s: string): string {
 // changes so a backfill can tell which rows need reprocessing.
 export const AC_FORMAT_VERSION = 16
 
+// Comparable text for a block, regardless of kind — content-based identity used
+// both server-side (scripts/backfill-blocks.mjs's diff computation, which keeps
+// its own copy of this exact logic since it runs outside the RN bundler) and
+// client-side (matching a saved highlight to its block after a re-parse). Block
+// `id`s are just sequential counters re-minted on every parse, never stable
+// across revisions, so identity has to be content-based, not index/id-based.
+export function blockText(b: ACBlock): string {
+  switch (b.kind) {
+    case 'chapter':
+    case 'para':
+      return (b.text || '').trim()
+    case 'section':
+    case 'item':
+      return `${b.label || ''} ${b.title || ''} ${b.body || ''}`.trim()
+    default:
+      return ''
+  }
+}
+
 // FAA AC TOC lines have a long "leader" run immediately before the page number.
 // The leader is most often periods ("........1") but many ACs use middle-dots (·)
 // or bullets (•) instead. A 5+ run of dot-like chars (each optionally followed by

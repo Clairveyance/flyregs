@@ -11,6 +11,20 @@ export interface BookmarkAC {
   office: string | null
   subject_series: string | null
   savedAt: string
+  /** Present only for a "highlight" — a bookmark scoped to one block within
+   * the AC rather than the whole document. `id` here is a freshly generated
+   * value, NOT the AC's own id (unlike a whole-doc bookmark, where id ===
+   * acId) — that's what lets a whole-doc bookmark and any number of
+   * highlights coexist for the same AC without id collisions. `acId` is what
+   * actually points back to the bookmarked AC. */
+  acId?: string
+  blockKind?: 'section' | 'item' | 'para'
+  blockLabel?: string | null
+  blockSnippet?: string
+  /** Content snapshot (acFormat.ts's blockText()) used to re-locate the same
+   * block after the AC is re-parsed — block ids are sequential counters
+   * re-minted on every parse, never stable across revisions. */
+  blockText?: string
 }
 
 export async function getBookmarks(): Promise<BookmarkAC[]> {
@@ -58,4 +72,44 @@ export async function toggleBookmark(ac: Omit<BookmarkAC, 'savedAt'>): Promise<b
   }
   await addBookmark(ac)
   return true
+}
+
+// ── Highlights (section-scoped bookmarks) ───────────────────────────────────
+// Built on the exact same storage/sync as whole-doc bookmarks above — a
+// highlight is just a BookmarkAC row with acId/blockText set and a generated
+// (non-AC) id, so it shows up in the same Saved list, the same sync pipeline,
+// and inherits the same Pro/Premium gating with no separate code path.
+
+export async function getHighlightsForAC(acId: string): Promise<BookmarkAC[]> {
+  const list = await getBookmarks()
+  return list.filter((b) => b.acId === acId && b.blockText)
+}
+
+export async function findHighlight(acId: string, blockText: string): Promise<BookmarkAC | undefined> {
+  const list = await getBookmarks()
+  return list.find((b) => b.acId === acId && b.blockText === blockText)
+}
+
+export async function addHighlight(h: {
+  acId: string
+  document_number: string
+  title: string
+  date_issued: string | null
+  office: string | null
+  subject_series: string | null
+  blockKind: 'section' | 'item' | 'para'
+  blockLabel: string | null
+  blockSnippet: string
+  blockText: string
+}): Promise<BookmarkAC> {
+  const id = `${h.acId}-hl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const list = await getBookmarks()
+  const bookmark: BookmarkAC = { ...h, id, savedAt: new Date().toISOString() }
+  await AsyncStorage.setItem(KEY, JSON.stringify([bookmark, ...list]))
+  syncPushBookmark(bookmark)
+  return bookmark
+}
+
+export async function removeHighlight(id: string) {
+  return removeManyBookmarks([id])
 }

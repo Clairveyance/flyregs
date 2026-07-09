@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   Share,
 } from 'react-native'
 import * as WebBrowser from 'expo-web-browser'
+import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
@@ -22,10 +23,28 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { ACBody, ACBodyHandle } from '@/components/ACBody'
 import { addRecent } from '@/lib/recents'
-import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
+import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
 import { getDownloads, isDownloaded, addDownload, removeDownload } from '@/lib/downloads'
 import { collapseDictationDuplicate } from '@/lib/dictation'
+import { blockText, ACBlock } from '@/lib/acFormat'
+import { getBadgeLifespanDays, isWithinBadgeLifespan, DEFAULT_BADGE_LIFESPAN_DAYS } from '@/lib/badgeLifespan'
 import type { AdvisoryCircular } from '@/types'
+
+// Maps a block to the fields a highlight bookmark needs — chapter headings
+// return null (not "content" worth saving) so long-press only does anything
+// on section/item/paragraph blocks, matching what ACBody wires onLongPress to.
+function highlightMeta(b: ACBlock): { kind: 'section' | 'item' | 'para'; label: string | null; snippet: string } | null {
+  switch (b.kind) {
+    case 'section':
+      return { kind: 'section', label: b.label, snippet: (b.title || b.body || '').slice(0, 100) }
+    case 'item':
+      return { kind: 'item', label: b.label, snippet: (b.title || b.body || '').slice(0, 100) }
+    case 'para':
+      return { kind: 'para', label: null, snippet: (b.text || '').slice(0, 100) }
+    default:
+      return null
+  }
+}
 
 // Free-tier body preview: a proportional slice of the document, floored/capped
 // so short ACs still withhold a meaningful chunk and long ACs (some run
@@ -35,7 +54,7 @@ function previewBlockCount(totalBlocks: number): number {
 }
 
 export default function ACDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>()
+  const { id, hlId } = useLocalSearchParams<{ id: string; hlId?: string }>()
   const { tokens } = useTheme()
   const { isPro, isPremium } = useAuth()
   const fs = useFS()
@@ -44,8 +63,15 @@ export default function ACDetailScreen() {
   const [ac, setAC] = useState<AdvisoryCircular | null>(null)
   const [bookmarked, setBookmarked] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
+  const [highlightedBlockTexts, setHighlightedBlockTexts] = useState<Set<string>>(new Set())
+  const [changedIdx, setChangedIdx] = useState(0)
   const [loading, setLoading] = useState(true)
   const [scrollY, setScrollY] = useState(0)
+  const [badgeDays, setBadgeDays] = useState(DEFAULT_BADGE_LIFESPAN_DAYS)
+
+  useEffect(() => {
+    getBadgeLifespanDays().then(setBadgeDays)
+  }, [])
 
   const [acSearch, setAcSearch] = useState('')
   // The raw input updates instantly for a responsive typing feel, but the
@@ -114,7 +140,7 @@ export default function ACDetailScreen() {
   useEffect(() => {
     supabase
       .from('advisory_circulars')
-      .select('id,document_number,title,date_issued,office,subject_series,description,pdf_blocks,pdf_url_cached,pdf_url_faa,change_number,status,cancels,document_id,updated_at')
+      .select('id,document_number,title,date_issued,office,subject_series,description,pdf_blocks,pdf_url_cached,pdf_url_faa,change_number,status,cancels,document_id,updated_at,changed_block_indices')
       .eq('id', id)
       .single()
       .then(async ({ data, error }) => {
@@ -152,6 +178,7 @@ export default function ACDetailScreen() {
               cancels: [],
               document_id: null,
               updated_at: '',
+              changed_block_indices: null,
             })
           }
         }
@@ -159,7 +186,26 @@ export default function ACDetailScreen() {
       })
     isBookmarked(id).then(setBookmarked)
     isDownloaded(id).then(setDownloaded)
+    getHighlightsForAC(id).then((hs) => setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!))))
   }, [id])
+
+  // Opened from a highlight row in Saved (?hlId=<highlight bookmark id>) —
+  // jump straight to that block instead of landing at the top like a normal
+  // bookmark open. Runs once per hlId, after pdf_blocks is actually available
+  // (cold navigation vs. an already-mounted screen both need to wait for it).
+  const jumpedToHighlight = useRef<string | null>(null)
+  useEffect(() => {
+    if (!hlId || !ac?.pdf_blocks) return
+    if (jumpedToHighlight.current === hlId) return
+    getHighlightsForAC(ac.id).then((hs) => {
+      const target = hs.find((h) => h.id === hlId)
+      if (!target?.blockText) return
+      const idx = ac.pdf_blocks!.findIndex((b) => blockText(b) === target.blockText)
+      if (idx === -1) return
+      jumpedToHighlight.current = hlId
+      setTimeout(() => acBodyRef.current?.scrollToBlockIndex(idx), 250)
+    })
+  }, [hlId, ac?.id, ac?.pdf_blocks])
 
   const handleDownload = async () => {
     if (!ac) return
@@ -219,6 +265,93 @@ export default function ACDetailScreen() {
     })
     setBookmarked(next)
   }
+
+  // Long-press a section/item/paragraph block (see ACBody's onLongPress wiring)
+  // to save/remove a highlight. Checked on every call, not just once at mount —
+  // same rule the rest of the app's tier gates follow: a downgraded former-Pro
+  // user must be blocked from creating NEW highlights immediately, not just
+  // prevented from seeing the ones they already saved (that's enforced by the
+  // Saved tab's existing ProWall, unrelated to this handler).
+  //
+  // toggleInFlight + a time cooldown both guard against a single physical
+  // long-press producing more than one add/remove cycle — some RN Web
+  // Pressable long-press timer paths fired onLongPress repeatedly for what
+  // was really one held gesture during testing (confirmed via localStorage:
+  // dozens of calls logged for a single press-and-release). A pure in-flight
+  // flag isn't enough since each toggle's AsyncStorage round-trip resolves
+  // fast enough that rapid repeat-fires can still slip through between
+  // calls — the 800ms cooldown blocks anything else in that same gesture.
+  const toggleInFlight = useRef(false)
+  const lastToggleAt = useRef(0)
+  const handleToggleHighlight = useCallback(async (block: ACBlock, index: number) => {
+    if (!ac) return
+    if (!isPro) {
+      router.push('/paywall')
+      return
+    }
+    if (toggleInFlight.current) return
+    if (Date.now() - lastToggleAt.current < 800) return
+    lastToggleAt.current = Date.now()
+    toggleInFlight.current = true
+    try {
+    const meta = highlightMeta(block)
+    if (!meta) return
+    const contentKey = blockText(block)
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    const existing = await findHighlight(ac.id, contentKey)
+    if (existing) {
+      await removeHighlight(existing.id)
+    } else {
+      await addHighlight({
+        acId: ac.id,
+        document_number: ac.document_number,
+        title: ac.title,
+        date_issued: ac.date_issued,
+        office: ac.office,
+        subject_series: ac.subject_series,
+        blockKind: meta.kind,
+        blockLabel: meta.label,
+        blockSnippet: meta.snippet,
+        blockText: contentKey,
+      })
+    }
+    const highlights = await getHighlightsForAC(ac.id)
+    setHighlightedBlockTexts(new Set(highlights.map((h) => h.blockText!)))
+    } finally {
+      toggleInFlight.current = false
+    }
+  }, [ac, isPro])
+
+  // Jump nav between the blocks the "What's New" diff flagged as changed —
+  // mirrors the existing in-doc search prev/next pattern below (goToPrev/
+  // goToNext), just targeting changed_block_indices instead of search matches.
+  const changedList = ac?.changed_block_indices ?? []
+  const goToPrevChanged = useCallback(() => {
+    if (changedList.length === 0) return
+    const next = (changedIdx - 1 + changedList.length) % changedList.length
+    setChangedIdx(next)
+    acBodyRef.current?.scrollToBlockIndex(changedList[next])
+  }, [changedIdx, changedList])
+  const goToNextChanged = useCallback(() => {
+    if (changedList.length === 0) return
+    const next = (changedIdx + 1) % changedList.length
+    setChangedIdx(next)
+    acBodyRef.current?.scrollToBlockIndex(changedList[next])
+  }, [changedIdx, changedList])
+
+  // Short label for each changed block, used in the summary banner (e.g.
+  // "1.2, 4.3.1, 5.1.4") — falls back to a truncated chapter heading for
+  // blocks that don't have a section/item label (chapter/para).
+  const changedLabels = useMemo(() => {
+    if (!ac?.pdf_blocks) return []
+    return changedList.map((idx) => {
+      const b = ac.pdf_blocks![idx]
+      if (!b) return null
+      if (b.kind === 'section' || b.kind === 'item') return b.label
+      if (b.kind === 'chapter') return b.text.length > 24 ? b.text.slice(0, 24) + '…' : b.text
+      return null
+    }).filter((l): l is string => !!l)
+  }, [ac?.pdf_blocks, changedList])
 
   const openPDF = async () => {
     const url =
@@ -343,7 +476,7 @@ export default function ACDetailScreen() {
         >
           {/* Badge row */}
           <View style={styles.badgeRow}>
-            <ACBadge ac={ac} tokens={tokens} />
+            <ACBadge ac={ac} tokens={tokens} badgeDays={badgeDays} />
             {ac.change_number > 0 && (
               <View style={[styles.changePill, { backgroundColor: tokens.bg3 }]}>
                 <Text style={[styles.changePillText, { color: tokens.t3, fontSize: fs(11) }]}>
@@ -377,6 +510,32 @@ export default function ACDetailScreen() {
               <MetaChip label="Series" value={ac.subject_series} tokens={tokens} />
             )}
           </View>
+
+          {/* Updated-content banner */}
+          {changedList.length > 0 && (
+            <View style={[styles.updateBanner, { backgroundColor: tokens.bdim, borderColor: tokens.blu }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                <Icon name="sparkles" size={14} color={tokens.blu} style={{ marginTop: 2 }} />
+                <Text style={[styles.updateBannerText, { color: tokens.t1, fontSize: fs(12.5) }]}>
+                  This AC was updated — {changedList.length} section{changedList.length === 1 ? '' : 's'} changed
+                  {changedLabels.length > 0 ? ` (${changedLabels.join(', ')})` : ''}.
+                </Text>
+              </View>
+              {changedList.length > 1 && (
+                <View style={styles.updateBannerNav}>
+                  <Text style={[styles.updateBannerNavCount, { color: tokens.t2, fontSize: fs(11.5) }]}>
+                    {changedIdx + 1}/{changedList.length}
+                  </Text>
+                  <Pressable onPress={goToPrevChanged} hitSlop={10} style={{ padding: 4 }}>
+                    <Icon name="chevron.up" size={16} color={tokens.blu} />
+                  </Pressable>
+                  <Pressable onPress={goToNextChanged} hitSlop={10} style={{ padding: 4 }}>
+                    <Icon name="chevron.down" size={16} color={tokens.blu} />
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          )}
 
           {/* Description */}
           {ac.description ? (
@@ -445,6 +604,9 @@ export default function ACDetailScreen() {
                 highlightQuery={isPro && acSearchDebounced.length >= 2 ? acSearchDebounced : undefined}
                 onMatchCount={handleMatchCount}
                 activeMatch={matchCount > 0 ? matchIdx : -1}
+                changedIndices={ac.changed_block_indices}
+                highlightedBlockTexts={isPro ? highlightedBlockTexts : undefined}
+                onToggleHighlight={isPro ? handleToggleHighlight : undefined}
               />
               {!isPro && ac.pdf_blocks.length > previewBlockCount(ac.pdf_blocks.length) && (
                 <Pressable
@@ -489,12 +651,16 @@ export default function ACDetailScreen() {
 function ACBadge({
   ac,
   tokens,
+  badgeDays,
 }: {
   ac: AdvisoryCircular
   tokens: ReturnType<typeof useTheme>['tokens']
+  badgeDays: number
 }) {
   const fs = useFS()
   const isUpd = ac.cancels && ac.cancels.length > 0
+
+  if (!isWithinBadgeLifespan(ac.date_issued, badgeDays)) return null
 
   return (
     <View
@@ -572,6 +738,18 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   changePillText: { fontSize: 11, fontWeight: '500' },
+  updateBanner: {
+    flexDirection: 'column',
+    gap: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 4,
+  },
+  updateBannerText: { flex: 1, fontWeight: '600', lineHeight: 17 },
+  updateBannerNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
+  updateBannerNavCount: { fontWeight: '600', marginRight: 4 },
 
   acNum: { fontWeight: '800', fontSize: 17, marginTop: 4 },
   title: { fontWeight: '600', fontSize: 19, lineHeight: 26, marginTop: 4 },

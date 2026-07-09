@@ -34,12 +34,13 @@ const PRO_FEATURES = [
   { icon: 'folder.fill',       label: 'Custom folders — organize the AC library the FAA never built' },
   { icon: 'bookmark.fill',     label: 'Bookmarks — save any AC for one-tap access' },
   { icon: 'square.and.pencil', label: 'Personal notes linked directly to your ACs' },
+  { icon: 'highlighter',       label: 'Highlight key sections and jump straight back to them later' },
 ]
 
 // The features that Premium adds on top of Pro
 const PREMIUM_ADDITIONS = [
   { icon: 'icloud',               label: 'Cloud backup — your library synced across every device' },
-  { icon: 'person.2.fill',        label: 'Shared folders for CFIs, flight schools, and students' },
+  { icon: 'person.2.fill',        label: 'Shared folders for CFIs, flight schools, operators, mechanics, and students' },
   { icon: 'arrow.down.circle',    label: 'Download ACs for offline use — no internet required' },
   { icon: 'bell.badge',           label: 'Instant alerts when ACs are published or updated' },
 ]

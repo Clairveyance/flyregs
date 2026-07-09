@@ -21,6 +21,7 @@ import { Icon } from '@/components/Icon'
 import type { ACSeries } from '@/types'
 import { rankSearchResults, isPhrasedQuery, extractPhrase } from '@/lib/searchRank'
 import { collapseDictationDuplicate } from '@/lib/dictation'
+import { getBadgeLifespanDays, isWithinBadgeLifespan, DEFAULT_BADGE_LIFESPAN_DAYS } from '@/lib/badgeLifespan'
 
 const HOME_CACHE_KEY = '@flyregs/home-cache'
 
@@ -53,6 +54,11 @@ export default function HomeScreen() {
   const [totalCount, setTotalCount] = useState<number | null>(null)
   const [whatsNew, setWhatsNew] = useState<WhatsNewAC[]>([])
   const [loading, setLoading] = useState(true)
+  const [badgeDays, setBadgeDays] = useState(DEFAULT_BADGE_LIFESPAN_DAYS)
+
+  useEffect(() => {
+    getBadgeLifespanDays().then(setBadgeDays)
+  }, [])
 
   // Inline search state
   const [searchQuery, setSearchQuery] = useState('')
@@ -80,9 +86,14 @@ export default function HomeScreen() {
 
     // Then fetch fresh data in the background (or blocking if no cache)
     try {
-      const nintyDaysAgo = new Date()
-      nintyDaysAgo.setDate(nintyDaysAgo.getDate() - 90)
-      const cutoff = nintyDaysAgo.toISOString().split('T')[0]
+      // Same rolling clock as the NEW/UPD badges (Drawer > Badge Lifespan) —
+      // this isn't a separately-fixed 90-day feed alongside an adjustable
+      // badge display; 90 is just the long-limit default, shortened by the
+      // same setting that controls badge visibility everywhere else.
+      const days = await getBadgeLifespanDays()
+      const cutoffDate = new Date()
+      cutoffDate.setDate(cutoffDate.getDate() - days)
+      const cutoff = cutoffDate.toISOString().split('T')[0]
 
       const [seriesRes, countRes, whatsNewRes] = await Promise.all([
         supabase.from('series_summary').select('*').order('sort_order'),
@@ -342,6 +353,7 @@ export default function HomeScreen() {
               tokens={tokens}
               totalCount={totalCount}
               whatsNew={whatsNew}
+              badgeDays={badgeDays}
             />
           }
           renderItem={({ item }) => <SeriesRow item={item} tokens={tokens} />}
@@ -443,31 +455,40 @@ function HomeHeader({
   tokens,
   totalCount,
   whatsNew,
+  badgeDays,
 }: {
   tokens: ReturnType<typeof useTheme>['tokens']
   totalCount: number | null
   whatsNew: WhatsNewAC[]
+  badgeDays: number
 }) {
   const fs = useFS()
   return (
     <>
-      {/* What's New strip */}
-      {whatsNew.length > 0 && (
-        <>
-          <View style={styles.sectionLabel}>
-            <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(15) }]}>What's New</Text>
-            <Text style={[styles.sectionSub, { color: tokens.t3, fontSize: fs(11.5) }]}>Last 90 days</Text>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.wnScroll}
-          >
-            {whatsNew.map((ac) => (
-              <WhatsNewCard key={ac.id} ac={ac} tokens={tokens} />
-            ))}
-          </ScrollView>
-        </>
+      {/* What's New strip — always shown, even with zero results, so a user
+          isn't left wondering why the whole section vanished; the empty
+          state tells them to widen Badge Lifespan if they expect to see
+          something. */}
+      <View style={styles.sectionLabel}>
+        <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(15) }]}>What's New</Text>
+        <Text style={[styles.sectionSub, { color: tokens.t3, fontSize: fs(11.5) }]}>Last {badgeDays} days</Text>
+      </View>
+      {whatsNew.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.wnScroll}
+        >
+          {whatsNew.map((ac) => (
+            <WhatsNewCard key={ac.id} ac={ac} tokens={tokens} badgeDays={badgeDays} />
+          ))}
+        </ScrollView>
+      ) : (
+        <View style={[styles.wnEmpty, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+          <Text style={[styles.wnEmptyText, { color: tokens.t3, fontSize: fs(12.5) }]}>
+            No ACs issued or updated in the last {badgeDays} day{badgeDays === 1 ? '' : 's'}. Try a longer Badge Lifespan in the menu to see more.
+          </Text>
+        </View>
       )}
 
       {/* AC Library label */}
@@ -488,12 +509,15 @@ function HomeHeader({
 function WhatsNewCard({
   ac,
   tokens,
+  badgeDays,
 }: {
   ac: WhatsNewAC
   tokens: ReturnType<typeof useTheme>['tokens']
+  badgeDays: number
 }) {
   const fs = useFS()
   const isUpd = ac.cancels && ac.cancels.length > 0
+  const showBadge = isWithinBadgeLifespan(ac.date_issued, badgeDays)
   const dateStr = ac.date_issued
     ? new Date(ac.date_issued).toLocaleDateString('en-US', {
         month: 'short',
@@ -508,7 +532,7 @@ function WhatsNewCard({
       onPress={() => router.push(`/ac/${ac.id}`)}
     >
       <View style={styles.wnTop}>
-        <Badge isUpd={isUpd} tokens={tokens} />
+        {showBadge && <Badge isUpd={isUpd} tokens={tokens} />}
         <Text style={[styles.wnDate, { color: tokens.t3, fontSize: fs(10.5) }]}>{dateStr}</Text>
       </View>
       <Text style={[styles.wnAcNum, { color: tokens.t1, fontSize: fs(15) }]}>{ac.document_number}</Text>
@@ -689,6 +713,15 @@ const styles = StyleSheet.create({
   sectionCount: { fontSize: 12, fontWeight: '500' },
 
   wnScroll: { paddingHorizontal: 16, gap: 10, paddingBottom: 4 },
+  wnEmpty: {
+    marginHorizontal: 16,
+    marginBottom: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 16,
+  },
+  wnEmptyText: { lineHeight: 18 },
   wnCard: {
     width: 190,
     borderRadius: 14,

@@ -216,14 +216,22 @@ export default function NotesScreen() {
     else setSelectMode(true)
   }
 
-  const handleBulkAddToFolder = async (folderId: string) => {
+  const handleBulkAddToFolder = async (folderIds: string[]) => {
     const ids = [...selected]
-    await addManyToFolder(folderId, 'note', ids)
+    // Sequential, not Promise.all -- addManyToFolder does its own read-modify-
+    // write on the shared folder_items list, so concurrent calls for different
+    // folders would race and clobber each other (only the last write survives).
+    for (const folderId of folderIds) {
+      await addManyToFolder(folderId, 'note', ids)
+    }
     setFolderSheetVisible(false)
     setSelected(new Set())
     setSelectMode(false)
-    const folder = (await getFolders()).find((f) => f.id === folderId)
-    setConfirmLabel(folder ? `Added to ${folder.name}` : 'Added to folder')
+    const allFolders = await getFolders()
+    const names = folderIds.map((id) => allFolders.find((f) => f.id === id)?.name).filter(Boolean)
+    setConfirmLabel(
+      names.length === 1 ? `Added to ${names[0]}` : names.length > 1 ? 'Added to multiple folders' : 'Added to folder'
+    )
     setConfirmTick((t) => t + 1)
   }
 
@@ -239,6 +247,18 @@ export default function NotesScreen() {
     setSelected(new Set())
     setSelectMode(false)
   }
+
+  // The stored sync_enabled flag doesn't get flipped off automatically if a
+  // Premium subscription lapses -- self-correct so the UI (and syncPush.ts's
+  // own live isPremium check) both agree with reality instead of the row
+  // claiming "Synced" forever off a stale local flag.
+  const displaySyncEnabled = syncEnabled && isPremium
+  useEffect(() => {
+    if (syncEnabled && !isPremium) {
+      disableSync()
+      setSyncEnabled(false)
+    }
+  }, [syncEnabled, isPremium])
 
   const toggleSync = async (v: boolean) => {
     // Back up & sync is a Premium feature — turning it on without Premium opens
@@ -303,7 +323,7 @@ export default function NotesScreen() {
                   <ActivityIndicator size="small" color={tokens.blu} />
                 ) : (
                   <Switch
-                    value={syncEnabled}
+                    value={displaySyncEnabled}
                     onValueChange={toggleSync}
                     trackColor={{ true: tokens.blu, false: undefined }}
                     thumbColor="#fff"
@@ -317,12 +337,12 @@ export default function NotesScreen() {
                 </View>
                 <View style={[
                   styles.statusPill,
-                  syncEnabled
+                  displaySyncEnabled
                     ? { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }
                     : { backgroundColor: tokens.gdim, borderColor: tokens.gbdr },
                 ]}>
-                  <Text style={[styles.statusPillText, { color: syncEnabled ? tokens.blu : tokens.grn, fontSize: fs(10) }]}>
-                    {syncBusy ? 'Syncing…' : syncEnabled ? 'Synced' : 'Local Only'}
+                  <Text style={[styles.statusPillText, { color: displaySyncEnabled ? tokens.blu : tokens.grn, fontSize: fs(10) }]}>
+                    {syncBusy ? 'Syncing…' : displaySyncEnabled ? 'Synced' : 'Local Only'}
                   </Text>
                 </View>
               </View>
@@ -428,7 +448,7 @@ export default function NotesScreen() {
       <FolderSelectSheet
         visible={folderSheetVisible}
         title={`Add ${selected.size} Note${selected.size !== 1 ? 's' : ''} to Folder`}
-        onSelect={handleBulkAddToFolder}
+        onConfirm={handleBulkAddToFolder}
         onClose={() => setFolderSheetVisible(false)}
       />
 

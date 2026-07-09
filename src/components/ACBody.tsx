@@ -10,12 +10,13 @@ import {
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
-import { parseAC, cleanGlyphs, ACBlock } from '@/lib/acFormat'
+import { parseAC, cleanGlyphs, blockText, ACBlock } from '@/lib/acFormat'
 
 type Heading = Extract<ACBlock, { id: string }>
 
 export type ACBodyHandle = {
   scrollToMatch(n: number): void
+  scrollToBlockIndex(blockIndex: number): void
 }
 
 // Normalizes a search query into the phrase we match: trimmed, lowercased, with
@@ -136,8 +137,21 @@ export const ACBody = React.forwardRef<
      * document structure (computed from all blocks), so a free reader sees
      * everything that's in the AC even though the body itself is capped. */
     bodyLimit?: number
+    /** Indices (into the same blocks array, matching what's stored in the DB's
+     * changed_block_indices column) that changed in the AC's most recent
+     * revision — rendered with a left accent bar + "Updated" tag so a reader
+     * can see exactly what changed, not just that the document was updated. */
+    changedIndices?: number[] | null
+    /** Content-keys (acFormat.ts's blockText()) of blocks the reader has saved
+     * as a highlight — rendered with a yellow accent, distinct from the blue
+     * "Updated" accent above so the two features are never visually confused. */
+    highlightedBlockTexts?: Set<string>
+    /** Long-press a section/item/paragraph block to toggle a highlight on it.
+     * Not offered on chapter headings — those aren't "content" to save. */
+    onToggleHighlight?: (block: ACBlock, index: number) => void
   }
->(function ACBody({ text, blocks: precomputed, scrollRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit }, ref) {
+>(function ACBody({ text, blocks: precomputed, scrollRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight }, ref) {
+  const changedSet = useMemo(() => new Set(changedIndices ?? []), [changedIndices])
   const { tokens } = useTheme()
   const fs = useFS()
 
@@ -173,6 +187,10 @@ export const ACBody = React.forwardRef<
   const [showToc, setShowToc] = useState(false)
   const headingRefs = useRef<Record<string, View | null>>({})
   const matchRefs = useRef<Record<number, View | null>>({})
+  // Populated for any block a caller might need to imperatively scroll to
+  // later (changed-in-revision blocks AND saved highlights) — see
+  // scrollToBlockIndex above.
+  const jumpRefs = useRef<Record<number, View | null>>({})
 
   const hq = highlightQuery && highlightQuery.length >= 2 ? highlightQuery : null
   const searching = hq !== null
@@ -256,6 +274,22 @@ export const ACBody = React.forwardRef<
         () => {}
       )
     },
+    scrollToBlockIndex(blockIndex: number) {
+      const node = jumpRefs.current[blockIndex]
+      if (!node) return
+      if (Platform.OS === 'web') {
+        const el = node as unknown as HTMLElement
+        el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+        return
+      }
+      const scroller = scrollRef?.current
+      if (!scroller) return
+      node.measureLayout(
+        scroller as any,
+        (_x, y) => scroller.scrollTo({ y: Math.max(0, y - 80), animated: true }),
+        () => {}
+      )
+    },
   }), [occurrences, scrollRef, hq])
 
   const jumpTo = (id: string) => {
@@ -323,6 +357,21 @@ export const ACBody = React.forwardRef<
       {/* Document body — capped to bodyLimit blocks for the free-tier preview */}
       {(bodyLimit != null ? blocks.slice(0, bodyLimit) : blocks).map((b, i) => {
         const isMatch = searching && matchingBlockSet.has(i)
+        const isChanged = changedSet.has(i)
+        const changedStyle = isChanged
+          ? { borderLeftWidth: 3, borderLeftColor: tokens.blu, paddingLeft: 8 }
+          : null
+        const UpdatedTag = isChanged ? (
+          <Text style={[styles.updatedTag, { color: tokens.blu, backgroundColor: tokens.bdim }]}> UPDATED </Text>
+        ) : null
+        const isHighlighted = !!highlightedBlockTexts?.has(blockText(b))
+        const highlightStyle = isHighlighted
+          ? { backgroundColor: 'rgba(255, 213, 0, 0.10)', borderLeftWidth: 3, borderLeftColor: '#FFD500', paddingLeft: 8 }
+          : null
+        const HighlightTag = isHighlighted ? (
+          <Text style={[styles.updatedTag, { color: '#8a6d00', backgroundColor: 'rgba(255, 213, 0, 0.35)' }]}> HIGHLIGHTED </Text>
+        ) : null
+        const longPress = onToggleHighlight ? () => onToggleHighlight(b, i) : undefined
         // Highlight every phrase occurrence; the one whose global ordinal ==
         // activeMatch renders as the current match. `base` is this block's first
         // occurrence ordinal and advances across the heading/body segments so it
@@ -338,8 +387,12 @@ export const ACBody = React.forwardRef<
                 ref={(el) => {
                   headingRefs.current[b.id] = el
                   if (isMatch) matchRefs.current[i] = el
+                  if (isChanged) jumpRefs.current[i] = el
+                  if (isHighlighted) jumpRefs.current[i] = el
                 }}
+                style={changedStyle}
               >
+                {UpdatedTag}
                 <Text style={[styles.chapter, { color: tokens.t1, fontSize: fs(14.5) }]}>
                   {activeHq ? highlightSpans(b.text, activeHq, hOpts(base)) : b.text}
                 </Text>
@@ -355,14 +408,24 @@ export const ACBody = React.forwardRef<
             const headingText = `${b.label}${rawTitle ? ` ${rawTitle}` : ''}`
             const bodyBase = base + (phrase ? countOcc(headingText, phrase) : 0)
             return (
-              <View
+              <Pressable
                 key={i}
                 ref={(el) => {
-                  headingRefs.current[b.id] = el
-                  if (isMatch) matchRefs.current[i] = el
+                  headingRefs.current[b.id] = el as any
+                  if (isMatch) matchRefs.current[i] = el as any
+                  if (isChanged) jumpRefs.current[i] = el as any
+                  if (isHighlighted) jumpRefs.current[i] = el as any
                 }}
-                style={{ paddingLeft }}
+                onLongPress={longPress}
+                delayLongPress={450}
+                style={[
+                  { paddingLeft },
+                  isChanged && { borderLeftWidth: 3, borderLeftColor: tokens.blu, paddingLeft: paddingLeft + 8 },
+                  highlightStyle,
+                ]}
               >
+                {UpdatedTag}
+                {HighlightTag}
                 <Text style={[styles.sectionLabel, { color: tokens.t1, fontWeight, fontSize, marginTop }]}>
                   {activeHq ? highlightSpans(headingText, activeHq, hOpts(base)) : headingText}
                 </Text>
@@ -371,36 +434,54 @@ export const ACBody = React.forwardRef<
                     {activeHq ? highlightSpans(rawBody, activeHq, hOpts(bodyBase)) : rawBody}
                   </Text>
                 ) : null}
-              </View>
+              </Pressable>
             )
           }
           case 'item': {
             const labelText = `${b.label}${b.title ? ` ${b.title}` : ''}`
             const bodyBase = base + (phrase ? countOcc(labelText, phrase) : 0)
             return (
-              <View
+              <Pressable
                 key={i}
-                ref={(el) => { if (isMatch) matchRefs.current[i] = el }}
+                ref={(el) => {
+                  if (isMatch) matchRefs.current[i] = el as any
+                  if (isChanged) jumpRefs.current[i] = el as any
+                  if (isHighlighted) jumpRefs.current[i] = el as any
+                }}
+                onLongPress={longPress}
+                delayLongPress={450}
+                style={[changedStyle, highlightStyle]}
               >
+                {UpdatedTag}
+                {HighlightTag}
                 <Text selectable style={[styles.item, { color: tokens.t2, paddingLeft: 6 + b.level * 14, fontSize: fs(13) }]}>
                   <Text style={{ color: tokens.t1, fontWeight: '600' }}>
                     {activeHq ? highlightSpans(labelText, activeHq, hOpts(base)) : labelText}{' '}
                   </Text>
                   {activeHq ? highlightSpans(b.body, activeHq, hOpts(bodyBase)) : b.body}
                 </Text>
-              </View>
+              </Pressable>
             )
           }
           default:
             return (
-              <View
+              <Pressable
                 key={i}
-                ref={(el) => { if (isMatch) matchRefs.current[i] = el }}
+                ref={(el) => {
+                  if (isMatch) matchRefs.current[i] = el as any
+                  if (isChanged) jumpRefs.current[i] = el as any
+                  if (isHighlighted) jumpRefs.current[i] = el as any
+                }}
+                onLongPress={longPress}
+                delayLongPress={450}
+                style={[changedStyle, highlightStyle]}
               >
+                {UpdatedTag}
+                {HighlightTag}
                 <Text selectable style={[styles.para, { color: tokens.t2, fontSize: fs(13.5) }]}>
                   {activeHq ? highlightSpans(b.text, activeHq, hOpts(base)) : b.text}
                 </Text>
-              </View>
+              </Pressable>
             )
         }
       })}
@@ -425,4 +506,13 @@ const styles = StyleSheet.create({
   highlight: { backgroundColor: 'rgba(255, 213, 0, 0.45)', borderRadius: 2 },
   // Current match — brighter/solid orange so it stands out from the other matches.
   highlightActive: { backgroundColor: 'rgba(255, 138, 0, 0.95)', color: '#1a1400', borderRadius: 2 },
+  updatedTag: {
+    alignSelf: 'flex-start',
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    borderRadius: 4,
+    marginBottom: 3,
+    overflow: 'hidden',
+  },
 })

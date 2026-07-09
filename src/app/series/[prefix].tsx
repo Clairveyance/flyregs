@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
+import { getBadgeLifespanDays, isWithinBadgeLifespan, DEFAULT_BADGE_LIFESPAN_DAYS } from '@/lib/badgeLifespan'
 
 interface SeriesAC {
   id: string
@@ -51,6 +52,11 @@ export default function SeriesScreen() {
   const [acs, setACs] = useState<SeriesAC[]>([])
   const [seriesName, setSeriesName] = useState('')
   const [loading, setLoading] = useState(true)
+  const [badgeDays, setBadgeDays] = useState(DEFAULT_BADGE_LIFESPAN_DAYS)
+
+  useEffect(() => {
+    getBadgeLifespanDays().then(setBadgeDays)
+  }, [])
 
   useEffect(() => {
     Promise.all([
@@ -96,7 +102,7 @@ export default function SeriesScreen() {
             </View>
           }
           renderItem={({ item }) => (
-            <ACRow item={item} tokens={tokens} />
+            <ACRow item={item} tokens={tokens} badgeDays={badgeDays} />
           )}
         />
       )}
@@ -109,12 +115,15 @@ export default function SeriesScreen() {
 function ACRow({
   item,
   tokens,
+  badgeDays,
 }: {
   item: SeriesAC
   tokens: ReturnType<typeof useTheme>['tokens']
+  badgeDays: number
 }) {
   const fs = useFS()
   const isUpd = item.cancels && item.cancels.length > 0
+  const showBadge = isWithinBadgeLifespan(item.date_issued, badgeDays)
   const dateStr = item.date_issued
     ? new Date(item.date_issued).toLocaleDateString('en-US', {
         year: 'numeric',
@@ -129,18 +138,20 @@ function ACRow({
       onPress={() => router.push(`/ac/${item.id}`)}
     >
       <View style={styles.cardTop}>
-        <View
-          style={[
-            styles.badge,
-            isUpd
-              ? { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }
-              : { backgroundColor: tokens.gdim, borderColor: tokens.gbdr },
-          ]}
-        >
-          <Text style={[styles.badgeText, { color: isUpd ? tokens.blu : tokens.grn, fontSize: fs(9.5) }]}>
-            {isUpd ? 'UPD' : 'NEW'}
-          </Text>
-        </View>
+        {showBadge && (
+          <View
+            style={[
+              styles.badge,
+              isUpd
+                ? { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }
+                : { backgroundColor: tokens.gdim, borderColor: tokens.gbdr },
+            ]}
+          >
+            <Text style={[styles.badgeText, { color: isUpd ? tokens.blu : tokens.grn, fontSize: fs(9.5) }]}>
+              {isUpd ? 'UPD' : 'NEW'}
+            </Text>
+          </View>
+        )}
         {dateStr && (
           <Text style={[styles.date, { color: tokens.t3, fontSize: fs(11) }]}>{dateStr}</Text>
         )}

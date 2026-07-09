@@ -41,11 +41,11 @@ const FAQ: QA[] = [
   },
   {
     q: 'How often is the library updated?',
-    a: 'The library syncs regularly so new and revised ACs appear automatically. The "What\'s New" feed on the Home screen shows everything issued or updated in the last 90 days.',
+    a: 'We check the FAA for new and revised ACs every week, so the library stays current automatically — no need to manually refresh or check faa.gov yourself. The "What\'s New" feed on the Home screen shows everything issued or updated in the last 90 days by default (adjustable — see the next question).',
   },
   {
     q: 'What do the NEW and UPD badges mean?',
-    a: 'NEW marks an AC issued recently; UPD marks one that supersedes or revises an earlier circular. You can control how long these badges stay visible under Badge Lifespan in the menu.',
+    a: 'NEW marks an AC issued recently; UPD marks one that supersedes or revises an earlier circular. Both roll off automatically after 90 days by default — set Badge Lifespan in the menu to 7, 14, or 30 days instead if you want them (and the Home "What\'s New" feed) to move faster.',
   },
   {
     q: 'How does search work?',
@@ -61,7 +61,15 @@ const FAQ: QA[] = [
   },
   {
     q: 'What does a subscription unlock?',
-    a: 'Pro unlocks full text access for every AC, in-document search, bookmarks, personal notes, and custom folders. Premium adds cloud backup and sync across devices, shared folders for teams and flight schools, offline downloads, and alerts when ACs are published or updated.',
+    a: 'Pro unlocks full text access for every AC, in-document search, bookmarks, personal notes, custom folders, and highlighting key sections. Premium adds cloud backup and sync across devices, shared folders for teams, flight schools, and maintenance shops, offline downloads, and alerts when ACs are published or updated.',
+  },
+  {
+    q: 'How does highlighting work?',
+    a: 'Long-press any paragraph or section (Pro required) to highlight it in yellow — it\'s saved instantly to your Saved list, no extra confirmation needed. Long-press the same spot again to remove it. Tap a highlight from Saved and the AC opens scrolled straight to that spot instead of the top of the document.',
+  },
+  {
+    q: 'What happens to a highlight if the AC is later updated?',
+    a: 'Your highlight stays in Saved either way, but if the FAA revises the exact section you highlighted, the highlight can no longer point to a specific spot in the new text — opening it from Saved will land you at the top of the document instead of jumping to that section. Saved rows affected by this show a "Section changed" note. Nothing is deleted; you can always remove the highlight yourself if it\'s no longer useful.',
   },
   {
     q: 'How do I cancel?',

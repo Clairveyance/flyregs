@@ -55,7 +55,7 @@ function groupByTime(recents: RecentAC[]): Group[] {
 export default function RecentsScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { isPremium } = useAuth()
+  const { isPro, isPremium } = useAuth()
   const { shareAC, shareMany } = useShareActions()
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
@@ -79,6 +79,7 @@ export default function RecentsScreen() {
   useFocusEffect(load)
 
   const handleToggleBookmark = useCallback(async (item: RecentAC) => {
+    if (!isPro) { router.push('/paywall'); return }
     const isNowBookmarked = await toggleBookmark({
       id: item.id,
       document_number: item.document_number,
@@ -92,7 +93,7 @@ export default function RecentsScreen() {
       isNowBookmarked ? next.add(item.id) : next.delete(item.id)
       return next
     })
-  }, [])
+  }, [isPro])
 
   const handleRemove = useCallback((item: RecentAC) => {
     setGroups((prev) =>
@@ -130,14 +131,22 @@ export default function RecentsScreen() {
     })
   }
 
-  const handleBulkAddToFolder = async (folderId: string) => {
+  const handleBulkAddToFolder = async (folderIds: string[]) => {
     const ids = [...selected]
-    await addManyToFolder(folderId, 'ac', ids)
+    // Sequential, not Promise.all -- addManyToFolder does its own read-modify-
+    // write on the shared folder_items list, so concurrent calls for different
+    // folders would race and clobber each other (only the last write survives).
+    for (const folderId of folderIds) {
+      await addManyToFolder(folderId, 'ac', ids)
+    }
     setFolderSheetVisible(false)
     setSelected(new Set())
     setSelectMode(false)
-    const folder = (await getFolders()).find((f) => f.id === folderId)
-    setConfirmLabel(folder ? `Added to ${folder.name}` : 'Added to folder')
+    const allFolders = await getFolders()
+    const names = folderIds.map((id) => allFolders.find((f) => f.id === id)?.name).filter(Boolean)
+    setConfirmLabel(
+      names.length === 1 ? `Added to ${names[0]}` : names.length > 1 ? 'Added to multiple folders' : 'Added to folder'
+    )
     setConfirmTick((t) => t + 1)
   }
 
@@ -289,7 +298,7 @@ export default function RecentsScreen() {
       <FolderSelectSheet
         visible={folderSheetVisible}
         title={`Add ${selected.size} AC${selected.size !== 1 ? 's' : ''} to Folder`}
-        onSelect={handleBulkAddToFolder}
+        onConfirm={handleBulkAddToFolder}
         onClose={() => setFolderSheetVisible(false)}
       />
 

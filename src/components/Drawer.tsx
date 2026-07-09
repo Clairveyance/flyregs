@@ -16,6 +16,7 @@ import { useFontScale, useFS, FONT_SCALE_MIN, FONT_SCALE_MAX } from '@/context/f
 import { Icon } from '@/components/Icon'
 import { restorePurchases } from '@/lib/revenuecat'
 import { APP_VERSION, APP_STORE_URL, PLAY_STORE_URL } from '@/lib/appInfo'
+import { BADGE_LIFESPAN_KEY, DEFAULT_BADGE_LIFESPAN_DAYS } from '@/lib/badgeLifespan'
 
 const DRAWER_WIDTH = 284
 
@@ -90,18 +91,18 @@ function DrawerContent({
   const { mode, setMode } = useTheme()
   const { fontScale, setFontScale } = useFontScale()
   const fs = useFS()
-  const [badgeDays, setBadgeDays] = useState(30)
+  const [badgeDays, setBadgeDays] = useState(DEFAULT_BADGE_LIFESPAN_DAYS)
   const [restoring, setRestoring] = useState(false)
 
   useEffect(() => {
-    AsyncStorage.getItem('@flyregs/badge-lifespan').then((v) => {
+    AsyncStorage.getItem(BADGE_LIFESPAN_KEY).then((v) => {
       if (v) setBadgeDays(Number(v))
     })
   }, [])
 
   const updateBadgeDays = (days: number) => {
     setBadgeDays(days)
-    AsyncStorage.setItem('@flyregs/badge-lifespan', String(days))
+    AsyncStorage.setItem(BADGE_LIFESPAN_KEY, String(days))
   }
 
   const initials = session?.user?.email

@@ -48,9 +48,18 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded }: Pr
 
   useEffect(() => {
     if (!visible) return
+    // Folders are a Pro feature end-to-end, not just creation -- a user who
+    // downgraded after already having folders could otherwise keep adding to
+    // them via this picker (opened from Saved, Recents, and AC detail) with
+    // no gate at all, since only the "New Folder" button below checked isPro.
+    if (!isPro) {
+      onClose()
+      setTimeout(() => router.push('/paywall'), 200)
+      return
+    }
     setAddedNames([])
     load()
-  }, [visible, itemId])
+  }, [visible, itemId, isPro])
 
   useEffect(() => {
     if (creating) setTimeout(() => inputRef.current?.focus(), 80)

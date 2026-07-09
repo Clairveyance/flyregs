@@ -17,43 +17,72 @@ import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
 import { getFolders, createFolder, Folder } from '@/lib/folders'
 
-// Single-select folder sheet for bulk operations.
-// Tapping a folder calls onSelect(folderId) and it's up to the caller to close.
-// Unlike FolderPicker there's no toggle — just pick one folder, done.
+// Multi-select folder sheet for bulk operations (adding several items at
+// once). Tapping a folder toggles a checkmark WITHOUT closing or writing to
+// the DB yet -- selection only commits when Done is tapped, matching
+// FolderPicker's per-item toggle pattern so the two "add to folder" flows in
+// the app behave consistently. Bug fixed 2026-07-09: this used to call
+// onSelect(folderId) and close immediately on the very first tap, with no
+// way to pick more than one folder for a bulk selection.
 
 interface Props {
   visible: boolean
   title?: string
-  onSelect: (folderId: string) => void
+  onConfirm: (folderIds: string[]) => void
   onClose: () => void
 }
 
-export function FolderSelectSheet({ visible, title = 'Add to Folder', onSelect, onClose }: Props) {
+export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm, onClose }: Props) {
   const { tokens } = useTheme()
   const fs = useFS()
   const { isPro } = useAuth()
   const [folders, setFolders] = useState<Folder[]>([])
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const inputRef = useRef<TextInput>(null)
 
   useEffect(() => {
     if (!visible) return
+    // Same Pro-gating gap as FolderPicker: folders are Pro end-to-end, not
+    // just creation -- gate here too, not only on the "New Folder" row below.
+    if (!isPro) {
+      onClose()
+      setTimeout(() => router.push('/paywall'), 200)
+      return
+    }
     getFolders().then(setFolders)
+    setSelected(new Set())
     setCreating(false)
     setNewName('')
-  }, [visible])
+  }, [visible, isPro])
 
   useEffect(() => {
     if (creating) setTimeout(() => inputRef.current?.focus(), 80)
   }, [creating])
+
+  const toggle = (folderId: string) => {
+    setSelected((prev) => {
+      const s = new Set(prev)
+      if (s.has(folderId)) s.delete(folderId)
+      else s.add(folderId)
+      return s
+    })
+  }
 
   const handleCreate = async () => {
     const name = newName.trim()
     if (!name) return
     const folder = await createFolder(name)
     setFolders((prev) => [...prev, folder])
-    onSelect(folder.id)
+    setSelected((prev) => new Set([...prev, folder.id]))
+    setNewName('')
+    setCreating(false)
+  }
+
+  const handleDone = () => {
+    if (selected.size > 0) onConfirm([...selected])
+    else onClose()
   }
 
   return (
@@ -70,8 +99,12 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onSelect, 
 
           <View style={[styles.header, { borderBottomColor: tokens.bdr }]}>
             <Text style={[styles.headerTitle, { color: tokens.t1, fontSize: fs(15) }]}>{title}</Text>
-            <Pressable onPress={onClose} hitSlop={10}>
-              <Icon name="xmark" size={15} color={tokens.t3} />
+            <Pressable
+              onPress={handleDone}
+              style={[styles.doneBtn, { backgroundColor: tokens.blu, opacity: selected.size > 0 ? 1 : 0.5 }]}
+              hitSlop={4}
+            >
+              <Text style={[styles.doneBtnText, { fontSize: fs(13) }]}>Done</Text>
             </Pressable>
           </View>
 
@@ -85,18 +118,27 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onSelect, 
               keyExtractor={(f) => f.id}
               style={styles.list}
               keyboardShouldPersistTaps="handled"
-              renderItem={({ item }) => (
-                <Pressable
-                  style={[styles.folderRow, { borderBottomColor: tokens.bdr }]}
-                  onPress={() => onSelect(item.id)}
-                >
-                  <Icon name="folder" size={19} color={tokens.t3} />
-                  <Text style={[styles.folderName, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  <Icon name="chevron.right" size={13} color={tokens.t4} />
-                </Pressable>
-              )}
+              renderItem={({ item }) => {
+                const isSelected = selected.has(item.id)
+                return (
+                  <Pressable
+                    style={[styles.folderRow, { borderBottomColor: tokens.bdr }]}
+                    onPress={() => toggle(item.id)}
+                  >
+                    <Icon
+                      name={isSelected ? 'folder.fill' : 'folder'}
+                      size={19}
+                      color={isSelected ? tokens.blu : tokens.t3}
+                    />
+                    <Text style={[styles.folderName, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    {isSelected && (
+                      <Icon name="checkmark" size={14} color={tokens.blu} />
+                    )}
+                  </Pressable>
+                )
+              }}
             />
           )}
 
@@ -166,6 +208,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   headerTitle: { flex: 1, fontWeight: '600', fontSize: 15 },
+  doneBtn: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 7 },
+  doneBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
   list: { maxHeight: 300 },
   emptyText: { fontSize: 13, textAlign: 'center', paddingVertical: 24, paddingHorizontal: 20 },
   folderRow: {

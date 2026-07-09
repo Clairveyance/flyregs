@@ -67,6 +67,11 @@ async function mergeBookmarks(userId: string) {
         office: r.office,
         subject_series: r.subject_series,
         savedAt: r.saved_at,
+        acId: r.ac_id ?? r.id,
+        blockKind: r.block_kind ?? undefined,
+        blockLabel: r.block_label ?? undefined,
+        blockSnippet: r.block_snippet ?? undefined,
+        blockText: r.block_text ?? undefined,
       })
     }
   }
