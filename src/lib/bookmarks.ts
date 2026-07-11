@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { syncPushBookmark, syncPushBookmarkDeletes } from '@/lib/syncPush'
+import { removeItemsFromAllFolders } from '@/lib/folders'
 
 const KEY = '@flyregs/bookmarks'
 
@@ -62,6 +63,10 @@ export async function removeManyBookmarks(ids: string[]) {
   const idSet = new Set(ids)
   await AsyncStorage.setItem(KEY, JSON.stringify(list.filter((b) => !idSet.has(b.id))))
   syncPushBookmarkDeletes(ids)
+  // A removed bookmark may still be referenced by one or more folders — drop
+  // those references too, or the folder's item count silently drifts ahead
+  // of what it actually renders (see folders.ts's removeItemsFromAllFolders).
+  await removeItemsFromAllFolders('ac', ids)
 }
 
 /** Toggle and return the new bookmarked state. */

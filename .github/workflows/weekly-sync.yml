@@ -1,9 +1,9 @@
 name: Weekly FAA Sync
 
-# Runs the same 5-stage pipeline that used to run via launchd on a single
-# Mac (scrape -> OCR fixes -> parse backfill -> parser audit -> update
-# alerts). Moving it here means the weekly update no longer depends on any
-# one machine being powered on and awake at 3am.
+# Runs the same 6-stage pipeline that used to run via launchd on a single
+# Mac (scrape -> OCR fixes -> parse backfill -> figure/table sync -> parser
+# audit -> update alerts). Moving it here means the weekly update no longer
+# depends on any one machine being powered on and awake at 3am.
 #
 # Manual runs: use the "Run workflow" button in the Actions tab (the
 # workflow_dispatch trigger below) — handy for testing without waiting for

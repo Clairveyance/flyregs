@@ -30,7 +30,7 @@ import { ACBlock } from '@/lib/acFormat'
 import { supabase } from '@/lib/supabase'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
-import { addManyToFolder, getFolders } from '@/lib/folders'
+import { addManyToFolder, getFolders, removeItemsFromAllFolders } from '@/lib/folders'
 import { getACIndex, ACIndexEntry } from '@/lib/acIndex'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions } from '@/lib/share'
@@ -185,6 +185,10 @@ export default function NotesScreen() {
   const deleteNote = (id: string) => {
     persist(notes.filter((n) => n.id !== id))
     syncPushNoteDeletes([id])
+    // A deleted note may still be referenced by one or more folders -- drop
+    // those references too, or the folder's shown item count silently drifts
+    // ahead of what it actually renders.
+    removeItemsFromAllFolders('note', [id])
   }
 
   const confirmDelete = (id: string) =>
@@ -204,6 +208,7 @@ export default function NotesScreen() {
           const ids = [...selected]
           persist(notes.filter((n) => !selected.has(n.id)))
           syncPushNoteDeletes(ids)
+          removeItemsFromAllFolders('note', ids)
           setSelected(new Set())
           setSelectMode(false)
         },

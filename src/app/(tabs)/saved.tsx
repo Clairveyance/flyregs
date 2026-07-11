@@ -43,6 +43,7 @@ import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions, ShareableAC, ShareableNote } from '@/lib/share'
+import { isOcrScanned } from '@/lib/ocrScannedACs'
 
 type Tab = 'all' | 'folders' | 'shared' | 'offline'
 
@@ -834,7 +835,9 @@ function BookmarkRow({
                 </View>
               )}
               <View style={styles.rowBody}>
-                <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12.5) }]}>{item.document_number}</Text>
+                <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
+                  {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
+                </Text>
                 <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={2}>
                   {item.title}
                 </Text>
@@ -1046,7 +1049,9 @@ function OfflineRow({
               <Icon name="doc.text" size={18} color={tokens.blu} />
             </View>
             <View style={styles.rowBody}>
-              <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12.5) }]}>{item.document_number}</Text>
+              <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
+                  {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
+                </Text>
               <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={2}>
                 {item.title}
               </Text>

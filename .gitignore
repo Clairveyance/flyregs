@@ -50,3 +50,10 @@ example
 
 # one-off analysis reports (regenerate via their scripts, not source of truth)
 header_leak_report.json
+header_leak_fixed_docs.json
+broken_headings_report.json
+figure_miss_audit.json
+heading_gaps_categorized.json
+heading_gaps_report.json
+inline_lists_report.json
+ocr_scans_report.json

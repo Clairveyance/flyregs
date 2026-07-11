@@ -144,6 +144,51 @@ export async function removeFromFolder(
   syncPushFolderItemDeletes(removed.map((i) => i.id))
 }
 
+// Removes several items from one folder in a single read-modify-write — same
+// race the addManyToFolder comment above describes: calling removeFromFolder
+// in a Promise.all loop is unsafe because each call reads the same pre-write
+// AsyncStorage snapshot, so concurrent writes clobber each other and only the
+// last removal survives.
+export async function removeManyFromFolder(
+  folderId: string,
+  entries: { itemType: 'ac' | 'note'; itemId: string }[]
+): Promise<void> {
+  if (!entries.length) return
+  const items = await getFolderItems()
+  const toRemove = new Set(entries.map((e) => `${e.itemType}:${e.itemId}`))
+  const removed = items.filter((i) => i.folder_id === folderId && toRemove.has(`${i.item_type}:${i.item_id}`))
+  if (!removed.length) return
+  const removedIds = new Set(removed.map((r) => r.id))
+  await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(items.filter((i) => !removedIds.has(i.id))))
+  syncPushFolderItemDeletes(removed.map((i) => i.id))
+}
+
+// Removes one item from EVERY folder it's in — called whenever the underlying
+// AC bookmark or note is itself deleted. Without this, a folder_item row for
+// a since-unbookmarked/deleted item lingers forever: getFolderItemCounts()
+// still counts it (inflating the folder's shown count) while the folder
+// detail screen silently drops it from the list (its bookmark/note lookup
+// fails), producing a folder that claims N items but only renders fewer.
+export async function removeItemFromAllFolders(itemType: 'ac' | 'note', itemId: string): Promise<void> {
+  return removeItemsFromAllFolders(itemType, [itemId])
+}
+
+// Batched form — one read-modify-write for several item ids at once. Callers
+// removing multiple bookmarks/notes together (e.g. a multi-select bulk
+// delete) MUST use this instead of Promise.all-ing single-id calls, which
+// races on the same AsyncStorage snapshot and silently drops all but the
+// last removal (see addManyToFolder above for the same class of bug).
+export async function removeItemsFromAllFolders(itemType: 'ac' | 'note', itemIds: string[]): Promise<void> {
+  if (!itemIds.length) return
+  const idSet = new Set(itemIds)
+  const items = await getFolderItems()
+  const removed = items.filter((i) => i.item_type === itemType && idSet.has(i.item_id))
+  if (!removed.length) return
+  const removedIds = new Set(removed.map((r) => r.id))
+  await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(items.filter((i) => !removedIds.has(i.id))))
+  syncPushFolderItemDeletes(removed.map((i) => i.id))
+}
+
 /** Returns a map of folderId → item count, useful for rendering folder cards. */
 export async function getFolderItemCounts(): Promise<Record<string, number>> {
   const items = await getFolderItems()

@@ -23,6 +23,7 @@ import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions } from '@/lib/share'
+import { isOcrScanned } from '@/lib/ocrScannedACs'
 
 interface Group {
   title: string
@@ -402,7 +403,9 @@ function SwipeableRecentRow({
                 </View>
               )}
               <View style={styles.rowBody}>
-                <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12.5) }]}>{item.document_number}</Text>
+                <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
+                  {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
+                </Text>
                 <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
                   {item.title}
                 </Text>

@@ -12,8 +12,10 @@ import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
+import { Icon } from '@/components/Icon'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
+import { isOcrScanned } from '@/lib/ocrScannedACs'
 
 interface SeriesAC {
   id: string
@@ -51,6 +53,7 @@ export default function SeriesScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
   const [acs, setACs] = useState<SeriesAC[]>([])
+  const [figureCounts, setFigureCounts] = useState<Record<string, number>>({})
   const [seriesName, setSeriesName] = useState('')
   const [loading, setLoading] = useState(true)
   const { badgeDays } = useBadgeLifespan()
@@ -67,9 +70,20 @@ export default function SeriesScreen() {
         .select('display_name')
         .eq('series_prefix', prefix)
         .single(),
-    ]).then(([acsRes, seriesRes]) => {
+    ]).then(async ([acsRes, seriesRes]) => {
       if (!acsRes.error && acsRes.data) {
-        setACs((acsRes.data as SeriesAC[]).sort(compareDocumentNumbers))
+        const sorted = (acsRes.data as SeriesAC[]).sort(compareDocumentNumbers)
+        setACs(sorted)
+        // One batched query for every AC's Figures & Tables count instead of
+        // one request per row -- counted client-side since this is a small
+        // (a few hundred rows at most) per-series slice, not the whole table.
+        const ids = sorted.map((a) => a.id)
+        if (ids.length) {
+          const { data: figs } = await supabase.from('ac_figures').select('ac_id').in('ac_id', ids)
+          const counts: Record<string, number> = {}
+          for (const f of figs ?? []) counts[f.ac_id] = (counts[f.ac_id] ?? 0) + 1
+          setFigureCounts(counts)
+        }
       }
       if (!seriesRes.error && seriesRes.data) setSeriesName(seriesRes.data.display_name)
       setLoading(false)
@@ -99,7 +113,7 @@ export default function SeriesScreen() {
             </View>
           }
           renderItem={({ item }) => (
-            <ACRow item={item} tokens={tokens} badgeDays={badgeDays} />
+            <ACRow item={item} tokens={tokens} badgeDays={badgeDays} figureCount={figureCounts[item.id]} />
           )}
         />
       )}
@@ -113,10 +127,12 @@ function ACRow({
   item,
   tokens,
   badgeDays,
+  figureCount,
 }: {
   item: SeriesAC
   tokens: ReturnType<typeof useTheme>['tokens']
   badgeDays: number
+  figureCount?: number
 }) {
   const fs = useFS()
   const isUpd = item.cancels && item.cancels.length > 0
@@ -159,12 +175,28 @@ function ACRow({
         )}
       </View>
 
-      <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(13) }]}>{item.document_number}</Text>
+      <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(13) }]}>
+        {item.document_number}
+        {isOcrScanned(item.document_number) && (
+          <Text style={{ color: tokens.t4 }}> *</Text>
+        )}
+      </Text>
       <Text style={[styles.title, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
         {item.title}
       </Text>
-      {item.office && (
-        <Text style={[styles.office, { color: tokens.t3, fontSize: fs(11.5) }]}>{item.office}</Text>
+      {(item.office || !!figureCount) && (
+        <View style={styles.metaRow}>
+          {item.office && (
+            <Text style={[styles.office, { color: tokens.t3, fontSize: fs(11.5) }]}>{item.office}</Text>
+          )}
+          <View style={{ flex: 1 }} />
+          {!!figureCount && (
+            <View style={styles.tidbit}>
+              <Icon name="photo" size={13} color={tokens.t3} />
+              <Text style={[styles.tidbitText, { color: tokens.t3, fontSize: fs(12.5) }]}>{figureCount}</Text>
+            </View>
+          )}
+        </View>
       )}
     </Pressable>
   )
@@ -209,4 +241,7 @@ const styles = StyleSheet.create({
   acNum: { fontWeight: '700', fontSize: 13 },
   title: { fontWeight: '500', fontSize: 14.5, lineHeight: 20 },
   office: { fontSize: 11.5, marginTop: 2 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
+  tidbit: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  tidbitText: { fontSize: 11, fontWeight: '600' },
 })

@@ -173,6 +173,91 @@ function repairSplitTitle(title: string, body: string): { title: string; body: s
   return { title, body }
 }
 
+// Detects a run-on numbered list embedded inside a single body string instead
+// of being split into real list items — e.g. "The basic philosophy of a CPCP
+// should consist of: 1. Personnel adequately trained...; 2. Thorough
+// knowledge...; 3. Proper emphasis...". The parser's ITEM_A/ITEM_N/ITEM_L
+// rules only fire when a marker starts its own physical PDF line; when the
+// source PDF doesn't wrap between list items, the whole list stays glued into
+// one run-on line and is parsed as ordinary body prose. This is purely a
+// display-time reformat — the underlying block/body text is untouched, so
+// search, highlighting, and diffing all keep operating on the original string.
+// A marker is "N. " preceded by a line-internal boundary (start of string, or
+// ";"/":"/"." + whitespace — i.e. the previous item just ended) and followed
+// by an uppercase letter. Requires 3+ strictly ascending items starting at 1
+// or 2 to be confident it's a real list, not a stray reference number
+// (validated against a corpus-wide scan — scripts/detect_inline_lists.py).
+// The separator before a marker tolerates a trailing "and "/"or " connector
+// ("...design deficiencies; and 13. Use of appropriate materials...") — a
+// common way FAA prose closes out the last item of a list.
+const LIST_MARKER_RE = /(^|[;:.]\s+(?:and|or)\s+|[;:.]\s+)(\d{1,2})\.\s+(?=[A-Z])/g
+const LIST_MIN_RUN = 3
+
+type ListItemSpan = { num: number; start: number; contentStart: number }
+type ListRun = { introEnd: number; items: ListItemSpan[] }
+
+function findListRuns(text: string): ListRun[] {
+  const matches: { idx: number; sepLen: number; num: number; fullLen: number }[] = []
+  LIST_MARKER_RE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = LIST_MARKER_RE.exec(text))) {
+    matches.push({ idx: m.index, sepLen: m[1].length, num: parseInt(m[2], 10), fullLen: m[0].length })
+  }
+  const runs: ListRun[] = []
+  let i = 0
+  while (i < matches.length) {
+    const run = [matches[i]]
+    let j = i + 1
+    while (j < matches.length && matches[j].num === run[run.length - 1].num + 1) {
+      run.push(matches[j])
+      j++
+    }
+    if (run.length >= LIST_MIN_RUN && (run[0].num === 1 || run[0].num === 2)) {
+      runs.push({
+        introEnd: run[0].idx,
+        items: run.map((r) => ({ num: r.num, start: r.idx + r.sepLen, contentStart: r.idx + r.fullLen })),
+      })
+    }
+    i = j > i + 1 ? j : i + 1
+  }
+  return runs
+}
+
+// Renders a body string as plain linkified text, or — when it contains one or
+// more embedded numbered lists — as an intro paragraph followed by real,
+// separately-lined list rows. Only used on the non-search render path; while
+// searching, callers keep rendering the flat original string so match
+// counting/highlighting ordinals never have to account for this reformat.
+function renderBodyContent(
+  text: string,
+  linkify: (t: string) => React.ReactNode,
+  tokens: ThemeTokens,
+  fs: (n: number) => number
+): React.ReactNode {
+  const runs = findListRuns(text)
+  if (!runs.length) return linkify(text)
+
+  const nodes: React.ReactNode[] = []
+  const intro = text.slice(0, runs[0].introEnd).trim()
+  if (intro) nodes.push(<Text key="intro">{linkify(intro)}</Text>)
+
+  runs.forEach((run, r) => {
+    run.items.forEach((item, k) => {
+      const contentEnd =
+        k + 1 < run.items.length ? run.items[k + 1].start : r + 1 < runs.length ? runs[r + 1].introEnd : text.length
+      const content = text.slice(item.contentStart, contentEnd).trim()
+      nodes.push(
+        <View key={`${r}-${item.num}`} style={styles.autoListRow}>
+          <Text style={[styles.autoListNum, { color: tokens.t1, fontSize: fs(13) }]}>{item.num}.</Text>
+          <Text style={[styles.autoListBody, { color: tokens.t2, fontSize: fs(13.5) }]}>{linkify(content)}</Text>
+        </View>
+      )
+    })
+  })
+
+  return <View>{nodes}</View>
+}
+
 // Returns a block's text as the SAME segments that get rendered (and highlighted)
 // in the block map. Phrase counting runs per-segment so the match count and the
 // on-screen highlights never diverge — and a phrase is only matched within a
@@ -544,6 +629,9 @@ export const ACBody = React.forwardRef<
             const { title: rawTitle, body: rawBody } = repairSplitTitle(b.title, b.body)
             const headingText = `${b.label}${rawTitle ? ` ${rawTitle}` : ''}`
             const bodyBase = base + (phrase ? countOcc(headingText, phrase) : 0)
+            // Only break the body out of its normal single-paragraph <Text>
+            // when it actually contains an embedded list to reformat.
+            const sectionListRuns = !activeHq ? findListRuns(rawBody ?? '') : []
             return (
               <Pressable
                 key={i}
@@ -567,9 +655,17 @@ export const ACBody = React.forwardRef<
                   {activeHq ? highlightSpans(headingText, activeHq, hOpts(base)) : headingText}
                 </Text>
                 {rawBody ? (
-                  <Text selectable style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13.5) }]}>
-                    {activeHq ? highlightSpans(rawBody, activeHq, hOpts(bodyBase)) : linkify(rawBody)}
-                  </Text>
+                  activeHq ? (
+                    <Text selectable style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13.5) }]}>
+                      {highlightSpans(rawBody, activeHq, hOpts(bodyBase))}
+                    </Text>
+                  ) : sectionListRuns.length ? (
+                    <View style={styles.sectionBody}>{renderBodyContent(rawBody, linkify, tokens, fs)}</View>
+                  ) : (
+                    <Text selectable style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13.5) }]}>
+                      {linkify(rawBody)}
+                    </Text>
+                  )
                 ) : null}
               </Pressable>
             )
@@ -577,6 +673,11 @@ export const ACBody = React.forwardRef<
           case 'item': {
             const labelText = `${b.label}${b.title ? ` ${b.title}` : ''}`
             const bodyBase = base + (phrase ? countOcc(labelText, phrase) : 0)
+            // Only break the label onto its own line when the body actually
+            // contains an embedded list to reformat — the vast majority of
+            // items have no list and keep their normal inline "a. Body text…"
+            // flow (label + body in one wrapping paragraph).
+            const itemListRuns = !activeHq ? findListRuns(b.body ?? '') : []
             return (
               <Pressable
                 key={i}
@@ -591,12 +692,24 @@ export const ACBody = React.forwardRef<
               >
                 {UpdatedTag}
                 {HighlightTag}
-                <Text selectable style={[styles.item, { color: tokens.t2, paddingLeft: 6 + b.level * 14, fontSize: fs(13) }]}>
-                  <Text style={{ color: tokens.t1, fontWeight: '600' }}>
-                    {activeHq ? highlightSpans(labelText, activeHq, hOpts(base)) : labelText}{' '}
+                {activeHq ? (
+                  <Text selectable style={[styles.item, { color: tokens.t2, paddingLeft: 6 + b.level * 14, fontSize: fs(13) }]}>
+                    <Text style={{ color: tokens.t1, fontWeight: '600' }}>
+                      {highlightSpans(labelText, activeHq, hOpts(base))}{' '}
+                    </Text>
+                    {highlightSpans(b.body, activeHq, hOpts(bodyBase))}
                   </Text>
-                  {activeHq ? highlightSpans(b.body, activeHq, hOpts(bodyBase)) : linkify(b.body)}
-                </Text>
+                ) : itemListRuns.length ? (
+                  <View style={[styles.item, { paddingLeft: 6 + b.level * 14 }]}>
+                    <Text style={{ color: tokens.t1, fontWeight: '600', fontSize: fs(13) }}>{labelText}</Text>
+                    <View>{renderBodyContent(b.body, linkify, tokens, fs)}</View>
+                  </View>
+                ) : (
+                  <Text selectable style={[styles.item, { color: tokens.t2, paddingLeft: 6 + b.level * 14, fontSize: fs(13) }]}>
+                    <Text style={{ color: tokens.t1, fontWeight: '600' }}>{labelText}{' '}</Text>
+                    {linkify(b.body)}
+                  </Text>
+                )}
               </Pressable>
             )
           }
@@ -639,6 +752,9 @@ const styles = StyleSheet.create({
   sectionLabel: { lineHeight: 20 },
   sectionBody: { fontSize: 13.5, lineHeight: 21, marginTop: 4 },
   item: { fontSize: 13, lineHeight: 20, marginTop: 8 },
+  autoListRow: { flexDirection: 'row', marginTop: 6, paddingLeft: 4 },
+  autoListNum: { fontWeight: '700', width: 22, lineHeight: 21 },
+  autoListBody: { flex: 1, lineHeight: 21 },
   para: { fontSize: 13.5, lineHeight: 21, marginTop: 10 },
   highlight: { backgroundColor: 'rgba(255, 213, 0, 0.45)', borderRadius: 2 },
   // Current match — brighter/solid orange so it stands out from the other matches.

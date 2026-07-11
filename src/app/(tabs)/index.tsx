@@ -23,6 +23,7 @@ import { rankSearchResults, isPhrasedQuery, extractPhrase } from '@/lib/searchRa
 import { collapseDictationDuplicate } from '@/lib/dictation'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
+import { isOcrScanned } from '@/lib/ocrScannedACs'
 
 const HOME_CACHE_KEY = '@flyregs/home-cache'
 
@@ -418,7 +419,9 @@ export default function HomeScreen() {
                   ]}
                   onPress={() => selectResult(r)}
                 >
-                  <Text style={[styles.dropNum, { color: tokens.blu, fontSize: fs(12.5) }]}>{r.document_number}</Text>
+                  <Text style={[styles.dropNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
+                    {r.document_number}{isOcrScanned(r.document_number) ? ' *' : ''}
+                  </Text>
                   <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
                     {r.title}
                   </Text>
@@ -535,7 +538,9 @@ function WhatsNewCard({
         {showBadge && <Badge isUpd={isUpd} tokens={tokens} />}
         <Text style={[styles.wnDate, { color: tokens.t3, fontSize: fs(10.5) }]}>{dateStr}</Text>
       </View>
-      <Text style={[styles.wnAcNum, { color: tokens.t1, fontSize: fs(15) }]}>{ac.document_number}</Text>
+      <Text style={[styles.wnAcNum, { color: tokens.t1, fontSize: fs(15) }]}>
+        {ac.document_number}{isOcrScanned(ac.document_number) ? ' *' : ''}
+      </Text>
       <Text style={[styles.wnTitle, { color: tokens.t2, fontSize: fs(11.5) }]} numberOfLines={2}>
         {ac.title}
       </Text>
@@ -553,12 +558,17 @@ function SeriesRow({
   tokens: ReturnType<typeof useTheme>['tokens']
 }) {
   const fs = useFS()
+  // 4+ digit prefixes (e.g. "8260") are rare but don't fit the fixed-width
+  // column at the normal size and wrap onto a second line — a slightly
+  // smaller base size keeps them on one line while still respecting the
+  // user's text-size preference via fs().
+  const numSize = item.series_prefix.length >= 4 ? 11.5 : 15
   return (
     <Pressable
       style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
       onPress={() => router.push(`/series/${item.series_prefix}`)}
     >
-      <Text style={[styles.seriesNum, { color: tokens.t3, fontSize: fs(15) }]}>{item.series_prefix}</Text>
+      <Text style={[styles.seriesNum, { color: tokens.t3, fontSize: fs(numSize) }]} numberOfLines={1}>{item.series_prefix}</Text>
       <View style={styles.cardBody}>
         <Text style={[styles.cardTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
           {item.display_name}

@@ -24,6 +24,7 @@ import {
   renameFolder,
   deleteFolder,
   removeFromFolder,
+  removeManyFromFolder,
   Folder,
   FolderItem,
 } from '@/lib/folders'
@@ -31,6 +32,7 @@ import { getBookmarks, BookmarkAC } from '@/lib/bookmarks'
 import { useShareActions } from '@/lib/share'
 import { getOrCreateShareLink, getFolderCollaborators, removeCollaborator, FolderCollaborator } from '@/lib/sharedFolders'
 import { isSyncEnabled } from '@/lib/sync'
+import { isOcrScanned } from '@/lib/ocrScannedACs'
 
 // ── Local Note type (mirrors notes.tsx — local-first AsyncStorage notes) ──────
 interface Note {
@@ -82,19 +84,31 @@ export default function FolderDetail() {
 
     const acs: ACEntry[] = []
     const notesList: NoteEntry[] = []
+    const orphaned: FolderItem[] = []
 
     for (const item of items) {
       if (item.item_type === 'ac') {
         const bm = bookmarkMap.get(item.item_id)
         if (bm) acs.push({ kind: 'ac', data: bm, folderItem: item })
+        else orphaned.push(item)
       } else {
         const note = noteMap.get(item.item_id)
         if (note) notesList.push({ kind: 'note', data: note, folderItem: item })
+        else orphaned.push(item)
       }
     }
 
     setAcEntries(acs)
     setNoteEntries(notesList)
+
+    // Self-heal: a folder_item pointing at an AC/note that was unbookmarked or
+    // deleted elsewhere (before removeItemFromAllFolders existed to prevent
+    // this) lingers and inflates the folder's shown count in Saved without
+    // ever appearing here. Prune it now that we've confirmed its target is
+    // really gone, so the count is correct the next time Saved loads.
+    if (typeof id === 'string' && orphaned.length) {
+      removeManyFromFolder(id, orphaned.map((o) => ({ itemType: o.item_type, itemId: o.item_id }))).catch(() => {})
+    }
 
     // Only owned, previously-shared folders have collaborators to show — a
     // folder that's never been shared has no share_token and this RPC just
@@ -405,7 +419,9 @@ function SwipeableACRow({
             <Text style={[styles.typeBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>AC</Text>
           </View>
           <View style={styles.rowBody}>
-            <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12) }]}>{item.document_number}</Text>
+            <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12) }]}>
+              {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
+            </Text>
             <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>{item.title}</Text>
             {item.office && (
               <Text style={[styles.rowMeta, { color: tokens.t4, fontSize: fs(11) }]}>{item.office}</Text>

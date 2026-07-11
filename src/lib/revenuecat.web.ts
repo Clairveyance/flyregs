@@ -6,7 +6,7 @@ export const ENTITLEMENT_PRO = 'pro'
 export const ENTITLEMENT_PREMIUM = 'premium'
 export function initRevenueCat(_userId?: string) { /* no-op */ }
 export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
-  return { isPro: false, isPremium: false }
+  return { isPro: true, isPremium: true }
 }
 export async function getSubscriptionDetails(): Promise<SubscriptionDetails> {
   return { tier: 'free', plan: null, willRenew: false, expirationDate: null, managementURL: null }

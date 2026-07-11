@@ -1,11 +1,18 @@
 #!/bin/bash
 # FlyRegs weekly sync — FAA AC database maintenance
 #
-# Runs five stages in order:
+# Runs six stages in order:
 #   1. Incremental scrape  — fetches new/updated/cancelled ACs from FAA.gov
 #   2. OCR fixes           — cleans word-split artifacts in freshly scraped text
 #   3. Parse backfill      — rebuilds pdf_blocks for any ACs with new/changed text
-#   4. Parser audit        — checks the FRESHLY BUILT blocks for structural
+#   4. Figure/table sync   — re-extracts Figures & Tables for exactly the ACs
+#                            step 3 touched (force-replaces any existing rows,
+#                            since a revision can add/remove/renumber figures).
+#                            Without this, a brand-new AC or a real FAA revision
+#                            would never get its figures extracted at all except
+#                            by someone remembering to run extract_figures.py by
+#                            hand — this closes that gap.
+#   5. Parser audit        — checks the FRESHLY BUILT blocks for structural
 #                            anomalies (cross-reference collisions, mislabeled
 #                            headings, duplicate labels) before the sync is done.
 #                            Scoped to only the ACs step 3 actually touched, so a
@@ -17,7 +24,7 @@
 #                            cross-check by hand (scripts/audit-parser.mjs's own
 #                            header comment explains what's a real bug vs. an
 #                            expected false positive).
-#   5. Update alerts       — sends a push notification (Expo Push API) to every
+#   6. Update alerts       — sends a push notification (Expo Push API) to every
 #                            Premium subscriber with "AC Update Alerts" turned
 #                            on, for exactly the ACs step 3 touched. No-op if
 #                            nothing changed this run.
@@ -78,37 +85,42 @@ echo "════════════════════════�
 
 # ── Step 1: FAA scrape ────────────────────────────────────────────────────────
 echo ""
-echo "▶ Step 1/5 — FAA $SCRAPE_MODE scrape"
+echo "▶ Step 1/6 — FAA $SCRAPE_MODE scrape"
 cd "$APP"
 "$PYTHON3" sync/faa_scraper.py --mode "$SCRAPE_MODE"
 
 # Stop here in dry-run — scraper test mode makes no DB writes
 if [[ -n "$DRY_RUN" ]]; then
   echo ""
-  echo "Dry-run complete (scrape only). No OCR fixes, backfill, audit, or alerts run."
+  echo "Dry-run complete (scrape only). No OCR fixes, backfill, figure sync, audit, or alerts run."
   exit 0
 fi
 
 # ── Step 2: OCR word-split fixes ──────────────────────────────────────────────
 echo ""
-echo "▶ Step 2/5 — OCR word-split fixes (new/updated ACs)"
+echo "▶ Step 2/6 — OCR word-split fixes (new/updated ACs)"
 # --new-only skips already-processed ACs; the scraper clears pdf_blocks_version
 # on any AC whose pdf_text changes, so this only touches freshly scraped rows.
 "$NODE" scripts/apply-ocr-fixes.mjs --new-only
 
 # ── Step 3: Parse backfill ────────────────────────────────────────────────────
 echo ""
-echo "▶ Step 3/5 — Parse blocks backfill"
+echo "▶ Step 3/6 — Parse blocks backfill"
 "$NODE" scripts/backfill-blocks.mjs --touched-out="$TOUCHED_FILE"
 
-# ── Step 4: Parser audit (new/updated ACs only) ───────────────────────────────
+# ── Step 4: Figure/table sync (new/updated ACs only) ──────────────────────────
 echo ""
-echo "▶ Step 4/5 — Parser audit (ACs touched by this sync)"
+echo "▶ Step 4/6 — Figure/table sync (ACs touched by this sync)"
+"$PYTHON3" scripts/extract_figures.py --docs-file="$TOUCHED_FILE"
+
+# ── Step 5: Parser audit (new/updated ACs only) ───────────────────────────────
+echo ""
+echo "▶ Step 5/6 — Parser audit (ACs touched by this sync)"
 "$NODE" scripts/audit-parser.mjs --docs-file="$TOUCHED_FILE"
 
-# ── Step 5: Update alerts (Premium push notifications) ───────────────────────
+# ── Step 6: Update alerts (Premium push notifications) ───────────────────────
 echo ""
-echo "▶ Step 5/5 — Update alerts (Premium subscribers, ACs touched by this sync)"
+echo "▶ Step 6/6 — Update alerts (Premium subscribers, ACs touched by this sync)"
 "$NODE" scripts/send-update-alerts.mjs --touched-file="$TOUCHED_FILE"
 
 # ── Summary ───────────────────────────────────────────────────────────────────

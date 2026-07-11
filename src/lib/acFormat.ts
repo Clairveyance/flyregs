@@ -42,7 +42,7 @@ export function cleanGlyphs(s: string): string {
 
 // Schema version for precomputed pdf_blocks — bump when the parser output shape
 // changes so a backfill can tell which rows need reprocessing.
-export const AC_FORMAT_VERSION = 16
+export const AC_FORMAT_VERSION = 26
 
 // Comparable text for a block, regardless of kind — content-based identity used
 // both server-side (scripts/backfill-blocks.mjs's diff computation, which keeps
@@ -135,6 +135,41 @@ const SECDOT = /^([1-9]\d*(?:\.\d{1,2}){1,4}\.?)\s+(?!(?:[A-Z]{1,6})\s[a-z])([A-
 //     for old scanned ACs where the heading itself wraps across two physical
 //     lines ("3. INTERFERENCE" / "WITH AERONAUTICAL SERVICES. ...") — the
 //     rejoin happens naturally via the section-continuation logic afterward.
+//   • ALL-CAPS-with-inline-body branch: a second, separate alternative for
+//     "1. PURPOSE. This advisory circular describes..." — the heading and the
+//     first sentence of body sharing one physical PDF line (common when the
+//     heading is short). The plain ALL-CAPS branch above can't match this
+//     (it requires reaching end-of-line with no lowercase at all), so without
+//     this the entire line — heading included — silently fell through to
+//     ordinary body prose, dropping the section from Contents entirely
+//     (confirmed on AC 117-1's "1. PURPOSE."/"2. PRINCIPAL CHANGES.", found
+//     via a corpus-wide section-number-sequence-gap scan). Requires a literal
+//     terminal period AND at least one more word after it — a bare heading
+//     alone on its line (no period, or no trailing text) is already covered
+//     by the branch above, so this one only ever matches genuinely new cases.
+//     Both the bare and with-body ALL-CAPS alternatives also tolerate ONE
+//     embedded "(annotation)" — e.g. "RELATED READING MATERIAL (current
+//     editions)." or "RELATED REGULATIONS (Title 14 of the Code of Federal
+//     Regulations)." — a recurring boilerplate phrase across many ACs (117-2,
+//     120-88A, 120-103A, 120-51E, ...) that otherwise breaks the "no
+//     lowercase anywhere" rule the same way a numeral or internal period
+//     would. Accepts either case for the first letter (proper nouns like
+//     "Title 14" are common) and digits within (e.g. "Title 14"), up to 60
+//     chars — long enough for "(Title 14 of the Code of Federal
+//     Regulations)" (44 chars), the longest real case found in the corpus.
+//     The with-body alternative's terminal position explicitly allows this
+//     parenthetical to be what sits right before the period, since greedily
+//     matching it as part of the repeated middle group leaves nothing there
+//     otherwise (confirmed necessary by testing against real corpus text).
+//     Both ALL-CAPS alternatives also allow an internal or trailing ":" —
+//     either as a clause separator before more ALL-CAPS text on the same
+//     heading line ("DATA ANALYSIS BY THE FAA: SIT DOWN AND BUCKLE UP. The
+//     data...") or as the terminator of a bare heading with nothing after it
+//     ("RELATED MATERIAL (current editions):", "RELATED REGULATION
+//     REFERENCES:") — both recurring FAA boilerplate patterns. An en/em dash
+//     ("–"/"—") is tolerated the same way as the internal colon, for
+//     headings like "FITNESS FOR DUTY–A JOINT RESPONSIBILITY." (117-3) and
+//     "TIRE ENVIRONMENT—OPERATORS." (20-97B).
 //   • Acronym branch: glossary-style "TERM Expansion." entries where the term
 //     itself is a short acronym ("AC Advisory Circular.", "CFR Code of
 //     Federal Regulations.") — the acronym prefix isn't pure ALL-CAPS-only
@@ -148,8 +183,15 @@ const SECDOT = /^([1-9]\d*(?:\.\d{1,2}){1,4}\.?)\s+(?!(?:[A-Z]{1,6})\s[a-z])([A-
 //     list item phrased as a short title-case sentence ("2. Lack of airport
 //     familiarity.") is otherwise indistinguishable from a real heading by
 //     shape alone. (The isNextFlatNum() sequence check in the classifier
-//     below is the actual backstop for that ambiguity.)
-const NUMSEC = /^(\d+\.)\s+([A-Z][A-Z0-9 ,./&''()-]+|[A-Z]{2,6}\s+[A-Z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?|[A-Z][a-z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?)$/
+//     below is the actual backstop for that ambiguity.) Tried raising this
+//     cap to fit longer FAQ-style question headings (121-33B's "5. When is
+//     an emergency medical kit and an AED required..."), but corpus
+//     validation showed the sequence gate isn't a strong enough backstop —
+//     it also started promoting numbered bibliography/reference-list entries
+//     into individual headings across 129 ACs (e.g. 120-72A's citation list),
+//     reversing an earlier, deliberate call that those should stay list
+//     items, not sections. Reverted; the FAQ-heading gap is left unfixed.
+const NUMSEC = /^(\d+\.)\s+([A-Z](?:[A-Z0-9: ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{0,60}\))+|[A-Z](?:[A-Z0-9: ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{0,60}\))*(?:[A-Z0-9)]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{0,60}\))\.\s+.+|[A-Z]{2,6}\s+[A-Z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?|[A-Z][a-z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?)$/
 
 // "1 PURPOSE OF THIS AC." — number (no period), then ALL-CAPS title ending in
 // a period, optionally followed by body on the same line.
@@ -249,6 +291,14 @@ export function parseAC(raw: string): ACBlock[] {
     .replace(/\t/g, ' ')
     .split('\n')
     .map((l) => cleanGlyphs(l.replace(/\s+/g, ' ').trim()))
+    // A section number occasionally has a stray space before its period
+    // ("3 . REFERENCE DOCUMENT." instead of "3. REFERENCE DOCUMENT.") — a
+    // kerning/OCR artifact on old scanned ACs (confirmed on AC 00-41B) that
+    // silently drops the heading from every classifier below, since none of
+    // them tolerate a space between the digits and the period. Anchored to
+    // the START of the line only, so this can't touch a number that
+    // legitimately has a space after it elsewhere in running prose.
+    .map((l) => l.replace(/^(\d{1,4})\s+\.\s*/, '$1. '))
 
   // 2b. Rejoin a section number split from its title by a PDF line break — a line
   //     that is just "102." with the title ("LIMIT OF VALIDITY. …") on the next
@@ -307,6 +357,46 @@ export function parseAC(raw: string): ACBlock[] {
       if (looksTocEntry(lines[i])) { last = i; count++ } else break // body starts
     }
     if (count >= 4) for (let i = tocHdr; i <= last; i++) lines[i] = ''
+  }
+
+  // 3b. Leaderless TOC with the page number lost entirely (not just collapsed
+  //     to a bare trailing number — gone, e.g. 120-28D). Each entry is JUST
+  //     "N[.N...] Title", textually identical in shape to a real heading whose
+  //     body happens to start on the next PDF line. Only safe because it's
+  //     anchored to run immediately after the "TABLE OF CONTENTS" header with
+  //     zero interruption — a real body always has prose between headings, so
+  //     a long unbroken run of bare heading-shaped lines right there can only
+  //     be the contents listing itself. A wrapped second line of a long TOC
+  //     title (no leading number, e.g. "...Airborne System" / "Demonstrations")
+  //     is tolerated as a continuation rather than breaking the run.
+  {
+    const tocHdr2 = lines.findIndex((l) => /^(TABLE OF CONTENTS|CONTENTS)\b/i.test(l))
+    if (tocHdr2 >= 0 && tocHdr2 < lines.length * 0.6) {
+      const bareHeadingLine = /^\d{1,3}(?:\.\d{1,3}){0,4}\.?\s+[A-Z][A-Za-z0-9 ,.()&'"/-]{1,90}$/
+      const looksLikeWrap = (l: string) => l.length > 0 && l.length <= 60 && /^[A-Z]/.test(l) && !/[.!?]$/.test(l)
+      // A column-header caption line before the listing proper starts (e.g.
+      // "SEC # SECTION TITLES", "PARAGRAPH TITLE PAGE") — all-caps/numeric,
+      // no lowercase prose, short. Only tolerated before the first real match.
+      const looksLikeCaption = (l: string) => l.length <= 40 && /^[A-Z0-9 #.,-]+$/.test(l)
+      let last = -1
+      let count = 0
+      let prevWasHeadingOrWrap = false
+      let sawFirstHeading = false
+      for (let i = tocHdr2 + 1; i < lines.length; i++) {
+        if (lines[i] === '' || isNoise(lines[i])) continue
+        if (bareHeadingLine.test(lines[i])) {
+          last = i
+          count++
+          prevWasHeadingOrWrap = true
+          sawFirstHeading = true
+        } else if (prevWasHeadingOrWrap && looksLikeWrap(lines[i])) {
+          last = i
+        } else if (!sawFirstHeading && looksLikeCaption(lines[i])) {
+          last = i
+        } else break
+      }
+      if (count >= 8) for (let i = tocHdr2; i <= last; i++) lines[i] = ''
+    }
   }
 
   // 3b. Pre-classify pass: blank out the first line of multi-line TOC entries
@@ -586,11 +676,36 @@ export function parseAC(raw: string): ACBlock[] {
             continue
           }
         } else if (/^[a-z]{2,}/.test(line)) {
-          const wordEnd = line.match(/^([a-z]+[.,]?)\s*(.*)$/)
-          if (wordEnd) {
-            cur.title = cur.title + wordEnd[1]
-            cur.body = wordEnd[2].trim()
-            continue
+          // The trailing word of the title-so-far decides which shape this is.
+          // A SHORT trailing fragment ("Glid") is almost certainly a genuine
+          // mid-word glyph split and gets no space. A trailing word of
+          // ordinary length ("fatigue") is a COMPLETE word that just happens
+          // to sit at the end of a wrapped PDF line — that's a normal
+          // sentence continuing onto the next line, and needs a real space
+          // (confirmed on AC 23-13A's "...in my fatigue" / "evaluation?...",
+          // which the old no-space merge turned into "fatigueevaluation").
+          const trailingWord = cur.title.match(/([A-Za-z]+)$/)?.[1] ?? ''
+          if (trailingWord.length > 0 && trailingWord.length <= 5) {
+            const wordEnd = line.match(/^([a-z]+[.,]?)\s*(.*)$/)
+            if (wordEnd) {
+              cur.title = cur.title + wordEnd[1]
+              cur.body = wordEnd[2].trim()
+              continue
+            }
+          } else {
+            // Natural word-wrap: only the part of this line up through the
+            // title's own terminating punctuation belongs to the title
+            // (e.g. "evaluation?"); anything after that is body. Capped at
+            // 90 chars so a continuation line with no early "."/"?"/"!"
+            // (i.e. this isn't really a short title continuation at all)
+            // falls through to the plain body-append below instead of
+            // greedily swallowing unrelated prose into the title.
+            const titleEnd = line.match(/^(.{1,90}?[.?!])\s*(.*)$/)
+            if (titleEnd) {
+              cur.title = cur.title + ' ' + titleEnd[1]
+              cur.body = titleEnd[2].trim()
+              continue
+            }
           }
         }
       }
@@ -605,14 +720,157 @@ export function parseAC(raw: string): ACBlock[] {
   }
   flush()
 
+  // 6. Strip duplicate TOC-stub headings. Some ACs (e.g. 120-28D) have a table
+  //    of contents with neither a dotted leader (step 3) nor a trailing page
+  //    number (step 3a) — just a bare "N[.N...] Title" line, textually
+  //    identical to the real heading that appears later with actual body
+  //    text. Those slip through as real "section"/"chapter" blocks with an
+  //    empty body. Drop any such block whose LABEL AND TITLE both recur later
+  //    on a block that DOES have body content — that later copy is the real
+  //    heading, this one is the TOC ghost. A genuinely bodyless heading with
+  //    no later duplicate (e.g. one immediately followed by a bullet list) is
+  //    left untouched since nothing else in the document repeats it.
+  //    Requiring the TITLE to match too (not just the label) is what makes
+  //    this safe without a run-length gate: FAA ACs routinely restart
+  //    numbering per-appendix (Appendix 2's "6.1" is unrelated to the main
+  //    body's "6.1"), so label-only matching mistakenly linked 120-29A's real
+  //    "2.1 Related References" to an unrelated "APPENDIX 5" subsection also
+  //    numbered 2.1 — but their titles differ, so the title check correctly
+  //    tells them apart. (An earlier version gated on a run of >=6 consecutive
+  //    empty headings instead of the title match; that caught only ~half of
+  //    real TOC ghosts, since many TOCs interleave with real content in runs
+  //    shorter than 6. Verified corpus-wide that title-matching is the
+  //    stronger, more precise signal — see 2026-07-10 gap-investigation.)
+  const dropIdx = new Set<number>()
+  {
+    const isEmptyHeading = (b: ACBlock) => b.kind === 'chapter' || (b.kind === 'section' && !b.body.trim())
+    // Labels are compared with a trailing period stripped — the TOC copy and
+    // the real heading are often lexed with one occurrence bare ("4.1") and
+    // the other period-terminated ("4.1."), which is the same section number.
+    const bareLabel = (l: string) => l.replace(/\.$/, '')
+    // Titles are compared case/punctuation-insensitively — OCR noise and
+    // trailing-period differences between the TOC copy and the real heading
+    // ("Related References" vs "Related References.") shouldn't block a match.
+    const normTitle = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const recursWithContent = (i: number) => {
+      const b = blocks[i]
+      for (let j = i + 1; j < blocks.length; j++) {
+        const b2 = blocks[j]
+        if (
+          b.kind === 'section' &&
+          b2.kind === 'section' &&
+          bareLabel(b2.label) === bareLabel(b.label) &&
+          normTitle(b2.title) === normTitle(b.title)
+        ) {
+          if (b2.body.trim()) return true
+        } else if (b.kind === 'chapter' && b2.kind === 'chapter' && b2.text === b.text) {
+          return true
+        }
+      }
+      return false
+    }
+    for (let i = 0; i < blocks.length; i++) {
+      if (isEmptyHeading(blocks[i]) && recursWithContent(i)) dropIdx.add(i)
+    }
+  }
+  const deduped = dropIdx.size ? blocks.filter((_, i) => !dropIdx.has(i)) : blocks
+
+  // 7. Fold citation lists to an EXTERNAL document's own section numbering
+  //    back into plain body text. Some ACs (e.g. 20-184) introduce a list
+  //    like "...including but not limited to the following RTCA DO-347
+  //    document design and test sections:" followed by a bare run of THAT
+  //    other document's own "N.N Title" lines — textually identical in
+  //    shape to a real heading, but never this AC's own structure, so
+  //    (unlike a real duplicate) no later occurrence anywhere ever supplies
+  //    real body content for them. Detect a run of >=4 consecutive
+  //    empty-body chapter/section blocks, immediately preceded by a
+  //    block whose trailing text ends in ":" (a paragraph, OR — as seen on
+  //    20-184 — the last sentence of a real section's body, since the
+  //    citation-introducing sentence is often the final line of prose
+  //    before the list rather than its own paragraph), where NONE of the
+  //    run's entries recurs later with real content. Merge the whole run's
+  //    label+title text back into that preceding block (it's still real,
+  //    useful information, just not this document's own navigable
+  //    structure) and drop the fake heading blocks.
+  const citationDropIdx = new Set<number>()
+  const citationMergeText = new Map<number, string>()
+  {
+    const isEmptyHeading = (b: ACBlock) => b.kind === 'chapter' || (b.kind === 'section' && !b.body.trim())
+    const bareLabel = (l: string) => l.replace(/\.$/, '')
+    const normTitle = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const recursWithContent = (i: number) => {
+      const b = deduped[i]
+      for (let j = 0; j < deduped.length; j++) {
+        if (j === i) continue
+        const b2 = deduped[j]
+        if (
+          b.kind === 'section' &&
+          b2.kind === 'section' &&
+          bareLabel(b2.label) === bareLabel(b.label) &&
+          normTitle(b2.title) === normTitle(b.title) &&
+          b2.body.trim()
+        ) {
+          return true
+        } else if (b.kind === 'chapter' && b2.kind === 'chapter' && b2.text === b.text && j !== i) {
+          return true
+        }
+      }
+      return false
+    }
+    const labelText = (b: ACBlock) => (b.kind === 'chapter' ? b.text : b.kind === 'section' ? `${b.label} ${b.title}` : '')
+    // The trailing prose of a block, whatever kind it is — a paragraph's
+    // text, or a section/item's body (the citation-introducing sentence is
+    // often just the tail end of an ordinary section's body copy).
+    const trailingText = (b: ACBlock): string | null =>
+      b.kind === 'para' ? b.text : b.kind === 'section' || b.kind === 'item' ? b.body : null
+    let runStart = -1
+    const closeRun = (end: number) => {
+      if (runStart >= 1 && end - runStart >= 4) {
+        const introIdx = runStart - 1
+        const introText = trailingText(deduped[introIdx])
+        if (introText && /:\s*$/.test(introText)) {
+          const allNoRecur = Array.from({ length: end - runStart }, (_, k) => runStart + k).every(
+            (i) => !recursWithContent(i)
+          )
+          if (allNoRecur) {
+            const merged = [
+              introText,
+              ...Array.from({ length: end - runStart }, (_, k) => labelText(deduped[runStart + k])),
+            ].join(' ')
+            citationMergeText.set(introIdx, merged)
+            for (let i = runStart; i < end; i++) citationDropIdx.add(i)
+          }
+        }
+      }
+      runStart = -1
+    }
+    for (let i = 0; i < deduped.length; i++) {
+      if (isEmptyHeading(deduped[i])) {
+        if (runStart < 0) runStart = i
+      } else closeRun(i)
+    }
+    closeRun(deduped.length)
+  }
+  const citationsFixed = citationDropIdx.size
+    ? deduped
+        .map((b, i) => {
+          if (!citationMergeText.has(i)) return b
+          const merged = citationMergeText.get(i)!
+          if (b.kind === 'para') return { ...b, text: merged }
+          if (b.kind === 'section' || b.kind === 'item') return { ...b, body: merged }
+          return b
+        })
+        .filter((_, i) => !citationDropIdx.has(i))
+    : deduped
+
   // Drop any preamble before the first real heading. For FAA ACs everything
   // before the first chapter/section is cover letterhead, the signature block,
   // and (for dot-less TOCs) leftover contents text — all noise, and the intro
   // summary is already shown separately as the AC description.
-  const firstStruct = blocks.findIndex(
+  const firstStruct = citationsFixed.findIndex(
     (b) => b.kind === 'chapter' || b.kind === 'section' || b.kind === 'item'
   )
-  const trimmed = firstStruct > 0 ? blocks.slice(firstStruct) : blocks
+  const trimmed = firstStruct > 0 ? citationsFixed.slice(firstStruct) : citationsFixed
 
   // Drop PAR blocks in the preamble zone between an APPENDIX chapter and the
   // first A.x section that follows it. Appendix A internal TOCs (too deep to be

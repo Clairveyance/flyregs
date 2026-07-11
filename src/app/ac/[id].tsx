@@ -14,6 +14,7 @@ import {
 } from 'react-native'
 import * as WebBrowser from 'expo-web-browser'
 import * as Haptics from 'expo-haptics'
+import * as Clipboard from 'expo-clipboard'
 import { useLocalSearchParams, router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
@@ -30,6 +31,7 @@ import { blockText, ACBlock } from '@/lib/acFormat'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { FigureViewer } from '@/components/FigureViewer'
+import { isOcrScanned, ocrScannedSeq, OCR_SCANNED_TOTAL } from '@/lib/ocrScannedACs'
 import type { AdvisoryCircular, AcFigure } from '@/types'
 
 // Maps a block to the fields a highlight bookmark needs — chapter headings
@@ -290,7 +292,7 @@ export default function ACDetailScreen() {
   // calls — the 800ms cooldown blocks anything else in that same gesture.
   const toggleInFlight = useRef(false)
   const lastToggleAt = useRef(0)
-  const handleToggleHighlight = useCallback(async (block: ACBlock, index: number) => {
+  const handleToggleHighlight = useCallback(async (block: ACBlock) => {
     if (!ac) return
     if (!isPro) {
       router.push('/paywall')
@@ -328,6 +330,39 @@ export default function ACDetailScreen() {
       toggleInFlight.current = false
     }
   }, [ac, isPro])
+
+  // Copy is deliberately NOT Pro-gated, unlike highlighting — it only ever
+  // copies a block that's already rendered on screen for this reader (Free
+  // Copy/Highlight is a Pro feature as a whole — gated at the long-press entry
+  // point below, not per-action, so Copy can't be used as a back door around
+  // the Highlight paywall.
+  const handleCopyBlock = useCallback(async (block: ACBlock) => {
+    const meta = highlightMeta(block)
+    if (!meta) return
+    const text = blockText(block)
+    if (!text) return
+    await Clipboard.setStringAsync(text)
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+  }, [])
+
+  // Long-press entry point: offers Copy alongside the existing Highlight
+  // toggle instead of replacing it, so the one gesture now does both without
+  // adding new on-screen buttons to every block. Pro-gated up front so a Free
+  // user is routed straight to the paywall, same as tapping Highlight used to.
+  const handleBlockLongPress = useCallback((block: ACBlock, index: number) => {
+    const meta = highlightMeta(block)
+    if (!meta) return
+    if (!isPro) { router.push('/paywall'); return }
+    const isHighlighted = highlightedBlockTexts.has(blockText(block))
+    Alert.alert('', undefined, [
+      { text: 'Copy Text', onPress: () => handleCopyBlock(block) },
+      {
+        text: isHighlighted ? 'Remove Highlight' : 'Highlight',
+        onPress: () => handleToggleHighlight(block),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ])
+  }, [isPro, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
 
   // Jump nav between the blocks the "What's New" diff flagged as changed —
   // mirrors the existing in-doc search prev/next pattern below (goToPrev/
@@ -555,6 +590,25 @@ export default function ACDetailScreen() {
             </View>
           )}
 
+          {/* Scanned-original disclaimer -- sets expectations for old ACs
+              whose source is a scanned paper original with an OCR text layer,
+              so garbled words read as an explained limitation of the source
+              document rather than a FlyRegs bug. */}
+          {isOcrScanned(ac.document_number) && (
+            <View style={[styles.scanBanner, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+              <Icon name="doc.text" size={14} color={tokens.t3} style={{ marginTop: 2 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
+                  * This AC's source is a scanned original — some words in the extracted text may be
+                  misread from the scan. The original PDF is the authoritative source.
+                </Text>
+                <Text style={[styles.scanBannerSeq, { color: tokens.t4, fontSize: fs(11) }]}>
+                  {ocrScannedSeq(ac.document_number)}/{OCR_SCANNED_TOTAL}
+                </Text>
+              </View>
+            </View>
+          )}
+
           {/* Description */}
           {ac.description ? (
             <Section title="Description" tokens={tokens}>
@@ -624,7 +678,7 @@ export default function ACDetailScreen() {
                 activeMatch={matchCount > 0 ? matchIdx : -1}
                 changedIndices={ac.changed_block_indices}
                 highlightedBlockTexts={isPro ? highlightedBlockTexts : undefined}
-                onToggleHighlight={isPro ? handleToggleHighlight : undefined}
+                onToggleHighlight={handleBlockLongPress}
                 figures={isPro ? (figures ?? undefined) : undefined}
                 onOpenFigure={isPro ? setViewerFigure : undefined}
               />
@@ -770,6 +824,18 @@ const styles = StyleSheet.create({
   },
   updateBannerText: { flex: 1, fontWeight: '600', lineHeight: 17 },
   updateBannerNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
+  scanBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 4,
+  },
+  scanBannerText: { flex: 1, lineHeight: 17 },
+  scanBannerSeq: { marginTop: 4, fontWeight: '600' },
   updateBannerNavCount: { fontWeight: '600', marginRight: 4 },
 
   acNum: { fontWeight: '800', fontSize: 17, marginTop: 4 },
