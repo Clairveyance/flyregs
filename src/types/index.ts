@@ -30,6 +30,22 @@ export interface AcFigure {
   image_url: string
 }
 
+// A page flagged as containing a formula/equation too complex or structurally
+// lost (nested fractions, summations, trig functions) for our OCR/parser
+// pipeline to reliably reproduce as text -- lets a reader jump straight to
+// the real page image instead of trusting a possibly-wrong transcription.
+// Populated manually (scripts/add_formula_ref.py), never auto-scraped -- see
+// flyregs_parser.md's "Zero-text ACs" section for why this can't be a
+// reliable heuristic. Deliberately a separate table/pipeline from ac_figures
+// (Figures & Tables) so this never risks the existing T&F extraction logic.
+export interface FormulaRef {
+  id: string
+  label: string          // e.g. "Reynolds number correction (A3-1.4)"
+  note: string | null    // why it's flagged, e.g. "log-ratio of nested fractions"
+  page: number
+  image_url: string
+}
+
 export interface ACSeries {
   id: string
   series_prefix: string

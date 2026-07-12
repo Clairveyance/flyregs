@@ -11,7 +11,7 @@ import { useTheme, ThemeTokens } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { parseAC, cleanGlyphs, blockText, ACBlock } from '@/lib/acFormat'
-import type { AcFigure } from '@/types'
+import type { AcFigure, FormulaRef } from '@/types'
 
 type Heading = Extract<ACBlock, { id: string }>
 
@@ -310,8 +310,15 @@ export const ACBody = React.forwardRef<
      * exact label ("Figure 3-1", "Table C-5") appears in the body text. */
     figures?: AcFigure[]
     onOpenFigure?: (figure: AcFigure) => void
+    /** Pages flagged as containing a formula too complex for our OCR/parser
+     * pipeline to reliably reproduce (see scripts/add_formula_ref.py) —
+     * rendered as its own sub-section inside the same Figures & Tables card
+     * for a consistent look, but entirely separate data/logic from `figures`
+     * above so this can never affect the T&F extraction/display pipeline. */
+    formulaRefs?: FormulaRef[]
+    onOpenFormulaRef?: (formulaRef: FormulaRef) => void
   }
->(function ACBody({ text, blocks: precomputed, scrollRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight, figures, onOpenFigure }, ref) {
+>(function ACBody({ text, blocks: precomputed, scrollRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight, figures, onOpenFigure, formulaRefs, onOpenFormulaRef }, ref) {
   const changedSet = useMemo(() => new Set(changedIndices ?? []), [changedIndices])
   const { tokens } = useTheme()
   const fs = useFS()
@@ -360,6 +367,7 @@ export const ACBody = React.forwardRef<
 
   const [showToc, setShowToc] = useState(false)
   const [showFigures, setShowFigures] = useState(false)
+  const [showFormulaRefs, setShowFormulaRefs] = useState(false)
   const headingRefs = useRef<Record<string, View | null>>({})
   const matchRefs = useRef<Record<number, View | null>>({})
   // Per-occurrence (not per-block) refs to the actual highlighted <Text> span,
@@ -540,30 +548,68 @@ export const ACBody = React.forwardRef<
       {/* Figures & Tables — extracted page images, hidden while searching.
           Always shown once loaded (even at 0) so an AC with none doesn't
           look like the feature is broken/missing data. */}
-      {figures && !searching && (
+      {(figures || (formulaRefs && formulaRefs.length > 0)) && !searching && (
         <View style={[styles.tocCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-          <Pressable
-            style={styles.tocHead}
-            onPress={figures.length > 0 ? () => setShowFigures((s) => !s) : undefined}
-          >
-            <Icon name="photo" size={14} color={tokens.blu} />
-            <Text style={[styles.tocHeadText, { color: tokens.t1, fontSize: fs(13.5) }]}>Figures & Tables</Text>
-            <Text style={[styles.tocCount, { color: tokens.t3 }]}>{figures.length}</Text>
-            {figures.length > 0 && (
-              <Icon name={showFigures ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
-            )}
-          </Pressable>
-          {showFigures && (
-            <View style={[styles.tocList, { borderTopColor: tokens.bdr }]}>
-              {figures.map((f) => (
-                <Pressable key={f.id} style={styles.tocRow} onPress={() => onOpenFigure?.(f)}>
-                  <Text numberOfLines={1} style={[styles.tocEntry, { color: tokens.t2, fontSize: fs(13) }]}>
-                    <Text style={{ color: tokens.t1, fontWeight: '700' }}>{f.label}</Text>
-                    {f.caption ? ` ${f.caption}` : ''}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+          {figures && (
+            <>
+              <Pressable
+                style={styles.tocHead}
+                onPress={figures.length > 0 ? () => setShowFigures((s) => !s) : undefined}
+              >
+                <Icon name="photo" size={14} color={tokens.blu} />
+                <Text style={[styles.tocHeadText, { color: tokens.t1, fontSize: fs(13.5) }]}>Figures & Tables</Text>
+                <Text style={[styles.tocCount, { color: tokens.t3 }]}>{figures.length}</Text>
+                {figures.length > 0 && (
+                  <Icon name={showFigures ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+                )}
+              </Pressable>
+              {showFigures && (
+                <View style={[styles.tocList, { borderTopColor: tokens.bdr }]}>
+                  {figures.map((f) => (
+                    <Pressable key={f.id} style={styles.tocRow} onPress={() => onOpenFigure?.(f)}>
+                      <Text numberOfLines={1} style={[styles.tocEntry, { color: tokens.t2, fontSize: fs(13) }]}>
+                        <Text style={{ color: tokens.t1, fontWeight: '700' }}>{f.label}</Text>
+                        {f.caption ? ` ${f.caption}` : ''}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </>
+          )}
+
+          {/* Formulas to Verify — a visually-nested sub-section of the same
+              card, but entirely independent state/data/handler from the
+              Figures & Tables block above (see FormulaRef type comment for
+              why this must never touch the T&F pipeline). Only rendered when
+              there's actually something flagged — unlike Figures & Tables,
+              this is a rare, manually-curated list, not an always-on
+              corpus-wide feature, so an empty "(0)" row would just be noise
+              on the vast majority of ACs that have nothing flagged. */}
+          {formulaRefs && formulaRefs.length > 0 && (
+            <>
+              <Pressable
+                style={[styles.tocHead, figures && { borderTopWidth: 1, borderTopColor: tokens.bdr }]}
+                onPress={() => setShowFormulaRefs((s) => !s)}
+              >
+                <Icon name="exclamationmark.triangle" size={14} color={tokens.blu} />
+                <Text style={[styles.tocHeadText, { color: tokens.t1, fontSize: fs(13.5) }]}>Formulas to Verify</Text>
+                <Text style={[styles.tocCount, { color: tokens.t3 }]}>{formulaRefs.length}</Text>
+                <Icon name={showFormulaRefs ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+              </Pressable>
+              {showFormulaRefs && (
+                <View style={[styles.tocList, { borderTopColor: tokens.bdr }]}>
+                  {formulaRefs.map((r) => (
+                    <Pressable key={r.id} style={styles.tocRow} onPress={() => onOpenFormulaRef?.(r)}>
+                      <Text numberOfLines={2} style={[styles.tocEntry, { color: tokens.t2, fontSize: fs(13) }]}>
+                        <Text style={{ color: tokens.t1, fontWeight: '700' }}>{r.label}</Text>
+                        {r.note ? ` — ${r.note}` : ''}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </>
           )}
         </View>
       )}

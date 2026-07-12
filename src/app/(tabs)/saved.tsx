@@ -232,11 +232,21 @@ export default function SavedScreen() {
     setFolderSheetVisible(false)
     setSelected(new Set())
     setSelectMode(false)
-    const names = folderIds.map((id) => folders.find((f) => f.id === id)?.name).filter(Boolean)
+    // Fetch fresh rather than reading the `folders` state var -- if the user
+    // created a brand-new folder inside FolderSelectSheet during this same
+    // session, that folder's id is in folderIds but isn't in this screen's
+    // `folders` state yet (only FolderSelectSheet's own local list knew about
+    // it), so the .find() below would silently miss it and fall through to
+    // the generic "Added to folder" toast instead of naming it. `load()`
+    // below fixes the same staleness for the Folders tab itself, which
+    // otherwise wouldn't show the new folder until the next screen focus.
+    const allFolders = await getFolders()
+    const names = folderIds.map((id) => allFolders.find((f) => f.id === id)?.name).filter(Boolean)
     setConfirmLabel(
       names.length === 1 ? `Added to ${names[0]}` : names.length > 1 ? 'Added to multiple folders' : 'Added to folder'
     )
     setConfirmTick((t) => t + 1)
+    load()
   }
 
   const handleShare = (item: { document_number: string; title: string }) => {

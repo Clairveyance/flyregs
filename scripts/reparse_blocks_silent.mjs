@@ -36,14 +36,20 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
   process.exit(1)
 }
 
+const depSrc = fs.readFileSync(path.resolve('src/lib/ocrScannedACs.ts'), 'utf8')
+const depJs = ts.transpileModule(depSrc, { compilerOptions: { module: 'ES2020', target: 'ES2020' } }).outputText
+const tmpDep = path.join(os.tmpdir(), `ocrScannedACs.${Date.now()}.mjs`)
+fs.writeFileSync(tmpDep, depJs)
 const tsSrc = fs.readFileSync(path.resolve('src/lib/acFormat.ts'), 'utf8')
-const js = ts.transpileModule(tsSrc, {
+let js = ts.transpileModule(tsSrc, {
   compilerOptions: { module: 'ES2020', target: 'ES2020' },
 }).outputText
+js = js.replace("from './ocrScannedACs'", `from ${JSON.stringify(pathToFileURL(tmpDep).href)}`)
 const tmp = path.join(os.tmpdir(), `acFormat.${Date.now()}.mjs`)
 fs.writeFileSync(tmp, js)
 const { parseAC, AC_FORMAT_VERSION } = await import(pathToFileURL(tmp).href)
 fs.unlinkSync(tmp)
+fs.unlinkSync(tmpDep)
 console.log(`Using parser v${AC_FORMAT_VERSION}`)
 
 const docsArg = process.argv.find((a) => a.startsWith('--docs='))
@@ -79,7 +85,7 @@ for (const docNum of docNumbers) {
     continue
   }
 
-  const blocks = data.pdf_text ? parseAC(data.pdf_text) : []
+  const blocks = data.pdf_text ? parseAC(data.pdf_text, data.document_number) : []
 
   // Only pdf_blocks is written -- pdf_blocks_version and changed_block_indices
   // are left exactly as they were, so no false "AC updated" signal fires.

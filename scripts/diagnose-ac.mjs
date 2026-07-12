@@ -14,10 +14,15 @@ const SUPABASE_URL = get('SUPABASE_URL')
 const SERVICE_KEY = get('SUPABASE_SERVICE_KEY')
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY)
 
+const depSrc = fs.readFileSync(path.resolve('src/lib/ocrScannedACs.ts'), 'utf8')
+const depJs = ts.transpileModule(depSrc, { compilerOptions: { module: 'ES2020', target: 'ES2020' } }).outputText
+const tmpDep = path.join(os.tmpdir(), `ocrScannedACs.${Date.now()}.mjs`)
+fs.writeFileSync(tmpDep, depJs)
 const tsSrc = fs.readFileSync(path.resolve('src/lib/acFormat.ts'), 'utf8')
-const js = ts.transpileModule(tsSrc, {
+let js = ts.transpileModule(tsSrc, {
   compilerOptions: { module: 'ES2020', target: 'ES2020' },
 }).outputText
+js = js.replace("from './ocrScannedACs'", `from ${JSON.stringify(pathToFileURL(tmpDep).href)}`)
 const tmp = path.join(os.tmpdir(), `acFormat.${Date.now()}.mjs`)
 fs.writeFileSync(tmp, js)
 const { parseAC } = await import(pathToFileURL(tmp).href)
@@ -60,7 +65,7 @@ for (const doc of docNums) {
   }
 
   // Re-parse live and compare
-  const fresh = parseAC(data.pdf_text)
+  const fresh = parseAC(data.pdf_text, data.document_number)
   console.log(`\n--- FRESH PARSE (${fresh.length} blocks) ---`)
   for (const b of fresh) {
     if (b.kind === 'chapter') console.log(`  CHAPTER: ${b.text}`)

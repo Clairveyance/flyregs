@@ -31,8 +31,9 @@ import { blockText, ACBlock } from '@/lib/acFormat'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { FigureViewer } from '@/components/FigureViewer'
+import { FormulaRefViewer } from '@/components/FormulaRefViewer'
 import { isOcrScanned, ocrScannedSeq, OCR_SCANNED_TOTAL } from '@/lib/ocrScannedACs'
-import type { AdvisoryCircular, AcFigure } from '@/types'
+import type { AdvisoryCircular, AcFigure, FormulaRef } from '@/types'
 
 // Maps a block to the fields a highlight bookmark needs — chapter headings
 // return null (not "content" worth saving) so long-press only does anything
@@ -70,6 +71,8 @@ export default function ACDetailScreen() {
   const [highlightedBlockTexts, setHighlightedBlockTexts] = useState<Set<string>>(new Set())
   const [figures, setFigures] = useState<AcFigure[] | null>(null)
   const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
+  const [formulaRefs, setFormulaRefs] = useState<FormulaRef[] | null>(null)
+  const [viewerFormulaRef, setViewerFormulaRef] = useState<FormulaRef | null>(null)
   const [changedIdx, setChangedIdx] = useState(0)
   const [loading, setLoading] = useState(true)
   const [scrollY, setScrollY] = useState(0)
@@ -196,6 +199,16 @@ export default function ACDetailScreen() {
       .eq('ac_id', id)
       .order('sort_order', { ascending: true })
       .then(({ data }) => setFigures((data as AcFigure[]) ?? []))
+    // Separate query, separate table -- deliberately not combined with the
+    // ac_figures fetch above so this can never interfere with the Figures &
+    // Tables pipeline (see FormulaRef type comment in src/types/index.ts).
+    setFormulaRefs(null)
+    supabase
+      .from('ac_formula_refs')
+      .select('id,label,note,page,image_url')
+      .eq('ac_id', id)
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => setFormulaRefs((data as FormulaRef[]) ?? []))
   }, [id])
 
   // Opened from a highlight row in Saved (?hlId=<highlight bookmark id>) —
@@ -593,18 +606,31 @@ export default function ACDetailScreen() {
           {/* Scanned-original disclaimer -- sets expectations for old ACs
               whose source is a scanned paper original with an OCR text layer,
               so garbled words read as an explained limitation of the source
-              document rather than a FlyRegs bug. */}
-          {isOcrScanned(ac.document_number) && (
+              document rather than a FlyRegs bug. The formula-refs sentence is
+              a separate condition (an AC could have flagged formulas without
+              being OCR-scanned, in principle) so the banner still renders if
+              only one of the two is true. */}
+          {(isOcrScanned(ac.document_number) || (formulaRefs && formulaRefs.length > 0)) && (
             <View style={[styles.scanBanner, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
               <Icon name="doc.text" size={14} color={tokens.t3} style={{ marginTop: 2 }} />
               <View style={{ flex: 1 }}>
-                <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
-                  * This AC's source is a scanned original — some words in the extracted text may be
-                  misread from the scan. The original PDF is the authoritative source.
-                </Text>
-                <Text style={[styles.scanBannerSeq, { color: tokens.t4, fontSize: fs(11) }]}>
-                  {ocrScannedSeq(ac.document_number)}/{OCR_SCANNED_TOTAL}
-                </Text>
+                {isOcrScanned(ac.document_number) && (
+                  <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
+                    * This AC's source is a scanned original — some words in the extracted text may be
+                    misread from the scan. The original PDF is the authoritative source.
+                  </Text>
+                )}
+                {formulaRefs && formulaRefs.length > 0 && (
+                  <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
+                    Formulas flagged as too complex to transcribe reliably are available to view
+                    directly in the "Formulas to Verify" section below.
+                  </Text>
+                )}
+                {isOcrScanned(ac.document_number) && (
+                  <Text style={[styles.scanBannerSeq, { color: tokens.t4, fontSize: fs(11) }]}>
+                    {ocrScannedSeq(ac.document_number)}/{OCR_SCANNED_TOTAL}
+                  </Text>
+                )}
               </View>
             </View>
           )}
@@ -681,6 +707,8 @@ export default function ACDetailScreen() {
                 onToggleHighlight={handleBlockLongPress}
                 figures={isPro ? (figures ?? undefined) : undefined}
                 onOpenFigure={isPro ? setViewerFigure : undefined}
+                formulaRefs={isPro ? (formulaRefs ?? undefined) : undefined}
+                onOpenFormulaRef={isPro ? setViewerFormulaRef : undefined}
               />
               {!isPro && ac.pdf_blocks.length > previewBlockCount(ac.pdf_blocks.length) && (
                 <Pressable
@@ -717,6 +745,7 @@ export default function ACDetailScreen() {
         </ScrollView>
       )}
       <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
+      <FormulaRefViewer formulaRef={viewerFormulaRef} onClose={() => setViewerFormulaRef(null)} />
     </View>
   )
 }

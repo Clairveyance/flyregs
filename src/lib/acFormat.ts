@@ -6,6 +6,8 @@
 // into real paragraphs so the document reads like an article instead of one
 // long run-on block.
 
+import { needsOcrArtifactRepair } from './ocrScannedACs'
+
 export type ACBlock =
   | { kind: 'chapter'; id: string; text: string }
   | { kind: 'section'; id: string; label: string; title: string; body: string }
@@ -42,7 +44,7 @@ export function cleanGlyphs(s: string): string {
 
 // Schema version for precomputed pdf_blocks — bump when the parser output shape
 // changes so a backfill can tell which rows need reprocessing.
-export const AC_FORMAT_VERSION = 26
+export const AC_FORMAT_VERSION = 31
 
 // Comparable text for a block, regardless of kind — content-based identity used
 // both server-side (scripts/backfill-blocks.mjs's diff computation, which keeps
@@ -191,11 +193,54 @@ const SECDOT = /^([1-9]\d*(?:\.\d{1,2}){1,4}\.?)\s+(?!(?:[A-Z]{1,6})\s[a-z])([A-
 //     into individual headings across 129 ACs (e.g. 120-72A's citation list),
 //     reversing an earlier, deliberate call that those should stay list
 //     items, not sections. Reverted; the FAQ-heading gap is left unfixed.
-const NUMSEC = /^(\d+\.)\s+([A-Z](?:[A-Z0-9: ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{0,60}\))+|[A-Z](?:[A-Z0-9: ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{0,60}\))*(?:[A-Z0-9)]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{0,60}\))\.\s+.+|[A-Z]{2,6}\s+[A-Z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?|[A-Z][a-z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?)$/
+const NUMSEC = /^(\d+\.)\s+([A-Z](?:[A-Z0-9: ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))+|[A-Z](?:[A-Z0-9: ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))*(?:[A-Z0-9)]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))\.\s+.+|[A-Z]{2,6}\s+[A-Z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?|[A-Z][a-z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?)$/
 
 // "1 PURPOSE OF THIS AC." — number (no period), then ALL-CAPS title ending in
-// a period, optionally followed by body on the same line.
-const NUMSEC2 = /^(\d{1,2})\s+([A-Z][A-Z0-9 ,/&''()-]*[A-Z)]\.)\s*(.*)$/
+// a period, optionally followed by body on the same line. Tolerates ONE
+// embedded "(lowercase annotation)" the same way NUMSEC's ALL-CAPS branches
+// do — e.g. AC 89-3's "4 RELATED READING MATERIAL (current editions):" — via
+// an alternation that also allows the FINAL required unit before the
+// terminator to itself be a full parenthetical (not just one bare char),
+// since a title ending in ")" would otherwise have nothing left to satisfy a
+// separate single-character requirement.
+// The parenthetical requires >=2 chars inside ("{1,60}" after the first
+// char), not >=1 — a first attempt allowing a single char matched legal-
+// citation parens like "(b)" too, and a real corpus case turned that into a
+// serious regression: AC 150/5050-4A's footnote "49 USC 47106(b)(2). Also
+// see..." got misread as a heading numbered "49", which poisoned the
+// flat-number sequence tracker (lastFlatNum) for the rest of the document —
+// the real Appendix B glossary's "7. Community Involvement." and "8.
+// Environmental Justice." entries then failed the "must continue the
+// sequence" check (7/8 aren't greater than 49) and vanished entirely, with
+// nothing recovering them. Caught by the standard full-corpus content-diff
+// validation before shipping; requiring 2+ chars excludes "(b)"/"(2)"-style
+// single-character legal citations while still allowing real annotations
+// like "(current editions)".
+const NUMSEC2 =
+  /^(\d{1,2})\s+([A-Z](?:[A-Z0-9 ,/&''()-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))*(?:[A-Z0-9)]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))\.)\s*(.*)$/
+
+// Same bare-number ALL-CAPS heading shape as NUMSEC2, but the title is
+// separated from the body by a colon instead of a period — confirmed on AC
+// 89-1's "1 PURPOSE OF THIS ADVISORY CIRCULAR (AC): This AC provides guidance
+// on..." and "2 AUDIENCE: This AC is of interest...". Without this, NUMSEC2
+// never matches (no period on the line at all), so the whole line falls
+// through to ordinary body/para text — which is exactly what silently
+// dropped both entire sections: the "drop preamble before the first real
+// heading" step (see below) then discarded them, along with everything else
+// before the parser's first successfully-recognized heading, since that
+// heading was much further into the document (120-28D-style: a genuine
+// section number gets classified only later).
+const NUMSEC2_COLON =
+  /^(\d{1,2})\s+([A-Z](?:[A-Z0-9 ,/&''()-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))*(?:[A-Z0-9)]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\)):)\s*(.*)$/
+
+// Same bare-number ALL-CAPS heading shape again, but with NO terminator at
+// all and the body starting as a wholly separate paragraph — confirmed on
+// the same AC 89-1's "3 RELATED READING MATERIAL (CURRENT EDITIONS)", whose
+// actual body text starts several lines later. Anchored to end-of-line (no
+// trailing content allowed) so this can't swallow real body text that
+// happens to share a physical PDF line with the heading.
+const NUMSEC2_BARE =
+  /^(\d{1,2})\s+([A-Z](?:[A-Z0-9 ,/&''()-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))*(?:[A-Z0-9)]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\)))$/
 
 // "1 Purpose." — number (no period), then Title-Case phrase ending in a period,
 // on its own line. Used in modern flat-numbered ACs (e.g. 150/5200-34B).
@@ -259,8 +304,9 @@ function splitHeading(rest: string): { title: string; body: string } {
   return { title: '', body: rest }
 }
 
-export function parseAC(raw: string): ACBlock[] {
+export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
   if (!raw) return []
+  const ocrScanned = documentNumber ? needsOcrArtifactRepair(documentNumber) : false
 
   // 1. Strip all change-revision preamble blocks. FAA ACs with multiple
   //    revisions embed older change notices before the original body. Find the
@@ -309,6 +355,27 @@ export function parseAC(raw: string): ACBlock[] {
     let j = i + 1
     while (j < lines.length && lines[j] === '') j++
     if (j < lines.length && /^[A-Z]/.test(lines[j])) {
+      lines[i] = `${lines[i]} ${lines[j]}`
+      lines[j] = ''
+    }
+  }
+
+  // 2c. Same rejoin, one level down: a lettered/numbered sub-item marker
+  //     ("a.", "(1)", "(a)") split from its own body by a PDF line break —
+  //     confirmed on AC 23-13A's "a." sitting alone on its line with "The
+  //     historical guidance..." starting on the next line. ITEM_A/ITEM_N/
+  //     ITEM_L (below) all require body text on the SAME line as the marker,
+  //     so a bare marker with nothing else on its line is invisible to them
+  //     and silently falls into the PRECEDING block's body instead of
+  //     starting its own item — which is exactly what happened here: "a."
+  //     never became its own item (missing the bold-letter + indent
+  //     treatment "b." right after it correctly got), and its body just
+  //     extended section 3-3's own body text instead.
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (!/^(?:[a-z]\.|\(\d{1,3}\)|\([a-z]\))$/.test(lines[i])) continue
+    let j = i + 1
+    while (j < lines.length && lines[j] === '') j++
+    if (j < lines.length && /^[A-Za-z]/.test(lines[j])) {
       lines[i] = `${lines[i]} ${lines[j]}`
       lines[j] = ''
     }
@@ -471,6 +538,20 @@ export function parseAC(raw: string): ACBlock[] {
     if (lastFlatNum === null) return n === 1 && secDotCount < 2
     return n > lastFlatNum && n <= lastFlatNum + 10
   }
+  // Tried narrowing the "+10" tolerance to "+3" (2026-07-11) to fix AC 89-3's
+  // "7. Aeronautical Information Manual (AIM)." — a numbered-reading-list item
+  // that shares Title-Case shape with real headings and gets mistaken for one
+  // because it falls within the jump window from the last real section (4).
+  // Full-corpus validation caught it losing real content elsewhere: AC
+  // 21-29D's genuine form-field instructions "13.", "14.", "15." jump by more
+  // than 3 from whatever came before and were silently dropped with nothing
+  // recovering them. Reverted to +10. The 89-3 case is left as a known,
+  // accepted residual ambiguity — a numbered sub-list using the exact same
+  // "digit. Title Case" shape as the document's own top-level sections is
+  // fundamentally indistinguishable from a real heading by shape and
+  // proximity alone; fixing it would need a genuinely different signal (e.g.
+  // tracking whether a document's established heading case-style is ALL-CAPS
+  // vs Title-Case and gating new candidates against that), not attempted.
   // The sequence check above only needs to gate NUMSEC's ambiguous Title-Case
   // branch (second character lowercase, e.g. "Background.") — that's the shape
   // a numbered list item can also take. The ALL-CAPS/acronym branches are
@@ -511,9 +592,22 @@ export function parseAC(raw: string): ACBlock[] {
     //   (3) Single non-article letter split from a lowercase word: "E xcessive" →
     //       "Excessive", "p articularly" → "particularly". Excludes 'a', 'i', 'o'
     //       (standalone English words) to avoid false merges.
-    line = line.replace(/(?<![A-Za-z''’])([B-HJ-NP-Z]) ([A-Z]{2,})/g, '$1$2')
-    line = line.replace(/(?<![A-Za-z''’])([A-Z]) ([A-Z])(?![A-Za-z])/g, '$1$2')
-    line = line.replace(/(?<![A-Za-z''’])([B-HJ-NP-Zb-hj-np-z]) ([a-z]{3,})/g, '$1$2')
+    // Gated to ONLY the documents already flagged as genuine old scans
+    // (OCR_SCANNED_ACS) -- this heuristic can't tell a real split-word artifact
+    // apart from an ordinary standalone single-letter designator followed by a
+    // real word (a subpart/class/appendix letter: "subpart C contains" was
+    // getting squished into "subpart Ccontains"). A corpus-wide scan found this
+    // shape matches in 594 of 777 ACs -- the overwhelming majority never had
+    // this OCR-scan problem in the first place, so applying it universally was
+    // actively corrupting modern digitally-native text. Confirmed via
+    // isOcrScanned() rather than a blanket regex heuristic, since that's an
+    // already-vetted, human-confirmed list of which documents are actually
+    // scans (see ocrScannedACs.ts).
+    if (ocrScanned) {
+      line = line.replace(/(?<![A-Za-z''’])([B-HJ-NP-Z]) ([A-Z]{2,})/g, '$1$2')
+      line = line.replace(/(?<![A-Za-z''’])([A-Z]) ([A-Z])(?![A-Za-z])/g, '$1$2')
+      line = line.replace(/(?<![A-Za-z''’])([B-HJ-NP-Zb-hj-np-z]) ([a-z]{3,})/g, '$1$2')
+    }
 
     // TABLE headers ("TABLE 2-1. GAS LAWS…") become chapter blocks for navigation
     // and trigger table-mode so subsequent content is formatted as bullet items.
@@ -544,6 +638,22 @@ export function parseAC(raw: string): ACBlock[] {
       inTable = false
       if (/^\d+$/.test(m[1])) lastFlatNum = parseInt(m[1], 10)
       cur = { kind: 'section', id: nextId(), label: m[1] + '.', title: m[2], body: m[3] }
+      bodyStarted = true
+      continue
+    }
+    if ((m = line.match(NUMSEC2_COLON)) && (!needsSequenceGate(m[2]) || isNextFlatNum(m[1]))) {
+      flush()
+      inTable = false
+      if (/^\d+$/.test(m[1])) lastFlatNum = parseInt(m[1], 10)
+      cur = { kind: 'section', id: nextId(), label: m[1] + '.', title: m[2], body: m[3] }
+      bodyStarted = true
+      continue
+    }
+    if ((m = line.match(NUMSEC2_BARE)) && (!needsSequenceGate(m[2]) || isNextFlatNum(m[1]))) {
+      flush()
+      inTable = false
+      if (/^\d+$/.test(m[1])) lastFlatNum = parseInt(m[1], 10)
+      cur = { kind: 'section', id: nextId(), label: m[1] + '.', title: m[2], body: '' }
       bodyStarted = true
       continue
     }
@@ -667,7 +777,19 @@ export function parseAC(raw: string): ACBlock[] {
       // indistinguishable from the ordinary start of a ordinary word ("The")
       // in body prose and isn't strong enough evidence of a real truncated
       // heading to merge.
-      if (!cur.body && cur.title && cur.title.length >= 2 && !/[.?!:]$/.test(cur.title)) {
+      // Section-only: an ITEM_A/ITEM_N/ITEM_L item's "title" is just whatever
+      // text happened to precede the first period on its opening line (see
+      // splitHeading) — for ordinary list-item prose that's a random clause
+      // fragment, not a heading, so a short trailing word there ("toxic",
+      // "the", "mount", "under" — all real, complete words <=5 chars) is
+      // indistinguishable from a genuine glyph-split fragment ("Glid") by
+      // shape alone. Confirmed on AC 33-8's table: "(2) Concentration of
+      // toxic" + "products in the engine..." was merging into
+      // "toxicproducts" because the heuristic (designed for section heading
+      // repairs like "CO"+"NDITIONS.") misfired on this item body. Sections'
+      // titles are deliberately bold/short/label-like, which is why the
+      // heuristic is safe to keep for them but not for item bodies.
+      if (cur.kind === 'section' && !cur.body && cur.title && cur.title.length >= 2 && !/[.?!:]$/.test(cur.title)) {
         if (/^[A-Z]{2,8}$/.test(cur.title) && /^[A-Z]{2,}\./.test(line)) {
           const wordEnd = line.match(/^([A-Z]+\.)\s*(.*)$/)
           if (wordEnd) {
