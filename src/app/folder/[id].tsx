@@ -324,7 +324,11 @@ export default function FolderDetail() {
               <SwipeableACRow
                 entry={item}
                 tokens={tokens}
-                onPress={() => router.push(`/ac/${item.data.id}`)}
+                onPress={() => router.push(
+                  item.data.blockText
+                    ? `/ac/${item.data.acId}?hlId=${encodeURIComponent(item.data.id)}`
+                    : `/ac/${item.data.acId ?? item.data.id}`
+                )}
                 onRemove={() => handleRemove(item.folderItem)}
                 onShare={() => handleShareAC(item.data)}
               />

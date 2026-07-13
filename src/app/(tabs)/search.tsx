@@ -18,7 +18,7 @@ import { Icon } from '@/components/Icon'
 import type { ACSeries } from '@/types'
 import { rankSearchResults, isPhrasedQuery, extractPhrase } from '@/lib/searchRank'
 import { getACIndex, searchLocal, isACQuery, ACIndexEntry } from '@/lib/acIndex'
-import { collapseDictationDuplicate } from '@/lib/dictation'
+import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
 
 // Session-scoped result cache: same query returns instantly without a network hit.
 const _resultCache = new Map<string, SearchResult[]>()
@@ -117,7 +117,7 @@ export default function SearchScreen() {
   }, [])
 
   const runSearch = useCallback(async (q: string) => {
-    const trimmed = q.trim()
+    const trimmed = normalizeSearchQuery(q.trim())
     if (trimmed.length < 2) {
       searchSeq.current++
       setResults([])

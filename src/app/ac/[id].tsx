@@ -26,7 +26,7 @@ import { ACBody, ACBodyHandle } from '@/components/ACBody'
 import { addRecent } from '@/lib/recents'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
 import { getDownloads, isDownloaded, addDownload, removeDownload } from '@/lib/downloads'
-import { collapseDictationDuplicate } from '@/lib/dictation'
+import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
 import { blockText, ACBlock } from '@/lib/acFormat'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
@@ -103,7 +103,7 @@ export default function ACDetailScreen() {
   // retype" bug). matchCount is now owned entirely by ACBody's onMatchCount
   // callback — it only changes when the debounced query actually changes.
   const handleAcSearchChange = useCallback((raw: string) => {
-    const t = collapseDictationDuplicate(raw)
+    const t = normalizeSearchQuery(collapseDictationDuplicate(raw))
     setAcSearch(t)
     setMatchIdx(0)
     if (acSearchDebounceRef.current) clearTimeout(acSearchDebounceRef.current)

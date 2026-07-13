@@ -679,6 +679,16 @@ export default function SavedScreen() {
         itemId={pickerDownloadId ?? ''}
         onClose={() => setPickerDownloadId(null)}
         onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1) }}
+        acMeta={(() => {
+          const d = downloads.find((x) => x.id === pickerDownloadId)
+          return d ? {
+            document_number: d.document_number,
+            title: d.title,
+            date_issued: null,
+            office: null,
+            subject_series: d.subject_series,
+          } : undefined
+        })()}
       />
 
       {/* Bulk folder picker */}

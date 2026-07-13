@@ -23,6 +23,7 @@ import {
   createFolder,
   Folder,
 } from '@/lib/folders'
+import { addManyBookmarks, BookmarkAC } from '@/lib/bookmarks'
 
 interface Props {
   visible: boolean
@@ -33,9 +34,21 @@ interface Props {
    * least one folder was added to during this session (not on remove-only,
    * not if nothing changed). */
   onAdded?: (message: string) => void
+  /** Display metadata for this AC, needed ONLY when the item being added
+   * isn't already guaranteed to be a bookmark (e.g. opened from Recents or
+   * Offline downloads, as opposed to the Saved > All list itself). If the
+   * item isn't already bookmarked, adding it to a folder also ensures a
+   * bookmark exists using this data — the folder-detail screen resolves an
+   * 'ac' item's title/date/office via the bookmarks list, so without this a
+   * folder item added from a non-bookmark source silently disappears from
+   * its own folder (and gets permanently pruned by the orphaned-item
+   * self-heal in folder/[id].tsx). Omit when itemType is 'note', or when the
+   * item is already known to be a bookmark (harmless to pass anyway --
+   * addManyBookmarks no-ops if already present). */
+  acMeta?: Omit<BookmarkAC, 'id' | 'savedAt'>
 }
 
-export function FolderPicker({ visible, itemType, itemId, onClose, onAdded }: Props) {
+export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMeta }: Props) {
   const { tokens } = useTheme()
   const fs = useFS()
   const { isPro } = useAuth()
@@ -84,6 +97,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded }: Pr
       setMemberIds((prev) => { const s = new Set(prev); s.delete(folder.id); return s })
       setAddedNames((prev) => prev.filter((n) => n !== folder.name))
     } else {
+      if (itemType === 'ac' && acMeta) await addManyBookmarks([{ id: itemId, ...acMeta }])
       await addToFolder(folder.id, itemType, itemId)
       setMemberIds((prev) => new Set([...prev, folder.id]))
       setAddedNames((prev) => [...prev, folder.name])
@@ -94,6 +108,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded }: Pr
     const name = newName.trim()
     if (!name) return
     const folder = await createFolder(name)
+    if (itemType === 'ac' && acMeta) await addManyBookmarks([{ id: itemId, ...acMeta }])
     await addToFolder(folder.id, itemType, itemId)
     setFolders((prev) => [...prev, folder])
     setMemberIds((prev) => new Set([...prev, folder.id]))

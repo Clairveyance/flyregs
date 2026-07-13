@@ -50,6 +50,27 @@ export async function addBookmark(ac: Omit<BookmarkAC, 'savedAt'>) {
   syncPushBookmark(bookmark)
 }
 
+// Ensures a bookmark exists for each given AC in one read-modify-write, only
+// inserting ones not already present. Used when an AC is added to a folder
+// from a source that isn't itself the bookmarks list (Recents, Offline
+// downloads) — the folder-detail screen resolves an 'ac' folder item's
+// display data by looking it up in bookmarks (that's where title/date/office
+// are stored for offline-first rendering), so without a backing bookmark the
+// item would silently vanish from the folder view, and folder/[id].tsx's
+// orphaned-item self-heal would then permanently delete the folder_item,
+// mistaking "not bookmarked" for "target no longer exists." See
+// flyregs_gotchas.md for the 2026-07-12 bug this fixes.
+export async function addManyBookmarks(acs: Omit<BookmarkAC, 'savedAt'>[]) {
+  if (acs.length === 0) return
+  const list = await getBookmarks()
+  const existing = new Set(list.map((b) => b.id))
+  const now = new Date().toISOString()
+  const toAdd = acs.filter((ac) => !existing.has(ac.id)).map((ac) => ({ ...ac, savedAt: now }))
+  if (toAdd.length === 0) return
+  await AsyncStorage.setItem(KEY, JSON.stringify([...toAdd, ...list]))
+  toAdd.forEach(syncPushBookmark)
+}
+
 export async function removeBookmark(id: string) {
   return removeManyBookmarks([id])
 }

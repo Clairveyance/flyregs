@@ -451,18 +451,40 @@ export const ACBody = React.forwardRef<
       }
 
       // Native: prefer scrolling to the exact highlighted span for this
-      // occurrence — falls back to the containing block's top only if that
-      // span hasn't mounted a ref for some reason (shouldn't normally happen).
+      // occurrence — falls back to the containing block's top if that span's
+      // ref isn't usable. This fallback is NOT just a "shouldn't normally
+      // happen" edge case: a highlighted match is a nested <Text> inside the
+      // block's own <Text>, and on iOS a ref to a nested Text run frequently
+      // resolves to a truthy-but-non-measurable object rather than null (it
+      // isn't a real host view with its own native handle) — so `occNode` was
+      // never actually null, `??` never fell through, and measureLayout's
+      // silent failure callback ate the error. That's what made every in-doc
+      // search jump silently no-op on real devices while still incrementing
+      // the counter (2026-07-12). Guard on measureLayout actually existing as
+      // a function, not just on the ref being non-null.
       const scroller = scrollRef?.current
       if (!scroller) return
       const occNode = occurrenceRefs.current[n]
       const blockIndex = occurrences[n]
-      const node = occNode ?? (blockIndex != null ? matchRefs.current[blockIndex] : null)
+      const blockNode = blockIndex != null ? matchRefs.current[blockIndex] : null
+      const node = (occNode && typeof occNode.measureLayout === 'function') ? occNode : blockNode
       if (!node) return
       node.measureLayout(
         scroller as any,
         (_x: number, y: number) => scroller.scrollTo({ y: Math.max(0, y - 80), animated: true }),
-        () => {}
+        () => {
+          // occNode existed but measureLayout still failed at call time (a
+          // transient layout-pass issue, not the structural nested-ref
+          // problem above) -- fall back to the block-level node so the jump
+          // still does SOMETHING instead of silently no-op'ing.
+          if (node !== blockNode && blockNode) {
+            blockNode.measureLayout(
+              scroller as any,
+              (_x: number, y: number) => scroller.scrollTo({ y: Math.max(0, y - 80), animated: true }),
+              () => {}
+            )
+          }
+        }
       )
     },
     scrollToBlockIndex(blockIndex: number) {

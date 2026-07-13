@@ -32,3 +32,25 @@ export function collapseDictationDuplicate(text: string): string {
 
   return text
 }
+
+// iOS dictation renders a spoken "dash"/"hyphen" using a Unicode dash variant
+// (commonly U+2011 NON-BREAKING HYPHEN, sometimes U+2013 EN DASH) rather than
+// the plain U+002D HYPHEN-MINUS a keyboard produces — visually identical in
+// every font, so a query that LOOKS exactly like "20-191" in the search box
+// can still return zero results, because ILIKE does a literal substring match
+// against document_number, which is stored with a plain hyphen. Confirmed
+// 2026-07-12: typing "20-191" works, speaking "twenty dash one nine one"
+// (which renders as "20-191" on screen) does not. Smart quotes get the same
+// treatment for the same reason (dictation renders spoken "apostrophe" as a
+// curly ' rather than a straight ', which would break a phrase match against
+// stored text that uses straight quotes).
+const DASH_VARIANTS = /[‐‑‒–—―−]/g
+const CURLY_QUOTE_VARIANTS = /[‘’]/g
+const CURLY_DOUBLE_QUOTE_VARIANTS = /[“”]/g
+
+export function normalizeSearchQuery(text: string): string {
+  return text
+    .replace(DASH_VARIANTS, '-')
+    .replace(CURLY_QUOTE_VARIANTS, "'")
+    .replace(CURLY_DOUBLE_QUOTE_VARIANTS, '"')
+}

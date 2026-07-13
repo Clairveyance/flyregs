@@ -20,7 +20,7 @@ import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import type { ACSeries } from '@/types'
 import { rankSearchResults, isPhrasedQuery, extractPhrase } from '@/lib/searchRank'
-import { collapseDictationDuplicate } from '@/lib/dictation'
+import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
@@ -137,7 +137,7 @@ export default function HomeScreen() {
   // ── Search logic ─────────────────────────────────────────────────────────────
 
   const runSearch = useCallback(async (q: string) => {
-    const trimmed = q.trim()
+    const trimmed = normalizeSearchQuery(q.trim())
     if (trimmed.length < 2) { searchSeq.current++; setSearchResults([]); setSearchLoading(false); return }
     const seq = ++searchSeq.current
 

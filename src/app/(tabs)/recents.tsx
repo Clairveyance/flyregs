@@ -17,7 +17,7 @@ import { useAuth } from '@/context/auth'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { getRecents, removeRecent, removeManyRecents, clearRecents, type RecentAC } from '@/lib/recents'
-import { getBookmarks, toggleBookmark } from '@/lib/bookmarks'
+import { getBookmarks, toggleBookmark, addManyBookmarks } from '@/lib/bookmarks'
 import { addManyToFolder, getFolders } from '@/lib/folders'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
@@ -134,6 +134,25 @@ export default function RecentsScreen() {
 
   const handleBulkAddToFolder = async (folderIds: string[]) => {
     const ids = [...selected]
+    // A Recents item isn't necessarily bookmarked -- the folder-detail screen
+    // resolves an 'ac' folder item's display data via the bookmarks list, so
+    // without this, an item added to a folder straight from Recents would
+    // silently disappear from its own folder (and get permanently pruned by
+    // folder/[id].tsx's orphaned-item self-heal). Ensure a bookmark exists
+    // for everything being added, using data already on hand here.
+    const allRecents = groups.flatMap((g) => g.data)
+    const toBookmark = allRecents
+      .filter((r) => ids.includes(r.id))
+      .map((r) => ({
+        id: r.id,
+        document_number: r.document_number,
+        title: r.title,
+        date_issued: r.date_issued,
+        office: null,
+        subject_series: r.subject_series,
+      }))
+    await addManyBookmarks(toBookmark)
+    setBookmarkedIds((prev) => new Set([...prev, ...toBookmark.map((b) => b.id)]))
     // Sequential, not Promise.all -- addManyToFolder does its own read-modify-
     // write on the shared folder_items list, so concurrent calls for different
     // folders would race and clobber each other (only the last write survives).
@@ -294,6 +313,13 @@ export default function RecentsScreen() {
         itemId={pickerItem?.id ?? ''}
         onClose={() => setPickerItem(null)}
         onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1) }}
+        acMeta={pickerItem ? {
+          document_number: pickerItem.document_number,
+          title: pickerItem.title,
+          date_issued: pickerItem.date_issued,
+          office: null,
+          subject_series: pickerItem.subject_series,
+        } : undefined}
       />
 
       <FolderSelectSheet
