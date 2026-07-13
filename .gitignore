@@ -48,6 +48,9 @@ example
 /ios
 /android
 
+# local scratch output (downloaded PDFs, rendered page images, pilot transcripts)
+scratch/
+
 # one-off analysis reports (regenerate via their scripts, not source of truth)
 header_leak_report.json
 header_leak_fixed_docs.json

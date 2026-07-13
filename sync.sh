@@ -2,7 +2,25 @@
 # FlyRegs weekly sync — FAA AC database maintenance
 #
 # Runs six stages in order:
-#   1. Incremental scrape  — fetches new/updated/cancelled ACs from FAA.gov
+#   1. Incremental scrape  — fetches new/updated/cancelled ACs from FAA.gov.
+#                            Also runs a free per-page text-health check on
+#                            every PDF it extracts (piggybacks on the normal
+#                            pypdf extraction, no extra cost); if a document
+#                            looks systemically broken (a modern PDF whose
+#                            real text layer got flattened during signing —
+#                            confirmed on AC 38-1, 2026-07 — not the old-scan
+#                            case, which is a separate, already-closed
+#                            problem tracked via OCR_SCANNED_ACS), it
+#                            automatically re-transcribes just the affected
+#                            pages via Claude vision before anything else
+#                            runs. Every such recovery is logged to the
+#                            `vision_recovery_log` Supabase table (doc,
+#                            page count, reason, rough cost estimate) — ask
+#                            for a report/COGS update after any run that
+#                            logged one. NOT auto-added to OCR_SCANNED_ACS
+#                            (that's a client source file — check the log
+#                            and add the doc_number by hand so the app's
+#                            disclaimer picks it up on the next build).
 #   2. OCR fixes           — cleans word-split artifacts in freshly scraped text
 #   3. Parse backfill      — rebuilds pdf_blocks for any ACs with new/changed text
 #   4. Figure/table sync   — re-extracts Figures & Tables for exactly the ACs

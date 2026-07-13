@@ -353,19 +353,198 @@ def download_pdf(url: str, session: requests.Session) -> Optional[bytes]:
 
 def extract_pdf_text(pdf_bytes: bytes) -> Optional[str]:
     """Extract plain text from PDF bytes using pypdf."""
+    pages, _ = extract_pdf_pages(pdf_bytes)
+    if pages is None:
+        return None
+    full = "\n".join(pages).strip()
+    return full[:500_000] if full else None  # cap at 500K chars
+
+
+def extract_pdf_pages(pdf_bytes: bytes) -> tuple[Optional[list[str]], int]:
+    """
+    Same extraction as extract_pdf_text, but returns the per-page text list
+    (so a caller can spot which specific pages came back empty/near-empty)
+    alongside the total page count. Returns (None, 0) on a hard read failure.
+    """
     try:
         import pypdf
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
-        parts = []
+        pages = []
         for page in reader.pages:
             t = page.extract_text()
-            if t:
-                parts.append(t)
-        full = "\n".join(parts).strip()
-        return full[:500_000] if full else None  # cap at 500K chars
+            pages.append(t or "")
+        return pages, len(reader.pages)
     except Exception as e:
         log.debug(f"    PDF text extraction error: {e}")
+        return None, 0
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Vision recovery — flattened/signed PDFs with a broken or missing text layer
+# ──────────────────────────────────────────────────────────────────────────────
+# A modern, digitally-signed AC can have its real text layer flattened to
+# vector paths during signing (confirmed on AC 38-1, 2026-07 — a 2023 AC with
+# ZERO extractable characters despite being a clean, modern, legible PDF).
+# Old scanned originals are a separate, closed, one-time-fixed problem (see
+# OCR_SCANNED_ACS in ocrScannedACs.ts) -- THIS is the one that can recur on
+# any future AC, since it's caused by the signing/publishing process, not the
+# document's age. Detection piggybacks on the extraction pypdf already does
+# for every AC (zero extra cost for the ~99% of ACs that are healthy); the
+# expensive part (Claude vision) only ever runs on the specific pages that
+# fail the health check, never a whole-corpus or blanket pass.
+VISION_MIN_CHARS_PER_PAGE = 300  # a healthy dense regulatory page runs ~2,500-3,500
+VISION_MODEL = "claude-sonnet-5"
+VISION_RENDER_DPI = 150
+# Very rough, for the recovery log only -- not exact billing. Based on
+# measured per-page vision-transcription cost during the OCR-scanned-doc
+# rebuild (2026-07-13): ~2,700 image tokens + ~300 prompt tokens in, ~300-800
+# tokens out, at Sonnet 5's $2/$10 per-MTok introductory rate.
+VISION_EST_COST_PER_PAGE = 0.012
+
+VISION_TRANSCRIBE_PROMPT = """You are transcribing one page of an FAA Advisory Circular whose normal text extraction failed on this page (likely a flattened/signed PDF) -- a regulatory document where exact wording, numbering, and punctuation matter.
+
+Rules:
+1. Transcribe the text EXACTLY as it appears. Do not modernize spelling, do not "fix" grammar, do not paraphrase.
+2. Preserve the document's own structure markers exactly as printed: section numbers, letter items, numbered sub-items, headings.
+3. If the page is (or contains) a figure, chart, diagram, or table: do NOT write a narrative description of the image. Transcribe ONLY the literal printed text that appears on it -- the caption/title, axis labels, column/row headers, and any callout or legend text -- in natural reading order. Do not describe layout, shapes, lines, or spatial relationships.
+4. For an equation or formula, transcribe it as accurately as you can, preserving the actual mathematical structure using plain-text or LaTeX-like notation. Do not simplify beyond what's needed to represent it in text.
+5. If part of the page is genuinely illegible even to you, write [illegible] at that exact spot rather than guessing.
+6. Output ONLY the transcription itself -- no preamble, no commentary.
+"""
+
+
+VISION_THIN_PAGE_FRACTION = 0.5  # systemic failure, not just a chart-heavy doc
+
+
+def needs_vision_recovery(pages: list[str]) -> list[int]:
+    """
+    Returns the 0-indexed page numbers to recover via vision, or [] if this
+    document doesn't need it at all. A single sparse page is NOT enough to
+    trigger anything -- a real chart/figure page in a perfectly healthy
+    modern AC often extracts almost no text on its own (the chart is an
+    image; only its caption is real text), and confirmed via a real test
+    (AC 20-191, healthy) that flags exactly this false-positive pattern if
+    checked page-by-page alone: 6 of 151 pages under the per-page floor,
+    every one of them a legitimate figure/appendix-chart page, not a
+    flattening problem. The actual failure mode (AC 38-1) was systemic --
+    EVERY page came back empty -- so recovery only triggers when the
+    problem looks systemic: either the whole document is starved of text on
+    average, or a clear majority of pages are thin. Only the pages that are
+    actually thin get recovered even when the whole-document check fires --
+    this stays as surgical as the trigger allows.
+    """
+    if not pages:
+        return []
+    total_chars = sum(len(t.strip()) for t in pages)
+    avg_chars_per_page = total_chars / len(pages)
+    thin_pages = [i for i, t in enumerate(pages) if len(t.strip()) < VISION_MIN_CHARS_PER_PAGE]
+    thin_fraction = len(thin_pages) / len(pages)
+
+    if avg_chars_per_page < VISION_MIN_CHARS_PER_PAGE or thin_fraction > VISION_THIN_PAGE_FRACTION:
+        return thin_pages
+    return []
+
+
+def recover_pages_via_vision(pdf_bytes: bytes, page_indices: list[int], doc_num: str) -> dict[int, str]:
+    """
+    Renders just the flagged pages and transcribes each via Claude vision.
+    Returns {page_index: recovered_text}. Any page that errors is simply
+    omitted (caller keeps whatever pypdf already had for it, which is
+    whatever thin/empty text triggered the flag in the first place).
+    """
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not anthropic_key:
+        log.warning(f"    ANTHROPIC_API_KEY not set — skipping vision recovery for {doc_num}")
+        return {}
+
+    import base64
+    import fitz  # PyMuPDF
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=anthropic_key)
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    recovered = {}
+
+    for i in page_indices:
+        try:
+            page = doc[i]
+            pix = page.get_pixmap(dpi=VISION_RENDER_DPI)
+            png_bytes = pix.tobytes("png")
+            b64 = base64.standard_b64encode(png_bytes).decode("utf-8")
+            message = client.messages.create(
+                model=VISION_MODEL,
+                max_tokens=4096,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64}},
+                        {"type": "text", "text": VISION_TRANSCRIBE_PROMPT},
+                    ],
+                }],
+            )
+            text = "".join(b.text for b in message.content if b.type == "text")
+            recovered[i] = text
+        except Exception as e:
+            log.warning(f"    Vision recovery failed for {doc_num} page {i + 1}: {e}")
+
+    return recovered
+
+
+def log_vision_recovery(doc_num: str, page_count: int, reason: str, chars_before: int, chars_after: int) -> None:
+    """Best-effort — a failure here never blocks the actual content fix."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return
+    try:
+        payload = {
+            "document_number": doc_num,
+            "page_count": page_count,
+            "reason": reason,
+            "chars_before": chars_before,
+            "chars_after": chars_after,
+            "est_cost_usd": round(page_count * VISION_EST_COST_PER_PAGE, 4),
+        }
+        requests.post(
+            f"{SUPABASE_URL}/rest/v1/vision_recovery_log",
+            headers=_supa_headers({"Prefer": "return=minimal"}),
+            data=json.dumps(payload),
+            timeout=REQUEST_TIMEOUT,
+        )
+    except Exception as e:
+        log.debug(f"    Failed to log vision recovery for {doc_num}: {e}")
+
+
+def extract_pdf_text_with_recovery(pdf_bytes: bytes, doc_num: str) -> Optional[str]:
+    """
+    Normal pypdf extraction, then a cheap per-page health check. Only the
+    specific pages that fail it (usually zero, sometimes all of them if the
+    whole PDF was flattened) get an actual Claude vision call — never a
+    blanket pass. Recovered docs are NOT auto-added to OCR_SCANNED_ACS (that
+    list is a client-side source file — adding to it takes effect on the
+    next app build, not this sync run); check vision_recovery_log after a
+    run that reports any recoveries and add the doc_number by hand.
+    """
+    pages, page_count = extract_pdf_pages(pdf_bytes)
+    if pages is None or page_count == 0:
         return None
+
+    flagged = needs_vision_recovery(pages)
+    if not flagged:
+        full = "\n".join(pages).strip()
+        return full[:500_000] if full else None
+
+    chars_before = sum(len(t) for t in pages)
+    reason = "zero_text" if chars_before == 0 else "low_chars_per_page"
+    log.info(f"    {doc_num}: {len(flagged)}/{page_count} page(s) below text-health threshold ({reason}) — recovering via vision")
+
+    recovered = recover_pages_via_vision(pdf_bytes, flagged, doc_num)
+    for i, text in recovered.items():
+        pages[i] = text
+
+    full = "\n".join(pages).strip()
+    chars_after = len(full)
+    log_vision_recovery(doc_num, page_count, reason, chars_before, chars_after)
+
+    return full[:500_000] if full else None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -609,7 +788,7 @@ def process_ac(
         pdf_bytes = download_pdf(pdf_url, session)
         if pdf_bytes:
             record["pdf_size_bytes"] = len(pdf_bytes)
-            record["pdf_text"]       = extract_pdf_text(pdf_bytes)
+            record["pdf_text"]       = extract_pdf_text_with_recovery(pdf_bytes, doc_num)
             cached_url               = upload_pdf(pdf_bytes, doc_num)
             record["pdf_url_cached"] = cached_url
             size_kb = len(pdf_bytes) // 1024
