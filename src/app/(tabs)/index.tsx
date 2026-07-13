@@ -349,6 +349,7 @@ export default function HomeScreen() {
           data={series}
           keyExtractor={(item) => item.series_prefix}
           contentContainerStyle={styles.listContent}
+          keyboardDismissMode="interactive"
           ListHeaderComponent={
             <HomeHeader
               tokens={tokens}
@@ -407,6 +408,7 @@ export default function HomeScreen() {
             <ScrollView
               style={styles.dropScroll}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
               nestedScrollEnabled
             >
               {searchResults.map((r) => (

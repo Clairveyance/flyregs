@@ -81,6 +81,7 @@ export default function AuthScreen() {
       <ScrollView
         contentContainerStyle={[styles.inner, { paddingBottom: insets.bottom + 32 }]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
       >
         {/* FlyRegs wordmark */}
         <Image

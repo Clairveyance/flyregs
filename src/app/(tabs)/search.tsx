@@ -308,6 +308,7 @@ export default function SearchScreen() {
           data={results}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
+          keyboardDismissMode="interactive"
           ListHeaderComponent={
             <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
               {results.length} RESULT{results.length !== 1 ? 'S' : ''}
@@ -380,6 +381,7 @@ function BrowseView({
     <ScrollView
       contentContainerStyle={styles.browseContent}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
     >
       <SearchTips tokens={tokens} />
       <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>BROWSE BY CATEGORY</Text>

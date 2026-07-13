@@ -746,6 +746,7 @@ function NoteEditor({
         style={{ flex: 1 }}
         contentContainerStyle={styles.editorBody}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
       >
         <TextInput
           style={[styles.titleInput, { color: tokens.t1, fontSize: fs(19) }]}

@@ -67,6 +67,7 @@ export default function FeedbackScreen() {
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
       >
         <Text style={[styles.intro, { color: tokens.t2, fontSize: fs(14) }]}>
           We read every message. Pick a category and tell us what's on your mind.
