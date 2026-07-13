@@ -591,7 +591,11 @@ export const ACBody = React.forwardRef<
                     <Pressable key={f.id} style={styles.tocRow} onPress={() => onOpenFigure?.(f)}>
                       <Text numberOfLines={1} style={[styles.tocEntry, { color: tokens.t2, fontSize: fs(13) }]}>
                         <Text style={{ color: tokens.t1, fontWeight: '700' }}>{f.label}</Text>
-                        {f.caption ? ` ${f.caption}` : ''}
+                        {f.caption ? (
+                          ` ${f.caption}`
+                        ) : (
+                          <Text style={{ fontStyle: 'italic', color: tokens.t4 }}> (caption unavailable — view page image)</Text>
+                        )}
                       </Text>
                     </Pressable>
                   ))}

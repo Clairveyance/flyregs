@@ -607,10 +607,19 @@ export default function ACDetailScreen() {
           {/* Scanned-original disclaimer -- sets expectations for old ACs
               whose source is a scanned paper original with an OCR text layer,
               so garbled words read as an explained limitation of the source
-              document rather than a FlyRegs bug. The formula-refs sentence is
-              a separate condition (an AC could have flagged formulas without
-              being OCR-scanned, in principle) so the banner still renders if
-              only one of the two is true. */}
+              document rather than a FlyRegs bug. The formula-refs and
+              figures sentences are separate conditions (an AC could have
+              flagged formulas without being OCR-scanned, in principle) so
+              the banner still renders if only some of the three are true --
+              but the figures sentence is additionally gated on the AC
+              actually being OCR-scanned, since "view the real page instead
+              of the extracted text" is only a relevant pointer when that
+              extracted text is the unreliable kind. Every OCR-scanned AC
+              that also has Figures & Tables entries gets this same second
+              sentence, not just the ones that happen to have formula refs
+              too -- previously only formula refs got a pointer sentence,
+              which is why AC 20-30B's banner looked different/incomplete
+              from ACs that had formula refs. */}
           {(isOcrScanned(ac.document_number) || (formulaRefs && formulaRefs.length > 0)) && (
             <View style={[styles.scanBanner, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
               <Icon name="doc.text" size={14} color={tokens.t3} style={{ marginTop: 2 }} />
@@ -619,6 +628,12 @@ export default function ACDetailScreen() {
                   <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
                     * This AC's source is a scanned original — some words in the extracted text may be
                     misread from the scan. The original PDF is the authoritative source.
+                  </Text>
+                )}
+                {isOcrScanned(ac.document_number) && figures && figures.length > 0 && (
+                  <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
+                    Figures and tables are best viewed as page images in the "Figures & Tables" section
+                    below rather than the extracted text.
                   </Text>
                 )}
                 {formulaRefs && formulaRefs.length > 0 && (
