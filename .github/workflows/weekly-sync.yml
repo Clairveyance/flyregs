@@ -1,13 +1,26 @@
 name: Weekly FAA Sync
 
-# Runs the same 6-stage pipeline that used to run via launchd on a single
-# Mac (scrape -> OCR fixes -> parse backfill -> figure/table sync -> parser
-# audit -> update alerts). Moving it here means the weekly update no longer
-# depends on any one machine being powered on and awake at 3am.
+# Runs the same 7-stage pipeline that used to run via launchd on a single
+# Mac (scrape -> disclose vision recoveries -> OCR fixes -> parse backfill ->
+# figure/table sync -> parser audit -> update alerts). Moving it here means
+# the weekly update no longer depends on any one machine being powered on
+# and awake at 3am.
 #
 # Manual runs: use the "Run workflow" button in the Actions tab (the
 # workflow_dispatch trigger below) — handy for testing without waiting for
 # the schedule, and lets you pass --full or --dry-run.
+#
+# `contents: write` is needed for the one case where sync.sh's step 2 (see
+# sync.sh's own header) actually changes something in the repo: if step 1's
+# text-health check found a flattened/signed PDF and recovered it via
+# vision, the doc_number gets appended to src/lib/ocrScannedACs.ts (a
+# client-side source file — the app's own disclaimer needs the SOURCE
+# updated + rebuilt, not just the database) and committed back to main by
+# this workflow. This is the only file this workflow ever writes to the
+# repo, and only ever appends to it — see append_ocr_scanned_acs.mjs.
+
+permissions:
+  contents: write
 
 on:
   schedule:
@@ -71,3 +84,18 @@ jobs:
       - name: Clean up secrets file
         if: always()
         run: rm -f .env.scraper
+
+      - name: Commit any newly-disclosed vision recoveries
+        # Almost always a no-op — src/lib/ocrScannedACs.ts only changes when
+        # this run's text-health check actually recovered a flattened/signed
+        # PDF via vision (see sync.sh step 2). Never touches anything else.
+        run: |
+          if ! git diff --quiet -- src/lib/ocrScannedACs.ts; then
+            git config user.name "flyregs-weekly-sync"
+            git config user.email "actions@github.com"
+            git add src/lib/ocrScannedACs.ts
+            git commit -m "Auto-disclose vision-recovered AC(s) in OCR_SCANNED_ACS (see vision_recovery_log for detail)"
+            git push
+          else
+            echo "No changes to src/lib/ocrScannedACs.ts — nothing to commit."
+          fi

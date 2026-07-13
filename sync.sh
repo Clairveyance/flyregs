@@ -1,7 +1,7 @@
 #!/bin/bash
 # FlyRegs weekly sync — FAA AC database maintenance
 #
-# Runs six stages in order:
+# Runs seven stages in order:
 #   1. Incremental scrape  — fetches new/updated/cancelled ACs from FAA.gov.
 #                            Also runs a free per-page text-health check on
 #                            every PDF it extracts (piggybacks on the normal
@@ -13,27 +13,33 @@
 #                            problem tracked via OCR_SCANNED_ACS), it
 #                            automatically re-transcribes just the affected
 #                            pages via Claude vision before anything else
-#                            runs. Every such recovery is logged to the
-#                            `vision_recovery_log` Supabase table (doc,
-#                            page count, reason, rough cost estimate) — ask
-#                            for a report/COGS update after any run that
-#                            logged one. NOT auto-added to OCR_SCANNED_ACS
-#                            (that's a client source file — check the log
-#                            and add the doc_number by hand so the app's
-#                            disclaimer picks it up on the next build).
-#   2. OCR fixes           — cleans word-split artifacts in freshly scraped text
-#   3. Parse backfill      — rebuilds pdf_blocks for any ACs with new/changed text
-#   4. Figure/table sync   — re-extracts Figures & Tables for exactly the ACs
-#                            step 3 touched (force-replaces any existing rows,
+#                            runs. Guarded by a hard circuit breaker
+#                            (VISION_MAX_PAGES_PER_RUN in faa_scraper.py) that
+#                            trips and stops spending if total recovered
+#                            pages in one run ever cross a small cap —
+#                            independent of the health-check gate itself, so
+#                            an unanticipated problem still can't run away.
+#                            Every recovery is logged to the
+#                            `vision_recovery_log` Supabase table (doc, page
+#                            count, reason, rough cost estimate) — ask for a
+#                            report/COGS update after any run that logged one.
+#   2. Disclose recoveries — appends any doc(s) step 1 actually recovered via
+#                            vision to OCR_SCANNED_ACS (the client-side
+#                            disclaimer/counter list) — see step 7 below for
+#                            how this gets committed. Almost always a no-op.
+#   3. OCR fixes           — cleans word-split artifacts in freshly scraped text
+#   4. Parse backfill      — rebuilds pdf_blocks for any ACs with new/changed text
+#   5. Figure/table sync   — re-extracts Figures & Tables for exactly the ACs
+#                            step 4 touched (force-replaces any existing rows,
 #                            since a revision can add/remove/renumber figures).
 #                            Without this, a brand-new AC or a real FAA revision
 #                            would never get its figures extracted at all except
 #                            by someone remembering to run extract_figures.py by
 #                            hand — this closes that gap.
-#   5. Parser audit        — checks the FRESHLY BUILT blocks for structural
+#   6. Parser audit        — checks the FRESHLY BUILT blocks for structural
 #                            anomalies (cross-reference collisions, mislabeled
 #                            headings, duplicate labels) before the sync is done.
-#                            Scoped to only the ACs step 3 actually touched, so a
+#                            Scoped to only the ACs step 4 actually touched, so a
 #                            normal weekly run (a handful of changed ACs) stays
 #                            fast — new/updated content gets the same checks a
 #                            manual full-catalog sweep would run, automatically,
@@ -42,9 +48,9 @@
 #                            cross-check by hand (scripts/audit-parser.mjs's own
 #                            header comment explains what's a real bug vs. an
 #                            expected false positive).
-#   6. Update alerts       — sends a push notification (Expo Push API) to every
+#   7. Update alerts       — sends a push notification (Expo Push API) to every
 #                            Premium subscriber with "AC Update Alerts" turned
-#                            on, for exactly the ACs step 3 touched. No-op if
+#                            on, for exactly the ACs step 4 touched. No-op if
 #                            nothing changed this run.
 #
 # Runs on GitHub Actions on a weekly schedule (see
@@ -63,12 +69,13 @@ set -euo pipefail
 APP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$APP/.env.scraper"
 TOUCHED_FILE="$(mktemp -t flyregs-touched.XXXXXX)"
+VISION_RECOVERED_FILE="$(mktemp -t flyregs-vision-recovered.XXXXXX)"
 
 PYTHON3="${PYTHON3:-python3}"
 NODE="${NODE:-node}"
 
-# Always clean up the temp file, even if a later step fails.
-trap 'rm -f "$TOUCHED_FILE"' EXIT
+# Always clean up the temp files, even if a later step fails.
+trap 'rm -f "$TOUCHED_FILE" "$VISION_RECOVERED_FILE"' EXIT
 
 # ── Args ──────────────────────────────────────────────────────────────────────
 SCRAPE_MODE="incremental"
@@ -103,9 +110,9 @@ echo "════════════════════════�
 
 # ── Step 1: FAA scrape ────────────────────────────────────────────────────────
 echo ""
-echo "▶ Step 1/6 — FAA $SCRAPE_MODE scrape"
+echo "▶ Step 1/7 — FAA $SCRAPE_MODE scrape"
 cd "$APP"
-"$PYTHON3" sync/faa_scraper.py --mode "$SCRAPE_MODE"
+"$PYTHON3" sync/faa_scraper.py --mode "$SCRAPE_MODE" --vision-recovered-out="$VISION_RECOVERED_FILE"
 
 # Stop here in dry-run — scraper test mode makes no DB writes
 if [[ -n "$DRY_RUN" ]]; then
@@ -114,31 +121,40 @@ if [[ -n "$DRY_RUN" ]]; then
   exit 0
 fi
 
-# ── Step 2: OCR word-split fixes ──────────────────────────────────────────────
+# ── Step 2: Disclose any vision-recovered docs ────────────────────────────────
+# Almost always a no-op — only writes anything if Step 1's text-health check
+# actually fired this run. Appends to the client-side OCR_SCANNED_ACS source
+# file so the app's existing disclaimer/counter picks these up on the next
+# build; the GitHub Actions workflow commits this file if it changed.
 echo ""
-echo "▶ Step 2/6 — OCR word-split fixes (new/updated ACs)"
+echo "▶ Step 2/7 — Disclose any vision-recovered docs (OCR_SCANNED_ACS)"
+"$NODE" scripts/append_ocr_scanned_acs.mjs "$VISION_RECOVERED_FILE"
+
+# ── Step 3: OCR word-split fixes ──────────────────────────────────────────────
+echo ""
+echo "▶ Step 3/7 — OCR word-split fixes (new/updated ACs)"
 # --new-only skips already-processed ACs; the scraper clears pdf_blocks_version
 # on any AC whose pdf_text changes, so this only touches freshly scraped rows.
 "$NODE" scripts/apply-ocr-fixes.mjs --new-only
 
-# ── Step 3: Parse backfill ────────────────────────────────────────────────────
+# ── Step 4: Parse backfill ────────────────────────────────────────────────────
 echo ""
-echo "▶ Step 3/6 — Parse blocks backfill"
+echo "▶ Step 4/7 — Parse blocks backfill"
 "$NODE" scripts/backfill-blocks.mjs --touched-out="$TOUCHED_FILE"
 
-# ── Step 4: Figure/table sync (new/updated ACs only) ──────────────────────────
+# ── Step 5: Figure/table sync (new/updated ACs only) ──────────────────────────
 echo ""
-echo "▶ Step 4/6 — Figure/table sync (ACs touched by this sync)"
+echo "▶ Step 5/7 — Figure/table sync (ACs touched by this sync)"
 "$PYTHON3" scripts/extract_figures.py --docs-file="$TOUCHED_FILE"
 
-# ── Step 5: Parser audit (new/updated ACs only) ───────────────────────────────
+# ── Step 6: Parser audit (new/updated ACs only) ───────────────────────────────
 echo ""
-echo "▶ Step 5/6 — Parser audit (ACs touched by this sync)"
+echo "▶ Step 6/7 — Parser audit (ACs touched by this sync)"
 "$NODE" scripts/audit-parser.mjs --docs-file="$TOUCHED_FILE"
 
-# ── Step 6: Update alerts (Premium push notifications) ───────────────────────
+# ── Step 7: Update alerts (Premium push notifications) ───────────────────────
 echo ""
-echo "▶ Step 6/6 — Update alerts (Premium subscribers, ACs touched by this sync)"
+echo "▶ Step 7/7 — Update alerts (Premium subscribers, ACs touched by this sync)"
 "$NODE" scripts/send-update-alerts.mjs --touched-file="$TOUCHED_FILE"
 
 # ── Summary ───────────────────────────────────────────────────────────────────

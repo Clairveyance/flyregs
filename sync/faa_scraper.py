@@ -401,6 +401,22 @@ VISION_RENDER_DPI = 150
 # tokens out, at Sonnet 5's $2/$10 per-MTok introductory rate.
 VISION_EST_COST_PER_PAGE = 0.012
 
+# Hard circuit breaker — independent of every other safeguard above (the
+# systemic-pattern gate, incremental-mode's small new/updated-only scope).
+# If something we haven't anticipated ever makes many documents look broken
+# in the same run (a pypdf regression, a bad --full run, anything), this
+# stops spending real money once total recovered pages in THIS PROCESS
+# cross the cap, rather than silently ballooning. 200 pages is roughly
+# $2.40-$4.80 worst case (see VISION_EST_COST_PER_PAGE) -- generous enough
+# to never interfere with a normal week (historically 0-2 documents, tens
+# of pages at most) but nowhere near what a real corpus-wide problem would
+# need. Once tripped, remaining candidates just keep their thin/pypdf text
+# (same as if ANTHROPIC_API_KEY were unset) and a clear warning is logged —
+# this is a loud failure requiring a human to look, never a silent one.
+VISION_MAX_PAGES_PER_RUN = 200
+_vision_pages_recovered_this_run = 0
+_vision_circuit_tripped = False
+
 VISION_TRANSCRIBE_PROMPT = """You are transcribing one page of an FAA Advisory Circular whose normal text extraction failed on this page (likely a flattened/signed PDF) -- a regulatory document where exact wording, numbering, and punctuation matter.
 
 Rules:
@@ -513,16 +529,25 @@ def log_vision_recovery(doc_num: str, page_count: int, reason: str, chars_before
         log.debug(f"    Failed to log vision recovery for {doc_num}: {e}")
 
 
+
+# Populated with every doc_number that actually got a vision recovery this
+# process — written out at the end of a run (see --vision-recovered-out) so
+# the workflow can auto-append them to OCR_SCANNED_ACS without needing to
+# re-derive the list from Supabase.
+_vision_recovered_docs_this_run: list[str] = []
+
+
 def extract_pdf_text_with_recovery(pdf_bytes: bytes, doc_num: str) -> Optional[str]:
     """
     Normal pypdf extraction, then a cheap per-page health check. Only the
     specific pages that fail it (usually zero, sometimes all of them if the
     whole PDF was flattened) get an actual Claude vision call — never a
-    blanket pass. Recovered docs are NOT auto-added to OCR_SCANNED_ACS (that
-    list is a client-side source file — adding to it takes effect on the
-    next app build, not this sync run); check vision_recovery_log after a
-    run that reports any recoveries and add the doc_number by hand.
+    blanket pass. Guarded by a hard circuit breaker
+    (VISION_MAX_PAGES_PER_RUN) independent of the health check itself, so a
+    problem this check didn't anticipate still can't run away unbounded.
     """
+    global _vision_pages_recovered_this_run, _vision_circuit_tripped
+
     pages, page_count = extract_pdf_pages(pdf_bytes)
     if pages is None or page_count == 0:
         return None
@@ -534,9 +559,29 @@ def extract_pdf_text_with_recovery(pdf_bytes: bytes, doc_num: str) -> Optional[s
 
     chars_before = sum(len(t) for t in pages)
     reason = "zero_text" if chars_before == 0 else "low_chars_per_page"
+
+    if _vision_circuit_tripped:
+        log.warning(f"    {doc_num}: {len(flagged)} page(s) need vision recovery, but the circuit "
+                     f"breaker already tripped this run ({_vision_pages_recovered_this_run}/{VISION_MAX_PAGES_PER_RUN} "
+                     f"pages) — leaving this doc's thin text as-is. Check vision_recovery_log and rerun manually.")
+        full = "\n".join(pages).strip()
+        return full[:500_000] if full else None
+
+    if _vision_pages_recovered_this_run + len(flagged) > VISION_MAX_PAGES_PER_RUN:
+        _vision_circuit_tripped = True
+        log.warning(f"    CIRCUIT BREAKER TRIPPED: recovering {doc_num}'s {len(flagged)} page(s) would "
+                     f"exceed the {VISION_MAX_PAGES_PER_RUN}-page/run cap ({_vision_pages_recovered_this_run} "
+                     f"already used). Skipping vision recovery for this and any further doc this run — "
+                     f"this needs a human to look before running again.")
+        full = "\n".join(pages).strip()
+        return full[:500_000] if full else None
+
     log.info(f"    {doc_num}: {len(flagged)}/{page_count} page(s) below text-health threshold ({reason}) — recovering via vision")
 
     recovered = recover_pages_via_vision(pdf_bytes, flagged, doc_num)
+    _vision_pages_recovered_this_run += len(recovered)
+    if recovered:
+        _vision_recovered_docs_this_run.append(doc_num)
     for i, text in recovered.items():
         pages[i] = text
 
@@ -991,6 +1036,12 @@ def main():
         default=5,
         help="Number of ACs to process in test mode (default: 5)",
     )
+    parser.add_argument(
+        "--vision-recovered-out",
+        default=None,
+        help="Path to write doc_numbers that got a vision recovery this run, one per line "
+             "(empty file if none) -- lets the workflow auto-append them to OCR_SCANNED_ACS",
+    )
     args = parser.parse_args()
 
     if args.mode in ("full", "incremental"):
@@ -1009,6 +1060,11 @@ def main():
         run_full(session)
     elif args.mode == "incremental":
         run_incremental(session)
+
+    if args.vision_recovered_out:
+        with open(args.vision_recovered_out, "w") as f:
+            for doc_num in _vision_recovered_docs_this_run:
+                f.write(doc_num + "\n")
 
 
 if __name__ == "__main__":
