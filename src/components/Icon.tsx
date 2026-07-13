@@ -75,6 +75,7 @@ const SF_TO_IONICONS: Record<string, string> = {
   'highlighter': 'color-wand-outline',
   'photo': 'image-outline',
   'exclamationmark.triangle': 'warning-outline',
+  'arrow.up.left.and.arrow.down.right': 'expand-outline',
 }
 
 export function Icon({ name, size = 22, color, style }: IconProps) {

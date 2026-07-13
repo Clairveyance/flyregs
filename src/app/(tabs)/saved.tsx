@@ -44,6 +44,7 @@ import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions, ShareableAC, ShareableNote } from '@/lib/share'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
+import { useCachedImage } from '@/lib/imageCache'
 
 type Tab = 'all' | 'folders' | 'shared' | 'offline'
 
@@ -544,7 +545,13 @@ export default function SavedScreen() {
                     style={[styles.sharedRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
                     onPress={() => router.push(`/folder/shared/${item.folder_id}`)}
                   >
-                    <OwnerAvatar avatarUrl={item.ownerAvatarUrl} name={item.ownerDisplayName} tokens={tokens} fs={fs} />
+                    <OwnerAvatar
+                      cacheKey={item.folder_id}
+                      avatarUrl={item.ownerAvatarUrl}
+                      name={item.ownerDisplayName}
+                      tokens={tokens}
+                      fs={fs}
+                    />
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.sharedRowText, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
                         {item.folder_name}
@@ -1099,19 +1106,25 @@ function OfflineRow({
 // otherwise an initial, matching the avatar treatment used everywhere else
 // in the app (Drawer, My Account).
 function OwnerAvatar({
+  cacheKey,
   avatarUrl,
   name,
   tokens,
   fs,
 }: {
+  cacheKey: string
   avatarUrl?: string | null
   name?: string | null
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
 }) {
   const initial = name ? name.charAt(0).toUpperCase() : '?'
-  return avatarUrl ? (
-    <Image source={{ uri: avatarUrl }} style={styles.ownerAvatarImg} />
+  // Cached by folder id (not the owner's user id, which this screen never
+  // sees) -- still gives the same "download once, show instantly, refresh
+  // in the background" behavior as the user's own avatar elsewhere.
+  const cachedUrl = useCachedImage(avatarUrl ? `folder_owner_${cacheKey}` : null, avatarUrl ?? null)
+  return cachedUrl ? (
+    <Image source={{ uri: cachedUrl }} style={styles.ownerAvatarImg} />
   ) : (
     <View style={[styles.ownerAvatarFallback, { backgroundColor: tokens.blu }]}>
       <Text style={[styles.ownerAvatarText, { fontSize: fs(13) }]}>{initial}</Text>

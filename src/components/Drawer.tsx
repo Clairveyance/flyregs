@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { View, Text, Pressable, StyleSheet, Alert, Platform, Linking, PanResponder, ScrollView } from 'react-native'
+import { View, Text, Image, Pressable, StyleSheet, Alert, Platform, Linking, PanResponder, ScrollView } from 'react-native'
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -16,6 +16,8 @@ import { Icon } from '@/components/Icon'
 import { restorePurchases } from '@/lib/revenuecat'
 import { APP_VERSION, APP_STORE_URL, PLAY_STORE_URL } from '@/lib/appInfo'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
+import { getAvatarUrl } from '@/lib/avatar'
+import { useCachedImage } from '@/lib/imageCache'
 
 const DRAWER_WIDTH = 284
 
@@ -97,6 +99,13 @@ function DrawerContent({
     ? session.user.email.charAt(0).toUpperCase()
     : '?'
   const email = session?.user?.email ?? 'Not signed in'
+  // Same cache key as Account's own avatar — one downloaded copy on disk
+  // serves both, so the drawer never has to wait on the network (or show
+  // nothing at all on bad wifi) to reflect a photo Account already fetched.
+  const avatarUrl = useCachedImage(
+    session?.user?.id ? `avatar_${session.user.id}` : null,
+    getAvatarUrl(session)
+  )
 
   const nav = (path: string) => {
     onClose()
@@ -149,7 +158,11 @@ function DrawerContent({
         onPress={() => nav(session ? '/account' : '/auth')}
       >
         <View style={[styles.avatar, { backgroundColor: session ? tokens.blu : tokens.bg4 }]}>
-          <Text style={[styles.avatarText, { fontSize: fs(17) }]}>{initials}</Text>
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+          ) : (
+            <Text style={[styles.avatarText, { fontSize: fs(17) }]}>{initials}</Text>
+          )}
         </View>
         <View style={{ flex: 1, marginLeft: 12 }}>
           <View style={styles.profileNameRow}>
@@ -488,6 +501,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexShrink: 0,
   },
+  avatarImage: { width: 46, height: 46, borderRadius: 23 },
   avatarText: {
     color: '#fff',
     fontWeight: '700',

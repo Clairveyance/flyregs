@@ -25,6 +25,8 @@ import { useFS } from '@/context/fontScale'
 import { SUPPORT_EMAIL } from '@/lib/appInfo'
 import { supabase } from '@/lib/supabase'
 import { getAvatarUrl, pickAndUploadAvatar, takeAndUploadAvatar } from '@/lib/avatar'
+import { useCachedImage } from '@/lib/imageCache'
+import { ImagePreviewModal } from '@/components/ImagePreviewModal'
 import {
   isAcUpdateAlertsEnabled,
   enableAcUpdateAlerts,
@@ -40,6 +42,12 @@ export default function AccountScreen() {
   const [restoring, setRestoring] = useState(false)
   const [avatarBusy, setAvatarBusy] = useState(false)
   const [avatarOverride, setAvatarOverride] = useState<string | null>(null)
+  const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false)
+  const rawAvatarUrl = avatarOverride ?? getAvatarUrl(session)
+  // Same cache key as the drawer's avatar and any other "my own photo" spot
+  // — one downloaded copy on disk serves all of them, and it shows instantly
+  // (even offline) instead of re-fetching over the network every render.
+  const avatarUrl = useCachedImage(session?.user?.id ? `avatar_${session.user.id}` : null, rawAvatarUrl)
   const [alertsEnabled, setAlertsEnabled] = useState(false)
   const [alertsBusy, setAlertsBusy] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -245,14 +253,26 @@ export default function AccountScreen() {
           >
             {avatarBusy ? (
               <ActivityIndicator color="#fff" />
-            ) : (avatarOverride ?? getAvatarUrl(session)) ? (
-              <Image source={{ uri: (avatarOverride ?? getAvatarUrl(session))! }} style={styles.avatarImage} />
+            ) : avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
             ) : (
               <Text style={[styles.avatarText, { fontSize: fs(22) }]}>{initial}</Text>
             )}
             <View style={[styles.avatarEditBadge, { backgroundColor: tokens.bg2, borderColor: tokens.bg }]}>
               <Icon name="camera.fill" size={10} color={tokens.t2} />
             </View>
+            {/* Tapping the circle itself opens the edit CTA above — this is
+                a separate, smaller target so a photo can still be enlarged
+                without that CTA getting in the way. */}
+            {avatarUrl && !avatarBusy && (
+              <Pressable
+                onPress={(e) => { e.stopPropagation(); setAvatarPreviewOpen(true) }}
+                hitSlop={6}
+                style={[styles.avatarExpandBadge, { backgroundColor: tokens.bg2, borderColor: tokens.bg }]}
+              >
+                <Icon name="arrow.up.left.and.arrow.down.right" size={9} color={tokens.t2} />
+              </Pressable>
+            )}
           </Pressable>
           <View style={{ flex: 1, marginLeft: 14 }}>
             <Text style={[styles.email, { color: tokens.t1, fontSize: fs(16) }]} numberOfLines={1}>
@@ -354,6 +374,7 @@ export default function AccountScreen() {
           />
         </View>
       </ScrollView>
+      <ImagePreviewModal uri={avatarPreviewOpen ? avatarUrl : null} onClose={() => setAvatarPreviewOpen(false)} />
     </View>
   )
 }
@@ -414,6 +435,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: -2,
     bottom: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarExpandBadge: {
+    position: 'absolute',
+    left: -2,
+    top: -2,
     width: 20,
     height: 20,
     borderRadius: 10,
