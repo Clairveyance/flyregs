@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ScrollView,
   Platform,
+  useWindowDimensions,
 } from 'react-native'
 import { useTheme, ThemeTokens } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -322,6 +323,13 @@ export const ACBody = React.forwardRef<
   const changedSet = useMemo(() => new Set(changedIndices ?? []), [changedIndices])
   const { tokens } = useTheme()
   const fs = useFS()
+  // Native has no scrollIntoView({block: 'center'}) like web does -- this
+  // approximates it so a jumped-to search/highlight result lands mid-screen
+  // instead of a flat 80px below the top, which on a short viewport (or a
+  // match deep in a tall block) could leave the actual highlighted text
+  // sitting right at the bottom edge or just off-screen.
+  const { height: windowHeight } = useWindowDimensions()
+  const centerOffset = windowHeight / 2
 
   const blocks = useMemo(() => {
     const raw = precomputed && precomputed.length ? precomputed : parseAC(text ?? '')
@@ -471,7 +479,7 @@ export const ACBody = React.forwardRef<
       if (!node) return
       node.measureLayout(
         scroller as any,
-        (_x: number, y: number) => scroller.scrollTo({ y: Math.max(0, y - 80), animated: true }),
+        (_x: number, y: number) => scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true }),
         () => {
           // occNode existed but measureLayout still failed at call time (a
           // transient layout-pass issue, not the structural nested-ref
@@ -480,7 +488,7 @@ export const ACBody = React.forwardRef<
           if (node !== blockNode && blockNode) {
             blockNode.measureLayout(
               scroller as any,
-              (_x: number, y: number) => scroller.scrollTo({ y: Math.max(0, y - 80), animated: true }),
+              (_x: number, y: number) => scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true }),
               () => {}
             )
           }
@@ -499,11 +507,11 @@ export const ACBody = React.forwardRef<
       if (!scroller) return
       node.measureLayout(
         scroller as any,
-        (_x, y) => scroller.scrollTo({ y: Math.max(0, y - 80), animated: true }),
+        (_x, y) => scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true }),
         () => {}
       )
     },
-  }), [occurrences, scrollRef, hq])
+  }), [occurrences, scrollRef, hq, centerOffset])
 
   const jumpTo = (id: string) => {
     const scroller = scrollRef?.current
@@ -541,7 +549,7 @@ export const ACBody = React.forwardRef<
           <Pressable style={styles.tocHead} onPress={() => setShowToc((s) => !s)}>
             <Icon name="list.bullet" size={14} color={tokens.blu} />
             <Text style={[styles.tocHeadText, { color: tokens.t1, fontSize: fs(13.5) }]}>Contents</Text>
-            <Text style={[styles.tocCount, { color: tokens.t3 }]}>{toc.length}</Text>
+            <Text style={[styles.tocCount, { color: tokens.t3, fontSize: fs(14) }]}>{toc.length}</Text>
             <Icon name={showToc ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
           </Pressable>
           {showToc && (
@@ -580,7 +588,7 @@ export const ACBody = React.forwardRef<
               >
                 <Icon name="photo" size={14} color={tokens.blu} />
                 <Text style={[styles.tocHeadText, { color: tokens.t1, fontSize: fs(13.5) }]}>Figures & Tables</Text>
-                <Text style={[styles.tocCount, { color: tokens.t3 }]}>{figures.length}</Text>
+                <Text style={[styles.tocCount, { color: tokens.t3, fontSize: fs(14) }]}>{figures.length}</Text>
                 {figures.length > 0 && (
                   <Icon name={showFigures ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
                 )}
@@ -620,7 +628,7 @@ export const ACBody = React.forwardRef<
               >
                 <Icon name="exclamationmark.triangle" size={14} color={tokens.blu} />
                 <Text style={[styles.tocHeadText, { color: tokens.t1, fontSize: fs(13.5) }]}>Formulas to Verify</Text>
-                <Text style={[styles.tocCount, { color: tokens.t3 }]}>{formulaRefs.length}</Text>
+                <Text style={[styles.tocCount, { color: tokens.t3, fontSize: fs(14) }]}>{formulaRefs.length}</Text>
                 <Icon name={showFormulaRefs ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
               </Pressable>
               {showFormulaRefs && (

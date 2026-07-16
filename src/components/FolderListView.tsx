@@ -8,6 +8,7 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native'
 import { router } from 'expo-router'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
@@ -16,7 +17,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
-import { renameFolder, Folder } from '@/lib/folders'
+import { renameFolder, Folder, DUPLICATE_FOLDER_NAME } from '@/lib/folders'
 
 // Folder list for the Saved tab. Fully prop-driven — the parent (saved.tsx)
 // owns folders/counts/select state so it can run bulk actions (share) and a
@@ -69,7 +70,15 @@ export function FolderListView({
 
   const handleRename = async () => {
     if (!editingId || !editName.trim()) { setEditingId(null); return }
-    await renameFolder(editingId, editName.trim())
+    try {
+      await renameFolder(editingId, editName.trim())
+    } catch (e) {
+      if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
+        Alert.alert('Folder Already Exists', `You already have a folder named "${editName.trim()}". Choose a different name.`)
+        return
+      }
+      throw e
+    }
     setEditingId(null)
     onRenamed()
   }

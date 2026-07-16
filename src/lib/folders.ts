@@ -35,19 +35,32 @@ export async function getFolders(): Promise<Folder[]> {
   }
 }
 
+// Thrown by createFolder when a folder with the same name (case/whitespace-
+// insensitive) already exists, so two folders named e.g. "Training" and
+// "training " can't silently coexist and be confused for each other.
+export const DUPLICATE_FOLDER_NAME = 'DUPLICATE_FOLDER_NAME'
+
 export async function createFolder(name: string): Promise<Folder> {
+  const trimmed = name.trim()
   const folders = await getFolders()
+  if (folders.some((f) => f.name.trim().toLowerCase() === trimmed.toLowerCase())) {
+    throw new Error(DUPLICATE_FOLDER_NAME)
+  }
   const now = new Date().toISOString()
-  const folder: Folder = { id: makeId(), name: name.trim(), created_at: now, updated_at: now }
+  const folder: Folder = { id: makeId(), name: trimmed, created_at: now, updated_at: now }
   await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify([...folders, folder]))
   syncPushFolder(folder)
   return folder
 }
 
 export async function renameFolder(id: string, name: string): Promise<void> {
+  const trimmed = name.trim()
   const folders = await getFolders()
+  if (folders.some((f) => f.id !== id && f.name.trim().toLowerCase() === trimmed.toLowerCase())) {
+    throw new Error(DUPLICATE_FOLDER_NAME)
+  }
   const updated_at = new Date().toISOString()
-  const next = folders.map((f) => (f.id === id ? { ...f, name: name.trim(), updated_at } : f))
+  const next = folders.map((f) => (f.id === id ? { ...f, name: trimmed, updated_at } : f))
   await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(next))
   const renamed = next.find((f) => f.id === id)
   if (renamed) syncPushFolder(renamed)

@@ -16,7 +16,7 @@ import { Icon } from '@/components/Icon'
 import { restorePurchases } from '@/lib/revenuecat'
 import { APP_VERSION, APP_STORE_URL, PLAY_STORE_URL } from '@/lib/appInfo'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
-import { getAvatarUrl, getAvatarPresetId } from '@/lib/avatar'
+import { getAvatarUrl, resolveAvatarPresetId } from '@/lib/avatar'
 import { getAvatarPreset } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
 
@@ -89,7 +89,7 @@ function DrawerContent({
   tokens: ThemeTokens
   onClose: () => void
 }) {
-  const { session, isPro, isPremium, setIsPro, setIsPremium } = useAuth()
+  const { session, isPro, isPremium, setIsPro, setIsPremium, avatarOverride } = useAuth()
   const { mode, setMode } = useTheme()
   const { fontScale, setFontScale } = useFontScale()
   const fs = useFS()
@@ -103,11 +103,15 @@ function DrawerContent({
   // Same cache key as Account's own avatar — one downloaded copy on disk
   // serves both, so the drawer never has to wait on the network (or show
   // nothing at all on bad wifi) to reflect a photo Account already fetched.
-  const avatarUrl = useCachedImage(
+  // avatarOverride (shared via AuthContext) takes priority when active, so a
+  // freshly picked/selected avatar shows here the same instant it shows on
+  // Account — see AvatarOverride's comment in lib/avatar.ts.
+  const cachedAvatarUrl = useCachedImage(
     session?.user?.id ? `avatar_${session.user.id}` : null,
     getAvatarUrl(session)
   )
-  const avatarPreset = getAvatarPreset(getAvatarPresetId(session))
+  const avatarUrl = avatarOverride ? avatarOverride.uri : cachedAvatarUrl
+  const avatarPreset = getAvatarPreset(resolveAvatarPresetId(avatarOverride, session))
 
   const nav = (path: string) => {
     onClose()

@@ -3,6 +3,7 @@ import { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { initRevenueCat, getSubscriptionStatus } from '@/lib/revenuecat'
 import { applyRemoteSyncPreference } from '@/lib/sync'
+import type { AvatarOverride } from '@/lib/avatar'
 
 interface AuthContextType {
   session: Session | null
@@ -14,6 +15,17 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
+  // See AvatarOverride's own comment in lib/avatar.ts -- an instant,
+  // same-session override of "my own" avatar so every screen agrees the
+  // moment a photo/preset is picked, instead of each independently waiting
+  // on a session refresh + network image re-fetch.
+  avatarOverride: AvatarOverride | null
+  setAvatarOverride: (uri: string | null, presetId: string | null) => void
+  // Reverts to "no override" (defer back to session/cache-derived truth) --
+  // distinct from setAvatarOverride(null, null), which means "explicitly
+  // removed, show initials." Used to unwind an optimistic update if the
+  // underlying network write (upload, preset select, remove) actually fails.
+  clearAvatarOverride: () => void
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -23,6 +35,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [isPro, setIsPro] = useState(false)
   const [isPremium, setIsPremium] = useState(false)
+  const [avatarOverride, setAvatarOverrideState] = useState<AvatarOverride | null>(null)
+  const setAvatarOverride = (uri: string | null, presetId: string | null) => setAvatarOverrideState({ uri, presetId })
+  const clearAvatarOverride = () => setAvatarOverrideState(null)
 
   useEffect(() => {
     // Pro/Premium require an account as part of the plan (see paywall.tsx's
@@ -81,11 +96,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // the paid entitlement isn't available again until signing back in.
     setIsPro(false)
     setIsPremium(false)
+    // Otherwise a different account signing in on this same device would
+    // start out showing the PREVIOUS account's just-picked avatar override.
+    setAvatarOverrideState(null)
   }
 
   return (
     <AuthContext.Provider
-      value={{ session, loading, isPro, setIsPro, isPremium, setIsPremium, signIn, signUp, signOut }}
+      value={{
+        session, loading, isPro, setIsPro, isPremium, setIsPremium, signIn, signUp, signOut,
+        avatarOverride, setAvatarOverride, clearAvatarOverride,
+      }}
     >
       {children}
     </AuthContext.Provider>

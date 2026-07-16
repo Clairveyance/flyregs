@@ -35,6 +35,7 @@ import {
   deleteFolder,
   addManyToFolder,
   Folder,
+  DUPLICATE_FOLDER_NAME,
 } from '@/lib/folders'
 import { getNotes } from '@/lib/notes'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
@@ -280,10 +281,19 @@ export default function SavedScreen() {
     })
   }
 
-  const handleCreateFolder = async (name: string) => {
-    await createFolder(name)
+  const handleCreateFolder = async (name: string): Promise<boolean> => {
+    try {
+      await createFolder(name)
+    } catch (e) {
+      if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
+        Alert.alert('Folder Already Exists', `You already have a folder named "${name}". Choose a different name.`)
+        return false
+      }
+      throw e
+    }
     setNewFolderVisible(false)
     load()
+    return true
   }
 
   const handleUnshare = (item: SharedByMeFolder) => {
@@ -724,7 +734,7 @@ function FolderEditor({
   onCreate,
   onClose,
 }: {
-  onCreate: (name: string) => void
+  onCreate: (name: string) => void | Promise<boolean>
   onClose: () => void
 }) {
   const { tokens } = useTheme()
@@ -902,11 +912,9 @@ function BookmarkRow({
                   </Text>
                   {!selectMode && (
                     <View style={styles.metaActions}>
-                      {!item.blockText && (
-                        <Pressable onPress={onFolder} hitSlop={10} style={styles.actionBtn}>
-                          <Icon name="folder.badge.plus" size={fs(24)} color={tokens.t3} />
-                        </Pressable>
-                      )}
+                      <Pressable onPress={onFolder} hitSlop={10} style={styles.actionBtn}>
+                        <Icon name="folder.badge.plus" size={fs(24)} color={tokens.t3} />
+                      </Pressable>
                       <Pressable onPress={onShare} hitSlop={10} style={styles.actionBtn}>
                         <Icon name="square.and.arrow.up" size={fs(22)} color={tokens.t3} />
                       </Pressable>

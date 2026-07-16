@@ -25,9 +25,12 @@ import {
   deleteFolder,
   removeFromFolder,
   removeManyFromFolder,
+  addToFolder,
   Folder,
   FolderItem,
+  DUPLICATE_FOLDER_NAME,
 } from '@/lib/folders'
+import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { getBookmarks, BookmarkAC } from '@/lib/bookmarks'
 import { useShareActions } from '@/lib/share'
 import { getOrCreateShareLink, getFolderCollaborators, removeCollaborator, FolderCollaborator } from '@/lib/sharedFolders'
@@ -128,7 +131,15 @@ export default function FolderDetail() {
 
   const handleRename = async () => {
     if (!renameText.trim() || !folder) { setRenaming(false); return }
-    await renameFolder(folder.id, renameText.trim())
+    try {
+      await renameFolder(folder.id, renameText.trim())
+    } catch (e) {
+      if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
+        Alert.alert('Folder Already Exists', `You already have a folder named "${renameText.trim()}". Choose a different name.`)
+        return
+      }
+      throw e
+    }
     setFolder((f) => f ? { ...f, name: renameText.trim() } : f)
     setRenaming(false)
   }
@@ -171,6 +182,27 @@ export default function FolderDetail() {
         },
       },
     ])
+  }
+
+  const [moveItem, setMoveItem] = useState<FolderItem | null>(null)
+
+  const handleMove = (item: FolderItem) => setMoveItem(item)
+
+  const handleConfirmMove = async (destFolderIds: string[]) => {
+    if (!moveItem || !folder) { setMoveItem(null); return }
+    const item = moveItem
+    setMoveItem(null)
+    // Sequential, not Promise.all -- addToFolder/removeFromFolder each do their
+    // own read-modify-write on the shared folder_items list (see folders.ts).
+    for (const destId of destFolderIds) {
+      await addToFolder(destId, item.item_type, item.item_id)
+    }
+    await removeFromFolder(folder.id, item.item_type, item.item_id)
+    if (item.item_type === 'ac') {
+      setAcEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
+    } else {
+      setNoteEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
+    }
   }
 
   const [invitingBusy, setInvitingBusy] = useState(false)
@@ -332,6 +364,7 @@ export default function FolderDetail() {
                     : `/ac/${item.data.acId ?? item.data.id}`
                 )}
                 onRemove={() => handleRemove(item.folderItem)}
+                onMove={() => handleMove(item.folderItem)}
                 onShare={() => handleShareAC(item.data)}
               />
             ) : (
@@ -340,6 +373,7 @@ export default function FolderDetail() {
                 tokens={tokens}
                 onPress={() => router.push({ pathname: '/(tabs)/notes', params: { openId: item.data.id } })}
                 onRemove={() => handleRemove(item.folderItem)}
+                onMove={() => handleMove(item.folderItem)}
                 onShare={() => handleShareNote(item.data)}
               />
             )
@@ -356,6 +390,14 @@ export default function FolderDetail() {
           onPress={cancelRename}
         />
       )}
+
+      <FolderSelectSheet
+        visible={moveItem !== null}
+        title="Move to Folder"
+        excludeFolderId={folder?.id}
+        onConfirm={handleConfirmMove}
+        onClose={() => setMoveItem(null)}
+      />
     </View>
   )
 }
@@ -363,12 +405,13 @@ export default function FolderDetail() {
 // ── Swipeable AC row ──────────────────────────────────────────────────────────
 
 function SwipeableACRow({
-  entry, tokens, onPress, onRemove, onShare,
+  entry, tokens, onPress, onRemove, onMove, onShare,
 }: {
   entry: ACEntry
   tokens: ReturnType<typeof useTheme>['tokens']
   onPress: () => void
   onRemove: () => void
+  onMove: () => void
   onShare: () => void
 }) {
   const fs = useFS()
@@ -433,6 +476,9 @@ function SwipeableACRow({
               <Text style={[styles.rowMeta, { color: tokens.t4, fontSize: fs(11) }]}>{item.office}</Text>
             )}
           </View>
+          <Pressable onPress={onMove} hitSlop={8} style={styles.rowShareBtn}>
+            <Icon name="folder" size={fs(17)} color={tokens.t3} />
+          </Pressable>
           <Pressable onPress={onShare} hitSlop={8} style={styles.rowShareBtn}>
             <Icon name="square.and.arrow.up" size={fs(17)} color={tokens.t3} />
           </Pressable>
@@ -445,12 +491,13 @@ function SwipeableACRow({
 // ── Swipeable Note row ────────────────────────────────────────────────────────
 
 function SwipeableNoteRow({
-  entry, tokens, onPress, onRemove, onShare,
+  entry, tokens, onPress, onRemove, onMove, onShare,
 }: {
   entry: NoteEntry
   tokens: ReturnType<typeof useTheme>['tokens']
   onPress: () => void
   onRemove: () => void
+  onMove: () => void
   onShare: () => void
 }) {
   const fs = useFS()
@@ -533,6 +580,9 @@ function SwipeableNoteRow({
               )}
             </View>
           </View>
+          <Pressable onPress={onMove} hitSlop={8} style={styles.rowShareBtn}>
+            <Icon name="folder" size={fs(17)} color={tokens.t3} />
+          </Pressable>
           <Pressable onPress={onShare} hitSlop={8} style={styles.rowShareBtn}>
             <Icon name="square.and.arrow.up" size={fs(17)} color={tokens.t3} />
           </Pressable>

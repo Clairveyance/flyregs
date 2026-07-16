@@ -20,6 +20,33 @@ export function getAvatarPresetId(session: Session | null): string | null {
   return (session?.user?.user_metadata as { avatar_preset?: string } | undefined)?.avatar_preset ?? null
 }
 
+// A same-session, in-memory-only override of "my own" avatar, held in
+// AuthContext so every screen that renders the signed-in user's own avatar
+// (Account, Drawer, exported share cards) re-renders from the SAME value in
+// the same tick. Without this, each screen independently derived its avatar
+// from `session.user.user_metadata` (only updated once Supabase's own
+// updateUser round-trip + onAuthStateChange completes) and then, for photos,
+// independently re-downloaded the image over the network via imageCache.ts
+// -- so a freshly picked/selected avatar could take a very long time to
+// "catch up" everywhere else, and different screens could disagree in the
+// meantime. Setting this override the instant a photo is picked (using its
+// local file:// uri directly -- no upload/download round-trip needed to
+// display it to the person who just took it) or a preset is tapped makes
+// every consumer agree immediately, with the real network write to Supabase
+// still happening in the background for persistence/other devices.
+export interface AvatarOverride {
+  uri: string | null
+  presetId: string | null
+}
+
+export function resolveAvatarUrl(override: AvatarOverride | null, session: Session | null): string | null {
+  return override ? override.uri : getAvatarUrl(session)
+}
+
+export function resolveAvatarPresetId(override: AvatarOverride | null, session: Session | null): string | null {
+  return override ? override.presetId : getAvatarPresetId(session)
+}
+
 export function getDisplayName(session: Session | null): string {
   const metaName = (session?.user?.user_metadata as { display_name?: string } | undefined)?.display_name
   if (metaName) return metaName
@@ -64,7 +91,12 @@ async function uploadAvatarAsset(userId: string, uri: string): Promise<string> {
 // bucket at <user_id>/avatar.jpg (upsert — always the same path, so re-picking
 // just replaces it), and saves the resulting public URL to the user's own
 // auth metadata. Throws 'PERMISSION_DENIED' if photo library access is denied.
-export async function pickAndUploadAvatar(userId: string): Promise<string> {
+// `onLocalUri`, if given, fires the instant the picker returns a real asset —
+// BEFORE the network upload starts — with that asset's local file:// uri, so
+// the caller can show it immediately (see AvatarOverride in this file) rather
+// than waiting on a full upload+metadata round trip just to display a photo
+// that's already sitting on the phone.
+export async function pickAndUploadAvatar(userId: string, onLocalUri?: (uri: string) => void): Promise<string> {
   const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
   if (!perm.granted) throw new Error('PERMISSION_DENIED')
 
@@ -76,12 +108,14 @@ export async function pickAndUploadAvatar(userId: string): Promise<string> {
   })
   if (result.canceled || !result.assets?.[0]) throw new Error('CANCELLED')
 
-  return uploadAvatarAsset(userId, result.assets[0].uri)
+  const localUri = result.assets[0].uri
+  onLocalUri?.(localUri)
+  return uploadAvatarAsset(userId, localUri)
 }
 
 // Same as pickAndUploadAvatar but takes a fresh photo instead of picking an
 // existing one. Throws 'PERMISSION_DENIED' if camera access is denied.
-export async function takeAndUploadAvatar(userId: string): Promise<string> {
+export async function takeAndUploadAvatar(userId: string, onLocalUri?: (uri: string) => void): Promise<string> {
   const perm = await ImagePicker.requestCameraPermissionsAsync()
   if (!perm.granted) throw new Error('PERMISSION_DENIED')
 
@@ -93,7 +127,9 @@ export async function takeAndUploadAvatar(userId: string): Promise<string> {
   })
   if (result.canceled || !result.assets?.[0]) throw new Error('CANCELLED')
 
-  return uploadAvatarAsset(userId, result.assets[0].uri)
+  const localUri = result.assets[0].uri
+  onLocalUri?.(localUri)
+  return uploadAvatarAsset(userId, localUri)
 }
 
 // Deletes the stored photo object and clears both avatar_url and

@@ -24,7 +24,7 @@ import { restorePurchases } from '@/lib/revenuecat'
 import { useFS } from '@/context/fontScale'
 import { SUPPORT_EMAIL } from '@/lib/appInfo'
 import { supabase } from '@/lib/supabase'
-import { getAvatarUrl, getAvatarPresetId, pickAndUploadAvatar, takeAndUploadAvatar, removeAvatar, selectAvatarPreset } from '@/lib/avatar'
+import { getAvatarUrl, getAvatarPresetId, resolveAvatarUrl, resolveAvatarPresetId, pickAndUploadAvatar, takeAndUploadAvatar, removeAvatar, selectAvatarPreset } from '@/lib/avatar'
 import { getAvatarPreset } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
 import { AvatarEditModal } from '@/components/AvatarEditModal'
@@ -37,33 +37,23 @@ import {
 export default function AccountScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { session, isPro, setIsPro, isPremium, setIsPremium, signOut } = useAuth()
+  const { session, isPro, setIsPro, isPremium, setIsPremium, signOut, avatarOverride, setAvatarOverride, clearAvatarOverride } = useAuth()
   const insets = useSafeAreaInsets()
   const backToMenu = useReturnToMenu()
   const [restoring, setRestoring] = useState(false)
   const [avatarBusy, setAvatarBusy] = useState(false)
-  // undefined = no local override yet (defer to the account's own auth
-  // metadata); null = explicitly removed (show initials even if the auth
-  // context hasn't caught up to the change yet); string = a freshly
-  // picked/uploaded photo. Using undefined as the "no override" sentinel
-  // (rather than null) so an explicit removal can't be mistaken for "no
-  // override" and fall back to showing the old photo.
-  const [avatarOverride, setAvatarOverride] = useState<string | null | undefined>(undefined)
-  // Same undefined/null/string sentinel convention as avatarOverride, for the
-  // preset avatar id (see avatarPresets.ts). A photo and a preset are
-  // mutually exclusive, so picking one always overrides the other locally
-  // too, matching the mutual-exclusivity already enforced server-side.
-  const [presetOverride, setPresetOverride] = useState<string | null | undefined>(undefined)
   const [avatarEditOpen, setAvatarEditOpen] = useState(false)
-  const rawAvatarUrl = avatarOverride !== undefined ? avatarOverride : getAvatarUrl(session)
-  const rawPresetId = presetOverride !== undefined ? presetOverride : getAvatarPresetId(session)
-  const avatarPreset = getAvatarPreset(rawPresetId)
-  // Same cache key as the drawer's avatar and any other "my own photo" spot
-  // — one downloaded copy on disk serves all of them, and it shows instantly
-  // (even offline) instead of re-fetching over the network every render.
-  // Presets never go through this cache -- they're pure vector icon+color,
-  // rendered instantly with no network fetch at all.
-  const avatarUrl = useCachedImage(session?.user?.id ? `avatar_${session.user.id}` : null, rawAvatarUrl)
+  // avatarOverride (shared via AuthContext, see lib/avatar.ts) takes priority
+  // when active so a freshly picked/selected avatar shows instantly here AND
+  // in the Drawer/share cards in the same tick -- no waiting on a session
+  // refresh or a network image re-download just to see your own new photo.
+  const avatarPreset = getAvatarPreset(resolveAvatarPresetId(avatarOverride, session))
+  // Cache input is always the true remote value regardless of override, so
+  // the on-disk cache stays warm in the background; same cache key as the
+  // Drawer's avatar and any other "my own photo" spot. Presets never go
+  // through this cache -- they're pure vector icon+color, no network fetch.
+  const cachedAvatarUrl = useCachedImage(session?.user?.id ? `avatar_${session.user.id}` : null, getAvatarUrl(session))
+  const avatarUrl = avatarOverride ? avatarOverride.uri : cachedAvatarUrl
   const [alertsEnabled, setAlertsEnabled] = useState(false)
   const [alertsBusy, setAlertsBusy] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -106,14 +96,26 @@ export default function AccountScreen() {
     setAlertsBusy(false)
   }
 
-  const runAvatarPick = async (source: () => Promise<string>) => {
+  // `source` calls the picker AND uploads -- it takes an onLocalUri callback
+  // that fires the instant the picker returns a real asset, well before the
+  // network upload finishes, so the override (and everything reading it) can
+  // show the actual picked photo immediately instead of waiting on the
+  // upload + auth metadata round trip. `optimisticallyShown` tracks whether
+  // onLocalUri actually fired THIS attempt, so a permission-denied/cancelled
+  // error (which happens before any local asset exists) never wipes out an
+  // unrelated override that was already active from an earlier, successful
+  // action.
+  const runAvatarPick = async (source: (onLocalUri: (uri: string) => void) => Promise<string>) => {
     if (!session?.user?.id || avatarBusy) return
     setAvatarBusy(true)
+    let optimisticallyShown = false
     try {
-      const url = await source()
-      setAvatarOverride(url)
-      setPresetOverride(null)
+      await source((localUri) => {
+        optimisticallyShown = true
+        setAvatarOverride(localUri, null)
+      })
     } catch (err: any) {
+      if (optimisticallyShown) clearAvatarOverride()
       if (err?.message === 'PERMISSION_DENIED') {
         Alert.alert(
           'Access Disabled',
@@ -145,13 +147,13 @@ export default function AccountScreen() {
         style: 'destructive',
         onPress: async () => {
           setAvatarBusy(true)
+          setAvatarOverride(null, null)
           try {
             await removeAvatar(session.user.id)
-            setAvatarOverride(null)
-            setPresetOverride(null)
           } catch (err: any) {
             Sentry.captureException(err)
             Alert.alert('Error', 'Could not remove your profile picture.')
+            clearAvatarOverride()
           }
           setAvatarBusy(false)
         },
@@ -162,13 +164,13 @@ export default function AccountScreen() {
   const handleSelectPreset = async (presetId: string) => {
     if (!session?.user?.id || avatarBusy) return
     setAvatarBusy(true)
+    setAvatarOverride(null, presetId)
     try {
       await selectAvatarPreset(session.user.id, presetId)
-      setAvatarOverride(null)
-      setPresetOverride(presetId)
     } catch (err: any) {
       Sentry.captureException(err)
       Alert.alert('Error', 'Could not update your profile picture.')
+      clearAvatarOverride()
     }
     setAvatarBusy(false)
   }
@@ -416,8 +418,8 @@ export default function AccountScreen() {
         preset={avatarPreset}
         initial={initial}
         busy={avatarBusy}
-        onTakePhoto={() => runAvatarPick(() => takeAndUploadAvatar(session.user.id))}
-        onChooseLibrary={() => runAvatarPick(() => pickAndUploadAvatar(session.user.id))}
+        onTakePhoto={() => runAvatarPick((onLocalUri) => takeAndUploadAvatar(session.user.id, onLocalUri))}
+        onChooseLibrary={() => runAvatarPick((onLocalUri) => pickAndUploadAvatar(session.user.id, onLocalUri))}
         onSelectPreset={handleSelectPreset}
         onRemovePhoto={handleRemoveAvatar}
         onDone={() => setAvatarEditOpen(false)}

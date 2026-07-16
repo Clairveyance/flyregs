@@ -9,13 +9,14 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
-import { getFolders, createFolder, Folder } from '@/lib/folders'
+import { getFolders, createFolder, Folder, DUPLICATE_FOLDER_NAME } from '@/lib/folders'
 
 // Multi-select folder sheet for bulk operations (adding several items at
 // once). Tapping a folder toggles a checkmark WITHOUT closing or writing to
@@ -30,9 +31,12 @@ interface Props {
   title?: string
   onConfirm: (folderIds: string[]) => void
   onClose: () => void
+  /** Hide one folder from the list -- used by the "Move to Folder" flow so an
+   * item can't be "moved" into the folder it's already sitting in. */
+  excludeFolderId?: string
 }
 
-export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm, onClose }: Props) {
+export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm, onClose, excludeFolderId }: Props) {
   const { tokens } = useTheme()
   const fs = useFS()
   const { isPro } = useAuth()
@@ -51,11 +55,11 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
       setTimeout(() => router.push('/paywall'), 200)
       return
     }
-    getFolders().then(setFolders)
+    getFolders().then((all) => setFolders(excludeFolderId ? all.filter((f) => f.id !== excludeFolderId) : all))
     setSelected(new Set())
     setCreating(false)
     setNewName('')
-  }, [visible, isPro])
+  }, [visible, isPro, excludeFolderId])
 
   useEffect(() => {
     if (creating) setTimeout(() => inputRef.current?.focus(), 80)
@@ -73,7 +77,16 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
   const handleCreate = async () => {
     const name = newName.trim()
     if (!name) return
-    const folder = await createFolder(name)
+    let folder: Folder
+    try {
+      folder = await createFolder(name)
+    } catch (e) {
+      if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
+        Alert.alert('Folder Already Exists', `You already have a folder named "${name}". Choose a different name.`)
+        return
+      }
+      throw e
+    }
     setFolders((prev) => [...prev, folder])
     setSelected((prev) => new Set([...prev, folder.id]))
     setNewName('')

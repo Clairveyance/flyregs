@@ -97,7 +97,7 @@ export function AnimatedSplash({ onDone }: { onDone: () => void }) {
   useEffect(() => {
     const WING_HOLD = 1650
     const MORPH_DURATION = 650
-    const WORDMARK_HOLD = 1750
+    const WORDMARK_HOLD = 900
     const FADE_DURATION = 500
 
     const morphStart = WING_HOLD

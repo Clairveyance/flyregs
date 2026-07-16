@@ -16,14 +16,35 @@ async function getCacheMap(): Promise<Record<string, string>> {
   return raw ? JSON.parse(raw) : {}
 }
 
-async function setCacheEntry(key: string, url: string) {
+// Returns the PREVIOUS url that was cached under `key`, if any, so the
+// caller can clean up the now-orphaned file for that version.
+async function setCacheEntry(key: string, url: string): Promise<string | undefined> {
   const map = await getCacheMap()
+  const prevUrl = map[key]
   map[key] = url
   await AsyncStorage.setItem(MAP_KEY, JSON.stringify(map))
+  return prevUrl
 }
 
-function localFileFor(key: string): File {
-  return new File(Paths.document, `imagecache_${key}.jpg`)
+// The physical filename is versioned by the remote URL itself (avatar/owner
+// photo URLs carry a `?t=` cache-busting timestamp, so this is unique per
+// upload), not just by `key` -- this used to be `imagecache_${key}.jpg` for
+// every version, which meant a new photo download overwrote the SAME file a
+// currently-visible <Image> was already pointing at. Overwriting bytes
+// in-place under an unchanged URI let the native image cache go on showing
+// the OLD bitmap for that URI, which is what caused the "shows an older
+// photo, sometimes the newer one, jumbled across screens" bug: whichever
+// screen's Image had already decoded that path kept whatever it had, purely
+// based on load timing, regardless of which photo was actually current. A
+// per-version filename means a new photo is a genuinely new URI, so there's
+// nothing to overwrite and nothing stale to serve.
+function versionFor(remoteUrl: string): string {
+  const query = remoteUrl.split('?')[1]
+  return (query ?? remoteUrl).replace(/[^a-zA-Z0-9]/g, '_')
+}
+
+function localFileFor(key: string, remoteUrl: string): File {
+  return new File(Paths.document, `imagecache_${key}_${versionFor(remoteUrl)}.jpg`)
 }
 
 // Returns the best available local URI for `remoteUrl` right away — a
@@ -39,7 +60,7 @@ export async function getCachedImageUri(
   remoteUrl: string,
   onUpdate?: (uri: string) => void
 ): Promise<string | null> {
-  const local = localFileFor(key)
+  const local = localFileFor(key, remoteUrl)
   const map = await getCacheMap()
   const isFresh = map[key] === remoteUrl && local.exists
 
@@ -47,8 +68,11 @@ export async function getCachedImageUri(
     ;(async () => {
       try {
         const downloaded = await File.downloadFileAsync(remoteUrl, local, { idempotent: true })
-        await setCacheEntry(key, remoteUrl)
+        const prevUrl = await setCacheEntry(key, remoteUrl)
         onUpdate?.(downloaded.uri)
+        if (prevUrl && prevUrl !== remoteUrl) {
+          try { localFileFor(key, prevUrl).delete() } catch {}
+        }
       } catch {
         // Offline or the fetch failed — whatever's already cached (if
         // anything) keeps showing; nothing worse happens.

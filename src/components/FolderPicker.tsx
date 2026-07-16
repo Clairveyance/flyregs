@@ -9,6 +9,7 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
@@ -22,6 +23,7 @@ import {
   removeFromFolder,
   createFolder,
   Folder,
+  DUPLICATE_FOLDER_NAME,
 } from '@/lib/folders'
 import { addManyBookmarks, BookmarkAC } from '@/lib/bookmarks'
 
@@ -107,7 +109,16 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   const handleCreate = async () => {
     const name = newName.trim()
     if (!name) return
-    const folder = await createFolder(name)
+    let folder: Folder
+    try {
+      folder = await createFolder(name)
+    } catch (e) {
+      if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
+        Alert.alert('Folder Already Exists', `You already have a folder named "${name}". Choose a different name.`)
+        return
+      }
+      throw e
+    }
     if (itemType === 'ac' && acMeta) await addManyBookmarks([{ id: itemId, ...acMeta }])
     await addToFolder(folder.id, itemType, itemId)
     setFolders((prev) => [...prev, folder])

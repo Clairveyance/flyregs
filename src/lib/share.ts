@@ -2,7 +2,7 @@ import { Platform, Share } from 'react-native'
 import * as Sharing from 'expo-sharing'
 import { useAuth } from '@/context/auth'
 import { useShareCard } from '@/components/ShareCardCapture'
-import { getAvatarUrl, getAvatarPresetId, getDisplayName } from '@/lib/avatar'
+import { resolveAvatarUrl, resolveAvatarPresetId, getDisplayName } from '@/lib/avatar'
 
 // Premium feature — every call site should gate on isPremium and route to
 // /paywall?tier=premium itself before calling these (kept out of here since
@@ -40,14 +40,14 @@ function noteLine(note: ShareableNote): string {
 // Share.share() doesn't reliably attach local files there without a
 // FileProvider content:// URI, which expo-sharing handles for you.
 export function useShareActions() {
-  const { session } = useAuth()
+  const { session, avatarOverride } = useAuth()
   const { capture } = useShareCard()
 
   const shareAC = async (ac: ShareableAC) => {
     try {
       const uri = await capture({
-        avatarUrl: getAvatarUrl(session),
-        avatarPreset: getAvatarPresetId(session),
+        avatarUrl: resolveAvatarUrl(avatarOverride, session),
+        avatarPreset: resolveAvatarPresetId(avatarOverride, session),
         displayName: getDisplayName(session),
         kind: 'ac',
         documentNumber: `AC ${ac.document_number}`,
@@ -70,8 +70,8 @@ export function useShareActions() {
   const shareNote = async (note: ShareableNote) => {
     try {
       const uri = await capture({
-        avatarUrl: getAvatarUrl(session),
-        avatarPreset: getAvatarPresetId(session),
+        avatarUrl: resolveAvatarUrl(avatarOverride, session),
+        avatarPreset: resolveAvatarPresetId(avatarOverride, session),
         displayName: getDisplayName(session),
         kind: 'note',
         title: note.title || 'Untitled',
@@ -98,8 +98,8 @@ export function useShareActions() {
         ...notes.map((n) => ({ label: undefined, title: n.title || 'Untitled' })),
       ]
       const uri = await capture({
-        avatarUrl: getAvatarUrl(session),
-        avatarPreset: getAvatarPresetId(session),
+        avatarUrl: resolveAvatarUrl(avatarOverride, session),
+        avatarPreset: resolveAvatarPresetId(avatarOverride, session),
         displayName: getDisplayName(session),
         kind: 'multi',
         title: `${total} item${total !== 1 ? 's' : ''} shared`,

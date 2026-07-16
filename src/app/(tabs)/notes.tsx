@@ -26,12 +26,15 @@ import { useFS } from '@/context/fontScale'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { ACBody } from '@/components/ACBody'
+import { FigureViewer } from '@/components/FigureViewer'
+import { FormulaRefViewer } from '@/components/FormulaRefViewer'
 import { ACBlock } from '@/lib/acFormat'
 import { supabase } from '@/lib/supabase'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { addManyToFolder, getFolders, removeItemsFromAllFolders } from '@/lib/folders'
 import { getACIndex, ACIndexEntry } from '@/lib/acIndex'
+import type { AcFigure, FormulaRef } from '@/types'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions } from '@/lib/share'
 import { getNotes, saveNotes, makeNoteId, type Note } from '@/lib/notes'
@@ -618,6 +621,7 @@ function NoteEditor({
 }) {
   const insets = useSafeAreaInsets()
   const fs = useFS()
+  const { isPro } = useAuth()
   const [title, setTitle] = useState(note.title)
   const [body, setBody] = useState(note.body)
   const [acIndex, setACIndex] = useState<ACIndexEntry[]>([])
@@ -631,6 +635,34 @@ function NoteEditor({
   const [paneData, setPaneData] = useState<ACPreview | null>(null)
   const [paneLoading, setPaneLoading] = useState(false)
   const paneScrollRef = useRef<ScrollView>(null)
+
+  // Figures & Tables / Formulas for the pane's AC -- same two queries and
+  // same Pro gate as the full AC detail screen (ac/[id].tsx). Without these,
+  // this inline preview always rendered ACBody with figures/formulaRefs
+  // undefined, so the "Figures & Tables" box under Contents silently never
+  // appeared here even for ACs that do have one on the full detail screen.
+  const [paneFigures, setPaneFigures] = useState<AcFigure[] | null>(null)
+  const [paneFormulaRefs, setPaneFormulaRefs] = useState<FormulaRef[] | null>(null)
+  const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
+  const [viewerFormulaRef, setViewerFormulaRef] = useState<FormulaRef | null>(null)
+
+  useEffect(() => {
+    if (!paneData?.id) { setPaneFigures(null); setPaneFormulaRefs(null); return }
+    setPaneFigures(null)
+    supabase
+      .from('ac_figures')
+      .select('id,label,caption,page,image_url')
+      .eq('ac_id', paneData.id)
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => setPaneFigures((data as AcFigure[]) ?? []))
+    setPaneFormulaRefs(null)
+    supabase
+      .from('ac_formula_refs')
+      .select('id,label,note,page,image_url')
+      .eq('ac_id', paneData.id)
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => setPaneFormulaRefs((data as FormulaRef[]) ?? []))
+  }, [paneData?.id])
 
   // The sheet is full-height (SHEET_H) and pinned to the bottom. translateY
   // slides it: SHEET_H = fully closed (off bottom), REST = collapsed/peeking,
@@ -857,6 +889,10 @@ function NoteEditor({
                     <ACBody
                       blocks={paneData.pdf_blocks}
                       scrollRef={paneScrollRef}
+                      figures={isPro ? (paneFigures ?? undefined) : undefined}
+                      formulaRefs={isPro ? (paneFormulaRefs ?? undefined) : undefined}
+                      onOpenFigure={isPro ? setViewerFigure : undefined}
+                      onOpenFormulaRef={isPro ? setViewerFormulaRef : undefined}
                     />
                   </>
                 ) : (
@@ -873,6 +909,9 @@ function NoteEditor({
           </ScrollView>
         </Animated.View>
       )}
+
+      <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
+      <FormulaRefViewer formulaRef={viewerFormulaRef} onClose={() => setViewerFormulaRef(null)} />
     </KeyboardAvoidingView>
   )
 }
