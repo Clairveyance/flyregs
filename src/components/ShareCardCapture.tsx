@@ -1,6 +1,8 @@
 import { createContext, useContext, useRef, useState, ReactNode } from 'react'
 import { View, Text, Image, StyleSheet } from 'react-native'
 import { captureRef } from 'react-native-view-shot'
+import { Icon } from '@/components/Icon'
+import { getAvatarPreset } from '@/lib/avatarPresets'
 
 export interface ShareCardItem {
   label?: string
@@ -9,6 +11,7 @@ export interface ShareCardItem {
 
 export interface ShareCardContent {
   avatarUrl: string | null
+  avatarPreset?: string | null
   displayName: string
   kind: 'ac' | 'note' | 'multi'
   documentNumber?: string
@@ -75,6 +78,10 @@ export function ShareCardProvider({ children }: { children: ReactNode }) {
             <View style={styles.header}>
               {content.avatarUrl ? (
                 <Image source={{ uri: content.avatarUrl }} style={styles.avatar} />
+              ) : getAvatarPreset(content.avatarPreset) ? (
+                <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: getAvatarPreset(content.avatarPreset)!.color }]}>
+                  <Icon name={getAvatarPreset(content.avatarPreset)!.icon} size={24} color="#fff" />
+                </View>
               ) : (
                 <View style={[styles.avatar, styles.avatarFallback]}>
                   <Text style={styles.avatarFallbackText}>{content.displayName.charAt(0).toUpperCase()}</Text>

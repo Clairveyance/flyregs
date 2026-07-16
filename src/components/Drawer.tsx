@@ -16,7 +16,8 @@ import { Icon } from '@/components/Icon'
 import { restorePurchases } from '@/lib/revenuecat'
 import { APP_VERSION, APP_STORE_URL, PLAY_STORE_URL } from '@/lib/appInfo'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
-import { getAvatarUrl } from '@/lib/avatar'
+import { getAvatarUrl, getAvatarPresetId } from '@/lib/avatar'
+import { getAvatarPreset } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
 
 const DRAWER_WIDTH = 284
@@ -106,6 +107,7 @@ function DrawerContent({
     session?.user?.id ? `avatar_${session.user.id}` : null,
     getAvatarUrl(session)
   )
+  const avatarPreset = getAvatarPreset(getAvatarPresetId(session))
 
   const nav = (path: string) => {
     onClose()
@@ -157,9 +159,11 @@ function DrawerContent({
         style={[styles.profileCard, { borderColor: tokens.bdr }]}
         onPress={() => nav(session ? '/account' : '/auth')}
       >
-        <View style={[styles.avatar, { backgroundColor: session ? tokens.blu : tokens.bg4 }]}>
+        <View style={[styles.avatar, { backgroundColor: avatarPreset?.color ?? (session ? tokens.blu : tokens.bg4) }]}>
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+          ) : avatarPreset ? (
+            <Icon name={avatarPreset.icon} size={20} color="#fff" />
           ) : (
             <Text style={[styles.avatarText, { fontSize: fs(17) }]}>{initials}</Text>
           )}

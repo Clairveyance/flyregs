@@ -10,6 +10,7 @@ export interface SharedFolderSummary {
   folder_id: string
   folder_name: string
   ownerAvatarUrl?: string | null
+  ownerAvatarPreset?: string | null
   ownerDisplayName?: string | null
 }
 
@@ -83,14 +84,18 @@ export async function getMyCollaborations(): Promise<SharedFolderSummary[]> {
   const { data: owners } = await supabase
     .rpc('get_shared_folder_owners', { p_folder_ids: folders.map((f) => f.id) })
     .then((res) => res, () => ({ data: null as any[] | null }))
-  const ownerMap = new Map<string, { avatarUrl: string | null; displayName: string | null }>(
-    (owners ?? []).map((o: any) => [o.out_folder_id, { avatarUrl: o.out_owner_avatar_url, displayName: o.out_owner_display_name }])
+  const ownerMap = new Map<string, { avatarUrl: string | null; avatarPreset: string | null; displayName: string | null }>(
+    (owners ?? []).map((o: any) => [
+      o.out_folder_id,
+      { avatarUrl: o.out_owner_avatar_url, avatarPreset: o.out_owner_avatar_preset, displayName: o.out_owner_display_name },
+    ])
   )
 
   return folders.map((f) => ({
     folder_id: f.id,
     folder_name: f.name,
     ownerAvatarUrl: ownerMap.get(f.id)?.avatarUrl ?? null,
+    ownerAvatarPreset: ownerMap.get(f.id)?.avatarPreset ?? null,
     ownerDisplayName: ownerMap.get(f.id)?.displayName ?? null,
   }))
 }

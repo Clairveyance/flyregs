@@ -45,6 +45,7 @@ import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions, ShareableAC, ShareableNote } from '@/lib/share'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { useCachedImage } from '@/lib/imageCache'
+import { getAvatarPreset } from '@/lib/avatarPresets'
 
 type Tab = 'all' | 'folders' | 'shared' | 'offline'
 
@@ -548,6 +549,7 @@ export default function SavedScreen() {
                     <OwnerAvatar
                       cacheKey={item.folder_id}
                       avatarUrl={item.ownerAvatarUrl}
+                      presetId={item.ownerAvatarPreset}
                       name={item.ownerDisplayName}
                       tokens={tokens}
                       fs={fs}
@@ -1103,28 +1105,38 @@ function OfflineRow({
 }
 
 // Small circular badge showing who shared a folder -- their photo if set,
-// otherwise an initial, matching the avatar treatment used everywhere else
-// in the app (Drawer, My Account).
+// else their chosen preset (vector icon+color, see avatarPresets.ts), else an
+// initial -- same three-way fallback used everywhere else in the app
+// (Drawer, My Account), sourced from get_shared_folder_owners since a
+// collaborator's own avatar/preset picks are otherwise invisible to RLS.
 function OwnerAvatar({
   cacheKey,
   avatarUrl,
+  presetId,
   name,
   tokens,
   fs,
 }: {
   cacheKey: string
   avatarUrl?: string | null
+  presetId?: string | null
   name?: string | null
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
 }) {
   const initial = name ? name.charAt(0).toUpperCase() : '?'
+  const preset = getAvatarPreset(presetId)
   // Cached by folder id (not the owner's user id, which this screen never
   // sees) -- still gives the same "download once, show instantly, refresh
-  // in the background" behavior as the user's own avatar elsewhere.
+  // in the background" behavior as the user's own avatar elsewhere. Presets
+  // never go through this cache -- pure vector icon+color, no network fetch.
   const cachedUrl = useCachedImage(avatarUrl ? `folder_owner_${cacheKey}` : null, avatarUrl ?? null)
   return cachedUrl ? (
     <Image source={{ uri: cachedUrl }} style={styles.ownerAvatarImg} />
+  ) : preset ? (
+    <View style={[styles.ownerAvatarFallback, { backgroundColor: preset.color }]}>
+      <Icon name={preset.icon} size={16} color="#fff" />
+    </View>
   ) : (
     <View style={[styles.ownerAvatarFallback, { backgroundColor: tokens.blu }]}>
       <Text style={[styles.ownerAvatarText, { fontSize: fs(13) }]}>{initial}</Text>

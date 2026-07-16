@@ -11,6 +11,15 @@ export function getAvatarUrl(session: Session | null): string | null {
   return (session?.user?.user_metadata as { avatar_url?: string } | undefined)?.avatar_url ?? null
 }
 
+// A preset (vector icon + color, see avatarPresets.ts) and an uploaded photo
+// are mutually exclusive avatar sources -- exactly one or neither is ever
+// set. getAvatarUrl/getAvatarPresetId each just read their own metadata key;
+// the mutual-exclusivity is enforced on write (uploadAvatarAsset,
+// selectAvatarPreset, and removeAvatar all clear the other key).
+export function getAvatarPresetId(session: Session | null): string | null {
+  return (session?.user?.user_metadata as { avatar_preset?: string } | undefined)?.avatar_preset ?? null
+}
+
 export function getDisplayName(session: Session | null): string {
   const metaName = (session?.user?.user_metadata as { display_name?: string } | undefined)?.display_name
   if (metaName) return metaName
@@ -41,7 +50,11 @@ async function uploadAvatarAsset(userId: string, uri: string): Promise<string> {
   // keep showing a cached copy of the OLD image indefinitely.
   const publicUrl = `${data.publicUrl}?t=${Date.now()}`
 
-  const { error: updateError } = await supabase.auth.updateUser({ data: { avatar_url: publicUrl } })
+  // Clears avatar_preset too -- a real photo and a preset are mutually
+  // exclusive, so uploading one always replaces the other outright.
+  const { error: updateError } = await supabase.auth.updateUser({
+    data: { avatar_url: publicUrl, avatar_preset: null },
+  })
   if (updateError) throw updateError
 
   return publicUrl
@@ -81,4 +94,29 @@ export async function takeAndUploadAvatar(userId: string): Promise<string> {
   if (result.canceled || !result.assets?.[0]) throw new Error('CANCELLED')
 
   return uploadAvatarAsset(userId, result.assets[0].uri)
+}
+
+// Deletes the stored photo object and clears both avatar_url and
+// avatar_preset from the user's auth metadata, returning the account to
+// initials-only regardless of which source (photo or preset) was active.
+// Storage removal failing (e.g. the object was already gone) doesn't block
+// clearing the metadata -- a stale Storage object with nothing pointing at
+// it is harmless, whereas leaving avatar_url set to a deleted file would
+// show a broken image.
+export async function removeAvatar(userId: string): Promise<void> {
+  const path = `${userId}/avatar.jpg`
+  await supabase.storage.from('avatars').remove([path]).catch(() => {})
+  const { error } = await supabase.auth.updateUser({ data: { avatar_url: null, avatar_preset: null } })
+  if (error) throw error
+}
+
+// Sets a vector preset (see avatarPresets.ts) as the avatar, clearing any
+// previously uploaded photo -- a preset and a photo are mutually exclusive.
+// Storage removal is best-effort for the same reason as removeAvatar: a
+// leftover Storage object with nothing pointing at it is harmless.
+export async function selectAvatarPreset(userId: string, presetId: string): Promise<void> {
+  const path = `${userId}/avatar.jpg`
+  await supabase.storage.from('avatars').remove([path]).catch(() => {})
+  const { error } = await supabase.auth.updateUser({ data: { avatar_url: null, avatar_preset: presetId } })
+  if (error) throw error
 }

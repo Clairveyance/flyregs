@@ -24,9 +24,10 @@ import { restorePurchases } from '@/lib/revenuecat'
 import { useFS } from '@/context/fontScale'
 import { SUPPORT_EMAIL } from '@/lib/appInfo'
 import { supabase } from '@/lib/supabase'
-import { getAvatarUrl, pickAndUploadAvatar, takeAndUploadAvatar } from '@/lib/avatar'
+import { getAvatarUrl, getAvatarPresetId, pickAndUploadAvatar, takeAndUploadAvatar, removeAvatar, selectAvatarPreset } from '@/lib/avatar'
+import { getAvatarPreset } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
-import { ImagePreviewModal } from '@/components/ImagePreviewModal'
+import { AvatarEditModal } from '@/components/AvatarEditModal'
 import {
   isAcUpdateAlertsEnabled,
   enableAcUpdateAlerts,
@@ -41,12 +42,27 @@ export default function AccountScreen() {
   const backToMenu = useReturnToMenu()
   const [restoring, setRestoring] = useState(false)
   const [avatarBusy, setAvatarBusy] = useState(false)
-  const [avatarOverride, setAvatarOverride] = useState<string | null>(null)
-  const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false)
-  const rawAvatarUrl = avatarOverride ?? getAvatarUrl(session)
+  // undefined = no local override yet (defer to the account's own auth
+  // metadata); null = explicitly removed (show initials even if the auth
+  // context hasn't caught up to the change yet); string = a freshly
+  // picked/uploaded photo. Using undefined as the "no override" sentinel
+  // (rather than null) so an explicit removal can't be mistaken for "no
+  // override" and fall back to showing the old photo.
+  const [avatarOverride, setAvatarOverride] = useState<string | null | undefined>(undefined)
+  // Same undefined/null/string sentinel convention as avatarOverride, for the
+  // preset avatar id (see avatarPresets.ts). A photo and a preset are
+  // mutually exclusive, so picking one always overrides the other locally
+  // too, matching the mutual-exclusivity already enforced server-side.
+  const [presetOverride, setPresetOverride] = useState<string | null | undefined>(undefined)
+  const [avatarEditOpen, setAvatarEditOpen] = useState(false)
+  const rawAvatarUrl = avatarOverride !== undefined ? avatarOverride : getAvatarUrl(session)
+  const rawPresetId = presetOverride !== undefined ? presetOverride : getAvatarPresetId(session)
+  const avatarPreset = getAvatarPreset(rawPresetId)
   // Same cache key as the drawer's avatar and any other "my own photo" spot
   // — one downloaded copy on disk serves all of them, and it shows instantly
   // (even offline) instead of re-fetching over the network every render.
+  // Presets never go through this cache -- they're pure vector icon+color,
+  // rendered instantly with no network fetch at all.
   const avatarUrl = useCachedImage(session?.user?.id ? `avatar_${session.user.id}` : null, rawAvatarUrl)
   const [alertsEnabled, setAlertsEnabled] = useState(false)
   const [alertsBusy, setAlertsBusy] = useState(false)
@@ -96,6 +112,7 @@ export default function AccountScreen() {
     try {
       const url = await source()
       setAvatarOverride(url)
+      setPresetOverride(null)
     } catch (err: any) {
       if (err?.message === 'PERMISSION_DENIED') {
         Alert.alert(
@@ -116,15 +133,44 @@ export default function AccountScreen() {
 
   const handlePickAvatar = () => {
     if (!session?.user?.id || avatarBusy) return
-    if (Platform.OS === 'web') {
-      runAvatarPick(() => pickAndUploadAvatar(session.user.id))
-      return
-    }
-    Alert.alert('Profile Photo', undefined, [
+    setAvatarEditOpen(true)
+  }
+
+  const handleRemoveAvatar = () => {
+    if (!session?.user?.id || avatarBusy) return
+    Alert.alert('Remove Photo', 'Remove your profile photo?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Take Photo', onPress: () => runAvatarPick(() => takeAndUploadAvatar(session.user.id)) },
-      { text: 'Choose from Library', onPress: () => runAvatarPick(() => pickAndUploadAvatar(session.user.id)) },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          setAvatarBusy(true)
+          try {
+            await removeAvatar(session.user.id)
+            setAvatarOverride(null)
+            setPresetOverride(null)
+          } catch (err: any) {
+            Sentry.captureException(err)
+            Alert.alert('Error', 'Could not remove your profile picture.')
+          }
+          setAvatarBusy(false)
+        },
+      },
     ])
+  }
+
+  const handleSelectPreset = async (presetId: string) => {
+    if (!session?.user?.id || avatarBusy) return
+    setAvatarBusy(true)
+    try {
+      await selectAvatarPreset(session.user.id, presetId)
+      setAvatarOverride(null)
+      setPresetOverride(presetId)
+    } catch (err: any) {
+      Sentry.captureException(err)
+      Alert.alert('Error', 'Could not update your profile picture.')
+    }
+    setAvatarBusy(false)
   }
 
   const email = session?.user?.email ?? null
@@ -247,7 +293,7 @@ export default function AccountScreen() {
         {/* Profile */}
         <View style={[styles.profileCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <Pressable
-            style={[styles.avatar, { backgroundColor: tokens.blu }]}
+            style={[styles.avatar, { backgroundColor: avatarPreset?.color ?? tokens.blu }]}
             onPress={handlePickAvatar}
             disabled={avatarBusy}
           >
@@ -255,24 +301,14 @@ export default function AccountScreen() {
               <ActivityIndicator color="#fff" />
             ) : avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+            ) : avatarPreset ? (
+              <Icon name={avatarPreset.icon} size={26} color="#fff" />
             ) : (
               <Text style={[styles.avatarText, { fontSize: fs(22) }]}>{initial}</Text>
             )}
             <View style={[styles.avatarEditBadge, { backgroundColor: tokens.bg2, borderColor: tokens.bg }]}>
               <Icon name="camera.fill" size={10} color={tokens.t2} />
             </View>
-            {/* Tapping the circle itself opens the edit CTA above — this is
-                a separate, smaller target so a photo can still be enlarged
-                without that CTA getting in the way. */}
-            {avatarUrl && !avatarBusy && (
-              <Pressable
-                onPress={(e) => { e.stopPropagation(); setAvatarPreviewOpen(true) }}
-                hitSlop={6}
-                style={[styles.avatarExpandBadge, { backgroundColor: tokens.bg2, borderColor: tokens.bg }]}
-              >
-                <Icon name="arrow.up.left.and.arrow.down.right" size={9} color={tokens.t2} />
-              </Pressable>
-            )}
           </Pressable>
           <View style={{ flex: 1, marginLeft: 14 }}>
             <Text style={[styles.email, { color: tokens.t1, fontSize: fs(16) }]} numberOfLines={1}>
@@ -374,7 +410,18 @@ export default function AccountScreen() {
           />
         </View>
       </ScrollView>
-      <ImagePreviewModal uri={avatarPreviewOpen ? avatarUrl : null} onClose={() => setAvatarPreviewOpen(false)} />
+      <AvatarEditModal
+        visible={avatarEditOpen}
+        avatarUrl={avatarUrl}
+        preset={avatarPreset}
+        initial={initial}
+        busy={avatarBusy}
+        onTakePhoto={() => runAvatarPick(() => takeAndUploadAvatar(session.user.id))}
+        onChooseLibrary={() => runAvatarPick(() => pickAndUploadAvatar(session.user.id))}
+        onSelectPreset={handleSelectPreset}
+        onRemovePhoto={handleRemoveAvatar}
+        onDone={() => setAvatarEditOpen(false)}
+      />
     </View>
   )
 }
@@ -435,17 +482,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: -2,
     bottom: -2,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarExpandBadge: {
-    position: 'absolute',
-    left: -2,
-    top: -2,
     width: 20,
     height: 20,
     borderRadius: 10,

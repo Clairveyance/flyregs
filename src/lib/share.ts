@@ -2,7 +2,7 @@ import { Platform, Share } from 'react-native'
 import * as Sharing from 'expo-sharing'
 import { useAuth } from '@/context/auth'
 import { useShareCard } from '@/components/ShareCardCapture'
-import { getAvatarUrl, getDisplayName } from '@/lib/avatar'
+import { getAvatarUrl, getAvatarPresetId, getDisplayName } from '@/lib/avatar'
 
 // Premium feature — every call site should gate on isPremium and route to
 // /paywall?tier=premium itself before calling these (kept out of here since
@@ -47,6 +47,7 @@ export function useShareActions() {
     try {
       const uri = await capture({
         avatarUrl: getAvatarUrl(session),
+        avatarPreset: getAvatarPresetId(session),
         displayName: getDisplayName(session),
         kind: 'ac',
         documentNumber: `AC ${ac.document_number}`,
@@ -70,6 +71,7 @@ export function useShareActions() {
     try {
       const uri = await capture({
         avatarUrl: getAvatarUrl(session),
+        avatarPreset: getAvatarPresetId(session),
         displayName: getDisplayName(session),
         kind: 'note',
         title: note.title || 'Untitled',
@@ -97,6 +99,7 @@ export function useShareActions() {
       ]
       const uri = await capture({
         avatarUrl: getAvatarUrl(session),
+        avatarPreset: getAvatarPresetId(session),
         displayName: getDisplayName(session),
         kind: 'multi',
         title: `${total} item${total !== 1 ? 's' : ''} shared`,

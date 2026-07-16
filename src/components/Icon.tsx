@@ -74,6 +74,12 @@ const SF_TO_IONICONS: Record<string, string> = {
   'textformat.size': 'text-outline',
   'highlighter': 'color-wand-outline',
   'photo': 'image-outline',
+  'photo.fill': 'image',
+  'cloud.fill': 'cloud',
+  'sun.max.fill': 'sunny',
+  'moon.stars.fill': 'moon',
+  'bolt.fill': 'flash',
+  'flame.fill': 'flame',
   'exclamationmark.triangle': 'warning-outline',
   'arrow.up.left.and.arrow.down.right': 'expand-outline',
 }
