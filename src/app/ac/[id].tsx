@@ -76,6 +76,12 @@ export default function ACDetailScreen() {
   const [changedIdx, setChangedIdx] = useState(0)
   const [loading, setLoading] = useState(true)
   const [scrollY, setScrollY] = useState(0)
+  // The ScrollView's own rendered height -- passed to ACBody so a jump-to
+  // search-match/changed-block scroll can center against what's ACTUALLY
+  // visible (header + this screen's own chrome above it, tab bar below it),
+  // not the full device window, which is taller and made prior centering
+  // attempts land the target too low/off the bottom of the real viewport.
+  const [scrollViewportHeight, setScrollViewportHeight] = useState<number | undefined>(undefined)
   const { badgeDays } = useBadgeLifespan()
 
   const [acSearch, setAcSearch] = useState('')
@@ -538,6 +544,7 @@ export default function ACDetailScreen() {
           ref={scrollRef}
           contentContainerStyle={styles.content}
           onScroll={e => setScrollY(e.nativeEvent.contentOffset.y)}
+          onLayout={e => setScrollViewportHeight(e.nativeEvent.layout.height)}
           scrollEventThrottle={100}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
@@ -716,6 +723,7 @@ export default function ACDetailScreen() {
                 blocks={ac.pdf_blocks}
                 bodyLimit={isPro ? undefined : previewBlockCount(ac.pdf_blocks.length)}
                 scrollRef={scrollRef}
+                viewportHeight={scrollViewportHeight}
                 highlightQuery={isPro && acSearchDebounced.length >= 2 ? acSearchDebounced : undefined}
                 onMatchCount={handleMatchCount}
                 activeMatch={matchCount > 0 ? matchIdx : -1}

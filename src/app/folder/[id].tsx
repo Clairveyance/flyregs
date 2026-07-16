@@ -31,6 +31,7 @@ import {
   DUPLICATE_FOLDER_NAME,
 } from '@/lib/folders'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
+import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { getBookmarks, BookmarkAC } from '@/lib/bookmarks'
 import { useShareActions } from '@/lib/share'
 import { getOrCreateShareLink, getFolderCollaborators, removeCollaborator, FolderCollaborator } from '@/lib/sharedFolders'
@@ -185,6 +186,8 @@ export default function FolderDetail() {
   }
 
   const [moveItem, setMoveItem] = useState<FolderItem | null>(null)
+  const [confirmTick, setConfirmTick] = useState(0)
+  const [confirmLabel, setConfirmLabel] = useState('')
 
   const handleMove = (item: FolderItem) => setMoveItem(item)
 
@@ -203,6 +206,16 @@ export default function FolderDetail() {
     } else {
       setNoteEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
     }
+    // Confirm WHERE it actually landed -- without this the item just
+    // silently vanished from the list on Done, with no visible cue of which
+    // folder it moved to (matching the same "Added to X" pattern used for
+    // adding to a folder elsewhere in the app, just worded for a move).
+    const allFolders = await getFolders()
+    const names = destFolderIds.map((fid) => allFolders.find((f) => f.id === fid)?.name).filter(Boolean)
+    setConfirmLabel(
+      names.length === 1 ? `Moved to ${names[0]}` : names.length > 1 ? 'Moved to multiple folders' : 'Moved'
+    )
+    setConfirmTick((t) => t + 1)
   }
 
   const [invitingBusy, setInvitingBusy] = useState(false)
@@ -398,6 +411,7 @@ export default function FolderDetail() {
         onConfirm={handleConfirmMove}
         onClose={() => setMoveItem(null)}
       />
+      <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
     </View>
   )
 }

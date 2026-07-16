@@ -285,6 +285,15 @@ export const ACBody = React.forwardRef<
     text?: string | null
     blocks?: ACBlock[] | null
     scrollRef?: RefObject<ScrollView | null>
+    /** The scrollRef ScrollView's own rendered height (from its onLayout),
+     * used to center a jumped-to match/block within what's ACTUALLY visible
+     * -- not the full device window, which is usually taller than the
+     * ScrollView's own viewport once header/search-bar chrome above it and
+     * a tab bar below it are accounted for. Without this, "centering" using
+     * the window height overshoots wherever the true viewport is shorter,
+     * landing the target too low (sometimes below the visible area) instead
+     * of centered. Falls back to window height if not measured yet. */
+    viewportHeight?: number
     highlightQuery?: string
     onMatchCount?: (n: number) => void
     activeMatch?: number
@@ -319,7 +328,7 @@ export const ACBody = React.forwardRef<
     formulaRefs?: FormulaRef[]
     onOpenFormulaRef?: (formulaRef: FormulaRef) => void
   }
->(function ACBody({ text, blocks: precomputed, scrollRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight, figures, onOpenFigure, formulaRefs, onOpenFormulaRef }, ref) {
+>(function ACBody({ text, blocks: precomputed, scrollRef, viewportHeight, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight, figures, onOpenFigure, formulaRefs, onOpenFormulaRef }, ref) {
   const changedSet = useMemo(() => new Set(changedIndices ?? []), [changedIndices])
   const { tokens } = useTheme()
   const fs = useFS()
@@ -327,9 +336,16 @@ export const ACBody = React.forwardRef<
   // approximates it so a jumped-to search/highlight result lands mid-screen
   // instead of a flat 80px below the top, which on a short viewport (or a
   // match deep in a tall block) could leave the actual highlighted text
-  // sitting right at the bottom edge or just off-screen.
+  // sitting right at the bottom edge or just off-screen. Prefer the
+  // ScrollView's OWN measured height (`viewportHeight`, from its onLayout in
+  // the parent screen) over the full device window height -- the window is
+  // always taller than the ScrollView's real visible area once header/search
+  // chrome above it and a tab bar below it are subtracted, so centering
+  // against window height overshoots and can still land the target below
+  // the ScrollView's actual visible bottom edge. Falls back to window height
+  // (better than nothing) if the parent hasn't measured yet/doesn't pass it.
   const { height: windowHeight } = useWindowDimensions()
-  const centerOffset = windowHeight / 2
+  const centerOffset = (viewportHeight ?? windowHeight) / 2
 
   const blocks = useMemo(() => {
     const raw = precomputed && precomputed.length ? precomputed : parseAC(text ?? '')
