@@ -11,6 +11,7 @@ import {
   Switch,
   ActivityIndicator,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
 } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
@@ -759,7 +760,7 @@ function FolderEditor({
         </View>
       </View>
 
-      <View style={styles.editorBody}>
+      <Pressable style={styles.editorBody} onPress={Keyboard.dismiss}>
         <TextInput
           style={[styles.titleInput, { color: tokens.t1, fontSize: fs(19) }]}
           placeholder="Folder name"
@@ -772,7 +773,7 @@ function FolderEditor({
           onSubmitEditing={handleCreate}
           maxLength={60}
         />
-      </View>
+      </Pressable>
     </KeyboardAvoidingView>
   )
 }

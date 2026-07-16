@@ -540,6 +540,7 @@ export default function ACDetailScreen() {
           onScroll={e => setScrollY(e.nativeEvent.contentOffset.y)}
           scrollEventThrottle={100}
           keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
         >
           {/* Badge row */}
           <View style={styles.badgeRow}>

@@ -315,6 +315,8 @@ export default function FolderDetail() {
           sections={sections}
           keyExtractor={(item) => item.folderItem.id}
           contentContainerStyle={styles.list}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
           stickySectionHeadersEnabled={false}
           renderSectionHeader={({ section }) => (
             <Text style={[styles.sectionLabel, { color: tokens.t3, fontSize: fs(11) }]}>{section.title}</Text>

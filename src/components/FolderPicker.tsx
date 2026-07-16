@@ -164,6 +164,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
               keyExtractor={(f) => f.id}
               style={styles.list}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
               renderItem={({ item }) => {
                 const isMember = memberIds.has(item.id)
                 return (

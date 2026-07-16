@@ -118,6 +118,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
               keyExtractor={(f) => f.id}
               style={styles.list}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
               renderItem={({ item }) => {
                 const isSelected = selected.has(item.id)
                 return (

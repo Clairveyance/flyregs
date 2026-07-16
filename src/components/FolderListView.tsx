@@ -121,6 +121,7 @@ export function FolderListView({
         keyExtractor={(f) => f.id}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         ListHeaderComponent={listHeader}
         ListFooterComponent={editingId ? <Pressable style={styles.dismissFooter} onPress={cancelRename} /> : null}
         onScrollToIndexFailed={({ index }) => {
