@@ -807,7 +807,10 @@ function ACBadge({
   badgeDays: number
 }) {
   const fs = useFS()
-  const isUpd = ac.cancels && ac.cancels.length > 0
+  // See the matching comment on Home's WhatsNewCard -- "UPD" is gated on
+  // real diff data existing (changed_block_indices), not on `cancels`
+  // (a different concept: replacing a different, older document number).
+  const isUpd = !!(ac.changed_block_indices && ac.changed_block_indices.length > 0)
 
   if (!isWithinBadgeLifespan(ac.date_issued, badgeDays)) return null
 

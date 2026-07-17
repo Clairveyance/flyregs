@@ -25,6 +25,7 @@ interface SeriesAC {
   office: string | null
   cancels: string[]
   change_number: number
+  changed_block_indices: number[] | null
 }
 
 // Natural-sort two FAA document numbers so numeric segments compare as integers.
@@ -62,7 +63,7 @@ export default function SeriesScreen() {
     Promise.all([
       supabase
         .from('advisory_circulars')
-        .select('id, document_number, title, date_issued, office, cancels, change_number')
+        .select('id, document_number, title, date_issued, office, cancels, change_number, changed_block_indices')
         .eq('subject_series', prefix)
         .eq('status', 'active'),
       supabase
@@ -135,7 +136,10 @@ function ACRow({
   figureCount?: number
 }) {
   const fs = useFS()
-  const isUpd = item.cancels && item.cancels.length > 0
+  // See the matching comment on Home's WhatsNewCard -- "UPD" is gated on
+  // real diff data existing (changed_block_indices), not on `cancels`
+  // (a different concept: replacing a different, older document number).
+  const isUpd = !!(item.changed_block_indices && item.changed_block_indices.length > 0)
   const showBadge = isWithinBadgeLifespan(item.date_issued, badgeDays)
   const dateStr = item.date_issued
     ? new Date(item.date_issued).toLocaleDateString('en-US', {

@@ -35,6 +35,7 @@ interface WhatsNewAC {
   title: string
   date_issued: string | null
   cancels: string[]
+  changed_block_indices: number[] | null
 }
 
 interface SearchResult {
@@ -104,7 +105,7 @@ export default function HomeScreen() {
           .eq('status', 'active'),
         supabase
           .from('advisory_circulars')
-          .select('id, document_number, title, date_issued, cancels')
+          .select('id, document_number, title, date_issued, cancels, changed_block_indices')
           .eq('status', 'active')
           .gte('date_issued', cutoff)
           .order('date_issued', { ascending: false })
@@ -521,7 +522,15 @@ function WhatsNewCard({
   badgeDays: number
 }) {
   const fs = useFS()
-  const isUpd = ac.cancels && ac.cancels.length > 0
+  // "UPD" means "this AC was revised in place and you can see exactly what
+  // changed" -- gated on changed_block_indices actually having content
+  // (the same data the update-banner-with-jump-arrows inside the AC screen
+  // reads), NOT on `cancels` (a different concept: this AC replacing a
+  // DIFFERENT, older document number). An AC that only cancels something
+  // else has no diff to show, so it reads as "NEW" instead -- the existing
+  // "Cancels" section inside the AC screen already surfaces the
+  // supersession relationship on its own.
+  const isUpd = !!(ac.changed_block_indices && ac.changed_block_indices.length > 0)
   const showBadge = isWithinBadgeLifespan(ac.date_issued, badgeDays)
   const dateStr = ac.date_issued
     ? new Date(ac.date_issued).toLocaleDateString('en-US', {
