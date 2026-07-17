@@ -43,6 +43,7 @@ import { syncPushNote, syncPushNoteDeletes } from '@/lib/syncPush'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
+import { isOcrScanned } from '@/lib/ocrScannedACs'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -854,7 +855,9 @@ function NoteEditor({
           {/* Pane header */}
           <View style={[styles.paneHeader, { borderBottomColor: tokens.bdr }]}>
             <Text style={[styles.paneTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
-              {paneData ? `AC ${paneData.document_number}` : `AC ${paneAC}`}
+              {paneData
+                ? `AC ${paneData.document_number}${isOcrScanned(paneData.document_number) ? ' *' : ''}`
+                : `AC ${paneAC}`}
             </Text>
             {paneData && isWithinBadgeLifespan(paneData.date_issued, badgeDays) && (() => {
               const badge = getBadgeStyle(getBadgeKind(paneData), tokens)

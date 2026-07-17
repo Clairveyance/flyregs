@@ -688,6 +688,20 @@ export const ACBody = React.forwardRef<
         </View>
       )}
 
+      {/* A handful of ACs parse with fewer than 3 headings -- usually a short
+          circular that's really just one flowing document (no chapters or
+          numbered sections to speak of) rather than a parsing gap. Without
+          this, jumping straight into body text with no Contents card and no
+          title/header above it (see build-bug reports for AC 20-18B and
+          similar) reads as broken. A one-line note instead sets the right
+          expectation: nothing is missing, this AC just doesn't have separate
+          sections to jump between. */}
+      {toc.length < 3 && scrollRef && !searching && (
+        <Text style={[styles.noTocNote, { color: tokens.t4, fontSize: fs(12) }]}>
+          This AC reads as a single continuous document — no separate sections to jump between.
+        </Text>
+      )}
+
       {/* Figures & Tables — extracted page images, hidden while searching.
           Always shown once loaded (even at 0) so an AC with none doesn't
           look like the feature is broken/missing data. */}
@@ -932,6 +946,7 @@ export const ACBody = React.forwardRef<
 
 const styles = StyleSheet.create({
   tocCard: { borderRadius: 12, borderWidth: 1, marginTop: 4, marginBottom: 6, overflow: 'hidden' },
+  noTocNote: { fontStyle: 'italic', marginTop: 4, marginBottom: 10 },
   tocHead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 11 },
   tocHeadText: { fontSize: 13.5, fontWeight: '700', flex: 1 },
   tocCount: { fontSize: 12, fontWeight: '600' },

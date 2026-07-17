@@ -10,6 +10,7 @@ import { getSharedFolderACItems, leaveSharedFolder } from '@/lib/sharedFolders'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
+import { isOcrScanned } from '@/lib/ocrScannedACs'
 
 interface ACRow {
   id: string
@@ -136,7 +137,9 @@ export default function SharedFolderDetail() {
             >
               <View style={{ flex: 1 }}>
                 <View style={styles.rowNumBadgeWrap}>
-                  <Text style={[styles.rowDoc, { color: tokens.blu, fontSize: fs(13) }]}>{item.document_number}</Text>
+                  <Text style={[styles.rowDoc, { color: tokens.blu, fontSize: fs(13) }]}>
+                    {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
+                  </Text>
                   {isWithinBadgeLifespan(item.date_issued, badgeDays) && (() => {
                     const badge = getBadgeStyle(getBadgeKind(item), tokens)
                     return (

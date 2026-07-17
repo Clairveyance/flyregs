@@ -22,6 +22,7 @@ import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictatio
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
+import { isOcrScanned } from '@/lib/ocrScannedACs'
 
 // Session-scoped result cache: same query returns instantly without a network hit.
 const _resultCache = new Map<string, SearchResult[]>()
@@ -475,7 +476,9 @@ function ResultRow({
       onPress={() => router.push(`/ac/${item.id}`)}
     >
       <View style={styles.resultNumBadgeWrap}>
-        <Text style={[styles.resultNum, { color: tokens.blu, fontSize: fs(12.5) }]}>{item.document_number}</Text>
+        <Text style={[styles.resultNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
+          {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
+        </Text>
         {isWithinBadgeLifespan(item.date_issued, badgeDays) && (() => {
           const badge = getBadgeStyle(getBadgeKind(item), tokens)
           return (
