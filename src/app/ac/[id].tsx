@@ -31,6 +31,7 @@ import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictatio
 import { blockText, ACBlock } from '@/lib/acFormat'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
+import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { FigureViewer } from '@/components/FigureViewer'
 import { FormulaRefViewer } from '@/components/FormulaRefViewer'
 import { isOcrScanned, ocrScannedSeq, OCR_SCANNED_TOTAL } from '@/lib/ocrScannedACs'
@@ -807,10 +808,7 @@ function ACBadge({
   badgeDays: number
 }) {
   const fs = useFS()
-  // See the matching comment on Home's WhatsNewCard -- "UPD" is gated on
-  // real diff data existing (changed_block_indices), not on `cancels`
-  // (a different concept: replacing a different, older document number).
-  const isUpd = !!(ac.changed_block_indices && ac.changed_block_indices.length > 0)
+  const badge = getBadgeStyle(getBadgeKind(ac), tokens)
 
   if (!isWithinBadgeLifespan(ac.date_issued, badgeDays)) return null
 
@@ -818,13 +816,11 @@ function ACBadge({
     <View
       style={[
         styles.badge,
-        isUpd
-          ? { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }
-          : { backgroundColor: tokens.gdim, borderColor: tokens.gbdr },
+        { backgroundColor: badge.background, borderColor: badge.border },
       ]}
     >
-      <Text style={[styles.badgeText, { color: isUpd ? tokens.blu : tokens.grn, fontSize: fs(9.5) }]}>
-        {isUpd ? 'UPD' : 'NEW'}
+      <Text style={[styles.badgeText, { color: badge.color, fontSize: fs(9.5) }]}>
+        {badge.label}
       </Text>
     </View>
   )

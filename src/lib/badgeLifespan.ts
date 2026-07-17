@@ -1,19 +1,24 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-// Shared by every screen that renders a NEW/UPD badge (series list, AC
+// Shared by every screen that renders a NEW/UPD/VER badge (series list, AC
 // detail, Home's "What's New" feed + cards) so the user's Badge Lifespan
 // setting (Drawer > Appearance) actually has an effect everywhere, not just
 // in the one screen that reads it. Previously this setting was written to
 // AsyncStorage by the Drawer but never read anywhere else, so badges showed
 // unconditionally forever regardless of how old the AC actually was.
 //
-// One rolling clock, not two: 90 days is the original long limit for both
-// "what counts as new/updated at all" (Home's feed) and "how long the visual
-// badge shows" — the 7d/14d/30d options let a user shorten that single
-// window, they don't create a separate, shorter concept alongside a fixed
-// 90-day feed.
+// One rolling clock, not two: this is the single window for both "what
+// counts as new/updated at all" (Home's feed) and "how long the visual
+// badge shows" — the options below let a user lengthen or shorten that one
+// window, they don't create a separate concept alongside a fixed feed.
 export const BADGE_LIFESPAN_KEY = '@flyregs/badge-lifespan'
 export const DEFAULT_BADGE_LIFESPAN_DAYS = 90
+// Single source of truth for the picker (Drawer.tsx) AND for migrating a
+// previously-persisted value that's no longer offered (see
+// BadgeLifespanProvider's migration in context/badgeLifespan.tsx) -- both
+// read this instead of hardcoding their own copy of the list, so they can't
+// drift out of sync with each other.
+export const BADGE_LIFESPAN_OPTIONS: number[] = [14, 30, 90, 180]
 
 export async function getBadgeLifespanDays(): Promise<number> {
   const raw = await AsyncStorage.getItem(BADGE_LIFESPAN_KEY)

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { BADGE_LIFESPAN_KEY, DEFAULT_BADGE_LIFESPAN_DAYS } from '@/lib/badgeLifespan'
+import { BADGE_LIFESPAN_KEY, DEFAULT_BADGE_LIFESPAN_DAYS, BADGE_LIFESPAN_OPTIONS } from '@/lib/badgeLifespan'
 
 // Shared, LIVE badge-lifespan state — every screen that shows a NEW/UPD badge
 // or the Home "What's New" feed reads from this context instead of each
@@ -28,7 +28,19 @@ export function BadgeLifespanProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     AsyncStorage.getItem(BADGE_LIFESPAN_KEY).then((v) => {
       const n = v ? Number(v) : NaN
-      if (Number.isFinite(n) && n > 0) setBadgeDaysState(n)
+      if (!Number.isFinite(n) || n <= 0) return
+      if (BADGE_LIFESPAN_OPTIONS.includes(n)) {
+        setBadgeDaysState(n)
+        return
+      }
+      // A previously-valid option (e.g. the old "7d") is no longer offered --
+      // migrate to the closest current option rather than silently keeping
+      // an orphaned value the picker can't even show as selected.
+      const closest = BADGE_LIFESPAN_OPTIONS.reduce((best, opt) =>
+        Math.abs(opt - n) < Math.abs(best - n) ? opt : best
+      )
+      setBadgeDaysState(closest)
+      AsyncStorage.setItem(BADGE_LIFESPAN_KEY, String(closest))
     })
   }, [])
 

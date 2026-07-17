@@ -40,6 +40,9 @@ import { useShareActions } from '@/lib/share'
 import { getNotes, saveNotes, makeNoteId, type Note } from '@/lib/notes'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
 import { syncPushNote, syncPushNoteDeletes } from '@/lib/syncPush'
+import { useBadgeLifespan } from '@/context/badgeLifespan'
+import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
+import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -65,6 +68,8 @@ interface ACPreview {
   date_issued: string | null
   office: string | null
   pdf_blocks: ACBlock[] | null
+  cancels: string[]
+  changed_block_indices: number[] | null
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -622,6 +627,7 @@ function NoteEditor({
   const insets = useSafeAreaInsets()
   const fs = useFS()
   const { isPro } = useAuth()
+  const { badgeDays } = useBadgeLifespan()
   const [title, setTitle] = useState(note.title)
   const [body, setBody] = useState(note.body)
   const [acIndex, setACIndex] = useState<ACIndexEntry[]>([])
@@ -691,7 +697,7 @@ function NoteEditor({
 
     supabase
       .from('advisory_circulars')
-      .select('id,document_number,title,description,date_issued,office,pdf_blocks')
+      .select('id,document_number,title,description,date_issued,office,pdf_blocks,cancels,changed_block_indices')
       .ilike('document_number', `${acNum}%`)
       .order('document_number', { ascending: false })
       .limit(1)
@@ -850,6 +856,14 @@ function NoteEditor({
             <Text style={[styles.paneTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
               {paneData ? `AC ${paneData.document_number}` : `AC ${paneAC}`}
             </Text>
+            {paneData && isWithinBadgeLifespan(paneData.date_issued, badgeDays) && (() => {
+              const badge = getBadgeStyle(getBadgeKind(paneData), tokens)
+              return (
+                <View style={[styles.paneBadge, { backgroundColor: badge.background, borderColor: badge.border }]}>
+                  <Text style={[styles.paneBadgeText, { color: badge.color, fontSize: fs(9) }]}>{badge.label}</Text>
+                </View>
+              )
+            })()}
             <Pressable onPress={closeAcPane} hitSlop={8}>
               <Icon name="xmark" size={16} color={tokens.t3} />
             </Pressable>
@@ -1009,6 +1023,8 @@ const styles = StyleSheet.create({
   gripBar: { width: 40, height: 4, borderRadius: 2 },
   paneHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1 },
   paneTitle: { flex: 1, fontWeight: '700', fontSize: 13.5 },
+  paneBadge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2, marginRight: 10 },
+  paneBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
   paneBody: { padding: 14, paddingBottom: 24 },
   paneACTitle: { fontWeight: '600', fontSize: 15, lineHeight: 22, marginBottom: 6 },
   paneMeta: { fontSize: 11.5, marginBottom: 12 },

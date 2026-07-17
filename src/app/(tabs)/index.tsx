@@ -23,6 +23,7 @@ import { rankSearchResults, isPhrasedQuery, extractPhrase } from '@/lib/searchRa
 import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
+import { getBadgeKind, getBadgeStyle, BadgeKind } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 
 const HOME_CACHE_KEY = '@flyregs/home-cache'
@@ -522,15 +523,6 @@ function WhatsNewCard({
   badgeDays: number
 }) {
   const fs = useFS()
-  // "UPD" means "this AC was revised in place and you can see exactly what
-  // changed" -- gated on changed_block_indices actually having content
-  // (the same data the update-banner-with-jump-arrows inside the AC screen
-  // reads), NOT on `cancels` (a different concept: this AC replacing a
-  // DIFFERENT, older document number). An AC that only cancels something
-  // else has no diff to show, so it reads as "NEW" instead -- the existing
-  // "Cancels" section inside the AC screen already surfaces the
-  // supersession relationship on its own.
-  const isUpd = !!(ac.changed_block_indices && ac.changed_block_indices.length > 0)
   const showBadge = isWithinBadgeLifespan(ac.date_issued, badgeDays)
   const dateStr = ac.date_issued
     ? new Date(ac.date_issued).toLocaleDateString('en-US', {
@@ -546,7 +538,7 @@ function WhatsNewCard({
       onPress={() => router.push(`/ac/${ac.id}`)}
     >
       <View style={styles.wnTop}>
-        {showBadge && <Badge isUpd={isUpd} tokens={tokens} />}
+        {showBadge && <Badge kind={getBadgeKind(ac)} tokens={tokens} />}
         <Text style={[styles.wnDate, { color: tokens.t3, fontSize: fs(10.5) }]}>{dateStr}</Text>
       </View>
       <Text style={[styles.wnAcNum, { color: tokens.t1, fontSize: fs(15) }]}>
@@ -596,29 +588,18 @@ function SeriesRow({
 // ─── Badge ────────────────────────────────────────────────────────────────────
 
 function Badge({
-  isUpd,
+  kind,
   tokens,
 }: {
-  isUpd: boolean
+  kind: BadgeKind
   tokens: ReturnType<typeof useTheme>['tokens']
 }) {
   const fs = useFS()
+  const badge = getBadgeStyle(kind, tokens)
   return (
-    <View
-      style={[
-        styles.badge,
-        isUpd
-          ? { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }
-          : { backgroundColor: tokens.gdim, borderColor: tokens.gbdr },
-      ]}
-    >
-      <Text
-        style={[
-          styles.badgeText,
-          { color: isUpd ? tokens.blu : tokens.grn, fontSize: fs(9.5) },
-        ]}
-      >
-        {isUpd ? 'UPD' : 'NEW'}
+    <View style={[styles.badge, { backgroundColor: badge.background, borderColor: badge.border }]}>
+      <Text style={[styles.badgeText, { color: badge.color, fontSize: fs(9.5) }]}>
+        {badge.label}
       </Text>
     </View>
   )

@@ -22,6 +22,8 @@ export interface ThemeTokens {
   gdim: string
   gbdr: string
   amb: string
+  adim: string
+  abdr: string
   red: string
   gold: string
   goldlt: string
@@ -48,6 +50,8 @@ export const darkTokens: ThemeTokens = {
   gdim: 'rgba(52,211,153,0.10)',
   gbdr: 'rgba(52,211,153,0.24)',
   amb: '#F59E0B',
+  adim: 'rgba(245,158,11,0.12)',
+  abdr: 'rgba(245,158,11,0.28)',
   red: '#F87171',
   gold: '#C6A224',
   goldlt: 'rgba(198,162,36,0.12)',
@@ -74,6 +78,8 @@ export const lightTokens: ThemeTokens = {
   gdim: 'rgba(10,122,80,0.10)',
   gbdr: 'rgba(10,122,80,0.26)',
   amb: '#F59E0B',
+  adim: 'rgba(180,110,0,0.12)',
+  abdr: 'rgba(180,110,0,0.32)',
   red: '#F87171',
   gold: '#A87C00',
   goldlt: 'rgba(168,124,0,0.12)',

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   View,
   Text,
@@ -14,6 +14,10 @@ import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
+import { useBadgeLifespan } from '@/context/badgeLifespan'
+import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
+import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
+import { supabase } from '@/lib/supabase'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { getRecents, removeRecent, removeManyRecents, clearRecents, type RecentAC } from '@/lib/recents'
@@ -57,10 +61,21 @@ export default function RecentsScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
   const { isPro, isPremium } = useAuth()
+  const { badgeDays } = useBadgeLifespan()
   const { shareAC, shareMany } = useShareActions()
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set())
+  // Same live-lookup approach as Saved's BookmarkRow -- recents are local
+  // AsyncStorage snapshots with no cancels/changed_block_indices, and a
+  // "this changed" badge that never refreshes after the first view would
+  // defeat its own purpose.
+  const [badgeDataById, setBadgeDataById] = useState<Record<string, {
+    cancels: string[]
+    changed_block_indices: number[] | null
+    date_issued: string | null
+    document_number: string
+  }>>({})
   const [pickerItem, setPickerItem] = useState<RecentAC | null>(null)
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -75,6 +90,20 @@ export default function RecentsScreen() {
       setLoading(false)
     })
   }, [])
+
+  useEffect(() => {
+    const ids = [...new Set(groups.flatMap((g) => g.data.map((r) => r.id)))]
+    if (ids.length === 0) { setBadgeDataById({}); return }
+    supabase
+      .from('advisory_circulars')
+      .select('id, document_number, cancels, changed_block_indices, date_issued')
+      .in('id', ids)
+      .then(({ data }) => {
+        const map: Record<string, { cancels: string[]; changed_block_indices: number[] | null; date_issued: string | null; document_number: string }> = {}
+        for (const row of data ?? []) map[row.id] = row
+        setBadgeDataById(map)
+      })
+  }, [groups])
 
   // Reload on focus so newly-viewed ACs appear immediately
   useFocusEffect(load)
@@ -261,6 +290,8 @@ export default function RecentsScreen() {
               selectMode={selectMode}
               selected={selected.has(item.id)}
               bookmarked={bookmarkedIds.has(item.id)}
+              badgeData={badgeDataById[item.id]}
+              badgeDays={badgeDays}
               onPress={selectMode ? () => toggleRow(item.id) : () => router.push(`/ac/${item.id}`)}
               onToggleBookmark={() => handleToggleBookmark(item)}
               onFolder={() => setPickerItem(item)}
@@ -340,6 +371,8 @@ function SwipeableRecentRow({
   selectMode,
   selected,
   bookmarked,
+  badgeData,
+  badgeDays,
   onPress,
   onToggleBookmark,
   onFolder,
@@ -351,6 +384,8 @@ function SwipeableRecentRow({
   selectMode: boolean
   selected: boolean
   bookmarked: boolean
+  badgeData?: { cancels: string[]; changed_block_indices: number[] | null; date_issued: string | null; document_number: string }
+  badgeDays: number
   onPress: () => void
   onToggleBookmark: () => void
   onFolder: () => void
@@ -429,9 +464,19 @@ function SwipeableRecentRow({
                 </View>
               )}
               <View style={styles.rowBody}>
-                <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
-                  {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
-                </Text>
+                <View style={styles.rowNumBadgeWrap}>
+                  <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
+                    {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
+                  </Text>
+                  {badgeData && isWithinBadgeLifespan(badgeData.date_issued, badgeDays) && (() => {
+                    const badge = getBadgeStyle(getBadgeKind(badgeData), tokens)
+                    return (
+                      <View style={[styles.rowBadge, { backgroundColor: badge.background, borderColor: badge.border }]}>
+                        <Text style={[styles.rowBadgeText, { color: badge.color, fontSize: fs(8.5) }]}>{badge.label}</Text>
+                      </View>
+                    )
+                  })()}
+                </View>
                 <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
                   {item.title}
                 </Text>
@@ -528,6 +573,9 @@ const styles = StyleSheet.create({
   },
   rowBody: { flex: 1, gap: 3 },
   acNum: { fontWeight: '700', fontSize: 12.5 },
+  rowNumBadgeWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowBadge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 1.5 },
+  rowBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
   rowTitle: { fontWeight: '500', fontSize: 14.5, lineHeight: 20 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   meta: { fontSize: 11 },

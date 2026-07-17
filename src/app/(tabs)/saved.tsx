@@ -21,6 +21,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
+import { useBadgeLifespan } from '@/context/badgeLifespan'
+import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
+import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { supabase } from '@/lib/supabase'
 import { blockText } from '@/lib/acFormat'
 import { ScreenHeader } from '@/components/ScreenHeader'
@@ -55,6 +58,7 @@ export default function SavedScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
   const { session, isPro, isPremium } = useAuth()
+  const { badgeDays } = useBadgeLifespan()
   const { shareAC, shareMany } = useShareActions()
   const [tab, setTab] = useState<Tab>('all')
   const [syncEnabled, setSyncEnabled] = useState(false)
@@ -86,6 +90,34 @@ export default function SavedScreen() {
   // FAQ entry. Content-based, same blockText() identity used everywhere else
   // this session (changed_block_indices, the highlight-to-block matcher).
   const [staleHighlightIds, setStaleHighlightIds] = useState<Set<string>>(new Set())
+  // NEW/UPD/VER badge data for each bookmarked AC, keyed by the AC's own id
+  // (a highlight's `id` is a synthetic per-highlight value, so it's keyed by
+  // `acId` instead -- see BookmarkAC's own comment on that distinction).
+  // Bookmarks are local-storage snapshots taken at save time and never
+  // carry cancels/changed_block_indices, so this always re-fetches live --
+  // otherwise a badge could get stuck showing (or never show) the status an
+  // AC had back when it was first saved, defeating the entire point of a
+  // "this changed" indicator.
+  const [badgeDataById, setBadgeDataById] = useState<Record<string, {
+    cancels: string[]
+    changed_block_indices: number[] | null
+    date_issued: string | null
+    document_number: string
+  }>>({})
+
+  useEffect(() => {
+    const ids = [...new Set(bookmarks.map((b) => b.acId ?? b.id))]
+    if (ids.length === 0) { setBadgeDataById({}); return }
+    supabase
+      .from('advisory_circulars')
+      .select('id, document_number, cancels, changed_block_indices, date_issued')
+      .in('id', ids)
+      .then(({ data }) => {
+        const map: Record<string, { cancels: string[]; changed_block_indices: number[] | null; date_issued: string | null; document_number: string }> = {}
+        for (const row of data ?? []) map[row.id] = row
+        setBadgeDataById(map)
+      })
+  }, [bookmarks])
 
   useEffect(() => {
     const highlights = bookmarks.filter((b) => b.blockText && b.acId)
@@ -491,6 +523,8 @@ export default function SavedScreen() {
                     selectMode={selectMode}
                     selected={selected.has(item.id)}
                     stale={staleHighlightIds.has(item.id)}
+                    badgeData={badgeDataById[item.acId ?? item.id]}
+                    badgeDays={badgeDays}
                     onPress={selectMode ? () => toggleRow(item.id) : () => router.push(
                       item.blockText ? `/ac/${item.acId}?hlId=${encodeURIComponent(item.id)}` : `/ac/${item.acId ?? item.id}`
                     )}
@@ -794,6 +828,8 @@ function BookmarkRow({
   selectMode,
   selected,
   stale,
+  badgeData,
+  badgeDays,
   onPress,
   onRemove,
   onFolder,
@@ -804,6 +840,8 @@ function BookmarkRow({
   selectMode: boolean
   selected: boolean
   stale?: boolean
+  badgeData?: { cancels: string[]; changed_block_indices: number[] | null; date_issued: string | null; document_number: string }
+  badgeDays: number
   onPress: () => void
   onRemove: () => void
   onFolder: () => void
@@ -875,9 +913,19 @@ function BookmarkRow({
                 </View>
               )}
               <View style={styles.rowBody}>
-                <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
-                  {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
-                </Text>
+                <View style={styles.rowNumBadgeWrap}>
+                  <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
+                    {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
+                  </Text>
+                  {badgeData && isWithinBadgeLifespan(badgeData.date_issued, badgeDays) && (() => {
+                    const badge = getBadgeStyle(getBadgeKind(badgeData), tokens)
+                    return (
+                      <View style={[styles.rowBadge, { backgroundColor: badge.background, borderColor: badge.border }]}>
+                        <Text style={[styles.rowBadgeText, { color: badge.color, fontSize: fs(8.5) }]}>{badge.label}</Text>
+                      </View>
+                    )
+                  })()}
+                </View>
                 <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={2}>
                   {item.title}
                 </Text>
@@ -1375,6 +1423,9 @@ const styles = StyleSheet.create({
   },
   rowBody: { flex: 1, gap: 4 },
   acNum: { fontWeight: '700', fontSize: 12.5 },
+  rowNumBadgeWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowBadge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 1.5 },
+  rowBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
   rowTitle: { fontWeight: '500', fontSize: 15, lineHeight: 21 },
   savedAt: { fontSize: 11, flexShrink: 1 },
   rowActions: { flexDirection: 'column', alignItems: 'center', gap: 22, paddingTop: 2 },

@@ -6,7 +6,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 
-const CACHE_KEY = '@flyregs/ac-index'
+const CACHE_KEY = '@flyregs/ac-index-v2'
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
 export interface ACIndexEntry {
@@ -16,6 +16,8 @@ export interface ACIndexEntry {
   subject_series: string | null
   date_issued: string | null
   description: string | null
+  cancels: string[]
+  changed_block_indices: number[] | null
 }
 
 let _index: ACIndexEntry[] | null = null
@@ -43,7 +45,7 @@ async function _load(): Promise<ACIndexEntry[]> {
 
   const { data, error } = await supabase
     .from('advisory_circulars')
-    .select('id, document_number, title, subject_series, date_issued, description')
+    .select('id, document_number, title, subject_series, date_issued, description, cancels, changed_block_indices')
     .eq('status', 'active')
     .order('document_number')
 

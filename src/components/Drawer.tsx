@@ -16,6 +16,7 @@ import { Icon } from '@/components/Icon'
 import { restorePurchases } from '@/lib/revenuecat'
 import { APP_VERSION, APP_STORE_URL, PLAY_STORE_URL } from '@/lib/appInfo'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
+import { BADGE_LIFESPAN_OPTIONS } from '@/lib/badgeLifespan'
 import { getAvatarUrl, resolveAvatarPresetId } from '@/lib/avatar'
 import { getAvatarPreset } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
@@ -297,12 +298,11 @@ function AppearancePicker({
 
 // ─── Badge Lifespan picker ───────────────────────────────────────────────────
 
-const LIFESPAN_OPTIONS: Array<{ value: number; label: string }> = [
-  { value: 7,  label: '7d' },
-  { value: 14, label: '14d' },
-  { value: 30, label: '30d' },
-  { value: 90, label: '90d' },
-]
+// Labels derived from the single shared options list (lib/badgeLifespan.ts)
+// so this picker can never drift out of sync with what the rest of the app
+// actually treats as valid.
+const LIFESPAN_OPTIONS: Array<{ value: number; label: string }> =
+  BADGE_LIFESPAN_OPTIONS.map((value) => ({ value, label: `${value}d` }))
 
 function BadgeLifespanPicker({
   days,

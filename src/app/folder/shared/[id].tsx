@@ -7,11 +7,17 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { supabase } from '@/lib/supabase'
 import { getSharedFolderACItems, leaveSharedFolder } from '@/lib/sharedFolders'
+import { useBadgeLifespan } from '@/context/badgeLifespan'
+import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
+import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 
 interface ACRow {
   id: string
   document_number: string
   title: string
+  cancels: string[]
+  changed_block_indices: number[] | null
+  date_issued: string | null
 }
 
 // Read-only view of a folder someone else shared with you — no rename,
@@ -22,6 +28,7 @@ export default function SharedFolderDetail() {
   const { tokens } = useTheme()
   const fs = useFS()
   const { id } = useLocalSearchParams<{ id: string }>()
+  const { badgeDays } = useBadgeLifespan()
   const [folderName, setFolderName] = useState('')
   const [ownerName, setOwnerName] = useState<string | null>(null)
   const [acs, setAcs] = useState<ACRow[]>([])
@@ -54,7 +61,7 @@ export default function SharedFolderDetail() {
     if (acIds.length) {
       const { data: acRows } = await supabase
         .from('advisory_circulars')
-        .select('id, document_number, title')
+        .select('id, document_number, title, cancels, changed_block_indices, date_issued')
         .in('id', acIds)
       setAcs(acRows ?? [])
     } else {
@@ -128,7 +135,17 @@ export default function SharedFolderDetail() {
               onPress={() => router.push(`/ac/${item.id}`)}
             >
               <View style={{ flex: 1 }}>
-                <Text style={[styles.rowDoc, { color: tokens.blu, fontSize: fs(13) }]}>{item.document_number}</Text>
+                <View style={styles.rowNumBadgeWrap}>
+                  <Text style={[styles.rowDoc, { color: tokens.blu, fontSize: fs(13) }]}>{item.document_number}</Text>
+                  {isWithinBadgeLifespan(item.date_issued, badgeDays) && (() => {
+                    const badge = getBadgeStyle(getBadgeKind(item), tokens)
+                    return (
+                      <View style={[styles.rowNumBadge, { backgroundColor: badge.background, borderColor: badge.border }]}>
+                        <Text style={[styles.rowNumBadgeText, { color: badge.color, fontSize: fs(8) }]}>{badge.label}</Text>
+                      </View>
+                    )
+                  })()}
+                </View>
                 <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
                   {item.title}
                 </Text>
@@ -166,5 +183,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   rowDoc: { fontWeight: '700', marginBottom: 2 },
+  rowNumBadgeWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  rowNumBadge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 1.5 },
+  rowNumBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
   rowTitle: { fontWeight: '500' },
 })

@@ -19,6 +19,9 @@ import type { ACSeries } from '@/types'
 import { rankSearchResults, isPhrasedQuery, extractPhrase } from '@/lib/searchRank'
 import { getACIndex, searchLocal, isACQuery, ACIndexEntry } from '@/lib/acIndex'
 import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
+import { useBadgeLifespan } from '@/context/badgeLifespan'
+import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
+import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 
 // Session-scoped result cache: same query returns instantly without a network hit.
 const _resultCache = new Map<string, SearchResult[]>()
@@ -68,6 +71,12 @@ interface SearchResult {
   subject_series: string | null
   description: string | null
   rank: number
+  // Only populated for results sourced from a direct .select() query below --
+  // the search_acs RPC's own return columns aren't guaranteed to include
+  // these, so RPC-sourced rows just won't show a badge (getBadgeKind treats
+  // missing cancels/changed_block_indices as "new", a safe fallback).
+  cancels?: string[]
+  changed_block_indices?: number[] | null
 }
 
 // Result ranking lives in @/lib/searchRank (rankSearchResults), shared with the
@@ -78,6 +87,7 @@ interface SearchResult {
 export default function SearchScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
+  const { badgeDays } = useBadgeLifespan()
   const { q: navQuery } = useLocalSearchParams<{ q?: string }>()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -152,7 +162,7 @@ export default function SearchScreen() {
         setResults([]); setSearching(false); setIsPhraseSearch(false); return
       }
       setIsPhraseSearch(true)
-      const cols = 'id, document_number, title, date_issued, subject_series, description'
+      const cols = 'id, document_number, title, date_issued, subject_series, description, cancels, changed_block_indices'
       const [titleRes, descRes, rpcRes] = await Promise.all([
         supabase.from('advisory_circulars').select(cols).eq('status', 'active')
           .ilike('title', `%${phrase}%`).order('document_number').limit(30),
@@ -176,7 +186,7 @@ export default function SearchScreen() {
 
     setIsPhraseSearch(false)
 
-    const cols = 'id, document_number, title, date_issued, subject_series, description'
+    const cols = 'id, document_number, title, date_issued, subject_series, description, cancels, changed_block_indices'
     const acNum = isACQuery(trimmed)
 
     // AC-number queries: prefix + contains are sufficient — skip the full-text RPC.
@@ -314,7 +324,7 @@ export default function SearchScreen() {
               {results.length} RESULT{results.length !== 1 ? 'S' : ''}
             </Text>
           }
-          renderItem={({ item }) => <ResultRow item={item} tokens={tokens} />}
+          renderItem={({ item }) => <ResultRow item={item} tokens={tokens} badgeDays={badgeDays} />}
         />
       )}
     </View>
@@ -452,9 +462,11 @@ function BrowseView({
 function ResultRow({
   item,
   tokens,
+  badgeDays,
 }: {
   item: SearchResult
   tokens: ReturnType<typeof useTheme>['tokens']
+  badgeDays: number
 }) {
   const fs = useFS()
   return (
@@ -462,7 +474,17 @@ function ResultRow({
       style={[styles.resultRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
       onPress={() => router.push(`/ac/${item.id}`)}
     >
-      <Text style={[styles.resultNum, { color: tokens.blu, fontSize: fs(12.5) }]}>{item.document_number}</Text>
+      <View style={styles.resultNumBadgeWrap}>
+        <Text style={[styles.resultNum, { color: tokens.blu, fontSize: fs(12.5) }]}>{item.document_number}</Text>
+        {isWithinBadgeLifespan(item.date_issued, badgeDays) && (() => {
+          const badge = getBadgeStyle(getBadgeKind(item), tokens)
+          return (
+            <View style={[styles.resultNumBadge, { backgroundColor: badge.background, borderColor: badge.border }]}>
+              <Text style={[styles.resultNumBadgeText, { color: badge.color, fontSize: fs(8) }]}>{badge.label}</Text>
+            </View>
+          )
+        })()}
+      </View>
       <Text style={[styles.resultTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
         {item.title}
       </Text>
@@ -573,6 +595,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   resultNum: { fontWeight: '700', fontSize: 12.5 },
+  resultNumBadgeWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  resultNumBadge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 1.5 },
+  resultNumBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
   resultTitle: { fontWeight: '500', fontSize: 14.5, lineHeight: 20 },
   resultDesc: { fontSize: 12.5, lineHeight: 18, marginTop: 2 },
   resultMeta: { flexDirection: 'row', gap: 12, marginTop: 4 },

@@ -15,6 +15,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
+import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 
 interface SeriesAC {
@@ -136,11 +137,8 @@ function ACRow({
   figureCount?: number
 }) {
   const fs = useFS()
-  // See the matching comment on Home's WhatsNewCard -- "UPD" is gated on
-  // real diff data existing (changed_block_indices), not on `cancels`
-  // (a different concept: replacing a different, older document number).
-  const isUpd = !!(item.changed_block_indices && item.changed_block_indices.length > 0)
   const showBadge = isWithinBadgeLifespan(item.date_issued, badgeDays)
+  const badge = getBadgeStyle(getBadgeKind(item), tokens)
   const dateStr = item.date_issued
     ? new Date(item.date_issued).toLocaleDateString('en-US', {
         year: 'numeric',
@@ -156,16 +154,9 @@ function ACRow({
     >
       <View style={styles.cardTop}>
         {showBadge && (
-          <View
-            style={[
-              styles.badge,
-              isUpd
-                ? { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }
-                : { backgroundColor: tokens.gdim, borderColor: tokens.gbdr },
-            ]}
-          >
-            <Text style={[styles.badgeText, { color: isUpd ? tokens.blu : tokens.grn, fontSize: fs(9.5) }]}>
-              {isUpd ? 'UPD' : 'NEW'}
+          <View style={[styles.badge, { backgroundColor: badge.background, borderColor: badge.border }]}>
+            <Text style={[styles.badgeText, { color: badge.color, fontSize: fs(9.5) }]}>
+              {badge.label}
             </Text>
           </View>
         )}

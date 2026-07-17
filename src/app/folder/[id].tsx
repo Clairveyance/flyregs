@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   View,
   Text,
@@ -16,8 +16,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
+import { useBadgeLifespan } from '@/context/badgeLifespan'
+import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
+import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { supabase } from '@/lib/supabase'
 import {
   getFolders,
   getItemsInFolder,
@@ -58,11 +62,20 @@ export default function FolderDetail() {
   const { tokens } = useTheme()
   const fs = useFS()
   const { isPremium } = useAuth()
+  const { badgeDays } = useBadgeLifespan()
   const { shareAC, shareNote } = useShareActions()
   const { id } = useLocalSearchParams<{ id: string }>()
 
   const [folder, setFolder] = useState<Folder | null>(null)
   const [acEntries, setAcEntries] = useState<ACEntry[]>([])
+  // Same live-lookup as Saved/Recents -- folder items resolve through local
+  // bookmark snapshots with no cancels/changed_block_indices of their own.
+  const [badgeDataById, setBadgeDataById] = useState<Record<string, {
+    cancels: string[]
+    changed_block_indices: number[] | null
+    date_issued: string | null
+    document_number: string
+  }>>({})
   const [noteEntries, setNoteEntries] = useState<NoteEntry[]>([])
 
   const [renaming, setRenaming] = useState(false)
@@ -123,6 +136,20 @@ export default function FolderDetail() {
   }, [id])
 
   useFocusEffect(useCallback(() => { load() }, [load]))
+
+  useEffect(() => {
+    const ids = [...new Set(acEntries.map((e) => e.data.acId ?? e.data.id))]
+    if (ids.length === 0) { setBadgeDataById({}); return }
+    supabase
+      .from('advisory_circulars')
+      .select('id, document_number, cancels, changed_block_indices, date_issued')
+      .in('id', ids)
+      .then(({ data }) => {
+        const map: Record<string, { cancels: string[]; changed_block_indices: number[] | null; date_issued: string | null; document_number: string }> = {}
+        for (const row of data ?? []) map[row.id] = row
+        setBadgeDataById(map)
+      })
+  }, [acEntries])
 
   const startRename = () => {
     if (!folder) return
@@ -371,6 +398,8 @@ export default function FolderDetail() {
               <SwipeableACRow
                 entry={item}
                 tokens={tokens}
+                badgeData={badgeDataById[item.data.acId ?? item.data.id]}
+                badgeDays={badgeDays}
                 onPress={() => router.push(
                   item.data.blockText
                     ? `/ac/${item.data.acId}?hlId=${encodeURIComponent(item.data.id)}`
@@ -419,10 +448,12 @@ export default function FolderDetail() {
 // ── Swipeable AC row ──────────────────────────────────────────────────────────
 
 function SwipeableACRow({
-  entry, tokens, onPress, onRemove, onMove, onShare,
+  entry, tokens, badgeData, badgeDays, onPress, onRemove, onMove, onShare,
 }: {
   entry: ACEntry
   tokens: ReturnType<typeof useTheme>['tokens']
+  badgeData?: { cancels: string[]; changed_block_indices: number[] | null; date_issued: string | null; document_number: string }
+  badgeDays: number
   onPress: () => void
   onRemove: () => void
   onMove: () => void
@@ -482,9 +513,19 @@ function SwipeableACRow({
             <Text style={[styles.typeBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>AC</Text>
           </View>
           <View style={styles.rowBody}>
-            <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12) }]}>
-              {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
-            </Text>
+            <View style={styles.rowNumBadgeWrap}>
+              <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12) }]}>
+                {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
+              </Text>
+              {badgeData && isWithinBadgeLifespan(badgeData.date_issued, badgeDays) && (() => {
+                const badge = getBadgeStyle(getBadgeKind(badgeData), tokens)
+                return (
+                  <View style={[styles.rowNumBadge, { backgroundColor: badge.background, borderColor: badge.border }]}>
+                    <Text style={[styles.rowNumBadgeText, { color: badge.color, fontSize: fs(8) }]}>{badge.label}</Text>
+                  </View>
+                )
+              })()}
+            </View>
             <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>{item.title}</Text>
             {item.office && (
               <Text style={[styles.rowMeta, { color: tokens.t4, fontSize: fs(11) }]}>{item.office}</Text>
@@ -693,6 +734,9 @@ const styles = StyleSheet.create({
   typeBadgeText: { fontSize: 9.5, fontWeight: '800', letterSpacing: 0.4 },
   rowBody: { flex: 1, gap: 3 },
   acNum: { fontWeight: '700', fontSize: 12 },
+  rowNumBadgeWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowNumBadge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 1.5 },
+  rowNumBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
   rowTitle: { fontWeight: '500', fontSize: 14, lineHeight: 20 },
   rowPreview: { fontSize: 12.5, lineHeight: 18 },
   rowFooter: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
