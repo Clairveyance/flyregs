@@ -455,6 +455,10 @@ export const ACBody = React.forwardRef<
   // regardless of ordering -- is long finished, so reading all the refs
   // together at that point is safe.
   const blockRelY = useRef<Record<number, number>>({})
+  // Each block's own rendered height, from the same onLayout event as blockRelY
+  // -- used to place a specific occurrence PROPORTIONALLY within its block (see
+  // absoluteOccurrenceY) instead of always landing on the block's top edge.
+  const blockHeight = useRef<Record<number, number>>({})
   const headingRelY = useRef<Record<string, number>>({})
   // ACBody's own root <View> isn't a direct child of the ScrollView (see
   // outerOffsetYRef) -- this is ACBody's OWN contribution to the chain: how
@@ -463,8 +467,9 @@ export const ACBody = React.forwardRef<
   // position within the ScrollView's actual content.
   const rootOffsetYRef = useRef(0)
 
-  const cacheBlockLayout = (i: number, blockY: number, headingId?: string) => {
+  const cacheBlockLayout = (i: number, blockY: number, height: number, headingId?: string) => {
     blockRelY.current[i] = blockY
+    blockHeight.current[i] = height
     if (headingId) headingRelY.current[headingId] = blockY
   }
 
@@ -476,6 +481,16 @@ export const ACBody = React.forwardRef<
     const rel = blockRelY.current[i]
     if (rel == null) return undefined
     return (outerOffsetYRef?.current ?? 0) + rootOffsetYRef.current + rel
+  }
+  // Like absoluteBlockY, but offsets further down within the block by
+  // `fraction` of its rendered height -- see the occurrences useMemo above for
+  // why this is a meaningfully better estimate of a specific occurrence's
+  // actual position than always targeting the block's top edge.
+  const absoluteOccurrenceY = (i: number, fraction: number): number | undefined => {
+    const rel = blockRelY.current[i]
+    if (rel == null) return undefined
+    const h = blockHeight.current[i] ?? 0
+    return (outerOffsetYRef?.current ?? 0) + rootOffsetYRef.current + rel + fraction * h
   }
   const absoluteHeadingY = (id: string): number | undefined => {
     const rel = headingRelY.current[id]
@@ -490,13 +505,40 @@ export const ACBody = React.forwardRef<
   const phrase = hq ? searchPhrase(hq) : null
 
   // One entry per phrase occurrence, in document order, for per-occurrence nav.
+  // `fraction` is how far into the block's own concatenated text (0 = the very
+  // start, 1 = the very end) this occurrence starts — computed from character
+  // offsets, which are exact and available immediately, unlike a rendered pixel
+  // position. Combined with the block's own onLayout height at jump time (see
+  // absoluteOccurrenceY below), this approximates the occurrence's actual line
+  // within the block instead of always landing on the block's top edge — the
+  // latter was fine for a short block but left later occurrences in a long
+  // block, or a second/third occurrence sharing one block, looking like the
+  // jump barely moved (or missed the visible area) since they all shared the
+  // exact same target y. This can't be pixel-perfect (it assumes roughly even
+  // line-wrapping across a block's text, which holds for normal prose but not
+  // for a block containing an embedded list), but it's far closer than "always
+  // top of block", and avoids the well-known iOS limitation of a ref nested
+  // inside a <Text> node not reliably resolving via measureLayout (see
+  // blockRelY's comment below for that history) since it's pure arithmetic on
+  // data we already have, not another native measurement attempt.
   const occurrences = useMemo(() => {
     if (!phrase || phrase.length < 2) return []
-    const result: number[] = []
+    const result: { blockIndex: number; fraction: number }[] = []
     for (let i = 0; i < blocks.length; i++) {
-      let cnt = 0
-      for (const seg of blockSegments(blocks[i])) cnt += countOcc(seg, phrase)
-      for (let k = 0; k < cnt; k++) result.push(i)
+      const segs = blockSegments(blocks[i])
+      const totalLen = segs.reduce((s, seg) => s + seg.length, 0) || 1
+      let consumed = 0
+      for (const seg of segs) {
+        const lower = seg.toLowerCase()
+        let pos = 0
+        let idx = lower.indexOf(phrase, pos)
+        while (idx !== -1) {
+          result.push({ blockIndex: i, fraction: (consumed + idx) / totalLen })
+          pos = idx + phrase.length
+          idx = lower.indexOf(phrase, pos)
+        }
+        consumed += seg.length
+      }
     }
     return result
   }, [blocks, phrase])
@@ -507,7 +549,7 @@ export const ACBody = React.forwardRef<
   const blockBase = useMemo(() => {
     const m = new Map<number, number>()
     for (let k = 0; k < occurrences.length; k++) {
-      if (!m.has(occurrences[k])) m.set(occurrences[k], k)
+      if (!m.has(occurrences[k].blockIndex)) m.set(occurrences[k].blockIndex, k)
     }
     return m
   }, [occurrences])
@@ -548,18 +590,23 @@ export const ACBody = React.forwardRef<
         return
       }
 
-      // Native: jump to the containing block using its position, summed
-      // fresh from the cached per-level onLayout refs right now (see
-      // blockRelY's comment above for why summing at jump time -- not at
-      // each block's own onLayout -- is what makes this immune to onLayout
-      // ordering between tree levels). This lands at the top of the block
-      // rather than the exact word -- a deliberate precision trade for
-      // reliability; the active occurrence is still visually highlighted
-      // once its block is on screen.
+      // Native: jump to the occurrence's estimated position, summed fresh
+      // from the cached per-level onLayout refs right now (see blockRelY's
+      // comment above for why summing at jump time -- not at each block's
+      // own onLayout -- is what makes this immune to onLayout ordering
+      // between tree levels). Uses the occurrence's fractional offset within
+      // its block (see the occurrences useMemo above) rather than always the
+      // block's top edge -- fixes two concrete symptoms of the old
+      // top-of-block-only approach: multiple occurrences sharing one block
+      // used to all resolve to the identical y (looked like the jump "didn't
+      // move" between them), and an occurrence late in a long block used to
+      // land far below center (sometimes off the bottom of the screen)
+      // because only the block's top was ever centered, never the occurrence
+      // itself.
       const scroller = scrollRef?.current
       if (!scroller) return
-      const blockIndex = occurrences[n]
-      const y = blockIndex != null ? absoluteBlockY(blockIndex) : undefined
+      const occ = occurrences[n]
+      const y = occ != null ? absoluteOccurrenceY(occ.blockIndex, occ.fraction) : undefined
       if (y == null) return
       scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true })
     },
@@ -755,7 +802,7 @@ export const ACBody = React.forwardRef<
                   if (isChanged) jumpRefs.current[i] = el
                   if (isHighlighted) jumpRefs.current[i] = el
                 }}
-                onLayout={(e) => cacheBlockLayout(i, e.nativeEvent.layout.y, b.id)}
+                onLayout={(e) => cacheBlockLayout(i, e.nativeEvent.layout.y, e.nativeEvent.layout.height, b.id)}
                 style={changedStyle}
               >
                 {UpdatedTag}
@@ -784,7 +831,7 @@ export const ACBody = React.forwardRef<
                   if (isChanged) jumpRefs.current[i] = el as any
                   if (isHighlighted) jumpRefs.current[i] = el as any
                 }}
-                onLayout={(e) => cacheBlockLayout(i, e.nativeEvent.layout.y, b.id)}
+                onLayout={(e) => cacheBlockLayout(i, e.nativeEvent.layout.y, e.nativeEvent.layout.height, b.id)}
                 onLongPress={longPress}
                 delayLongPress={450}
                 style={[
@@ -829,7 +876,7 @@ export const ACBody = React.forwardRef<
                   if (isChanged) jumpRefs.current[i] = el as any
                   if (isHighlighted) jumpRefs.current[i] = el as any
                 }}
-                onLayout={(e) => cacheBlockLayout(i, e.nativeEvent.layout.y)}
+                onLayout={(e) => cacheBlockLayout(i, e.nativeEvent.layout.y, e.nativeEvent.layout.height)}
                 onLongPress={longPress}
                 delayLongPress={450}
                 style={[changedStyle, highlightStyle]}
@@ -865,7 +912,7 @@ export const ACBody = React.forwardRef<
                   if (isChanged) jumpRefs.current[i] = el as any
                   if (isHighlighted) jumpRefs.current[i] = el as any
                 }}
-                onLayout={(e) => cacheBlockLayout(i, e.nativeEvent.layout.y)}
+                onLayout={(e) => cacheBlockLayout(i, e.nativeEvent.layout.y, e.nativeEvent.layout.height)}
                 onLongPress={longPress}
                 delayLongPress={450}
                 style={[changedStyle, highlightStyle]}

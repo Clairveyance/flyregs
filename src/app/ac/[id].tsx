@@ -140,11 +140,16 @@ export default function ACDetailScreen() {
     if (matchCount === 0) return
     // Dismiss the keyboard before jumping -- otherwise a "centered" result
     // can still land visually behind the keyboard, which still covers the
-    // bottom of the screen while the search TextInput has focus.
+    // bottom of the screen while the search TextInput has focus. The 50ms
+    // delay before scrolling gives that dismiss animation a moment to
+    // start -- keyboardDismissMode="interactive" ties keyboard retraction
+    // into the same native scroll machinery as our own scrollTo, so firing
+    // both in the same tick risked the two fighting over the ScrollView's
+    // contentInset/offset mid-animation on a real device.
     Keyboard.dismiss()
     const next = (matchIdx - 1 + matchCount) % matchCount
     setMatchIdx(next)
-    acBodyRef.current?.scrollToMatch(next)
+    setTimeout(() => acBodyRef.current?.scrollToMatch(next), 50)
   }, [matchIdx, matchCount])
 
   const goToNext = useCallback(() => {
@@ -152,7 +157,7 @@ export default function ACDetailScreen() {
     Keyboard.dismiss()
     const next = (matchIdx + 1) % matchCount
     setMatchIdx(next)
-    acBodyRef.current?.scrollToMatch(next)
+    setTimeout(() => acBodyRef.current?.scrollToMatch(next), 50)
   }, [matchIdx, matchCount])
 
   // When a search produces matches, jump to the first one so a highlight is
