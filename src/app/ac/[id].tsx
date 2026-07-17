@@ -76,6 +76,12 @@ export default function ACDetailScreen() {
   const [changedIdx, setChangedIdx] = useState(0)
   const [loading, setLoading] = useState(true)
   const [scrollY, setScrollY] = useState(0)
+  // Same value as `scrollY` above, but as a ref so ACBody's jump-to
+  // search-match/changed-block scroll can read the CURRENT content offset
+  // at call time without needing it as a prop (which would re-render the
+  // whole body on every scroll frame). Used to convert a `.measure()`
+  // page-relative position into an absolute scrollTo target.
+  const scrollYRef = useRef(0)
   // The ScrollView's own rendered height -- passed to ACBody so a jump-to
   // search-match/changed-block scroll can center against what's ACTUALLY
   // visible (header + this screen's own chrome above it, tab bar below it),
@@ -543,7 +549,10 @@ export default function ACDetailScreen() {
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={styles.content}
-          onScroll={e => setScrollY(e.nativeEvent.contentOffset.y)}
+          onScroll={e => {
+            scrollYRef.current = e.nativeEvent.contentOffset.y
+            setScrollY(e.nativeEvent.contentOffset.y)
+          }}
           onLayout={e => setScrollViewportHeight(e.nativeEvent.layout.height)}
           scrollEventThrottle={100}
           keyboardDismissMode="interactive"
@@ -724,6 +733,7 @@ export default function ACDetailScreen() {
                 bodyLimit={isPro ? undefined : previewBlockCount(ac.pdf_blocks.length)}
                 scrollRef={scrollRef}
                 viewportHeight={scrollViewportHeight}
+                scrollYRef={scrollYRef}
                 highlightQuery={isPro && acSearchDebounced.length >= 2 ? acSearchDebounced : undefined}
                 onMatchCount={handleMatchCount}
                 activeMatch={matchCount > 0 ? matchIdx : -1}

@@ -279,6 +279,40 @@ function blockSegments(b: ACBlock): string[] {
   }
 }
 
+// Scrolls `scroller` so `node` (falling back to `fallbackNode` if `node`
+// isn't a real measurable host view -- see the nested-<Text>-ref comment at
+// the scrollToMatch call site) lands `centerOffset` px from the top of the
+// ScrollView's own viewport. Uses `.measure()` (page-absolute coordinates,
+// standard/documented, Fabric-safe) rather than `measureLayout()` against
+// the ScrollView or its getInnerViewNode() -- both of those depend on
+// relativeTo semantics that turned out to be unreliable (see the
+// scrollToMatch comment for the two failed attempts). `scrollYRef` supplies
+// the ScrollView's actual current content offset, kept live by the parent
+// screen's own onScroll handler, so the math works regardless of how much
+// has already been scrolled.
+function scrollToMeasuredNode(
+  node: any,
+  fallbackNode: any,
+  scroller: any,
+  scrollYRef: RefObject<number> | undefined,
+  centerOffset: number
+) {
+  const attempt = (n: any, isFallback: boolean) => {
+    if (!n || typeof n.measure !== 'function') {
+      if (!isFallback && fallbackNode) attempt(fallbackNode, true)
+      return
+    }
+    n.measure((_x: number, _y: number, _w: number, _h: number, _pageX: number, pageY: number) => {
+      scroller.measure((_x2: number, _y2: number, _w2: number, _h2: number, _pageX2: number, scrollerPageY: number) => {
+        const current = scrollYRef?.current ?? 0
+        const offsetWithinViewport = pageY - scrollerPageY
+        scroller.scrollTo({ y: Math.max(0, current + offsetWithinViewport - centerOffset), animated: true })
+      })
+    })
+  }
+  attempt(node, false)
+}
+
 export const ACBody = React.forwardRef<
   ACBodyHandle,
   {
@@ -294,6 +328,12 @@ export const ACBody = React.forwardRef<
      * landing the target too low (sometimes below the visible area) instead
      * of centered. Falls back to window height if not measured yet. */
     viewportHeight?: number
+    /** The scrollRef ScrollView's current contentOffset.y, kept live by the
+     * parent screen's own onScroll handler (a ref, not state, so scrolling
+     * doesn't re-render this whole body on every frame). Needed to convert
+     * a `.measure()` page-relative position into an absolute scrollTo
+     * target -- see the native scrollToMatch/scrollToBlockIndex comment. */
+    scrollYRef?: RefObject<number>
     highlightQuery?: string
     onMatchCount?: (n: number) => void
     activeMatch?: number
@@ -328,7 +368,7 @@ export const ACBody = React.forwardRef<
     formulaRefs?: FormulaRef[]
     onOpenFormulaRef?: (formulaRef: FormulaRef) => void
   }
->(function ACBody({ text, blocks: precomputed, scrollRef, viewportHeight, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight, figures, onOpenFigure, formulaRefs, onOpenFormulaRef }, ref) {
+>(function ACBody({ text, blocks: precomputed, scrollRef, viewportHeight, scrollYRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight, figures, onOpenFigure, formulaRefs, onOpenFormulaRef }, ref) {
   const changedSet = useMemo(() => new Set(changedIndices ?? []), [changedIndices])
   const { tokens } = useTheme()
   const fs = useFS()
@@ -481,49 +521,36 @@ export const ACBody = React.forwardRef<
       // block's own <Text>, and on iOS a ref to a nested Text run frequently
       // resolves to a truthy-but-non-measurable object rather than null (it
       // isn't a real host view with its own native handle) — so `occNode` was
-      // never actually null, `??` never fell through, and measureLayout's
-      // silent failure callback ate the error. That's what made every in-doc
-      // search jump silently no-op on real devices while still incrementing
-      // the counter (2026-07-12). Guard on measureLayout actually existing as
-      // a function, not just on the ref being non-null.
+      // never actually null, `??` never fell through.
+      //
+      // History of two failed approaches, so this isn't re-tried:
+      // 1) measureLayout(scrollViewRef, ...) -- measures relative to
+      //    whatever's CURRENTLY VISIBLE, not the document's true content
+      //    position, so the very first jump (scrolled to top, so "visible"
+      //    happens to equal "absolute") looked right but every jump after
+      //    that undershot by more and more (missing "+ how far already
+      //    scrolled"), drifting the target further off-screen each tap.
+      // 2) measureLayout(scrollViewRef.getInnerViewNode(), ...) -- the
+      //    textbook fix for #1, but getInnerViewNode() is explicitly
+      //    "Undocumented" in RN's own type defs and doesn't reliably work
+      //    under Expo SDK 56's New Architecture (Fabric) -- it made every
+      //    jump silently fail instead (no scroll at all).
+      // This uses `.measure()` instead, which returns page-absolute screen
+      // coordinates (pageY) for both the target and the scroller itself --
+      // a standard, documented, Fabric-safe API. Subtracting the scroller's
+      // own pageY gives "how far down in the CURRENT viewport the target
+      // is," and adding the scroller's actual current content offset
+      // (scrollYRef, kept live by the parent's onScroll) converts that into
+      // the correct absolute scrollTo target -- so it can't drift no matter
+      // how much has already been scrolled.
       const scroller = scrollRef?.current
       if (!scroller) return
-      // measureLayout's relativeTo argument matters enormously here: passing
-      // the ScrollView ref itself measures each target relative to the
-      // CURRENTLY VISIBLE VIEWPORT (i.e. relative to wherever you've already
-      // scrolled to), not to the document's actual content position. Since
-      // the resulting y was then used as if it WERE an absolute scroll
-      // target, every jump after the first was missing "+ how far we'd
-      // already scrolled" -- so the computed target undershot by more and
-      // more each time, landing progressively further below the visible
-      // area and eventually off the bottom entirely (worse with every tap).
-      // getInnerViewNode() gives the ScrollView's actual scrollable CONTENT
-      // view, whose coordinate origin doesn't move as you scroll, so the
-      // same target always measures to the same absolute y regardless of
-      // current scroll position.
-      const measureTarget = (scroller as any).getInnerViewNode?.() ?? scroller
       const occNode = occurrenceRefs.current[n]
       const blockIndex = occurrences[n]
       const blockNode = blockIndex != null ? matchRefs.current[blockIndex] : null
-      const node = (occNode && typeof occNode.measureLayout === 'function') ? occNode : blockNode
+      const node = (occNode && typeof occNode.measure === 'function') ? occNode : blockNode
       if (!node) return
-      node.measureLayout(
-        measureTarget,
-        (_x: number, y: number) => scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true }),
-        () => {
-          // occNode existed but measureLayout still failed at call time (a
-          // transient layout-pass issue, not the structural nested-ref
-          // problem above) -- fall back to the block-level node so the jump
-          // still does SOMETHING instead of silently no-op'ing.
-          if (node !== blockNode && blockNode) {
-            blockNode.measureLayout(
-              measureTarget,
-              (_x: number, y: number) => scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true }),
-              () => {}
-            )
-          }
-        }
-      )
+      scrollToMeasuredNode(node, blockNode, scroller, scrollYRef, centerOffset)
     },
     scrollToBlockIndex(blockIndex: number) {
       const node = jumpRefs.current[blockIndex]
@@ -535,14 +562,9 @@ export const ACBody = React.forwardRef<
       }
       const scroller = scrollRef?.current
       if (!scroller) return
-      const measureTarget = (scroller as any).getInnerViewNode?.() ?? scroller
-      node.measureLayout(
-        measureTarget,
-        (_x, y) => scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true }),
-        () => {}
-      )
+      scrollToMeasuredNode(node, null, scroller, scrollYRef, centerOffset)
     },
-  }), [occurrences, scrollRef, hq, centerOffset])
+  }), [occurrences, scrollRef, scrollYRef, hq, centerOffset])
 
   const jumpTo = (id: string) => {
     const scroller = scrollRef?.current
