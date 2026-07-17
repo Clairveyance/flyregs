@@ -11,6 +11,7 @@ import {
   Linking,
   Platform,
   Share,
+  Keyboard,
 } from 'react-native'
 import * as WebBrowser from 'expo-web-browser'
 import * as Haptics from 'expo-haptics'
@@ -136,6 +137,10 @@ export default function ACDetailScreen() {
 
   const goToPrev = useCallback(() => {
     if (matchCount === 0) return
+    // Dismiss the keyboard before jumping -- otherwise a "centered" result
+    // can still land visually behind the keyboard, which still covers the
+    // bottom of the screen while the search TextInput has focus.
+    Keyboard.dismiss()
     const next = (matchIdx - 1 + matchCount) % matchCount
     setMatchIdx(next)
     acBodyRef.current?.scrollToMatch(next)
@@ -143,6 +148,7 @@ export default function ACDetailScreen() {
 
   const goToNext = useCallback(() => {
     if (matchCount === 0) return
+    Keyboard.dismiss()
     const next = (matchIdx + 1) % matchCount
     setMatchIdx(next)
     acBodyRef.current?.scrollToMatch(next)

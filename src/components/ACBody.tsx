@@ -302,7 +302,7 @@ export const ACBody = React.forwardRef<
      * node's position relative to its IMMEDIATE parent, and ACBody isn't a
      * direct child of the ScrollView -- without this, each block's cached
      * position would only be correct relative to ACBody's own wrapper, not
-     * the actual scrollable content. See blockLayoutY below for why this
+     * the actual scrollable content. See blockRelY below for why this
      * (pure layout-tree arithmetic, no scroll or keyboard state involved at
      * all) replaced an earlier version that read the ScrollView's live
      * scroll offset -- interactive keyboard dismiss (which the search bar
@@ -414,13 +414,11 @@ export const ACBody = React.forwardRef<
   // scrollToBlockIndex above. Still used on web (DOM scrollIntoView).
   const jumpRefs = useRef<Record<number, View | null>>({})
   //
-  // blockLayoutY / headingLayoutY: each block's absolute Y position within
-  // the ScrollView's scrollable content -- keyed by block index and, for
-  // headings, also by heading id (for the Table of Contents jump). Reading
-  // these at jump time is a pure JS lookup: no native call, no scroll or
-  // keyboard state involved, nothing that can race.
+  // blockRelY / headingRelY: each block's Y position relative to ACBody's
+  // OWN root view (from its own onLayout) -- keyed by block index and, for
+  // headings, also by heading id (for the Table of Contents jump).
   //
-  // This replaced FOUR separate attempts to compute a block's position,
+  // This replaced FIVE separate attempts to compute a block's position,
   // each of which failed differently on-device:
   //   1) measureLayout(scrollViewRef, ...) -- measures relative to whatever
   //      is CURRENTLY VISIBLE, not true content position, so it drifted
@@ -438,19 +436,26 @@ export const ACBody = React.forwardRef<
   //      transiently wrong at exactly the moment a jump was triggered.
   //   4) Same .measure() calculation, but cached once via onLayout instead
   //      of read live at jump time -- removed the jump-time race, but still
-  //      depended on the scroll offset being correct at ANY layout event,
-  //      which isn't guaranteed either (a block's own onLayout can refire
-  //      when it becomes the active match, e.g. right as a tap changes its
-  //      highlight padding -- exactly when keyboard-dismiss could also be
-  //      in flight).
-  // This version has NO dependency on scroll position or keyboard state at
-  // all: each level of the view tree between the ScrollView and a block
-  // reports its OWN onLayout position (which is relative to its immediate
-  // parent only, and is pure flexbox-tree arithmetic -- never affected by
-  // scrolling, keyboard animation, or timing), and those are summed. See
-  // outerOffsetYRef's own comment (prop above) for the top of that chain.
-  const blockLayoutY = useRef<Record<number, number>>({})
-  const headingLayoutY = useRef<Record<string, number>>({})
+  //      depended on the scroll offset being correct at ANY layout event.
+  //   5) onLayout-only arithmetic, but summing the FULL chain (ScrollView ->
+  //      fullTextSection -> ACBody's root -> block) INSIDE each block's own
+  //      onLayout -- correct in principle, but React Native doesn't
+  //      guarantee a parent's onLayout fires before its children's (in
+  //      practice children tend to fire FIRST, bottom-up as Yoga finishes
+  //      laying out each subtree), so a block could cache its position
+  //      before its ancestors had reported theirs, silently summing in
+  //      stale/zero ancestor offsets. Not a scroll or keyboard problem this
+  //      time -- an ordering race between onLayout callbacks at different
+  //      tree depths during the initial layout pass.
+  // The fix: each level of the tree still reports its own onLayout position
+  // via a ref (untouched, still ordering-independent on its own), but the
+  // SUM across levels now happens at JUMP TIME instead of at each block's
+  // own onLayout time. By the time a jump is actually triggered (a real user
+  // tap), the initial layout pass -- and every onLayout callback in it,
+  // regardless of ordering -- is long finished, so reading all the refs
+  // together at that point is safe.
+  const blockRelY = useRef<Record<number, number>>({})
+  const headingRelY = useRef<Record<string, number>>({})
   // ACBody's own root <View> isn't a direct child of the ScrollView (see
   // outerOffsetYRef) -- this is ACBody's OWN contribution to the chain: how
   // far its root view sits within its immediate parent (fullTextSection in
@@ -459,9 +464,23 @@ export const ACBody = React.forwardRef<
   const rootOffsetYRef = useRef(0)
 
   const cacheBlockLayout = (i: number, blockY: number, headingId?: string) => {
-    const y = (outerOffsetYRef?.current ?? 0) + rootOffsetYRef.current + blockY
-    blockLayoutY.current[i] = y
-    if (headingId) headingLayoutY.current[headingId] = y
+    blockRelY.current[i] = blockY
+    if (headingId) headingRelY.current[headingId] = blockY
+  }
+
+  // Sums the chain (ScrollView -> ... -> block) at the moment it's actually
+  // needed -- see the comment above blockRelY for why summing at jump time
+  // (not at each block's own onLayout) is what makes this immune to
+  // onLayout ordering between tree levels.
+  const absoluteBlockY = (i: number): number | undefined => {
+    const rel = blockRelY.current[i]
+    if (rel == null) return undefined
+    return (outerOffsetYRef?.current ?? 0) + rootOffsetYRef.current + rel
+  }
+  const absoluteHeadingY = (id: string): number | undefined => {
+    const rel = headingRelY.current[id]
+    if (rel == null) return undefined
+    return (outerOffsetYRef?.current ?? 0) + rootOffsetYRef.current + rel
   }
 
   const hq = highlightQuery && highlightQuery.length >= 2 ? highlightQuery : null
@@ -529,16 +548,18 @@ export const ACBody = React.forwardRef<
         return
       }
 
-      // Native: jump to the containing block using its cached absolute
-      // position (see blockLayoutY's comment above for why this is measured
-      // once at layout time via cacheBlockLayout, not live at jump time).
-      // This lands at the top of the block rather than the exact word -- a
-      // deliberate precision trade for reliability; the active occurrence
-      // is still visually highlighted once its block is on screen.
+      // Native: jump to the containing block using its position, summed
+      // fresh from the cached per-level onLayout refs right now (see
+      // blockRelY's comment above for why summing at jump time -- not at
+      // each block's own onLayout -- is what makes this immune to onLayout
+      // ordering between tree levels). This lands at the top of the block
+      // rather than the exact word -- a deliberate precision trade for
+      // reliability; the active occurrence is still visually highlighted
+      // once its block is on screen.
       const scroller = scrollRef?.current
       if (!scroller) return
       const blockIndex = occurrences[n]
-      const y = blockIndex != null ? blockLayoutY.current[blockIndex] : undefined
+      const y = blockIndex != null ? absoluteBlockY(blockIndex) : undefined
       if (y == null) return
       scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true })
     },
@@ -551,7 +572,7 @@ export const ACBody = React.forwardRef<
       }
       const scroller = scrollRef?.current
       if (!scroller) return
-      const y = blockLayoutY.current[blockIndex]
+      const y = absoluteBlockY(blockIndex)
       if (y == null) return
       scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true })
     },
@@ -564,9 +585,9 @@ export const ACBody = React.forwardRef<
 
     // The 60ms delay (unchanged from before) lets the TOC panel's collapse
     // finish laying out first -- everything below it shifts up once it
-    // closes, and onLayout re-fires with each block's new position by the
-    // time this timeout runs, so blockLayoutY/headingLayoutY are current
-    // when read below.
+    // closes, and onLayout re-fires with each block's new relative position
+    // by the time this timeout runs, so absoluteHeadingY reads current
+    // values when called below.
     setTimeout(() => {
       if (Platform.OS === 'web') {
         const node = headingRefs.current[id]
@@ -575,7 +596,7 @@ export const ACBody = React.forwardRef<
         return
       }
 
-      const y = headingLayoutY.current[id]
+      const y = absoluteHeadingY(id)
       if (y == null) return
       scroller.scrollTo({ y: Math.max(0, y - 10), animated: true })
     }, 60)
