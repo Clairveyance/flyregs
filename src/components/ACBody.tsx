@@ -279,40 +279,6 @@ function blockSegments(b: ACBlock): string[] {
   }
 }
 
-// Scrolls `scroller` so `node` (falling back to `fallbackNode` if `node`
-// isn't a real measurable host view -- see the nested-<Text>-ref comment at
-// the scrollToMatch call site) lands `centerOffset` px from the top of the
-// ScrollView's own viewport. Uses `.measure()` (page-absolute coordinates,
-// standard/documented, Fabric-safe) rather than `measureLayout()` against
-// the ScrollView or its getInnerViewNode() -- both of those depend on
-// relativeTo semantics that turned out to be unreliable (see the
-// scrollToMatch comment for the two failed attempts). `scrollYRef` supplies
-// the ScrollView's actual current content offset, kept live by the parent
-// screen's own onScroll handler, so the math works regardless of how much
-// has already been scrolled.
-function scrollToMeasuredNode(
-  node: any,
-  fallbackNode: any,
-  scroller: any,
-  scrollYRef: RefObject<number> | undefined,
-  centerOffset: number
-) {
-  const attempt = (n: any, isFallback: boolean) => {
-    if (!n || typeof n.measure !== 'function') {
-      if (!isFallback && fallbackNode) attempt(fallbackNode, true)
-      return
-    }
-    n.measure((_x: number, _y: number, _w: number, _h: number, _pageX: number, pageY: number) => {
-      scroller.measure((_x2: number, _y2: number, _w2: number, _h2: number, _pageX2: number, scrollerPageY: number) => {
-        const current = scrollYRef?.current ?? 0
-        const offsetWithinViewport = pageY - scrollerPageY
-        scroller.scrollTo({ y: Math.max(0, current + offsetWithinViewport - centerOffset), animated: true })
-      })
-    })
-  }
-  attempt(node, false)
-}
-
 export const ACBody = React.forwardRef<
   ACBodyHandle,
   {
@@ -330,9 +296,10 @@ export const ACBody = React.forwardRef<
     viewportHeight?: number
     /** The scrollRef ScrollView's current contentOffset.y, kept live by the
      * parent screen's own onScroll handler (a ref, not state, so scrolling
-     * doesn't re-render this whole body on every frame). Needed to convert
-     * a `.measure()` page-relative position into an absolute scrollTo
-     * target -- see the native scrollToMatch/scrollToBlockIndex comment. */
+     * doesn't re-render this whole body on every frame). Only read inside
+     * each block's onLayout (see blockLayoutY below) -- NOT at jump time --
+     * so it's always sampled at a stable, just-settled moment rather than
+     * possibly mid-animation from a rapid successive tap. */
     scrollYRef?: RefObject<number>
     highlightQuery?: string
     onMatchCount?: (n: number) => void
@@ -434,17 +401,73 @@ export const ACBody = React.forwardRef<
   const [showFormulaRefs, setShowFormulaRefs] = useState(false)
   const headingRefs = useRef<Record<string, View | null>>({})
   const matchRefs = useRef<Record<number, View | null>>({})
-  // Per-occurrence (not per-block) refs to the actual highlighted <Text> span,
-  // keyed by global occurrence ordinal — lets scrollToMatch land on the exact
-  // phrase instead of just the top of its containing block. Matters a lot for
-  // long blocks (e.g. a paragraph-length bulleted list): scrolling to the
-  // block's top could leave the actual match several screens below the fold,
-  // looking exactly like "no highlight here" to the user.
+  // Per-occurrence (not per-block) refs to the actual highlighted <Text> span
+  // -- kept for potential future use but no longer read by native scrolling
+  // (see blockLayoutY below); only web's scrollToMatch still uses per-span
+  // DOM lookup, which is unrelated to this.
   const occurrenceRefs = useRef<Record<number, any>>({})
   // Populated for any block a caller might need to imperatively scroll to
   // later (changed-in-revision blocks AND saved highlights) — see
-  // scrollToBlockIndex above.
+  // scrollToBlockIndex above. Still used on web (DOM scrollIntoView).
   const jumpRefs = useRef<Record<number, View | null>>({})
+  // Unconditional ref to EVERY block (unlike matchRefs/jumpRefs, which are
+  // only set for blocks currently matched/changed/highlighted) -- needed so
+  // every block can be measured up front regardless of whether it's a
+  // "target" yet, since which blocks match can change as the user types.
+  const blockNodeRefs = useRef<Record<number, any>>({})
+  //
+  // blockLayoutY / headingLayoutY: each block's absolute Y position within
+  // the ScrollView's scrollable content, cached once per genuine layout
+  // change (see cacheBlockLayout below) -- keyed by block index and, for
+  // headings, also by heading id (for the Table of Contents jump). Reading
+  // these at jump time is a pure JS lookup: no native measurement call
+  // happens at the moment of a tap.
+  //
+  // This replaced THREE separate attempts to scroll by measuring live at
+  // jump time, each of which failed differently on-device:
+  //   1) measureLayout(scrollViewRef, ...) -- measures relative to whatever
+  //      is CURRENTLY VISIBLE, not true content position, so it drifted
+  //      further off-screen with every successive jump.
+  //   2) measureLayout(scrollViewRef.getInnerViewNode(), ...) -- the
+  //      textbook fix for #1, but getInnerViewNode() is "Undocumented" in
+  //      RN's own types and doesn't reliably work under Expo SDK 56's New
+  //      Architecture (Fabric) -- every jump silently failed instead.
+  //   3) .measure() (page-absolute coordinates) + the ScrollView's current
+  //      scroll offset, both read AT THE MOMENT OF THE TAP -- mathematically
+  //      correct, but reading live native state at the exact instant of a
+  //      rapid successive tap (possibly mid-animation from the PREVIOUS
+  //      jump's own scrollTo, or mid-keyboard-dismiss from the search bar
+  //      losing focus) could read a transient, not-yet-settled position,
+  //      producing an inconsistent or even backwards result.
+  // The fix: do the SAME `.measure()`-based calculation as #3, but only
+  // ever inside onLayout -- which by definition only fires once a layout
+  // has just freshly committed, i.e. a moment guaranteed to be settled, not
+  // mid-animation. Jump time itself is then just arithmetic on an already-
+  // cached number, with no native call and nothing that can race.
+  const blockLayoutY = useRef<Record<number, number>>({})
+  const headingLayoutY = useRef<Record<string, number>>({})
+
+  // Measures `node` (a block) relative to `scroller` via `.measure()` (page-
+  // absolute coordinates -- standard, documented, Fabric-safe), combines it
+  // with the ScrollView's current scroll offset, and caches the result as
+  // this block's absolute content-Y. Called from onLayout, never from a
+  // jump handler -- see the comment above blockLayoutY for why that timing
+  // is what makes this reliable where three live-measurement attempts at
+  // jump time were not.
+  const cacheBlockLayout = (i: number, headingId?: string) => {
+    if (Platform.OS === 'web') return // web scrolling uses DOM APIs, not these caches
+    const node = blockNodeRefs.current[i]
+    const scroller = scrollRef?.current
+    if (!node || !scroller || typeof node.measure !== 'function' || typeof (scroller as any).measure !== 'function') return
+    node.measure((_x: number, _y: number, _w: number, _h: number, _pageX: number, pageY: number) => {
+      ;(scroller as any).measure((_x2: number, _y2: number, _w2: number, _h2: number, _pageX2: number, scrollerPageY: number) => {
+        const current = scrollYRef?.current ?? 0
+        const y = current + (pageY - scrollerPageY)
+        blockLayoutY.current[i] = y
+        if (headingId) headingLayoutY.current[headingId] = y
+      })
+    })
+  }
 
   const hq = highlightQuery && highlightQuery.length >= 2 ? highlightQuery : null
   const searching = hq !== null
@@ -514,47 +537,21 @@ export const ACBody = React.forwardRef<
         return
       }
 
-      // Native: prefer scrolling to the exact highlighted span for this
-      // occurrence — falls back to the containing block's top if that span's
-      // ref isn't usable. This fallback is NOT just a "shouldn't normally
-      // happen" edge case: a highlighted match is a nested <Text> inside the
-      // block's own <Text>, and on iOS a ref to a nested Text run frequently
-      // resolves to a truthy-but-non-measurable object rather than null (it
-      // isn't a real host view with its own native handle) — so `occNode` was
-      // never actually null, `??` never fell through.
-      //
-      // History of two failed approaches, so this isn't re-tried:
-      // 1) measureLayout(scrollViewRef, ...) -- measures relative to
-      //    whatever's CURRENTLY VISIBLE, not the document's true content
-      //    position, so the very first jump (scrolled to top, so "visible"
-      //    happens to equal "absolute") looked right but every jump after
-      //    that undershot by more and more (missing "+ how far already
-      //    scrolled"), drifting the target further off-screen each tap.
-      // 2) measureLayout(scrollViewRef.getInnerViewNode(), ...) -- the
-      //    textbook fix for #1, but getInnerViewNode() is explicitly
-      //    "Undocumented" in RN's own type defs and doesn't reliably work
-      //    under Expo SDK 56's New Architecture (Fabric) -- it made every
-      //    jump silently fail instead (no scroll at all).
-      // This uses `.measure()` instead, which returns page-absolute screen
-      // coordinates (pageY) for both the target and the scroller itself --
-      // a standard, documented, Fabric-safe API. Subtracting the scroller's
-      // own pageY gives "how far down in the CURRENT viewport the target
-      // is," and adding the scroller's actual current content offset
-      // (scrollYRef, kept live by the parent's onScroll) converts that into
-      // the correct absolute scrollTo target -- so it can't drift no matter
-      // how much has already been scrolled.
+      // Native: jump to the containing block using its cached absolute
+      // position (see blockLayoutY's comment above for why this is measured
+      // once at layout time via cacheBlockLayout, not live at jump time).
+      // This lands at the top of the block rather than the exact word -- a
+      // deliberate precision trade for reliability; the active occurrence
+      // is still visually highlighted once its block is on screen.
       const scroller = scrollRef?.current
       if (!scroller) return
-      const occNode = occurrenceRefs.current[n]
       const blockIndex = occurrences[n]
-      const blockNode = blockIndex != null ? matchRefs.current[blockIndex] : null
-      const node = (occNode && typeof occNode.measure === 'function') ? occNode : blockNode
-      if (!node) return
-      scrollToMeasuredNode(node, blockNode, scroller, scrollYRef, centerOffset)
+      const y = blockIndex != null ? blockLayoutY.current[blockIndex] : undefined
+      if (y == null) return
+      scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true })
     },
     scrollToBlockIndex(blockIndex: number) {
       const node = jumpRefs.current[blockIndex]
-      if (!node) return
       if (Platform.OS === 'web') {
         const el = node as unknown as HTMLElement
         el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
@@ -562,30 +559,33 @@ export const ACBody = React.forwardRef<
       }
       const scroller = scrollRef?.current
       if (!scroller) return
-      scrollToMeasuredNode(node, null, scroller, scrollYRef, centerOffset)
+      const y = blockLayoutY.current[blockIndex]
+      if (y == null) return
+      scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true })
     },
-  }), [occurrences, scrollRef, scrollYRef, hq, centerOffset])
+  }), [occurrences, scrollRef, hq, centerOffset])
 
   const jumpTo = (id: string) => {
     const scroller = scrollRef?.current
     if (!scroller) return
     setShowToc(false)
 
+    // The 60ms delay (unchanged from before) lets the TOC panel's collapse
+    // finish laying out first -- everything below it shifts up once it
+    // closes, and onLayout re-fires with each block's new position by the
+    // time this timeout runs, so blockLayoutY/headingLayoutY are current
+    // when read below.
     setTimeout(() => {
-      const node = headingRefs.current[id]
-      if (!node) return
-
       if (Platform.OS === 'web') {
+        const node = headingRefs.current[id]
         const el = node as unknown as HTMLElement
         el?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
         return
       }
 
-      node.measureLayout(
-        scroller as any,
-        (_x, y) => scroller.scrollTo({ y: Math.max(0, y - 10), animated: true }),
-        () => {}
-      )
+      const y = headingLayoutY.current[id]
+      if (y == null) return
+      scroller.scrollTo({ y: Math.max(0, y - 10), animated: true })
     }, 60)
   }
 
@@ -741,10 +741,12 @@ export const ACBody = React.forwardRef<
                 key={i}
                 ref={(el) => {
                   headingRefs.current[b.id] = el
+                  blockNodeRefs.current[i] = el
                   if (isMatch) matchRefs.current[i] = el
                   if (isChanged) jumpRefs.current[i] = el
                   if (isHighlighted) jumpRefs.current[i] = el
                 }}
+                onLayout={() => cacheBlockLayout(i, b.id)}
                 style={changedStyle}
               >
                 {UpdatedTag}
@@ -770,10 +772,12 @@ export const ACBody = React.forwardRef<
                 key={i}
                 ref={(el) => {
                   headingRefs.current[b.id] = el as any
+                  blockNodeRefs.current[i] = el
                   if (isMatch) matchRefs.current[i] = el as any
                   if (isChanged) jumpRefs.current[i] = el as any
                   if (isHighlighted) jumpRefs.current[i] = el as any
                 }}
+                onLayout={() => cacheBlockLayout(i, b.id)}
                 onLongPress={longPress}
                 delayLongPress={450}
                 style={[
@@ -815,10 +819,12 @@ export const ACBody = React.forwardRef<
               <Pressable
                 key={i}
                 ref={(el) => {
+                  blockNodeRefs.current[i] = el
                   if (isMatch) matchRefs.current[i] = el as any
                   if (isChanged) jumpRefs.current[i] = el as any
                   if (isHighlighted) jumpRefs.current[i] = el as any
                 }}
+                onLayout={() => cacheBlockLayout(i)}
                 onLongPress={longPress}
                 delayLongPress={450}
                 style={[changedStyle, highlightStyle]}
@@ -851,10 +857,12 @@ export const ACBody = React.forwardRef<
               <Pressable
                 key={i}
                 ref={(el) => {
+                  blockNodeRefs.current[i] = el
                   if (isMatch) matchRefs.current[i] = el as any
                   if (isChanged) jumpRefs.current[i] = el as any
                   if (isHighlighted) jumpRefs.current[i] = el as any
                 }}
+                onLayout={() => cacheBlockLayout(i)}
                 onLongPress={longPress}
                 delayLongPress={450}
                 style={[changedStyle, highlightStyle]}
