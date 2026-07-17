@@ -68,6 +68,17 @@ export default function SavedScreen() {
     isSyncEnabled().then(setSyncEnabled)
   }, [])
   const [bookmarks, setBookmarks] = useState<BookmarkAC[]>([])
+  // acIds that have at least one highlight saved SOMEWHERE (a highlight is its
+  // own separate BookmarkAC row, keyed by a synthetic id, not the AC's own id
+  // -- see BookmarkAC's comment on that distinction). Used to flag a whole-
+  // document bookmark row with "contains a highlight" even though the actual
+  // highlight itself lives in a different row the reader may never scroll to
+  // -- without this, a highlight saved via long-press has zero visibility
+  // outside opening the AC itself and happening to scroll to the exact spot.
+  const highlightAcIds = useMemo(
+    () => new Set(bookmarks.filter((b) => b.blockText && b.acId).map((b) => b.acId!)),
+    [bookmarks]
+  )
   const [downloads, setDownloads] = useState<DownloadedAC[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
   const [collaborations, setCollaborations] = useState<SharedFolderSummary[]>([])
@@ -523,6 +534,7 @@ export default function SavedScreen() {
                     selectMode={selectMode}
                     selected={selected.has(item.id)}
                     stale={staleHighlightIds.has(item.id)}
+                    hasHighlight={!item.blockText && highlightAcIds.has(item.id)}
                     badgeData={badgeDataById[item.acId ?? item.id]}
                     badgeDays={badgeDays}
                     onPress={selectMode ? () => toggleRow(item.id) : () => router.push(
@@ -828,6 +840,7 @@ function BookmarkRow({
   selectMode,
   selected,
   stale,
+  hasHighlight,
   badgeData,
   badgeDays,
   onPress,
@@ -840,6 +853,7 @@ function BookmarkRow({
   selectMode: boolean
   selected: boolean
   stale?: boolean
+  hasHighlight?: boolean
   badgeData?: { cancels: string[]; changed_block_indices: number[] | null; date_issued: string | null; document_number: string }
   badgeDays: number
   onPress: () => void
@@ -948,6 +962,13 @@ function BookmarkRow({
                       </View>
                     )}
                   </>
+                ) : hasHighlight ? (
+                  <View style={[styles.highlightTag, { backgroundColor: 'rgba(255, 213, 0, 0.12)', borderColor: 'rgba(255, 213, 0, 0.4)' }]}>
+                    <Icon name="highlighter" size={11} color="#8a6d00" />
+                    <Text style={{ color: '#8a6d00', fontWeight: '700', fontSize: fs(10.5), marginLeft: 4 }}>
+                      Contains a highlighted section
+                    </Text>
+                  </View>
                 ) : null}
                 <View style={styles.metaActionRow}>
                   <Text style={[styles.savedAt, { color: tokens.t4, fontSize: fs(11) }]} numberOfLines={1}>

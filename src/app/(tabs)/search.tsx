@@ -384,12 +384,34 @@ function BrowseView({
   const [selectedCat, setSelectedCat] = useState<string | null>(null)
   const categories = useMemo(() => buildCategories(series), [series])
   const expanded = selectedCat ? categories.find((c) => c.name === selectedCat) : null
+  const scrollRef = useRef<ScrollView>(null)
+  // Position of the expanded category's own header ("OPERATIONS" etc.) within
+  // the ScrollView's content, from its own onLayout -- it's a direct child of
+  // the ScrollView here (no extra nested wrapper to sum through, unlike
+  // ACBody's jump math), so this one value is already usable as-is.
+  const expandedHeaderYRef = useRef(0)
 
-  const toggleCat = (name: string) =>
+  const toggleCat = (name: string) => {
+    const opening = selectedCat !== name
     setSelectedCat((prev) => (prev === name ? null : name))
+    if (opening) {
+      // Tapping a category reveals its series list below the 6-box grid, but
+      // the ScrollView itself never moves -- on a normal-height screen the
+      // newly-revealed list renders entirely below the fold, so a reader sees
+      // no visible change at all and assumes the tap did nothing. The 80ms
+      // delay lets the just-opened header's onLayout land before we read its
+      // position, matching the same "let a just-triggered layout settle
+      // before reading it" pattern already used for the TOC-collapse jump in
+      // ACBody.tsx.
+      setTimeout(() => {
+        scrollRef.current?.scrollTo({ y: Math.max(0, expandedHeaderYRef.current - 12), animated: true })
+      }, 80)
+    }
+  }
 
   return (
     <ScrollView
+      ref={scrollRef}
       contentContainerStyle={styles.browseContent}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="interactive"
@@ -431,7 +453,10 @@ function BrowseView({
       {/* Expanded series for selected category */}
       {expanded && expanded.seriesList.length > 0 && (
         <>
-          <Text style={[styles.groupLabel, { color: tokens.t3, marginTop: 16, fontSize: fs(11) }]}>
+          <Text
+            onLayout={(e) => { expandedHeaderYRef.current = e.nativeEvent.layout.y }}
+            style={[styles.groupLabel, { color: tokens.t3, marginTop: 16, fontSize: fs(11) }]}
+          >
             {expanded.name.toUpperCase()}
           </Text>
           {expanded.seriesList.map((item) => (
