@@ -76,12 +76,16 @@ export default function ACDetailScreen() {
   const [changedIdx, setChangedIdx] = useState(0)
   const [loading, setLoading] = useState(true)
   const [scrollY, setScrollY] = useState(0)
-  // Same value as `scrollY` above, but as a ref so ACBody's jump-to
-  // search-match/changed-block scroll can read the CURRENT content offset
-  // at call time without needing it as a prop (which would re-render the
-  // whole body on every scroll frame). Used to convert a `.measure()`
-  // page-relative position into an absolute scrollTo target.
-  const scrollYRef = useRef(0)
+  // How far down the "FULL TEXT" section (which wraps ACBody) sits within
+  // this ScrollView's content -- i.e. the combined height of everything
+  // rendered above it (badge row, title, description, action buttons,
+  // etc). Passed to ACBody as outerOffsetYRef so its jump-to search-match/
+  // changed-block scroll can compute each block's true absolute position
+  // via pure onLayout arithmetic, with no dependency on live scroll
+  // position or keyboard state -- see that prop's own comment in
+  // ACBody.tsx for why that matters (interactive keyboard dismiss from the
+  // search bar ties into the same native scrolling machinery).
+  const fullTextSectionYRef = useRef(0)
   // The ScrollView's own rendered height -- passed to ACBody so a jump-to
   // search-match/changed-block scroll can center against what's ACTUALLY
   // visible (header + this screen's own chrome above it, tab bar below it),
@@ -549,10 +553,7 @@ export default function ACDetailScreen() {
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={styles.content}
-          onScroll={e => {
-            scrollYRef.current = e.nativeEvent.contentOffset.y
-            setScrollY(e.nativeEvent.contentOffset.y)
-          }}
+          onScroll={e => setScrollY(e.nativeEvent.contentOffset.y)}
           onLayout={e => setScrollViewportHeight(e.nativeEvent.layout.height)}
           scrollEventThrottle={100}
           keyboardDismissMode="interactive"
@@ -724,7 +725,10 @@ export default function ACDetailScreen() {
           {/* Full text — free readers get the Contents + a proportional preview
               of the beginning, then a gate; Pro gets the complete document. */}
           {ac.pdf_blocks && ac.pdf_blocks.length > 0 ? (
-            <View style={styles.fullTextSection}>
+            <View
+              style={styles.fullTextSection}
+              onLayout={(e) => { fullTextSectionYRef.current = e.nativeEvent.layout.y }}
+            >
               <View style={[styles.fullTextDivider, { backgroundColor: tokens.bdr }]} />
               <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>FULL TEXT</Text>
               <ACBody
@@ -733,7 +737,7 @@ export default function ACDetailScreen() {
                 bodyLimit={isPro ? undefined : previewBlockCount(ac.pdf_blocks.length)}
                 scrollRef={scrollRef}
                 viewportHeight={scrollViewportHeight}
-                scrollYRef={scrollYRef}
+                outerOffsetYRef={fullTextSectionYRef}
                 highlightQuery={isPro && acSearchDebounced.length >= 2 ? acSearchDebounced : undefined}
                 onMatchCount={handleMatchCount}
                 activeMatch={matchCount > 0 ? matchIdx : -1}
