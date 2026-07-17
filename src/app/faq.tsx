@@ -44,8 +44,8 @@ const FAQ: QA[] = [
     a: 'We check the FAA for new and revised ACs every week, so the library stays current automatically — no need to manually refresh or check faa.gov yourself. The "What\'s New" feed on the Home screen shows everything issued or updated in the last 90 days by default (adjustable — see the next question).',
   },
   {
-    q: 'What do the NEW and UPD badges mean?',
-    a: 'NEW marks an AC issued recently; UPD marks one that supersedes or revises an earlier circular. Both roll off automatically after 90 days by default — set Badge Lifespan in the menu to 7, 14, or 30 days instead if you want them (and the Home "What\'s New" feed) to move faster.',
+    q: 'What do the NEW, UPD, and VER badges mean?',
+    a: 'NEW marks an AC issued recently. UPD marks the same AC number revised in place, with real changes you can jump between inside the document. VER marks an AC that moved to a new letter version (for example 20-136B → 20-136C), replacing the prior version rather than editing it in place. All three roll off automatically after 90 days by default — set Badge Lifespan in the menu to 14, 30, 90, or 180 days instead if you want them (and the Home "What\'s New" feed) to move faster or slower.',
   },
   {
     q: 'How does search work?',
