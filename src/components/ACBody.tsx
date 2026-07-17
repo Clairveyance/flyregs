@@ -488,13 +488,27 @@ export const ACBody = React.forwardRef<
       // a function, not just on the ref being non-null.
       const scroller = scrollRef?.current
       if (!scroller) return
+      // measureLayout's relativeTo argument matters enormously here: passing
+      // the ScrollView ref itself measures each target relative to the
+      // CURRENTLY VISIBLE VIEWPORT (i.e. relative to wherever you've already
+      // scrolled to), not to the document's actual content position. Since
+      // the resulting y was then used as if it WERE an absolute scroll
+      // target, every jump after the first was missing "+ how far we'd
+      // already scrolled" -- so the computed target undershot by more and
+      // more each time, landing progressively further below the visible
+      // area and eventually off the bottom entirely (worse with every tap).
+      // getInnerViewNode() gives the ScrollView's actual scrollable CONTENT
+      // view, whose coordinate origin doesn't move as you scroll, so the
+      // same target always measures to the same absolute y regardless of
+      // current scroll position.
+      const measureTarget = (scroller as any).getInnerViewNode?.() ?? scroller
       const occNode = occurrenceRefs.current[n]
       const blockIndex = occurrences[n]
       const blockNode = blockIndex != null ? matchRefs.current[blockIndex] : null
       const node = (occNode && typeof occNode.measureLayout === 'function') ? occNode : blockNode
       if (!node) return
       node.measureLayout(
-        scroller as any,
+        measureTarget,
         (_x: number, y: number) => scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true }),
         () => {
           // occNode existed but measureLayout still failed at call time (a
@@ -503,7 +517,7 @@ export const ACBody = React.forwardRef<
           // still does SOMETHING instead of silently no-op'ing.
           if (node !== blockNode && blockNode) {
             blockNode.measureLayout(
-              scroller as any,
+              measureTarget,
               (_x: number, y: number) => scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true }),
               () => {}
             )
@@ -521,8 +535,9 @@ export const ACBody = React.forwardRef<
       }
       const scroller = scrollRef?.current
       if (!scroller) return
+      const measureTarget = (scroller as any).getInnerViewNode?.() ?? scroller
       node.measureLayout(
-        scroller as any,
+        measureTarget,
         (_x, y) => scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true }),
         () => {}
       )
