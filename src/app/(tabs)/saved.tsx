@@ -68,17 +68,23 @@ export default function SavedScreen() {
     isSyncEnabled().then(setSyncEnabled)
   }, [])
   const [bookmarks, setBookmarks] = useState<BookmarkAC[]>([])
-  // acIds that have at least one highlight saved SOMEWHERE (a highlight is its
-  // own separate BookmarkAC row, keyed by a synthetic id, not the AC's own id
-  // -- see BookmarkAC's comment on that distinction). Used to flag a whole-
-  // document bookmark row with "contains a highlight" even though the actual
-  // highlight itself lives in a different row the reader may never scroll to
-  // -- without this, a highlight saved via long-press has zero visibility
-  // outside opening the AC itself and happening to scroll to the exact spot.
-  const highlightAcIds = useMemo(
-    () => new Set(bookmarks.filter((b) => b.blockText && b.acId).map((b) => b.acId!)),
-    [bookmarks]
-  )
+  // acId -> one highlight bookmark for that AC (a highlight is its own
+  // separate BookmarkAC row, keyed by a synthetic id, not the AC's own id --
+  // see BookmarkAC's comment on that distinction). Used both to flag a whole-
+  // document bookmark row with "contains a highlight" (the actual highlight
+  // otherwise lives in a different row the reader may never scroll to) AND to
+  // let tapping that row jump straight to it -- the flag alone isn't enough;
+  // a reader who sees "contains a highlight" reasonably expects tapping it to
+  // actually take them there, not just to the top of the document again. If
+  // an AC has more than one highlight, this jumps to the first one found;
+  // the reader can still reach any of the others via their own separate rows.
+  const highlightByAcId = useMemo(() => {
+    const m = new Map<string, BookmarkAC>()
+    for (const b of bookmarks) {
+      if (b.blockText && b.acId && !m.has(b.acId)) m.set(b.acId, b)
+    }
+    return m
+  }, [bookmarks])
   const [downloads, setDownloads] = useState<DownloadedAC[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
   const [collaborations, setCollaborations] = useState<SharedFolderSummary[]>([])
@@ -527,24 +533,36 @@ export default function SavedScreen() {
                     {bookmarks.length} SAVED AC{bookmarks.length !== 1 ? 'S' : ''}
                   </Text>
                 }
-                renderItem={({ item }) => (
-                  <BookmarkRow
-                    item={item}
-                    tokens={tokens}
-                    selectMode={selectMode}
-                    selected={selected.has(item.id)}
-                    stale={staleHighlightIds.has(item.id)}
-                    hasHighlight={!item.blockText && highlightAcIds.has(item.id)}
-                    badgeData={badgeDataById[item.acId ?? item.id]}
-                    badgeDays={badgeDays}
-                    onPress={selectMode ? () => toggleRow(item.id) : () => router.push(
-                      item.blockText ? `/ac/${item.acId}?hlId=${encodeURIComponent(item.id)}` : `/ac/${item.acId ?? item.id}`
-                    )}
-                    onRemove={() => handleRemove(item)}
-                    onFolder={() => setPickerAC(item)}
-                    onShare={() => handleShare(item)}
-                  />
-                )}
+                renderItem={({ item }) => {
+                  const otherHighlight = !item.blockText ? highlightByAcId.get(item.id) : undefined
+                  // A highlight row jumps to itself; a whole-doc row with a
+                  // highlight elsewhere jumps to THAT highlight instead of
+                  // just opening the plain document -- see highlightByAcId's
+                  // comment for why "just show a tag" isn't enough on its own.
+                  const jumpTarget = item.blockText
+                    ? { acId: item.acId, hlId: item.id }
+                    : otherHighlight
+                    ? { acId: otherHighlight.acId, hlId: otherHighlight.id }
+                    : null
+                  return (
+                    <BookmarkRow
+                      item={item}
+                      tokens={tokens}
+                      selectMode={selectMode}
+                      selected={selected.has(item.id)}
+                      stale={staleHighlightIds.has(item.id)}
+                      hasHighlight={!!otherHighlight}
+                      badgeData={badgeDataById[item.acId ?? item.id]}
+                      badgeDays={badgeDays}
+                      onPress={selectMode ? () => toggleRow(item.id) : () => router.push(
+                        jumpTarget ? `/ac/${jumpTarget.acId}?hlId=${encodeURIComponent(jumpTarget.hlId!)}` : `/ac/${item.acId ?? item.id}`
+                      )}
+                      onRemove={() => handleRemove(item)}
+                      onFolder={() => setPickerAC(item)}
+                      onShare={() => handleShare(item)}
+                    />
+                  )
+                }}
               />
             )}
           </>
@@ -966,7 +984,7 @@ function BookmarkRow({
                   <View style={[styles.highlightTag, { backgroundColor: 'rgba(255, 213, 0, 0.12)', borderColor: 'rgba(255, 213, 0, 0.4)' }]}>
                     <Icon name="highlighter" size={11} color="#8a6d00" />
                     <Text style={{ color: '#8a6d00', fontWeight: '700', fontSize: fs(10.5), marginLeft: 4 }}>
-                      Contains a highlighted section
+                      Tap to view highlighted section
                     </Text>
                   </View>
                 ) : null}
