@@ -1,4 +1,4 @@
-import { View, Text, Image, Pressable, ScrollView, StyleSheet, Linking } from 'react-native'
+import { View, Text, Image, Pressable, ScrollView, StyleSheet, Linking, Alert } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme, ThemeTokens } from '@/context/theme'
 import { useReturnToMenu } from '@/context/drawer'
@@ -55,13 +55,17 @@ export default function AboutScreen() {
             icon="globe"
             label="Website"
             tokens={tokens}
-            onPress={() => Linking.openURL(WEBSITE_URL)}
+            onPress={() => Linking.openURL(WEBSITE_URL).catch(() =>
+              Alert.alert('Could not open browser', `Please visit ${WEBSITE_URL} manually.`)
+            )}
           />
           <LinkRow
             icon="at"
             label="Contact"
             tokens={tokens}
-            onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
+            onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`).catch(() =>
+              Alert.alert('Could not open mail', `Please email us at ${SUPPORT_EMAIL}.`)
+            )}
             last
           />
         </View>
