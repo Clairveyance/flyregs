@@ -44,7 +44,7 @@ export function cleanGlyphs(s: string): string {
 
 // Schema version for precomputed pdf_blocks — bump when the parser output shape
 // changes so a backfill can tell which rows need reprocessing.
-export const AC_FORMAT_VERSION = 31
+export const AC_FORMAT_VERSION = 32
 
 // Comparable text for a block, regardless of kind — content-based identity used
 // both server-side (scripts/backfill-blocks.mjs's diff computation, which keeps
@@ -193,7 +193,15 @@ const SECDOT = /^([1-9]\d*(?:\.\d{1,2}){1,4}\.?)\s+(?!(?:[A-Z]{1,6})\s[a-z])([A-
 //     into individual headings across 129 ACs (e.g. 120-72A's citation list),
 //     reversing an earlier, deliberate call that those should stay list
 //     items, not sections. Reverted; the FAQ-heading gap is left unfixed.
-const NUMSEC = /^(\d+\.)\s+([A-Z](?:[A-Z0-9: ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))+|[A-Z](?:[A-Z0-9: ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))*(?:[A-Z0-9)]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))\.\s+.+|[A-Z]{2,6}\s+[A-Z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?|[A-Z][a-z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?)$/
+//   • Colon-with-body branch: an old (pre-1990s) FAA heading style — "1.
+//     PURPOSE: This advisory circular sets forth..." (confirmed on AC 20-40,
+//     1965) — an ALL-CAPS title terminated by a COLON, with body text inline
+//     on the same line. Distinct from the with-body ALL-CAPS branch above,
+//     which requires a literal period before the body; distinct from the
+//     bare-heading branch, whose internal-colon tolerance only covers a
+//     colon followed by MORE all-caps text, not lowercase prose. Mirrors the
+//     period branch's structure exactly, just with ":" as the terminator.
+const NUMSEC = /^(\d+\.)\s+([A-Z](?:[A-Z0-9: ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))+|[A-Z](?:[A-Z0-9: ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))*(?:[A-Z0-9)]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))\.\s+.+|[A-Z](?:[A-Z0-9 ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))*(?:[A-Z0-9)]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\)):\s+.+|[A-Z]{2,6}\s+[A-Z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?|[A-Z][a-z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?)$/
 
 // "1 PURPOSE OF THIS AC." — number (no period), then ALL-CAPS title ending in
 // a period, optionally followed by body on the same line. Tolerates ONE
@@ -299,6 +307,13 @@ function isNoise(l: string): boolean {
 function splitHeading(rest: string): { title: string; body: string } {
   const m = rest.match(/^([A-Z][A-Za-z0-9 ,/&''()-]{1,55}?\.)\s+(.+)$/)
   if (m) return { title: m[1], body: m[2] }
+  // Same extraction for a COLON-terminated title ("PURPOSE: This advisory
+  // circular sets forth…", the old 1965-era heading style NUMSEC's colon
+  // branch now recognizes) — without this, the whole line falls through to
+  // the standalone-heading case below and the entire sentence renders bold
+  // as one giant "title" instead of a short bold term + normal body.
+  const mc = rest.match(/^([A-Z][A-Za-z0-9 ,/&''()-]{1,55}?:)\s+(.+)$/)
+  if (mc) return { title: mc[1], body: mc[2] }
   // Standalone heading: the entire rest is the title text (no body on this line)
   if (/^[A-Z]/.test(rest)) return { title: rest, body: '' }
   return { title: '', body: rest }
@@ -337,6 +352,17 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
     .replace(/\t/g, ' ')
     .split('\n')
     .map((l) => cleanGlyphs(l.replace(/\s+/g, ' ').trim()))
+    // Some ACs' extracted pdf_text carries literal Markdown bold markers
+    // ("**1. PURPOSE.**", "1. **Purpose**.", "**a.**") from a source pipeline
+    // that renders emphasis as raw asterisks instead of real formatting. Every
+    // classifier below anchors on the line's literal first character(s) (the
+    // digit itself, or the letter right after "N. ") — a leading/embedded "**"
+    // breaks all of them, silently demoting every heading and lettered item in
+    // the document to plain body text (confirmed on 00-44II, 20-171, 21-48,
+    // 35.16-1 — task #84's investigation found 7 ACs corpus-wide with this
+    // pattern). Two asterisks in a row is never legitimate FAA regulatory
+    // prose, so a blanket strip is safe.
+    .map((l) => l.replace(/\*\*/g, ''))
     // A section number occasionally has a stray space before its period
     // ("3 . REFERENCE DOCUMENT." instead of "3. REFERENCE DOCUMENT.") — a
     // kerning/OCR artifact on old scanned ACs (confirmed on AC 00-41B) that
@@ -345,6 +371,20 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
     // the START of the line only, so this can't touch a number that
     // legitimately has a space after it elsewhere in running prose.
     .map((l) => l.replace(/^(\d{1,4})\s+\.\s*/, '$1. '))
+    // A heading's own first word occasionally has a stray inserted space
+    // right after its first letter ("1. P urpose . This advisory circular…",
+    // confirmed on AC 20-18B) — a PDF-extraction kerning glitch distinct from
+    // the OCR_SCANNED_ACS artifact repair below (which is deliberately gated
+    // to only the 68 flagged old scans, since applying it universally
+    // corrupts modern text — see v31). Scoped narrowly to right after a "N. "
+    // heading-number prefix (never fires in ordinary body prose) so it's safe
+    // to run unconditionally.
+    .map((l) => l.replace(/^(\d{1,4}\.)\s+([A-Z]) ([a-z]{2,15})(?=[\s.?:]|$)/, '$1 $2$3'))
+    // Collapse a stray space directly before a heading title's own terminal
+    // period ("Purpose . This…" → "Purpose. This…"), a side effect of the
+    // same kerning glitch above. Only after a letter (not a digit) so this
+    // can't touch a decimal number or version string elsewhere in the text.
+    .map((l) => l.replace(/([A-Za-z]) \.(?=\s|$)/g, '$1.'))
 
   // 2b. Rejoin a section number split from its title by a PDF line break — a line
   //     that is just "102." with the title ("LIMIT OF VALIDITY. …") on the next
@@ -377,6 +417,30 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
     while (j < lines.length && lines[j] === '') j++
     if (j < lines.length && /^[A-Za-z]/.test(lines[j])) {
       lines[i] = `${lines[i]} ${lines[j]}`
+      lines[j] = ''
+    }
+  }
+
+  // 2d. Rejoin a heading's own FIRST word when it's split mid-word by a PDF
+  //     line break before the line has even been classified — e.g. "1. Pur"
+  //     alone on its line, with "pose. This advisory circular…" continuing on
+  //     the next (confirmed on AC 33-11). This differs from the post-
+  //     classification mid-word repair further below (which only merges a
+  //     continuation into a heading ALREADY recognized as one): a bare "N.
+  //     Fragment" with no terminal punctuation never matches any NUMSEC
+  //     variant in the first place (no period/question-mark, not ALL-CAPS),
+  //     so that repair never gets a chance to run. Scoped tightly — the
+  //     fragment must be 2-10 letters (mirrors the >=2-char floor used
+  //     elsewhere for this exact ambiguity: a single bare letter is
+  //     indistinguishable from the ordinary start of a body word like "The")
+  //     and the next line must continue in lowercase (a genuine word-split,
+  //     not a new sentence).
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (!/^\d{1,3}\.\s+[A-Z][a-z]{1,9}$/.test(lines[i])) continue
+    let j = i + 1
+    while (j < lines.length && lines[j] === '') j++
+    if (j < lines.length && /^[a-z]/.test(lines[j])) {
+      lines[i] = `${lines[i]}${lines[j]}`
       lines[j] = ''
     }
   }
