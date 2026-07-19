@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
+import * as Linking from 'expo-linking'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -16,19 +17,36 @@ import { markJustConfirmed } from '@/lib/justConfirmed'
 // again right after they just created it. Falls back to the old "please
 // sign in" state if the tokens are missing (e.g. an older email link, or the
 // hand-off page couldn't parse them for some reason).
+//
+// A Universal Link tap bypasses the website hand-off page entirely (iOS
+// opens the app directly on https://flyregs.com/confirm#access_token=...,
+// exactly as Supabase's own redirect appends them) -- useLocalSearchParams
+// only sees the query string, not the hash fragment, so that path needs its
+// own parse of the raw incoming URL as a fallback.
 export default function ConfirmScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
   const insets = useSafeAreaInsets()
   const { access_token, refresh_token } = useLocalSearchParams<{ access_token?: string; refresh_token?: string }>()
+  const incomingUrl = Linking.useURL()
   const [state, setState] = useState<'working' | 'signedIn' | 'needsSignIn'>('working')
 
   useEffect(() => {
-    if (typeof access_token !== 'string' || typeof refresh_token !== 'string') {
+    let at = access_token
+    let rt = refresh_token
+    if ((typeof at !== 'string' || typeof rt !== 'string') && incomingUrl) {
+      const hashIdx = incomingUrl.indexOf('#')
+      if (hashIdx !== -1) {
+        const hashParams = new URLSearchParams(incomingUrl.slice(hashIdx + 1))
+        at = hashParams.get('access_token') ?? undefined
+        rt = hashParams.get('refresh_token') ?? undefined
+      }
+    }
+    if (typeof at !== 'string' || typeof rt !== 'string') {
       setState('needsSignIn')
       return
     }
-    supabase.auth.setSession({ access_token, refresh_token }).then(({ error }) => {
+    supabase.auth.setSession({ access_token: at, refresh_token: rt }).then(({ error }) => {
       if (error) {
         setState('needsSignIn')
         return
@@ -37,7 +55,7 @@ export default function ConfirmScreen() {
       setState('signedIn')
       setTimeout(() => router.replace('/'), 900)
     })
-  }, [access_token, refresh_token])
+  }, [access_token, refresh_token, incomingUrl])
 
   if (state === 'working') {
     return (

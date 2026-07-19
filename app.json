@@ -12,6 +12,7 @@
       "bundleIdentifier": "com.clairveyance.flyregs",
       "supportsTablet": false,
       "ITSAppUsesNonExemptEncryption": false,
+      "associatedDomains": ["applinks:flyregs.com"],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -24,7 +25,19 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "flyregs.com", "pathPrefix": "/join" },
+            { "scheme": "https", "host": "flyregs.com", "pathPrefix": "/confirm" },
+            { "scheme": "https", "host": "flyregs.com", "pathPrefix": "/ac" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "output": "single",
