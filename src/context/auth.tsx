@@ -3,6 +3,7 @@ import { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { initRevenueCat, getSubscriptionStatus } from '@/lib/revenuecat'
 import { applyRemoteSyncPreference } from '@/lib/sync'
+import { getDeviceId } from '@/lib/deviceId'
 import type { AvatarOverride } from '@/lib/avatar'
 
 interface AuthContextType {
@@ -14,6 +15,7 @@ interface AuthContextType {
   setIsPremium: (v: boolean) => void
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string) => Promise<void>
+  resendConfirmation: (email: string) => Promise<void>
   signOut: () => Promise<void>
   // See AvatarOverride's own comment in lib/avatar.ts -- an instant,
   // same-session override of "my own" avatar so every screen agrees the
@@ -85,7 +87,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password })
+    // Soft per-device rate limit on signups, to blunt fake-account spam --
+    // enforced server-side via a SECURITY DEFINER function so it can't be
+    // bypassed by just not calling it; the device ID itself is a locally
+    // generated value, not a hard device identifier, so this is a deterrent
+    // rather than a hard guarantee. See src/lib/deviceId.ts.
+    const deviceId = await getDeviceId()
+    const { data: allowed, error: rateLimitError } = await supabase.rpc('check_and_record_signup_attempt', {
+      p_device_id: deviceId,
+      p_max_per_hour: 3,
+    })
+    if (rateLimitError) throw rateLimitError
+    if (!allowed) {
+      throw new Error('Too many accounts created on this device recently. Please try again in an hour.')
+    }
+
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: 'https://flyregs.com/confirm' },
+    })
+    if (error) throw error
+  }
+
+  const resendConfirmation = async (email: string) => {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: { emailRedirectTo: 'https://flyregs.com/confirm' },
+    })
     if (error) throw error
   }
 
@@ -104,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider
       value={{
-        session, loading, isPro, setIsPro, isPremium, setIsPremium, signIn, signUp, signOut,
+        session, loading, isPro, setIsPro, isPremium, setIsPremium, signIn, signUp, resendConfirmation, signOut,
         avatarOverride, setAvatarOverride, clearAvatarOverride,
       }}
     >

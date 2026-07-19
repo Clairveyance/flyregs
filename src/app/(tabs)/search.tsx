@@ -286,6 +286,7 @@ export default function SearchScreen() {
             onChangeText={handleQueryChange}
             autoCapitalize="none"
             autoCorrect={false}
+            spellCheck
             returnKeyType="search"
           />
           {query.length > 0 && (

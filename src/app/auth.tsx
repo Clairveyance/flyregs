@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   View,
   Text,
@@ -18,20 +18,28 @@ import { useAuth } from '@/context/auth'
 import { useTheme } from '@/context/theme'
 import { Icon } from '@/components/Icon'
 import { useFS } from '@/context/fontScale'
+import { markJustConfirmed } from '@/lib/justConfirmed'
 
 const WORDMARK_ASPECT = 1915 / 1428 // flyregs-wordmark.png width/height
 
-type Mode = 'signin' | 'signup'
+type Mode = 'signin' | 'signup' | 'check-email'
+
+// Cooldown between resend taps -- purely to stop accidental double-taps and
+// obvious spam-clicking; Supabase enforces its own rate limit server-side
+// regardless, this is just for a sane button state.
+const RESEND_COOLDOWN_SECONDS = 30
 
 export default function AuthScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { signIn, signUp } = useAuth()
+  const { signIn, signUp, resendConfirmation } = useAuth()
   const insets = useSafeAreaInsets()
   const [mode, setMode] = useState<Mode>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [resendCooldown, setResendCooldown] = useState(0)
 
   const handleSubmit = async () => {
     const trimmedEmail = email.trim()
@@ -46,17 +54,62 @@ export default function AuthScreen() {
         router.dismiss()
       } else {
         await signUp(trimmedEmail, password)
-        Alert.alert(
-          'Check your email',
-          'We sent a confirmation link. Verify your email, then sign in.',
-          [{ text: 'OK', onPress: () => setMode('signin') }]
-        )
+        setMode('check-email')
+        setResendCooldown(RESEND_COOLDOWN_SECONDS)
       }
     } catch (err: any) {
       Alert.alert('Error', err?.message ?? 'Something went wrong.')
     }
     setLoading(false)
   }
+
+  const handleResend = async () => {
+    if (resendCooldown > 0) return
+    setLoading(true)
+    try {
+      await resendConfirmation(email.trim())
+      setResendCooldown(RESEND_COOLDOWN_SECONDS)
+      Alert.alert('Sent', 'Check your email for a new confirmation link.')
+    } catch (err: any) {
+      Alert.alert('Error', err?.message ?? 'Could not resend right now.')
+    }
+    setLoading(false)
+  }
+
+  // Simple 1Hz countdown while a resend cooldown is active.
+  useEffect(() => {
+    if (resendCooldown <= 0) return
+    const t = setInterval(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000)
+    return () => clearInterval(t)
+  }, [resendCooldown > 0])
+
+  // While sitting on "Check Your Email," silently retry sign-in every few
+  // seconds -- covers the case where the confirmation link gets clicked on a
+  // DIFFERENT device (e.g. signed up on the phone, confirmed from a desktop
+  // email client) that has no way to push a live notice back to this one.
+  // signIn() itself fails quietly with "Email not confirmed" until the
+  // account actually is, so this just keeps trying until it isn't. Gives up
+  // after 10 minutes so an abandoned screen doesn't poll forever.
+  useEffect(() => {
+    if (mode !== 'check-email') return
+    const trimmedEmail = email.trim()
+    let stopped = false
+    const giveUpAt = Date.now() + 10 * 60 * 1000
+    const t = setInterval(async () => {
+      if (stopped || Date.now() > giveUpAt) { clearInterval(t); return }
+      try {
+        await signIn(trimmedEmail, password)
+        if (stopped) return
+        stopped = true
+        clearInterval(t)
+        markJustConfirmed()
+        router.dismiss()
+      } catch {
+        // Still unconfirmed (or some other transient error) -- just try again next tick.
+      }
+    }, 4000)
+    return () => { stopped = true; clearInterval(t) }
+  }, [mode])
 
   return (
     <KeyboardAvoidingView
@@ -71,7 +124,7 @@ export default function AuthScreen() {
         ]}
       >
         <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>
-          {mode === 'signin' ? 'Sign In' : 'Create Account'}
+          {mode === 'signin' ? 'Sign In' : mode === 'signup' ? 'Create Account' : 'Check Your Email'}
         </Text>
         <Pressable onPress={() => router.dismiss()} hitSlop={8} style={styles.closeBtn}>
           <Icon name="xmark" size={18} color={tokens.t3} />
@@ -90,86 +143,123 @@ export default function AuthScreen() {
           resizeMode="contain"
         />
 
-        <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(22) }]}>
-          {mode === 'signin' ? 'Welcome back' : 'Create your account'}
-        </Text>
-        <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
-          {mode === 'signin'
-            ? 'Sign in to manage your account and subscription.'
-            : "It's free to create an account — Pro and Premium features unlock once you subscribe."}
-        </Text>
-
-        {/* Email */}
-        <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
-          <Icon name="envelope" size={16} color={tokens.t3} />
-          <TextInput
-            style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
-            placeholder="Email address"
-            placeholderTextColor={tokens.t3}
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoComplete="email"
-          />
-        </View>
-
-        {/* Password */}
-        <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
-          <Icon name="lock" size={16} color={tokens.t3} />
-          <TextInput
-            style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
-            placeholder="Password"
-            placeholderTextColor={tokens.t3}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoCapitalize="none"
-            autoComplete={mode === 'signin' ? 'password' : 'new-password'}
-          />
-        </View>
-
-        {/* Submit */}
-        <Pressable
-          style={[
-            styles.btn,
-            { backgroundColor: tokens.blu },
-            loading && styles.btnDisabled,
-          ]}
-          onPress={handleSubmit}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={[styles.btnText, { fontSize: fs(16) }]}>
-              {mode === 'signin' ? 'Sign In' : 'Create Account'}
+        {mode === 'check-email' ? (
+          <>
+            <Icon name="envelope" size={40} color={tokens.blu} style={{ alignSelf: 'center', marginBottom: 8 }} />
+            <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(22) }]}>Check your email</Text>
+            <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+              We sent a confirmation link to {email.trim()}. Tap it, then come back and sign in.
             </Text>
-          )}
-        </Pressable>
 
-        {/* Toggle mode */}
-        <Pressable onPress={() => setMode(mode === 'signin' ? 'signup' : 'signin')} style={styles.switchRow}>
-          <Text style={[styles.switchText, { color: tokens.t3, fontSize: fs(14) }]}>
-            {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
-          </Text>
-          <Text style={[styles.switchLink, { color: tokens.blu, fontSize: fs(14) }]}>
-            {mode === 'signin' ? 'Sign up' : 'Sign in'}
-          </Text>
-        </Pressable>
+            <Pressable
+              style={[
+                styles.btn,
+                { backgroundColor: tokens.blu },
+                (loading || resendCooldown > 0) && styles.btnDisabled,
+              ]}
+              onPress={handleResend}
+              disabled={loading || resendCooldown > 0}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={[styles.btnText, { fontSize: fs(16) }]}>
+                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Didn't get it? Resend"}
+                </Text>
+              )}
+            </Pressable>
 
-        <Text style={[styles.legal, { color: tokens.t4, fontSize: fs(11.5) }]}>
-          By continuing you agree to our{' '}
-          <Text style={{ color: tokens.blu }} onPress={() => router.push('/terms')}>
-            Terms of Use
-          </Text>{' '}
-          and{' '}
-          <Text style={{ color: tokens.blu }} onPress={() => router.push('/privacy')}>
-            Privacy Policy
-          </Text>
-          .
-        </Text>
+            <Pressable onPress={() => setMode('signin')} style={styles.switchRow}>
+              <Text style={[styles.switchLink, { color: tokens.blu, fontSize: fs(14) }]}>Back to sign in</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(22) }]}>
+              {mode === 'signin' ? 'Welcome back' : 'Create your account'}
+            </Text>
+            <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+              {mode === 'signin'
+                ? 'Sign in to manage your account and subscription.'
+                : "It's free to create an account — Pro and Premium features unlock once you subscribe."}
+            </Text>
+
+            {/* Email */}
+            <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
+              <Icon name="envelope" size={16} color={tokens.t3} />
+              <TextInput
+                style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
+                placeholder="Email address"
+                placeholderTextColor={tokens.t3}
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+              />
+            </View>
+
+            {/* Password */}
+            <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
+              <Icon name="lock" size={16} color={tokens.t3} />
+              <TextInput
+                style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
+                placeholder="Password"
+                placeholderTextColor={tokens.t3}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                autoComplete={mode === 'signin' ? 'password' : 'new-password'}
+              />
+              <Pressable onPress={() => setShowPassword((v) => !v)} hitSlop={8}>
+                <Icon name={showPassword ? 'eye.slash' : 'eye'} size={18} color={tokens.t3} />
+              </Pressable>
+            </View>
+
+            {/* Submit */}
+            <Pressable
+              style={[
+                styles.btn,
+                { backgroundColor: tokens.blu },
+                loading && styles.btnDisabled,
+              ]}
+              onPress={handleSubmit}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={[styles.btnText, { fontSize: fs(16) }]}>
+                  {mode === 'signin' ? 'Sign In' : 'Create Account'}
+                </Text>
+              )}
+            </Pressable>
+
+            {/* Toggle mode */}
+            <Pressable onPress={() => setMode(mode === 'signin' ? 'signup' : 'signin')} style={styles.switchRow}>
+              <Text style={[styles.switchText, { color: tokens.t3, fontSize: fs(14) }]}>
+                {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
+              </Text>
+              <Text style={[styles.switchLink, { color: tokens.blu, fontSize: fs(14) }]}>
+                {mode === 'signin' ? 'Sign up' : 'Sign in'}
+              </Text>
+            </Pressable>
+
+            <Text style={[styles.legal, { color: tokens.t4, fontSize: fs(11.5) }]}>
+              By continuing you agree to our{' '}
+              <Text style={{ color: tokens.blu }} onPress={() => router.push('/terms')}>
+                Terms of Use
+              </Text>{' '}
+              and{' '}
+              <Text style={{ color: tokens.blu }} onPress={() => router.push('/privacy')}>
+                Privacy Policy
+              </Text>
+              .
+            </Text>
+          </>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   )

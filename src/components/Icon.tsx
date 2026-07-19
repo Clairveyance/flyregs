@@ -82,6 +82,8 @@ const SF_TO_IONICONS: Record<string, string> = {
   'flame.fill': 'flame',
   'exclamationmark.triangle': 'warning-outline',
   'arrow.up.left.and.arrow.down.right': 'expand-outline',
+  'eye': 'eye-outline',
+  'eye.slash': 'eye-off-outline',
 }
 
 export function Icon({ name, size = 22, color, style }: IconProps) {

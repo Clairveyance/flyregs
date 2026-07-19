@@ -50,9 +50,12 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
     if (!visible) return
     // Same Pro-gating gap as FolderPicker: folders are Pro end-to-end, not
     // just creation -- gate here too, not only on the "New Folder" row below.
+    // Backstop only -- every call site should gate synchronously before ever
+    // setting visible=true. Immediate push, not delayed -- see FolderPicker's
+    // matching comment for why a delayed push here is fragile (BB-006).
     if (!isPro) {
       onClose()
-      setTimeout(() => router.push('/paywall'), 200)
+      router.push('/paywall')
       return
     }
     getFolders().then((all) => setFolders(excludeFolderId ? all.filter((f) => f.id !== excludeFolderId) : all))
@@ -188,7 +191,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
             <Pressable
               style={[styles.newFolderRow, { borderTopColor: tokens.bdr }]}
               onPress={() => {
-                if (!isPro) { onClose(); setTimeout(() => router.push('/paywall'), 200); return }
+                if (!isPro) { onClose(); router.push('/paywall'); return }
                 setCreating(true)
               }}
             >

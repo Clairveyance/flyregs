@@ -6,7 +6,7 @@ import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { supabase } from '@/lib/supabase'
-import { getSharedFolderACItems, leaveSharedFolder } from '@/lib/sharedFolders'
+import { getSharedFolderACItems, leaveSharedFolder, markSharedFolderViewed } from '@/lib/sharedFolders'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
@@ -72,6 +72,13 @@ export default function SharedFolderDetail() {
   }, [id])
 
   useFocusEffect(useCallback(() => { load() }, [load]))
+
+  // Clears the unread dot in Saved > Shared > With Me the moment the
+  // collaborator actually opens this folder -- fire-and-forget, not
+  // load-bearing for the screen itself.
+  useEffect(() => {
+    if (typeof id === 'string') markSharedFolderViewed(id)
+  }, [id])
 
   const handleLeave = () => {
     if (typeof id !== 'string') return

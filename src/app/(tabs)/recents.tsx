@@ -231,6 +231,19 @@ export default function RecentsScreen() {
     shareAC(item)
   }
 
+  // Recents is the one list that shows the folder icon to free users without
+  // gating the whole screen behind a ProWall first (Saved/Notes both hide
+  // their entire list for non-Pro). Gate synchronously here, same pattern as
+  // handleToggleBookmark/handleShare above -- FolderPicker's own internal
+  // isPro effect (open -> close -> setTimeout-delayed router.push) was the
+  // only gate before, and a second tap shortly after the first landed while
+  // that effect's queued navigation was still resolving, so it silently
+  // no-op'd instead of opening the paywall again.
+  const handleFolder = (item: RecentAC) => {
+    if (!isPro) { router.push('/paywall'); return }
+    setPickerItem(item)
+  }
+
   const handleBulkShare = () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     const all = groups.flatMap((g) => g.data)
@@ -294,7 +307,7 @@ export default function RecentsScreen() {
               badgeDays={badgeDays}
               onPress={selectMode ? () => toggleRow(item.id) : () => router.push(`/ac/${item.id}`)}
               onToggleBookmark={() => handleToggleBookmark(item)}
-              onFolder={() => setPickerItem(item)}
+              onFolder={() => handleFolder(item)}
               onRemove={() => handleRemove(item)}
               onShare={() => handleShare(item)}
             />
@@ -311,7 +324,7 @@ export default function RecentsScreen() {
           <Text style={[styles.selectCount, { color: tokens.t2, fontSize: fs(13) }]}>({selected.size})</Text>
           <View style={styles.selectIconRow}>
             <Pressable
-              onPress={() => setFolderSheetVisible(true)}
+              onPress={() => { if (!isPro) { router.push('/paywall'); return } setFolderSheetVisible(true) }}
               disabled={selected.size === 0}
               hitSlop={8}
               style={{ opacity: selected.size > 0 ? 1 : 0.4 }}

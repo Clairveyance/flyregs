@@ -8,12 +8,10 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
-  Linking,
   Platform,
   Share,
   Keyboard,
 } from 'react-native'
-import * as WebBrowser from 'expo-web-browser'
 import * as Haptics from 'expo-haptics'
 import * as Clipboard from 'expo-clipboard'
 import { useLocalSearchParams, router } from 'expo-router'
@@ -35,6 +33,7 @@ import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { FigureViewer } from '@/components/FigureViewer'
 import { FormulaRefViewer } from '@/components/FormulaRefViewer'
 import { isOcrScanned, ocrScannedSeq, OCR_SCANNED_TOTAL } from '@/lib/ocrScannedACs'
+import { buildACShareLink, highlightSnippet } from '@/lib/acShare'
 import type { AdvisoryCircular, AcFigure, FormulaRef } from '@/types'
 
 // Maps a block to the fields a highlight bookmark needs — chapter headings
@@ -53,15 +52,17 @@ function highlightMeta(b: ACBlock): { kind: 'section' | 'item' | 'para'; label: 
   }
 }
 
-// Free-tier body preview: a proportional slice of the document, floored/capped
-// so short ACs still withhold a meaningful chunk and long ACs (some run
-// 1000+ blocks) don't give away an overwhelming free portion.
+// Free-tier body preview: just enough to show how the app is organized, not
+// a real read of the content -- the old 20%-floored-at-3 formula let short
+// ACs show 20-50% of the whole document. Tightened to 8%, floored at 2,
+// capped at 5, so even long ACs never show more than the first couple
+// sections.
 function previewBlockCount(totalBlocks: number): number {
-  return Math.min(12, Math.max(3, Math.ceil(totalBlocks * 0.2)))
+  return Math.min(5, Math.max(2, Math.ceil(totalBlocks * 0.08)))
 }
 
 export default function ACDetailScreen() {
-  const { id, hlId } = useLocalSearchParams<{ id: string; hlId?: string }>()
+  const { id, hlId, hlText } = useLocalSearchParams<{ id: string; hlId?: string; hlText?: string }>()
   const { tokens } = useTheme()
   const { isPro, isPremium } = useAuth()
   const fs = useFS()
@@ -257,6 +258,20 @@ export default function ACDetailScreen() {
     })
   }, [hlId, ac?.id, ac?.pdf_blocks])
 
+  // Opened from someone else's shared passage (?hlText=<snippet>) -- the
+  // recipient has no local highlight of their own to look up by id, so this
+  // jumps by matching the snippet directly against this AC's own blocks.
+  const jumpedToHlText = useRef<string | null>(null)
+  useEffect(() => {
+    if (!hlText || !ac?.pdf_blocks) return
+    if (jumpedToHlText.current === hlText) return
+    const snippet = decodeURIComponent(hlText)
+    const idx = ac.pdf_blocks.findIndex((b) => blockText(b).trim().startsWith(snippet))
+    if (idx === -1) return
+    jumpedToHlText.current = hlText
+    setTimeout(() => acBodyRef.current?.scrollToBlockIndex(idx), 250)
+  }, [hlText, ac?.id, ac?.pdf_blocks])
+
   const handleDownload = async () => {
     if (!ac) return
     if (!isPremium && !downloaded) {
@@ -291,7 +306,7 @@ export default function ACDetailScreen() {
     try {
       await Share.share({
         title: `AC ${ac.document_number}`,
-        message: `AC ${ac.document_number}: ${ac.title}\n\nhttps://www.faa.gov/documentLibrary/media/Advisory_Circular/AC_${ac.document_number}.pdf`,
+        message: `AC ${ac.document_number}: ${ac.title}\n\n${buildACShareLink(ac)}`,
       })
     } catch {
       // User cancelled or share unavailable
@@ -390,6 +405,21 @@ export default function ACDetailScreen() {
   // toggle instead of replacing it, so the one gesture now does both without
   // adding new on-screen buttons to every block. Pro-gated up front so a Free
   // user is routed straight to the paywall, same as tapping Highlight used to.
+  const handleSharePassage = useCallback(async (block: ACBlock) => {
+    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!ac) return
+    const text = blockText(block)
+    if (!text) return
+    try {
+      await Share.share({
+        title: `AC ${ac.document_number}`,
+        message: `AC ${ac.document_number}: ${ac.title}\n\n"${text.trim().slice(0, 200)}${text.length > 200 ? '…' : ''}"\n\n${buildACShareLink(ac, highlightSnippet(text))}`,
+      })
+    } catch {
+      // User cancelled or share unavailable
+    }
+  }, [ac, isPremium])
+
   const handleBlockLongPress = useCallback((block: ACBlock, index: number) => {
     const meta = highlightMeta(block)
     if (!meta) return
@@ -401,9 +431,10 @@ export default function ACDetailScreen() {
         text: isHighlighted ? 'Remove Highlight' : 'Highlight',
         onPress: () => handleToggleHighlight(block),
       },
+      { text: 'Share Passage', onPress: () => handleSharePassage(block) },
       { text: 'Cancel', style: 'cancel' },
     ])
-  }, [isPro, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
+  }, [isPro, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, handleSharePassage])
 
   // Jump nav between the blocks the "What's New" diff flagged as changed —
   // mirrors the existing in-doc search prev/next pattern below (goToPrev/
@@ -436,7 +467,11 @@ export default function ACDetailScreen() {
     }).filter((l): l is string => !!l)
   }, [ac?.pdf_blocks, changedList])
 
-  const openPDF = async () => {
+  // Opens in-app via pdf-viewer.tsx's WebView, not an external/system browser
+  // sheet -- see that file's header comment for why (BB-005: a Safari View
+  // Controller's own native share/copy-link button let the raw, un-gated PDF
+  // URL leak to someone who never had the app at all).
+  const openPDF = () => {
     if (!isPro) {
       router.push('/paywall')
       return
@@ -445,17 +480,11 @@ export default function ACDetailScreen() {
       ac?.pdf_url_cached ??
       ac?.pdf_url_faa ??
       `https://www.faa.gov/documentLibrary/media/Advisory_Circular/AC_${ac?.document_number}.pdf`
-    try {
-      if (Platform.OS === 'web') {
-        window.open(url, '_blank') // preview sandbox only allows localhost
-      } else {
-        await WebBrowser.openBrowserAsync(url)
-      }
-    } catch {
-      Linking.openURL(url).catch(() =>
-        Alert.alert('Could not open PDF', 'Please try again later.')
-      )
+    if (Platform.OS === 'web') {
+      window.open(url, '_blank') // preview sandbox only allows localhost -- web is dev-preview-only, never shipped
+      return
     }
+    router.push({ pathname: '/pdf-viewer', params: { url, title: ac ? `AC ${ac.document_number}` : undefined } })
   }
 
   const headerRight = (

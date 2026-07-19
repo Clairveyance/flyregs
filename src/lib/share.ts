@@ -3,12 +3,14 @@ import * as Sharing from 'expo-sharing'
 import { useAuth } from '@/context/auth'
 import { useShareCard } from '@/components/ShareCardCapture'
 import { resolveAvatarUrl, resolveAvatarPresetId, getDisplayName } from '@/lib/avatar'
+import { buildACShareLink } from '@/lib/acShare'
 
 // Premium feature — every call site should gate on isPremium and route to
 // /paywall?tier=premium itself before calling these (kept out of here since
 // each screen already owns its own paywall-routing pattern).
 
 export interface ShareableAC {
+  id: string
   document_number: string
   title: string
 }
@@ -19,8 +21,11 @@ export interface ShareableNote {
   linked_ac?: string | null
 }
 
+// Branded flyregs.com/ac/ link, not the raw FAA PDF -- keeps this hook's
+// output consistent with ac/[id].tsx's own handleShare/handleSharePassage,
+// which build the same link directly via buildACShareLink().
 function acLine(ac: ShareableAC): string {
-  return `AC ${ac.document_number}: ${ac.title}\nhttps://www.faa.gov/documentLibrary/media/Advisory_Circular/AC_${ac.document_number}.pdf`
+  return `AC ${ac.document_number}: ${ac.title}\n${buildACShareLink(ac)}`
 }
 
 function noteLine(note: ShareableNote): string {

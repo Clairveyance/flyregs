@@ -302,7 +302,7 @@ export default function SavedScreen() {
     load()
   }
 
-  const handleShare = (item: { document_number: string; title: string }) => {
+  const handleShare = (item: { id: string; document_number: string; title: string }) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     shareAC(item)
   }
@@ -630,9 +630,12 @@ export default function SavedScreen() {
                       fs={fs}
                     />
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.sharedRowText, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
-                        {item.folder_name}
-                      </Text>
+                      <View style={styles.sharedRowTitleRow}>
+                        {item.isUnread && <View style={[styles.unreadDot, { backgroundColor: tokens.blu }]} />}
+                        <Text style={[styles.sharedRowText, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
+                          {item.folder_name}
+                        </Text>
+                      </View>
                       {item.ownerDisplayName && (
                         <Text style={[styles.sharedRowSub, { color: tokens.t3, fontSize: fs(11.5) }]} numberOfLines={1}>
                           Shared by {item.ownerDisplayName}
@@ -1305,6 +1308,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
   },
+  sharedRowTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  unreadDot: { width: 7, height: 7, borderRadius: 3.5 },
   sharedRowText: { fontWeight: '600' },
   sharedRowSub: { marginTop: 2 },
   ownerAvatarImg: { width: 30, height: 30, borderRadius: 15 },

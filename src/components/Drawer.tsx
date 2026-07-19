@@ -217,12 +217,20 @@ function DrawerContent({
       </View>
       <AppearancePicker mode={mode} setMode={setMode} tokens={tokens} />
 
-      {/* Badge Lifespan — inline picker */}
+      {/* Badge Duration — inline picker. Row's leading visual is three small
+          NEW/UPD/VER-colored dots (matching acBadge.ts's colors exactly)
+          instead of a generic clock icon, so what "Badge" refers to is
+          obvious at a glance without needing a long label like "NEW/UPD/VER
+          Badge Duration" to spell it out in the fixed-width row. */}
       <View style={styles.appearanceRow}>
         <View style={styles.rowIcon}>
-          <Icon name="clock.badge" size={17} color={tokens.t2} />
+          <View style={styles.badgeDotRow}>
+            <View style={[styles.badgeDot, { backgroundColor: tokens.grn }]} />
+            <View style={[styles.badgeDot, { backgroundColor: tokens.blu }]} />
+            <View style={[styles.badgeDot, { backgroundColor: tokens.amb }]} />
+          </View>
         </View>
-        <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14) }]}>Badge Lifespan</Text>
+        <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14) }]}>Badge Duration</Text>
       </View>
       <BadgeLifespanPicker days={badgeDays} setDays={updateBadgeDays} tokens={tokens} />
 
@@ -552,6 +560,8 @@ const styles = StyleSheet.create({
     width: 24,
     alignItems: 'center',
   },
+  badgeDotRow: { flexDirection: 'row', gap: 3 },
+  badgeDot: { width: 8, height: 6, borderRadius: 2 },
   rowLabel: {
     flex: 1,
     fontSize: 14,

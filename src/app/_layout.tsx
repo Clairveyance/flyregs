@@ -82,6 +82,7 @@ export default function RootLayout() {
               <Stack.Screen name="ac/[id]" />
               <Stack.Screen name="auth" options={{ presentation: 'modal' }} />
               <Stack.Screen name="paywall" options={{ presentation: 'modal' }} />
+              <Stack.Screen name="pdf-viewer" options={{ presentation: 'modal' }} />
               <Stack.Screen name="account" />
               <Stack.Screen name="manage-subscription" />
               <Stack.Screen name="faq" />

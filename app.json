@@ -68,7 +68,8 @@
           "organization": "clairveyance",
           "project": "react-native"
         }
-      ]
+      ],
+      "expo-mail-composer"
     ],
     "experiments": {
       "typedRoutes": true,

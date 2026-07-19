@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   View,
   Text,
@@ -10,7 +10,9 @@ import {
   Alert,
   Platform,
   KeyboardAvoidingView,
+  Animated,
 } from 'react-native'
+import * as MailComposer from 'expo-mail-composer'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -37,8 +39,19 @@ export default function FeedbackScreen() {
   const backToMenu = useReturnToMenu()
   const [category, setCategory] = useState<CatKey>('idea')
   const [message, setMessage] = useState('')
+  const [showSentToast, setShowSentToast] = useState(false)
+  const toastOpacity = useRef(new Animated.Value(0)).current
 
-  const submit = () => {
+  useEffect(() => {
+    if (!showSentToast) return
+    Animated.sequence([
+      Animated.timing(toastOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
+      Animated.delay(1400),
+      Animated.timing(toastOpacity, { toValue: 0, duration: 220, useNativeDriver: true }),
+    ]).start(() => setShowSentToast(false))
+  }, [showSentToast])
+
+  const submit = async () => {
     const trimmed = message.trim()
     if (trimmed.length < 4) {
       Alert.alert('Add a little more', 'Tell us what happened or what you have in mind.')
@@ -49,13 +62,35 @@ export default function FeedbackScreen() {
     const footer = `\n\n—\n${APP_NAME} v${APP_VERSION} · ${Platform.OS}${
       session?.user?.email ? ` · ${session.user.email}` : ''
     }`
-    const url = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
-      subject
-    )}&body=${encodeURIComponent(trimmed + footer)}`
+    const body = trimmed + footer
 
-    Linking.openURL(url).catch(() =>
+    // MailComposer presents Mail as an in-app sheet (never fully exits the
+    // app) and tells us whether the user actually hit Send -- Linking's
+    // mailto: handoff could do neither, which is exactly what left users
+    // stuck looking at a stale compose window with no idea if it sent.
+    const available = await MailComposer.isAvailableAsync()
+    if (!available) {
+      const url = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+      Linking.openURL(url).catch(() =>
+        Alert.alert('Could not open mail', `Please email us at ${SUPPORT_EMAIL}.`)
+      )
+      return
+    }
+
+    try {
+      const result = await MailComposer.composeAsync({
+        recipients: [SUPPORT_EMAIL],
+        subject,
+        body,
+      })
+      if (result.status === MailComposer.MailComposerStatus.SENT) {
+        setMessage('')
+        setShowSentToast(true)
+      }
+      // cancelled/saved: leave the draft text in place so they can try again.
+    } catch {
       Alert.alert('Could not open mail', `Please email us at ${SUPPORT_EMAIL}.`)
-    )
+    }
   }
 
   return (
@@ -119,10 +154,22 @@ export default function FeedbackScreen() {
         </Pressable>
 
         <Text style={[styles.note, { color: tokens.t4, fontSize: fs(11.5) }]}>
-          This opens your mail app addressed to {SUPPORT_EMAIL}. We include your app version to help
-          us debug.
+          This sends to {SUPPORT_EMAIL}. We include your app version to help us debug.
         </Text>
       </ScrollView>
+
+      {showSentToast && (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.toast,
+            { backgroundColor: tokens.bg2, borderColor: tokens.bdr, opacity: toastOpacity, bottom: insets.bottom + 24 },
+          ]}
+        >
+          <Icon name="checkmark.circle.fill" size={18} color={tokens.grn} />
+          <Text style={[styles.toastText, { color: tokens.t1, fontSize: fs(14.5) }]}>Sent!</Text>
+        </Animated.View>
+      )}
     </KeyboardAvoidingView>
   )
 }
@@ -163,4 +210,21 @@ const styles = StyleSheet.create({
   },
   submitText: { color: '#fff', fontSize: 15.5, fontWeight: '700' },
   note: { fontSize: 11.5, lineHeight: 17, textAlign: 'center', marginTop: 14 },
+  toast: {
+    position: 'absolute',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  toastText: { fontWeight: '700' },
 })

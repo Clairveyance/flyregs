@@ -12,6 +12,10 @@ export interface SharedFolderSummary {
   ownerAvatarUrl?: string | null
   ownerAvatarPreset?: string | null
   ownerDisplayName?: string | null
+  /** True until the collaborator opens this folder once -- drives the blue
+   * unread dot in With Me, matching the unread-email convention. Never
+   * re-appears after the first open, even if the owner adds more ACs later. */
+  isUnread?: boolean
 }
 
 function makeShareToken(): string {
@@ -64,10 +68,11 @@ export async function getMyCollaborations(): Promise<SharedFolderSummary[]> {
   // the joining collaborator, not the owner.
   const { data: memberships } = await supabase
     .from('folder_collaborators')
-    .select('folder_id')
+    .select('folder_id, last_viewed_at')
     .eq('user_id', user.id)
   const folderIds = (memberships ?? []).map((m) => m.folder_id)
   if (!folderIds.length) return []
+  const unreadMap = new Map((memberships ?? []).map((m) => [m.folder_id, m.last_viewed_at == null]))
 
   // Exclude folders the owner has since (soft-)deleted -- deleteFolder() only
   // flips a `deleted` flag rather than removing the row, so without this
@@ -97,7 +102,20 @@ export async function getMyCollaborations(): Promise<SharedFolderSummary[]> {
     ownerAvatarUrl: ownerMap.get(f.id)?.avatarUrl ?? null,
     ownerAvatarPreset: ownerMap.get(f.id)?.avatarPreset ?? null,
     ownerDisplayName: ownerMap.get(f.id)?.displayName ?? null,
+    isUnread: unreadMap.get(f.id) ?? false,
   }))
+}
+
+// Called once when a collaborator actually opens a shared folder -- clears
+// the unread dot permanently (see SharedFolderSummary.isUnread comment).
+export async function markSharedFolderViewed(folderId: string): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
+  await supabase
+    .from('folder_collaborators')
+    .update({ last_viewed_at: new Date().toISOString() })
+    .eq('folder_id', folderId)
+    .eq('user_id', user.id)
 }
 
 export interface SharedByMeFolder extends SharedFolderSummary {

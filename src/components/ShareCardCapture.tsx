@@ -42,27 +42,40 @@ export function useShareCard() {
 export function ShareCardProvider({ children }: { children: ReactNode }) {
   const viewRef = useRef<View>(null)
   const [content, setContent] = useState<ShareCardContent | null>(null)
-  const resolveRef = useRef<((uri: string) => void) | null>(null)
+  // Only one off-screen card (one `content` slot, one `viewRef`) backs every
+  // capture() call. A shared per-call resolve callback used to live in a
+  // single ref here -- any overlapping call (a rapid double-tap on Share, or
+  // sharing a second item before the first capture finished) silently
+  // stomped the first call's callback, leaving its promise unresolved
+  // forever with nothing thrown, so the caller's try/catch in share.ts never
+  // fired either -- from the user's side, the Share button just did nothing,
+  // permanently. Chaining every call onto this queue instead serializes
+  // them, and rejecting (rather than silently returning) when the view
+  // isn't ready ensures the promise always settles one way or another.
+  const queueRef = useRef<Promise<void>>(Promise.resolve())
 
   const capture = (next: ShareCardContent): Promise<string> => {
-    return new Promise((resolve) => {
-      resolveRef.current = resolve
+    const run = (): Promise<string> => new Promise((resolve, reject) => {
       setContent(next)
       // Wait a frame for the off-screen card to actually render the new
       // content before shooting it — captureRef only sees what's painted.
       requestAnimationFrame(() => {
         requestAnimationFrame(async () => {
-          if (!viewRef.current) return
+          if (!viewRef.current) { reject(new Error('Share card failed to render')); return }
           try {
             const uri = await captureRef(viewRef, { format: 'png', quality: 0.95 })
-            resolveRef.current?.(uri)
+            resolve(uri)
+          } catch (err) {
+            reject(err)
           } finally {
-            resolveRef.current = null
             setContent(null)
           }
         })
       })
     })
+    const result = queueRef.current.then(run, run)
+    queueRef.current = result.then(() => undefined, () => undefined)
+    return result
   }
 
   return (

@@ -10,9 +10,10 @@ import {
   TextInput,
   Keyboard,
   Platform,
+  Animated,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { router } from 'expo-router'
+import { router, useFocusEffect } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -25,6 +26,7 @@ import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { getBadgeKind, getBadgeStyle, BadgeKind } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
+import { consumeJustConfirmed } from '@/lib/justConfirmed'
 
 // The search dropdown's number column is a fixed, narrow width (see dropNum)
 // so default text wrapping breaks mid-digit ("150/506" / "0-5") instead of at
@@ -68,6 +70,29 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true)
   const { badgeDays } = useBadgeLifespan()
 
+  // One-time "Welcome to FlyRegs" banner right after a fresh signup
+  // confirmation auto-signs someone in (see src/app/confirm.tsx +
+  // src/lib/justConfirmed.ts) -- consumed once so it never shows again.
+  const [showWelcome, setShowWelcome] = useState(false)
+  const welcomeOpacity = useRef(new Animated.Value(0)).current
+  // useFocusEffect (not a plain mount-only useEffect) since Home is a tab
+  // screen that stays mounted in the background -- a bare useEffect would
+  // only ever check once, at initial app launch, before sign-in could have
+  // set the flag. This re-checks every time Home actually comes into view.
+  useFocusEffect(
+    useCallback(() => {
+      consumeJustConfirmed().then((justConfirmed) => {
+        if (!justConfirmed) return
+        setShowWelcome(true)
+        Animated.sequence([
+          Animated.timing(welcomeOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
+          Animated.delay(2600),
+          Animated.timing(welcomeOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+        ]).start(() => setShowWelcome(false))
+      })
+    }, [])
+  )
+
   // Inline search state
   const [searchQuery, setSearchQuery] = useState('')
   const [searchActive, setSearchActive] = useState(false)
@@ -94,7 +119,7 @@ export default function HomeScreen() {
 
     // Then fetch fresh data in the background (or blocking if no cache)
     try {
-      // Same rolling clock as the NEW/UPD badges (Drawer > Badge Lifespan) —
+      // Same rolling clock as the NEW/UPD badges (Drawer > Badge Duration) —
       // this isn't a separately-fixed 90-day feed alongside an adjustable
       // badge display; 90 is just the long-limit default, shortened by the
       // same setting that controls badge visibility everywhere else. `load`
@@ -304,6 +329,16 @@ export default function HomeScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <ScreenHeader showWordmark />
 
+      {showWelcome && (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.welcomeToast, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, opacity: welcomeOpacity }]}
+        >
+          <Icon name="checkmark.circle.fill" size={18} color={tokens.grn} />
+          <Text style={[styles.welcomeToastText, { color: tokens.t1, fontSize: fs(14.5) }]}>Welcome to FlyRegs!</Text>
+        </Animated.View>
+      )}
+
       {/* Fixed search zone — sits above the list, never scrolls away */}
       <View style={styles.searchZone} onLayout={onSearchZoneLayout}>
         <View
@@ -326,6 +361,7 @@ export default function HomeScreen() {
             onFocus={() => setSearchActive(true)}
             autoCapitalize="none"
             autoCorrect={false}
+            spellCheck
             returnKeyType="search"
             onSubmitEditing={goToFullSearch}
           />
@@ -482,7 +518,7 @@ function HomeHeader({
     <>
       {/* What's New strip — always shown, even with zero results, so a user
           isn't left wondering why the whole section vanished; the empty
-          state tells them to widen Badge Lifespan if they expect to see
+          state tells them to widen Badge Duration if they expect to see
           something. */}
       <View style={styles.sectionLabel}>
         <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(15) }]}>What's New</Text>
@@ -501,7 +537,7 @@ function HomeHeader({
       ) : (
         <View style={[styles.wnEmpty, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <Text style={[styles.wnEmptyText, { color: tokens.t3, fontSize: fs(12.5) }]}>
-            No ACs issued or updated in the last {badgeDays} day{badgeDays === 1 ? '' : 's'}. Try a longer Badge Lifespan in the menu to see more.
+            No ACs issued or updated in the last {badgeDays} day{badgeDays === 1 ? '' : 's'}. Try a longer Badge Duration in the menu to see more.
           </Text>
         </View>
       )}
@@ -619,6 +655,25 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listContent: { paddingBottom: 24 },
+  welcomeToast: {
+    position: 'absolute',
+    top: 60,
+    alignSelf: 'center',
+    zIndex: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  welcomeToastText: { fontWeight: '700' },
 
   // Fixed search zone above the FlatList
   searchZone: {

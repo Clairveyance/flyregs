@@ -67,9 +67,14 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
     // downgraded after already having folders could otherwise keep adding to
     // them via this picker (opened from Saved, Recents, and AC detail) with
     // no gate at all, since only the "New Folder" button below checked isPro.
+    // This is only a backstop -- every call site should gate synchronously
+    // before ever setting visible=true (see recents.tsx's handleFolder). A
+    // delayed setTimeout(...) push used to live here instead of an immediate
+    // one; a second tap shortly after the first, while that delayed push was
+    // still pending, landed mid-close and silently no-op'd (BB-006).
     if (!isPro) {
       onClose()
-      setTimeout(() => router.push('/paywall'), 200)
+      router.push('/paywall')
       return
     }
     setAddedNames([])
@@ -228,7 +233,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
             <Pressable
               style={[styles.newFolderRow, { borderTopColor: tokens.bdr }]}
               onPress={() => {
-                if (!isPro) { handleClose(); setTimeout(() => router.push('/paywall'), 200); return }
+                if (!isPro) { handleClose(); router.push('/paywall'); return }
                 setCreating(true)
               }}
             >

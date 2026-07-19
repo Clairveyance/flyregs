@@ -27,53 +27,81 @@ if (
 
 interface QA {
   q: string
-  a: string
+  /** Each entry renders as its own paragraph (or, prefixed with "• ", its
+   * own bullet line) — long-format answers used to be a single dense string
+   * with no visual breaks at all. */
+  a: string[]
 }
 
 const FAQ: QA[] = [
   {
     q: 'What is an Advisory Circular?',
-    a: 'Advisory Circulars (ACs) are documents the FAA publishes to provide guidance and accepted means of compliance with the federal aviation regulations. They are not regulations themselves, but they explain how to meet them.',
+    a: ['Advisory Circulars (ACs) are documents the FAA publishes to provide guidance and accepted means of compliance with the federal aviation regulations. They are not regulations themselves, but they explain how to meet them.'],
   },
   {
     q: 'Are the documents official?',
-    a: `${APP_NAME} presents the FAA's published AC text and PDFs, which are in the public domain. We organize and index them for fast reference, but we do not alter the official content. Always confirm currency against faa.gov before relying on any AC operationally.`,
+    a: [
+      `${APP_NAME} presents the FAA's published AC text and PDFs, which are in the public domain. We organize and index them for fast reference, but we do not alter the official content.`,
+      'Always confirm currency against faa.gov before relying on any AC operationally.',
+    ],
   },
   {
     q: 'How often is the library updated?',
-    a: 'We check the FAA for new and revised ACs every week, so the library stays current automatically — no need to manually refresh or check faa.gov yourself. The "What\'s New" feed on the Home screen shows everything issued or updated in the last 90 days by default (adjustable — see the next question).',
+    a: [
+      'We check the FAA for new and revised ACs every week, so the library stays current automatically — no need to manually refresh or check faa.gov yourself.',
+      'The "What\'s New" feed on the Home screen shows everything issued or updated in the last 90 days by default (adjustable — see the next question).',
+    ],
   },
   {
     q: 'What do the NEW, UPD, and VER badges mean?',
-    a: 'NEW marks an AC issued recently. UPD marks the same AC number revised in place, with real changes you can jump between inside the document. VER marks an AC that moved to a new letter version (for example 20-136B → 20-136C), replacing the prior version rather than editing it in place. All three roll off automatically after 90 days by default — set Badge Lifespan in the menu to 14, 30, 90, or 180 days instead if you want them (and the Home "What\'s New" feed) to move faster or slower.',
+    a: [
+      '• NEW — an AC issued recently.',
+      '• UPD — the same AC number revised in place, with real changes you can jump between inside the document.',
+      '• VER — an AC that moved to a new letter version (for example 20-136B → 20-136C), replacing the prior version rather than editing it in place.',
+      'All three roll off automatically after 90 days by default — set Badge Duration in the menu to 14, 30, 90, or 180 days instead if you want them (and the Home "What\'s New" feed) to move faster or slower.',
+    ],
   },
   {
     q: 'How does search work?',
-    a: 'Search runs across AC numbers, titles, and document text. Type an AC number like "91-74" or a topic like "icing" or "fatigue" — results rank by relevance.',
+    a: ['Search runs across AC numbers, titles, and document text. Type an AC number like "91-74" or a topic like "icing" or "fatigue" — results rank by relevance.'],
   },
   {
     q: 'Do I need an account?',
-    a: 'No — browsing the entire library and searching to find an AC are both free, with no account needed, and no limit on how many you can look up. Every AC\'s detail page shows its full Table of Contents plus the beginning of its text for free. Pro unlocks the complete text of every AC, in-document search, bookmarks, notes, and folders. Premium adds cloud sync, sharing, offline downloads, and update alerts. An account is only required when you start a subscription — creating one is free and doesn\'t unlock anything by itself.',
+    a: [
+      'No — browsing the entire library and searching to find an AC are both free, with no account needed, and no limit on how many you can look up. Every AC\'s detail page shows its full Table of Contents plus the beginning of its text for free.',
+      '• Pro — the complete text of every AC, in-document search, bookmarks, notes, and folders.',
+      '• Premium — everything in Pro, plus cloud sync, sharing, offline downloads, and update alerts.',
+      'An account is only required when you start a subscription — creating one is free and doesn\'t unlock anything by itself.',
+    ],
   },
   {
     q: 'How do notes and auto-linking work?',
-    a: 'Open the Notes tab and tap + New. When you type an AC number like "61-65" or "91-74B" in a note, it is detected automatically and turned into a tappable chip that opens the current version of that AC. No suffix required.',
+    a: ['Open the Notes tab and tap + New. When you type an AC number like "61-65" or "91-74B" in a note, it is detected automatically and turned into a tappable chip that opens the current version of that AC. No suffix required.'],
   },
   {
     q: 'What does a subscription unlock?',
-    a: 'Pro unlocks full text access for every AC, in-document search, bookmarks, personal notes, custom folders, and highlighting key sections. Premium adds cloud backup and sync across devices, shared folders for teams, flight schools, and maintenance shops, offline downloads, and alerts when ACs are published or updated.',
+    a: [
+      '• Pro — full text access for every AC, in-document search, bookmarks, personal notes, custom folders, and highlighting key sections.',
+      '• Premium — everything in Pro, plus cloud backup and sync across devices, shared folders for teams, flight schools, and maintenance shops, offline downloads, and alerts when ACs are published or updated.',
+    ],
   },
   {
     q: 'How does highlighting work?',
-    a: 'Long-press any paragraph or section (Pro required) to highlight it in yellow — it\'s saved instantly to your Saved list, no extra confirmation needed. Long-press the same spot again to remove it. Tap a highlight from Saved and the AC opens scrolled straight to that spot instead of the top of the document.',
+    a: [
+      'Long-press any paragraph or section (Pro required) to highlight it in yellow — it\'s saved instantly to your Saved list, no extra confirmation needed. Long-press the same spot again to remove it.',
+      'Tap a highlight from Saved and the AC opens scrolled straight to that spot instead of the top of the document.',
+    ],
   },
   {
     q: 'What happens to a highlight if the AC is later updated?',
-    a: 'Your highlight stays in Saved either way, but if the FAA revises the exact section you highlighted, the highlight can no longer point to a specific spot in the new text — opening it from Saved will land you at the top of the document instead of jumping to that section. Saved rows affected by this show a "Section changed" note. Nothing is deleted; you can always remove the highlight yourself if it\'s no longer useful.',
+    a: [
+      'Your highlight stays in Saved either way, but if the FAA revises the exact section you highlighted, the highlight can no longer point to a specific spot in the new text — opening it from Saved will land you at the top of the document instead of jumping to that section.',
+      'Saved rows affected by this show a "Section changed" note. Nothing is deleted; you can always remove the highlight yourself if it\'s no longer useful.',
+    ],
   },
   {
     q: 'How do I cancel?',
-    a: 'Subscriptions are managed by Apple or Google. Open your App Store or Google Play account settings to view or cancel. Your access continues until the end of the current billing period.',
+    a: ['Subscriptions are managed by Apple or Google. Open your App Store or Google Play account settings to view or cancel. Your access continues until the end of the current billing period.'],
   },
 ]
 
@@ -116,7 +144,22 @@ export default function FAQScreen() {
                     color={tokens.t3}
                   />
                 </Pressable>
-                {expanded && <Text style={[styles.a, { color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>{item.a}</Text>}
+                {expanded && (
+                  <View style={styles.aWrap}>
+                    {item.a.map((para, pi) => (
+                      <Text
+                        key={pi}
+                        style={[
+                          styles.a,
+                          pi < item.a.length - 1 && styles.aSpacing,
+                          { color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 },
+                        ]}
+                      >
+                        {para}
+                      </Text>
+                    ))}
+                  </View>
+                )}
               </View>
             )
           })}
@@ -151,7 +194,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   q: { flex: 1, fontSize: 14.5, fontWeight: '600', lineHeight: 20 },
-  a: { fontSize: 14, lineHeight: 21, paddingBottom: 14, paddingRight: 8 },
+  aWrap: { paddingBottom: 14, paddingRight: 8 },
+  a: { fontSize: 14, lineHeight: 21 },
+  aSpacing: { marginBottom: 10 },
   contactBtn: {
     flexDirection: 'row',
     alignItems: 'center',
