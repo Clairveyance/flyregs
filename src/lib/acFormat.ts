@@ -44,7 +44,7 @@ export function cleanGlyphs(s: string): string {
 
 // Schema version for precomputed pdf_blocks — bump when the parser output shape
 // changes so a backfill can tell which rows need reprocessing.
-export const AC_FORMAT_VERSION = 32
+export const AC_FORMAT_VERSION = 34
 
 // Comparable text for a block, regardless of kind — content-based identity used
 // both server-side (scripts/backfill-blocks.mjs's diff computation, which keeps
@@ -193,15 +193,46 @@ const SECDOT = /^([1-9]\d*(?:\.\d{1,2}){1,4}\.?)\s+(?!(?:[A-Z]{1,6})\s[a-z])([A-
 //     into individual headings across 129 ACs (e.g. 120-72A's citation list),
 //     reversing an earlier, deliberate call that those should stay list
 //     items, not sections. Reverted; the FAQ-heading gap is left unfixed.
-//   • Colon-with-body branch: an old (pre-1990s) FAA heading style — "1.
-//     PURPOSE: This advisory circular sets forth..." (confirmed on AC 20-40,
-//     1965) — an ALL-CAPS title terminated by a COLON, with body text inline
-//     on the same line. Distinct from the with-body ALL-CAPS branch above,
-//     which requires a literal period before the body; distinct from the
-//     bare-heading branch, whose internal-colon tolerance only covers a
-//     colon followed by MORE all-caps text, not lowercase prose. Mirrors the
-//     period branch's structure exactly, just with ":" as the terminator.
-const NUMSEC = /^(\d+\.)\s+([A-Z](?:[A-Z0-9: ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))+|[A-Z](?:[A-Z0-9: ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))*(?:[A-Z0-9)]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))\.\s+.+|[A-Z](?:[A-Z0-9 ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))*(?:[A-Z0-9)]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\)):\s+.+|[A-Z]{2,6}\s+[A-Z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?|[A-Z][a-z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?)$/
+const NUMSEC = /^(\d+\.)\s+([A-Z](?:[A-Z0-9: ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))+|[A-Z](?:[A-Z0-9: ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))*(?:[A-Z0-9)]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))\.\s+.+|[A-Z]{2,6}\s+[A-Z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?|[A-Z][a-z][a-zA-Z ,/&()'-]{1,58}[.?](?:\s+.+)?)$/
+
+// "1. PURPOSE: This advisory circular sets forth..." — an old (pre-1990s) FAA
+// heading style: an ALL-CAPS title terminated by a COLON, with body text
+// inline on the same line. Distinct from NUMSEC's with-body ALL-CAPS branch,
+// which requires a literal period before the body; distinct from its
+// bare-heading branch, whose internal-colon tolerance only covers a colon
+// followed by MORE all-caps text, not lowercase prose.
+// Deliberately kept OUT of NUMSEC's own alternation: unlike NUMSEC's other
+// ALL-CAPS branches (a safe signal on their own — ordinary prose never
+// produces a run of pure uppercase text), a short bare acronym before a
+// colon ("VSI:", "GPS:") is NOT safe on its own — it's indistinguishable
+// from a numbered reference-list or checklist item using the same shape. Two
+// extra gates beyond NUMSEC's other branches, both added after corpus-wide
+// checks caught real false positives:
+//   1. Always run through isNextFlatNum() (see NUMSEC_COLON's use in the
+//      classifier below) — a numbered list nested inside an already-decimal-
+//      or-appendix-numbered document won't continue that document's own flat
+//      top-level sequence.
+//   2. Blocked once any lettered appendix has been seen (`appxSeen` in the
+//      classifier) — lastFlatNum is one GLOBAL counter with no scoping
+//      between the document's real top-level sequence and a numbered list
+//      nested inside an appendix subsection, so a local list restarting at
+//      "1." inside an appendix can still coincidentally fall within the
+//      top-level counter's "+10" tolerance window even after gate #1.
+// Confirmed false positives caught by an early, less-gated version: AC
+// 61-136B's Appendix B.3.4.3 instrument-tolerance list ("6. VSI:", "8.
+// VOR/ILS:", "9. ADF:", "10. GPS:") and AC 91-92's numbered resource-link
+// list ("15. NWS:", sitting between "14. From the Flight Deck Videos:" and
+// "16. NWS Glossary (NOAA):", neither of which matches any branch — a
+// genuine top-level document heading is never followed immediately by
+// another one sharing the exact same visual list-item shape with no other
+// content between). Confirmed genuine, real top-level document structure —
+// not list items — on AC 20-40 (1965), AC 150/5020-2 (2004, "1.  PURPOSE:",
+// "2.  APPLICABILITY", "3.  BACKGROUND", "4.  DOCUMENT AVAILABILITY:"), and
+// AC 20-119 ("1. PURPOSE:" — its siblings "2. BACKGROUND." and "3.
+// GUIDANCE." already use a period, matching NUMSEC's own with-body ALL-CAPS
+// branch independently of this one).
+const NUMSEC_COLON =
+  /^(\d+\.)\s+([A-Z](?:[A-Z0-9 ,./&''()–—-]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\))*(?:[A-Z0-9)]|\([A-Za-z][a-zA-Z0-9 ,./&'-]{1,60}\)):\s+.+)$/
 
 // "1 PURPOSE OF THIS AC." — number (no period), then ALL-CAPS title ending in
 // a period, optionally followed by body on the same line. Tolerates ONE
@@ -304,18 +335,39 @@ function isNoise(l: string): boolean {
 // body), return it as the title rather than leaving title empty and stuffing it
 // into body — which caused the audit to see duplicate labels for appendix
 // sections (both label+title keys collapsed to just the label).
-function splitHeading(rest: string): { title: string; body: string } {
+function splitHeading(rest: string, forItem = false): { title: string; body: string } {
   const m = rest.match(/^([A-Z][A-Za-z0-9 ,/&''()-]{1,55}?\.)\s+(.+)$/)
   if (m) return { title: m[1], body: m[2] }
-  // Same extraction for a COLON-terminated title ("PURPOSE: This advisory
-  // circular sets forth…", the old 1965-era heading style NUMSEC's colon
-  // branch now recognizes) — without this, the whole line falls through to
-  // the standalone-heading case below and the entire sentence renders bold
-  // as one giant "title" instead of a short bold term + normal body.
+  // Same extraction for a COLON-terminated title ("NOTE: something…") —
+  // without this, a colon-terminated heading falls through to the
+  // standalone-heading case below and the entire sentence renders bold as
+  // one giant "title" instead of a short bold term + normal body. Doesn't
+  // create new headings itself (that decision already happened upstream in
+  // the classifier) — just improves the title/body split for text a
+  // classifier already accepted (e.g. APPXSEC) that happens to use a colon.
   const mc = rest.match(/^([A-Z][A-Za-z0-9 ,/&''()-]{1,55}?:)\s+(.+)$/)
   if (mc) return { title: mc[1], body: mc[2] }
-  // Standalone heading: the entire rest is the title text (no body on this line)
-  if (/^[A-Z]/.test(rest)) return { title: rest, body: '' }
+  // Standalone heading: the entire rest is the title text (no body on this line).
+  // ITEM-only exception: if this "standalone" text is a single bare word/token
+  // with no space AND no terminal punctuation, it's a PDF line-wrap accident,
+  // not a deliberate bold term — a real FAA item title is always a genuine
+  // multi-word phrase or ends in "."/"?"/ ":" (both already handled above).
+  // Confirmed on AC 20-166A: item "a."'s opening line was JUST "a. The", with
+  // "Federal Aviation Administration (FAA) uses IPs..." continuing on the next
+  // line — bolding "The" as if it were a real term, then showing the rest as
+  // unrelated body text, reads as visibly broken. Returning body here (not
+  // title) lets the ordinary continuation-append below rejoin it into one
+  // normal sentence: "The Federal Aviation Administration...". Scoped to
+  // items only (not sections) via `forItem` — sections rely on this same
+  // "entire rest is title" fallback for genuine bare ALL-CAPS headings whose
+  // continuation is handled by a separate, already-vetted mid-word repair
+  // that specifically needs `cur.title` non-empty to detect and merge (e.g.
+  // "CO" + "NDITIONS." — see that repair's own comments) — zeroing the title
+  // here for sections would break it.
+  if (/^[A-Z]/.test(rest)) {
+    if (forItem && !/\s/.test(rest)) return { title: '', body: rest }
+    return { title: rest, body: '' }
+  }
   return { title: '', body: rest }
 }
 
@@ -359,10 +411,21 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
     // digit itself, or the letter right after "N. ") — a leading/embedded "**"
     // breaks all of them, silently demoting every heading and lettered item in
     // the document to plain body text (confirmed on 00-44II, 20-171, 21-48,
-    // 35.16-1 — task #84's investigation found 7 ACs corpus-wide with this
-    // pattern). Two asterisks in a row is never legitimate FAA regulatory
-    // prose, so a blanket strip is safe.
-    .map((l) => l.replace(/\*\*/g, ''))
+    // 35.16-1). NOT a blanket strip — "**" is also a genuine, common FOOTNOTE
+    // MARKER convention throughout this corpus ("** Note: RVR values are
+    // shown...", "TDZ RVR (ft)** Mid RVR (ft)**", "+/-0.03 nm (**)"), and a
+    // first version that stripped every "**" unconditionally silently
+    // destroyed those references corpus-wide (685 lines across dozens of
+    // ACs, caught in a follow-up regression pass — see flyregs_parser.md).
+    // This regex only matches a genuine PAIRED bold-wrap: opening "**" must
+    // be immediately followed by a letter/digit (no space — excludes "** "
+    // and "*** "/"**** " footnote prefixes, which always have a space or a
+    // third asterisk right after), and closing "**" must be immediately
+    // preceded by a letter/digit/period (no space or ")" — excludes
+    // "(ft)**"/"(**)"-style trailing footnote references). Verified against
+    // all known real cases (task #84's 7 ACs) and all known footnote-marker
+    // shapes in the corpus before shipping.
+    .map((l) => l.replace(/\*\*([A-Za-z0-9][^*\n]{0,98}?[A-Za-z0-9.])\*\*/g, '$1'))
     // A section number occasionally has a stray space before its period
     // ("3 . REFERENCE DOCUMENT." instead of "3. REFERENCE DOCUMENT.") — a
     // kerning/OCR artifact on old scanned ACs (confirmed on AC 00-41B) that
@@ -377,9 +440,16 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
     // the OCR_SCANNED_ACS artifact repair below (which is deliberately gated
     // to only the 68 flagged old scans, since applying it universally
     // corrupts modern text — see v31). Scoped narrowly to right after a "N. "
-    // heading-number prefix (never fires in ordinary body prose) so it's safe
-    // to run unconditionally.
-    .map((l) => l.replace(/^(\d{1,4}\.)\s+([A-Z]) ([a-z]{2,15})(?=[\s.?:]|$)/, '$1 $2$3'))
+    // heading-number prefix (never fires in ordinary body prose) so it's
+    // mostly safe to run unconditionally — EXCEPT the single letter must
+    // exclude A/I/O, which are real standalone English words ("1. A file
+    // containing…", "3. A backslash…" are genuine list items, not "Afile"/
+    // "Abackslash" kerning splits). A corpus-wide check after first shipping
+    // this without the exclusion found 595 false-positive merges across 129
+    // ACs — exactly the mistake the OCR_SCANNED_ACS artifact-repair regex
+    // below already learned to avoid via the same [B-HJ-NP-Z] class; this
+    // mirrors it.
+    .map((l) => l.replace(/^(\d{1,4}\.)\s+([B-HJ-NP-Z]) ([a-z]{2,15})(?=[\s.?:]|$)/, '$1 $2$3'))
     // Collapse a stray space directly before a heading title's own terminal
     // period ("Purpose . This…" → "Purpose. This…"), a side effect of the
     // same kerning glitch above. Only after a letter (not a digit) so this
@@ -421,29 +491,22 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
     }
   }
 
-  // 2d. Rejoin a heading's own FIRST word when it's split mid-word by a PDF
-  //     line break before the line has even been classified — e.g. "1. Pur"
-  //     alone on its line, with "pose. This advisory circular…" continuing on
-  //     the next (confirmed on AC 33-11). This differs from the post-
-  //     classification mid-word repair further below (which only merges a
-  //     continuation into a heading ALREADY recognized as one): a bare "N.
-  //     Fragment" with no terminal punctuation never matches any NUMSEC
-  //     variant in the first place (no period/question-mark, not ALL-CAPS),
-  //     so that repair never gets a chance to run. Scoped tightly — the
-  //     fragment must be 2-10 letters (mirrors the >=2-char floor used
-  //     elsewhere for this exact ambiguity: a single bare letter is
-  //     indistinguishable from the ordinary start of a body word like "The")
-  //     and the next line must continue in lowercase (a genuine word-split,
-  //     not a new sentence).
-  for (let i = 0; i < lines.length - 1; i++) {
-    if (!/^\d{1,3}\.\s+[A-Z][a-z]{1,9}$/.test(lines[i])) continue
-    let j = i + 1
-    while (j < lines.length && lines[j] === '') j++
-    if (j < lines.length && /^[a-z]/.test(lines[j])) {
-      lines[i] = `${lines[i]}${lines[j]}`
-      lines[j] = ''
-    }
-  }
+  // NOTE: a "2d" step was tried here (rejoin a heading's own first word when
+  // split mid-word by a PDF line break, e.g. "1. Pur" + "pose." on the next
+  // line, confirmed on AC 33-11) and reverted after a corpus-wide check. It
+  // can't reliably distinguish a genuine truncated fragment ("Pur", "Comple")
+  // from an ordinary COMPLETE word that's followed by an unrelated new line
+  // ("Capability" + "to meet schedules...", "Security" + "a. Do security
+  // systems..." — a sub-item marker, not a continuation) — length alone
+  // doesn't separate them (bad merges ranged 3-10 chars, same range as good
+  // ones), and there's no dictionary check available. 595 false-positive
+  // merges was one thing (the A/I/O bug above, fixed); this one's false
+  // positives silently glue real, unrelated words together with no space, no
+  // way to distinguish "fixed" from "corrupted" by eyeballing the output.
+  // Same class of shape-alone undecidability already documented for AC
+  // 89-3's "7." list item (flyregs_parser.md v29) — accepted as a residual
+  // limitation rather than risked corpus-wide. AC 33-11 is fixed via a
+  // manual `ac_block_overrides` entry instead (see flyregs_parser.md).
 
   // 3. Remove table-of-contents regions (dotted-leader lines and everything
   //    between them — duplicate chapter listings, page markers, etc.). A real TOC
@@ -602,6 +665,26 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
     if (lastFlatNum === null) return n === 1 && secDotCount < 2
     return n > lastFlatNum && n <= lastFlatNum + 10
   }
+  // Stricter sibling used ONLY by NUMSEC_COLON — requires an exact +1
+  // continuation instead of the "+10" window above. A corpus-wide check
+  // found the wider tolerance let a handful of numbered reference-list items
+  // slip through as spurious headings purely by landing within 10 of
+  // whatever the document's real last section number happened to be (AC
+  // 91-92's "8. AVCAM..."/"15. NWS:", both list items inside section 5.1's
+  // own reading list, with the document's real last section only at "5" by
+  // that point; AC 00-31A's "120. NOTE:", an inline annotation referencing
+  // "paragraphs 113 through 120" that isn't itself paragraph 120). Every
+  // confirmed-genuine NUMSEC_COLON case (AC 20-40, 150/5020-2, 20-119, and
+  // others) continues its document's real sequence exactly by 1, so the
+  // tighter check costs nothing there while closing off the ambiguous cases
+  // the wider "+10" tolerance was designed for Title-Case headings, not
+  // this narrower, riskier branch.
+  const isNextFlatNumStrict = (raw: string): boolean => {
+    const n = parseInt(raw, 10)
+    if (isNaN(n)) return false
+    if (lastFlatNum === null) return n === 1 && secDotCount < 2
+    return n === lastFlatNum + 1
+  }
   // Tried narrowing the "+10" tolerance to "+3" (2026-07-11) to fix AC 89-3's
   // "7. Aeronautical Information Manual (AIM)." — a numbered-reading-list item
   // that shares Title-Case shape with real headings and gets mistaken for one
@@ -633,6 +716,10 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
   // start of a line, not a real section. Gate SEC the same way NUMSEC is
   // gated against decimal numbering.
   let secDotCount = 0
+
+  // Second gate for NUMSEC_COLON (see its own comment above) — true once any
+  // lettered appendix heading (APPXSEC) has been seen.
+  let appxSeen = false
 
   for (let line of lines) {
     // Blank lines break paragraph continuations — they are meaningful paragraph
@@ -738,9 +825,11 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
       bodyStarted = true
       continue
     }
+    if (APPXSEC.test(line)) appxSeen = true
     if (
       (m = line.match(APPXSEC)) ||
       ((m = line.match(NUMSEC)) && (!needsSequenceGate(m[2]) || isNextFlatNum(m[1]))) ||
+      ((m = line.match(NUMSEC_COLON)) && !appxSeen && isNextFlatNumStrict(m[1])) ||
       ((m = line.match(NUMSEC3)) && isNextFlatNum(m[1]))
     ) {
       flush()
@@ -756,7 +845,7 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
       flush()
       inTable = false
       const level = ITEM_A.test(line) ? 1 : ITEM_N.test(line) ? 2 : 3
-      const { title, body } = splitHeading(m[2])
+      const { title, body } = splitHeading(m[2], true)
       cur = { kind: 'item', level, label: m[1], title, body }
       bodyStarted = true
       continue
@@ -894,6 +983,20 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
             }
           }
         }
+      }
+      // Narrow item-only case: splitHeading() (with forItem=true) returns an
+      // empty title and puts a lone SINGLE LETTER straight into cur.body when
+      // an item's opening line was just that one letter ("c. F", confirmed on
+      // AC 20-166A — the rest of the word "For" continues on the next line).
+      // A single bare letter is a genuine mid-word glyph split (same signal
+      // already trusted for the section-only repair above), so join with NO
+      // space here specifically — unlike a multi-letter fragment ("The",
+      // "IPs"), which IS a complete real word and needs the normal spaced
+      // join below (confirmed: "IPs" + "provide" must stay two words, not
+      // merge into "IPsprovide").
+      if (cur.kind === 'item' && cur.title === '' && /^[A-Za-z]$/.test(cur.body) && /^[a-z]/.test(line)) {
+        cur.body = cur.body + line
+        continue
       }
       cur.body = cur.body ? cur.body + ' ' + line : line
     } else {

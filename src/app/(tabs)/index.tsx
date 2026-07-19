@@ -26,6 +26,14 @@ import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { getBadgeKind, getBadgeStyle, BadgeKind } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 
+// The search dropdown's number column is a fixed, narrow width (see dropNum)
+// so default text wrapping breaks mid-digit ("150/506" / "0-5") instead of at
+// a sensible point. Forcing a break right after the slash keeps both halves
+// ("150/" / "5060-5") readable instead of relying on wherever the wrap happens to land.
+function wrapAcNumberForNarrowColumn(num: string): string {
+  return num.replace('/', '/\n')
+}
+
 const HOME_CACHE_KEY = '@flyregs/home-cache'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -424,7 +432,7 @@ export default function HomeScreen() {
                   onPress={() => selectResult(r)}
                 >
                   <Text style={[styles.dropNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
-                    {r.document_number}{isOcrScanned(r.document_number) ? ' *' : ''}
+                    {wrapAcNumberForNarrowColumn(r.document_number)}{isOcrScanned(r.document_number) ? ' *' : ''}
                   </Text>
                   <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
                     {r.title}

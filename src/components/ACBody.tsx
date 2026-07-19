@@ -113,9 +113,15 @@ function toTolerantLabelPattern(label: string): string {
 }
 
 // Undoes the whitespace tolerance above so a match like "Table 5 -1" still
-// looks up the canonical "Table 5-1" entry in figuresByLabel.
+// looks up the canonical "Table 5-1" entry in figuresByLabel. Also
+// lowercases — older/scanned ACs frequently caption figures in ALL-CAPS
+// ("FIGURE 2-1. STANDARD HIGH...") even though extract_figures.py stores the
+// canonical label in Title Case ("Figure 2-1"); confirmed on AC 00-31A,
+// where every ALL-CAPS caption occurrence silently failed to link (0 exact-
+// case matches) even though the label itself was correct — figuresByLabel is
+// keyed by this same lowercased form so the two sides always agree.
 function normalizeMatchedLabel(matched: string): string {
-  return matched.replace(/\s*-\s*/g, '-').replace(/\s*\.\s*/g, '.')
+  return matched.replace(/\s*-\s*/g, '-').replace(/\s*\.\s*/g, '.').toLowerCase()
 }
 
 // Auto-links inline mentions of a known Figure/Table label ("...as shown in
@@ -396,14 +402,14 @@ export const ACBody = React.forwardRef<
   // otherwise grab its first few characters.
   const figuresByLabel = useMemo(() => {
     const m = new Map<string, AcFigure>()
-    for (const f of figures ?? []) m.set(f.label, f)
+    for (const f of figures ?? []) m.set(f.label.toLowerCase(), f)
     return m
   }, [figures])
   const figureLabelRe = useMemo(() => {
     if (!figures || !figures.length) return null
-    const labels = [...figuresByLabel.keys()].sort((a, b) => b.length - a.length)
-    return new RegExp(labels.map(toTolerantLabelPattern).join('|'), 'g')
-  }, [figures, figuresByLabel])
+    const labels = [...new Set(figures.map((f) => f.label))].sort((a, b) => b.length - a.length)
+    return new RegExp(labels.map(toTolerantLabelPattern).join('|'), 'gi')
+  }, [figures])
 
   const [showToc, setShowToc] = useState(false)
   const [showFigures, setShowFigures] = useState(false)
