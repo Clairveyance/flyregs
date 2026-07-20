@@ -164,15 +164,34 @@ export interface SharedFolderACItem {
   item_id: string
 }
 
-// V1 scope: only AC items resolve for a collaborator. Note-type items in a
-// shared folder are silently excluded here, not shown as broken/empty --
-// see the migration file for why.
 export async function getSharedFolderACItems(folderId: string): Promise<SharedFolderACItem[]> {
   const { data } = await supabase
     .from('synced_folder_items')
     .select('item_id')
     .eq('folder_id', folderId)
     .eq('item_type', 'ac')
+    .eq('deleted', false)
+  return data ?? []
+}
+
+export interface SharedFolderNoteItem {
+  item_id: string
+}
+
+// Notes used to be silently excluded from shared folders -- synced_notes
+// only had an owner-only RLS policy, so even though a collaborator could see
+// the folder_item row referencing a note, they had no way to actually read
+// its title/body. Fixed with a new `collaborators_read_shared_notes` policy
+// on synced_notes (scoped to exactly the notes referenced by folders this
+// user has joined) -- this just reads the item pointers the same way
+// getSharedFolderACItems does; see folder/shared/[id].tsx for the note
+// content fetch itself.
+export async function getSharedFolderNoteItems(folderId: string): Promise<SharedFolderNoteItem[]> {
+  const { data } = await supabase
+    .from('synced_folder_items')
+    .select('item_id')
+    .eq('folder_id', folderId)
+    .eq('item_type', 'note')
     .eq('deleted', false)
   return data ?? []
 }

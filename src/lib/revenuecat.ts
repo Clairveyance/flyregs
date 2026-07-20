@@ -107,6 +107,22 @@ export async function purchaseSubscription(
   }
 }
 
+// Resets RevenueCat's own identity back to anonymous -- without this, the
+// SDK keeps whatever appUserID it was last configure()'d with (the account
+// that just signed out or got deleted), so a subsequent restorePurchases()
+// call would still resolve against that old identity's entitlements. This
+// alone doesn't gate anything (see the session checks at every
+// restorePurchases()/purchaseSubscription() call site for the real fix) but
+// closes the underlying identity-bleed issue for good, including the case
+// of a second account signing in on the same device afterward.
+export async function logOutRevenueCat() {
+  try {
+    await Purchases.logOut()
+  } catch {
+    // Throws if already logged out (anonymous) -- fine, that's the goal state.
+  }
+}
+
 export async function restorePurchases(): Promise<SubscriptionStatus> {
   try {
     const customerInfo = await Purchases.restorePurchases()

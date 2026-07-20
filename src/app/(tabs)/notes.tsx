@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Alert,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Switch,
   Animated,
@@ -691,6 +692,12 @@ function NoteEditor({
   }
 
   const openAcPane = (acNum: string) => {
+    // Otherwise the keyboard stays up behind the sheet with no way to drag
+    // it down without tapping the scrim, which also closes the sheet itself
+    // -- forcing a tap-dismiss-then-retap-the-link cycle just to read the
+    // AC. Dismissing it the moment the sheet opens means there's never
+    // anything left to drag out of the way in the first place.
+    Keyboard.dismiss()
     setPaneAC(acNum)
     setPaneData(null)
     setPaneLoading(true)

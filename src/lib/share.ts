@@ -13,6 +13,12 @@ export interface ShareableAC {
   id: string
   document_number: string
   title: string
+  /** Present when sharing an existing highlight bookmark -- carries the
+   * passage through the same way "Share Passage" does, so the recipient's
+   * copy both jumps to AND highlights that exact block, not just the AC
+   * generally. Use highlightSnippet() from lib/acShare to build this from a
+   * block's full text. */
+  highlightSnippet?: string
 }
 
 export interface ShareableNote {
@@ -21,11 +27,12 @@ export interface ShareableNote {
   linked_ac?: string | null
 }
 
-// Branded flyregs.com/ac/ link, not the raw FAA PDF -- keeps this hook's
-// output consistent with ac/[id].tsx's own handleShare/handleSharePassage,
-// which build the same link directly via buildACShareLink().
+// Just the branded flyregs.com/ac/ link, no title/doc-number prefix -- the
+// share card image already shows that, so repeating it as text was the
+// "too much stuff in the message" the sender and recipient both have to
+// read past to find the actual link.
 function acLine(ac: ShareableAC): string {
-  return `AC ${ac.document_number}: ${ac.title}\n${buildACShareLink(ac)}`
+  return buildACShareLink(ac, ac.highlightSnippet)
 }
 
 function noteLine(note: ShareableNote): string {
@@ -33,40 +40,22 @@ function noteLine(note: ShareableNote): string {
   return `${note.title || 'Untitled'}${ref}\n${note.body}`
 }
 
-// All shares render a branded card (sharer's avatar + name baked into the
-// image) via ShareCardProvider. On iOS, RN's own Share.share() can attach
-// that local image file (`url`) AND an accompanying text message together in
-// one native share sheet — so the recipient gets the nice card AND an actual
-// working link back to the document, not just a static picture. This used to
-// go through expo-sharing's shareAsync() instead, which only accepts an
-// image — there's no url/text field in its native SharingOptions at all, so
-// every share silently arrived as a picture with no way to open the real
-// document. expo-sharing is kept for Android (not yet shipped): RN's bare
-// Share.share() doesn't reliably attach local files there without a
-// FileProvider content:// URI, which expo-sharing handles for you.
+// AC/folder shares are plain text (just the link) -- no branded card image
+// attached. Two real problems came from attaching one: (1) it's what made
+// the message read as "too much stuff" next to a picture that just repeats
+// the AC title/number already in the link's own destination page, and (2)
+// AirDrop (and some other share-sheet targets) only transfers the attached
+// FILE, silently dropping the accompanying text entirely -- so an AirDropped
+// share arrived as a bare image with no link at all, landing in Photos
+// instead of opening the app. A pure text share has nothing to lose there.
+// shareNote (a standalone note, no link to lose) keeps the branded card.
 export function useShareActions() {
   const { session, avatarOverride } = useAuth()
   const { capture } = useShareCard()
 
   const shareAC = async (ac: ShareableAC) => {
     try {
-      const uri = await capture({
-        avatarUrl: resolveAvatarUrl(avatarOverride, session),
-        avatarPreset: resolveAvatarPresetId(avatarOverride, session),
-        displayName: getDisplayName(session),
-        kind: 'ac',
-        documentNumber: `AC ${ac.document_number}`,
-        title: ac.title,
-      })
-      if (Platform.OS === 'ios') {
-        await Share.share({ title: `AC ${ac.document_number}`, message: acLine(ac), url: uri })
-        return
-      }
-      if (Platform.OS === 'web' || !(await Sharing.isAvailableAsync())) {
-        await Share.share({ title: `AC ${ac.document_number}`, message: acLine(ac) })
-        return
-      }
-      await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: `AC ${ac.document_number}` })
+      await Share.share({ title: `AC ${ac.document_number}`, message: acLine(ac) })
     } catch {
       // User cancelled or share unavailable
     }
@@ -98,31 +87,11 @@ export function useShareActions() {
     const total = acs.length + notes.length
     if (!total) return
     try {
-      const items = [
-        ...acs.map((ac) => ({ label: ac.document_number, title: ac.title })),
-        ...notes.map((n) => ({ label: undefined, title: n.title || 'Untitled' })),
-      ]
-      const uri = await capture({
-        avatarUrl: resolveAvatarUrl(avatarOverride, session),
-        avatarPreset: resolveAvatarPresetId(avatarOverride, session),
-        displayName: getDisplayName(session),
-        kind: 'multi',
-        title: `${total} item${total !== 1 ? 's' : ''} shared`,
-        items,
-      })
       const parts: string[] = []
       if (acs.length) parts.push(acs.map(acLine).join('\n\n'))
       if (notes.length) parts.push(notes.map(noteLine).join('\n\n'))
       const message = parts.join('\n\n')
-      if (Platform.OS === 'ios') {
-        await Share.share({ message, url: uri })
-        return
-      }
-      if (Platform.OS === 'web' || !(await Sharing.isAvailableAsync())) {
-        await Share.share({ message })
-        return
-      }
-      await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: `${total} items` })
+      await Share.share({ message })
     } catch {}
   }
 

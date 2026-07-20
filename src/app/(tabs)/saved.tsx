@@ -29,6 +29,7 @@ import { blockText } from '@/lib/acFormat'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { getBookmarks, removeBookmark, removeManyBookmarks, BookmarkAC } from '@/lib/bookmarks'
+import { highlightSnippet } from '@/lib/acShare'
 import { getDownloads, removeDownload, formatBytes, DownloadedAC } from '@/lib/downloads'
 import {
   getFolders,
@@ -302,15 +303,28 @@ export default function SavedScreen() {
     load()
   }
 
-  const handleShare = (item: { id: string; document_number: string; title: string }) => {
+  // A highlight bookmark's own `id` is a synthetic value, never a real
+  // advisory_circulars.id (see resolveBookmarkACId's comment) -- passing it
+  // straight through built a share link the recipient's app could never
+  // resolve, landing on a real "AC not found" screen. Also carries the
+  // highlight's own passage snippet so the recipient's copy both jumps to
+  // AND highlights that block, same as "Share Passage" from the AC screen.
+  const toShareableAC = (item: { id: string; document_number: string; title: string; acId?: string; blockText?: string }): ShareableAC => ({
+    id: item.acId ?? item.id,
+    document_number: item.document_number,
+    title: item.title,
+    highlightSnippet: item.blockText ? highlightSnippet(item.blockText) : undefined,
+  })
+
+  const handleShare = (item: { id: string; document_number: string; title: string; acId?: string; blockText?: string }) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
-    shareAC(item)
+    shareAC(toShareableAC(item))
   }
 
   const handleBulkShare = () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     const items = bookmarks.filter((b) => selected.has(b.id))
-    shareMany(items)
+    shareMany(items.map(toShareableAC))
     setSelected(new Set())
     setSelectMode(false)
   }
@@ -395,7 +409,7 @@ export default function SavedScreen() {
     for (const item of items) {
       if (item.item_type === 'ac') {
         const bm = bookmarkMap.get(item.item_id)
-        if (bm && !seenAc.has(bm.id)) { seenAc.add(bm.id); acs.push(bm) }
+        if (bm && !seenAc.has(bm.id)) { seenAc.add(bm.id); acs.push(toShareableAC(bm)) }
       } else {
         const note = noteMap.get(item.item_id)
         if (note && !seenNote.has(note.id)) { seenNote.add(note.id); shareNotes.push(note) }

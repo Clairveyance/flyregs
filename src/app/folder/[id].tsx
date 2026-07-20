@@ -37,7 +37,8 @@ import {
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { getBookmarks, BookmarkAC } from '@/lib/bookmarks'
-import { useShareActions } from '@/lib/share'
+import { useShareActions, ShareableAC } from '@/lib/share'
+import { highlightSnippet } from '@/lib/acShare'
 import { getOrCreateShareLink, getFolderCollaborators, removeCollaborator, FolderCollaborator } from '@/lib/sharedFolders'
 import { isSyncEnabled } from '@/lib/sync'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
@@ -261,7 +262,9 @@ export default function FolderDetail() {
     try {
       const link = await getOrCreateShareLink(folder.id)
       await Share.share({
-        message: `Join my "${folder.name}" folder on FlyRegs — view-only access to the ACs I've saved there. You'll need your own Pro or Premium subscription to read full AC text.\n\n${link}`,
+        // Just the link -- the join page itself explains what it is; no
+        // need to repeat that as a wall of text in the message body too.
+        message: link,
       })
     } catch {
       Alert.alert('Error', 'Could not create an invite link. Try again in a moment.')
@@ -284,9 +287,19 @@ export default function FolderDetail() {
     ])
   }
 
+  // A highlight bookmark's own `id` is synthetic, never a real
+  // advisory_circulars.id -- passing it straight through built a share link
+  // the recipient's app could never resolve ("AC not found"). See
+  // resolveBookmarkACId's comment in lib/bookmarks.ts.
   const handleShareAC = (item: BookmarkAC) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
-    shareAC(item)
+    const shareable: ShareableAC = {
+      id: item.acId ?? item.id,
+      document_number: item.document_number,
+      title: item.title,
+      highlightSnippet: item.blockText ? highlightSnippet(item.blockText) : undefined,
+    }
+    shareAC(shareable)
   }
 
   const handleShareNote = (note: Note) => {

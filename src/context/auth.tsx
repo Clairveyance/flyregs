@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { initRevenueCat, getSubscriptionStatus } from '@/lib/revenuecat'
+import { initRevenueCat, getSubscriptionStatus, logOutRevenueCat } from '@/lib/revenuecat'
 import { applyRemoteSyncPreference } from '@/lib/sync'
 import { getDeviceId } from '@/lib/deviceId'
 import type { AvatarOverride } from '@/lib/avatar'
@@ -137,6 +137,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Otherwise a different account signing in on this same device would
     // start out showing the PREVIOUS account's just-picked avatar override.
     setAvatarOverrideState(null)
+    // Resets RevenueCat's own identity too -- without this, a subsequent
+    // Restore Purchases tap (even while genuinely signed out) would still
+    // resolve against the just-signed-out account's RevenueCat identity.
+    await logOutRevenueCat()
   }
 
   return (

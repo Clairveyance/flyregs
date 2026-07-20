@@ -17,6 +17,7 @@ import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { SUPPORT_EMAIL, APP_NAME } from '@/lib/appInfo'
+import { getBadgeStyle, BadgeKind } from '@/lib/acBadge'
 
 if (
   Platform.OS === 'android' &&
@@ -29,8 +30,10 @@ interface QA {
   q: string
   /** Each entry renders as its own paragraph (or, prefixed with "• ", its
    * own bullet line) — long-format answers used to be a single dense string
-   * with no visual breaks at all. */
-  a: string[]
+   * with no visual breaks at all. A `{ badge, text }` entry renders the
+   * actual colored NEW/UPD/VER pill (matching getBadgeStyle exactly) instead
+   * of just spelling the word out, for the badges question specifically. */
+  a: (string | { badge: BadgeKind; text: string })[]
 }
 
 const FAQ: QA[] = [
@@ -55,9 +58,9 @@ const FAQ: QA[] = [
   {
     q: 'What do the NEW, UPD, and VER badges mean?',
     a: [
-      '• NEW — an AC issued recently.',
-      '• UPD — the same AC number revised in place, with real changes you can jump between inside the document.',
-      '• VER — an AC that moved to a new letter version (for example 20-136B → 20-136C), replacing the prior version rather than editing it in place.',
+      { badge: 'new', text: 'an AC issued recently.' },
+      { badge: 'upd', text: 'the same AC number revised in place, with real changes you can jump between inside the document.' },
+      { badge: 'ver', text: 'an AC that moved to a new letter version (for example 20-136B → 20-136C), replacing the prior version rather than editing it in place.' },
       'All three roll off automatically after 90 days by default — set Badge Duration in the menu to 14, 30, 90, or 180 days instead if you want them (and the Home "What\'s New" feed) to move faster or slower.',
     ],
   },
@@ -146,18 +149,34 @@ export default function FAQScreen() {
                 </Pressable>
                 {expanded && (
                   <View style={styles.aWrap}>
-                    {item.a.map((para, pi) => (
-                      <Text
-                        key={pi}
-                        style={[
-                          styles.a,
-                          pi < item.a.length - 1 && styles.aSpacing,
-                          { color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 },
-                        ]}
-                      >
-                        {para}
-                      </Text>
-                    ))}
+                    {item.a.map((para, pi) => {
+                      const spacing = pi < item.a.length - 1 ? styles.aSpacing : undefined
+                      if (typeof para === 'object') {
+                        const badge = getBadgeStyle(para.badge, tokens)
+                        return (
+                          <View key={pi} style={[styles.badgeLine, spacing]}>
+                            <View style={[styles.badgePill, { backgroundColor: badge.background, borderColor: badge.border }]}>
+                              <Text style={[styles.badgePillText, { color: badge.color, fontSize: fs(9) }]}>{badge.label}</Text>
+                            </View>
+                            <Text style={[styles.a, { flex: 1, color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>
+                              {para.text}
+                            </Text>
+                          </View>
+                        )
+                      }
+                      return (
+                        <Text
+                          key={pi}
+                          style={[
+                            styles.a,
+                            spacing,
+                            { color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 },
+                          ]}
+                        >
+                          {para}
+                        </Text>
+                      )
+                    })}
                   </View>
                 )}
               </View>
@@ -197,6 +216,9 @@ const styles = StyleSheet.create({
   aWrap: { paddingBottom: 14, paddingRight: 8 },
   a: { fontSize: 14, lineHeight: 21 },
   aSpacing: { marginBottom: 10 },
+  badgeLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  badgePill: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 2, marginTop: 1 },
+  badgePillText: { fontWeight: '700', letterSpacing: 0.3 },
   contactBtn: {
     flexDirection: 'row',
     alignItems: 'center',

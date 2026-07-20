@@ -183,6 +183,14 @@ export default function AccountScreen() {
       Alert.alert('Available on iOS & Android', 'Restore purchases from the FlyRegs mobile app.')
       return
     }
+    // This screen's own early-return above already blocks the whole
+    // signed-out render, but guard here too -- belt and suspenders for a
+    // paid-tier gate, per the rule that no path should ever be able to call
+    // into RevenueCat without a session.
+    if (!session) {
+      router.replace('/auth')
+      return
+    }
     setRestoring(true)
     try {
       const status = await restorePurchases()

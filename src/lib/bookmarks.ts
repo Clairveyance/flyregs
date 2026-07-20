@@ -28,6 +28,15 @@ export interface BookmarkAC {
   blockText?: string
 }
 
+// Resolves the REAL underlying AC id for any bookmark, highlight or not --
+// use this before ever building a share link from a BookmarkAC. Passing
+// `item.id` directly (a highlight's own synthetic id, not a real
+// advisory_circulars.id) produced a share link the recipient's app could
+// never resolve, landing on a real "AC not found" screen.
+export function resolveBookmarkACId(item: BookmarkAC): string {
+  return item.acId ?? item.id
+}
+
 export async function getBookmarks(): Promise<BookmarkAC[]> {
   try {
     const raw = await AsyncStorage.getItem(KEY)

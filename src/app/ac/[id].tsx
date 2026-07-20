@@ -34,6 +34,8 @@ import { FigureViewer } from '@/components/FigureViewer'
 import { FormulaRefViewer } from '@/components/FormulaRefViewer'
 import { isOcrScanned, ocrScannedSeq, OCR_SCANNED_TOTAL } from '@/lib/ocrScannedACs'
 import { buildACShareLink, highlightSnippet } from '@/lib/acShare'
+import { FolderPicker } from '@/components/FolderPicker'
+import { ConfirmCheck } from '@/components/ConfirmCheck'
 import type { AdvisoryCircular, AcFigure, FormulaRef } from '@/types'
 
 // Maps a block to the fields a highlight bookmark needs — chapter headings
@@ -71,6 +73,9 @@ export default function ACDetailScreen() {
   const [ac, setAC] = useState<AdvisoryCircular | null>(null)
   const [bookmarked, setBookmarked] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
+  const [folderPickerVisible, setFolderPickerVisible] = useState(false)
+  const [confirmTick, setConfirmTick] = useState(0)
+  const [confirmLabel, setConfirmLabel] = useState('')
   const [highlightedBlockTexts, setHighlightedBlockTexts] = useState<Set<string>>(new Set())
   const [figures, setFigures] = useState<AcFigure[] | null>(null)
   const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
@@ -261,6 +266,13 @@ export default function ACDetailScreen() {
   // Opened from someone else's shared passage (?hlText=<snippet>) -- the
   // recipient has no local highlight of their own to look up by id, so this
   // jumps by matching the snippet directly against this AC's own blocks.
+  // Also creates a real highlight for the recipient at that same block --
+  // sharing a highlighted passage previously only ever scrolled the
+  // recipient to it without marking it yellow on their end, even though
+  // that's the whole point of sharing a *highlight* specifically (as
+  // opposed to the AC generally). Gated on isPro, same as creating any
+  // other highlight -- this only ever adds one the recipient doesn't
+  // already have; it never removes/toggles anything of theirs.
   const jumpedToHlText = useRef<string | null>(null)
   useEffect(() => {
     if (!hlText || !ac?.pdf_blocks) return
@@ -270,7 +282,32 @@ export default function ACDetailScreen() {
     if (idx === -1) return
     jumpedToHlText.current = hlText
     setTimeout(() => acBodyRef.current?.scrollToBlockIndex(idx), 250)
-  }, [hlText, ac?.id, ac?.pdf_blocks])
+
+    if (isPro) {
+      const block = ac.pdf_blocks[idx]
+      const meta = highlightMeta(block)
+      const contentKey = blockText(block)
+      if (meta) {
+        findHighlight(ac.id, contentKey).then((existing) => {
+          if (existing) return
+          addHighlight({
+            acId: ac.id,
+            document_number: ac.document_number,
+            title: ac.title,
+            date_issued: ac.date_issued,
+            office: ac.office,
+            subject_series: ac.subject_series,
+            blockKind: meta.kind,
+            blockLabel: meta.label,
+            blockSnippet: meta.snippet,
+            blockText: contentKey,
+          }).then(() => getHighlightsForAC(ac.id)).then((hs) => {
+            setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!)))
+          })
+        })
+      }
+    }
+  }, [hlText, ac?.id, ac?.pdf_blocks, isPro])
 
   const handleDownload = async () => {
     if (!ac) return
@@ -304,9 +341,11 @@ export default function ACDetailScreen() {
     }
     if (!ac) return
     try {
+      // Just the link -- no title/doc-number prefix repeating what the
+      // link's own destination page already shows.
       await Share.share({
         title: `AC ${ac.document_number}`,
-        message: `AC ${ac.document_number}: ${ac.title}\n\n${buildACShareLink(ac)}`,
+        message: buildACShareLink(ac),
       })
     } catch {
       // User cancelled or share unavailable
@@ -329,6 +368,16 @@ export default function ACDetailScreen() {
       subject_series: ac.subject_series,
     })
     setBookmarked(next)
+  }
+
+  // Gated synchronously here (not just relying on FolderPicker's own
+  // internal backstop) -- same "always show an action" rule as everywhere
+  // else a paid feature is gated, so a free-tier tap always at least shows
+  // the paywall rather than risking a silent no-op.
+  const handleOpenFolderPicker = () => {
+    if (!ac) return
+    if (!isPro) { router.push('/paywall'); return }
+    setFolderPickerVisible(true)
   }
 
   // Long-press a section/item/paragraph block (see ACBody's onLongPress wiring)
@@ -411,9 +460,10 @@ export default function ACDetailScreen() {
     const text = blockText(block)
     if (!text) return
     try {
+      // Quoted excerpt + link only -- no repeated AC title/number prefix.
       await Share.share({
         title: `AC ${ac.document_number}`,
-        message: `AC ${ac.document_number}: ${ac.title}\n\n"${text.trim().slice(0, 200)}${text.length > 200 ? '…' : ''}"\n\n${buildACShareLink(ac, highlightSnippet(text))}`,
+        message: `"${text.trim().slice(0, 200)}${text.length > 200 ? '…' : ''}"\n\n${buildACShareLink(ac, highlightSnippet(text))}`,
       })
     } catch {
       // User cancelled or share unavailable
@@ -500,6 +550,9 @@ export default function ACDetailScreen() {
       )}
       <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
         <Icon name="square.and.arrow.up" size={21} color={isPremium ? tokens.t2 : tokens.t4} />
+      </Pressable>
+      <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
+        <Icon name="folder.badge.plus" size={21} color={isPro ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
         <Icon
@@ -826,6 +879,21 @@ export default function ACDetailScreen() {
       )}
       <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
       <FormulaRefViewer formulaRef={viewerFormulaRef} onClose={() => setViewerFormulaRef(null)} />
+      <FolderPicker
+        visible={folderPickerVisible}
+        itemType="ac"
+        itemId={ac?.id ?? ''}
+        onClose={() => setFolderPickerVisible(false)}
+        onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1) }}
+        acMeta={ac ? {
+          document_number: ac.document_number,
+          title: ac.title,
+          date_issued: ac.date_issued,
+          office: ac.office,
+          subject_series: ac.subject_series,
+        } : undefined}
+      />
+      <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
     </View>
   )
 }

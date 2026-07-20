@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, FlatList, Pressable, ActivityIndicator, Alert, StyleSheet } from 'react-native'
+import { View, Text, SectionList, Pressable, ActivityIndicator, Alert, StyleSheet } from 'react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { supabase } from '@/lib/supabase'
-import { getSharedFolderACItems, leaveSharedFolder, markSharedFolderViewed } from '@/lib/sharedFolders'
+import { getSharedFolderACItems, getSharedFolderNoteItems, leaveSharedFolder, markSharedFolderViewed } from '@/lib/sharedFolders'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
@@ -21,6 +21,13 @@ interface ACRow {
   date_issued: string | null
 }
 
+interface NoteRow {
+  id: string
+  title: string
+  body: string
+  linked_ac: string | null
+}
+
 // Read-only view of a folder someone else shared with you — no rename,
 // delete, add, or remove controls, only opening each AC (which is still
 // gated the same as anywhere else in the app: full text needs your OWN
@@ -33,15 +40,17 @@ export default function SharedFolderDetail() {
   const [folderName, setFolderName] = useState('')
   const [ownerName, setOwnerName] = useState<string | null>(null)
   const [acs, setAcs] = useState<ACRow[]>([])
+  const [notes, setNotes] = useState<NoteRow[]>([])
   const [loading, setLoading] = useState(true)
   const [removed, setRemoved] = useState(false)
 
   const load = useCallback(async () => {
     if (typeof id !== 'string') return
     setLoading(true)
-    const [{ data: folder }, items] = await Promise.all([
+    const [{ data: folder }, acItems, noteItems] = await Promise.all([
       supabase.from('synced_folders').select('name').eq('id', id).eq('deleted', false).maybeSingle(),
       getSharedFolderACItems(id),
+      getSharedFolderNoteItems(id),
     ])
     if (!folder) {
       setRemoved(true)
@@ -58,7 +67,7 @@ export default function SharedFolderDetail() {
       setOwnerName(null)
     }
 
-    const acIds = items.map((i) => i.item_id)
+    const acIds = acItems.map((i) => i.item_id)
     if (acIds.length) {
       const { data: acRows } = await supabase
         .from('advisory_circulars')
@@ -67,6 +76,18 @@ export default function SharedFolderDetail() {
       setAcs(acRows ?? [])
     } else {
       setAcs([])
+    }
+
+    const noteIds = noteItems.map((i) => i.item_id)
+    if (noteIds.length) {
+      const { data: noteRows } = await supabase
+        .from('synced_notes')
+        .select('id, title, body, linked_ac')
+        .in('id', noteIds)
+        .eq('deleted', false)
+      setNotes(noteRows ?? [])
+    } else {
+      setNotes([])
     }
     setLoading(false)
   }, [id])
@@ -127,42 +148,64 @@ export default function SharedFolderDetail() {
             The owner deleted it or stopped sharing.
           </Text>
         </View>
-      ) : acs.length === 0 ? (
+      ) : acs.length === 0 && notes.length === 0 ? (
         <View style={styles.center}>
           <Icon name="folder" size={36} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(15) }]}>Nothing here yet</Text>
         </View>
       ) : (
-        <FlatList
-          data={acs}
-          keyExtractor={(a) => a.id}
+        <SectionList
+          sections={[
+            ...(acs.length ? [{ title: 'ADVISORY CIRCULARS', data: acs }] : []),
+            ...(notes.length ? [{ title: 'NOTES', data: notes }] : []),
+          ]}
+          keyExtractor={(item: ACRow | NoteRow) => item.id}
           contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <Pressable
-              style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-              onPress={() => router.push(`/ac/${item.id}`)}
-            >
-              <View style={{ flex: 1 }}>
-                <View style={styles.rowNumBadgeWrap}>
-                  <Text style={[styles.rowDoc, { color: tokens.blu, fontSize: fs(13) }]}>
-                    {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
+          renderSectionHeader={({ section }) =>
+            acs.length && notes.length ? (
+              <Text style={[styles.sectionHeader, { color: tokens.t3, fontSize: fs(11) }]}>{section.title}</Text>
+            ) : null
+          }
+          renderItem={({ item }) =>
+            'document_number' in item ? (
+              <Pressable
+                style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                onPress={() => router.push(`/ac/${item.id}`)}
+              >
+                <View style={{ flex: 1 }}>
+                  <View style={styles.rowNumBadgeWrap}>
+                    <Text style={[styles.rowDoc, { color: tokens.blu, fontSize: fs(13) }]}>
+                      {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
+                    </Text>
+                    {isWithinBadgeLifespan(item.date_issued, badgeDays) && (() => {
+                      const badge = getBadgeStyle(getBadgeKind(item), tokens)
+                      return (
+                        <View style={[styles.rowNumBadge, { backgroundColor: badge.background, borderColor: badge.border }]}>
+                          <Text style={[styles.rowNumBadgeText, { color: badge.color, fontSize: fs(8) }]}>{badge.label}</Text>
+                        </View>
+                      )
+                    })()}
+                  </View>
+                  <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
+                    {item.title}
                   </Text>
-                  {isWithinBadgeLifespan(item.date_issued, badgeDays) && (() => {
-                    const badge = getBadgeStyle(getBadgeKind(item), tokens)
-                    return (
-                      <View style={[styles.rowNumBadge, { backgroundColor: badge.background, borderColor: badge.border }]}>
-                        <Text style={[styles.rowNumBadgeText, { color: badge.color, fontSize: fs(8) }]}>{badge.label}</Text>
-                      </View>
-                    )
-                  })()}
                 </View>
-                <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
-                  {item.title}
-                </Text>
+                <Icon name="chevron.right" size={14} color={tokens.t4} />
+              </Pressable>
+            ) : (
+              <View style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, alignItems: 'flex-start' }]}>
+                <Icon name="square.and.pencil" size={16} color={tokens.t3} style={{ marginTop: 2 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
+                    {item.title || 'Untitled'}{item.linked_ac ? ` (AC ${item.linked_ac})` : ''}
+                  </Text>
+                  <Text style={[styles.noteBody, { color: tokens.t3, fontSize: fs(13) }]} numberOfLines={4}>
+                    {item.body}
+                  </Text>
+                </View>
               </View>
-              <Icon name="chevron.right" size={14} color={tokens.t4} />
-            </Pressable>
-          )}
+            )
+          }
         />
       )}
     </View>
@@ -184,6 +227,8 @@ const styles = StyleSheet.create({
   emptyTitle: { fontWeight: '600', textAlign: 'center' },
   emptySub: { textAlign: 'center', marginTop: 2 },
   list: { padding: 16, gap: 10 },
+  sectionHeader: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 6, marginTop: 4 },
+  noteBody: { marginTop: 3, lineHeight: 18 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -266,6 +266,16 @@ export default function PaywallScreen() {
 
         {/* Restore */}
         <Pressable style={styles.restoreRow} onPress={async () => {
+          // Same account-required rule as purchasing itself (see
+          // handleSubscribe above) -- restoring must never hand out
+          // entitlements to a signed-out session.
+          if (!session) {
+            Alert.alert('Sign in first', 'Create a free account to restore your subscription.', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Sign In', onPress: () => router.replace('/auth') },
+            ])
+            return
+          }
           try {
             const status = await restorePurchases()
             setIsPro(status.isPro)

@@ -125,6 +125,17 @@ function DrawerContent({
       Alert.alert('Available on iOS & Android', 'Restore purchases from the FlyRegs mobile app.')
       return
     }
+    // Pro/Premium require a FlyRegs account as part of the plan -- without
+    // this check, a signed-out device (e.g. right after deleting an
+    // account) could still call into RevenueCat and come back with a real,
+    // still-active Apple subscription's entitlements, handing out Premium
+    // with no account attached at all. The drawer's Restore Purchases row
+    // is always visible regardless of session, so this has to be the gate.
+    if (!session) {
+      onClose()
+      setTimeout(() => router.push('/auth'), 200)
+      return
+    }
     setRestoring(true)
     try {
       const status = await restorePurchases()

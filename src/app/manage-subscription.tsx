@@ -22,7 +22,7 @@ const FALLBACK_MANAGE_URL = Platform.select({
 export default function ManageSubscriptionScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { isPro, isPremium, setIsPro, setIsPremium } = useAuth()
+  const { session, isPro, isPremium, setIsPro, setIsPremium } = useAuth()
   const insets = useSafeAreaInsets()
   const [details, setDetails] = useState<SubscriptionDetails | null>(null)
   const [restoring, setRestoring] = useState(false)
@@ -43,6 +43,13 @@ export default function ManageSubscriptionScreen() {
   const handleRestore = async () => {
     if (Platform.OS === 'web') {
       Alert.alert('Available on iOS & Android', 'Restore purchases from the FlyRegs mobile app.')
+      return
+    }
+    // This screen is only ever navigated to from Account (which already
+    // requires a session), but it's a directly routable path -- gate here
+    // too so a signed-out deep link can't reach RevenueCat at all.
+    if (!session) {
+      router.replace('/auth')
       return
     }
     setRestoring(true)
