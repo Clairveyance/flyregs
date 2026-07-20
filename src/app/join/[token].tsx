@@ -33,6 +33,12 @@ export default function JoinFolder() {
       .then((result) => {
         setFolderName(result.folder_name)
         setState('done')
+        // Lands directly on Shared > With Me, where the folder itself now
+        // sits as an item -- not its contents, and not wherever Saved's
+        // tab state happened to be left from a previous visit. The button
+        // below does the same navigation immediately for anyone who taps
+        // through before this fires.
+        setTimeout(() => router.replace('/saved?tab=shared&sub=withMe'), 1200)
       })
       .catch((err: any) => {
         setErrorMsg(err?.message ?? 'This invite link is invalid or has expired.')
@@ -53,11 +59,14 @@ export default function JoinFolder() {
           <Icon name="checkmark.seal.fill" size={44} color={tokens.gold} />
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>You've joined "{folderName}"</Text>
           <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
-            You have view-only access to the ACs in this folder. You'll still need your own Pro or Premium
+            You have view-only access to what's in this folder. You'll still need your own Pro or Premium
             subscription to read full AC text.
           </Text>
-          <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.replace('/saved')}>
-            <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>Go to Saved</Text>
+          <Pressable
+            style={[styles.btn, { backgroundColor: tokens.blu }]}
+            onPress={() => router.replace('/saved?tab=shared&sub=withMe')}
+          >
+            <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>View in With Me</Text>
           </Pressable>
         </>
       )}

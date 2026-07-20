@@ -249,9 +249,18 @@ export default function AccountScreen() {
   }
 
   const handleDelete = () => {
+    // Apple/Google don't let a developer cancel a subscription on the
+    // user's behalf -- that's the platform's own billing relationship, not
+    // this app's. Deleting the FlyRegs account only ever removes FlyRegs'
+    // own data; it was never mentioned that the subscription itself keeps
+    // billing separately, which is exactly the kind of thing someone
+    // deleting their account needs to know before doing it, not after.
+    const subscriptionWarning = (isPro || isPremium)
+      ? ` You have an active ${isPremium ? 'Premium' : 'Pro'} subscription — deleting your account does NOT cancel it. Manage or cancel it first in ${Platform.OS === 'android' ? 'Google Play > Subscriptions' : 'Settings > [Your Name] > Subscriptions'} if you don't want to keep being charged.`
+      : ''
     Alert.alert(
       'Delete Account',
-      'This permanently deletes your account and all synced data (bookmarks, folders, notes, highlights). This cannot be undone.',
+      `This permanently deletes your account and all synced data (bookmarks, folders, notes, highlights). This cannot be undone.${subscriptionWarning}`,
       [
         { text: 'Cancel', style: 'cancel' },
         {

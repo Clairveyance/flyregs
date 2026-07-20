@@ -123,28 +123,39 @@ export interface SharedByMeFolder extends SharedFolderSummary {
 }
 
 // The owner-facing counterpart to getMyCollaborations -- every folder this
-// user owns that currently has at least one collaborator, with a count, so
-// they don't have to open each folder individually to see what's shared.
+// user has generated an invite link for, with however many collaborators
+// have joined so far (0 is a normal, expected count, not an error state).
+//
+// Deliberately keyed off share_token existing on synced_folders, NOT off
+// having a folder_collaborators row -- generating the invite link
+// (getOrCreateShareLink) never creates a collaborator row by itself, only
+// someone actually redeeming it does. Querying folder_collaborators here
+// meant a freshly-shared folder with 0 joiners so far was invisible in From
+// Me until someone joined, instead of showing up the moment it was shared
+// (so the owner has somewhere to manage/revoke/watch it from immediately).
 export async function getMySharedFolders(): Promise<SharedByMeFolder[]> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return []
 
+  const { data: folders } = await supabase
+    .from('synced_folders')
+    .select('id, name')
+    .eq('user_id', user.id)
+    .eq('deleted', false)
+    .not('share_token', 'is', null)
+  if (!folders?.length) return []
+
+  const folderIds = folders.map((f) => f.id)
   const { data: rows } = await supabase
     .from('folder_collaborators')
     .select('folder_id')
     .eq('owner_id', user.id)
-  if (!rows?.length) return []
+    .in('folder_id', folderIds)
 
   const counts = new Map<string, number>()
-  for (const r of rows) counts.set(r.folder_id, (counts.get(r.folder_id) ?? 0) + 1)
-  const folderIds = [...counts.keys()]
+  for (const r of rows ?? []) counts.set(r.folder_id, (counts.get(r.folder_id) ?? 0) + 1)
 
-  const { data: folders } = await supabase
-    .from('synced_folders')
-    .select('id, name')
-    .in('id', folderIds)
-    .eq('deleted', false)
-  return (folders ?? []).map((f) => ({
+  return folders.map((f) => ({
     folder_id: f.id,
     folder_name: f.name,
     collaboratorCount: counts.get(f.id) ?? 0,

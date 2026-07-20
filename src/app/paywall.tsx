@@ -64,40 +64,59 @@ const PRICING = {
 export default function PaywallScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { session, isPro, setIsPro, setIsPremium } = useAuth()
+  const { session, isPro, isPremium, setIsPro, setIsPremium } = useAuth()
   const insets = useSafeAreaInsets()
   const { tier: paramTier } = useLocalSearchParams<{ tier?: string }>()
 
-  // upgradeMode: Pro users upgrading to Premium
+  // upgradeMode: Pro (not yet Premium) users upgrading to Premium
   // premiumOnlyMode: Free user hit a Premium-only gate → skip tier picker, show Premium
-  const upgradeMode = isPro
+  // downgradeMode: Premium subscribers -- shows the tier picker again (unlike
+  // upgradeMode/premiumOnlyMode, which hard-lock to Premium) so Pro is a real,
+  // selectable option. Apple's own subscription-group levels (Pro=1,
+  // Premium=2, both in "FlyRegs Pro") already handle a downgrade correctly
+  // via the exact same purchasePackage() call an upgrade uses -- the app
+  // just never gave the user a way to pick the lower tier once already on
+  // Premium, which is the whole reason downgrading looked broken.
+  const upgradeMode = isPro && !isPremium
   const premiumOnlyMode = !isPro && paramTier === 'premium'
+  const downgradeMode = isPremium
+  // "locked" cases hard-lock the picker to Premium; downgradeMode deliberately
+  // does NOT lock, since letting the user pick Pro is the entire point.
+  const locked = upgradeMode || premiumOnlyMode
 
-  const [tier, setTier] = useState<Tier>(upgradeMode || premiumOnlyMode ? 'premium' : 'pro')
+  const [tier, setTier] = useState<Tier>(locked || downgradeMode ? 'premium' : 'pro')
   const [plan, setPlan] = useState<Plan>('annual')
   const [loading, setLoading] = useState(false)
 
-  // isPro (and therefore upgradeMode) loads asynchronously in AuthProvider —
-  // it's still false on this screen's first render for a real Pro user, so
-  // the tier useState above locks in 'pro' before the real status arrives.
-  // Re-sync once upgradeMode/premiumOnlyMode flip true so the pricing shown
-  // always matches the "Upgrade to Premium" messaging around it.
+  // isPro/isPremium load asynchronously in AuthProvider — both still false on
+  // this screen's first render for a real subscriber, so the tier useState
+  // above locks in 'pro' before the real status arrives. Re-sync once it
+  // does so the pricing shown always matches the messaging around it.
   useEffect(() => {
-    if (upgradeMode || premiumOnlyMode) setTier('premium')
-  }, [upgradeMode, premiumOnlyMode])
+    if (locked || downgradeMode) setTier('premium')
+  }, [locked, downgradeMode])
+
+  // Viewing "premium" while downgradeMode is true means looking at the
+  // CURRENT plan, not something new to buy -- nothing to purchase, and the
+  // CTA below is disabled/relabeled for exactly this case.
+  const viewingCurrentPlan = downgradeMode && tier === 'premium'
 
   const features = tier === 'pro' ? PRO_FEATURES : (upgradeMode ? PREMIUM_ADDITIONS : PREMIUM_FEATURES)
   const pricing = PRICING[tier]
 
   const tierLabel = tier === 'pro' ? 'Pro' : 'Premium'
-  const ctaLabel = (upgradeMode || premiumOnlyMode)
-    ? `Upgrade to Premium`
+  const ctaLabel = viewingCurrentPlan
+    ? 'Current Plan'
+    : downgradeMode
+    ? 'Downgrade to Pro'
+    : locked
+    ? 'Upgrade to Premium'
     : `Get ${tierLabel}`
 
   // The badge tier always reads "Premium" once the user is locked into a
   // Premium-only or Pro→Premium flow; otherwise it follows whichever tier
   // they currently have selected in the picker.
-  const badgeTier: Tier = (upgradeMode || premiumOnlyMode) ? 'premium' : tier
+  const badgeTier: Tier = locked ? 'premium' : tier
 
   const handleSubscribe = async () => {
     if (Platform.OS === 'web') {
@@ -111,9 +130,25 @@ export default function PaywallScreen() {
       ])
       return
     }
+    if (viewingCurrentPlan) return
+    if (downgradeMode && tier === 'pro') {
+      Alert.alert(
+        'Downgrade to Pro?',
+        "You'll keep Premium features (cloud sync, shared folders, offline downloads, update alerts) until your current billing period ends, then move to Pro automatically. No refund for the time remaining.",
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Downgrade', style: 'destructive', onPress: () => void confirmSubscribe() },
+        ]
+      )
+      return
+    }
+    await confirmSubscribe()
+  }
+
+  const confirmSubscribe = async () => {
     setLoading(true)
     try {
-      const activeTier = (upgradeMode || premiumOnlyMode) ? 'premium' : tier
+      const activeTier = locked ? 'premium' : tier
       const status = await purchaseSubscription(activeTier, plan)
       setIsPro(status.isPro)
       setIsPremium(status.isPremium)
@@ -132,7 +167,7 @@ export default function PaywallScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 16), borderBottomColor: tokens.bdr }]}>
         <Text style={[styles.headerTitle, { color: tokens.t1, fontSize: fs(16) }]}>
-          {upgradeMode || premiumOnlyMode ? 'Upgrade to Premium' : 'Upgrade FlyRegs'}
+          {locked ? 'Upgrade to Premium' : downgradeMode ? 'Manage Your Plan' : 'Upgrade FlyRegs'}
         </Text>
         <Pressable onPress={() => router.dismiss()} hitSlop={8} style={styles.closeBtn}>
           <Icon name="xmark" size={18} color={tokens.t3} />
@@ -165,6 +200,17 @@ export default function PaywallScreen() {
                 Add cloud sync, shared folders, unlimited offline, and priority alerts to your Pro subscription.
               </Text>
             </>
+          ) : downgradeMode ? (
+            <>
+              <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>
+                {viewingCurrentPlan ? 'Your current plan' : 'Switch to Pro'}
+              </Text>
+              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+                {viewingCurrentPlan
+                  ? 'You\'re on Premium. Select Pro below to see what changes if you switch down.'
+                  : 'You\'ll keep Premium features until your current billing period ends, then move to Pro automatically.'}
+              </Text>
+            </>
           ) : (
             <>
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>The complete FAA AC reference</Text>
@@ -175,8 +221,9 @@ export default function PaywallScreen() {
           )}
         </View>
 
-        {/* Tier picker — Free users who didn't arrive from a Premium-only gate */}
-        {!upgradeMode && !premiumOnlyMode && (
+        {/* Tier picker — free users (not arriving from a Premium-only gate),
+            and Premium subscribers who can pick Pro as a downgrade */}
+        {!locked && (
           <View style={[styles.tierPicker, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
             {(['pro', 'premium'] as Tier[]).map((t) => (
               <Pressable
@@ -194,7 +241,7 @@ export default function PaywallScreen() {
 
         {/* Feature list */}
         <View style={[styles.featureBox, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-          {(upgradeMode || premiumOnlyMode) && (
+          {(locked || viewingCurrentPlan) && (
             <View style={[styles.featureHeader, { borderBottomColor: tokens.bdr }]}>
               <Text style={[styles.featureHeaderText, { color: tokens.t3, fontSize: fs(11.5) }]}>
                 {upgradeMode ? 'Everything in Pro, plus:' : 'Everything in the app, unlocked:'}
@@ -252,10 +299,10 @@ export default function PaywallScreen() {
           style={[
             styles.cta,
             { backgroundColor: tier === 'premium' || upgradeMode || premiumOnlyMode ? tokens.gold : tokens.blu },
-            loading && styles.ctaDisabled,
+            (loading || viewingCurrentPlan) && styles.ctaDisabled,
           ]}
           onPress={handleSubscribe}
-          disabled={loading}
+          disabled={loading || viewingCurrentPlan}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />

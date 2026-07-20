@@ -111,7 +111,7 @@ export default function ManageSubscriptionScreen() {
           )}
         </View>
 
-        {/* Upgrade offer — gated by current tier, top tier sees nothing here */}
+        {/* Change-plan offer, one per tier */}
         {tier === 'free' && (
           <Pressable
             style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]}
@@ -129,21 +129,27 @@ export default function ManageSubscriptionScreen() {
             <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Upgrade to Premium</Text>
           </Pressable>
         )}
-
-        {/* Downgrading to a lower paid tier (not cancelling outright) is only
-            a meaningful action from Premium -- Pro has nowhere lower to go
-            except Free, which is just cancellation, covered by the row
-            below. Moving to a lower tier within the same subscription group
-            has to happen in Apple/Google's own UI, same hand-off as manage/
-            cancel, just labeled for this specific case so it isn't mistaken
-            for cancelling entirely. */}
+        {/* Premium is the top tier -- nothing to upgrade to, but a Premium
+            subscriber still needs a way to reach the paywall at all to
+            downgrade to Pro. Without this row there was no path back to
+            that screen once already on Premium, which is the real reason
+            "downgrade" looked broken -- not a platform limitation. Pro and
+            Premium are levels 1/2 in one subscription group ("FlyRegs Pro"),
+            so purchasing Pro while on Premium is handled by StoreKit as a
+            real downgrade via the exact same purchasePackage() call an
+            upgrade uses (takes effect at renewal, no proration) -- see
+            paywall.tsx's downgradeMode. This replaces an earlier "Downgrade
+            to Pro" row that just linked out to Apple's own subscription
+            page, based on a wrong assumption that in-app downgrade wasn't
+            possible; that hand-off is still correct for actual
+            cancellation (below), just not for switching to a lower paid tier. */}
         {tier === 'premium' && (
-          <Row
-            icon="arrow.down"
-            label="Downgrade to Pro"
-            tokens={tokens}
-            onPress={handleManage}
-          />
+          <Pressable
+            style={[styles.upgradeBtn, { backgroundColor: tokens.bg2, borderWidth: 1, borderColor: tokens.bdr }]}
+            onPress={() => router.push('/paywall')}
+          >
+            <Text style={[styles.upgradeBtnText, { color: tokens.t2, fontSize: fs(15) }]}>Change Plan</Text>
+          </Pressable>
         )}
 
         {/* Manage / cancel — has to hand off to the platform store, Apple

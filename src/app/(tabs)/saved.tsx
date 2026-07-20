@@ -14,7 +14,7 @@ import {
   Keyboard,
   Platform,
 } from 'react-native'
-import { router, useFocusEffect } from 'expo-router'
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -62,6 +62,7 @@ export default function SavedScreen() {
   const { badgeDays } = useBadgeLifespan()
   const { shareAC, shareMany } = useShareActions()
   const [tab, setTab] = useState<Tab>('all')
+  const { tab: tabParam, sub: subParam } = useLocalSearchParams<{ tab?: string; sub?: string }>()
   const [syncEnabled, setSyncEnabled] = useState(false)
   const [syncBusy, setSyncBusy] = useState(false)
 
@@ -186,6 +187,20 @@ export default function SavedScreen() {
     // on every focus rather than only once on mount.
     isSyncEnabled().then(setSyncEnabled)
   }, [load]))
+
+  // Lets a caller (join/[token].tsx after a successful join) land directly
+  // on Shared > With Me instead of wherever this persistent tab screen's
+  // state happened to be left -- a useState initializer alone wouldn't
+  // re-fire on a later navigation into an already-mounted tab screen, so
+  // this has to be a focus effect, same lesson as Home's justConfirmed toast.
+  useFocusEffect(useCallback(() => {
+    if (tabParam === 'all' || tabParam === 'folders' || tabParam === 'shared' || tabParam === 'offline') {
+      setTab(tabParam)
+    }
+    if (subParam === 'withMe' || subParam === 'fromMe') {
+      setSharedSubTab(subParam)
+    }
+  }, [tabParam, subParam]))
 
   // The stored sync_enabled flag doesn't get flipped off automatically if a
   // Premium subscription lapses -- self-correct so the UI (and syncPush.ts's
