@@ -22,7 +22,7 @@ import { markJustConfirmed } from '@/lib/justConfirmed'
 
 const WORDMARK_ASPECT = 1915 / 1428 // flyregs-wordmark.png width/height
 
-type Mode = 'signin' | 'signup' | 'check-email'
+type Mode = 'signin' | 'signup' | 'check-email' | 'forgot' | 'forgot-sent'
 
 // Cooldown between resend taps -- purely to stop accidental double-taps and
 // obvious spam-clicking; Supabase enforces its own rate limit server-side
@@ -32,7 +32,7 @@ const RESEND_COOLDOWN_SECONDS = 30
 export default function AuthScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { signIn, signUp, resendConfirmation } = useAuth()
+  const { signIn, signUp, resendConfirmation, requestPasswordReset } = useAuth()
   const insets = useSafeAreaInsets()
   const [mode, setMode] = useState<Mode>('signin')
   const [email, setEmail] = useState('')
@@ -70,6 +70,39 @@ export default function AuthScreen() {
       await resendConfirmation(email.trim())
       setResendCooldown(RESEND_COOLDOWN_SECONDS)
       Alert.alert('Sent', 'Check your email for a new confirmation link.')
+    } catch (err: any) {
+      Alert.alert('Error', err?.message ?? 'Could not resend right now.')
+    }
+    setLoading(false)
+  }
+
+  const handleForgotSubmit = async () => {
+    const trimmedEmail = email.trim()
+    if (!trimmedEmail) {
+      Alert.alert('Missing email', 'Please enter your account email.')
+      return
+    }
+    setLoading(true)
+    try {
+      await requestPasswordReset(trimmedEmail)
+      setMode('forgot-sent')
+      setResendCooldown(RESEND_COOLDOWN_SECONDS)
+    } catch (err: any) {
+      // Supabase doesn't reveal whether the email actually has an account --
+      // resetPasswordForEmail resolves the same way either way, so an error
+      // here is a real failure (network, rate limit), not "no such account."
+      Alert.alert('Error', err?.message ?? 'Could not send reset link right now.')
+    }
+    setLoading(false)
+  }
+
+  const handleResendReset = async () => {
+    if (resendCooldown > 0) return
+    setLoading(true)
+    try {
+      await requestPasswordReset(email.trim())
+      setResendCooldown(RESEND_COOLDOWN_SECONDS)
+      Alert.alert('Sent', 'Check your email for a new reset link.')
     } catch (err: any) {
       Alert.alert('Error', err?.message ?? 'Could not resend right now.')
     }
@@ -124,7 +157,11 @@ export default function AuthScreen() {
         ]}
       >
         <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>
-          {mode === 'signin' ? 'Sign In' : mode === 'signup' ? 'Create Account' : 'Check Your Email'}
+          {mode === 'signin' ? 'Sign In'
+            : mode === 'signup' ? 'Create Account'
+            : mode === 'forgot' ? 'Reset Password'
+            : mode === 'forgot-sent' ? 'Check Your Email'
+            : 'Check Your Email'}
         </Text>
         <Pressable onPress={() => router.dismiss()} hitSlop={8} style={styles.closeBtn}>
           <Icon name="xmark" size={18} color={tokens.t3} />
@@ -158,6 +195,75 @@ export default function AuthScreen() {
                 (loading || resendCooldown > 0) && styles.btnDisabled,
               ]}
               onPress={handleResend}
+              disabled={loading || resendCooldown > 0}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={[styles.btnText, { fontSize: fs(16) }]}>
+                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Didn't get it? Resend"}
+                </Text>
+              )}
+            </Pressable>
+
+            <Pressable onPress={() => setMode('signin')} style={styles.switchRow}>
+              <Text style={[styles.switchLink, { color: tokens.blu, fontSize: fs(14) }]}>Back to sign in</Text>
+            </Pressable>
+          </>
+        ) : mode === 'forgot' ? (
+          <>
+            <Icon name="lock" size={40} color={tokens.blu} style={{ alignSelf: 'center', marginBottom: 8 }} />
+            <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(22) }]}>Reset your password</Text>
+            <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+              Enter your account email and we'll send you a link to set a new password.
+            </Text>
+
+            <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
+              <Icon name="envelope" size={16} color={tokens.t3} />
+              <TextInput
+                style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
+                placeholder="Email address"
+                placeholderTextColor={tokens.t3}
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+              />
+            </View>
+
+            <Pressable
+              style={[styles.btn, { backgroundColor: tokens.blu }, loading && styles.btnDisabled]}
+              onPress={handleForgotSubmit}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={[styles.btnText, { fontSize: fs(16) }]}>Send Reset Link</Text>
+              )}
+            </Pressable>
+
+            <Pressable onPress={() => setMode('signin')} style={styles.switchRow}>
+              <Text style={[styles.switchLink, { color: tokens.blu, fontSize: fs(14) }]}>Back to sign in</Text>
+            </Pressable>
+          </>
+        ) : mode === 'forgot-sent' ? (
+          <>
+            <Icon name="envelope" size={40} color={tokens.blu} style={{ alignSelf: 'center', marginBottom: 8 }} />
+            <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(22) }]}>Check your email</Text>
+            <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+              If an account exists for {email.trim()}, we've sent a link to reset your password.
+            </Text>
+
+            <Pressable
+              style={[
+                styles.btn,
+                { backgroundColor: tokens.blu },
+                (loading || resendCooldown > 0) && styles.btnDisabled,
+              ]}
+              onPress={handleResendReset}
               disabled={loading || resendCooldown > 0}
             >
               {loading ? (
@@ -217,6 +323,12 @@ export default function AuthScreen() {
                 <Icon name={showPassword ? 'eye.slash' : 'eye'} size={18} color={tokens.t3} />
               </Pressable>
             </View>
+
+            {mode === 'signin' && (
+              <Pressable onPress={() => setMode('forgot')} style={styles.forgotRow} hitSlop={4}>
+                <Text style={[styles.switchLink, { color: tokens.blu, fontSize: fs(13.5) }]}>Forgot password?</Text>
+              </Pressable>
+            )}
 
             {/* Submit */}
             <Pressable
@@ -303,6 +415,7 @@ const styles = StyleSheet.create({
   btnDisabled: { opacity: 0.6 },
   btnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 
+  forgotRow: { alignItems: 'flex-end', marginTop: -6 },
   switchRow: { flexDirection: 'row', justifyContent: 'center' },
   switchText: { fontSize: 14 },
   switchLink: { fontSize: 14, fontWeight: '600' },

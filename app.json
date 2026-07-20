@@ -33,7 +33,8 @@
           "data": [
             { "scheme": "https", "host": "flyregs.com", "pathPrefix": "/join" },
             { "scheme": "https", "host": "flyregs.com", "pathPrefix": "/confirm" },
-            { "scheme": "https", "host": "flyregs.com", "pathPrefix": "/ac" }
+            { "scheme": "https", "host": "flyregs.com", "pathPrefix": "/ac" },
+            { "scheme": "https", "host": "flyregs.com", "pathPrefix": "/reset-password" }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
         }

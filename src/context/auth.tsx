@@ -16,6 +16,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string) => Promise<void>
   resendConfirmation: (email: string) => Promise<void>
+  requestPasswordReset: (email: string) => Promise<void>
   signOut: () => Promise<void>
   // See AvatarOverride's own comment in lib/avatar.ts -- an instant,
   // same-session override of "my own" avatar so every screen agrees the
@@ -119,6 +120,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw error
   }
 
+  const requestPasswordReset = async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: 'https://flyregs.com/reset-password',
+    })
+    if (error) throw error
+  }
+
   const signOut = async () => {
     const { error } = await supabase.auth.signOut()
     if (error) throw error
@@ -134,7 +142,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider
       value={{
-        session, loading, isPro, setIsPro, isPremium, setIsPremium, signIn, signUp, resendConfirmation, signOut,
+        session, loading, isPro, setIsPro, isPremium, setIsPremium, signIn, signUp, resendConfirmation,
+        requestPasswordReset, signOut,
         avatarOverride, setAvatarOverride, clearAvatarOverride,
       }}
     >
