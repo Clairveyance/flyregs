@@ -1,0 +1,19 @@
+diff --git a/node_modules/expo-image-picker/ios/ImagePickerModule.swift b/node_modules/expo-image-picker/ios/ImagePickerModule.swift
+index 6d41360..b36f52c 100644
+--- a/node_modules/expo-image-picker/ios/ImagePickerModule.swift
++++ b/node_modules/expo-image-picker/ios/ImagePickerModule.swift
+@@ -107,6 +107,14 @@ public class ImagePickerModule: Module, OnMediaPickingResultHandler {
+     if sourceType == .camera {
+       picker.sourceType = .camera
+       picker.cameraDevice = options.cameraType == .front ? .front : .rear
++      // FlyRegs: default the flash toggle to off instead of UIKit's own
++      // default (effectively "on" in practice for this legacy picker,
++      // unlike the system Camera app) -- users had to remember to tap it
++      // off on every single photo. cameraFlashMode is a real, public
++      // UIImagePickerController property; expo-image-picker's JS API just
++      // never exposed a way to set it, so this is patched directly via
++      // patch-package (see patches/expo-image-picker+*.patch).
++      picker.cameraFlashMode = .off
+     }
+ 
+     if sourceType == .photoLibrary {

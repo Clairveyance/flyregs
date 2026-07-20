@@ -40,13 +40,27 @@ export default function AuthScreen() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [resendCooldown, setResendCooldown] = useState(0)
+  // Standard field-level validation: a red-outlined field + a short message
+  // right under it for "you left this blank," and a general (non-field)
+  // banner for something the server rejected (wrong credentials, a signup
+  // conflict, etc). Previously all of this went through a single generic
+  // Alert.alert popup, which doesn't tell you WHICH field is the problem and
+  // isn't the pattern users expect from basically every other app.
+  const [emailError, setEmailError] = useState<string | null>(null)
+  const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const clearErrors = () => { setEmailError(null); setPasswordError(null); setFormError(null) }
 
   const handleSubmit = async () => {
     const trimmedEmail = email.trim()
-    if (!trimmedEmail || !password) {
-      Alert.alert('Missing fields', 'Please enter your email and password.')
-      return
-    }
+    setFormError(null)
+    const missingEmail = !trimmedEmail
+    const missingPassword = !password
+    setEmailError(missingEmail ? 'Enter your email address' : null)
+    setPasswordError(missingPassword ? 'Enter your password' : null)
+    if (missingEmail || missingPassword) return
+
     setLoading(true)
     try {
       if (mode === 'signin') {
@@ -58,7 +72,19 @@ export default function AuthScreen() {
         setResendCooldown(RESEND_COOLDOWN_SECONDS)
       }
     } catch (err: any) {
-      Alert.alert('Error', err?.message ?? 'Something went wrong.')
+      const raw: string = err?.message ?? ''
+      if (mode === 'signin' && /invalid.*(login|credentials)/i.test(raw)) {
+        // Deliberately the same message whether the email doesn't exist or
+        // the password is wrong -- distinguishing the two lets an attacker
+        // discover which emails have accounts (email enumeration), which is
+        // why Supabase's own error doesn't distinguish them either. Both
+        // fields outlined red since there's no way to know which is at fault.
+        setEmailError(' ')
+        setPasswordError(' ')
+        setFormError('Incorrect email or password. Please try again, or create an account if you don\'t have one yet.')
+      } else {
+        setFormError(raw || 'Something went wrong. Please try again.')
+      }
     }
     setLoading(false)
   }
@@ -78,10 +104,12 @@ export default function AuthScreen() {
 
   const handleForgotSubmit = async () => {
     const trimmedEmail = email.trim()
+    setFormError(null)
     if (!trimmedEmail) {
-      Alert.alert('Missing email', 'Please enter your account email.')
+      setEmailError('Enter your account email')
       return
     }
+    setEmailError(null)
     setLoading(true)
     try {
       await requestPasswordReset(trimmedEmail)
@@ -91,7 +119,7 @@ export default function AuthScreen() {
       // Supabase doesn't reveal whether the email actually has an account --
       // resetPasswordForEmail resolves the same way either way, so an error
       // here is a real failure (network, rate limit), not "no such account."
-      Alert.alert('Error', err?.message ?? 'Could not send reset link right now.')
+      setFormError(err?.message ?? 'Could not send reset link right now.')
     }
     setLoading(false)
   }
@@ -206,7 +234,7 @@ export default function AuthScreen() {
               )}
             </Pressable>
 
-            <Pressable onPress={() => setMode('signin')} style={styles.switchRow}>
+            <Pressable onPress={() => { clearErrors(); setMode('signin') }} style={styles.switchRow}>
               <Text style={[styles.switchLink, { color: tokens.blu, fontSize: fs(14) }]}>Back to sign in</Text>
             </Pressable>
           </>
@@ -218,20 +246,26 @@ export default function AuthScreen() {
               Enter your account email and we'll send you a link to set a new password.
             </Text>
 
-            <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
+            <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: emailError ? tokens.red : tokens.bdr2 }]}>
               <Icon name="envelope" size={16} color={tokens.t3} />
               <TextInput
                 style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
                 placeholder="Email address"
                 placeholderTextColor={tokens.t3}
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(t) => { setEmail(t); setEmailError(null) }}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
                 autoComplete="email"
               />
             </View>
+            {emailError?.trim() ? (
+              <Text style={[styles.fieldError, { color: tokens.red, fontSize: fs(12.5) }]}>{emailError}</Text>
+            ) : null}
+            {formError ? (
+              <Text style={[styles.formError, { color: tokens.red, fontSize: fs(13) }]}>{formError}</Text>
+            ) : null}
 
             <Pressable
               style={[styles.btn, { backgroundColor: tokens.blu }, loading && styles.btnDisabled]}
@@ -245,7 +279,7 @@ export default function AuthScreen() {
               )}
             </Pressable>
 
-            <Pressable onPress={() => setMode('signin')} style={styles.switchRow}>
+            <Pressable onPress={() => { clearErrors(); setMode('signin') }} style={styles.switchRow}>
               <Text style={[styles.switchLink, { color: tokens.blu, fontSize: fs(14) }]}>Back to sign in</Text>
             </Pressable>
           </>
@@ -275,7 +309,7 @@ export default function AuthScreen() {
               )}
             </Pressable>
 
-            <Pressable onPress={() => setMode('signin')} style={styles.switchRow}>
+            <Pressable onPress={() => { clearErrors(); setMode('signin') }} style={styles.switchRow}>
               <Text style={[styles.switchLink, { color: tokens.blu, fontSize: fs(14) }]}>Back to sign in</Text>
             </Pressable>
           </>
@@ -291,30 +325,33 @@ export default function AuthScreen() {
             </Text>
 
             {/* Email */}
-            <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
+            <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: emailError ? tokens.red : tokens.bdr2 }]}>
               <Icon name="envelope" size={16} color={tokens.t3} />
               <TextInput
                 style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
                 placeholder="Email address"
                 placeholderTextColor={tokens.t3}
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(t) => { setEmail(t); setEmailError(null); setFormError(null) }}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
                 autoComplete="email"
               />
             </View>
+            {emailError?.trim() ? (
+              <Text style={[styles.fieldError, { color: tokens.red, fontSize: fs(12.5) }]}>{emailError}</Text>
+            ) : null}
 
             {/* Password */}
-            <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
+            <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: passwordError ? tokens.red : tokens.bdr2 }]}>
               <Icon name="lock" size={16} color={tokens.t3} />
               <TextInput
                 style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
                 placeholder="Password"
                 placeholderTextColor={tokens.t3}
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(t) => { setPassword(t); setPasswordError(null); setFormError(null) }}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
                 autoComplete={mode === 'signin' ? 'password' : 'new-password'}
@@ -323,9 +360,15 @@ export default function AuthScreen() {
                 <Icon name={showPassword ? 'eye.slash' : 'eye'} size={18} color={tokens.t3} />
               </Pressable>
             </View>
+            {passwordError?.trim() ? (
+              <Text style={[styles.fieldError, { color: tokens.red, fontSize: fs(12.5) }]}>{passwordError}</Text>
+            ) : null}
+            {formError ? (
+              <Text style={[styles.formError, { color: tokens.red, fontSize: fs(13) }]}>{formError}</Text>
+            ) : null}
 
             {mode === 'signin' && (
-              <Pressable onPress={() => setMode('forgot')} style={styles.forgotRow} hitSlop={4}>
+              <Pressable onPress={() => { clearErrors(); setMode('forgot') }} style={styles.forgotRow} hitSlop={4}>
                 <Text style={[styles.switchLink, { color: tokens.blu, fontSize: fs(13.5) }]}>Forgot password?</Text>
               </Pressable>
             )}
@@ -350,7 +393,10 @@ export default function AuthScreen() {
             </Pressable>
 
             {/* Toggle mode */}
-            <Pressable onPress={() => setMode(mode === 'signin' ? 'signup' : 'signin')} style={styles.switchRow}>
+            <Pressable
+              onPress={() => { clearErrors(); setMode(mode === 'signin' ? 'signup' : 'signin') }}
+              style={styles.switchRow}
+            >
               <Text style={[styles.switchText, { color: tokens.t3, fontSize: fs(14) }]}>
                 {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
               </Text>
@@ -415,6 +461,8 @@ const styles = StyleSheet.create({
   btnDisabled: { opacity: 0.6 },
   btnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 
+  fieldError: { marginTop: -8, marginLeft: 4 },
+  formError: { textAlign: 'center', lineHeight: 18, marginTop: 2 },
   forgotRow: { alignItems: 'flex-end', marginTop: -6 },
   switchRow: { flexDirection: 'row', justifyContent: 'center' },
   switchText: { fontSize: 14 },
