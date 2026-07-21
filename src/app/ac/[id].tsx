@@ -460,10 +460,12 @@ export default function ACDetailScreen() {
     const text = blockText(block)
     if (!text) return
     try {
-      // Quoted excerpt + link only -- no repeated AC title/number prefix.
+      // Just the link, same as every other share entry point -- the
+      // recipient jumps straight to (and sees highlighted, per BB-026) the
+      // passage once they open it, so quoting it again here was redundant.
       await Share.share({
         title: `AC ${ac.document_number}`,
-        message: `"${text.trim().slice(0, 200)}${text.length > 200 ? '…' : ''}"\n\n${buildACShareLink(ac, highlightSnippet(text))}`,
+        message: buildACShareLink(ac, highlightSnippet(text)),
       })
     } catch {
       // User cancelled or share unavailable

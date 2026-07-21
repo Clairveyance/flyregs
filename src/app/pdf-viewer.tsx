@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
+import { useAllowRotation } from '@/lib/orientation'
 
 // Renders the AC's original PDF fully in-app instead of handing the raw URL
 // to an external/system browser sheet. That used to go through
@@ -23,6 +24,11 @@ export default function PDFViewerScreen() {
   const insets = useSafeAreaInsets()
   const { url, title } = useLocalSearchParams<{ url: string; title?: string }>()
   const [loading, setLoading] = useState(true)
+  // Rotation is normally locked app-wide (app.json) -- allowed here only,
+  // and only while this screen is actually open, so leaving (however the
+  // user leaves -- the close button, a system back gesture, etc.) always
+  // snaps the rest of the app back to portrait, never leaves it sideways.
+  useAllowRotation(true)
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>

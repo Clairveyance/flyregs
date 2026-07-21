@@ -19,6 +19,7 @@ import { Icon } from '@/components/Icon'
 import {
   getFolders,
   getFoldersForItem,
+  getFolderItemCounts,
   addToFolder,
   removeFromFolder,
   createFolder,
@@ -55,6 +56,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   const fs = useFS()
   const { isPro } = useAuth()
   const [folders, setFolders] = useState<Folder[]>([])
+  const [itemCounts, setItemCounts] = useState<Record<string, number>>({})
   const [memberIds, setMemberIds] = useState<Set<string>>(new Set())
   const [addedNames, setAddedNames] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
@@ -86,12 +88,14 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   }, [creating])
 
   const load = async () => {
-    const [allFolders, memberFolderIds] = await Promise.all([
+    const [allFolders, memberFolderIds, counts] = await Promise.all([
       getFolders(),
       getFoldersForItem(itemType, itemId),
+      getFolderItemCounts(),
     ])
     setFolders(allFolders)
     setMemberIds(new Set(memberFolderIds))
+    setItemCounts(counts)
   }
 
   // Multi-select: tapping a folder toggles membership without closing, so
@@ -103,11 +107,13 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
       await removeFromFolder(folder.id, itemType, itemId)
       setMemberIds((prev) => { const s = new Set(prev); s.delete(folder.id); return s })
       setAddedNames((prev) => prev.filter((n) => n !== folder.name))
+      setItemCounts((prev) => ({ ...prev, [folder.id]: Math.max(0, (prev[folder.id] ?? 1) - 1) }))
     } else {
       if (itemType === 'ac' && acMeta) await addManyBookmarks([{ id: itemId, ...acMeta }])
       await addToFolder(folder.id, itemType, itemId)
       setMemberIds((prev) => new Set([...prev, folder.id]))
       setAddedNames((prev) => [...prev, folder.name])
+      setItemCounts((prev) => ({ ...prev, [folder.id]: (prev[folder.id] ?? 0) + 1 }))
     }
   }
 
@@ -129,6 +135,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
     setFolders((prev) => [...prev, folder])
     setMemberIds((prev) => new Set([...prev, folder.id]))
     setAddedNames((prev) => [...prev, folder.name])
+    setItemCounts((prev) => ({ ...prev, [folder.id]: 1 }))
     setNewName('')
     setCreating(false)
   }
@@ -193,9 +200,16 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
                       size={19}
                       color={isMember ? tokens.blu : tokens.t3}
                     />
-                    <Text style={[styles.folderName, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
-                      {item.name}
-                    </Text>
+                    <View style={styles.folderNameRow}>
+                      <Text style={[styles.folderName, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      {!!itemCounts[item.id] && (
+                        <Text style={[styles.folderCount, { color: tokens.t3, fontSize: fs(13) }]}>
+                          ({itemCounts[item.id]})
+                        </Text>
+                      )}
+                    </View>
                     {isMember && (
                       <Icon name="checkmark" size={14} color={tokens.blu} />
                     )}
@@ -284,7 +298,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
   },
-  folderName: { flex: 1, fontSize: 14.5, fontWeight: '500' },
+  folderNameRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  folderName: { flexShrink: 1, fontSize: 14.5, fontWeight: '500' },
+  folderCount: { fontSize: 13, fontWeight: '500' },
   newFolderRow: {
     flexDirection: 'row',
     alignItems: 'center',

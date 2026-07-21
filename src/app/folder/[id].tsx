@@ -40,7 +40,6 @@ import { getBookmarks, BookmarkAC } from '@/lib/bookmarks'
 import { useShareActions, ShareableAC } from '@/lib/share'
 import { highlightSnippet } from '@/lib/acShare'
 import { getOrCreateShareLink, getFolderCollaborators, removeCollaborator, FolderCollaborator } from '@/lib/sharedFolders'
-import { isSyncEnabled } from '@/lib/sync'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 
 // ── Local Note type (mirrors notes.tsx — local-first AsyncStorage notes) ──────
@@ -251,13 +250,6 @@ export default function FolderDetail() {
   const handleInvite = async () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     if (!folder) return
-    if (!(await isSyncEnabled())) {
-      Alert.alert(
-        'Turn on Back up & sync first',
-        'Inviting others requires this folder to exist in the cloud. Turn on Back up & sync in Saved, then try again.'
-      )
-      return
-    }
     setInvitingBusy(true)
     try {
       const link = await getOrCreateShareLink(folder.id)

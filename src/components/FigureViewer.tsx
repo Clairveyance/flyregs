@@ -1,8 +1,9 @@
-import { Modal, View, Text, Image, Pressable, ScrollView, StyleSheet, Dimensions } from 'react-native'
+import { Modal, View, Text, Image, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
+import { useAllowRotation } from '@/lib/orientation'
 import type { AcFigure } from '@/types'
 
 // Full-screen viewer for a rendered Figure/Table page image. Pinch-zoom is a
@@ -20,7 +21,11 @@ export function FigureViewer({
   const { tokens } = useTheme()
   const fs = useFS()
   const insets = useSafeAreaInsets()
-  const { width, height } = Dimensions.get('window')
+  // useWindowDimensions (not Dimensions.get, a one-time read) so the image
+  // actually reflows to fill the new width/height when the device rotates
+  // while this viewer is open — see useAllowRotation below.
+  const { width, height } = useWindowDimensions()
+  useAllowRotation(!!figure)
 
   return (
     <Modal visible={!!figure} transparent animationType="fade" onRequestClose={onClose}>

@@ -95,12 +95,14 @@ export function AnimatedSplash({ onDone }: { onDone: () => void }) {
   const rootOpacity = useSharedValue(1)
 
   useEffect(() => {
-    const WING_HOLD = 1650
+    const WING_LAND_DURATION = 520
     const MORPH_DURATION = 650
-    const WORDMARK_HOLD = 900
+    const WORDMARK_HOLD = 450 // halved from 900
     const FADE_DURATION = 500
 
-    const morphStart = WING_HOLD
+    // Wing shrinks into the lockup the instant it lands at full size — no
+    // hold in between — so morph starts right as the landing pop finishes.
+    const morphStart = WING_LAND_DURATION
     const fadeStart = morphStart + MORPH_DURATION + WORDMARK_HOLD
 
     // Each shared value gets exactly one `.value =` assignment for its whole
@@ -109,8 +111,8 @@ export function AnimatedSplash({ onDone }: { onDone: () => void }) {
     // it ever animates, since both run synchronously at mount.
     wingOpacity.value = withTiming(1, { duration: 400, easing: Easing.out(Easing.cubic) })
     wingScale.value = withSequence(
-      withTiming(1, { duration: 520, easing: Easing.out(Easing.back(1.3)) }),
-      withDelay(morphStart - 520, withTiming(WING_SCALE_TARGET, { duration: MORPH_DURATION, easing: Easing.inOut(Easing.cubic) }))
+      withTiming(1, { duration: WING_LAND_DURATION, easing: Easing.out(Easing.back(1.3)) }),
+      withTiming(WING_SCALE_TARGET, { duration: MORPH_DURATION, easing: Easing.inOut(Easing.cubic) })
     )
     wingTranslateX.value = withDelay(morphStart, withTiming(wingTranslateXTarget, { duration: MORPH_DURATION, easing: Easing.inOut(Easing.cubic) }))
     wingTranslateY.value = withDelay(morphStart, withTiming(wingTranslateYTarget, { duration: MORPH_DURATION, easing: Easing.inOut(Easing.cubic) }))

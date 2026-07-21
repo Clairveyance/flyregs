@@ -19,8 +19,14 @@ export async function isSyncEnabled(): Promise<boolean> {
   return (await AsyncStorage.getItem(SYNC_ENABLED_KEY)) === 'true'
 }
 
-async function currentUserId(): Promise<string | null> {
-  if (!(await isSyncEnabled())) return null
+// `force` bypasses the global Back up & sync toggle -- used only for the
+// specific rows a shared folder actually needs in the cloud (the folder
+// itself, its item pointers, and any notes among those items), so that
+// folder sharing works independent of whether the user has opted into
+// backing up their whole library. Premium/session still apply either way --
+// force only skips the sync_enabled check, never the entitlement check.
+async function currentUserId(force = false): Promise<string | null> {
+  if (!force && !(await isSyncEnabled())) return null
   // The sync_enabled flag only reflects that the user turned it on at some
   // point -- it doesn't get flipped off if their subscription later lapses.
   // Re-check live entitlement on every push so a downgraded Premium user
@@ -66,8 +72,8 @@ export async function syncPushBookmarkDeletes(ids: string[]) {
     .in('id', ids)
 }
 
-export async function syncPushFolder(f: Folder) {
-  const userId = await currentUserId()
+export async function syncPushFolder(f: Folder, force = false) {
+  const userId = await currentUserId(force)
   if (!userId) return
   await supabase.from('synced_folders').upsert(
     { id: f.id, user_id: userId, name: f.name, created_at: f.created_at, updated_at: f.updated_at, deleted: false },
@@ -85,8 +91,8 @@ export async function syncPushFolderDelete(id: string) {
     .eq('id', id)
 }
 
-export async function syncPushFolderItems(items: FolderItem[]) {
-  const userId = await currentUserId()
+export async function syncPushFolderItems(items: FolderItem[], force = false) {
+  const userId = await currentUserId(force)
   if (!userId || !items.length) return
   await supabase.from('synced_folder_items').upsert(
     items.map((i) => ({
@@ -103,8 +109,8 @@ export async function syncPushFolderItems(items: FolderItem[]) {
   )
 }
 
-export async function syncPushFolderItemDeletes(ids: string[]) {
-  const userId = await currentUserId()
+export async function syncPushFolderItemDeletes(ids: string[], force = false) {
+  const userId = await currentUserId(force)
   if (!userId || !ids.length) return
   await supabase
     .from('synced_folder_items')
@@ -113,8 +119,8 @@ export async function syncPushFolderItemDeletes(ids: string[]) {
     .in('id', ids)
 }
 
-export async function syncPushNote(n: Note) {
-  const userId = await currentUserId()
+export async function syncPushNote(n: Note, force = false) {
+  const userId = await currentUserId(force)
   if (!userId) return
   await supabase.from('synced_notes').upsert(
     { id: n.id, user_id: userId, title: n.title, body: n.body, linked_ac: n.linked_ac, updated_at: n.updated_at, deleted: false },

@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Keyboard,
   Platform,
+  Share,
 } from 'react-native'
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
@@ -34,16 +35,15 @@ import { getDownloads, removeDownload, formatBytes, DownloadedAC } from '@/lib/d
 import {
   getFolders,
   getFolderItemCounts,
-  getItemsInFolder,
   createFolder,
   deleteFolder,
   addManyToFolder,
+  unshareFolder,
   Folder,
   DUPLICATE_FOLDER_NAME,
 } from '@/lib/folders'
-import { getNotes } from '@/lib/notes'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
-import { getMyCollaborations, getMySharedFolders, unshareFolder, SharedFolderSummary, SharedByMeFolder } from '@/lib/sharedFolders'
+import { getMyCollaborations, getMySharedFolders, getOrCreateShareLink, SharedFolderSummary, SharedByMeFolder } from '@/lib/sharedFolders'
 import { FolderListView } from '@/components/FolderListView'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
@@ -406,44 +406,36 @@ export default function SavedScreen() {
     ])
   }
 
-  // Resolves a folder's items down to shareable AC/note content — folders only
-  // store {item_type, item_id} pointers, so sharing needs to cross-reference
-  // the actual bookmark/note data.
-  const resolveFolderContents = useCallback(async (folderIds: string[]) => {
-    const [items, notes] = await Promise.all([
-      Promise.all(folderIds.map((id) => getItemsInFolder(id))).then((lists) => lists.flat()),
-      getNotes(),
-    ])
-    const bookmarkMap = new Map(bookmarks.map((b) => [b.id, b]))
-    const noteMap = new Map(notes.map((n) => [n.id, n]))
-
-    const acs: ShareableAC[] = []
-    const shareNotes: ShareableNote[] = []
-    const seenAc = new Set<string>()
-    const seenNote = new Set<string>()
-    for (const item of items) {
-      if (item.item_type === 'ac') {
-        const bm = bookmarkMap.get(item.item_id)
-        if (bm && !seenAc.has(bm.id)) { seenAc.add(bm.id); acs.push(toShareableAC(bm)) }
-      } else {
-        const note = noteMap.get(item.item_id)
-        if (note && !seenNote.has(note.id)) { seenNote.add(note.id); shareNotes.push(note) }
-      }
-    }
-    return { acs, notes: shareNotes }
-  }, [bookmarks])
-
+  // Real folder sharing -- generates the same persistent join/<token> invite
+  // link folder/[id].tsx's own "Invite" button does, so it actually creates
+  // a collaborator relationship and shows up in the recipient's With Me
+  // (and this folder's own From Me) the moment it's shared. This row-level
+  // share icon on the Folders list used to call resolveFolderContents() +
+  // shareMany() instead -- a completely different, one-shot "share a bundle
+  // of individual item links" mechanism that never created any collaborator
+  // row at all. Since this is the MORE discoverable "share a folder" button
+  // (right on the list, no need to open the folder first), that mismatch is
+  // almost certainly why shared folders never showed up on the recipient's
+  // end no matter how many times it was tried -- the wrong flow was firing.
   const handleShareFolder = async (folder: Folder) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
-    const { acs, notes } = await resolveFolderContents([folder.id])
-    shareMany(acs, notes)
+    try {
+      const link = await getOrCreateShareLink(folder.id)
+      await Share.share({ message: link })
+    } catch {
+      Alert.alert('Error', 'Could not create an invite link. Try again in a moment.')
+    }
   }
 
   const handleBulkShareFolders = async () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     const ids = [...selectedFolders]
-    const { acs, notes } = await resolveFolderContents(ids)
-    shareMany(acs, notes)
+    try {
+      const links = await Promise.all(ids.map((id) => getOrCreateShareLink(id)))
+      await Share.share({ message: links.join('\n\n') })
+    } catch {
+      Alert.alert('Error', 'Could not create invite links. Try again in a moment.')
+    }
     setSelectedFolders(new Set())
     setFolderSelectMode(false)
   }

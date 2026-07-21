@@ -1,4 +1,7 @@
 import { supabase } from '@/lib/supabase'
+import { syncPushFolder, syncPushFolderItems, syncPushNote } from '@/lib/syncPush'
+import { getFolders, getItemsInFolder, markFolderShared } from '@/lib/folders'
+import { getNotes } from '@/lib/notes'
 
 // Real folder sharing: an owner generates an invite link, anyone who redeems
 // it gets read-only access to that folder's AC bookmarks (not notes -- see
@@ -34,6 +37,16 @@ export function buildShareLink(token: string): string {
 
 // Returns the existing share link if this folder already has one, generating
 // it on first share so re-sharing the same folder always gives the same link.
+//
+// Sharing is a per-folder Premium decision, not a whole-library one -- a user
+// who has never turned on the separate, global "Back up & sync" toggle can
+// still share a folder. On first share, this force-pushes exactly the rows a
+// collaborator needs (the folder itself, its item pointers, and the content
+// of any notes among those items -- notes aren't in a public reference table
+// like ACs are, so their actual title/body has to reach the cloud too) past
+// that toggle, then marks the folder locally so every later mutation to it
+// (add/remove items) keeps force-pushing too. See folders.ts's Folder.shared
+// and syncPush.ts's `force` param.
 export async function getOrCreateShareLink(folderId: string): Promise<string> {
   const { data: existing } = await supabase
     .from('synced_folders')
@@ -42,6 +55,17 @@ export async function getOrCreateShareLink(folderId: string): Promise<string> {
     .maybeSingle()
 
   if (existing?.share_token) return buildShareLink(existing.share_token)
+
+  const [folders, items, notes] = await Promise.all([getFolders(), getItemsInFolder(folderId), getNotes()])
+  const folder = folders.find((f) => f.id === folderId)
+  if (!folder) throw new Error('Folder not found')
+
+  await syncPushFolder(folder, true)
+  if (items.length) await syncPushFolderItems(items, true)
+  const noteMap = new Map(notes.map((n) => [n.id, n]))
+  const noteItems = items.filter((i) => i.item_type === 'note').map((i) => noteMap.get(i.item_id))
+  await Promise.all(noteItems.filter((n): n is NonNullable<typeof n> => !!n).map((n) => syncPushNote(n, true)))
+  await markFolderShared(folderId)
 
   const token = makeShareToken()
   const { error } = await supabase.from('synced_folders').update({ share_token: token }).eq('id', folderId)
@@ -160,15 +184,6 @@ export async function getMySharedFolders(): Promise<SharedByMeFolder[]> {
     folder_name: f.name,
     collaboratorCount: counts.get(f.id) ?? 0,
   }))
-}
-
-// Revokes sharing entirely: removes every collaborator and invalidates the
-// share link (a new one is generated next time the owner shares again). The
-// folder itself and its contents are untouched -- this only undoes sharing,
-// it's not folder deletion.
-export async function unshareFolder(folderId: string): Promise<void> {
-  await supabase.from('folder_collaborators').delete().eq('folder_id', folderId)
-  await supabase.from('synced_folders').update({ share_token: null }).eq('id', folderId)
 }
 
 export interface SharedFolderACItem {

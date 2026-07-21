@@ -16,7 +16,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
-import { getFolders, createFolder, Folder, DUPLICATE_FOLDER_NAME } from '@/lib/folders'
+import { getFolders, getFolderItemCounts, createFolder, Folder, DUPLICATE_FOLDER_NAME } from '@/lib/folders'
 
 // Multi-select folder sheet for bulk operations (adding several items at
 // once). Tapping a folder toggles a checkmark WITHOUT closing or writing to
@@ -41,6 +41,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
   const fs = useFS()
   const { isPro } = useAuth()
   const [folders, setFolders] = useState<Folder[]>([])
+  const [itemCounts, setItemCounts] = useState<Record<string, number>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -59,6 +60,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
       return
     }
     getFolders().then((all) => setFolders(excludeFolderId ? all.filter((f) => f.id !== excludeFolderId) : all))
+    getFolderItemCounts().then(setItemCounts)
     setSelected(new Set())
     setCreating(false)
     setNewName('')
@@ -147,9 +149,16 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
                       size={19}
                       color={isSelected ? tokens.blu : tokens.t3}
                     />
-                    <Text style={[styles.folderName, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
-                      {item.name}
-                    </Text>
+                    <View style={styles.folderNameRow}>
+                      <Text style={[styles.folderName, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      {!!itemCounts[item.id] && (
+                        <Text style={[styles.folderCount, { color: tokens.t3, fontSize: fs(13) }]}>
+                          ({itemCounts[item.id]})
+                        </Text>
+                      )}
+                    </View>
                     {isSelected && (
                       <Icon name="checkmark" size={14} color={tokens.blu} />
                     )}
@@ -237,7 +246,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
   },
-  folderName: { flex: 1, fontSize: 14.5, fontWeight: '500' },
+  folderNameRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  folderName: { flexShrink: 1, fontSize: 14.5, fontWeight: '500' },
+  folderCount: { fontSize: 13, fontWeight: '500' },
   newFolderRow: {
     flexDirection: 'row',
     alignItems: 'center',
