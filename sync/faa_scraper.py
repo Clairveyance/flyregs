@@ -417,6 +417,14 @@ VISION_MAX_PAGES_PER_RUN = 200
 _vision_pages_recovered_this_run = 0
 _vision_circuit_tripped = False
 
+# Set whenever something this run genuinely needs a human to look at: the
+# circuit breaker tripping, or an individual page's vision recovery call
+# erroring out. Checked at the end of main() -- causes a non-zero exit so
+# the GitHub Actions run itself shows as failed (visible via `gh run list`),
+# rather than these warnings only ever existing as text buried in a CI log
+# nobody is guaranteed to read. See sync.sh's header for the full alerting story.
+_needs_human_attention = False
+
 VISION_TRANSCRIBE_PROMPT = """You are transcribing one page of an FAA Advisory Circular whose normal text extraction failed on this page (likely a flattened/signed PDF) -- a regulatory document where exact wording, numbering, and punctuation matter.
 
 Rules:
@@ -501,6 +509,8 @@ def recover_pages_via_vision(pdf_bytes: bytes, page_indices: list[int], doc_num:
             text = "".join(b.text for b in message.content if b.type == "text")
             recovered[i] = text
         except Exception as e:
+            global _needs_human_attention
+            _needs_human_attention = True
             log.warning(f"    Vision recovery failed for {doc_num} page {i + 1}: {e}")
 
     return recovered
@@ -546,7 +556,7 @@ def extract_pdf_text_with_recovery(pdf_bytes: bytes, doc_num: str) -> Optional[s
     (VISION_MAX_PAGES_PER_RUN) independent of the health check itself, so a
     problem this check didn't anticipate still can't run away unbounded.
     """
-    global _vision_pages_recovered_this_run, _vision_circuit_tripped
+    global _vision_pages_recovered_this_run, _vision_circuit_tripped, _needs_human_attention
 
     pages, page_count = extract_pdf_pages(pdf_bytes)
     if pages is None or page_count == 0:
@@ -569,6 +579,7 @@ def extract_pdf_text_with_recovery(pdf_bytes: bytes, doc_num: str) -> Optional[s
 
     if _vision_pages_recovered_this_run + len(flagged) > VISION_MAX_PAGES_PER_RUN:
         _vision_circuit_tripped = True
+        _needs_human_attention = True
         log.warning(f"    CIRCUIT BREAKER TRIPPED: recovering {doc_num}'s {len(flagged)} page(s) would "
                      f"exceed the {VISION_MAX_PAGES_PER_RUN}-page/run cap ({_vision_pages_recovered_this_run} "
                      f"already used). Skipping vision recovery for this and any further doc this run — "
@@ -1065,6 +1076,15 @@ def main():
         with open(args.vision_recovered_out, "w") as f:
             for doc_num in _vision_recovered_docs_this_run:
                 f.write(doc_num + "\n")
+
+    if _needs_human_attention:
+        log.error(
+            "This run had a vision-recovery circuit-breaker trip or an individual page "
+            "recovery failure -- see the warnings above. Exiting non-zero so the CI run "
+            "itself shows as failed (check `gh run list`/`gh run view --log`), not just "
+            "a warning buried in this log."
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":

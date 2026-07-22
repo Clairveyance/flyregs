@@ -71,8 +71,15 @@ def load_env_file(path):
 
 
 def get_anthropic_client():
-    env = load_env_file(os.path.join(os.path.dirname(__file__), "..", ".env.anthropic"))
-    return anthropic.Anthropic(api_key=env["ANTHROPIC_API_KEY"])
+    # Prefer an already-exported env var (how sync.sh/CI provide it -- see
+    # sync_check_figures.py, which reuses this function and runs inside
+    # GitHub Actions, where only .env.scraper exists, not .env.anthropic).
+    # Fall back to .env.anthropic for local manual runs of this script.
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        env = load_env_file(os.path.join(os.path.dirname(__file__), "..", ".env.anthropic"))
+        key = env["ANTHROPIC_API_KEY"]
+    return anthropic.Anthropic(api_key=key)
 
 
 def find_candidates(pdf_bytes: bytes):

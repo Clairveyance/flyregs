@@ -1,10 +1,19 @@
 name: Weekly FAA Sync
 
-# Runs the same 7-stage pipeline that used to run via launchd on a single
+# Runs the same 8-stage pipeline that used to run via launchd on a single
 # Mac (scrape -> disclose vision recoveries -> OCR fixes -> parse backfill ->
-# figure/table sync -> parser audit -> update alerts). Moving it here means
-# the weekly update no longer depends on any one machine being powered on
-# and awake at 3am.
+# figure/table sync -> parser audit -> figure coverage check -> update alerts).
+# Moving it here means the weekly update no longer depends on any one machine
+# being powered on and awake at 3am.
+#
+# Alerting: if the sync finds something that needs a human (a real parser
+# anomaly, a touched AC ending up with zero content, an unresolved
+# figure-coverage gap, or the scraper's own vision-recovery circuit breaker
+# tripping), sync.sh's steps exit non-zero and this whole job shows as
+# FAILED — check via `gh run list --workflow=weekly-sync.yml` any time,
+# rather than relying on someone reading the run log. See sync.sh's header
+# for exactly which findings are high-confidence (block) vs. informational
+# (logged, known false-positive rate, don't block).
 #
 # Manual runs: use the "Run workflow" button in the Actions tab (the
 # workflow_dispatch trigger below) — handy for testing without waiting for

@@ -1,7 +1,7 @@
 #!/bin/bash
 # FlyRegs weekly sync — FAA AC database maintenance
 #
-# Runs seven stages in order:
+# Runs eight stages in order:
 #   1. Incremental scrape  — fetches new/updated/cancelled ACs from FAA.gov.
 #                            Also runs a free per-page text-health check on
 #                            every PDF it extracts (piggybacks on the normal
@@ -38,17 +38,38 @@
 #                            hand — this closes that gap.
 #   6. Parser audit        — checks the FRESHLY BUILT blocks for structural
 #                            anomalies (cross-reference collisions, mislabeled
-#                            headings, duplicate labels) before the sync is done.
+#                            headings, duplicate labels), AND that every
+#                            touched AC actually has real content at all
+#                            (zero pdf_text / zero blocks -- AC 60-22's exact
+#                            original symptom, see flyregs_gotchas.md).
 #                            Scoped to only the ACs step 4 actually touched, so a
 #                            normal weekly run (a handful of changed ACs) stays
 #                            fast — new/updated content gets the same checks a
 #                            manual full-catalog sweep would run, automatically,
-#                            every week. Findings are logged, not auto-blocking —
-#                            if a run reports findings, check the workflow log and
-#                            cross-check by hand (scripts/audit-parser.mjs's own
-#                            header comment explains what's a real bug vs. an
-#                            expected false positive).
-#   7. Update alerts       — sends a push notification (Expo Push API) to every
+#                            every week. HIGH-CONFIDENCE findings (zero content,
+#                            zero blocks, cross-reference collisions, duplicate
+#                            labels) FAIL the run (non-zero exit) so it shows up
+#                            as a failed GitHub Actions run -- checkable any time
+#                            via `gh run list`/`gh run view --log`, not just text
+#                            sitting in a log nobody reads. Chapter-mismatch and
+#                            lowercase-body findings stay non-blocking (known,
+#                            real false-positive rate — see audit-parser.mjs's
+#                            own header comment for which is which).
+#   7. Figure coverage      — checks that every touched AC's own Figure/Table
+#                            mentions in its text actually have a matching
+#                            ac_figures image row (BB-062's exact class of gap,
+#                            see flyregs_beta_bug_tracker.md) — Step 5's free
+#                            heuristic alone has known blind spots. Genuine gaps
+#                            (after filtering the same confirmed-noise patterns
+#                            found closing out BB-062: truncated-compound-number
+#                            PDF artifacts, cross-document citations, "this was
+#                            removed" language) get ONE targeted Vision
+#                            locate-and-verify attempt, same cheap method
+#                            validated during BB-062. Anything still unresolved
+#                            FAILS the run, same alerting mechanism as step 6.
+#                            Own circuit breaker (SYNC_FIGURE_MAX_CALLS in
+#                            sync_check_figures.py), independent of step 1's.
+#   8. Update alerts       — sends a push notification (Expo Push API) to every
 #                            Premium subscriber with "AC Update Alerts" turned
 #                            on, for exactly the ACs step 4 touched. No-op if
 #                            nothing changed this run.
@@ -58,6 +79,14 @@
 # machine being on. It can still be run locally for testing/debugging by
 # creating a `.env.scraper` file in this directory (SUPABASE_URL +
 # SUPABASE_SERVICE_KEY, gitignored, never commit it).
+#
+# Alerting: steps 6 and 7 both exit non-zero on a high-confidence finding
+# (real anomaly / zero content / unresolved figure gap), and faa_scraper.py
+# itself exits non-zero if its own vision-recovery circuit breaker trips or
+# an individual page recovery call fails. Any of these makes the GitHub
+# Actions job itself show as FAILED — check `gh run list
+# --workflow=weekly-sync.yml` any time to see if the last run needs
+# attention, rather than relying on someone remembering to read the log.
 #
 # Usage:
 #   ./sync.sh               — standard weekly run
@@ -149,12 +178,17 @@ echo "▶ Step 5/7 — Figure/table sync (ACs touched by this sync)"
 
 # ── Step 6: Parser audit (new/updated ACs only) ───────────────────────────────
 echo ""
-echo "▶ Step 6/7 — Parser audit (ACs touched by this sync)"
+echo "▶ Step 6/8 — Parser audit (ACs touched by this sync)"
 "$NODE" scripts/audit-parser.mjs --docs-file="$TOUCHED_FILE"
 
-# ── Step 7: Update alerts (Premium push notifications) ───────────────────────
+# ── Step 7: Figure coverage check + targeted recovery (new/updated ACs only) ──
 echo ""
-echo "▶ Step 7/7 — Update alerts (Premium subscribers, ACs touched by this sync)"
+echo "▶ Step 7/8 — Figure coverage check (ACs touched by this sync)"
+"$PYTHON3" scripts/sync_check_figures.py --docs-file="$TOUCHED_FILE"
+
+# ── Step 8: Update alerts (Premium push notifications) ───────────────────────
+echo ""
+echo "▶ Step 8/8 — Update alerts (Premium subscribers, ACs touched by this sync)"
 "$NODE" scripts/send-update-alerts.mjs --touched-file="$TOUCHED_FILE"
 
 # ── Summary ───────────────────────────────────────────────────────────────────

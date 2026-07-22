@@ -167,12 +167,22 @@ async function main() {
         docsFromFile.slice(i * 200, i * 200 + 200))
     : null
 
+  // --docs-file mode is the weekly-sync path (sync.sh step 6) and needs to
+  // catch a touched AC ending up with ZERO content, not just re-parse
+  // anomalies in content that exists -- this is exactly AC 60-22's original
+  // symptom (see flyregs_gotchas.md), and the old `.not('pdf_text', 'is',
+  // null)` filter below would have silently excluded a doc in that state
+  // from ever being checked at all. So --docs-file mode does NOT filter on
+  // pdf_text, and any requested doc that comes back with NULL/empty text or
+  // zero blocks is tracked as a hard finding, not silently skipped.
+  const seenDocNumbers = new Set()
+
   while (true) {
     let query = supabase
       .from('advisory_circulars')
       .select('document_number, pdf_text')
       .eq('status', 'active')
-      .not('pdf_text', 'is', null)
+    if (!docsFromFile) query = query.not('pdf_text', 'is', null)
     if (onlyDoc) query = query.eq('document_number', onlyDoc)
     else if (fileChunks) {
       if (page >= fileChunks.length) break
@@ -186,18 +196,23 @@ async function main() {
     totalACs += data.length
 
     for (const ac of data) {
-      const blocks = parseAC(ac.pdf_text, ac.document_number)
-      const crossRef = findCrossRefCollisions(blocks, ac.document_number, allDocNumbers)
-      const chapterMismatch = findChapterMismatches(blocks)
-      const lowercaseBody = findSuspiciousLowercaseBody(blocks)
-      const dupes = findDuplicateLabels(blocks)
+      seenDocNumbers.add(ac.document_number)
+      const zeroContent = !ac.pdf_text
+      const blocks = zeroContent ? [] : parseAC(ac.pdf_text, ac.document_number)
+      const crossRef = zeroContent ? [] : findCrossRefCollisions(blocks, ac.document_number, allDocNumbers)
+      const chapterMismatch = zeroContent ? [] : findChapterMismatches(blocks)
+      const lowercaseBody = zeroContent ? [] : findSuspiciousLowercaseBody(blocks)
+      const dupes = zeroContent ? [] : findDuplicateLabels(blocks)
+      const zeroBlocks = !zeroContent && blocks.length === 0
 
-      if (crossRef.length || chapterMismatch.length || lowercaseBody.length || dupes.length) {
-        findings.push({ doc: ac.document_number, crossRef, chapterMismatch, lowercaseBody, dupes })
+      if (zeroContent || zeroBlocks || crossRef.length || chapterMismatch.length || lowercaseBody.length || dupes.length) {
+        findings.push({ doc: ac.document_number, zeroContent, zeroBlocks, crossRef, chapterMismatch, lowercaseBody, dupes })
       }
 
       if (onlyDoc || docsFromFile) {
-        console.log(`=== ${ac.document_number} (${blocks.length} blocks) ===`)
+        console.log(`=== ${ac.document_number} (${zeroContent ? 'NO pdf_text at all' : `${blocks.length} blocks`}) ===`)
+        if (zeroContent) console.log('  *** ZERO CONTENT — this AC has no pdf_text. Needs investigation, same class as AC 60-22. ***')
+        else if (zeroBlocks) console.log('  *** ZERO BLOCKS — has pdf_text but the parser produced no blocks at all. Needs investigation. ***')
         console.log('Cross-ref collisions:', crossRef.length ? crossRef : 'none')
         console.log('Chapter mismatches:  ', chapterMismatch.length ? chapterMismatch : 'none')
         console.log('Lowercase-body:      ', lowercaseBody.length ? lowercaseBody : 'none')
@@ -211,7 +226,29 @@ async function main() {
   if (onlyDoc) return
 
   if (docsFromFile) {
-    console.log(`\n${findings.length ? '⚠ ' : '✓ '}${totalACs} touched ACs audited — ${findings.length} with findings to review above.`)
+    // A requested doc_number that never came back from the query at all
+    // (not even with a NULL pdf_text row -- e.g. deleted/superseded between
+    // scrape and audit) is its own hard finding, same severity as zeroContent.
+    for (const requested of docsFromFile) {
+      if (!seenDocNumbers.has(requested)) {
+        findings.push({ doc: requested, notFound: true, zeroContent: false, zeroBlocks: false, crossRef: [], chapterMismatch: [], lowercaseBody: [], dupes: [] })
+        console.log(`=== ${requested} (NOT FOUND) ===`)
+        console.log('  *** Requested but not returned by the query at all — deleted/superseded? Needs investigation. ***')
+      }
+    }
+
+    // High-confidence findings fail the run loudly (non-zero exit -> the
+    // GitHub Actions job itself shows as failed, checkable any time via
+    // `gh run list`/`gh run view --log` -- see sync.sh's header). Chapter
+    // mismatches and lowercase-body stay non-blocking: both have a known,
+    // real false-positive rate (see the header comment above) that would
+    // make a hard fail on them noisy rather than trustworthy.
+    const hardFindings = findings.filter((f) => f.zeroContent || f.zeroBlocks || f.notFound || f.crossRef.length || f.dupes.length)
+    console.log(`\n${findings.length ? '⚠ ' : '✓ '}${totalACs} touched AC(s) audited (of ${docsFromFile.length} requested) — ${findings.length} with findings to review above.`)
+    if (hardFindings.length) {
+      console.error(`\n✗ ${hardFindings.length} HIGH-CONFIDENCE finding(s) (zero content, zero blocks, not found, cross-ref collision, or duplicate label) — failing this run so it's visible as a failed CI run, not just log text.`)
+      process.exitCode = 1
+    }
     return
   }
 
