@@ -9,7 +9,6 @@ import {
   StyleSheet,
   Alert,
   Switch,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Keyboard,
   Platform,
@@ -216,15 +215,25 @@ export default function SavedScreen() {
 
   const toggleSync = async (v: boolean) => {
     if (v && !isPremium) { router.push('/paywall?tier=premium'); return }
+    // Optimistic -- flips the Switch immediately on the user's own gesture,
+    // same as every standard iOS toggle. It used to wait for the full
+    // enableSync() push+pull round trip before ever updating, which made a
+    // simple tap feel stuck/unresponsive for anyone with more than a
+    // trivial amount of local data to push.
+    setSyncEnabled(v)
     if (v && session?.user?.id) {
       setSyncBusy(true)
-      await enableSync(session.user.id)
-      load()
+      try {
+        await enableSync(session.user.id)
+        load()
+      } catch {
+        setSyncEnabled(false)
+        Alert.alert('Error', "Couldn't turn on Back up & sync. Try again in a moment.")
+      }
       setSyncBusy(false)
     } else {
-      await disableSync()
+      disableSync().catch(() => {})
     }
-    setSyncEnabled(v)
   }
 
   const toggleSelect = () => {
@@ -506,17 +515,19 @@ export default function SavedScreen() {
           <View style={[styles.syncRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}>
             <View style={styles.syncTopRow}>
               <Text style={[styles.syncLabel, { color: tokens.t1, fontSize: fs(13) }]}>Back up & sync</Text>
-              {syncBusy ? (
-                <ActivityIndicator size="small" color={tokens.blu} />
-              ) : (
-                <Switch
-                  value={displaySyncEnabled}
-                  onValueChange={toggleSync}
-                  trackColor={{ true: tokens.blu, false: undefined }}
-                  thumbColor="#fff"
-                  style={styles.syncSwitch}
-                />
-              )}
+              {/* Switch stays mounted throughout -- swapping it for a spinner
+                  while busy used to yank the control out from under the
+                  user's own finger mid-tap/drag, which is what actually made
+                  this feel "sticky." disabled (not unmounted) keeps the
+                  thumb sitting still in its new position during the push. */}
+              <Switch
+                value={displaySyncEnabled}
+                onValueChange={toggleSync}
+                disabled={syncBusy}
+                trackColor={{ true: tokens.blu, false: undefined }}
+                thumbColor="#fff"
+                style={styles.syncSwitch}
+              />
             </View>
             <View style={styles.syncBadgeRow}>
               <View style={[styles.premBadge, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>

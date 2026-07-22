@@ -94,6 +94,7 @@ export async function getMyCollaborations(): Promise<SharedFolderSummary[]> {
     .from('folder_collaborators')
     .select('folder_id, last_viewed_at')
     .eq('user_id', user.id)
+    .is('left_at', null)
   const folderIds = (memberships ?? []).map((m) => m.folder_id)
   if (!folderIds.length) return []
   const unreadMap = new Map((memberships ?? []).map((m) => [m.folder_id, m.last_viewed_at == null]))
@@ -175,6 +176,7 @@ export async function getMySharedFolders(): Promise<SharedByMeFolder[]> {
     .select('folder_id')
     .eq('owner_id', user.id)
     .in('folder_id', folderIds)
+    .is('left_at', null)
 
   const counts = new Map<string, number>()
   for (const r of rows ?? []) counts.set(r.folder_id, (counts.get(r.folder_id) ?? 0) + 1)
@@ -222,14 +224,26 @@ export async function getSharedFolderNoteItems(folderId: string): Promise<Shared
   return data ?? []
 }
 
+// Soft-marks left_at rather than deleting the row, so the owner can see who
+// left (a real, meaningful state) instead of them just silently vanishing
+// from the collaborator list with no trace. join_shared_folder's own
+// ON CONFLICT clears left_at back to null on rejoin, so tapping the same
+// invite link again correctly reactivates the same row.
 export async function leaveSharedFolder(folderId: string): Promise<void> {
-  await supabase.from('folder_collaborators').delete().eq('folder_id', folderId)
+  await supabase.from('folder_collaborators').update({ left_at: new Date().toISOString() }).eq('folder_id', folderId)
 }
 
 export interface FolderCollaborator {
   userId: string
   email: string
   joinedAt: string
+  /** Set once this person has left (soft-marked, not deleted) -- null while
+   * still an active member. */
+  leftAt: string | null
+  /** Set once this person has opened the folder at least once -- same field
+   * that drives the With Me unread dot, reused here as the owner-facing
+   * "has this person actually looked at it yet" signal. */
+  lastViewedAt: string | null
 }
 
 export async function getFolderCollaborators(folderId: string): Promise<FolderCollaborator[]> {
@@ -239,6 +253,8 @@ export async function getFolderCollaborators(folderId: string): Promise<FolderCo
     userId: row.out_user_id,
     email: row.out_email,
     joinedAt: row.out_joined_at,
+    leftAt: row.out_left_at,
+    lastViewedAt: row.out_last_viewed_at,
   }))
 }
 

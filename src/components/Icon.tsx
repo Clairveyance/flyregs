@@ -83,6 +83,7 @@ const SF_TO_IONICONS: Record<string, string> = {
   'exclamationmark.triangle': 'warning-outline',
   'arrow.up.left.and.arrow.down.right': 'expand-outline',
   'eye': 'eye-outline',
+  'eye.fill': 'eye',
   'eye.slash': 'eye-off-outline',
 }
 

@@ -266,7 +266,10 @@ export default function FolderDetail() {
 
   const handleRemoveCollaborator = (c: FolderCollaborator) => {
     if (!folder) return
-    Alert.alert('Remove Access', `Remove ${c.email} from "${folder.name}"? They can rejoin later with a new invite link.`, [
+    // Same invite link works for anyone who has it, indefinitely (there's
+    // no per-person one-time token) -- correcting the earlier copy here,
+    // which implied a "new" link would be needed to rejoin.
+    Alert.alert('Remove Access', `Remove ${c.email} from "${folder.name}"? They'll need to use the invite link again to rejoin.`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
@@ -298,6 +301,9 @@ export default function FolderDetail() {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     shareNote(note)
   }
+
+  const activeCollaborators = collaborators.filter((c) => !c.leftAt)
+  const leftCollaborators = collaborators.filter((c) => c.leftAt)
 
   const totalCount = acEntries.length + noteEntries.length
 
@@ -357,25 +363,67 @@ export default function FolderDetail() {
         )}
       </View>
 
-      {collaborators.length > 0 && (
+      {/* Gated on the folder actually being shared (folder.shared, set the
+          moment a link is first generated), not on collaborators.length --
+          that used to hide this entire section, X-button and all, the
+          instant a folder had 0 active members, which is the normal state
+          right after sharing and before anyone's joined yet. */}
+      {folder?.shared && (
         <View style={[styles.collabSection, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}>
           <Pressable style={styles.collabHeader} onPress={() => setCollabExpanded((v) => !v)}>
             <Icon name="person.2.fill" size={15} color={tokens.t2} />
             <Text style={[styles.collabHeaderText, { color: tokens.t2, fontSize: fs(13) }]}>
-              {collaborators.length} {collaborators.length === 1 ? 'person has' : 'people have'} joined
+              {activeCollaborators.length === 0
+                ? 'No one has joined yet'
+                : `${activeCollaborators.length} ${activeCollaborators.length === 1 ? 'person has' : 'people have'} joined`}
             </Text>
             <Icon name={collabExpanded ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
           </Pressable>
-          {collabExpanded && collaborators.map((c) => (
-            <View key={c.userId} style={[styles.collabRow, { borderTopColor: tokens.bdr }]}>
-              <Text style={[styles.collabEmail, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
-                {c.email}
-              </Text>
-              <Pressable onPress={() => handleRemoveCollaborator(c)} hitSlop={8}>
-                <Icon name="xmark.circle" size={18} color={tokens.t4} />
-              </Pressable>
-            </View>
-          ))}
+          {collabExpanded && (
+            <>
+              {activeCollaborators.map((c) => (
+                <View key={c.userId} style={[styles.collabRow, { borderTopColor: tokens.bdr }]}>
+                  {/* Opened indicator: filled when they've viewed the folder
+                      at least once (same field driving the With Me unread
+                      dot), hollow otherwise -- lets the owner tell "joined,
+                      hasn't looked yet" from "joined and has actually seen
+                      it," the same distinction WhatsApp's delivered/read
+                      ticks draw. There's no third "invited, hasn't joined"
+                      state to show here -- a native share-sheet link genuinely
+                      carries no recipient identity until someone redeems it,
+                      so that state isn't something the app can know. */}
+                  <Icon
+                    name={c.lastViewedAt ? 'eye.fill' : 'eye.slash'}
+                    size={13}
+                    color={c.lastViewedAt ? tokens.grn : tokens.t4}
+                  />
+                  <Text style={[styles.collabEmail, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
+                    {c.email}
+                  </Text>
+                  <Pressable onPress={() => handleRemoveCollaborator(c)} hitSlop={8}>
+                    <Icon name="xmark.circle" size={18} color={tokens.t4} />
+                  </Pressable>
+                </View>
+              ))}
+              {leftCollaborators.length > 0 && (
+                <>
+                  <View style={[styles.collabLeftDivider, { borderTopColor: tokens.bdr }]}>
+                    <Text style={[styles.collabLeftLabel, { color: tokens.red, fontSize: fs(11) }]}>LEFT THE FOLDER</Text>
+                  </View>
+                  {leftCollaborators.map((c) => (
+                    <View key={c.userId} style={[styles.collabRow, { borderTopColor: tokens.bdr }]}>
+                      <Text style={[styles.collabEmail, { color: tokens.red, fontSize: fs(13.5) }]} numberOfLines={1}>
+                        {c.email}
+                      </Text>
+                      <Pressable onPress={() => handleRemoveCollaborator(c)} hitSlop={8}>
+                        <Icon name="xmark.circle" size={18} color={tokens.red} />
+                      </Pressable>
+                    </View>
+                  ))}
+                </>
+              )}
+            </>
+          )}
         </View>
       )}
 
@@ -673,6 +721,8 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   collabEmail: { flex: 1 },
+  collabLeftDivider: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4, borderTopWidth: StyleSheet.hairlineWidth },
+  collabLeftLabel: { fontWeight: '700', letterSpacing: 0.4 },
 
   renameBar: {
     flexDirection: 'row',

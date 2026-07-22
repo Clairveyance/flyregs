@@ -28,7 +28,20 @@ export function FigureViewer({
   useAllowRotation(!!figure)
 
   return (
-    <Modal visible={!!figure} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={!!figure}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      // React Native's <Modal> defaults to portrait-only on iOS regardless
+      // of the app's own orientation lock/unlock (useAllowRotation above) --
+      // a modally-presented view controller has its own separate
+      // supportedInterfaceOrientations, distinct from the root/pushed-screen
+      // one pdf-viewer.tsx relies on. This is the actual reason PDF rotation
+      // worked but Figures & Tables didn't: the router-pushed PDF screen
+      // followed the root's unlocked mask, this Modal never did.
+      supportedOrientations={['portrait', 'landscape-left', 'landscape-right']}
+    >
       <View style={[styles.root, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Text style={[styles.headerText, { fontSize: fs(13.5) }]} numberOfLines={1}>
