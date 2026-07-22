@@ -1,8 +1,9 @@
-import { Modal, View, Text, Image, Pressable, ScrollView, StyleSheet, Dimensions } from 'react-native'
+import { Modal, View, Text, Image, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
+import { useAllowRotation } from '@/lib/orientation'
 import type { FormulaRef } from '@/types'
 
 // Full-screen viewer for a flagged formula page image. Deliberately a
@@ -21,10 +22,23 @@ export function FormulaRefViewer({
   const { tokens } = useTheme()
   const fs = useFS()
   const insets = useSafeAreaInsets()
-  const { width, height } = Dimensions.get('window')
+  // useWindowDimensions (not Dimensions.get, a one-time read) so the image
+  // actually reflows to fill the new width/height when the device rotates
+  // while this viewer is open — see useAllowRotation below.
+  const { width, height } = useWindowDimensions()
+  useAllowRotation(!!formulaRef)
 
   return (
-    <Modal visible={!!formulaRef} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={!!formulaRef}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      // Same fix as FigureViewer.tsx: RN's <Modal> defaults to portrait-only
+      // on iOS regardless of the app's own orientation lock/unlock, so it
+      // needs its own supportedOrientations to actually rotate.
+      supportedOrientations={['portrait', 'landscape-left', 'landscape-right']}
+    >
       <View style={[styles.root, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Text style={[styles.headerText, { fontSize: fs(13.5) }]} numberOfLines={1}>
