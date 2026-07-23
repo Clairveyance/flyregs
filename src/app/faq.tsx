@@ -106,7 +106,7 @@ const FAQ: QA[] = [
     q: 'What\'s the difference between Back up & sync and Offline?',
     a: [
       'These are two separate Premium features that solve different problems:',
-      '• Back up & sync — mirrors your bookmarks, folders, and notes to the cloud, so they follow your account to a new phone or survive a reinstall instead of living only on this one device. It\'s off by default; turn it on in Saved.',
+      '• Back up & sync — mirrors your bookmarks, folders, and notes to the cloud, so they follow your account to a new phone, a second device (like a tablet), or survive a reinstall instead of living only on this one device. It\'s off by default; turn it on in Saved.',
       '• Offline — downloads the actual AC content to your device so you can open and read it with no internet connection at all (a flight, a hangar with no signal). This works independent of Back up & sync — offline downloads stay on your device either way.',
       'Sharing a folder doesn\'t require Back up & sync to be on — a shared folder reaches your collaborators on its own, while the rest of your library stays exactly as local-only as you\'ve set it.',
     ],
