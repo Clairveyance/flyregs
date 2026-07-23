@@ -4,6 +4,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { useAllowRotation } from '@/lib/orientation'
+import { useCachedImage } from '@/lib/imageCache'
 import type { FormulaRef } from '@/types'
 
 // Full-screen viewer for a flagged formula page image. Deliberately a
@@ -27,6 +28,10 @@ export function FormulaRefViewer({
   // while this viewer is open — see useAllowRotation below.
   const { width, height } = useWindowDimensions()
   useAllowRotation(!!formulaRef)
+  // Local cached copy if this AC was downloaded for offline reading (see
+  // handleDownload in ac/[id].tsx) -- falls back to the live remote URL
+  // instantly if nothing's cached yet, so online viewing never regresses.
+  const imageUri = useCachedImage(formulaRef?.id ?? null, formulaRef?.image_url ?? null)
 
   return (
     <Modal
@@ -64,7 +69,7 @@ export function FormulaRefViewer({
         >
           {formulaRef && (
             <Image
-              source={{ uri: formulaRef.image_url }}
+              source={{ uri: imageUri ?? formulaRef.image_url }}
               style={{ width, height: height - insets.top - 90 }}
               resizeMode="contain"
             />

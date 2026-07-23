@@ -4,6 +4,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { useAllowRotation } from '@/lib/orientation'
+import { useCachedImage } from '@/lib/imageCache'
 import type { AcFigure } from '@/types'
 
 // Full-screen viewer for a rendered Figure/Table page image. Pinch-zoom is a
@@ -26,6 +27,10 @@ export function FigureViewer({
   // while this viewer is open — see useAllowRotation below.
   const { width, height } = useWindowDimensions()
   useAllowRotation(!!figure)
+  // Local cached copy if this AC was downloaded for offline reading (see
+  // handleDownload in ac/[id].tsx) -- falls back to the live remote URL
+  // instantly if nothing's cached yet, so online viewing never regresses.
+  const imageUri = useCachedImage(figure?.id ?? null, figure?.image_url ?? null)
 
   return (
     <Modal
@@ -63,7 +68,7 @@ export function FigureViewer({
         >
           {figure && (
             <Image
-              source={{ uri: figure.image_url }}
+              source={{ uri: imageUri ?? figure.image_url }}
               style={{ width, height: height - insets.top - 56 }}
               resizeMode="contain"
             />

@@ -14,6 +14,7 @@ import {
 } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import * as Clipboard from 'expo-clipboard'
+import * as Sentry from '@sentry/react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
@@ -25,6 +26,7 @@ import { ACBody, ACBodyHandle } from '@/components/ACBody'
 import { addRecent } from '@/lib/recents'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
 import { getDownloads, isDownloaded, addDownload, removeDownload } from '@/lib/downloads'
+import { getCachedImageUri } from '@/lib/imageCache'
 import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
 import { blockText, ACBlock } from '@/lib/acFormat'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
@@ -73,6 +75,7 @@ export default function ACDetailScreen() {
   const [ac, setAC] = useState<AdvisoryCircular | null>(null)
   const [bookmarked, setBookmarked] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
+  const [downloadBusy, setDownloadBusy] = useState(false)
   const [folderPickerVisible, setFolderPickerVisible] = useState(false)
   const [confirmTick, setConfirmTick] = useState(0)
   const [confirmLabel, setConfirmLabel] = useState('')
@@ -177,6 +180,8 @@ export default function ACDetailScreen() {
   }, [matchCount])
 
   useEffect(() => {
+    setFigures(null)
+    setFormulaRefs(null)
     supabase
       .from('advisory_circulars')
       .select('id,document_number,title,date_issued,office,subject_series,description,pdf_blocks,pdf_url_cached,pdf_url_faa,change_number,status,cancels,document_id,updated_at,changed_block_indices')
@@ -193,10 +198,36 @@ export default function ACDetailScreen() {
             date_issued: loaded.date_issued,
             subject_series: loaded.subject_series,
           })
+          // Only fetched live when the main AC fetch itself succeeded --
+          // when it didn't (see the offline branch below), these would
+          // otherwise fire their own doomed network calls and, depending on
+          // exactly how they fail, could either leave Figures & Tables stuck
+          // on "loading forever" or silently overwrite the offline copy's
+          // cached figures/formulas with empty arrays.
+          supabase
+            .from('ac_figures')
+            .select('id,label,caption,page,image_url')
+            .eq('ac_id', id)
+            .order('sort_order', { ascending: true })
+            .then(({ data }) => setFigures((data as AcFigure[]) ?? []))
+          // Separate query, separate table -- deliberately not combined with
+          // the ac_figures fetch above so this can never interfere with the
+          // Figures & Tables pipeline (see FormulaRef type comment in
+          // src/types/index.ts).
+          supabase
+            .from('ac_formula_refs')
+            .select('id,label,note,page,image_url')
+            .eq('ac_id', id)
+            .order('sort_order', { ascending: true })
+            .then(({ data }) => setFormulaRefs((data as FormulaRef[]) ?? []))
         } else {
           // Live fetch failed (most likely: no network). Fall back to a
           // downloaded offline copy if this AC was saved for offline reading —
           // otherwise the Download feature stores content it can never show.
+          // Figures/formula-refs come from the SAME cached record (their
+          // images were pre-downloaded to local storage in handleDownload,
+          // see imageCache.ts) instead of the live queries above, which would
+          // just fail with no network anyway.
           const downloads = await getDownloads()
           const cached = downloads.find((d) => d.id === id)
           if (cached) {
@@ -219,6 +250,8 @@ export default function ACDetailScreen() {
               updated_at: '',
               changed_block_indices: null,
             })
+            setFigures(cached.figures ?? [])
+            setFormulaRefs(cached.formulaRefs ?? [])
           }
         }
         setLoading(false)
@@ -226,23 +259,6 @@ export default function ACDetailScreen() {
     isBookmarked(id).then(setBookmarked)
     isDownloaded(id).then(setDownloaded)
     getHighlightsForAC(id).then((hs) => setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!))))
-    setFigures(null)
-    supabase
-      .from('ac_figures')
-      .select('id,label,caption,page,image_url')
-      .eq('ac_id', id)
-      .order('sort_order', { ascending: true })
-      .then(({ data }) => setFigures((data as AcFigure[]) ?? []))
-    // Separate query, separate table -- deliberately not combined with the
-    // ac_figures fetch above so this can never interfere with the Figures &
-    // Tables pipeline (see FormulaRef type comment in src/types/index.ts).
-    setFormulaRefs(null)
-    supabase
-      .from('ac_formula_refs')
-      .select('id,label,note,page,image_url')
-      .eq('ac_id', id)
-      .order('sort_order', { ascending: true })
-      .then(({ data }) => setFormulaRefs((data as FormulaRef[]) ?? []))
   }, [id])
 
   // Opened from a highlight row in Saved (?hlId=<highlight bookmark id>) —
@@ -320,18 +336,49 @@ export default function ACDetailScreen() {
       await removeDownload(ac.id)
       return
     }
-    setDownloaded(true) // optimistic
+    // Not optimistic this time, unlike the plain-text case below -- pulling
+    // every Figure/Table and Formula-to-Verify image over the network can
+    // take a real, visible amount of time (several images, not just a JSON
+    // blob), and flipping to "Saved offline" before those bytes actually
+    // exist on disk would be a lie the moment the device loses signal.
+    setDownloadBusy(true)
+    // Pre-cache every image now, while there's still a network connection to
+    // fetch them with -- getCachedImageUri persists to local disk (see
+    // imageCache.ts) keyed by each figure/formula's own id, which is exactly
+    // what FigureViewer/FormulaRefViewer now read from at render time. This
+    // is what actually makes T&Fs viewable (and thus rotatable, once the
+    // image loads at all) with no network -- storing just the label/caption
+    // metadata below would leave the section listed but every image broken.
+    // allSettled, not all -- one image failing to cache (bad connection mid-
+    // transfer, expo-file-system genuinely unsupported on this platform)
+    // must never take down the whole download and lose the reliable text
+    // part too. Confirmed live: an uncaught rejection here (the original
+    // Promise.all version) silently aborted before addDownload ever ran,
+    // leaving the button stuck on "Saving…" forever with nothing saved.
+    await Promise.allSettled([
+      ...(figures ?? []).map((f) => getCachedImageUri(f.id, f.image_url)),
+      ...(formulaRefs ?? []).map((f) => getCachedImageUri(f.id, f.image_url)),
+    ])
     // pdf_blocks is already loaded in `ac` (it's part of the main fetch above) —
     // that's also exactly what ACBody renders, so caching it here is what
     // actually makes the offline copy readable with no network connection.
-    await addDownload({
-      id: ac.id,
-      document_number: ac.document_number,
-      title: ac.title,
-      subject_series: ac.subject_series,
-      size: ac.pdf_blocks ? JSON.stringify(ac.pdf_blocks).length : 24_000,
-      pdf_blocks: ac.pdf_blocks ?? null,
-    })
+    try {
+      await addDownload({
+        id: ac.id,
+        document_number: ac.document_number,
+        title: ac.title,
+        subject_series: ac.subject_series,
+        size: ac.pdf_blocks ? JSON.stringify(ac.pdf_blocks).length : 24_000,
+        pdf_blocks: ac.pdf_blocks ?? null,
+        figures: figures ?? null,
+        formulaRefs: formulaRefs ?? null,
+      })
+      setDownloaded(true)
+    } catch (err) {
+      Sentry.captureException(err)
+      Alert.alert('Error', "Couldn't save this AC for offline reading. Try again in a moment.")
+    }
+    setDownloadBusy(false)
   }
 
   const handleShare = async () => {
@@ -801,19 +848,24 @@ export default function ACDetailScreen() {
                   : { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 },
               ]}
               onPress={handleDownload}
+              disabled={downloadBusy}
             >
-              <Icon
-                name={downloaded ? 'checkmark.circle' : 'arrow.down.circle'}
-                size={17}
-                color={downloaded ? tokens.grn : tokens.t2}
-              />
+              {downloadBusy ? (
+                <ActivityIndicator size="small" color={tokens.t2} />
+              ) : (
+                <Icon
+                  name={downloaded ? 'checkmark.circle' : 'arrow.down.circle'}
+                  size={17}
+                  color={downloaded ? tokens.grn : tokens.t2}
+                />
+              )}
               <Text
                 style={[
                   styles.downloadBtnText,
                   { color: downloaded ? tokens.grn : tokens.t1, fontSize: fs(14) },
                 ]}
               >
-                {downloaded ? 'Saved offline' : 'Download'}
+                {downloadBusy ? 'Saving…' : downloaded ? 'Saved offline' : 'Download'}
               </Text>
             </Pressable>
           </View>

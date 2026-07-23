@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { ACBlock } from '@/lib/acFormat'
+import type { AcFigure, FormulaRef } from '@/types'
 
 const KEY = '@flyregs/downloads'
 
@@ -16,6 +17,17 @@ export interface DownloadedAC {
    * "downloaded" copy to be readable with no network connection.
    */
   pdf_blocks?: ACBlock[] | null
+  /**
+   * Figures & Tables / Formulas-to-Verify metadata, cached alongside the
+   * text — without this, the offline copy's Figures & Tables section had
+   * nothing to render at all (the live query that would normally populate
+   * it just fails with no network). The actual image BYTES are cached
+   * separately via imageCache.ts, keyed by each entry's own `id` — see
+   * handleDownload() in ac/[id].tsx, which pre-downloads every one of these
+   * images before the AC is considered "saved offline."
+   */
+  figures?: AcFigure[] | null
+  formulaRefs?: FormulaRef[] | null
   downloadedAt: string
 }
 
