@@ -269,7 +269,7 @@ export default function FolderDetail() {
     // Same invite link works for anyone who has it, indefinitely (there's
     // no per-person one-time token) -- correcting the earlier copy here,
     // which implied a "new" link would be needed to rejoin.
-    Alert.alert('Remove Access', `Remove ${c.email} from "${folder.name}"? They'll need to use the invite link again to rejoin.`, [
+    Alert.alert('Remove Access', `Remove ${c.displayLabel} from "${folder.name}"? They'll need to use the invite link again to rejoin.`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
@@ -398,7 +398,7 @@ export default function FolderDetail() {
                     color={c.lastViewedAt ? tokens.grn : tokens.t4}
                   />
                   <Text style={[styles.collabEmail, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
-                    {c.email}
+                    {c.displayLabel}
                   </Text>
                   <Pressable onPress={() => handleRemoveCollaborator(c)} hitSlop={8}>
                     <Icon name="xmark.circle" size={18} color={tokens.t4} />
@@ -413,7 +413,7 @@ export default function FolderDetail() {
                   {leftCollaborators.map((c) => (
                     <View key={c.userId} style={[styles.collabRow, { borderTopColor: tokens.bdr }]}>
                       <Text style={[styles.collabEmail, { color: tokens.red, fontSize: fs(13.5) }]} numberOfLines={1}>
-                        {c.email}
+                        {c.displayLabel}
                       </Text>
                       <Pressable onPress={() => handleRemoveCollaborator(c)} hitSlop={8}>
                         <Icon name="xmark.circle" size={18} color={tokens.red} />

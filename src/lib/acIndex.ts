@@ -96,3 +96,38 @@ export function searchLocal(query: string, index: ACIndexEntry[]): ACIndexEntry[
 export function isACQuery(query: string): boolean {
   return /^\d/.test(query.trim())
 }
+
+// ─── Note body AC auto-linking ──────────────────────────────────────────────
+// Originally local to notes.tsx; moved here so any other read-only note view
+// (e.g. the shared-folder collaborator view) can auto-link the same way
+// instead of only ever seeing the single linked_ac field.
+
+// Candidate shape only — e.g. "61-65K", "20-172", "135-17". Real ACs are
+// validated afterwards against the live AC index so arbitrary number pairs
+// (phone numbers, dates, ratios) never get linked.
+const AC_PATTERN = /\b(\d{1,3}-\d{1,4}[A-Za-z]{0,2})\b/g
+
+// A candidate is only a real AC reference when it's a *complete* number, not a
+// truncation of a longer one. "120-9" is a literal string-prefix of "120-90",
+// "120-92", etc., but those are different ACs — so a plain startsWith() check
+// would wrongly link "120-9". We require the real document_number to either
+// equal the candidate exactly, or continue with a revision letter (not another
+// digit) right after it — that's what distinguishes "120-90" (which should
+// match "120-90"/"120-90A"/...) from "120-9" (which should match nothing).
+function isValidACCandidate(candidate: string, index: ACIndexEntry[]): boolean {
+  const lc = candidate.toLowerCase()
+  return index.some((e) => {
+    const doc = e.document_number.toLowerCase()
+    if (doc === lc) return true
+    if (!doc.startsWith(lc)) return false
+    const nextChar = doc[lc.length]
+    return nextChar === undefined || !/[0-9]/.test(nextChar)
+  })
+}
+
+export function detectACs(text: string, index: ACIndexEntry[]): string[] {
+  if (index.length === 0) return []
+  const candidates = [...text.matchAll(AC_PATTERN)].map((m) => m[1])
+  const found = candidates.filter((c) => isValidACCandidate(c, index))
+  return [...new Set(found)]
+}

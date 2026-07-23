@@ -235,7 +235,10 @@ export async function leaveSharedFolder(folderId: string): Promise<void> {
 
 export interface FolderCollaborator {
   userId: string
-  email: string
+  /** The collaborator's chosen handle (Account > User Handle), falling back
+   * to the local part of their email if they haven't set one -- never the
+   * full email/domain, matching get_shared_folder_owners' own fallback. */
+  displayLabel: string
   joinedAt: string
   /** Set once this person has left (soft-marked, not deleted) -- null while
    * still an active member. */
@@ -251,7 +254,7 @@ export async function getFolderCollaborators(folderId: string): Promise<FolderCo
   if (error) throw error
   return (data ?? []).map((row: any) => ({
     userId: row.out_user_id,
-    email: row.out_email,
+    displayLabel: row.out_display_label,
     joinedAt: row.out_joined_at,
     leftAt: row.out_left_at,
     lastViewedAt: row.out_last_viewed_at,

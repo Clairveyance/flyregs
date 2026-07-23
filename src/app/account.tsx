@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   View,
   Text,
+  TextInput,
   Image,
   Pressable,
   ScrollView,
@@ -24,7 +25,7 @@ import { restorePurchases } from '@/lib/revenuecat'
 import { useFS } from '@/context/fontScale'
 import { SUPPORT_EMAIL } from '@/lib/appInfo'
 import { supabase } from '@/lib/supabase'
-import { getAvatarUrl, getAvatarPresetId, resolveAvatarUrl, resolveAvatarPresetId, pickAndUploadAvatar, takeAndUploadAvatar, removeAvatar, selectAvatarPreset } from '@/lib/avatar'
+import { getAvatarUrl, getAvatarPresetId, resolveAvatarUrl, resolveAvatarPresetId, pickAndUploadAvatar, takeAndUploadAvatar, removeAvatar, selectAvatarPreset, getDisplayName } from '@/lib/avatar'
 import { getAvatarPreset } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
 import { AvatarEditModal } from '@/components/AvatarEditModal'
@@ -57,6 +58,42 @@ export default function AccountScreen() {
   const [alertsEnabled, setAlertsEnabled] = useState(false)
   const [alertsBusy, setAlertsBusy] = useState(false)
   const [deleting, setDeleting] = useState(false)
+
+  // User Handle -- shown to other people wherever this account appears in a
+  // shared context (folder collaborator lists, "Shared by X" attribution,
+  // the branded note-share card) instead of email. Stored in the same
+  // user_metadata.display_name field getDisplayName()/the sharing RPCs
+  // already read -- setting it here is a real, immediate write via
+  // updateUser(), not a separate system, so every one of those call sites
+  // picks it up automatically with no other code change.
+  const existingHandle = (session?.user?.user_metadata as { display_name?: string } | undefined)?.display_name ?? ''
+  const [handleInput, setHandleInput] = useState(existingHandle)
+  const [handleSaving, setHandleSaving] = useState(false)
+  const [handleDirty, setHandleDirty] = useState(false)
+
+  // session loads asynchronously -- on first render it's often still null,
+  // so useState(existingHandle) above captures an empty string that a plain
+  // initializer would never revisit once session actually arrives. Sync
+  // whenever the real value changes, but only while the user isn't mid-edit
+  // (handleDirty) so this can never clobber an unsaved draft.
+  useEffect(() => {
+    if (!handleDirty) setHandleInput(existingHandle)
+  }, [existingHandle])
+
+  const handleSaveHandle = async () => {
+    const trimmed = handleInput.trim().slice(0, 40)
+    setHandleSaving(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ data: { display_name: trimmed || null } })
+      if (error) throw error
+      setHandleInput(trimmed)
+      setHandleDirty(false)
+    } catch (err: any) {
+      Sentry.captureException(err)
+      Alert.alert('Error', 'Could not save your handle. Try again in a moment.')
+    }
+    setHandleSaving(false)
+  }
 
   useEffect(() => {
     if (session?.user?.id && isPremium) {
@@ -351,6 +388,39 @@ export default function AccountScreen() {
           </View>
         </View>
 
+        {/* Profile group — User Handle */}
+        <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>PROFILE</Text>
+        <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, padding: 14 }]}>
+          <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5), marginBottom: 8 }]}>User Handle</Text>
+          <View style={styles.handleInputRow}>
+            <TextInput
+              style={[styles.handleInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg, fontSize: fs(14.5) }]}
+              value={handleInput}
+              onChangeText={(v) => { setHandleInput(v); setHandleDirty(true) }}
+              placeholder="e.g. Ryan C."
+              placeholderTextColor={tokens.t4}
+              maxLength={40}
+              autoCapitalize="words"
+              returnKeyType="done"
+              onSubmitEditing={handleSaveHandle}
+            />
+            {handleSaving ? (
+              <ActivityIndicator size="small" color={tokens.t3} style={styles.handleSaveBtn} />
+            ) : (
+              <Pressable
+                style={[styles.handleSaveBtn, { backgroundColor: handleDirty ? tokens.blu : tokens.bg4 }]}
+                onPress={handleSaveHandle}
+                disabled={!handleDirty}
+              >
+                <Text style={[styles.handleSaveBtnText, { fontSize: fs(13) }]}>Save</Text>
+              </Pressable>
+            )}
+          </View>
+          <Text style={[styles.handleHelp, { color: tokens.t3, fontSize: fs(12) }]}>
+            If no User Handle is set, your email prefix will be shown in its place in Premium shared folders and anywhere else this name is relevant to others.
+          </Text>
+        </View>
+
         {/* Subscription group */}
         <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>SUBSCRIPTION</Text>
         <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
@@ -527,6 +597,11 @@ const styles = StyleSheet.create({
   rowLabel: { flex: 1, fontSize: 14.5, fontWeight: '500' },
   premBadge: { alignSelf: 'flex-start', borderRadius: 6, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 2, marginTop: 3 },
   premBadgeText: { fontSize: 9.5, fontWeight: '700', letterSpacing: 0.4 },
+  handleInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  handleInput: { flex: 1, height: 42, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12 },
+  handleSaveBtn: { height: 42, minWidth: 60, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  handleSaveBtnText: { color: '#fff', fontWeight: '700' },
+  handleHelp: { marginTop: 8, lineHeight: 17 },
 
   // signed out
   signedOut: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 10 },

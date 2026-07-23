@@ -11,6 +11,7 @@ import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
+import { getACIndex, detectACs, ACIndexEntry } from '@/lib/acIndex'
 
 interface ACRow {
   id: string
@@ -55,6 +56,12 @@ export default function SharedFolderDetail() {
   const [loading, setLoading] = useState(true)
   const [removed, setRemoved] = useState(false)
   const [openNote, setOpenNote] = useState<NoteRow | null>(null)
+  const [acIndex, setAcIndex] = useState<ACIndexEntry[]>([])
+
+  // Same AC index the owner's own Notes tab uses to auto-link every AC
+  // mention in a note's body, not just the single linked_ac field -- a
+  // collaborator should see the same auto-linked chips the owner does.
+  useEffect(() => { getACIndex().then(setAcIndex) }, [])
 
   const load = useCallback(async () => {
     if (typeof id !== 'string') return
@@ -251,20 +258,40 @@ export default function SharedFolderDetail() {
               <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(18) }]}>
                 {openNote?.title || 'Untitled'}
               </Text>
-              {openNote?.linked_ac && (
-                <Pressable
-                  style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr, alignSelf: 'flex-start', marginBottom: 10 }]}
-                  onPress={() => {
-                    const linkedAc = openNote.linked_ac
-                    const ac = acs.find((a) => a.document_number === linkedAc)
-                    if (ac) { setOpenNote(null); router.push(`/ac/${ac.id}`) }
-                  }}
-                >
-                  <Icon name="link" size={9} color={tokens.blu} />
-                  <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>AC {openNote.linked_ac}</Text>
-                </Pressable>
-              )}
               <Text style={[styles.modalBody, { color: tokens.t2, fontSize: fs(14.5) }]}>{openNote?.body}</Text>
+
+              {/* Every AC mentioned in the body, auto-linked exactly like the
+                  owner's own Notes tab — not just the single linked_ac field,
+                  which only ever stores the first mention. */}
+              {(() => {
+                const mentioned = openNote ? detectACs(openNote.body, acIndex) : []
+                if (!mentioned.length) return null
+                return (
+                  <View style={styles.modalChipSection}>
+                    <Text style={[styles.detectedLabel, { color: tokens.t3, fontSize: fs(11) }]}>AUTO-LINKED ACS</Text>
+                    <View style={styles.detectedChips}>
+                      {mentioned.map((doc) => {
+                        const entry = acIndex.find((e) => e.document_number === doc)
+                        return (
+                          <Pressable
+                            key={doc}
+                            style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
+                            disabled={!entry}
+                            onPress={() => {
+                              if (!entry) return
+                              setOpenNote(null)
+                              router.push(`/ac/${entry.id}`)
+                            }}
+                          >
+                            <Icon name="link" size={9} color={tokens.blu} />
+                            <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>AC {doc}</Text>
+                          </Pressable>
+                        )
+                      })}
+                    </View>
+                  </View>
+                )
+              })()}
             </ScrollView>
           </View>
         </View>
@@ -335,4 +362,7 @@ const styles = StyleSheet.create({
   modalScroll: {},
   modalTitle: { fontWeight: '700', marginBottom: 10 },
   modalBody: { lineHeight: 21 },
+  modalChipSection: { marginTop: 16 },
+  detectedLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 8 },
+  detectedChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 })
