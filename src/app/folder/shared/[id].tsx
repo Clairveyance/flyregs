@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, SectionList, Pressable, ActivityIndicator, Alert, StyleSheet } from 'react-native'
+import { View, Text, SectionList, Pressable, ActivityIndicator, Alert, StyleSheet, Modal, ScrollView } from 'react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -26,6 +26,17 @@ interface NoteRow {
   title: string
   body: string
   linked_ac: string | null
+  updated_at: string
+}
+
+function timeAgo(iso: string): string {
+  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
+  if (secs < 3600) return `${Math.max(1, Math.floor(secs / 60))}m ago`
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`
+  const days = Math.floor(secs / 86400)
+  if (days === 1) return 'yesterday'
+  if (days < 7) return `${days} days ago`
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 // Read-only view of a folder someone else shared with you — no rename,
@@ -43,6 +54,7 @@ export default function SharedFolderDetail() {
   const [notes, setNotes] = useState<NoteRow[]>([])
   const [loading, setLoading] = useState(true)
   const [removed, setRemoved] = useState(false)
+  const [openNote, setOpenNote] = useState<NoteRow | null>(null)
 
   const load = useCallback(async () => {
     if (typeof id !== 'string') return
@@ -82,7 +94,7 @@ export default function SharedFolderDetail() {
     if (noteIds.length) {
       const { data: noteRows } = await supabase
         .from('synced_notes')
-        .select('id, title, body, linked_ac')
+        .select('id, title, body, linked_ac, updated_at')
         .in('id', noteIds)
         .eq('deleted', false)
       setNotes(noteRows ?? [])
@@ -193,21 +205,70 @@ export default function SharedFolderDetail() {
                 <Icon name="chevron.right" size={14} color={tokens.t4} />
               </Pressable>
             ) : (
-              <View style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, alignItems: 'flex-start' }]}>
-                <Icon name="square.and.pencil" size={16} color={tokens.t3} style={{ marginTop: 2 }} />
+              <Pressable
+                style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                onPress={() => setOpenNote(item)}
+              >
+                <View style={[styles.typeBadge, { backgroundColor: tokens.gdim, borderColor: tokens.gbdr }]}>
+                  <Text style={[styles.typeBadgeText, { color: tokens.grn, fontSize: fs(9.5) }]}>NOTE</Text>
+                </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
-                    {item.title || 'Untitled'}{item.linked_ac ? ` (AC ${item.linked_ac})` : ''}
+                  <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
+                    {item.title || 'Untitled'}
                   </Text>
-                  <Text style={[styles.noteBody, { color: tokens.t3, fontSize: fs(13) }]} numberOfLines={4}>
+                  <Text style={[styles.noteBody, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={2}>
                     {item.body}
                   </Text>
+                  <View style={styles.rowFooter}>
+                    <Text style={[styles.rowMeta, { color: tokens.t4, fontSize: fs(11) }]}>{timeAgo(item.updated_at)}</Text>
+                    {item.linked_ac && (
+                      <View style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
+                        <Icon name="link" size={9} color={tokens.blu} />
+                        <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>AC {item.linked_ac}</Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
-              </View>
+                <Icon name="chevron.right" size={14} color={tokens.t4} />
+              </Pressable>
             )
           }
         />
       )}
+
+      <Modal visible={!!openNote} transparent animationType="fade" onRequestClose={() => setOpenNote(null)}>
+        <View style={[styles.modalBackdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+            <View style={styles.modalHeader}>
+              <View style={[styles.typeBadge, { backgroundColor: tokens.gdim, borderColor: tokens.gbdr }]}>
+                <Text style={[styles.typeBadgeText, { color: tokens.grn, fontSize: fs(9.5) }]}>NOTE</Text>
+              </View>
+              <Pressable onPress={() => setOpenNote(null)} hitSlop={10}>
+                <Icon name="xmark" size={18} color={tokens.t3} />
+              </Pressable>
+            </View>
+            <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingBottom: 20 }}>
+              <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(18) }]}>
+                {openNote?.title || 'Untitled'}
+              </Text>
+              {openNote?.linked_ac && (
+                <Pressable
+                  style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr, alignSelf: 'flex-start', marginBottom: 10 }]}
+                  onPress={() => {
+                    const linkedAc = openNote.linked_ac
+                    const ac = acs.find((a) => a.document_number === linkedAc)
+                    if (ac) { setOpenNote(null); router.push(`/ac/${ac.id}`) }
+                  }}
+                >
+                  <Icon name="link" size={9} color={tokens.blu} />
+                  <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>AC {openNote.linked_ac}</Text>
+                </Pressable>
+              )}
+              <Text style={[styles.modalBody, { color: tokens.t2, fontSize: fs(14.5) }]}>{openNote?.body}</Text>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -242,4 +303,36 @@ const styles = StyleSheet.create({
   rowNumBadge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 1.5 },
   rowNumBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
   rowTitle: { fontWeight: '500' },
+  typeBadge: {
+    borderRadius: 5,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    alignSelf: 'flex-start',
+  },
+  typeBadgeText: { fontWeight: '800', letterSpacing: 0.3 },
+  rowFooter: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  rowMeta: {},
+  acChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  acChipText: { fontWeight: '700' },
+  modalBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  modalCard: {
+    width: '100%',
+    maxHeight: '75%',
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 18,
+  },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  modalScroll: {},
+  modalTitle: { fontWeight: '700', marginBottom: 10 },
+  modalBody: { lineHeight: 21 },
 })
