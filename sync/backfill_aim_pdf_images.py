@@ -110,7 +110,7 @@ def upload_png(page_idx: int, png_bytes: bytes) -> str:
 
 def fetch_existing_figures() -> list[dict]:
     resp = requests.get(
-        f"{SUPABASE_URL}/rest/v1/aim_figures?select=id,paragraph_number,label,caption,image_url",
+        f"{SUPABASE_URL}/rest/v1/aim_figures?select=id,paragraph_number,label,caption,image_url,sort_order",
         headers=HEADERS,
         timeout=30,
     )
@@ -128,7 +128,7 @@ TBL_RE = re.compile(r"^TBL\s+([\d\-]+)([a-z]?)\.?\s*(.*)$")
 REAL_IMAGE_PREFIX = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET}/"
 
 
-def rebuild_tbl_figures(existing_tbl_figures: list[dict]) -> dict:
+def rebuild_tbl_figures(existing_tbl_figures: list[dict], pdf_pages: dict) -> dict:
     """Rebuilds EVERY paragraph's TBL-labeled aim_figures rows from current
     aim_paragraphs.body_text truth, replacing the old "only insert what's
     missing, disambiguate the new batch in isolation" approach.
@@ -191,7 +191,8 @@ def rebuild_tbl_figures(existing_tbl_figures: list[dict]) -> dict:
             continue
 
         blocks = bt.split("\n\n")
-        groups: dict[str, list[tuple[int, str]]] = {}
+        # All real TBL blocks in true document order (block_i order).
+        all_blocks: list[tuple[int, str, str]] = []  # (block_i, bare_label, title)
         for i, block in enumerate(blocks):
             lines = block.split("\n")
             first = lines[0].strip() if lines else ""
@@ -205,9 +206,9 @@ def rebuild_tbl_figures(existing_tbl_figures: list[dict]) -> dict:
             if not has_piped:
                 continue
             bare_label = f"TBL {m.group(1)}"
-            groups.setdefault(bare_label, []).append((i, title))
+            all_blocks.append((i, bare_label, title))
 
-        if not groups:
+        if not all_blocks:
             continue
 
         existing = existing_by_para.get(para, [])
@@ -215,37 +216,92 @@ def rebuild_tbl_figures(existing_tbl_figures: list[dict]) -> dict:
         for f in existing:
             existing_by_caption.setdefault(f["caption"], []).append(f)
 
+        # The PDF's own number is the authoritative label whenever a title
+        # match is found -- confirmed live as a real, user-caught accuracy
+        # issue: the FAA's HTML edition mislabels multiple genuinely
+        # distinct tables in one paragraph with the SAME bare label (four
+        # different Rescue Coordination Center tables all "TBL 6-2-6" in
+        # HTML, when the current AIM PDF itself numbers them 6-2-2 through
+        # 6-2-5) -- corpus-wide, 312 of 346 figures/tables were showing a
+        # synthetic a/b/c-suffixed label instead of the real, current
+        # number. Only fall back to synthetic bare+suffix disambiguation
+        # for the (much rarer) case where no PDF match exists at all.
+        #
+        # pdf_pages[title] is a LIST of every occurrence of that exact
+        # caption in the PDF, in page order -- some captions genuinely
+        # repeat for multiple distinct real tables/figures (three separate
+        # NEXRAD radar diagrams are all captioned just "NEXRAD Coverage" in
+        # the real AIM). Consumed positionally: the Nth block in THIS
+        # paragraph sharing a given title gets the Nth still-unconsumed PDF
+        # occurrence for that title, so distinct real entries don't
+        # collapse onto the same page.
+        bare_label_counts: dict[str, int] = {}
+        for _, bare_label, _ in all_blocks:
+            bare_label_counts[bare_label] = bare_label_counts.get(bare_label, 0) + 1
+        bare_label_seen: dict[str, int] = {}
+        pdf_cursor: dict[str, int] = {}
+
+        tentative: list[tuple[int, str, str]] = []  # (block_i, title, label)
+        for block_i, bare_label, title in all_blocks:
+            norm = normalize_title(title)
+            occurrences = pdf_pages.get(norm, [])
+            idx = pdf_cursor.get(norm, 0)
+            if idx < len(occurrences):
+                label = f"TBL {occurrences[idx]['number']}"
+                pdf_cursor[norm] = idx + 1
+            else:
+                n = bare_label_seen.get(bare_label, 0)
+                bare_label_seen[bare_label] = n + 1
+                suffixed = bare_label_counts[bare_label] > 1
+                label = f"{bare_label}{chr(ord('a') + n)}" if suffixed else bare_label
+            tentative.append((block_i, title, label))
+
+        # Safety net for the near-impossible case where two DIFFERENT
+        # tables in the same paragraph resolve to the same real PDF number
+        # (or one falls back to a synthetic label that collides with
+        # another's real one) -- suffix only the colliding subset, in
+        # document order, rather than letting a silent duplicate through.
+        label_counts: dict[str, int] = {}
+        for _, _, label in tentative:
+            label_counts[label] = label_counts.get(label, 0) + 1
+        occurrence: dict[str, int] = {}
+        final: list[tuple[int, str, str]] = []
+        for block_i, title, base_label in tentative:
+            if label_counts[base_label] > 1:
+                n = occurrence.get(base_label, 0)
+                occurrence[base_label] = n + 1
+                label = f"{base_label}{chr(ord('a') + n)}"
+            else:
+                label = base_label
+            final.append((block_i, title, label))
+
         new_rows = []
         changed = False
-        for bare_label, members in groups.items():
-            suffixed = len(members) > 1
-            for idx, (block_i, title) in enumerate(members):
-                correct_label = f"{bare_label}{chr(ord('a') + idx)}" if suffixed else bare_label
+        for block_i, title, correct_label in final:
+            candidates = existing_by_caption.get(title, [])
+            image_url = None
+            for c in candidates:
+                if c["image_url"] and c["image_url"].startswith(REAL_IMAGE_PREFIX):
+                    image_url = c["image_url"]
+                    break
+            if image_url is None and candidates:
+                image_url = candidates[0]["image_url"]
 
-                candidates = existing_by_caption.get(title, [])
-                image_url = None
-                for c in candidates:
-                    if c["image_url"] and c["image_url"].startswith(REAL_IMAGE_PREFIX):
-                        image_url = c["image_url"]
-                        break
-                if image_url is None and candidates:
-                    image_url = candidates[0]["image_url"]
+            new_rows.append({
+                "paragraph_number": para,
+                "label": correct_label,
+                "caption": title,
+                "image_url": image_url,
+                "sort_order": block_i,
+            })
 
-                new_rows.append({
-                    "paragraph_number": para,
-                    "label": correct_label,
-                    "caption": title,
-                    "image_url": image_url,
-                    "sort_order": block_i,
-                })
-
-                old_first_line = blocks[block_i].split("\n")[0]
-                new_first_line = f"{correct_label} {title}".rstrip()
-                if old_first_line.strip() != new_first_line:
-                    lines = blocks[block_i].split("\n")
-                    lines[0] = new_first_line
-                    blocks[block_i] = "\n".join(lines)
-                    changed = True
+            old_first_line = blocks[block_i].split("\n")[0]
+            new_first_line = f"{correct_label} {title}".rstrip()
+            if old_first_line.strip() != new_first_line:
+                lines = blocks[block_i].split("\n")
+                lines[0] = new_first_line
+                blocks[block_i] = "\n".join(lines)
+                changed = True
 
         # A no-op rebuild (same labels/captions already present) shouldn't
         # touch the DB at all -- compare against what's already there.
@@ -290,11 +346,11 @@ def apply_tbl_rebuild(plan: dict) -> None:
         resp.raise_for_status()
 
 
-def update_figure_image(fig_id: str, image_url: str) -> None:
+def update_figure(fig_id: str, **fields) -> None:
     resp = requests.patch(
         f"{SUPABASE_URL}/rest/v1/aim_figures?id=eq.{fig_id}",
         headers={**HEADERS, "Content-Type": "application/json", "Prefer": "return=minimal"},
-        json={"image_url": image_url},
+        json=fields,
         timeout=30,
     )
     resp.raise_for_status()
@@ -328,7 +384,7 @@ def main():
     fig_only = [f for f in existing if not (f.get("label") or "").startswith("TBL")]
     tbl_only = [f for f in existing if (f.get("label") or "").startswith("TBL")]
 
-    tbl_plan = rebuild_tbl_figures(tbl_only)
+    tbl_plan = rebuild_tbl_figures(tbl_only, pdf_pages)
     print(
         f"TBL rebuild-from-truth: delete={len(tbl_plan['delete_ids'])} "
         f"insert={len(tbl_plan['insert_rows'])} "
@@ -344,18 +400,95 @@ def main():
         deleted_ids = set(tbl_plan["delete_ids"])
         existing = fig_only + [f for f in tbl_only if f["id"] not in deleted_ids] + tbl_plan["insert_rows"]
 
+    # FIG labels are computed at scrape time by aim_scraper.py's own
+    # _disambiguate_figure_labels(), which has no access to the PDF and so
+    # can only produce a synthetic a/b/c-suffixed label when the FAA's HTML
+    # mislabels multiple distinct figures with one bare label — confirmed
+    # live corpus-wide, the same real-vs-synthetic mismatch TBL entries had
+    # (see rebuild_tbl_figures's docstring). Once a real PDF page match
+    # exists, its number is authoritative; correct the label here too, not
+    # just the image. TBL labels are NOT touched here — rebuild_tbl_figures
+    # already gave them their final, PDF-preferring label above.
+    #
+    # pdf_pages[title] is a list of every real occurrence of that caption —
+    # some genuinely repeat for multiple distinct figures (three separate
+    # NEXRAD radar diagrams all captioned just "NEXRAD Coverage"). Grouped
+    # by (paragraph, caption) and consumed positionally in sort_order, same
+    # convention as rebuild_tbl_figures, so each figure gets its own real
+    # page instead of every same-captioned figure colliding on the first
+    # match — confirmed live as a real crash (409 conflict) before this was
+    # paragraph-scoped and collision-checked.
+    fig_only_current = [f for f in existing if not (f.get("label") or "").startswith("TBL")]
+    fig_by_para: dict[str, list[dict]] = {}
+    for f in fig_only_current:
+        fig_by_para.setdefault(f["paragraph_number"], []).append(f)
+
     updated = 0
+    relabeled = 0
     unmatched_existing = []
-    for fig in existing:
-        title = normalize_title(fig["caption"] or "")
-        match = pdf_pages.get(title)
-        if not match:
-            unmatched_existing.append(fig)
-            continue
-        new_url = f"[dry-run page {match['page']}]" if args.dry_run else cached_image_for_page(match["page"])
-        if not args.dry_run:
-            update_figure_image(fig["id"], new_url)
-        updated += 1
+    pending_updates: list[tuple[str, dict]] = []  # (fig_id, fields) — applied after every paragraph is planned
+    for para, figs in fig_by_para.items():
+        by_caption: dict[str, list[dict]] = {}
+        for f in figs:
+            by_caption.setdefault(normalize_title(f["caption"] or ""), []).append(f)
+
+        tentative_final: dict[str, str] = {}  # fig id -> final label (changed or not)
+        image_url_for: dict[str, str] = {}
+        matched_ids: set[str] = set()
+        for norm_title, group in by_caption.items():
+            group.sort(key=lambda f: f.get("sort_order") or 0)
+            occurrences = pdf_pages.get(norm_title, [])
+            for idx, f in enumerate(group):
+                if idx >= len(occurrences):
+                    tentative_final[f["id"]] = f.get("label") or ""
+                    continue
+                match = occurrences[idx]
+                image_url_for[f["id"]] = (
+                    f"[dry-run page {match['page']}]" if args.dry_run else cached_image_for_page(match["page"])
+                )
+                tentative_final[f["id"]] = f"FIG {match['number']}"
+                matched_ids.add(f["id"])
+
+        # Collision guard: if two figures in this paragraph would end up
+        # with the same final label (a real PDF number collides with
+        # another figure's unchanged label, or — vanishingly unlikely — two
+        # different captions' real numbers coincide), leave the offending
+        # ones at their current label rather than let a DB unique-
+        # constraint conflict crash the whole run.
+        label_counts: dict[str, int] = {}
+        for label in tentative_final.values():
+            label_counts[label] = label_counts.get(label, 0) + 1
+
+        for f in figs:
+            final_label = tentative_final.get(f["id"], f.get("label") or "")
+            is_collision = label_counts.get(final_label, 0) > 1
+            if f["id"] not in matched_ids or is_collision:
+                unmatched_existing.append(f)
+                continue
+            fields = {"image_url": image_url_for[f["id"]]}
+            current_label = f.get("label") or ""
+            if current_label != final_label:
+                fields["label"] = final_label
+                relabeled += 1
+            pending_updates.append((f["id"], fields))
+            updated += 1
+
+    if not args.dry_run:
+        # Two-phase apply: two figures in the same paragraph can effectively
+        # SWAP labels (A's new label is B's old one, and vice versa) — the
+        # final state has no duplicate, but applying PATCHes one row at a
+        # time can hit a temporary unique-constraint conflict against the
+        # other row's not-yet-updated old label. Confirmed live as a real
+        # crash (409) on the exact NEXRAD Coverage case this function's own
+        # docstring describes. Move every label-changing row to a
+        # guaranteed-unique placeholder first, then apply the real final
+        # label — no ordering of the second pass can ever collide, since no
+        # row still holds any of the target labels by then.
+        label_changes = [(fid, fields["label"]) for fid, fields in pending_updates if "label" in fields]
+        for fid, _ in label_changes:
+            update_figure(fid, label=f"__tmp_relabel_{fid}")
+        for fid, fields in pending_updates:
+            update_figure(fid, **fields)
 
     known_fixed = 0
     for fig in existing:
@@ -364,14 +497,14 @@ def main():
             continue
         new_url = f"[dry-run page {page_idx}]" if args.dry_run else cached_image_for_page(page_idx)
         if not args.dry_run:
-            update_figure_image(fig["id"], new_url)
+            update_figure(fig["id"], image_url=new_url)
         known_fixed += 1
 
     still_unmatched = [
         f for f in unmatched_existing
         if (f["paragraph_number"], f["label"]) not in KNOWN_UNCAPTIONED_FIGURES
     ]
-    print(f"Total figures (FIG+TBL): {len(existing)}, matched+re-pointed: {updated}, hardcoded-fix: {known_fixed}, unmatched: {len(still_unmatched)}")
+    print(f"Total figures (FIG+TBL): {len(existing)}, matched+re-pointed: {updated}, relabeled: {relabeled}, hardcoded-fix: {known_fixed}, unmatched: {len(still_unmatched)}")
     print(f"Distinct PDF pages rendered: {len(page_png_cache)}")
     if still_unmatched:
         print("\nSample unmatched captions:")

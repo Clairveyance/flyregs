@@ -156,10 +156,35 @@ def main():
             # but every real case checked so far is a genuine duplicate
             # definition only when the SAME content legitimately repeats
             # (rare) — keeping the first is the safer default.
+            # The PDF's own number is the authoritative one — confirmed live
+            # as a real, user-caught accuracy issue: the FAA's HTML edition
+            # mislabels multiple genuinely distinct tables in one paragraph
+            # with the SAME bare label (e.g. "TBL 6-2-6" for four different
+            # Rescue Coordination Center tables that the PDF itself numbers
+            # 6-2-2 through 6-2-5), and this app's own synthetic a/b/c
+            # disambiguation papered over the collision instead of matching
+            # what's actually printed in the current AIM. Stored dash-
+            # normalized (plain "-", not the PDF's typographic minus sign)
+            # so it's a clean, directly-displayable label.
+            clean_number = re.sub(r"[‐‑‒–—−]", "-", number)
+            # Every occurrence is kept, not just the first — confirmed live
+            # as a real, user-caught data-loss bug: the AIM PDF genuinely
+            # has multiple DISTINCT figures sharing one identical caption
+            # (FIG 7-1-10/11/12 are three different NEXRAD radar coverage
+            # diagrams, all literally captioned just "NEXRAD Coverage" in
+            # the source), and "first occurrence wins" silently discarded
+            # the other two real pages entirely. Each caption title now
+            # maps to an ordered LIST of occurrences (page order); the
+            # backfill script matches same-captioned figures within one AIM
+            # paragraph to these positionally, in document order.
+            entry = {"kind": kind, "page": page_idx, "number": clean_number}
             for cand in candidates + prefixed:
                 title = normalize_title(cand)
-                if title and title not in lookup:
-                    lookup[title] = {"kind": kind, "page": page_idx}
+                if not title:
+                    continue
+                bucket = lookup.setdefault(title, [])
+                if not bucket or bucket[-1] != entry:
+                    bucket.append(entry)
 
         if page_idx % 150 == 0:
             print(f"  ...page {page_idx}/{doc.page_count}, {len(lookup)} captions found so far")
