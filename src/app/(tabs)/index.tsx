@@ -21,19 +21,30 @@ import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import type { ACSeries } from '@/types'
 import { rankSearchResults, isPhrasedQuery, extractPhrase } from '@/lib/searchRank'
+import { searchOtherSources, routeForUnifiedResult, type UnifiedResult } from '@/lib/unifiedSearch'
 import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { getBadgeKind, getBadgeStyle, BadgeKind } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { consumeJustConfirmed } from '@/lib/justConfirmed'
+import { FigureViewer } from '@/components/FigureViewer'
+import type { AcFigure } from '@/types'
+import { getRecentSearches, addRecentSearch, removeRecentSearch, clearRecentSearches } from '@/lib/recentSearches'
 
-// The search dropdown's number column is a fixed, narrow width (see dropNum)
-// so default text wrapping breaks mid-digit ("150/506" / "0-5") instead of at
-// a sensible point. Forcing a break right after the slash keeps both halves
-// ("150/" / "5060-5") readable instead of relying on wherever the wrap happens to land.
-function wrapAcNumberForNarrowColumn(num: string): string {
-  return num.replace('/', '/\n')
+// AC search results now use the exact same two-line row shape as every
+// other result type (see dropOtherPrimary/dropTitle below) — one line for
+// the full designator, one for the title — instead of a side-by-side
+// fixed-width number column that used to force-wrap long numbers
+// ("150/5345-13B") across up to three lines. Confirmed live as a direct
+// complaint: "the search dropdown looks pretty messy with those long doc
+// numbers cluttered over the left side... let's make each search result
+// two line high." Matches the "TYPE NUMBER" convention every other result
+// type already uses (unifiedSearch.ts's `primary` strings — "FAR 91.107",
+// "AIM 4-3-13") instead of leaving ACs as the one differently-laid-out
+// exception.
+function acResultPrimary(num: string): string {
+  return `AC ${num}`
 }
 
 const HOME_CACHE_KEY = '@flyregs/home-cache'
@@ -97,7 +108,15 @@ export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchActive, setSearchActive] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  // FAR/AIM/P-CG/T&F results, kept in a separate list from the AC-specific
+  // rankSearchResults pipeline above — see unifiedSearch.ts for why this
+  // isn't folded into the same tiering logic.
+  const [otherResults, setOtherResults] = useState<UnifiedResult[]>([])
+  const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
   const [searchLoading, setSearchLoading] = useState(false)
+  // Past typed queries, shown when the search field is focused but empty —
+  // distinct from the Recents tab (visited documents, not search terms).
+  const [recentSearches, setRecentSearches] = useState<string[]>([])
   const [dropdownTop, setDropdownTop] = useState(0)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Only the most-recent search may write results (guards against a slow earlier
@@ -173,8 +192,25 @@ export default function HomeScreen() {
 
   const runSearch = useCallback(async (q: string) => {
     const trimmed = normalizeSearchQuery(q.trim())
-    if (trimmed.length < 2) { searchSeq.current++; setSearchResults([]); setSearchLoading(false); return }
+    if (trimmed.length < 2) { searchSeq.current++; setSearchResults([]); setOtherResults([]); setSearchLoading(false); return }
     const seq = ++searchSeq.current
+    // Recorded as soon as a real search fires (not gated on results coming
+    // back non-empty) — a query the user typed is worth re-offering later
+    // even if it happened to return nothing that one time.
+    addRecentSearch(trimmed).then(setRecentSearches)
+
+    // Fired independently of the AC-specific branches below (phrase vs.
+    // plain search) — FAR/AIM/P-CG/T&F don't need phrase-search handling
+    // for v1, so this runs the same way regardless of query shape. Same
+    // race guard (seq) as every other source here.
+    const phraseForOther = isPhrasedQuery(trimmed) ? extractPhrase(trimmed) : trimmed
+    if (phraseForOther && phraseForOther.length >= 2) {
+      searchOtherSources(phraseForOther).then((results) => {
+        if (seq === searchSeq.current) setOtherResults(results)
+      })
+    } else {
+      setOtherResults([])
+    }
 
     // ── Phrase search: user wrapped query in "double quotes" ─────────────────
     if (isPhrasedQuery(trimmed)) {
@@ -288,6 +324,7 @@ export default function HomeScreen() {
     setSearchActive(false)
     setSearchQuery('')
     setSearchResults([])
+    setOtherResults([])
     setSearchLoading(false)
     Keyboard.dismiss()
   }, [])
@@ -296,6 +333,49 @@ export default function HomeScreen() {
     const id = r.id
     dismissSearch()
     router.push(`/ac/${id}`)
+  }, [dismissSearch])
+
+  // Tapping a past query re-populates the field and re-runs it immediately
+  // — no debounce wait, since the user is choosing a value they've already
+  // confirmed they want, not actively typing.
+  const selectRecentSearch = useCallback((q: string) => {
+    setSearchQuery(q)
+    runSearch(q)
+  }, [runSearch])
+
+  const removeOneRecentSearch = useCallback((q: string) => {
+    removeRecentSearch(q).then(setRecentSearches)
+  }, [])
+
+  const clearAllRecentSearches = useCallback(() => {
+    clearRecentSearches().then(() => setRecentSearches([]))
+  }, [])
+
+  const selectOtherResult = useCallback((r: UnifiedResult) => {
+    dismissSearch()
+    // Figure/table results open the image directly instead of navigating
+    // to the parent AC/AIM paragraph first — confirmed live as an unwanted
+    // extra tap ("it takes me to an AC and then i have to tap the T&F bar
+    // and click it"). AcFigure.page has no meaning for a search-opened
+    // figure (there's no viewer pagination here, just one image — see
+    // FigureViewer.tsx, `page` isn't even read), so 0 is a safe placeholder,
+    // same convention already used for AIM figures elsewhere.
+    if (r.figure) {
+      setViewerFigure({
+        id: r.figure.id,
+        label: r.figure.label ?? '',
+        caption: r.figure.caption,
+        page: 0,
+        image_url: r.figure.image_url,
+      })
+      return
+    }
+    // expo-router's typed routes only accept known literal path shapes —
+    // routeForUnifiedResult returns a plain dynamic string across 5 possible
+    // route prefixes, which doesn't match any single literal type. `as any`
+    // is the deliberate escape hatch here (see searchInput's outlineStyle
+    // comment above for the same pattern/reasoning), not an accident.
+    router.push(routeForUnifiedResult(r) as any)
   }, [dismissSearch])
 
   const goToFullSearch = useCallback(() => {
@@ -322,6 +402,10 @@ export default function HomeScreen() {
   // searchQuery, which is what actually closes the dropdown.
   const showDropdown = searchQuery.trim().length >= 2
   const showCancel = searchActive || searchQuery.length > 0
+  // The OTHER dropdown state — focused but nothing typed yet. Mutually
+  // exclusive with showDropdown by construction (that one requires 2+
+  // chars), so only one of the two ever renders at a time.
+  const showRecentSearches = searchActive && searchQuery.trim().length === 0 && recentSearches.length > 0
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -358,7 +442,10 @@ export default function HomeScreen() {
             placeholderTextColor={tokens.t3}
             value={searchQuery}
             onChangeText={handleQueryChange}
-            onFocus={() => setSearchActive(true)}
+            onFocus={() => {
+              setSearchActive(true)
+              getRecentSearches().then(setRecentSearches)
+            }}
             autoCapitalize="none"
             autoCorrect={false}
             spellCheck
@@ -450,7 +537,7 @@ export default function HomeScreen() {
               spinner treatment. Previously `searchLoading` replaced the whole
               list with a spinner on every re-search, which is what made results
               flicker away and come back after releasing the mic button. */}
-          {searchResults.length > 0 ? (
+          {searchResults.length > 0 || otherResults.length > 0 ? (
             <ScrollView
               style={styles.dropScroll}
               keyboardShouldPersistTaps="handled"
@@ -467,12 +554,38 @@ export default function HomeScreen() {
                   ]}
                   onPress={() => selectResult(r)}
                 >
-                  <Text style={[styles.dropNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
-                    {wrapAcNumberForNarrowColumn(r.document_number)}{isOcrScanned(r.document_number) ? ' *' : ''}
-                  </Text>
-                  <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
-                    {r.title}
-                  </Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[styles.dropOtherPrimary, { color: tokens.blu, fontSize: fs(12.5) }]} numberOfLines={1}>
+                      {acResultPrimary(r.document_number)}{isOcrScanned(r.document_number) ? ' *' : ''}
+                    </Text>
+                    <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
+                      {r.title}
+                    </Text>
+                  </View>
+                </Pressable>
+              ))}
+              {/* FAR/AIM/P-CG/T&F — same row shape as AC results. `primary`
+                  already leads with its type ("FAR 91.107", "AIM Fig 2-3-5")
+                  so it self-identifies the same way an AC's own document
+                  number always has — no separate badge needed. */}
+              {otherResults.slice(0, 8).map((r, i) => (
+                <Pressable
+                  key={`${r.type}-${r.id}-${i}`}
+                  style={({ pressed }) => [
+                    styles.dropRow,
+                    { borderBottomColor: tokens.bdr },
+                    pressed && { backgroundColor: tokens.bg3 },
+                  ]}
+                  onPress={() => selectOtherResult(r)}
+                >
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[styles.dropOtherPrimary, { color: tokens.blu, fontSize: fs(12.5) }]} numberOfLines={1}>
+                      {r.primary}
+                    </Text>
+                    <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
+                      {r.secondary}
+                    </Text>
+                  </View>
                 </Pressable>
               ))}
               <Pressable
@@ -496,6 +609,84 @@ export default function HomeScreen() {
           )}
         </View>
       )}
+
+      {/* Recent-searches dropdown — shown when the field is focused but
+          empty, mutually exclusive with the results dropdown above (that
+          one needs 2+ typed characters). Tapping a past query re-populates
+          the field and re-runs it immediately, same target UX as tapping a
+          live result. */}
+      {showRecentSearches && (
+        <Pressable
+          style={[styles.backdrop, { top: dropdownTop > 0 ? dropdownTop : 110 }]}
+          onPress={() => Keyboard.dismiss()}
+        />
+      )}
+
+      {showRecentSearches && (
+        <View
+          style={[
+            styles.dropdown,
+            {
+              top: dropdownTop > 0 ? dropdownTop : 110,
+              backgroundColor: tokens.bg2,
+              borderColor: tokens.bdr,
+              ...(Platform.OS === 'web'
+                ? ({ boxShadow: '0 4px 16px rgba(0,0,0,0.14)' } as object)
+                : { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.13, shadowRadius: 14 }),
+            },
+          ]}
+        >
+          <View style={[styles.dropHideKb, { borderBottomColor: tokens.bdr, justifyContent: 'space-between' }]}>
+            <Text style={[styles.dropHideKbText, { color: tokens.t3, fontSize: fs(11.5) }]}>Recent searches</Text>
+            <Pressable onPress={clearAllRecentSearches} hitSlop={8}>
+              <Text style={[styles.dropHideKbText, { color: tokens.blu, fontSize: fs(11.5) }]}>Clear</Text>
+            </Pressable>
+          </View>
+          <ScrollView
+            style={styles.dropScroll}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            nestedScrollEnabled
+          >
+            {recentSearches.map((q) => (
+              // Two SIBLING Pressables, not one nested inside the other — a
+              // Pressable-in-Pressable is a known React Native trap where
+              // the parent's touch responder can swallow the child's own
+              // press before it ever fires, which is exactly what happened
+              // here first (the row's onPress worked, but the inner ×
+              // never did, live and reproducibly). A row-level View with
+              // the select-Pressable and remove-Pressable side by side
+              // avoids the responder conflict entirely.
+              <View
+                key={q}
+                style={[styles.dropRow, { borderBottomColor: tokens.bdr, paddingRight: 0 }]}
+              >
+                <Pressable
+                  style={({ pressed }) => [
+                    { flex: 1, flexDirection: 'row', alignItems: 'center' },
+                    pressed && { opacity: 0.6 },
+                  ]}
+                  onPress={() => selectRecentSearch(q)}
+                >
+                  <Icon name="clock" size={14} color={tokens.t3} />
+                  <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5), marginLeft: 10 }]} numberOfLines={1}>
+                    {q}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => removeOneRecentSearch(q)}
+                  hitSlop={10}
+                  style={({ pressed }) => [{ paddingHorizontal: 14, paddingVertical: 10 }, pressed && { opacity: 0.5 }]}
+                >
+                  <Icon name="xmark" size={13} color={tokens.t4} />
+                </Pressable>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
     </View>
   )
 }
@@ -753,8 +944,10 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  dropNum: { fontSize: 12.5, fontWeight: '700', width: 72 },
   dropTitle: { flex: 1, fontSize: 13.5 },
+  dropTypeBadge: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 3, width: 44, alignItems: 'center' },
+  dropTypeBadgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.3 },
+  dropOtherPrimary: { fontSize: 12.5, fontWeight: '700', marginBottom: 1 },
   dropSeeAll: {
     flexDirection: 'row',
     alignItems: 'center',

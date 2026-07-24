@@ -1,0 +1,54 @@
+// Splits one long, unbroken paragraph into a few shorter visual chunks at
+// natural sentence boundaries — a pure DISPLAY transform, not a data
+// change (the underlying stored text is untouched; this only decides how
+// many separate <Text> blocks it renders as). Confirmed live as a direct,
+// explicit request: a long AC paragraph read as one dense wall on a
+// narrow phone screen even though the source itself has no real
+// paragraph break there — "maybe if, after everything is parsed and
+// formatted to reflect the real docs, we could then add another 'polish'
+// pass for ourselves that would simply create a bit of breathing room in
+// long chunks of text... finding the natural breaks at the end of some of
+// the sentences and asking the system to wrap the next sentence onto a
+// new line." Applied wherever a single block of body prose renders,
+// FAR/AIM/P-CG (PlainTextBody) and AC (ACBody) alike, so long paragraphs
+// look and read the same way everywhere in the app.
+//
+// Sentence-boundary detection is a light heuristic (". "/"? "/"! "
+// followed by a capital letter or the end of the string), not a real NLP
+// sentence splitter — it will occasionally misfire on an abbreviation
+// ("e.g.", "No.", section numbers like "8.2.1"). That's an acceptable
+// trade-off here specifically because this never touches stored data: a
+// slightly early or late visual break is a minor cosmetic imperfection,
+// not corrupted or lost content.
+
+const MIN_LENGTH_TO_SPLIT = 380
+const TARGET_CHUNK_LENGTH = 220
+
+const SENTENCE_BOUNDARY_RE = /(?<=[.!?])\s+(?=[A-Z0-9"“(])/
+
+export function softWrapParagraph(text: string): string[] {
+  const trimmed = text.trim()
+  if (trimmed.length < MIN_LENGTH_TO_SPLIT) return [trimmed]
+
+  const sentences = trimmed.split(SENTENCE_BOUNDARY_RE)
+  if (sentences.length < 2) return [trimmed]
+
+  const chunks: string[] = []
+  let current = ''
+  for (const sentence of sentences) {
+    const candidate = current ? `${current} ${sentence}` : sentence
+    if (current && candidate.length > TARGET_CHUNK_LENGTH) {
+      chunks.push(current)
+      current = sentence
+    } else {
+      current = candidate
+    }
+  }
+  if (current) chunks.push(current)
+
+  // A split that produced only one real chunk back (e.g. one giant
+  // sentence with no internal boundary under the target length) gained
+  // nothing — return the original rather than an oddly-labeled single-item
+  // array.
+  return chunks.length > 1 ? chunks : [trimmed]
+}

@@ -65,9 +65,41 @@ function previewBlockCount(totalBlocks: number): number {
   return Math.min(5, Math.max(2, Math.ceil(totalBlocks * 0.08)))
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export default function ACDetailScreen() {
   const { id, hlId, hlText } = useLocalSearchParams<{ id: string; hlId?: string; hlText?: string }>()
   const { tokens } = useTheme()
+
+  // Inline cross-reference links (LinkedBody, see crossRefLinks.ts) only
+  // have the AC's document_number to build a route from — a "AC 90-67B"
+  // mention in running prose has no UUID anywhere nearby. Rather than
+  // teach the main fetch effect below (already handling offline/cache
+  // fallback, highlighting, figures, formulas) to accept either shape,
+  // resolve document_number -> real id here and bounce to the canonical
+  // URL. A no-op for every normal navigation, which always already passes
+  // the real UUID.
+  useEffect(() => {
+    if (!id || UUID_RE.test(id)) return
+    supabase.from('advisory_circulars').select('id').eq('document_number', id).eq('status', 'active').single()
+      .then(({ data, error }) => {
+        if (data) { router.replace(`/ac/${data.id}` as any); return }
+        if (!error) return
+        // Regulatory text routinely cites an AC by its base number without
+        // the revision letter ("AC 90-66" in running prose, real document
+        // is "90-66C") — confirmed live, not a one-off: an exact match
+        // failing here doesn't mean the link is bad, it means the source
+        // text used the unversioned form. Prefix-match and take the
+        // longest (most specific / most likely current-revision) hit
+        // rather than leaving the link dead.
+        supabase.from('advisory_circulars').select('id,document_number').ilike('document_number', `${id}%`).eq('status', 'active')
+          .then(({ data: matches }) => {
+            if (!matches || matches.length === 0) return
+            const best = matches.sort((a, b) => b.document_number.length - a.document_number.length)[0]
+            router.replace(`/ac/${best.id}` as any)
+          })
+      })
+  }, [id])
   const { isPro, isPremium } = useAuth()
   const fs = useFS()
   const scrollRef = useRef<ScrollView>(null)

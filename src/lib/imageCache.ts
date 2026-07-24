@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Platform } from 'react-native'
 import { File, Paths } from 'expo-file-system'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
@@ -60,6 +61,16 @@ export async function getCachedImageUri(
   remoteUrl: string,
   onUpdate?: (uri: string) => void
 ): Promise<string | null> {
+  // expo-file-system's File/Paths API has no web implementation at all —
+  // confirmed live, reproducibly: opening any FigureViewer in web preview
+  // threw "this.validatePath is not a function" from inside
+  // new File(Paths.document, ...), surfacing as an Expo redbox that kicked
+  // the user straight out of the preview mid-navigation. Web has no
+  // meaningful persistent file cache to offer here anyway — skip straight
+  // to "just use the remote URL", the same graceful fallback this hook
+  // already promises for any other cache-miss case (see its own docstring:
+  // "nothing regresses if the cache lookup fails").
+  if (Platform.OS === 'web') return null
   const local = localFileFor(key, remoteUrl)
   const map = await getCacheMap()
   const isFresh = map[key] === remoteUrl && local.exists

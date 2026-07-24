@@ -13,6 +13,7 @@ import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { parseAC, cleanGlyphs, blockText, ACBlock } from '@/lib/acFormat'
 import type { AcFigure, FormulaRef } from '@/types'
+import { softWrapParagraph } from '@/lib/softWrap'
 
 type Heading = Extract<ACBlock, { id: string }>
 
@@ -873,9 +874,21 @@ export const ACBody = React.forwardRef<
                   ) : sectionListRuns.length ? (
                     <View style={styles.sectionBody}>{renderBodyContent(rawBody, linkify, tokens, fs)}</View>
                   ) : (
-                    <Text selectable style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13.5) }]}>
-                      {linkify(rawBody)}
-                    </Text>
+                    // Purely a display split — see softWrap.ts. Long AC
+                    // section bodies with no real internal break read as one
+                    // dense wall on a narrow phone screen; confirmed live,
+                    // directly requested ("create a bit of breathing room in
+                    // long chunks of text... finding the natural breaks at
+                    // the end of some of the sentences").
+                    softWrapParagraph(rawBody).map((chunk, ci) => (
+                      <Text
+                        key={ci}
+                        selectable
+                        style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13.5) }, ci > 0 && { marginTop: 8 }]}
+                      >
+                        {linkify(chunk)}
+                      </Text>
+                    ))
                   )
                 ) : null}
               </Pressable>
@@ -916,10 +929,20 @@ export const ACBody = React.forwardRef<
                     <View>{renderBodyContent(b.body, linkify, tokens, fs)}</View>
                   </View>
                 ) : (
-                  <Text selectable style={[styles.item, { color: tokens.t2, paddingLeft: 6 + b.level * 14, fontSize: fs(13) }]}>
-                    <Text style={{ color: tokens.t1, fontWeight: '600' }}>{labelText}{' '}</Text>
-                    {linkify(b.body)}
-                  </Text>
+                  // Same soft-wrap treatment as section bodies above — the
+                  // label stays attached to the first chunk (matches the
+                  // normal inline "a. Body text…" flow), later chunks get
+                  // their own line.
+                  softWrapParagraph(b.body).map((chunk, ci) => (
+                    <Text
+                      key={ci}
+                      selectable
+                      style={[styles.item, { color: tokens.t2, paddingLeft: 6 + b.level * 14, fontSize: fs(13) }, ci > 0 && { marginTop: 6 }]}
+                    >
+                      {ci === 0 && <Text style={{ color: tokens.t1, fontWeight: '600' }}>{labelText}{' '}</Text>}
+                      {linkify(chunk)}
+                    </Text>
+                  ))
                 )}
               </Pressable>
             )
@@ -939,9 +962,21 @@ export const ACBody = React.forwardRef<
               >
                 {UpdatedTag}
                 {HighlightTag}
-                <Text selectable style={[styles.para, { color: tokens.t2, fontSize: fs(13.5) }]}>
-                  {activeHq ? highlightSpans(b.text, activeHq, hOpts(base)) : linkify(b.text)}
-                </Text>
+                {activeHq ? (
+                  <Text selectable style={[styles.para, { color: tokens.t2, fontSize: fs(13.5) }]}>
+                    {highlightSpans(b.text, activeHq, hOpts(base))}
+                  </Text>
+                ) : (
+                  softWrapParagraph(b.text).map((chunk, ci) => (
+                    <Text
+                      key={ci}
+                      selectable
+                      style={[styles.para, { color: tokens.t2, fontSize: fs(13.5) }, ci > 0 && { marginTop: 8 }]}
+                    >
+                      {linkify(chunk)}
+                    </Text>
+                  ))
+                )}
               </Pressable>
             )
         }

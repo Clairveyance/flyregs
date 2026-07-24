@@ -118,50 +118,176 @@ def fetch_existing_figures() -> list[dict]:
     return resp.json()
 
 
-def fetch_tbl_blocks_missing_figures(existing_captions_by_paragraph: dict) -> list[dict]:
-    """Every TBL-captioned block in aim_paragraphs.body_text that has no
-    aim_figures row at all yet (bare HTML <table> tables, previously only
-    ever rendered as flattened text).
+# Group 2 (optional, single lowercase letter with NO space before it) eats
+# an already-applied disambiguation suffix from a prior run's body_text
+# patch (e.g. "TBL 6-2-6a Coast Guard..."), so re-parsing already-clean text
+# doesn't fold that letter into the caption title. A genuinely bare label is
+# always followed by a space before its title in real AIM captions, so this
+# can't misfire on one.
+TBL_RE = re.compile(r"^TBL\s+([\d\-]+)([a-z]?)\.?\s*(.*)$")
+REAL_IMAGE_PREFIX = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET}/"
 
-    "Already have" is checked by CAPTION, not by the bare "TBL X-X-X"
-    label -- confirmed live as a real bug: multiple genuinely distinct
-    tables in one paragraph all share that bare label (see
-    _disambiguate_figure_labels()'s a/b/c suffixing in aim_scraper.py), so
-    the row that actually exists in aim_figures is "TBL 1-1-17a", never
-    the bare "TBL 1-1-17" this function used to compare against. That
-    exact-match check could never succeed, so every re-run treated
-    already-created tables as still-missing and tried to re-insert them
-    under FRESH a/b/c suffixes -- a real 409 conflict against the rows
-    the previous run already created. Caption text doesn't get suffixed
-    and is what a table's real identity actually is here, so it's the
-    reliable "have we already made this one" signal."""
+
+def rebuild_tbl_figures(existing_tbl_figures: list[dict]) -> dict:
+    """Rebuilds EVERY paragraph's TBL-labeled aim_figures rows from current
+    aim_paragraphs.body_text truth, replacing the old "only insert what's
+    missing, disambiguate the new batch in isolation" approach.
+
+    That old approach had a real, serious bug -- confirmed live 2026-07-24:
+    disambiguation (a/b/c... suffixing for tables sharing the same bare HTML
+    label within a paragraph, same convention as
+    _disambiguate_figure_labels() in aim_scraper.py) only ever considered
+    the batch of NEWLY found tables in a given run, blind to whatever
+    labels already existed in the DB from a PRIOR run. Every re-run that
+    found "new" tables for a paragraph that already had some (e.g. because
+    an earlier scraper bug -- since fixed -- caused a table to appear
+    multiple times in one paragraph's body_text) appended a FRESH set of
+    suffixes on top of the old ones instead of recognizing the paragraph's
+    true current state. Paragraph 5-3-1's 23 real CPDLC message tables had
+    accumulated 89 rows this way, with suffixes running straight past 'z'
+    into unprintable extended-Latin control characters (chr(ord('a')+26)
+    and beyond) -- a real, user-visible garbled label ("TBL 5-3-1\\x84").
+    Separately, the caption text embedded in body_text (which is what the
+    app actually renders as the table's visible header) was NEVER patched
+    to match the disambiguated label at all, so even a correctly-labeled
+    row still showed a bare, ambiguous "TBL 6-2-6" caption in the UI and
+    couldn't be cross-reference-hyperlinked (self-reference resolution
+    needs exactly one figure to match).
+
+    This function is the fix: every run, derive the FULL correct set of
+    (paragraph, label, caption) triples from body_text alone (the one
+    source of truth), for every real table block (has piped data -- a
+    block whose first line just MENTIONS a table inline, e.g. "TBL 7-1-10
+    contains a comparison of...", is plain prose, not a caption, and must
+    NOT become a fake figure row). Delete whatever TBL rows currently exist
+    for a paragraph and re-insert the correct set, salvaging any
+    already-real (reg-tf-images-hosted) image_url by matching on caption
+    text first. Also returns the body_text patches needed so each table's
+    embedded caption always matches its final label -- the caller applies
+    those to aim_paragraphs directly. Idempotent: a paragraph with no real
+    collisions computes the exact same bare labels every run, and a
+    paragraph with a genuine content change simply gets a fresh, still-
+    consistent set next run instead of layering on top of stale rows."""
     resp = requests.get(
         f"{SUPABASE_URL}/rest/v1/aim_paragraphs?select=paragraph_number,body_text&body_text=not.is.null",
         headers=HEADERS,
         timeout=60,
     )
     resp.raise_for_status()
-    out = []
-    for row in resp.json():
-        bt = row["body_text"] or ""
-        for block in bt.split("\n\n"):
+    paragraphs = resp.json()
+
+    existing_by_para: dict[str, list[dict]] = {}
+    for f in existing_tbl_figures:
+        existing_by_para.setdefault(f["paragraph_number"], []).append(f)
+
+    to_delete_ids: list[str] = []
+    to_insert: list[dict] = []
+    body_text_updates: dict[str, str] = {}  # paragraph_number -> new body_text
+
+    for p in paragraphs:
+        para = p["paragraph_number"]
+        bt = p["body_text"] or ""
+        if "TBL" not in bt:
+            continue
+
+        blocks = bt.split("\n\n")
+        groups: dict[str, list[tuple[int, str]]] = {}
+        for i, block in enumerate(blocks):
             lines = block.split("\n")
             first = lines[0].strip() if lines else ""
-            m = re.match(r"^TBL\s+([\d\-]+)\.?\s*(.*)$", first)
+            m = TBL_RE.match(first)
             if not m:
                 continue
-            tbl_label = f"TBL {m.group(1)}"
-            title = m.group(2).strip()
+            title = m.group(3).strip()
             if not title:
                 continue
             has_piped = any(" | " in l for l in lines)
             if not has_piped:
                 continue
-            already_have = title in existing_captions_by_paragraph.get(row["paragraph_number"], [])
-            if already_have:
-                continue
-            out.append({"paragraph_number": row["paragraph_number"], "label": tbl_label, "caption": title})
-    return out
+            bare_label = f"TBL {m.group(1)}"
+            groups.setdefault(bare_label, []).append((i, title))
+
+        if not groups:
+            continue
+
+        existing = existing_by_para.get(para, [])
+        existing_by_caption: dict[str, list[dict]] = {}
+        for f in existing:
+            existing_by_caption.setdefault(f["caption"], []).append(f)
+
+        new_rows = []
+        changed = False
+        for bare_label, members in groups.items():
+            suffixed = len(members) > 1
+            for idx, (block_i, title) in enumerate(members):
+                correct_label = f"{bare_label}{chr(ord('a') + idx)}" if suffixed else bare_label
+
+                candidates = existing_by_caption.get(title, [])
+                image_url = None
+                for c in candidates:
+                    if c["image_url"] and c["image_url"].startswith(REAL_IMAGE_PREFIX):
+                        image_url = c["image_url"]
+                        break
+                if image_url is None and candidates:
+                    image_url = candidates[0]["image_url"]
+
+                new_rows.append({
+                    "paragraph_number": para,
+                    "label": correct_label,
+                    "caption": title,
+                    "image_url": image_url,
+                    "sort_order": block_i,
+                })
+
+                old_first_line = blocks[block_i].split("\n")[0]
+                new_first_line = f"{correct_label} {title}".rstrip()
+                if old_first_line.strip() != new_first_line:
+                    lines = blocks[block_i].split("\n")
+                    lines[0] = new_first_line
+                    blocks[block_i] = "\n".join(lines)
+                    changed = True
+
+        # A no-op rebuild (same labels/captions already present) shouldn't
+        # touch the DB at all -- compare against what's already there.
+        existing_triples = {(f["paragraph_number"], f["label"], f["caption"]) for f in existing}
+        new_triples = {(r["paragraph_number"], r["label"], r["caption"]) for r in new_rows}
+        if existing_triples == new_triples and not changed:
+            continue
+
+        to_delete_ids.extend(f["id"] for f in existing)
+        to_insert.extend(new_rows)
+        if changed:
+            body_text_updates[para] = "\n\n".join(blocks)
+
+    return {
+        "delete_ids": to_delete_ids,
+        "insert_rows": to_insert,
+        "body_text_updates": body_text_updates,
+    }
+
+
+def apply_tbl_rebuild(plan: dict) -> None:
+    if plan["delete_ids"]:
+        ids = ",".join(f'"{i}"' for i in plan["delete_ids"])
+        resp = requests.delete(
+            f"{SUPABASE_URL}/rest/v1/aim_figures?id=in.({ids})",
+            headers=HEADERS, timeout=30,
+        )
+        resp.raise_for_status()
+    if plan["insert_rows"]:
+        resp = requests.post(
+            f"{SUPABASE_URL}/rest/v1/aim_figures",
+            headers={**HEADERS, "Content-Type": "application/json", "Prefer": "return=minimal"},
+            json=plan["insert_rows"], timeout=30,
+        )
+        resp.raise_for_status()
+    for para, new_bt in plan["body_text_updates"].items():
+        resp = requests.patch(
+            f"{SUPABASE_URL}/rest/v1/aim_paragraphs?paragraph_number=eq.{para}",
+            headers={**HEADERS, "Content-Type": "application/json", "Prefer": "return=minimal"},
+            json={"body_text": new_bt}, timeout=30,
+        )
+        resp.raise_for_status()
 
 
 def update_figure_image(fig_id: str, image_url: str) -> None:
@@ -169,18 +295,6 @@ def update_figure_image(fig_id: str, image_url: str) -> None:
         f"{SUPABASE_URL}/rest/v1/aim_figures?id=eq.{fig_id}",
         headers={**HEADERS, "Content-Type": "application/json", "Prefer": "return=minimal"},
         json={"image_url": image_url},
-        timeout=30,
-    )
-    resp.raise_for_status()
-
-
-def insert_new_figures(rows: list[dict]) -> None:
-    if not rows:
-        return
-    resp = requests.post(
-        f"{SUPABASE_URL}/rest/v1/aim_figures",
-        headers={**HEADERS, "Content-Type": "application/json", "Prefer": "return=minimal"},
-        json=rows,
         timeout=30,
     )
     resp.raise_for_status()
@@ -211,9 +325,24 @@ def main():
         return page_url_cache[page_idx]
 
     existing = fetch_existing_figures()
-    existing_captions_by_paragraph: dict[str, list[str]] = {}
-    for f in existing:
-        existing_captions_by_paragraph.setdefault(f["paragraph_number"], []).append(f["caption"])
+    fig_only = [f for f in existing if not (f.get("label") or "").startswith("TBL")]
+    tbl_only = [f for f in existing if (f.get("label") or "").startswith("TBL")]
+
+    tbl_plan = rebuild_tbl_figures(tbl_only)
+    print(
+        f"TBL rebuild-from-truth: delete={len(tbl_plan['delete_ids'])} "
+        f"insert={len(tbl_plan['insert_rows'])} "
+        f"body_text_patches={len(tbl_plan['body_text_updates'])} paragraphs"
+    )
+    if not args.dry_run:
+        apply_tbl_rebuild(tbl_plan)
+        # Re-fetch so ids/state are accurate for the title-matching pass
+        # below — simpler and safer than reconciling in-memory state with
+        # what was just deleted/inserted.
+        existing = fetch_existing_figures()
+    else:
+        deleted_ids = set(tbl_plan["delete_ids"])
+        existing = fig_only + [f for f in tbl_only if f["id"] not in deleted_ids] + tbl_plan["insert_rows"]
 
     updated = 0
     unmatched_existing = []
@@ -227,43 +356,6 @@ def main():
         if not args.dry_run:
             update_figure_image(fig["id"], new_url)
         updated += 1
-
-    tbl_blocks = fetch_tbl_blocks_missing_figures(existing_captions_by_paragraph)
-    new_rows = []
-    unmatched_tbl = []
-    for i, blk in enumerate(tbl_blocks):
-        title = normalize_title(blk["caption"])
-        match = pdf_pages.get(title)
-        if not match:
-            unmatched_tbl.append(blk["caption"])
-            continue
-        new_url = f"[dry-run page {match['page']}]" if args.dry_run else cached_image_for_page(match["page"])
-        new_rows.append({
-            "paragraph_number": blk["paragraph_number"],
-            "label": blk["label"],
-            "caption": blk["caption"],
-            "image_url": new_url,
-            "sort_order": i,
-        })
-
-    # Same disambiguation aim_scraper.py's _disambiguate_figure_labels()
-    # already applies to FIG entries — multiple genuinely distinct tables
-    # in one AIM paragraph all get the SAME synthetic "TBL X-X-X" label
-    # (the HTML source numbers a table by its containing paragraph, not
-    # individually), which caused a real 409 conflict on insert here: two
-    # different tables, same (paragraph_number, label). Confirmed live
-    # (paragraph 1-1-17 alone has "GPS IFR Equipment Classes/Categories"
-    # AND "GPS Approval Required/Authorized Use" both wanting "TBL 1-1-17").
-    groups: dict[tuple, list[dict]] = {}
-    for row in new_rows:
-        groups.setdefault((row["paragraph_number"], row["label"]), []).append(row)
-    for (_, label), group in groups.items():
-        if len(group) > 1:
-            for i, row in enumerate(group):
-                row["label"] = f"{label}{chr(ord('a') + i)}"
-
-    if not args.dry_run:
-        insert_new_figures(new_rows)
 
     known_fixed = 0
     for fig in existing:
@@ -279,17 +371,12 @@ def main():
         f for f in unmatched_existing
         if (f["paragraph_number"], f["label"]) not in KNOWN_UNCAPTIONED_FIGURES
     ]
-    print(f"Existing FIG entries: {len(existing)}, matched+re-pointed: {updated}, hardcoded-fix: {known_fixed}, unmatched: {len(still_unmatched)}")
-    print(f"TBL blocks with no prior figure row: {len(tbl_blocks)}, matched+created: {len(new_rows)}, unmatched: {len(unmatched_tbl)}")
+    print(f"Total figures (FIG+TBL): {len(existing)}, matched+re-pointed: {updated}, hardcoded-fix: {known_fixed}, unmatched: {len(still_unmatched)}")
     print(f"Distinct PDF pages rendered: {len(page_png_cache)}")
     if still_unmatched:
-        print("\nSample unmatched FIG captions:")
+        print("\nSample unmatched captions:")
         for f in still_unmatched[:10]:
             print(" -", repr(f["caption"]), "|", f["paragraph_number"], "|", f["label"])
-    if unmatched_tbl:
-        print("\nSample unmatched TBL captions:")
-        for c in unmatched_tbl[:10]:
-            print(" -", repr(c))
 
 
 if __name__ == "__main__":
