@@ -358,6 +358,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["test", "full", "incremental"], default="test")
     parser.add_argument("--limit", type=int, default=None, help="cap the number of ADs processed (test mode default: 10)")
+    parser.add_argument("--touched-out", default=None, help="write every touched ad_number to this file, one per line (for send-ad-alerts.mjs)")
     args = parser.parse_args()
 
     if args.mode in ("full", "incremental") and (not SUPABASE_URL or not SUPABASE_KEY):
@@ -411,6 +412,10 @@ def main():
         ok = _upsert("airworthiness_directives", rows, "ad_number")
         if not ok:
             sys.exit(1)
+
+    if args.touched_out and rows:
+        with open(args.touched_out, "w") as f:
+            f.write("\n".join(row["ad_number"] for row in rows))
 
     log.info(f"Done. ADs={len(rows)}")
 
