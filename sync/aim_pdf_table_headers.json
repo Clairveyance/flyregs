@@ -1,0 +1,873 @@
+{
+ "vor/dme/tacan standard service volumes": {
+  "header": [
+   "SSV Designator",
+   "Altitude and Range Boundaries"
+  ],
+  "page": 76,
+  "col_count": 2
+ },
+ "ndb service volumes": {
+  "header": [
+   "Class",
+   "Distance (Radius) (NM)"
+  ],
+  "page": 77,
+  "col_count": 2
+ },
+ "marker passage indications": {
+  "header": [
+   "Marker",
+   "Code",
+   "Light"
+  ],
+  "page": 81,
+  "col_count": 3
+ },
+ "gps ifr equipment classes/categories": {
+  "header": [
+   "TSO\u2212C129",
+   "",
+   "",
+   "",
+   "",
+   "",
+   ""
+  ],
+  "page": 100,
+  "col_count": 7
+ },
+ "gps approval required/authorized use": {
+  "header": [
+   "Equipment Type1 \u2014 Hand held4",
+   "Installation Approval Required \u2014 X5",
+   "Operational Approval Required",
+   "IFR En Route2",
+   "IFR Terminal2",
+   "IFR Approach3",
+   "Oceanic Remote",
+   "In Lieu of ADF and/or DME3"
+  ],
+  "page": 100,
+  "col_count": 8
+ },
+ "u.s. standard rnp levels": {
+  "header": [
+   "RNP Level",
+   "Typical Application",
+   "Primary Route Width (NM) \u2212 Centerline to Boundary"
+  ],
+  "page": 115,
+  "col_count": 3
+ },
+ "runways with approach lights": {
+  "header": [
+   "Lighting System",
+   "No. of Int. Steps",
+   "Status During Nonuse Period",
+   "Intensity Step Selected Per No. of Mike Clicks \u2014 3 Clicks",
+   "5 Clicks",
+   "7 Clicks"
+  ],
+  "page": 130,
+  "col_count": 6
+ },
+ "runways without approach lights": {
+  "header": [
+   "Lighting System",
+   "No. of Int. Steps",
+   "Status During Nonuse Period",
+   "Intensity Step Selected Per No. of Mike Clicks \u2014 3 Clicks",
+   "5 Clicks",
+   "7 Clicks"
+  ],
+  "page": 130,
+  "col_count": 6
+ },
+ "radio control system": {
+  "header": [
+   "Key Mike",
+   "Function"
+  ],
+  "page": 131,
+  "col_count": 2
+ },
+ "runway marking elements": {
+  "header": [
+   "Marking Element",
+   "Visual Runway",
+   "Nonprecision Instrument Runway",
+   "Precision Instrument Runway"
+  ],
+  "page": 137,
+  "col_count": 4
+ },
+ "number of runway threshold stripes": {
+  "header": [
+   "Runway Width",
+   "Number of Stripes"
+  ],
+  "page": 139,
+  "col_count": 2
+ },
+ "basic vfr weather minimums": {
+  "header": [
+   "Airspace",
+   "Flight Visibility",
+   "Distance from Clouds"
+  ],
+  "page": 175,
+  "col_count": 3
+ },
+ "vfr cruising altitudes and flight levels": {
+  "header": [
+   "If your magnetic course (ground track) is:",
+   "And you are more than 3,000 feet above the surface but below 18,000 feet MSL, fly:",
+   "And you are above 18,000 feet MSL to FL 290, fly:"
+  ],
+  "page": 176,
+  "col_count": 3
+ },
+ "ifr altitudes class g airspace": {
+  "header": [
+   "If your magnetic course (ground track) is:",
+   "And you are below 18,000 feet MSL, fly:"
+  ],
+  "page": 188,
+  "col_count": 2
+ },
+ "summary of recommended communication procedures": {
+  "header": [
+   "",
+   "Facility at Airport",
+   "Frequency Use",
+   "Communication/Broadcast Procedures \u2014 Outbound",
+   "Inbound",
+   "Practice Instrument Approach"
+  ],
+  "page": 206,
+  "col_count": 6
+ },
+ "unicom/multicom frequency usage": {
+  "header": [
+   "Use",
+   "Frequency"
+  ],
+  "page": 210,
+  "col_count": 2
+ },
+ "other frequency usage designated by fcc": {
+  "header": [
+   "Use",
+   "Frequency"
+  ],
+  "page": 211,
+  "col_count": 2
+ },
+ "calling a ground station": {
+  "header": [
+   "Facility",
+   "Call Sign"
+  ],
+  "page": 230,
+  "col_count": 2
+ },
+ "phonetic alphabet/morse code": {
+  "header": [
+   "Character",
+   "Morse Code",
+   "Telephony",
+   "Phonic (Pronunciation)"
+  ],
+  "page": 231,
+  "col_count": 4
+ },
+ "airport traffic control tower light gun signals": {
+  "header": [
+   "Meaning",
+   "",
+   "",
+   ""
+  ],
+  "page": 256,
+  "col_count": 4
+ },
+ "fis\u2212b over uat product update and transmission intervals": {
+  "header": [
+   "Product",
+   "Update Interval1",
+   "Transmission Interval (95%)2",
+   "Basic Product"
+  ],
+  "page": 541,
+  "col_count": 4
+ },
+ "pilot/controller phraseology": {
+  "header": [
+   "Message",
+   "Phraseology"
+  ],
+  "page": 315,
+  "col_count": 2
+ },
+ "notam keywords": {
+  "header": [
+   "Keyword",
+   "Definition"
+  ],
+  "page": 326,
+  "col_count": 2
+ },
+ "contractions commonly found in notams": {
+  "header": [
+   "AZM . . . . . . . . . .",
+   "Azimuth \u2014 B"
+  ],
+  "page": 327,
+  "col_count": 2
+ },
+ "response attribute of cpdlc message element": {
+  "header": [
+   "Response Attribute \u2014 For Uplink Message",
+   "Description"
+  ],
+  "page": 359,
+  "col_count": 2
+ },
+ "route uplink message elements (rteu)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 360,
+  "col_count": 5
+ },
+ "route downlink message elements (rted)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 361,
+  "col_count": 5
+ },
+ "lateral uplink message elements (latu)": {
+  "header": [
+   "FANS 1/A",
+   "Response",
+   "Message Element Identifier",
+   "Message Element Intended Use",
+   "Format for Message Element Display"
+  ],
+  "page": 362,
+  "col_count": 5
+ },
+ "lateral downlink message elements (latd)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 362,
+  "col_count": 5
+ },
+ "level uplink message elements (lvlu)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 363,
+  "col_count": 5
+ },
+ "level downlink message elements (lvld)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 365,
+  "col_count": 5
+ },
+ "crossing constraint message elements (cstu)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 366,
+  "col_count": 5
+ },
+ "speed uplink message elements (spdu)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 367,
+  "col_count": 5
+ },
+ "speed downlink message elements": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 367,
+  "col_count": 5
+ },
+ "air traffic advisory uplink message elements": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 367,
+  "col_count": 5
+ },
+ "voice communications uplink message elements (comu)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 368,
+  "col_count": 5
+ },
+ "voice communications downlink message elements (comd)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 368,
+  "col_count": 5
+ },
+ "emergency/urgency uplink message elements (emgu)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 368,
+  "col_count": 5
+ },
+ "emergency/urgency downlink message elements (emgd)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 369,
+  "col_count": 5
+ },
+ "standard response uplink message elements (rspu)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 369,
+  "col_count": 5
+ },
+ "standard response downlink message elements (rspd)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 369,
+  "col_count": 5
+ },
+ "supplemental uplink message elements (supu)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 370,
+  "col_count": 5
+ },
+ "supplemental downlink message elements (supd)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 370,
+  "col_count": 5
+ },
+ "free text uplink message elements (txtu)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 371,
+  "col_count": 5
+ },
+ "free text downlink message elements (txtd)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 372,
+  "col_count": 5
+ },
+ "system management uplink message elements (sysu)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 372,
+  "col_count": 5
+ },
+ "system management downlink message elements (sysd)": {
+  "header": [
+   "CPDLC Message Sets",
+   "",
+   "Operational Definition in PANS\u2212ATM (Doc 4444)",
+   "",
+   ""
+  ],
+  "page": 372,
+  "col_count": 5
+ },
+ "rvr value conversions": {
+  "header": [
+   "RVR",
+   "Visibility (statute miles)"
+  ],
+  "page": 446,
+  "col_count": 2
+ },
+ "intercepting signals": {
+  "header": [
+   "INTERCEPTING SIGNALS Signals and Responses During Aircraft Intercept Signals initiated by intercepted aircraft and responses by intercepting aircraft (as set forth in ICAO Annex 2-Appendix 1, 2.2)",
+   "",
+   "",
+   "",
+   ""
+  ],
+  "page": 482,
+  "col_count": 5
+ },
+ "coast guard rescue coordination centers": {
+  "header": [
+   "Coast Guard Rescue Coordination Centers",
+   ""
+  ],
+  "page": 491,
+  "col_count": 2
+ },
+ "air force rescue coordination center 48 contiguous states": {
+  "header": [
+   "Air Force Rescue Coordination Center",
+   ""
+  ],
+  "page": 491,
+  "col_count": 2
+ },
+ "air command rescue coordination center alaska": {
+  "header": [
+   "Alaskan Air Command Rescue Coordination Center",
+   ""
+  ],
+  "page": 491,
+  "col_count": 2
+ },
+ "joint rescue coordination center hawaii": {
+  "header": [
+   "Honolulu Joint Rescue Coordination Center",
+   ""
+  ],
+  "page": 492,
+  "col_count": 2
+ },
+ "u. s. airmet issuance time and frequency": {
+  "header": [
+   "Product Type",
+   "Issuance Time",
+   "Issuance Frequency"
+  ],
+  "page": 531,
+  "col_count": 3
+ },
+ "product parameters for low/medium/high altitude tier radios": {
+  "header": [
+   "Product",
+   "Surface Radios",
+   "Low Altitude Tier",
+   "Medium Altitude Tier",
+   "High Altitude Tier"
+  ],
+  "page": 542,
+  "col_count": 5
+ },
+ "weather observing programs": {
+  "header": [
+   "Reported Element Type \u2014 ASOS",
+   "Wind \u2014 X",
+   "Visibility \u2014 X",
+   "Temperature Dew Point \u2014 X",
+   "Altimeter \u2014 X",
+   "Density Altimeter \u2014 X",
+   "Cloud/Ceiling \u2014 X",
+   "Precipitation Identification \u2014 X",
+   "Thunderstorm/ Lightning",
+   "Precipitation Occurrence",
+   "Rainfall Accumulation \u2014 X",
+   "Runway Surface Condition",
+   "Freezing Rain Occurrence \u2014 X",
+   "Remarks \u2014 X"
+  ],
+  "page": 550,
+  "col_count": 14
+ },
+ "approach category/minimum rvr table": {
+  "header": [
+   "Category",
+   "Visibility (RVR)"
+  ],
+  "page": 557,
+  "col_count": 2
+ },
+ "pirep element code chart": {
+  "header": [
+   "",
+   "PIREP ELEMENT",
+   "PIREP CODE",
+   "CONTENTS"
+  ],
+  "page": 561,
+  "col_count": 4
+ },
+ "icing types": {
+  "header": [
+   "Clear Ice",
+   "See Glaze Ice."
+  ],
+  "page": 562,
+  "col_count": 2
+ },
+ "icing conditions": {
+  "header": [
+   "Appendix C Icing Conditions",
+   "Appendix C (14 CFR, part 25 and 29) is the certification icing condition standard for approving ice protection provisions on aircraft. The conditions are specified in terms of altitude, temperature, liquid water content (LWC), representative droplet size (mean effective drop diameter [MED]), and cloud horizontal extent."
+  ],
+  "page": 563,
+  "col_count": 2
+ },
+ "turbulence reporting criteria table": {
+  "header": [
+   "Intensity",
+   "Aircraft Reaction",
+   "Reaction Inside Aircraft",
+   "Reporting Term\u2212Definition"
+  ],
+  "page": 564,
+  "col_count": 4
+ },
+ "twip\u2212equipped airports": {
+  "header": [
+   "Airport",
+   "Identifier"
+  ],
+  "page": 576,
+  "col_count": 2
+ },
+ "lowest usable flight level": {
+  "header": [
+   "Altimeter Setting (Current Reported)",
+   "Lowest Usable Flight Level"
+  ],
+  "page": 596,
+  "col_count": 2
+ },
+ "lowest flight level correction factor": {
+  "header": [
+   "Altimeter Factor",
+   "Correction Factor"
+  ],
+  "page": 596,
+  "col_count": 2
+ },
+ "jurisdictions controlling navigable bodies of water": {
+  "header": [
+   "Authority to Consult For Use of a Body of Water",
+   "",
+   ""
+  ],
+  "page": 624,
+  "col_count": 3
+ },
+ "helicopter use of standard instrument approach procedures": {
+  "header": [
+   "Procedure",
+   "Helicopter Visibility Minima",
+   "Helicopter MDA/DA",
+   "Maximum Speed Limitations"
+  ],
+  "page": 666,
+  "col_count": 4
+ },
+ "sample of astronomical data available from the naval observatory": {
+  "header": [
+   "The following information is provided for New Orleans, Orleans Parish, Louisiana (longitude W90.1, latitude N30.0)",
+   ""
+  ],
+  "page": 681,
+  "col_count": 2
+ },
+ "table of common references for estimating wind velocity": {
+  "header": [
+   "Wind (Knots)",
+   "Wind Classification",
+   "Appearance of Wind Effects \u2014 On the Water",
+   "On Land"
+  ],
+  "page": 685,
+  "col_count": 4
+ },
+ "flight specific information": {
+  "header": [
+   "Item",
+   "International Flight Plan (FAA Form 7233\u22124)",
+   "Domestic U.S. Requirements",
+   "Equivalent Item on Domestic Flight Plan (FAA Form 7233\u22121)"
+  ],
+  "page": 729,
+  "col_count": 4
+ },
+ "item 10a navigation, communication, and approach aid capabilities": {
+  "header": [
+   "A GBAS Landing System B LPV (APV with SBAS) C LORAN C D DME E1 FMC WPR ACARS E2 D\u2212FIS ACARS E3 PDC ACARS F ADF G GNSS (See Note 2) H HF RTF I Inertial Navigation J1 CPDLC ATN VDL Mode 2 (See Note 3) J2 CPDLC FANS 1/A HFDL J3 CPDLC FANS 1/A VDL Mode A J4 CPDLC FANS 1/A Mode 2 J5 CPDLC FANS 1/A SATCOM (INMARSAT) J6 Reserved",
+   "J7 CPDLC FANS 1/A SATCOM (Iridium) K MLS L ILS M1 ATC SATVOICE (INMARSAT) M2 Reserved M3 ATC RTF (Iridium) O VOR P1 CPDLC RCP 400 (See Note 7) P2 CPDLC RCP 240 (See Note 7) P3 SATVOICE RCP 400 (See Note 7) P4\u2212P9 Reserved for RCP R PBN Approved (See Note 4) T TACAN U UHF RTF V VHF RTF W RVSM Approved X MNPS Approved /North Atlantic (NAT) High Level Airspace (HLA) approved Y VHF with 8.33 kHz Channel Spacing Capability Z Other equipment carried or other capabilities (See Note 5)"
+  ],
+  "page": 731,
+  "col_count": 2
+ },
+ "item 18 nav/, com/, dat/, and sur/ capabilities used by faa": {
+  "header": [
+   "Item",
+   "Purpose",
+   "Entry",
+   "Explanation"
+  ],
+  "page": 733,
+  "col_count": 4
+ },
+ "item 18. pbn/ specifications (include as many of the applicable descriptors, up to a maximum of 8 entries (not more than 16 characters).": {
+  "header": [
+   "PBN/ \u2014 A1 RNAV 10 (RNP 10)",
+   "RNAV SPECIFICATIONS"
+  ],
+  "page": 734,
+  "col_count": 2
+ },
+ "radio navigation capabilities": {
+  "header": [
+   "Capability \u2014 VOR",
+   "Item 10a \u2014 O",
+   "Item 18 NAV/"
+  ],
+  "page": 735,
+  "col_count": 3
+ },
+ "area navigation capabilities": {
+  "header": [
+   "Capability",
+   "Item 10a",
+   "Item 18 NAV/"
+  ],
+  "page": 735,
+  "col_count": 3
+ },
+ "mode c": {
+  "header": [
+   "Capability",
+   "Item 10b"
+  ],
+  "page": 736,
+  "col_count": 2
+ },
+ "mode s": {
+  "header": [
+   "Capability",
+   "Aircraft ID",
+   "Altitude Encoding",
+   "Item 10b"
+  ],
+  "page": 736,
+  "col_count": 4
+ },
+ "ads\u2212b capabilities": {
+  "header": [
+   "Capability",
+   "Item 10b",
+   "Item 18 SUR/"
+  ],
+  "page": 736,
+  "col_count": 3
+ },
+ "voice communication capabilities": {
+  "header": [
+   "Capability",
+   "Item 10a"
+  ],
+  "page": 737,
+  "col_count": 2
+ },
+ "approach aid capabilities": {
+  "header": [
+   "Capability",
+   "Item 10a"
+  ],
+  "page": 737,
+  "col_count": 2
+ },
+ "filing for performance based navigation (pbn) routes": {
+  "header": [
+   "Type of Routing \u2014 RNAV SID or STAR (See NOTE 1)",
+   "Capability Required \u2014 RNAV 1",
+   "Item 10a \u2014 GR",
+   "Item 18 PBN/ See NOTE 2 \u2014 D2",
+   "Item 18 NAV/ See NOTE 3",
+   "Notes \u2014 If GNSS"
+  ],
+  "page": 738,
+  "col_count": 6
+ },
+ "filing for gulf of america cta": {
+  "header": [
+   "Dimension of Separa\u00ad tion",
+   "Separation Minima",
+   "ADS\u2212C Surveillance Requirements",
+   "Comm. Re\u00ad quirement",
+   "PBN Re\u00ad quirement",
+   "Flight Plan Entries \u2014 ADS\u2212C in Item 10b",
+   "CPDLC in Item 10a",
+   "PBN in Item 18 PBN/ (also File \u2019R\u2019 in Item 10a)",
+   "PBN in Item 18 NAV/"
+  ],
+  "page": 739,
+  "col_count": 9
+ },
+ "filing for 50 nm lateral separation in anchorage arctic fir": {
+  "header": [
+   "Dimension of Separa\u00ad tion",
+   "Separa\u00ad tion Mini- ma",
+   "ADS\u2212C Surveillance Requirements",
+   "Comm. Re\u00ad quirement",
+   "PBN Require\u00ad ment",
+   "Flight Plan Entries \u2014 ADS\u2212C in Item 10b",
+   "CPDLC in Item 10a",
+   "PBN in Item 18 PBN/ (also File \u2019R\u2019 in Item 10a)",
+   "PBN in Item 18 NAV/"
+  ],
+  "page": 740,
+  "col_count": 9
+ },
+ "filing for 20 nm, 30 nm and 50 nm longitudinal; and 23 nm and 30 nm lateral oceanic separation in anchorage, oakland, and new york oceanic ctas": {
+  "header": [
+   "Dimension of Separation",
+   "Separation Minima",
+   "ADS\u2212C Surveillance Requirements",
+   "Comm. Re\u00ad quirement",
+   "PBN Require\u00ad ment",
+   "Flight Plan Entries \u2014 ADS\u2212C in Item 10b",
+   "CPDLC in Item 10a",
+   "PBN in Item 18 PBN/ (also File \u2019R\u2019 in Item 10a)",
+   "PBN in Item 18 NAV/"
+  ],
+  "page": 740,
+  "col_count": 9
+ },
+ "filing for reduced oceanic separation when rsp/rcp required on march 29, 2018": {
+  "header": [
+   "Dimension of Separation",
+   "Separation Minima",
+   "RSP Re\u00ad quirement",
+   "RCP Re\u00ad quirement",
+   "PBN Require\u00ad ment",
+   "Flight Plan Entries \u2014 RSP in Item 18 SUR/",
+   "RCP in Item 10a",
+   "CDPLC in Item10a",
+   "PBN in Item 18 PBN/ (also File \u2019R\u2019 in Item 10a)",
+   "PBN in Item 18 NAV/"
+  ],
+  "page": 741,
+  "col_count": 10
+ },
+ "special handling": {
+  "header": [
+   "Special Handling \u2014 Flight operating in accordance with an altitude reservation ALTRV",
+   "Item 18 STS/"
+  ],
+  "page": 742,
+  "col_count": 2
+ },
+ "aircraft specific information": {
+  "header": [
+   "Item \u2014 Number of Aircraft Item 9 Included when more than one a/c in flight Item 3",
+   "International Flight Plan (FAA Form 7233\u22124)",
+   "Domestic U.S. Requirements",
+   "Equivalent Item on Domestic Flight Plan (FAA Form 7233\u22121)"
+  ],
+  "page": 743,
+  "col_count": 4
+ },
+ "flight routing information": {
+  "header": [
+   "Item \u2014 Departure Airport Item 13 Required Item 2",
+   "International Flight Plan (FAA Form 7233\u22124)",
+   "Domestic U.S. Requirements",
+   "Equivalent Item on Domestic Flight Plan (FAA Form 7233\u22121)"
+  ],
+  "page": 744,
+  "col_count": 4
+ }
+}

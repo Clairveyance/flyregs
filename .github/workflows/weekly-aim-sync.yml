@@ -1,0 +1,58 @@
+name: Weekly AIM Sync
+
+# Runs sync_aim.sh's 4-stage pipeline (re-download AIM PDF -> rebuild
+# caption->page lookup -> scrape -> real-page-image backfill). Mirrors
+# weekly-sync.yml (the AC equivalent) for the same reason: this shouldn't
+# depend on any one machine being powered on and awake at a given hour.
+# Staggered an hour after the AC sync (11:00 UTC vs. 10:00 UTC) so the two
+# don't contend for Supabase write throughput at the same time.
+#
+# Alerting: sync_aim.sh's steps use `set -euo pipefail`, so any step
+# failing (bad PDF download, scraper error, backfill error) makes the whole
+# job exit non-zero and show as FAILED — check via
+# `gh run list --workflow=weekly-aim-sync.yml` any time.
+#
+# Manual runs: use the "Run workflow" button in the Actions tab
+# (workflow_dispatch trigger below).
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    # 11:00 UTC every Monday — one hour after weekly-sync.yml (AC sync).
+    - cron: '0 11 * * 1'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install -r sync/requirements.txt
+
+      - name: Write .env.scraper from secrets
+        run: |
+          cat > .env.scraper <<EOF
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          EOF
+
+      - name: Run AIM sync
+        run: |
+          chmod +x sync_aim.sh
+          ./sync_aim.sh
+
+      - name: Clean up secrets file
+        if: always()
+        run: rm -f .env.scraper

@@ -51,6 +51,13 @@ example
 # local scratch output (downloaded PDFs, rendered page images, pilot transcripts)
 scratch/
 
+# AIM sync scratch — large re-downloaded source PDF and its regenerated
+# caption->page lookup (rebuilt fresh every sync_aim.sh run by
+# sync/build_aim_pdf_pages.py). sync/aim_pdf_table_headers.json is NOT
+# listed here — it's a curated static asset, not regenerated automatically.
+aim_full.pdf
+aim_pdf_pages.json
+
 # one-off analysis reports (regenerate via their scripts, not source of truth)
 header_leak_report.json
 header_leak_fixed_docs.json
