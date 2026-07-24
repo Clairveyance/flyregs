@@ -122,11 +122,14 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-# Export env vars for Python (which reads from os.environ, not the file)
-set -o allexport
+# ENV_FILE already has real "export VAR=..." lines -- source it directly
+# (no process substitution) for portability across shells/sandboxes;
+# confirmed live that piping through <(...) is unreliable in some
+# execution environments even with the vars right there in the file.
+set -a
 # shellcheck disable=SC1090
-source <(grep -v '^\s*#' "$ENV_FILE" | sed 's/^export //')
-set +o allexport
+source "$ENV_FILE"
+set +a
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 START_TS="$(date '+%Y-%m-%d %H:%M:%S')"

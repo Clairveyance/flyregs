@@ -58,6 +58,13 @@ scratch/
 aim_full.pdf
 aim_pdf_pages.json
 
+# FAR PDF cross-reference audit scratch — far_pdf_audit.sh downloads real
+# CFR volumes to a mktemp dir (self-cleaning) and only copies the small
+# extracted-text JSON here transiently before deleting it; the report file
+# is meant to be read then discarded/regenerated, not tracked.
+far_pdf_sections.json
+far_pdf_crossref_report.json
+
 # one-off analysis reports (regenerate via their scripts, not source of truth)
 header_leak_report.json
 header_leak_fixed_docs.json
