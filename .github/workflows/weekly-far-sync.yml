@@ -1,0 +1,52 @@
+name: Weekly FAR Sync
+
+# Runs sync_far.sh (14 CFR Chapter I, via the eCFR versioner API). Mirrors
+# weekly-sync.yml / weekly-aim-sync.yml for the same reason: shouldn't
+# depend on any one machine being powered on. Staggered to 12:00 UTC
+# (an hour after the AIM sync) so the three don't contend for Supabase
+# write throughput at the same time.
+#
+# Alerting: sync_far.sh uses `set -euo pipefail`, so a failing step makes
+# the whole job show as FAILED — check via
+# `gh run list --workflow=weekly-far-sync.yml` any time.
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '0 12 * * 1'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install -r sync/requirements.txt
+
+      - name: Write .env.scraper from secrets
+        run: |
+          cat > .env.scraper <<EOF
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          EOF
+
+      - name: Run FAR sync
+        run: |
+          chmod +x sync_far.sh
+          ./sync_far.sh
+
+      - name: Clean up secrets file
+        if: always()
+        run: rm -f .env.scraper
