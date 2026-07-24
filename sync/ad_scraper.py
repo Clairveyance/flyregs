@@ -106,13 +106,12 @@ def fetch_page(url: str, params: dict | None = None) -> dict:
     raise RuntimeError(f"Failed to fetch after 3 attempts: {url}")
 
 
-def search_ads(since: str | None = None, limit: int | None = None, order: str = "oldest") -> list[dict]:
-    """Enumerates every 14 CFR Part 39 Final Rule (i.e. every AD). Default
-    order is oldest-first so cursor-based pagination stays stable as new
-    ADs get published at the newest end during a full ingest. `since` (a
-    YYYY-MM-DD date string) restricts to ADs published on or after that
-    date, for incremental syncs — pass order="newest" there too, so a
-    capped `limit` naturally gets the latest ones instead of the oldest.
+def search_ads(
+    since: str | None = None, until: str | None = None,
+    limit: int | None = None, order: str = "oldest",
+) -> list[dict]:
+    """Enumerates every 14 CFR Part 39 Final Rule (i.e. every AD) in a given
+    date window. `since`/`until` are YYYY-MM-DD date strings (inclusive).
 
     NOTE: ADs from the 1990s and earlier use different formatting
     conventions than the modern lettered-paragraph structure
@@ -121,7 +120,15 @@ def search_ads(since: str | None = None, limit: int | None = None, order: str = 
     mode defaults to order="newest" for exactly this reason; only a full
     ingest run should actually reach that old material, and the parser
     logs a per-document warning rather than silently dropping it, so the
-    real scope of that gap is visible, not hidden."""
+    real scope of that gap is visible, not hidden.
+
+    NOTE: the Federal Register's search backend hard-caps at 10,000
+    results for a single query REGARDLESS of pagination style (confirmed
+    live: `next_page_url` goes null right at the 10,000th result, even
+    with per_page=1000's own cursor-based pagination, which normally
+    should get past a plain offset-window limit). A query spanning the AD
+    corpus's full ~90-year history hits this every time -- see
+    search_ads_full() for the date-chunking that actually gets past it."""
     params = {
         "conditions[cfr][title]": 14,
         "conditions[cfr][part]": 39,
@@ -135,6 +142,8 @@ def search_ads(since: str | None = None, limit: int | None = None, order: str = 
     }
     if since:
         params["conditions[publication_date][gte]"] = since
+    if until:
+        params["conditions[publication_date][lte]"] = until
 
     results = []
     url, url_params = FR_API, params
@@ -146,12 +155,37 @@ def search_ads(since: str | None = None, limit: int | None = None, order: str = 
             return results[:limit]
         next_url = data.get("next_page_url")
         if not next_url:
+            if data.get("count", 0) > len(results) and len(results) % 10000 == 0 and results:
+                log.warning(
+                    f"  Hit the 10,000-result window with {data.get('count')} total reported — "
+                    f"this date range needs splitting further to get the rest."
+                )
             break
         # next_page_url already has every param (including the cursor)
         # baked into its own query string, so no params dict is needed —
         # passing one again would double up the querystring.
         url, url_params = next_url, None
     return results
+
+
+def iter_years_full():
+    """Yields (year, results) one year at a time, NEWEST year first — the
+    AD program dates to 1938, and no single year has come remotely close to
+    the 10,000-per-query cap (confirmed live: even the busiest recent years
+    are in the low hundreds), so querying one year at a time reliably gets
+    past the cap a single all-time query hits.
+
+    Newest-first (not chronological) on purpose: 1990s-and-earlier ADs use
+    a different formatting convention parse_ad_text() doesn't handle
+    (confirmed live) and will mostly fail, and processing a full year takes
+    real wall-clock time (a full-text fetch per AD) -- if this run gets
+    interrupted or takes longer than expected, the most current, most
+    relevant-to-active-aircraft ADs should already be saved, not the least
+    useful ones."""
+    current_year = datetime.now().year
+    for year in range(current_year, 1937, -1):
+        year_results = search_ads(since=f"{year}-01-01", until=f"{year}-12-31", order="oldest")
+        yield year, year_results
 
 
 def parse_ad_text(raw_text: str, document_number: str) -> dict | None:
@@ -298,8 +332,26 @@ def process_ads(ad_summaries: list[dict], dry_run: bool) -> list[dict]:
 
         time.sleep(0.2)  # polite pacing against a public API
 
-    log.info(f"Parsed {len(rows)} ADs, {errors} errors")
-    return rows
+    # An AD number can legitimately appear twice in one query result: the
+    # FAA occasionally publishes a Federal Register CORRECTION notice for
+    # an AD shortly after the original adoption (its own text literally
+    # says "Sec. 39.13 [Corrected]" instead of "[Amended]") -- confirmed
+    # live, not a scraper bug: AD 2026-03-06 has both a 2026-02415
+    # original and a 2026-04331 correction of it. A single upsert batch
+    # can't contain two rows targeting the same on_conflict key (Postgres
+    # itself rejects it: "ON CONFLICT command cannot affect row a second
+    # time"), and semantically the correction should win anyway since it's
+    # the more accurate, more recent version. `search_ads`/`iter_years_full`
+    # both query oldest-to-newest-within-year, so keeping the LAST
+    # occurrence in list order keeps the correction over the original.
+    deduped: dict[str, dict] = {}
+    for row in rows:
+        if row["ad_number"] in deduped:
+            log.info(f"  {row['ad_number']}: duplicate in this batch (likely a Federal Register correction) — keeping the later one")
+        deduped[row["ad_number"]] = row
+
+    log.info(f"Parsed {len(rows)} ADs ({len(deduped)} distinct AD numbers), {errors} errors")
+    return list(deduped.values())
 
 
 def main():
@@ -323,6 +375,29 @@ def main():
         rows = resp.json()
         since = rows[0]["citation_publish_date"] if rows else None
         log.info(f"Incremental mode: fetching ADs published since {since or '(none found — fetching all)'}")
+
+    if args.mode == "full":
+        # Upserts once PER YEAR, not once at the very end -- a run covering
+        # the whole ~90-year corpus takes real wall-clock time (a full-text
+        # fetch per AD), and batching everything into one final write means
+        # an interruption anywhere loses ALL progress. Newest year first
+        # (see iter_years_full's docstring), so the most relevant-to-
+        # active-aircraft ADs land in the DB earliest.
+        log.info("Searching Federal Register for every 14 CFR Part 39 Final Rule (full mode, newest year first)...")
+        total_rows = 0
+        for year, ad_summaries in iter_years_full():
+            if not ad_summaries:
+                continue
+            log.info(f"=== {year}: {len(ad_summaries)} AD documents ===")
+            rows = process_ads(ad_summaries, dry_run=False)
+            if rows:
+                ok = _upsert("airworthiness_directives", rows, "ad_number")
+                if not ok:
+                    log.error(f"  {year}: upsert failed, continuing to next year rather than losing all remaining progress")
+                else:
+                    total_rows += len(rows)
+        log.info(f"Done. Total ADs upserted={total_rows}")
+        return
 
     limit = args.limit or (10 if args.mode == "test" else None)
     order = "newest" if args.mode in ("test", "incremental") else "oldest"

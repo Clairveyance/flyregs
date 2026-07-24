@@ -85,6 +85,7 @@ export default function RootLayout() {
               <Stack.Screen name="pdf-viewer" options={{ presentation: 'modal' }} />
               <Stack.Screen name="account" />
               <Stack.Screen name="manage-subscription" />
+              <Stack.Screen name="my-aircraft" />
               <Stack.Screen name="faq" />
               <Stack.Screen name="feedback" />
               <Stack.Screen name="about" />

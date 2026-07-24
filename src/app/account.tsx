@@ -449,6 +449,19 @@ export default function AccountScreen() {
           />
         </View>
 
+        {/* My Aircraft group — the actual targeting mechanism for AD
+            alerts, see my-aircraft.tsx's own header comment. */}
+        <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>AIRWORTHINESS DIRECTIVES</Text>
+        <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+          <Row
+            icon="doc.plaintext"
+            label="My Aircraft"
+            tokens={tokens}
+            onPress={() => router.push('/my-aircraft' as any)}
+            last
+          />
+        </View>
+
         {/* Notifications group — AC Update Alerts is a Premium feature; the
             in-app switch is our own send-preference, separate from (and
             layered on top of) the device's own OS-level notification

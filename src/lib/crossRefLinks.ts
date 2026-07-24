@@ -71,6 +71,11 @@ const PATTERNS: LinkPattern[] = [
   // P/CG glossary term mention — the exact phrase the AIM/FAR scrapers'
   // own citation regex already looks for.
   { regex: /Pilot\/Controller Glossary Term-\s*([^.]+)\.?/g, buildRoute: (m) => `/pcg/${slugifyPcgTerm(m[1].trim())}` },
+  // Airworthiness Directive mention ("AD 2026-15-05", "AD 2025-17-12").
+  // The AD number format (YYYY-NN-NN) is specific enough on its own that
+  // requiring the "AD " prefix is enough to avoid false positives from
+  // unrelated dates/numbers in surrounding prose.
+  { regex: /\bAD\s+(\d{4}-\d{2}-\d{2})\b/g, buildRoute: (m) => `/ad/${m[1]}` },
 ]
 
 export function linkifyText(text: string): LinkSegment[] {
