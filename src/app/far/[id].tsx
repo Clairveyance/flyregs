@@ -154,6 +154,21 @@ export default function FarSectionScreen() {
 
   const body = section?.body_text ?? ''
   const currentLabel = section ? `§ ${section.section_number}` : undefined
+  // FAR has no dedicated figures table (ac_figures/aim_figures) -- its
+  // "tables" are real pipe-delimited rows embedded directly in body_text
+  // (confirmed: 93 sections, e.g. $ 47.17's fee schedule), the exact same
+  // pattern filter_documents' p_has_figures already detects server-side.
+  // PlainTextBody already renders these as a real grid inline, so unlike
+  // AC/AIM's Figures & Tables bar (which expands a list of separate image
+  // assets you can't otherwise see), there's nothing to expand here -- this
+  // is a plain discoverability badge, not interactive. Counts real table
+  // BLOCKS (one "\n\n"-paragraph with 2+ " | "-delimited lines), mirroring
+  // PlainTextBody's own parseTableBlock() grouping -- not a naive pipe-
+  // character count, which would count individual rows as separate tables.
+  const tableCount = body.split('\n\n').filter((para) => {
+    const pipedLines = para.split('\n').filter((l) => l.includes(' | '))
+    return pipedLines.length >= 2
+  }).length
 
   const aimRefs = related.filter((r) => r.cited_type === 'aim')
   const acRefs = related.filter((r) => r.cited_type === 'ac')
@@ -266,6 +281,16 @@ export default function FarSectionScreen() {
           )}
 
           <View style={[styles.barsWrap]}>
+            {tableCount > 0 && (
+              <View style={[styles.tablesBar, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                <Icon name="photo" size={15} color={tokens.t3} />
+                <Text style={[styles.tablesBarLabel, { color: tokens.t1, fontSize: fs(13) }]}>
+                  {tableCount === 1 ? 'Table' : 'Tables'}
+                </Text>
+                <View style={{ flex: 1 }} />
+                <Text style={[styles.tablesBarCount, { color: tokens.t3, fontSize: fs(12.5) }]}>{tableCount}</Text>
+              </View>
+            )}
             <MagicLinkPod
               bars={[
                 { icon: 'doc.text', label: 'Related ACs', items: acRefs },
@@ -337,5 +362,11 @@ const styles = StyleSheet.create({
   secNum: { fontWeight: '600', fontSize: 15 },
   title: { fontWeight: '600', fontSize: 17, marginTop: 2, marginBottom: 14, lineHeight: 23 },
   barsWrap: { gap: 6, marginBottom: 16 },
+  tablesBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10,
+  },
+  tablesBarLabel: { fontWeight: '600' },
+  tablesBarCount: { fontWeight: '500' },
   body: { fontSize: 14.5, lineHeight: 22 },
 })
