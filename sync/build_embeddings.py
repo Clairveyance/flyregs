@@ -45,7 +45,7 @@ ROOT = Path(__file__).resolve().parent.parent
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMS = 1536
 CHUNK_TARGET_CHARS = 3000
-OPENAI_BATCH = 96  # OpenAI embeddings endpoint accepts up to 2048 inputs/req; keep small for retry-friendliness
+OPENAI_BATCH = 40  # OpenAI embeddings endpoint accepts up to 2048 inputs/req -- kept small for retry-friendliness AND because a 96-row upsert payload (96 x 1536-float embeddings) 500'd against PostgREST on LOI; smaller batches avoid the payload-size cliff
 
 
 def load_env() -> dict:
@@ -244,7 +244,15 @@ def run_type(doc_type: str, only: str | None, dry_run: bool) -> tuple[int, int]:
             vectors = embed_batch(pending_texts)
             for meta, vec in zip(pending_meta, vectors):
                 meta["embedding"] = str(vec)
-            upsert_chunks(pending_meta)
+            try:
+                upsert_chunks(pending_meta)
+            except requests.exceptions.RequestException as e:
+                # A single bad batch (confirmed once: a 500 from PostgREST on
+                # an oversized upsert payload) shouldn't take down the whole
+                # multi-type run -- log which source_ids were lost and keep
+                # going; content-hashing means a re-run only retries these.
+                lost = [m["source_id"] for m in pending_meta]
+                log.warning(f"[{doc_type}] batch upsert failed ({len(lost)} chunks, ids: {lost[:5]}{'...' if len(lost) > 5 else ''}): {e}")
         total_embedded += len(pending_texts)
         pending_texts.clear()
         pending_meta.clear()

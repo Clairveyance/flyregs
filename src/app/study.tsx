@@ -10,9 +10,11 @@ import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getStudyQueue, recordStudyReview, getStudyMastery, getCurrency, StudyCard, StudyMastery, Currency, StudyItemType } from '@/lib/study'
 import { COIN_BY_CODE } from '@/lib/coins'
+import { KnowledgeLevel, KNOWLEDGE_LEVEL_LABELS } from '@/lib/challenges'
 
 const TYPE_LABEL: Record<StudyItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC' }
 const ALL_TYPES: StudyItemType[] = ['far', 'aim', 'pcg', 'ac']
+const ALL_LEVELS: KnowledgeLevel[] = ['student', 'private', 'commercial', 'atp', 'cfi', 'mechanic']
 
 export default function StudyScreen() {
   const { tokens } = useTheme()
@@ -28,6 +30,7 @@ export default function StudyScreen() {
   // Empty selection means "all types" -- avoids a confusing zero-result
   // state on first load and matches Duels' filter default.
   const [activeTypes, setActiveTypes] = useState<StudyItemType[]>([])
+  const [activeLevels, setActiveLevels] = useState<KnowledgeLevel[]>([])
 
   const toggleType = (t: StudyItemType) => {
     // Empty selection displays as "all active" -- expand to the explicit
@@ -39,9 +42,16 @@ export default function StudyScreen() {
     })
   }
 
+  const toggleLevel = (l: KnowledgeLevel) => {
+    setActiveLevels((prev) => {
+      const base = prev.length === 0 ? ALL_LEVELS : prev
+      return base.includes(l) ? base.filter((x) => x !== l) : [...base, l]
+    })
+  }
+
   const load = useCallback(() => {
     setLoading(true)
-    Promise.all([getStudyQueue(20, activeTypes), getStudyMastery(), getCurrency()])
+    Promise.all([getStudyQueue(20, activeTypes, activeLevels), getStudyMastery(), getCurrency()])
       .then(([queue, m, c]) => {
         setDeck(queue)
         setMastery(m)
@@ -51,7 +61,7 @@ export default function StudyScreen() {
         setSessionDone(queue.length === 0)
       })
       .finally(() => setLoading(false))
-  }, [activeTypes])
+  }, [activeTypes, activeLevels])
 
   useEffect(() => {
     if (isPro) load()
@@ -134,6 +144,34 @@ export default function StudyScreen() {
             >
               <Text style={[styles.filterChipText, { color: active ? tokens.gold : tokens.t3, fontSize: fs(11.5) }]}>
                 {TYPE_LABEL[t]}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
+      <View style={[styles.filterRow, styles.levelFilterRow]}>
+        <Pressable
+          style={[
+            styles.filterChip,
+            { backgroundColor: activeLevels.length === 0 ? tokens.goldlt : tokens.bg2, borderColor: activeLevels.length === 0 ? tokens.goldbdr : tokens.bdr },
+          ]}
+          onPress={() => setActiveLevels([])}
+        >
+          <Text style={[styles.filterChipText, { color: activeLevels.length === 0 ? tokens.gold : tokens.t3, fontSize: fs(11.5) }]}>ALL LEVELS</Text>
+        </Pressable>
+        {ALL_LEVELS.map((l) => {
+          const active = activeLevels.length === 0 || activeLevels.includes(l)
+          return (
+            <Pressable
+              key={l}
+              style={[
+                styles.filterChip,
+                { backgroundColor: active ? tokens.goldlt : tokens.bg2, borderColor: active ? tokens.goldbdr : tokens.bdr },
+              ]}
+              onPress={() => toggleLevel(l)}
+            >
+              <Text style={[styles.filterChipText, { color: active ? tokens.gold : tokens.t3, fontSize: fs(11.5) }]}>
+                {KNOWLEDGE_LEVEL_LABELS[l]}
               </Text>
             </Pressable>
           )
@@ -304,6 +342,7 @@ const styles = StyleSheet.create({
   upgradeBtnText: { color: '#fff', fontWeight: '700' },
 
   filterRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingTop: 14 },
+  levelFilterRow: { flexWrap: 'wrap', paddingTop: 8 },
   filterChip: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6 },
   filterChipText: { fontWeight: '700', letterSpacing: 0.3 },
 

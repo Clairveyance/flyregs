@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import type { KnowledgeLevel } from '@/lib/challenges'
 
 export type StudyItemType = 'pcg' | 'far' | 'aim' | 'ac'
 
@@ -21,10 +22,11 @@ export interface StudyMastery {
 // (frequently-used ones first) -- see get_study_queue() in Postgres. Deck
 // size is deliberately small (a single sitting), not "start the whole
 // glossary" -- matches how real spaced-repetition study tools pace sessions.
-export async function getStudyQueue(limit = 20, itemTypes?: StudyItemType[]): Promise<StudyCard[]> {
+export async function getStudyQueue(limit = 20, itemTypes?: StudyItemType[], levels?: KnowledgeLevel[]): Promise<StudyCard[]> {
   const { data, error } = await supabase.rpc('get_study_queue', {
     p_limit: limit,
     p_item_types: itemTypes && itemTypes.length > 0 ? itemTypes : null,
+    p_levels: levels && levels.length > 0 ? levels : null,
   })
   if (error) throw error
   return (data ?? []) as StudyCard[]

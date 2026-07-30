@@ -42,6 +42,23 @@ export interface DuelStats {
 
 export type DuelItemType = 'pcg' | 'far' | 'aim' | 'ac'
 
+// Grounded in real FAR structure, not a guess -- see far_knowledge_levels()/
+// ac_knowledge_levels() in the DB (Part 61's subparts are official FAA
+// structure: C/D/J=student, E=private, F=commercial, G=ATP, H/I/K=
+// instructor; 121/135/117=airline ops; 43/65/145/21=mechanic). Content that
+// genuinely spans levels (Part 91, Part 61 Subparts A/B, all of AIM/P-CG)
+// is deliberately left unclassified and always included, rather than
+// guessed into one bucket.
+export type KnowledgeLevel = 'student' | 'private' | 'commercial' | 'atp' | 'cfi' | 'mechanic'
+export const KNOWLEDGE_LEVEL_LABELS: Record<KnowledgeLevel, string> = {
+  student: 'Student',
+  private: 'Private',
+  commercial: 'Commercial',
+  atp: 'ATP',
+  cfi: 'CFI',
+  mechanic: 'Mechanic (A&P)',
+}
+
 export interface NextQuestion {
   questionId: string
   sortOrder: number
@@ -94,11 +111,12 @@ export async function getChallengeableUsers(): Promise<ChallengeableUser[]> {
 }
 
 // opponentIds: 1-7 invitees (2-8 total participants including the caller).
-export async function createChallenge(opponentIds: string[], questionCount = 5, itemTypes?: DuelItemType[]): Promise<string> {
+export async function createChallenge(opponentIds: string[], questionCount = 5, itemTypes?: DuelItemType[], levels?: KnowledgeLevel[]): Promise<string> {
   const { data, error } = await supabase.rpc('create_challenge', {
     p_opponent_ids: opponentIds,
     p_question_count: questionCount,
     p_item_types: itemTypes && itemTypes.length > 0 ? itemTypes : null,
+    p_levels: levels && levels.length > 0 ? levels : null,
   })
   if (error) throw error
   return data as string

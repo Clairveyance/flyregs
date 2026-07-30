@@ -8,12 +8,15 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import {
   getMyChallenges, getChallengeableUsers, createChallenge, respondToChallenge, getDuelStats, sendDuelPush,
-  MyChallenge, ChallengeableUser, DuelStats, DuelItemType,
+  MyChallenge, ChallengeableUser, DuelStats, DuelItemType, KnowledgeLevel, KNOWLEDGE_LEVEL_LABELS,
 } from '@/lib/challenges'
 
 const QUESTION_COUNTS = [3, 5, 10]
 const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac']
 const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC' }
+// Pilot levels first (the common case), Mechanic last -- a mechanic duel
+// is a deliberately separate use case, not "one more pilot level."
+const ALL_LEVELS: KnowledgeLevel[] = ['student', 'private', 'commercial', 'atp', 'cfi', 'mechanic']
 const MAX_OPPONENTS = 7
 
 export default function ChallengesScreen() {
@@ -28,12 +31,20 @@ export default function ChallengesScreen() {
   const [selectedOpponents, setSelectedOpponents] = useState<string[]>([])
   const [questionCount, setQuestionCount] = useState(5)
   const [activeTypes, setActiveTypes] = useState<DuelItemType[]>([])
+  const [activeLevels, setActiveLevels] = useState<KnowledgeLevel[]>([])
   const [creating, setCreating] = useState(false)
 
   const toggleType = (t: DuelItemType) => {
     setActiveTypes((prev) => {
       const base = prev.length === 0 ? ALL_TYPES : prev
       return base.includes(t) ? base.filter((x) => x !== t) : [...base, t]
+    })
+  }
+
+  const toggleLevel = (l: KnowledgeLevel) => {
+    setActiveLevels((prev) => {
+      const base = prev.length === 0 ? ALL_LEVELS : prev
+      return base.includes(l) ? base.filter((x) => x !== l) : [...base, l]
     })
   }
 
@@ -66,7 +77,7 @@ export default function ChallengesScreen() {
     if (selectedOpponents.length === 0 || creating) return
     setCreating(true)
     try {
-      const id = await createChallenge(selectedOpponents, questionCount, activeTypes)
+      const id = await createChallenge(selectedOpponents, questionCount, activeTypes, activeLevels)
       setPickerVisible(false)
       sendDuelPush(id, 'invited')
       router.push(`/challenges/${id}` as any)
@@ -192,6 +203,39 @@ export default function ChallengesScreen() {
                     onPress={() => toggleType(t)}
                   >
                     <Text style={[styles.countChipText, { color: active ? tokens.gold : tokens.t3, fontSize: fs(13) }]}>{TYPE_LABEL[t]}</Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+
+            {/* Student pilots shouldn't get quizzed on ATP/CFI-only material
+                and vice versa; a mechanic session shouldn't pull pilot
+                certification questions at all -- classification is real FAR
+                structure (far_knowledge_levels() in the DB), not a guess.
+                Same "tap to exclude" pattern as CONTENT above. */}
+            <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 14 }]}>KNOWLEDGE LEVEL (TAP TO EXCLUDE)</Text>
+            <View style={styles.countRow}>
+              <Pressable
+                style={[
+                  styles.countChip,
+                  { backgroundColor: activeLevels.length === 0 ? tokens.goldlt : tokens.bg2, borderColor: activeLevels.length === 0 ? tokens.goldbdr : tokens.bdr },
+                ]}
+                onPress={() => setActiveLevels([])}
+              >
+                <Text style={[styles.countChipText, { color: activeLevels.length === 0 ? tokens.gold : tokens.t3, fontSize: fs(13) }]}>ALL</Text>
+              </Pressable>
+              {ALL_LEVELS.map((l) => {
+                const active = activeLevels.length === 0 || activeLevels.includes(l)
+                return (
+                  <Pressable
+                    key={l}
+                    style={[
+                      styles.countChip,
+                      { backgroundColor: active ? tokens.goldlt : tokens.bg2, borderColor: active ? tokens.goldbdr : tokens.bdr },
+                    ]}
+                    onPress={() => toggleLevel(l)}
+                  >
+                    <Text style={[styles.countChipText, { color: active ? tokens.gold : tokens.t3, fontSize: fs(13) }]}>{KNOWLEDGE_LEVEL_LABELS[l]}</Text>
                   </Pressable>
                 )
               })}
