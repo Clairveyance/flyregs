@@ -27,8 +27,9 @@ import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { supabase } from '@/lib/supabase'
 import { blockText } from '@/lib/acFormat'
 import { ScreenHeader } from '@/components/ScreenHeader'
+import { TabletContainer } from '@/components/TabletContainer'
 import { Icon } from '@/components/Icon'
-import { getBookmarks, removeBookmark, removeManyBookmarks, BookmarkAC } from '@/lib/bookmarks'
+import { getBookmarks, removeBookmark, removeManyBookmarks, routeForBookmark, bookmarkItemType, BookmarkAC } from '@/lib/bookmarks'
 import { highlightSnippet } from '@/lib/acShare'
 import { getDownloads, removeDownload, formatBytes, DownloadedAC } from '@/lib/downloads'
 import {
@@ -49,15 +50,23 @@ import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions, ShareableAC, ShareableNote } from '@/lib/share'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
+import { stripFarPrefix } from '@/lib/titleFormat'
 import { useCachedImage } from '@/lib/imageCache'
 import { getAvatarPreset } from '@/lib/avatarPresets'
 
 type Tab = 'all' | 'folders' | 'shared' | 'offline'
 
+// Plus: 3 folders. Premium: unlimited -- a second concrete Plus->Premium
+// upgrade lever alongside the aircraft cap. See flyregs_decisions.md.
+const PLUS_FOLDER_CAP = 3
+
 export default function SavedScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { session, isPro, isPremium } = useAuth()
+  // Bookmarks/Folders are Plus-tier (hasPlusAccess); cloud sync is Pro-tier
+  // (isPro); shared/collaborative folders and offline stay Premium-only --
+  // see flyregs_decisions.md's pricing pivot.
+  const { session, isPro, isPremium, hasPlusAccess } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const { shareAC, shareMany } = useShareActions()
   const [tab, setTab] = useState<Tab>('all')
@@ -202,19 +211,19 @@ export default function SavedScreen() {
   }, [tabParam, subParam]))
 
   // The stored sync_enabled flag doesn't get flipped off automatically if a
-  // Premium subscription lapses -- self-correct so the UI (and syncPush.ts's
-  // own live isPremium check) both agree with reality instead of the row
-  // claiming "Synced" forever off a stale local flag.
-  const displaySyncEnabled = syncEnabled && isPremium
+  // Pro/Premium subscription lapses -- self-correct so the UI (and syncPush.ts's
+  // own live isPro check) both agree with reality instead of the row claiming
+  // "Synced" forever off a stale local flag. Sync moved from Premium to Pro.
+  const displaySyncEnabled = syncEnabled && isPro
   useEffect(() => {
-    if (syncEnabled && !isPremium) {
+    if (syncEnabled && !isPro) {
       disableSync()
       setSyncEnabled(false)
     }
-  }, [syncEnabled, isPremium])
+  }, [syncEnabled, isPro])
 
   const toggleSync = async (v: boolean) => {
-    if (v && !isPremium) { router.push('/paywall?tier=premium'); return }
+    if (v && !isPro) { router.push('/paywall'); return }
     // Optimistic -- flips the Switch immediately on the user's own gesture,
     // same as every standard iOS toggle. It used to wait for the full
     // enableSync() push+pull round trip before ever updating, which made a
@@ -340,14 +349,22 @@ export default function SavedScreen() {
     highlightSnippet: item.blockText ? highlightSnippet(item.blockText) : undefined,
   })
 
-  const handleShare = (item: { id: string; document_number: string; title: string; acId?: string; blockText?: string }) => {
+  // Shared between AC bookmark rows and OfflineListView's DownloadedAC rows
+  // (offline downloads are AC-only, so they never carry itemType at all --
+  // bookmarkItemType's "absent means 'ac'" default handles that transparently).
+  const handleShare = (item: { id: string; document_number: string; title: string; acId?: string; blockText?: string; itemType?: BookmarkAC['itemType'] }) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    // Share links only resolve for ACs today (buildACShareLink/flyregs.com
+    // routing is AC-only) -- silently no-op for FAR/AIM/P-CG/AD bookmarks
+    // rather than hand out a link the recipient's app can't open.
+    if (bookmarkItemType(item) !== 'ac') return
     shareAC(toShareableAC(item))
   }
 
   const handleBulkShare = () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
-    const items = bookmarks.filter((b) => selected.has(b.id))
+    const items = bookmarks.filter((b) => selected.has(b.id) && bookmarkItemType(b) === 'ac')
+    if (items.length === 0) return
     shareMany(items.map(toShareableAC))
     setSelected(new Set())
     setSelectMode(false)
@@ -369,6 +386,19 @@ export default function SavedScreen() {
   }
 
   const handleCreateFolder = async (name: string): Promise<boolean> => {
+    // Plus is capped at PLUS_FOLDER_CAP folders; Premium is unlimited -- see
+    // flyregs_decisions.md's pricing pivot.
+    if (!isPremium && folders.length >= PLUS_FOLDER_CAP) {
+      Alert.alert(
+        'Folder limit reached',
+        `Plus includes ${PLUS_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Upgrade to Premium', onPress: () => router.push('/paywall?tier=premium') },
+        ]
+      )
+      return false
+    }
     try {
       await createFolder(name)
     } catch (e) {
@@ -468,7 +498,7 @@ export default function SavedScreen() {
       </Pressable>
       {!folderSelectMode && (
         <Pressable
-          onPress={() => (isPro ? setNewFolderVisible(true) : router.push('/paywall'))}
+          onPress={() => (hasPlusAccess ? setNewFolderVisible(true) : router.push('/paywall'))}
           style={[styles.addBtn, { backgroundColor: tokens.blu }]}
         >
           <Icon name="plus" size={13} color="#fff" />
@@ -482,8 +512,9 @@ export default function SavedScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <ScreenHeader
         title="Saved"
-        right={!isPro ? undefined : tab === 'all' ? rightSlot : tab === 'folders' ? folderRightSlot : undefined}
+        right={!hasPlusAccess ? undefined : tab === 'all' ? rightSlot : tab === 'folders' ? folderRightSlot : undefined}
       />
+      <TabletContainer>
 
       {/* Segmented control */}
       <View style={styles.segWrap}>
@@ -510,7 +541,7 @@ export default function SavedScreen() {
       </View>
 
       {/* Back up & sync row */}
-      {tab === 'all' && isPro && (
+      {tab === 'all' && hasPlusAccess && (
         <View style={styles.syncWrap}>
           <View style={[styles.syncRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}>
             <View style={styles.syncTopRow}>
@@ -549,7 +580,7 @@ export default function SavedScreen() {
       )}
 
       {tab === 'all' ? (
-        !isPro ? (
+        !hasPlusAccess ? (
           <ProWall tokens={tokens} label="Bookmarks" />
         ) : (
           <>
@@ -562,20 +593,19 @@ export default function SavedScreen() {
                 contentContainerStyle={styles.list}
                 ListHeaderComponent={
                   <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
-                    {bookmarks.length} SAVED AC{bookmarks.length !== 1 ? 'S' : ''}
+                    {bookmarks.length} SAVED ITEM{bookmarks.length !== 1 ? 'S' : ''}
                   </Text>
                 }
                 renderItem={({ item }) => {
-                  const otherHighlight = !item.blockText ? highlightByAcId.get(item.id) : undefined
-                  // A highlight row jumps to itself; a whole-doc row with a
-                  // highlight elsewhere jumps to THAT highlight instead of
-                  // just opening the plain document -- see highlightByAcId's
-                  // comment for why "just show a tag" isn't enough on its own.
+                  // Highlights/jump-targets only exist for AC bookmarks today
+                  // (see BookmarkAC's comment) -- non-AC types skip straight
+                  // to routeForBookmark's plain whole-doc route.
+                  const otherHighlight = bookmarkItemType(item) === 'ac' && !item.blockText ? highlightByAcId.get(item.id) : undefined
                   const jumpTarget = item.blockText
-                    ? { acId: item.acId, hlId: item.id }
+                    ? { hlId: item.id }
                     : otherHighlight
-                    ? { acId: otherHighlight.acId, hlId: otherHighlight.id }
-                    : null
+                    ? { hlId: otherHighlight.id }
+                    : undefined
                   return (
                     <BookmarkRow
                       item={item}
@@ -584,11 +614,9 @@ export default function SavedScreen() {
                       selected={selected.has(item.id)}
                       stale={staleHighlightIds.has(item.id)}
                       hasHighlight={!!otherHighlight}
-                      badgeData={badgeDataById[item.acId ?? item.id]}
+                      badgeData={bookmarkItemType(item) === 'ac' ? badgeDataById[item.acId ?? item.id] : undefined}
                       badgeDays={badgeDays}
-                      onPress={selectMode ? () => toggleRow(item.id) : () => router.push(
-                        jumpTarget ? `/ac/${jumpTarget.acId}?hlId=${encodeURIComponent(jumpTarget.hlId!)}` : `/ac/${item.acId ?? item.id}`
-                      )}
+                      onPress={selectMode ? () => toggleRow(item.id) : () => router.push(routeForBookmark(item, jumpTarget) as any)}
                       onRemove={() => handleRemove(item)}
                       onFolder={() => setPickerAC(item)}
                       onShare={() => handleShare(item)}
@@ -600,7 +628,7 @@ export default function SavedScreen() {
           </>
         )
       ) : tab === 'folders' ? (
-        !isPro ? (
+        !hasPlusAccess ? (
           <ProWall tokens={tokens} label="Folders" />
         ) : (
           <FolderListView
@@ -785,7 +813,7 @@ export default function SavedScreen() {
       {/* Per-item folder picker */}
       <FolderPicker
         visible={pickerAC !== null}
-        itemType="ac"
+        itemType={pickerAC ? bookmarkItemType(pickerAC) : 'ac'}
         itemId={pickerAC?.id ?? ''}
         onClose={() => setPickerAC(null)}
         onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1) }}
@@ -819,6 +847,7 @@ export default function SavedScreen() {
       />
 
       <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
+      </TabletContainer>
     </View>
   )
 }
@@ -994,7 +1023,7 @@ function BookmarkRow({
                   })()}
                 </View>
                 <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={2}>
-                  {item.title}
+                  {stripFarPrefix(item.title)}
                 </Text>
                 {item.blockText ? (
                   <>
@@ -1213,7 +1242,7 @@ function OfflineRow({
                   {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
                 </Text>
               <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={2}>
-                {item.title}
+                {stripFarPrefix(item.title)}
               </Text>
               <Text style={[styles.savedAt, { color: tokens.t4, fontSize: fs(11) }]}>
                 {formatBytes(item.size)} · Downloaded{' '}
@@ -1285,15 +1314,15 @@ function ProWall({ tokens, label }: { tokens: ReturnType<typeof useTheme>['token
   return (
     <View style={styles.center}>
       <Icon name="lock.fill" size={36} color={tokens.blu} />
-      <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>{label} is a Pro feature</Text>
+      <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>{label} is a Plus feature</Text>
       <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-        Upgrade to Pro to unlock {label.toLowerCase()}.
+        Unlock Plus to use {label.toLowerCase()}.
       </Text>
       <Pressable
         style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]}
         onPress={() => router.push('/paywall')}
       >
-        <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Upgrade to Pro</Text>
+        <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
       </Pressable>
     </View>
   )

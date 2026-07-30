@@ -191,8 +191,19 @@ echo "▶ Step 7/8 — Figure coverage check (ACs touched by this sync)"
 
 # ── Step 8: Update alerts (Premium push notifications) ───────────────────────
 echo ""
-echo "▶ Step 8/8 — Update alerts (Premium subscribers, ACs touched by this sync)"
+echo "▶ Step 8/9 — Update alerts (Premium subscribers, ACs touched by this sync)"
 "$NODE" scripts/send-update-alerts.mjs --touched-file="$TOUCHED_FILE"
+
+# ── Step 9: MagicLink citation extraction (full corpus re-scan) ──────────────
+# Re-derives every AC->FAR/AIM/P-CG/AD/AC citation from pdf_text. Full-corpus
+# rather than touched-only -- confirmed cheap (a few seconds against ~800
+# ACs) and delete-then-insert per citing_type makes re-running always safe.
+# Was a total, silent gap before 2026-07-28: this script existed nowhere in
+# any sync pipeline, so document_citations had zero citing_type='ac' rows no
+# matter how many weekly syncs ran.
+echo ""
+echo "▶ Step 9/9 — MagicLink citation extraction (AC -> FAR/AIM/P-CG/AD/AC)"
+"$PYTHON3" sync/ac_citations.py
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 END_TS="$(date '+%Y-%m-%d %H:%M:%S')"

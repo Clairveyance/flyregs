@@ -47,6 +47,9 @@ from typing import Optional
 import requests
 from lxml import etree
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from revision_log import log_revisions  # noqa: E402
+
 # ──────────────────────────────────────────────────────────────────────────────
 #  Config
 # ──────────────────────────────────────────────────────────────────────────────
@@ -330,6 +333,20 @@ def upsert_sections(records: list[dict]) -> bool:
     if not SUPABASE_URL or not SUPABASE_KEY:
         log.debug(f"  [DRY-RUN] would upsert {len(records)} far_sections rows")
         return True
+    # Must run BEFORE the upsert below -- it diffs against whatever's
+    # currently live, which the upsert is about to overwrite. See
+    # revision_log.py's own header for why this generalizes AC's
+    # block-level What's Changed logging to plain-text FAR/AIM/P-CG/AD.
+    try:
+        n = log_revisions(
+            SUPABASE_URL, _supa_headers(), doc_type="far", table="far_sections",
+            key_field="section_number", text_field="body_text", title_field="title",
+            new_rows=records,
+        )
+        if n:
+            log.info(f"  Logged {n} FAR revision(s) for What's Changed")
+    except Exception as e:
+        log.warning(f"  revision logging failed (non-fatal): {e}")
     try:
         resp = requests.post(
             f"{SUPABASE_URL}/rest/v1/far_sections",

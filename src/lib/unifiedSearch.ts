@@ -24,7 +24,7 @@ function formatAimParagraphNumber(raw: string): string {
   return raw
 }
 
-export type UnifiedResultType = 'far' | 'aim' | 'pcg' | 'figure_ac' | 'figure_aim'
+export type UnifiedResultType = 'far' | 'aim' | 'pcg' | 'ad' | 'figure_ac' | 'figure_aim'
 
 export interface UnifiedResult {
   type: UnifiedResultType
@@ -45,6 +45,7 @@ export interface UnifiedResult {
 interface FarRow { section_number: string; part: string; title: string | null; out_rank: number }
 interface AimRow { paragraph_number: string; title: string | null; out_rank: number }
 interface PcgRow { slug: string; term: string; definition: string | null; out_rank: number }
+interface AdRow { ad_number: string; subject_heading: string; out_rank: number }
 interface FigureRow {
   source_type: 'ac' | 'aim'
   figure_id: string
@@ -63,10 +64,11 @@ interface FigureRow {
 // document. This is what makes "light gun signals" surface the actual
 // signal-meanings table directly, not just the AIM paragraph that mentions it.
 export async function searchOtherSources(query: string, limitPerSource = 6): Promise<UnifiedResult[]> {
-  const [farRes, aimRes, pcgRes, figRes] = await Promise.all([
+  const [farRes, aimRes, pcgRes, adRes, figRes] = await Promise.all([
     supabase.rpc('search_far', { query, result_limit: limitPerSource }),
     supabase.rpc('search_aim', { query, result_limit: limitPerSource }),
     supabase.rpc('search_pcg', { query, result_limit: limitPerSource }),
+    supabase.rpc('search_ads', { query, result_limit: limitPerSource }),
     supabase.rpc('search_figures', { query, result_limit: limitPerSource }),
   ])
 
@@ -87,6 +89,9 @@ export async function searchOtherSources(query: string, limitPerSource = 6): Pro
   }
   for (const r of (pcgRes.data ?? []) as PcgRow[]) {
     results.push({ type: 'pcg', id: r.slug, primary: `P/CG ${r.term}`, secondary: r.definition ?? '', rank: r.out_rank })
+  }
+  for (const r of (adRes.data ?? []) as AdRow[]) {
+    results.push({ type: 'ad', id: r.ad_number, primary: `AD ${r.ad_number}`, secondary: r.subject_heading ?? '', rank: r.out_rank })
   }
   for (const r of (figRes.data ?? []) as FigureRow[]) {
     const sourceLabel = r.source_type === 'ac' ? 'AC' : 'AIM'
@@ -119,6 +124,7 @@ export function routeForUnifiedResult(r: UnifiedResult): string {
     case 'far': return `/far/${r.id}`
     case 'aim': return `/aim/${r.id}`
     case 'pcg': return `/pcg/${r.id}`
+    case 'ad': return `/ad/${r.id}`
     case 'figure_ac': return `/ac/${r.id}`
     case 'figure_aim': return `/aim/${r.id}`
   }
@@ -129,6 +135,7 @@ export function labelForUnifiedType(t: UnifiedResultType): string {
     case 'far': return 'FAR'
     case 'aim': return 'AIM'
     case 'pcg': return 'P/CG'
+    case 'ad': return 'AD'
     case 'figure_ac': return 'T&F'
     case 'figure_aim': return 'T&F'
   }

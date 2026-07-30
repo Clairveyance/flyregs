@@ -426,7 +426,7 @@ def main():
     updated = 0
     relabeled = 0
     unmatched_existing = []
-    pending_updates: list[tuple[str, dict]] = []  # (fig_id, fields) — applied after every paragraph is planned
+    pending_updates: list[tuple[str, dict, str]] = []  # (fig_id, fields, original_label) — applied after every paragraph is planned
     for para, figs in fig_by_para.items():
         by_caption: dict[str, list[dict]] = {}
         for f in figs:
@@ -436,7 +436,18 @@ def main():
         image_url_for: dict[str, str] = {}
         matched_ids: set[str] = set()
         for norm_title, group in by_caption.items():
-            group.sort(key=lambda f: f.get("sort_order") or 0)
+            # Secondary sort key `f["id"]` -- confirmed live as a real crash
+            # (409, 2026-07-27 AIM sync): with only `sort_order`, two rows
+            # sharing the same sort_order (a genuine repeated-caption case,
+            # e.g. 6 "NEXRAD Coverage" figures in one paragraph) have no
+            # stable tiebreak, so which specific row lands at which index
+            # can flip between runs depending on fetch_existing_figures()'s
+            # row order -- and when it flips, a row that PREVIOUSLY lost the
+            # tie (kept its old label) can suddenly win a NEW real-PDF match
+            # that collides with the label the OTHER twin already committed
+            # in a prior run. `id` never changes, so this makes the winner
+            # of every tie permanent and reproducible across runs.
+            group.sort(key=lambda f: (f.get("sort_order") or 0, f["id"]))
             occurrences = pdf_pages.get(norm_title, [])
             for idx, f in enumerate(group):
                 if idx >= len(occurrences):
@@ -470,7 +481,7 @@ def main():
             if current_label != final_label:
                 fields["label"] = final_label
                 relabeled += 1
-            pending_updates.append((f["id"], fields))
+            pending_updates.append((f["id"], fields, current_label))
             updated += 1
 
     if not args.dry_run:
@@ -478,17 +489,61 @@ def main():
         # SWAP labels (A's new label is B's old one, and vice versa) — the
         # final state has no duplicate, but applying PATCHes one row at a
         # time can hit a temporary unique-constraint conflict against the
-        # other row's not-yet-updated old label. Confirmed live as a real
-        # crash (409) on the exact NEXRAD Coverage case this function's own
-        # docstring describes. Move every label-changing row to a
-        # guaranteed-unique placeholder first, then apply the real final
-        # label — no ordering of the second pass can ever collide, since no
-        # row still holds any of the target labels by then.
-        label_changes = [(fid, fields["label"]) for fid, fields in pending_updates if "label" in fields]
+        # other row's not-yet-updated old label. Move every label-changing
+        # row to a guaranteed-unique placeholder first, then apply the real
+        # final label — no ordering of the second pass can ever collide,
+        # since no row still holds any of the target labels by then.
+        #
+        # Every update is now individually failable rather than crashing the
+        # whole run -- confirmed live as a real incident (2026-07-27 AIM
+        # sync): a single unexpected 409 on one row killed the entire job
+        # AND left that row stranded on its internal "__tmp_relabel_<id>"
+        # placeholder (a broken-looking label, silently user-visible) for a
+        # full day until manually fixed, since the crash meant the fallback
+        # below never got a chance to run. A row that fails now gets
+        # reverted to its pre-run label instead — same net effect as if this
+        # row had never been touched this run, and the run itself continues
+        # rather than leaving every OTHER already-planned row unapplied too.
+        label_changes = [(fid, fields["label"]) for fid, fields, _ in pending_updates if "label" in fields]
+        temp_relabeled: set[str] = set()
         for fid, _ in label_changes:
-            update_figure(fid, label=f"__tmp_relabel_{fid}")
-        for fid, fields in pending_updates:
-            update_figure(fid, **fields)
+            try:
+                update_figure(fid, label=f"__tmp_relabel_{fid}")
+                temp_relabeled.add(fid)
+            except requests.exceptions.HTTPError as e:
+                print(f"  WARNING: temp-relabel failed for {fid}, leaving untouched this run: {e}")
+
+        failures: list[tuple[str, str]] = []  # (fid, original_label)
+        for fid, fields, original_label in pending_updates:
+            try:
+                update_figure(fid, **fields)
+            except requests.exceptions.HTTPError as e:
+                print(f"  WARNING: final relabel failed for {fid} ({fields}): {e}")
+                failures.append((fid, original_label))
+
+        unrecoverable = 0
+        for fid, original_label in failures:
+            if fid in temp_relabeled:
+                # Revert to the label this row had before this run touched
+                # it, rather than leaving the internal placeholder string
+                # live in the app. Whatever caused the 409 (a genuine data
+                # collision the collision guard above didn't catch) gets a
+                # clean, visible warning in this run's log instead of a
+                # silently broken row — worth investigating if it recurs.
+                try:
+                    update_figure(fid, label=original_label)
+                except requests.exceptions.HTTPError as e:
+                    print(f"  ERROR: could not even revert {fid} to '{original_label}' — needs manual fix: {e}")
+                    unrecoverable += 1
+        if failures:
+            print(f"  {len(failures)} figure(s) could not be relabeled this run (see warnings above) — reverted, not left broken.")
+        if unrecoverable:
+            # A row stuck on its internal placeholder is user-visible and
+            # broken-looking -- this must surface as a failed GitHub Actions
+            # run (per sync.sh's own alerting convention), not a quiet log
+            # line nobody reads.
+            print(f"  {unrecoverable} figure(s) could not even be reverted — failing this run so it's visible.")
+            sys.exit(1)
 
     known_fixed = 0
     for fig in existing:

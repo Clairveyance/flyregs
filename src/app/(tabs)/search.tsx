@@ -1,538 +1,416 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import {
-  View,
-  Text,
-  TextInput,
-  FlatList,
-  ScrollView,
-  Pressable,
-  StyleSheet,
-  ActivityIndicator,
-} from 'react-native'
-import { router, useLocalSearchParams } from 'expo-router'
-import { supabase } from '@/lib/supabase'
+import { useState, useEffect, useMemo } from 'react'
+import { View, Text, ScrollView, Pressable, TextInput, Switch, ActivityIndicator, StyleSheet } from 'react-native'
+import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
+import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
-import type { ACSeries } from '@/types'
-import { rankSearchResults, isPhrasedQuery, extractPhrase } from '@/lib/searchRank'
-import { getACIndex, searchLocal, isACQuery, ACIndexEntry } from '@/lib/acIndex'
-import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
-import { useBadgeLifespan } from '@/context/badgeLifespan'
-import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
-import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
-import { isOcrScanned } from '@/lib/ocrScannedACs'
+import { TabletContainer } from '@/components/TabletContainer'
+import { getRefPackets, type RefPacket } from '@/lib/refPackets'
+import { getStudyMastery, getCurrency, type StudyMastery, type Currency } from '@/lib/study'
+import { getMyCoins } from '@/lib/coins'
+import { getDuelStats, type DuelStats } from '@/lib/challenges'
+import { getMyRatings, RATING_SHORT_LABELS, type RatingCode } from '@/lib/profileRatings'
+import { getStatsVisible, setStatsVisible, getCurrentAircraft, setCurrentAircraft } from '@/lib/leaderboard'
 
-// Session-scoped result cache: same query returns instantly without a network hit.
-const _resultCache = new Map<string, SearchResult[]>()
-function _cacheSet(key: string, results: SearchResult[]) {
-  if (_resultCache.size >= 25) _resultCache.delete(_resultCache.keys().next().value!)
-  _resultCache.set(key, results)
-}
+// IA redesign (2026-07-28): this file used to be the Search tab. Search now
+// lives entirely on Home (see (tabs)/index.tsx's inline search bar +
+// results dropdown) — there is no more standalone search screen to hand off
+// to, which freed this tab up to become the app's study/social/game hub
+// instead: a lifetime-stats summary, Study Mode, Duels, and Ref Packets
+// (moved here unchanged from the old BrowseView). Reachable by every tier
+// (so Free/Plus users can see what they're missing, not just a locked
+// blank screen) — each section shows its own lock indicator and gates on
+// tap, matching the exact pattern Ref Packets already used before this
+// redesign. See flyregs_decisions.md / project_flyregs_state.md for the
+// full IA-redesign writeup.
 
-// ─── Category definitions ─────────────────────────────────────────────────────
-// Series not listed here fall into "General"
-
-const EXPLICIT_CATS: Record<string, string[]> = {
-  Airmen:      ['61', '63', '65', '67'],
-  Aircraft:    ['20', '21', '23', '25', '27', '29', '33', '35', '36', '39'],
-  Operations:  ['71', '73', '90', '91', '93', '120', '121', '125', '129', '133', '135', '137'],
-  Airports:    ['141', '142', '145', '150'],
-  Maintenance: ['43', '45'],
-}
-
-const CAT_ORDER = ['General', 'Airmen', 'Aircraft', 'Operations', 'Airports', 'Maintenance'] as const
-
-interface CategoryInfo {
-  name: string
-  seriesList: ACSeries[]
-  acCount: number
-}
-
-function buildCategories(allSeries: ACSeries[]): CategoryInfo[] {
-  const mappedPrefixes = new Set(Object.values(EXPLICIT_CATS).flat())
-  return CAT_ORDER.map((catName) => {
-    const seriesList =
-      catName === 'General'
-        ? allSeries.filter((s) => !mappedPrefixes.has(s.series_prefix))
-        : allSeries.filter((s) => (EXPLICIT_CATS[catName] ?? []).includes(s.series_prefix))
-    const acCount = seriesList.reduce((sum, s) => sum + s.ac_count, 0)
-    return { name: catName, seriesList, acCount }
-  })
-}
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface SearchResult {
-  id: string
-  document_number: string
-  title: string
-  date_issued: string | null
-  subject_series: string | null
-  description: string | null
-  rank: number
-  // Only populated for results sourced from a direct .select() query below --
-  // the search_acs RPC's own return columns aren't guaranteed to include
-  // these, so RPC-sourced rows just won't show a badge (getBadgeKind treats
-  // missing cancels/changed_block_indices as "new", a safe fallback).
-  cancels?: string[]
-  changed_block_indices?: number[] | null
-}
-
-// Result ranking lives in @/lib/searchRank (rankSearchResults), shared with the
-// Home quick-search dropdown so both surface the right AC number first.
-
-// ─── Screen ──────────────────────────────────────────────────────────────────
-
-export default function SearchScreen() {
+export default function CommunityScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { badgeDays } = useBadgeLifespan()
-  const { q: navQuery } = useLocalSearchParams<{ q?: string }>()
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<SearchResult[]>([])
-  const [series, setSeries] = useState<ACSeries[]>([])
-  const [searching, setSearching] = useState(false)
-  const [isPhraseSearch, setIsPhraseSearch] = useState(false)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Monotonic token: only the most-recently-started search may write results.
-  const searchSeq = useRef(0)
-  // Local index ref — populated by the preload effect below.
-  const localIndexRef = useRef<ACIndexEntry[]>([])
-
-  // Pre-fill query when navigated from home's "See all results"
-  useEffect(() => {
-    if (typeof navQuery === 'string' && navQuery.trim().length >= 2) {
-      setQuery(navQuery.trim())
-    }
-  }, [navQuery])
-
-  // Warm the local index in the background so it's ready for the first search.
-  useEffect(() => {
-    getACIndex().then((idx) => { localIndexRef.current = idx })
-  }, [])
-
-  const handleQueryChange = useCallback((raw: string) => {
-    setQuery(collapseDictationDuplicate(raw))
-  }, [])
+  const { session, isPro, hasPlusAccess } = useAuth()
+  const [refPackets, setRefPackets] = useState<RefPacket[]>([])
+  const [packetCat, setPacketCat] = useState<RefPacket['category'] | 'All'>('All')
+  const [mastery, setMastery] = useState<StudyMastery | null>(null)
+  const [currency, setCurrency] = useState<Currency | null>(null)
+  const [coinCount, setCoinCount] = useState<number | null>(null)
+  const [duelStats, setDuelStats] = useState<DuelStats | null>(null)
+  const [myRatings, setMyRatings] = useState<RatingCode[]>([])
+  const [statsVisible, setStatsVisibleState] = useState(false)
+  const [statsVisibleBusy, setStatsVisibleBusy] = useState(false)
+  const [aircraftInput, setAircraftInput] = useState('')
+  const [aircraftDirty, setAircraftDirty] = useState(false)
+  const [aircraftSaving, setAircraftSaving] = useState(false)
 
   useEffect(() => {
-    supabase
-      .from('series_summary')
-      .select('*')
-      .order('sort_order')
-      .then(({ data }) => {
-        if (data) setSeries(data as ACSeries[])
-      })
+    getRefPackets().then(setRefPackets)
   }, [])
 
-  const runSearch = useCallback(async (q: string) => {
-    const trimmed = normalizeSearchQuery(q.trim())
-    if (trimmed.length < 2) {
-      searchSeq.current++
-      setResults([])
-      setSearching(false)
-      setIsPhraseSearch(false)
+  // Stats are best-effort — a signed-in Free/Plus user (no Pro/Premium yet)
+  // still has a real session and may still have Duel/coin history from a
+  // past subscription, so this doesn't gate on tier, only on being signed in.
+  useEffect(() => {
+    if (!session) {
+      setMastery(null); setCurrency(null); setCoinCount(null); setDuelStats(null)
+      setMyRatings([]); setStatsVisibleState(false); setAircraftInput(''); setAircraftDirty(false)
       return
     }
-    const seq = ++searchSeq.current
-    setSearching(true)
+    getStudyMastery().then(setMastery).catch(() => {})
+    getCurrency().then(setCurrency).catch(() => {})
+    getMyCoins().then((c) => setCoinCount(c.length)).catch(() => {})
+    getDuelStats().then(setDuelStats).catch(() => {})
+    getMyRatings(session.user.id).then(setMyRatings).catch(() => {})
+    getStatsVisible(session.user.id).then(setStatsVisibleState).catch(() => {})
+    getCurrentAircraft(session.user.id).then((a) => { setAircraftInput(a); setAircraftDirty(false) }).catch(() => {})
+  }, [session])
 
-    // ── Result cache: return instantly for repeated queries ───────────────────
-    if (_resultCache.has(trimmed)) {
-      if (seq === searchSeq.current) {
-        setResults(_resultCache.get(trimmed)!)
-        setSearching(false)
-        setIsPhraseSearch(isPhrasedQuery(trimmed))
-      }
-      return
-    }
+  const handleToggleStatsVisible = async (v: boolean) => {
+    if (!session) return
+    setStatsVisibleBusy(true)
+    try {
+      await setStatsVisible(session.user.id, v)
+      setStatsVisibleState(v)
+    } catch (_) {}
+    setStatsVisibleBusy(false)
+  }
 
-    // ── Show local results immediately while network queries run ─────────────
-    const localHits = searchLocal(trimmed, localIndexRef.current)
-    if (localHits.length > 0 && seq === searchSeq.current) {
-      setResults(localHits as unknown as SearchResult[])
-      setSearching(false)
-    }
+  const handleSaveAircraft = async () => {
+    if (!session || aircraftSaving) return
+    setAircraftSaving(true)
+    try {
+      await setCurrentAircraft(session.user.id, aircraftInput)
+      setAircraftDirty(false)
+    } catch (_) {}
+    setAircraftSaving(false)
+  }
 
-    // ── Phrase search: user wrapped query in "double quotes" ─────────────────
-    if (isPhrasedQuery(trimmed)) {
-      const phrase = extractPhrase(trimmed)
-      if (!phrase || phrase.length < 2) {
-        setResults([]); setSearching(false); setIsPhraseSearch(false); return
-      }
-      setIsPhraseSearch(true)
-      const cols = 'id, document_number, title, date_issued, subject_series, description, cancels, changed_block_indices'
-      const [titleRes, descRes, rpcRes] = await Promise.all([
-        supabase.from('advisory_circulars').select(cols).eq('status', 'active')
-          .ilike('title', `%${phrase}%`).order('document_number').limit(30),
-        supabase.from('advisory_circulars').select(cols).eq('status', 'active')
-          .ilike('description', `%${phrase}%`).order('document_number').limit(20),
-        supabase.rpc('search_acs', { query: phrase, result_limit: 40 }),
-      ])
-      if (seq !== searchSeq.current) return
-      const seenIds = new Set<string>()
-      const merged: SearchResult[] = []
-      for (const src of [titleRes.data, descRes.data, rpcRes.data]) {
-        for (const r of (src ?? []) as SearchResult[]) {
-          if (!seenIds.has(r.id)) { seenIds.add(r.id); merged.push(r) }
-        }
-      }
-      const ranked = rankSearchResults(phrase, merged)
-      _cacheSet(trimmed, ranked)
-      if (seq === searchSeq.current) { setResults(ranked); setSearching(false) }
-      return
-    }
+  const hasAnyStats = !!(
+    (mastery && mastery.seen > 0) ||
+    (currency && currency.currentStreak > 0) ||
+    (coinCount && coinCount > 0) ||
+    (duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0))
+  )
 
-    setIsPhraseSearch(false)
+  const openStudy = () => {
+    if (!isPro) { router.push('/paywall'); return }
+    router.push('/study')
+  }
 
-    const cols = 'id, document_number, title, date_issued, subject_series, description, cancels, changed_block_indices'
-    const acNum = isACQuery(trimmed)
-
-    // AC-number queries: prefix + contains are sufficient — skip the full-text RPC.
-    // Keyword queries: fire RPC + title ilike (drop the redundant doc-number queries
-    // since local index already covered those instantly above).
-    const networkResults = acNum
-      ? await Promise.all([
-          supabase.from('advisory_circulars').select(cols).eq('status', 'active')
-            .ilike('document_number', `${trimmed}%`).order('document_number').limit(20),
-          supabase.from('advisory_circulars').select(cols).eq('status', 'active')
-            .ilike('document_number', `%${trimmed}%`).order('document_number').limit(20),
-        ])
-      : await Promise.all([
-          supabase.rpc('search_acs', { query: trimmed, result_limit: 50 }),
-          supabase.from('advisory_circulars').select(cols).eq('status', 'active')
-            .ilike('title', `%${trimmed}%`).order('document_number').limit(20),
-        ])
-
-    if (seq !== searchSeq.current) return
-
-    // Merge network results, deduped by id, local hits first for stable ordering.
-    const seenIds = new Set<string>()
-    const merged: SearchResult[] = []
-
-    // Seed with local hits (already shown to user)
-    for (const e of localHits) {
-      seenIds.add(e.id)
-      merged.push({ ...e, rank: 0 } as SearchResult)
-    }
-
-    if (acNum) {
-      const [prefixRes, numRes] = networkResults
-      for (const r of [...((prefixRes.data ?? []) as SearchResult[]), ...((numRes.data ?? []) as SearchResult[])]) {
-        if (!seenIds.has(r.id)) { seenIds.add(r.id); merged.push({ ...r, rank: 0 }) }
-      }
-    } else {
-      const [rpcRes, titleRes] = networkResults
-
-      // RPC failed + no local hits → broad ilike fallback
-      if (rpcRes.error && localHits.length === 0) {
-        const { data } = await supabase
-          .from('advisory_circulars')
-          .select(cols)
-          .eq('status', 'active')
-          .or(`document_number.ilike.%${trimmed}%,title.ilike.%${trimmed}%,description.ilike.%${trimmed}%`)
-          .order('document_number')
-          .limit(50)
-        if (seq !== searchSeq.current) return
-        const ranked = rankSearchResults(trimmed, (data ?? []) as SearchResult[])
-        _cacheSet(trimmed, ranked)
-        setResults(ranked); setSearching(false)
-        return
-      }
-
-      for (const r of [...((rpcRes.data ?? []) as SearchResult[]), ...((titleRes.data ?? []) as SearchResult[])]) {
-        if (!seenIds.has(r.id)) { seenIds.add(r.id); merged.push(r) }
-      }
-    }
-
-    if (seq !== searchSeq.current) return
-    const ranked = rankSearchResults(trimmed, merged)
-    _cacheSet(trimmed, ranked)
-    setResults(ranked)
-    setSearching(false)
-  }, [])
-
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (query.trim().length >= 2) {
-      setSearching(true)
-      debounceRef.current = setTimeout(() => runSearch(query), 300)
-    } else {
-      setResults([])
-      setSearching(false)
-    }
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-    }
-  }, [query, runSearch])
-
-  const showBrowse = query.trim().length < 2
+  const openDuels = () => {
+    if (!isPro) { router.push('/paywall'); return }
+    router.push('/ready-room')
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <ScreenHeader title="Search" />
-
-      {/* Live search bar */}
-      <View style={[styles.barWrap, { backgroundColor: tokens.bg, borderBottomColor: tokens.bdr }]}>
-        <View style={[styles.bar, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
-          <Icon name="magnifyingglass" size={17} color={tokens.t3} />
-          <TextInput
-            style={[styles.input, { color: tokens.t1, fontSize: fs(14.5) }]}
-            placeholder='AC number, keyword, or "phrase"…'
-            placeholderTextColor={tokens.t3}
-            value={query}
-            onChangeText={handleQueryChange}
-            autoCapitalize="none"
-            autoCorrect={false}
-            spellCheck
-            returnKeyType="search"
-          />
-          {query.length > 0 && (
-            <Pressable onPress={() => setQuery('')} hitSlop={8}>
-              <Icon name="xmark.circle" size={17} color={tokens.t4} />
+      <ScreenHeader title="Community" />
+      <TabletContainer>
+        <ScrollView contentContainerStyle={styles.content}>
+          {session ? (
+            <>
+              {hasAnyStats && (
+                <StatsStrip
+                  tokens={tokens}
+                  fs={fs}
+                  mastery={mastery}
+                  currency={currency}
+                  coinCount={coinCount}
+                  duelStats={duelStats}
+                />
+              )}
+              <Pressable
+                style={[styles.profileLinkRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                onPress={() => router.push(`/profile/${session.user.id}` as any)}
+              >
+                <Icon name="person.crop.circle" size={18} color={tokens.blu} />
+                <Text style={[styles.profileLinkText, { color: tokens.t1, fontSize: fs(13.5) }]}>View my profile</Text>
+                <Icon name="chevron.right" size={13} color={tokens.t4} />
+              </Pressable>
+              <View style={[styles.visibilityCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                <View style={styles.visibilityRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Show my stats</Text>
+                    <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12), marginTop: 2 }]}>
+                      Lets other users see your ratings, coin count, and current aircraft. Off by default.
+                    </Text>
+                  </View>
+                  {statsVisibleBusy ? (
+                    <ActivityIndicator size="small" color={tokens.t3} />
+                  ) : (
+                    <Switch value={statsVisible} onValueChange={handleToggleStatsVisible} trackColor={{ true: tokens.blu, false: undefined }} />
+                  )}
+                </View>
+                {statsVisible && (
+                  <>
+                    <View style={styles.aircraftRow}>
+                      <TextInput
+                        style={[styles.aircraftInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg, fontSize: fs(14) }]}
+                        value={aircraftInput}
+                        onChangeText={(v) => { setAircraftInput(v); setAircraftDirty(true) }}
+                        placeholder="Current aircraft (e.g. SR22, G550)"
+                        placeholderTextColor={tokens.t4}
+                        maxLength={40}
+                        autoCapitalize="characters"
+                        returnKeyType="done"
+                        onSubmitEditing={handleSaveAircraft}
+                      />
+                      {aircraftSaving ? (
+                        <ActivityIndicator size="small" color={tokens.t3} style={styles.aircraftSaveBtn} />
+                      ) : (
+                        <Pressable
+                          style={[styles.aircraftSaveBtn, { backgroundColor: aircraftDirty ? tokens.blu : tokens.bg4 }]}
+                          onPress={handleSaveAircraft}
+                          disabled={!aircraftDirty}
+                        >
+                          <Text style={[styles.aircraftSaveBtnText, { fontSize: fs(13) }]}>Save</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                    <View style={styles.previewRatings}>
+                      {myRatings.map((code) => (
+                        <View key={code} style={[styles.previewChip, { borderColor: tokens.gold, backgroundColor: tokens.goldlt }]}>
+                          <Text style={[styles.previewChipText, { color: tokens.gold, fontSize: fs(11.5) }]}>{RATING_SHORT_LABELS[code]}</Text>
+                        </View>
+                      ))}
+                      {/* Ratings are only ever added/removed via the picker on
+                          Account -- this row previously had no way to get
+                          there at all when myRatings was empty, and no way
+                          to add MORE ratings even when it wasn't. */}
+                      <Pressable
+                        style={[styles.previewChip, styles.previewAddChip, { borderColor: tokens.bdr }]}
+                        onPress={() => router.push('/account')}
+                      >
+                        <Icon name="plus" size={11} color={tokens.t2} />
+                        <Text style={[styles.previewChipText, { color: tokens.t2, fontSize: fs(11.5) }]}>Add Rating</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                )}
+              </View>
+            </>
+          ) : (
+            <Pressable
+              style={[styles.signInCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+              onPress={() => router.push('/auth')}
+            >
+              <Icon name="person.crop.circle" size={22} color={tokens.blu} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.signInTitle, { color: tokens.t1, fontSize: fs(14) }]}>
+                  Sign in to track your progress
+                </Text>
+                <Text style={[styles.signInSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                  Study mastery, your Duel record, and Challenge Coins all live on your account.
+                </Text>
+              </View>
+              <Icon name="chevron.right" size={14} color={tokens.t4} />
             </Pressable>
           )}
-        </View>
-      </View>
 
-      {showBrowse ? (
-        <BrowseView series={series} tokens={tokens} />
-      ) : searching ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={tokens.blu} />
-        </View>
-      ) : results.length === 0 ? (
-        <View style={styles.center}>
-          <Icon name="magnifyingglass" size={34} color={tokens.t4} />
-          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>
-            {isPhraseSearch ? 'No exact matches' : 'No results'}
-          </Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-            {isPhraseSearch
-              ? 'No ACs found containing that exact phrase.\nRemove the quotes for a broader keyword search.'
-              : 'Try a different term or browse by category below.'}
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={results}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
-          keyboardDismissMode="interactive"
-          ListHeaderComponent={
-            <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
-              {results.length} RESULT{results.length !== 1 ? 'S' : ''}
-            </Text>
-          }
-          renderItem={({ item }) => <ResultRow item={item} tokens={tokens} badgeDays={badgeDays} />}
-        />
-      )}
+          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>STUDY &amp; PRACTICE</Text>
+          <Pressable
+            style={[styles.hubCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+            onPress={openStudy}
+          >
+            <View style={[styles.hubIconWrap, { backgroundColor: tokens.bdim }]}>
+              <Icon name="rectangle.stack" size={19} color={tokens.blu} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Study Mode</Text>
+              <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                {mastery && mastery.seen > 0
+                  ? `${mastery.mastered} of ${mastery.total_available} items mastered`
+                  : 'Spaced-repetition flashcards across FAR, AIM, P/CG, and ACs'}
+              </Text>
+            </View>
+            {!isPro && <Icon name="lock.fill" size={13} color={tokens.t4} />}
+          </Pressable>
+
+          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 18 }]}>DUELS</Text>
+          <Pressable
+            style={[styles.hubCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+            onPress={openDuels}
+          >
+            <View style={[styles.hubIconWrap, { backgroundColor: tokens.goldlt }]}>
+              <Icon name="bolt.fill" size={19} color={tokens.gold} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Challenge a friend</Text>
+              <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                {duelStats && (duelStats.wins > 0 || duelStats.losses > 0)
+                  ? `${duelStats.wins}W · ${duelStats.losses}L${duelStats.ties ? ` · ${duelStats.ties}T` : ''} — head-to-head across FAR, AIM, P/CG, AC`
+                  : 'Multiple-choice quiz across FAR, AIM, P/CG, AC — most correct wins, time breaks ties'}
+              </Text>
+            </View>
+            {!isPro && <Icon name="lock.fill" size={13} color={tokens.t4} />}
+          </Pressable>
+
+          {refPackets.length > 0 && (
+            <RefPacketGrid
+              refPackets={refPackets}
+              tokens={tokens}
+              hasPlusAccess={hasPlusAccess}
+              category={packetCat}
+              onSelectCategory={setPacketCat}
+            />
+          )}
+        </ScrollView>
+      </TabletContainer>
     </View>
   )
 }
 
-// ─── Browse view ─────────────────────────────────────────────────────────────
+// ─── Stats strip ─────────────────────────────────────────────────────────────
 
-// ─── Search tips ─────────────────────────────────────────────────────────────
+function StatsStrip({
+  tokens,
+  fs,
+  mastery,
+  currency,
+  coinCount,
+  duelStats,
+}: {
+  tokens: ReturnType<typeof useTheme>['tokens']
+  fs: (n: number) => number
+  mastery: StudyMastery | null
+  currency: Currency | null
+  coinCount: number | null
+  duelStats: DuelStats | null
+}) {
+  const chips = useMemo(() => {
+    const out: { icon: string; value: string; label: string; color: string }[] = []
+    if (mastery && mastery.seen > 0) {
+      out.push({ icon: 'star.fill', value: `${mastery.pct}%`, label: 'mastered', color: tokens.blu })
+    }
+    if (currency && currency.currentStreak > 0) {
+      out.push({ icon: 'flame.fill', value: `${currency.currentStreak}d`, label: currency.isCurrent ? 'current' : 'lapsed', color: tokens.amb })
+    }
+    if (coinCount) {
+      out.push({ icon: 'rosette', value: `${coinCount}`, label: coinCount === 1 ? 'coin' : 'coins', color: tokens.gold })
+    }
+    if (duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0)) {
+      out.push({ icon: 'bolt.fill', value: `${duelStats.wins}-${duelStats.losses}`, label: 'Duel record', color: tokens.grn })
+    }
+    return out
+  }, [mastery, currency, coinCount, duelStats, tokens])
 
-const TIPS = [
-  { before: 'Case-insensitive — "IFR" and "ifr" return the same results.' },
-  { before: 'Wrap a phrase in quotes for exact matching: ', example: '"instrument currency"' },
-  { before: 'Multiple keywords find ACs that contain all of them.' },
-  { before: 'Word forms are matched — "fly" also finds "flying" and "flies".' },
-]
+  if (chips.length === 0) return null
 
-function SearchTips({ tokens }: { tokens: ReturnType<typeof useTheme>['tokens'] }) {
-  const fs = useFS()
   return (
-    <View style={[tipStyles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-      <Text style={[tipStyles.header, { color: tokens.t3, fontSize: fs(11) }]}>SEARCH TIPS</Text>
-      {TIPS.map((tip, i) => (
-        <View key={i} style={tipStyles.row}>
-          <Text style={[tipStyles.chevron, { color: tokens.blu, fontSize: fs(16) }]}>›</Text>
-          <Text style={[tipStyles.text, { color: tokens.t2, fontSize: fs(13) }]}>
-            {tip.before}
-            {tip.example
-              ? <Text style={{ color: tokens.blu, fontWeight: '600', fontSize: fs(13) }}>{tip.example}</Text>
-              : null}
-          </Text>
+    <View style={[styles.statsStrip, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+      {chips.map((c, i) => (
+        <View key={i} style={[styles.statChip, i > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: tokens.bdr }]}>
+          <Icon name={c.icon} size={15} color={c.color} />
+          <Text style={[styles.statValue, { color: tokens.t1, fontSize: fs(15) }]}>{c.value}</Text>
+          <Text style={[styles.statLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>{c.label}</Text>
         </View>
       ))}
     </View>
   )
 }
 
-const tipStyles = StyleSheet.create({
-  card: { borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 14 },
-  header: { fontSize: 11, fontWeight: '700', letterSpacing: 0.7, marginBottom: 10 },
-  row: { flexDirection: 'row', gap: 8, marginBottom: 7 },
-  chevron: { fontSize: 16, lineHeight: 20, fontWeight: '700' },
-  text: { flex: 1, fontSize: 13, lineHeight: 19 },
-})
+// ─── Ref Packet grid ─────────────────────────────────────────────────────────
+// Certificate/rating study-and-reference guides built from the FAA's own
+// ACS/PTS structure — moved here unchanged from the old Search tab's
+// BrowseView as part of the 2026-07-28 IA redesign (this tab's whole reason
+// for being repurposed was to house exactly this kind of content).
 
-// ─── Browse view ─────────────────────────────────────────────────────────────
+const PACKET_CATS: (RefPacket['category'] | 'All')[] = ['All', 'Airplane', 'Rotorcraft', 'Powered-Lift']
 
-function BrowseView({
-  series,
+function RefPacketGrid({
+  refPackets,
   tokens,
+  hasPlusAccess,
+  category,
+  onSelectCategory,
 }: {
-  series: ACSeries[]
+  refPackets: RefPacket[]
   tokens: ReturnType<typeof useTheme>['tokens']
+  hasPlusAccess: boolean
+  category: RefPacket['category'] | 'All'
+  onSelectCategory: (c: RefPacket['category'] | 'All') => void
 }) {
   const fs = useFS()
-  const [selectedCat, setSelectedCat] = useState<string | null>(null)
-  const categories = useMemo(() => buildCategories(series), [series])
-  const expanded = selectedCat ? categories.find((c) => c.name === selectedCat) : null
-  const scrollRef = useRef<ScrollView>(null)
-  // Position of the expanded category's own header ("OPERATIONS" etc.) within
-  // the ScrollView's content, from its own onLayout -- it's a direct child of
-  // the ScrollView here (no extra nested wrapper to sum through, unlike
-  // ACBody's jump math), so this one value is already usable as-is.
-  const expandedHeaderYRef = useRef(0)
+  const filtered = category === 'All' ? refPackets : refPackets.filter((p) => p.category === category)
 
-  const toggleCat = (name: string) => {
-    const opening = selectedCat !== name
-    setSelectedCat((prev) => (prev === name ? null : name))
-    if (opening) {
-      // Tapping a category reveals its series list below the 6-box grid, but
-      // the ScrollView itself never moves -- on a normal-height screen the
-      // newly-revealed list renders entirely below the fold, so a reader sees
-      // no visible change at all and assumes the tap did nothing. The 80ms
-      // delay lets the just-opened header's onLayout land before we read its
-      // position, matching the same "let a just-triggered layout settle
-      // before reading it" pattern already used for the TOC-collapse jump in
-      // ACBody.tsx.
-      setTimeout(() => {
-        scrollRef.current?.scrollTo({ y: Math.max(0, expandedHeaderYRef.current - 12), animated: true })
-      }, 80)
-    }
+  const openPacket = (p: RefPacket) => {
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    router.push(`/ref-packets/${p.code}` as any)
   }
 
   return (
-    <ScrollView
-      ref={scrollRef}
-      contentContainerStyle={styles.browseContent}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="interactive"
-    >
-      <SearchTips tokens={tokens} />
-      <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>BROWSE BY CATEGORY</Text>
-
-      {/* 2-column category grid */}
-      <View style={styles.catGrid}>
-        {categories.map((cat) => {
-          const active = selectedCat === cat.name
+    <View style={{ marginTop: 18 }}>
+      <View style={styles.packetHeaderRow}>
+        <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginBottom: 0 }]}>
+          {/* "RefPacks", not "Ref Packets" -- the branded, single-word form
+              (matching "MagicLink"'s own naming convention), with the same
+              first-letter-of-each-word-pops treatment MagicLink's wordmark
+              uses, so this reads as an equally intentional brand element
+              rather than a generic section label. */}
+          {'REFPACKS'.split('').map((ch, i) => (
+            <Text key={i} style={{ fontSize: fs(i === 0 || i === 3 ? 13 : 11) }}>{ch}</Text>
+          ))}
+        </Text>
+        {!hasPlusAccess && <Icon name="lock.fill" size={11} color={tokens.t4} />}
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.packetCatRow}>
+        {PACKET_CATS.map((c) => {
+          const active = category === c
           return (
             <Pressable
-              key={cat.name}
+              key={c}
               style={[
-                styles.catCard,
-                {
-                  backgroundColor: tokens.bg2,
-                  borderColor: active ? tokens.blu : tokens.bdr,
-                },
+                styles.packetCatChip,
+                { backgroundColor: active ? tokens.gold : tokens.bg2, borderColor: active ? tokens.gold : tokens.bdr },
               ]}
-              onPress={() => toggleCat(cat.name)}
+              onPress={() => onSelectCategory(c)}
             >
-              <Text style={[styles.catName, { color: active ? tokens.blu : tokens.t1, fontSize: fs(15.5) }]}>
-                {cat.name}
-              </Text>
-              {series.length > 0 ? (
-                <Text style={[styles.catMeta, { color: tokens.t3, fontSize: fs(11.5) }]}>
-                  {cat.seriesList.length} series · {cat.acCount} ACs
-                </Text>
-              ) : (
-                <Text style={[styles.catMeta, { color: tokens.t4, fontSize: fs(11.5) }]}>Loading…</Text>
+              <Text style={[styles.packetCatText, { color: active ? '#000' : tokens.t2, fontSize: fs(12.5) }]}>{c}</Text>
+            </Pressable>
+          )
+        })}
+      </ScrollView>
+      <View style={styles.packetGrid}>
+        {filtered.map((p) => {
+          // Multi-category source PDFs (Recreational Pilot Airplane+
+          // Rotorcraft, Sport Pilot Airplane+Gyroplane+Glider, etc.) split
+          // into one pack per category, title suffixed " — <category>" --
+          // but 3 packs from the SAME PDF sharing everything up to that
+          // suffix, truncated to 3 lines in a narrow grid card, were
+          // genuinely indistinguishable (confirmed live: three "Sport Pilot
+          // and Sport Pilot Flight..." cards with no visible difference).
+          // The suffix is the one thing that actually tells them apart, so
+          // it renders separately and is never truncated, instead of being
+          // buried at the end of a clipped title.
+          const base = p.title.replace(/ ACS$/, '')
+          const dashIdx = base.lastIndexOf(' — ')
+          const mainTitle = dashIdx > -1 ? base.slice(0, dashIdx) : base
+          const suffix = dashIdx > -1 ? base.slice(dashIdx + 3) : null
+          return (
+            <Pressable
+              key={p.code}
+              style={[styles.packetCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
+              onPress={() => openPacket(p)}
+            >
+              <Icon name="rosette" size={18} color={tokens.gold} />
+              {suffix && (
+                <View style={[styles.packetSuffixBadge, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
+                  <Text style={[styles.packetSuffixText, { color: tokens.gold, fontSize: fs(10) }]} numberOfLines={1}>
+                    {suffix}
+                  </Text>
+                </View>
               )}
+              <Text style={[styles.packetTitle, { color: tokens.t1, fontSize: fs(13) }]} numberOfLines={3}>
+                {mainTitle}
+              </Text>
+              <Text style={[styles.packetMeta, { color: tokens.t4, fontSize: fs(10.5) }]}>
+                {p.areaCount} areas · {p.taskCount} tasks
+              </Text>
             </Pressable>
           )
         })}
       </View>
-
-      {/* Expanded series for selected category */}
-      {expanded && expanded.seriesList.length > 0 && (
-        <>
-          <Text
-            onLayout={(e) => { expandedHeaderYRef.current = e.nativeEvent.layout.y }}
-            style={[styles.groupLabel, { color: tokens.t3, marginTop: 16, fontSize: fs(11) }]}
-          >
-            {expanded.name.toUpperCase()}
-          </Text>
-          {expanded.seriesList.map((item) => (
-            <Pressable
-              key={item.series_prefix}
-              style={[styles.seriesRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-              onPress={() => router.push(`/series/${item.series_prefix}`)}
-            >
-              <Text style={[styles.seriesPrefix, { color: tokens.t3, fontSize: fs(14) }]}>
-                {item.series_prefix}
-              </Text>
-              <Text style={[styles.seriesName, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
-                {item.display_name}
-              </Text>
-              <View style={[styles.countPill, { backgroundColor: tokens.bg3 }]}>
-                <Text style={[styles.countText, { color: tokens.t3, fontSize: fs(11.5) }]}>{item.ac_count}</Text>
-              </View>
-              <Icon name="chevron.right" size={14} color={tokens.t4} />
-            </Pressable>
-          ))}
-        </>
-      )}
-    </ScrollView>
-  )
-}
-
-// ─── Result row ───────────────────────────────────────────────────────────────
-
-function ResultRow({
-  item,
-  tokens,
-  badgeDays,
-}: {
-  item: SearchResult
-  tokens: ReturnType<typeof useTheme>['tokens']
-  badgeDays: number
-}) {
-  const fs = useFS()
-  return (
-    <Pressable
-      style={[styles.resultRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-      onPress={() => router.push(`/ac/${item.id}`)}
-    >
-      <View style={styles.resultNumBadgeWrap}>
-        <Text style={[styles.resultNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
-          {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
-        </Text>
-        {isWithinBadgeLifespan(item.date_issued, badgeDays) && (() => {
-          const badge = getBadgeStyle(getBadgeKind(item), tokens)
-          return (
-            <View style={[styles.resultNumBadge, { backgroundColor: badge.background, borderColor: badge.border }]}>
-              <Text style={[styles.resultNumBadgeText, { color: badge.color, fontSize: fs(8) }]}>{badge.label}</Text>
-            </View>
-          )
-        })()}
-      </View>
-      <Text style={[styles.resultTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
-        {item.title}
-      </Text>
-      {item.description ? (
-        <Text style={[styles.resultDesc, { color: tokens.t3, fontSize: fs(12.5) }]} numberOfLines={2}>
-          {item.description}
-        </Text>
-      ) : null}
-      <View style={styles.resultMeta}>
-        {item.subject_series ? (
-          <Text style={[styles.metaChip, { color: tokens.t4, fontSize: fs(11) }]}>Series {item.subject_series}</Text>
-        ) : null}
-        {item.date_issued ? (
-          <Text style={[styles.metaChip, { color: tokens.t4, fontSize: fs(11) }]}>
-            {new Date(item.date_issued).getFullYear()}
-          </Text>
-        ) : null}
-      </View>
-    </Pressable>
+    </View>
   )
 }
 
@@ -540,34 +418,8 @@ function ResultRow({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-    gap: 8,
-  },
-  emptyTitle: { fontWeight: '600', fontSize: 16, marginTop: 8 },
-  emptySub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20 },
+  content: { padding: 12, paddingBottom: 40 },
 
-  barWrap: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-  },
-  bar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    height: 42,
-    borderRadius: 13,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-  },
-  input: { flex: 1, fontSize: 14.5 },
-
-  browseContent: { padding: 12, paddingBottom: 40 },
   groupLabel: {
     fontSize: 11,
     fontWeight: '600',
@@ -576,59 +428,67 @@ const styles = StyleSheet.create({
     paddingLeft: 2,
   },
 
-  // Category grid — 2-column wrap
-  catGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 4,
+  signInCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 18,
   },
-  catCard: {
-    width: '48%',
+  signInTitle: { fontWeight: '600' },
+  signInSub: { marginTop: 2, lineHeight: 17 },
+
+  statsStrip: {
+    flexDirection: 'row',
     borderRadius: 14,
     borderWidth: 1,
-    padding: 15,
-  },
-  catName: {
-    fontWeight: '700',
-    fontSize: 15.5,
-  },
-  catMeta: {
-    fontSize: 11.5,
-    marginTop: 4,
-  },
-
-  // Series rows inside expanded category
-  seriesRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 12,
-    borderWidth: 1,
+    marginBottom: 18,
     paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 6,
-    gap: 10,
   },
-  seriesPrefix: { fontWeight: '700', fontSize: 14, width: 34, textAlign: 'center' },
-  seriesName: { flex: 1, fontWeight: '500', fontSize: 14 },
-  countPill: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
-  countText: { fontSize: 11.5, fontWeight: '600' },
+  statChip: { flex: 1, alignItems: 'center', gap: 2 },
+  statValue: { fontWeight: '700', marginTop: 2 },
+  statLabel: { fontWeight: '500', letterSpacing: 0.2 },
 
-  // Search result rows
-  list: { padding: 12, paddingBottom: 32 },
-  resultRow: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 14,
-    marginBottom: 8,
-    gap: 4,
+  hubCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderRadius: 14, borderWidth: 1, padding: 14,
   },
-  resultNum: { fontWeight: '700', fontSize: 12.5 },
-  resultNumBadgeWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  resultNumBadge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 1.5 },
-  resultNumBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
-  resultTitle: { fontWeight: '500', fontSize: 14.5, lineHeight: 20 },
-  resultDesc: { fontSize: 12.5, lineHeight: 18, marginTop: 2 },
-  resultMeta: { flexDirection: 'row', gap: 12, marginTop: 4 },
-  metaChip: { fontSize: 11 },
+  hubIconWrap: {
+    width: 38, height: 38, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  hubTitle: { fontWeight: '600' },
+  hubSub: { marginTop: 2, lineHeight: 17 },
+
+  profileLinkRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11, marginBottom: 12,
+  },
+  profileLinkText: { flex: 1, fontWeight: '600' },
+
+  visibilityCard: { borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 18 },
+  visibilityRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  aircraftRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  aircraftInput: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  aircraftSaveBtn: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
+  aircraftSaveBtnText: { color: '#fff', fontWeight: '700' },
+  previewRatings: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
+  previewChip: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 9, paddingVertical: 4 },
+  previewAddChip: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  previewChipText: { fontWeight: '600' },
+
+  // Ref Packet grid
+  packetHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8, paddingLeft: 2 },
+  packetCatRow: { marginBottom: 10 },
+  packetCatChip: {
+    borderRadius: 16, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8,
+  },
+  packetCatText: { fontWeight: '600' },
+  packetGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  packetCard: {
+    width: '31%', borderRadius: 14, borderWidth: 1, padding: 10, gap: 6, minHeight: 92,
+  },
+  packetTitle: { fontWeight: '600', lineHeight: 16 },
+  packetMeta: { marginTop: 'auto' },
+  packetSuffixBadge: {
+    alignSelf: 'flex-start', borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2,
+  },
+  packetSuffixText: { fontWeight: '700' },
 })

@@ -57,6 +57,10 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from revision_log import log_revisions  # noqa: E402
+from citation_validate import fetch_known_ids, fetch_known_pcg_slugs  # noqa: E402
+
 # ──────────────────────────────────────────────────────────────────────────────
 #  Config
 # ──────────────────────────────────────────────────────────────────────────────
@@ -207,6 +211,10 @@ def fetch_index(session: requests.Session) -> tuple[list[dict], list[dict]]:
 # "FAA Advisory Circular (AC) 90-66" — the latter has ")" between "AC" and
 # the number, which the naive "AC\s+" pattern misses entirely.
 _AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:\.\d+)?-\d+[A-Za-z]*(?:[\-–]\d+)?)\b")
+
+# Same pattern already proven in ad_citations.py and crossRefLinks.ts's
+# render-time linkifier -- kept consistent rather than reinventing one.
+_FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
 
 
 _BR_MARK = "\x00BR\x00"
@@ -446,9 +454,19 @@ def _citations_from_reference_box(box_elem, citing_id: str) -> tuple[str, list[d
     ref_text = _block_text(box_elem)
     citations: list[dict] = []
 
-    # AIM-internal cross-refs: real <a class="xref"> DOM links.
+    # AIM-internal cross-refs: real <a class="xref" href="...#X-Y-Z"> DOM
+    # links. The paragraph number lives in the href's #fragment, not the
+    # anchor's visible text -- confirmed live as a real bug: visible text
+    # is often free-form phrasing ("see Chapter 5, Section 3", "paragraph
+    # j", or occasionally a bare URL), none of which is a real paragraph
+    # number, so using get_text() produced 19 dead-end aim->aim citations
+    # across the corpus (e.g. "aim:4-1-20 -> aim:Chapter 5"). Falls back to
+    # visible text only if the href has no usable fragment, since that's
+    # still strictly better than nothing for the rare non-standard link.
     for a in box_elem.find_all("a", class_="xref"):
-        target_para = a.get_text(strip=True)
+        href = a.get("href", "")
+        frag = href.split("#", 1)[1] if "#" in href else ""
+        target_para = frag.strip() or a.get_text(strip=True)
         if target_para:
             citations.append({
                 "citing_type": "aim", "citing_id": citing_id,
@@ -461,6 +479,19 @@ def _citations_from_reference_box(box_elem, citing_id: str) -> tuple[str, list[d
         citations.append({
             "citing_type": "aim", "citing_id": citing_id,
             "cited_type": "ac", "cited_id": m.group(1),
+            "label": None,
+        })
+
+    # FAR section mentions ("§ 91.107", "FAR 91.107", "14 CFR 91.107") --
+    # confirmed live as a real gap: this function had zero FAR detection at
+    # all, so document_citations had 0 aim->far rows across the entire
+    # 438-paragraph corpus despite AIM referencing FARs constantly. Same
+    # regex already proven in ad_citations.py and crossRefLinks.ts's
+    # render-time linkifier -- kept consistent rather than reinventing one.
+    for m in _FAR_RE.finditer(ref_text):
+        citations.append({
+            "citing_type": "aim", "citing_id": citing_id,
+            "cited_type": "far", "cited_id": m.group(1),
             "label": None,
         })
 
@@ -786,6 +817,21 @@ def _upsert(table: str, rows: list[dict], on_conflict: str) -> bool:
     if not SUPABASE_URL or not SUPABASE_KEY:
         log.debug(f"  [DRY-RUN] would upsert {len(rows)} rows into {table}")
         return True
+    # What's Changed timeline logging -- must run BEFORE the upsert below,
+    # which is about to overwrite whatever's currently live. Scoped to just
+    # aim_paragraphs (the content-bearing table this function also writes
+    # aim_figures/document_citations rows through) -- see revision_log.py.
+    if table == "aim_paragraphs":
+        try:
+            n = log_revisions(
+                SUPABASE_URL, _supa_headers(), doc_type="aim", table="aim_paragraphs",
+                key_field="paragraph_number", text_field="body_text", title_field="title",
+                new_rows=rows,
+            )
+            if n:
+                log.info(f"  Logged {n} AIM revision(s) for What's Changed")
+        except Exception as e:
+            log.warning(f"  revision logging failed (non-fatal): {e}")
     try:
         resp = requests.post(
             f"{SUPABASE_URL}/rest/v1/{table}",
@@ -907,6 +953,17 @@ def run_full(session: requests.Session):
     # last one instead of replacing it.
     delete_citations_for_source("aim")
 
+    # Validate aim->ac and aim->pcg citations against the real, already-
+    # scraped AC/P-CG corpora before writing -- confirmed live as a real
+    # gap (12 dead aim->ac + 3 dead aim->pcg citations from AC numbers/PCG
+    # terms this regex matched that don't actually exist in our tables).
+    # aim->aim is deliberately NOT filtered here: this loop is still
+    # populating aim_paragraphs page by page, so a forward reference to a
+    # not-yet-scraped page would look "unresolved" against a snapshot taken
+    # now even though it's perfectly real -- see citation_validate.py.
+    known_ac_ids = fetch_known_ids()["ac"]
+    known_pcg_ids = fetch_known_pcg_slugs()
+
     total_paragraphs = total_figures = total_citations = 0
     errors = 0
     error_details = []
@@ -942,8 +999,14 @@ def run_full(session: requests.Session):
                 _upsert("aim_figures", result["figures"], "paragraph_number,label")
                 total_figures += len(result["figures"])
             if result["citations"]:
-                insert_citations(result["citations"])
-                total_citations += len(result["citations"])
+                resolved_citations = [
+                    c for c in result["citations"]
+                    if not (c["cited_type"] == "ac" and c["cited_id"] not in known_ac_ids)
+                    and not (c["cited_type"] == "pcg" and c["cited_id"] not in known_pcg_ids)
+                ]
+                if resolved_citations:
+                    insert_citations(resolved_citations)
+                    total_citations += len(resolved_citations)
             log.info(f"  → {len(result['paragraphs'])} paragraphs, "
                      f"{len(result['figures'])} figures, {len(result['citations'])} citations")
         except Exception as e:

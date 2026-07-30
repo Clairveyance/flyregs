@@ -1,0 +1,344 @@
+import { useEffect, useState, useCallback } from 'react'
+import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, Modal, Alert } from 'react-native'
+import { router, useFocusEffect } from 'expo-router'
+import { useTheme } from '@/context/theme'
+import { useFS } from '@/context/fontScale'
+import { useAuth } from '@/context/auth'
+import { OverlayHeader } from '@/components/ScreenHeader'
+import { Icon } from '@/components/Icon'
+import {
+  getMyChallenges, getChallengeableUsers, createChallenge, respondToChallenge, getDuelStats, sendDuelPush,
+  MyChallenge, ChallengeableUser, DuelStats, DuelItemType,
+} from '@/lib/challenges'
+
+const QUESTION_COUNTS = [3, 5, 10]
+const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac']
+const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC' }
+const MAX_OPPONENTS = 7
+
+export default function ChallengesScreen() {
+  const { tokens } = useTheme()
+  const fs = useFS()
+  const { hasPlusAccess } = useAuth()
+  const [challenges, setChallenges] = useState<MyChallenge[]>([])
+  const [myStats, setMyStats] = useState<DuelStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [pickerVisible, setPickerVisible] = useState(false)
+  const [opponents, setOpponents] = useState<ChallengeableUser[]>([])
+  const [selectedOpponents, setSelectedOpponents] = useState<string[]>([])
+  const [questionCount, setQuestionCount] = useState(5)
+  const [activeTypes, setActiveTypes] = useState<DuelItemType[]>([])
+  const [creating, setCreating] = useState(false)
+
+  const toggleType = (t: DuelItemType) => {
+    setActiveTypes((prev) => {
+      const base = prev.length === 0 ? ALL_TYPES : prev
+      return base.includes(t) ? base.filter((x) => x !== t) : [...base, t]
+    })
+  }
+
+  const load = useCallback(() => {
+    setLoading(true)
+    getMyChallenges().then(setChallenges).finally(() => setLoading(false))
+    getDuelStats().then(setMyStats)
+  }, [])
+
+  useFocusEffect(useCallback(() => { if (hasPlusAccess) load() }, [hasPlusAccess, load]))
+
+  const openPicker = () => {
+    getChallengeableUsers().then(setOpponents)
+    setSelectedOpponents([])
+    setPickerVisible(true)
+  }
+
+  const toggleOpponent = (userId: string) => {
+    setSelectedOpponents((prev) => {
+      if (prev.includes(userId)) return prev.filter((x) => x !== userId)
+      if (prev.length >= MAX_OPPONENTS) {
+        Alert.alert('Duel is full', `Duels support up to ${MAX_OPPONENTS + 1} total participants.`)
+        return prev
+      }
+      return [...prev, userId]
+    })
+  }
+
+  const handleStartDuel = async () => {
+    if (selectedOpponents.length === 0 || creating) return
+    setCreating(true)
+    try {
+      const id = await createChallenge(selectedOpponents, questionCount, activeTypes)
+      setPickerVisible(false)
+      sendDuelPush(id, 'invited')
+      router.push(`/challenges/${id}` as any)
+    } catch (err: any) {
+      Alert.alert('Error', err?.message ?? 'Could not create the duel.')
+    }
+    setCreating(false)
+  }
+
+  const handleRespond = async (c: MyChallenge, accept: boolean) => {
+    await respondToChallenge(c.challengeId, accept)
+    if (accept) {
+      sendDuelPush(c.challengeId, 'accepted')
+      router.push(`/challenges/${c.challengeId}` as any)
+    } else load()
+  }
+
+  if (!hasPlusAccess) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="Duels" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <Icon name="lock.fill" size={36} color={tokens.blu} />
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Duels are a Pro feature</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            Challenge 1-7 other pilots to a free-for-all multiple-choice quiz across FAR, AIM, P/CG, and ACs — most correct answers wins, with time as the tiebreaker.
+          </Text>
+        </View>
+      </View>
+    )
+  }
+
+  return (
+    <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+      <OverlayHeader
+        title="Duels"
+        onBack={() => router.back()}
+        right={
+          <Pressable onPress={openPicker} hitSlop={12} style={{ padding: 4 }}>
+            <Icon name="plus" size={22} color={tokens.gold} />
+          </Pressable>
+        }
+      />
+      {myStats && (myStats.wins > 0 || myStats.losses > 0 || myStats.ties > 0) && (
+        <View style={[styles.myStatsBar, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}>
+          <Icon name="rosette" size={16} color={tokens.gold} />
+          <Text style={[styles.myStatsText, { color: tokens.t1, fontSize: fs(13.5) }]}>
+            <Text style={{ color: tokens.gold, fontWeight: '700' }}>{myStats.wins}</Text> wins ·{' '}
+            <Text style={{ color: tokens.t2 }}>{myStats.losses}</Text> losses
+            {myStats.ties > 0 ? ` · ${myStats.ties} ties` : ''}
+          </Text>
+        </View>
+      )}
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      ) : challenges.length === 0 ? (
+        <View style={styles.center}>
+          <Icon name="bolt.fill" size={36} color={tokens.t4} />
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No duels yet</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            Tap + to challenge one or more pilots from Ready Room.
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={challenges}
+          keyExtractor={(c) => c.challengeId}
+          contentContainerStyle={styles.list}
+          renderItem={({ item }) => (
+            <ChallengeRow item={item} tokens={tokens} fs={fs} onRespond={handleRespond} />
+          )}
+        />
+      )}
+
+      <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
+        <View style={[styles.modalBackdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>New Duel</Text>
+              <Pressable onPress={() => setPickerVisible(false)} hitSlop={10}>
+                <Icon name="xmark" size={18} color={tokens.t3} />
+              </Pressable>
+            </View>
+
+            <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11) }]}>QUESTIONS</Text>
+            <View style={styles.countRow}>
+              {QUESTION_COUNTS.map((n) => (
+                <Pressable
+                  key={n}
+                  style={[
+                    styles.countChip,
+                    { backgroundColor: questionCount === n ? tokens.gold : tokens.bg2, borderColor: questionCount === n ? tokens.gold : tokens.bdr },
+                  ]}
+                  onPress={() => setQuestionCount(n)}
+                >
+                  <Text style={[styles.countChipText, { color: questionCount === n ? '#000' : tokens.t2, fontSize: fs(13) }]}>{n}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 14 }]}>CONTENT (TAP TO EXCLUDE)</Text>
+            <View style={styles.countRow}>
+              <Pressable
+                style={[
+                  styles.countChip,
+                  { backgroundColor: activeTypes.length === 0 ? tokens.goldlt : tokens.bg2, borderColor: activeTypes.length === 0 ? tokens.goldbdr : tokens.bdr },
+                ]}
+                onPress={() => setActiveTypes([])}
+              >
+                <Text style={[styles.countChipText, { color: activeTypes.length === 0 ? tokens.gold : tokens.t3, fontSize: fs(13) }]}>ALL</Text>
+              </Pressable>
+              {ALL_TYPES.map((t) => {
+                const active = activeTypes.length === 0 || activeTypes.includes(t)
+                return (
+                  <Pressable
+                    key={t}
+                    style={[
+                      styles.countChip,
+                      { backgroundColor: active ? tokens.goldlt : tokens.bg2, borderColor: active ? tokens.goldbdr : tokens.bdr },
+                    ]}
+                    onPress={() => toggleType(t)}
+                  >
+                    <Text style={[styles.countChipText, { color: active ? tokens.gold : tokens.t3, fontSize: fs(13) }]}>{TYPE_LABEL[t]}</Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+
+            <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 14 }]}>
+              OPPONENTS{selectedOpponents.length > 0 ? ` (${selectedOpponents.length} of ${MAX_OPPONENTS} max)` : ''}
+            </Text>
+            {opponents.length === 0 ? (
+              <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13), marginTop: 8 }]}>
+                Nobody's opted into Ready Room yet — ask a friend to opt in from Account &gt; Community first.
+              </Text>
+            ) : (
+              opponents.map((o) => {
+                const selected = selectedOpponents.includes(o.userId)
+                return (
+                  <Pressable
+                    key={o.userId}
+                    style={[styles.opponentRow, { borderTopColor: tokens.bdr }]}
+                    onPress={() => toggleOpponent(o.userId)}
+                  >
+                    <View style={[styles.checkbox, { borderColor: selected ? tokens.gold : tokens.bdr, backgroundColor: selected ? tokens.goldlt : 'transparent' }]}>
+                      {selected && <Icon name="checkmark" size={12} color={tokens.gold} />}
+                    </View>
+                    <Text style={[styles.opponentText, { color: tokens.t1, fontSize: fs(14) }]}>{o.displayLabel}</Text>
+                  </Pressable>
+                )
+              })
+            )}
+
+            {selectedOpponents.length > 0 && (
+              <Pressable
+                style={[styles.startBtn, { backgroundColor: tokens.gold, opacity: creating ? 0.6 : 1 }]}
+                onPress={handleStartDuel}
+                disabled={creating}
+              >
+                {creating ? <ActivityIndicator size="small" color="#000" /> : (
+                  <Text style={styles.startBtnText}>
+                    START DUEL ({selectedOpponents.length + 1} PLAYER{selectedOpponents.length + 1 === 1 ? '' : 'S'})
+                  </Text>
+                )}
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </Modal>
+    </View>
+  )
+}
+
+function ChallengeRow({
+  item, tokens, fs, onRespond,
+}: {
+  item: MyChallenge
+  tokens: ReturnType<typeof useTheme>['tokens']
+  fs: (n: number) => number
+  onRespond: (c: MyChallenge, accept: boolean) => void
+}) {
+  const isPendingForMe = item.myStatus === 'pending'
+  const acceptedOthers = item.others.filter((o) => o.status === 'active')
+  const pendingOthers = item.others.filter((o) => o.status === 'pending')
+  const othersLabel = item.others.length <= 2
+    ? item.others.map((o) => o.label).join(', ')
+    : `${item.others.slice(0, 2).map((o) => o.label).join(', ')} +${item.others.length - 2} more`
+
+  const statusLabel =
+    item.status === 'completed' ? 'Completed'
+    : isPendingForMe ? `${item.others.find((o) => o.status !== 'pending')?.label ?? 'Someone'} wants to duel you`
+    : pendingOthers.length > 0 && acceptedOthers.length === 0 ? 'Waiting for them to accept'
+    : `${item.myAnsweredCount}/${item.questionCount} answered · ${acceptedOthers.length} of ${item.others.length} joined`
+
+  return (
+    <Pressable
+      style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+      onPress={() => { if (!isPendingForMe) router.push(`/challenges/${item.challengeId}` as any) }}
+    >
+      <Pressable
+        style={[styles.avatarDot, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}
+        onPress={(e) => {
+          e.stopPropagation()
+          if (item.others.length === 1) {
+            router.push(`/profile/${item.others[0].userId}?label=${encodeURIComponent(item.others[0].label)}` as any)
+          }
+        }}
+        hitSlop={6}
+      >
+        <Icon name="bolt.fill" size={14} color={tokens.gold} />
+      </Pressable>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>{othersLabel}</Text>
+        <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]}>{statusLabel}</Text>
+      </View>
+      {isPendingForMe ? (
+        <View style={styles.respondRow}>
+          <Pressable style={[styles.respondBtn, { borderColor: tokens.bdr }]} onPress={() => onRespond(item, false)}>
+            <Icon name="xmark" size={14} color={tokens.t3} />
+          </Pressable>
+          <Pressable style={[styles.respondBtn, styles.respondBtnAccept, { borderColor: tokens.goldbdr, backgroundColor: tokens.goldlt }]} onPress={() => onRespond(item, true)}>
+            <Icon name="checkmark" size={14} color={tokens.gold} />
+          </Pressable>
+        </View>
+      ) : (
+        <Icon name="chevron.right" size={14} color={tokens.t4} />
+      )}
+    </Pressable>
+  )
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
+  emptyTitle: { fontWeight: '600', marginTop: 6 },
+  emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },
+
+  myStatsBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 12, marginTop: 12, borderRadius: 12, borderWidth: 1,
+    paddingHorizontal: 14, paddingVertical: 10,
+  },
+  myStatsText: { fontWeight: '500' },
+
+  list: { padding: 12, paddingBottom: 32 },
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderRadius: 14, borderWidth: 1, padding: 13, marginBottom: 8,
+  },
+  avatarDot: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  rowTitle: { fontWeight: '600' },
+  rowSub: { marginTop: 2 },
+  respondRow: { flexDirection: 'row', gap: 8 },
+  respondBtn: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  respondBtnAccept: {},
+
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end' },
+  modalCard: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, padding: 18, maxHeight: '85%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  modalTitle: { fontWeight: '700' },
+  modalLabel: { fontWeight: '600', letterSpacing: 0.5 },
+  countRow: { flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' },
+  countChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 16, borderWidth: 1 },
+  countChipText: { fontWeight: '700' },
+  opponentRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 12, borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  opponentText: { fontWeight: '500', flex: 1 },
+  startBtn: { borderRadius: 20, alignItems: 'center', paddingVertical: 13, marginTop: 16 },
+  startBtnText: { color: '#000', fontWeight: '800', letterSpacing: 0.6, fontSize: 13.5 },
+})

@@ -51,7 +51,7 @@ export function FolderListView({
 }: Props) {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { isPro } = useAuth()
+  const { hasPlusAccess } = useAuth()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const listRef = useRef<FlatList<Folder>>(null)
@@ -95,7 +95,7 @@ export function FolderListView({
   }
 
   const guardPro = (action: () => void) => {
-    if (!isPro) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall'); return }
     action()
   }
 
@@ -106,7 +106,7 @@ export function FolderListView({
         <Icon name="folder" size={40} color={tokens.t4} />
         <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No folders yet</Text>
         <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-          Folders let you organize saved ACs and notes together — great for training syllabi, study sets, and reference packs.
+          Folders let you organize saved regulations and notes together — great for training syllabi, study sets, and reference packs.
         </Text>
         <Pressable
           style={[styles.createCta, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr, borderWidth: 1 }]}

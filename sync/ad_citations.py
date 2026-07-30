@@ -30,8 +30,12 @@ import argparse
 import logging
 import os
 import re
+import sys
 
 import requests
+
+sys.path.insert(0, os.path.dirname(__file__))
+from citation_validate import fetch_known_ids, filter_resolved
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
@@ -41,7 +45,7 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 
 AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:\.\d+)?-\d+[A-Za-z]*(?:[\-–]\d+)?)\b")
-FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:§\s*)?)(\d+\.\d+)\b")
+FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
 AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 
 
@@ -131,6 +135,10 @@ def main():
     for c in all_citations:
         by_type[c["cited_type"]] = by_type.get(c["cited_type"], 0) + 1
     log.info(f"Found {len(all_citations)} citations: {by_type}")
+
+    known = fetch_known_ids()
+    all_citations, dropped = filter_resolved(all_citations, known)
+    log.info(f"Resolved against real targets: {len(all_citations)} kept, {dropped} dropped (target doesn't exist).")
 
     if args.dry_run:
         log.info("Dry run — no writes made.")

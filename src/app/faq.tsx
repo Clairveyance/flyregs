@@ -115,6 +115,42 @@ const FAQ: QA[] = [
     q: 'How do I cancel?',
     a: ['Subscriptions are managed by Apple or Google. Open your App Store or Google Play account settings to view or cancel. Your access continues until the end of the current billing period.'],
   },
+  {
+    q: 'What is My Aircraft, and how do AD reminders work?',
+    a: [
+      'My Aircraft (My Account → Airworthiness Directives) lets you save the aircraft you fly by make and model, so FlyRegs can match new and revised Airworthiness Directives (ADs) against just the ones that actually apply to you — not the full corpus of thousands.',
+      'Premium adds equipment tags for specific parts, engines, or avionics installed on your aircraft (more precise AD matching than make/model alone), plus reminders you set yourself for recurring compliance items — an inspection interval, a life-limited part — that alert you when one comes due.',
+      '• Pro — 1 saved aircraft.',
+      '• Premium — unlimited aircraft, plus equipment tags and reminders.',
+    ],
+  },
+  {
+    q: 'What is AC Update Alerts?',
+    a: ['A Pro notification setting (My Account → Notifications) that sends a push notification whenever an Advisory Circular is issued or revised, so you find out the moment something changes instead of only seeing it on your next visit to the Home "What\'s New" feed.'],
+  },
+  {
+    q: 'What is DailyReg?',
+    a: ['A Pro notification setting that sends one push notification a day surfacing a single FAR, AIM, P/CG, AD, or AC section — a low-effort way to keep something in front of you regularly, separate from actively studying or looking something up yourself.'],
+  },
+  {
+    q: 'What are Duel Alerts?',
+    a: ['A Pro notification setting that pushes a notification when someone challenges you to a Duel — FlyRegs\' head-to-head multiple-choice quiz across FAR, AIM, P/CG, and AC — or when a Duel you\'re in updates, so you don\'t have to keep checking Community to see if it\'s your turn.'],
+  },
+  {
+    q: 'What are Ref Packets?',
+    a: [
+      'Ref Packets are certificate and rating study guides built directly from the FAA\'s own Airman Certification Standards (ACS) and Practical Test Standards (PTS) — the same documents your practical test is actually based on — broken into Areas of Operation, Tasks, and each Task\'s Knowledge, Risk Management, and Skill elements.',
+      'Every element is tappable: it runs a search across FAR, AIM, P/CG, and AC for that specific topic and shows the real regulatory text, instead of leaving you to go find it yourself. A Task\'s "Related Regulations" box also auto-searches on the Task\'s own title the moment you open it.',
+      'Find Ref Packets under Community → Ref Packets, organized by aircraft category (Airplane, Rotorcraft, Powered-Lift).',
+    ],
+  },
+  {
+    q: 'What are Challenge Coins?',
+    a: [
+      'App-verified achievement badges for real study activity — study streaks, P/CG mastery milestones, and Duel wins. Unlike your self-reported ratings, coins are only ever awarded automatically off data FlyRegs already tracks.',
+      'Tap any coin (My Account → Challenge Coins) to see exactly what unlocks it, whether you\'ve earned it yet or not.',
+    ],
+  },
 ]
 
 export default function FAQScreen() {

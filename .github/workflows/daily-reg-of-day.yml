@@ -1,0 +1,49 @@
+name: Daily Reg of the Day
+
+# Sends the "Reg of the Day" push notification (Pro/Premium, opt-in toggle
+# in Account > Notifications) once a day. Independent of the weekly content
+# sync (weekly-sync.yml) -- this fires every day regardless of whether any
+# content actually changed that week, since it's a rotating P/CG term, not
+# an update alert. See scripts/send-reg-of-day.mjs and the
+# get_reg_of_the_day() Postgres function for the rotation logic.
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    # 13:00 UTC daily -- mid-morning US time, avoids the 10:00-12:00 UTC
+    # window the weekly FAA syncs already use.
+    - cron: '0 13 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Write .env.scraper from secrets
+        run: |
+          cat > .env.scraper <<EOF
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          EOF
+
+      - name: Send Reg of the Day
+        run: node scripts/send-reg-of-day.mjs
+
+      - name: Clean up secrets file
+        if: always()
+        run: rm -f .env.scraper

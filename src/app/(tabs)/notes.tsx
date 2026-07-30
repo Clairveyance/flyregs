@@ -25,6 +25,7 @@ import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { ScreenHeader } from '@/components/ScreenHeader'
+import { TabletContainer } from '@/components/TabletContainer'
 import { Icon } from '@/components/Icon'
 import { ACBody } from '@/components/ACBody'
 import { FigureViewer } from '@/components/FigureViewer'
@@ -92,7 +93,9 @@ function timeAgo(iso: string): string {
 export default function NotesScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { isPro, isPremium, session } = useAuth()
+  // Notes creation/editing is Plus-tier now (hasPlusAccess); cloud sync of
+  // notes is Pro-tier (isPro) per the pricing pivot -- see flyregs_decisions.md.
+  const { isPro, isPremium, hasPlusAccess, session } = useAuth()
   const { shareNote, shareMany } = useShareActions()
   const { openId } = useLocalSearchParams<{ openId?: string }>()
   const [notes, setNotes] = useState<Note[]>([])
@@ -125,13 +128,13 @@ export default function NotesScreen() {
   // Opening a note from outside this screen (e.g. tapping it inside a Folder,
   // which has no note-editing UI of its own) navigates here with ?openId=.
   useEffect(() => {
-    if (!isPro || typeof openId !== 'string' || openId === openedIdRef.current) return
+    if (!hasPlusAccess || typeof openId !== 'string' || openId === openedIdRef.current) return
     const note = notes.find((n) => n.id === openId)
     if (note) {
       openedIdRef.current = openId
       setEditorNote({ ...note })
     }
-  }, [openId, notes, isPro])
+  }, [openId, notes, hasPlusAccess])
 
   const persist = useCallback((updated: Note[]) => {
     setNotes(updated)
@@ -139,12 +142,12 @@ export default function NotesScreen() {
   }, [])
 
   const openNew = () => {
-    if (!isPro) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall'); return }
     setEditorNote({ id: '', title: '', body: '', linked_ac: null, updated_at: '' })
   }
 
   const openExisting = (note: Note) => {
-    if (!isPro) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall'); return }
     if (selectMode) {
       setSelected((prev) => {
         const next = new Set(prev)
@@ -236,22 +239,23 @@ export default function NotesScreen() {
   }
 
   // The stored sync_enabled flag doesn't get flipped off automatically if a
-  // Premium subscription lapses -- self-correct so the UI (and syncPush.ts's
-  // own live isPremium check) both agree with reality instead of the row
-  // claiming "Synced" forever off a stale local flag.
-  const displaySyncEnabled = syncEnabled && isPremium
+  // Pro/Premium subscription lapses -- self-correct so the UI (and syncPush.ts's
+  // own live isPro check) both agree with reality instead of the row
+  // claiming "Synced" forever off a stale local flag. Sync moved from Premium
+  // to Pro in the pricing pivot -- see flyregs_decisions.md.
+  const displaySyncEnabled = syncEnabled && isPro
   useEffect(() => {
-    if (syncEnabled && !isPremium) {
+    if (syncEnabled && !isPro) {
       disableSync()
       setSyncEnabled(false)
     }
-  }, [syncEnabled, isPremium])
+  }, [syncEnabled, isPro])
 
   const toggleSync = async (v: boolean) => {
-    // Back up & sync is a Premium feature — turning it on without Premium opens
+    // Cross-device sync is a Pro feature — turning it on without Pro opens
     // the paywall (works on web too, where Alert.alert is a no-op).
-    if (v && !isPremium) {
-      router.push('/paywall?tier=premium')
+    if (v && !isPro) {
+      router.push('/paywall')
       return // leave the switch off
     }
     if (v && session?.user?.id) {
@@ -265,7 +269,7 @@ export default function NotesScreen() {
     setSyncEnabled(v)
   }
 
-  const rightSlot = isPro ? (
+  const rightSlot = hasPlusAccess ? (
     <View style={styles.headerRight}>
       <Pressable onPress={toggleSelect} hitSlop={8}>
         <Text style={[styles.selectBtnText, { color: tokens.blu, fontSize: fs(13) }]}>
@@ -284,19 +288,20 @@ export default function NotesScreen() {
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <ScreenHeader title="Notes" right={rightSlot} />
+      <TabletContainer>
 
-      {!isPro ? (
+      {!hasPlusAccess ? (
         <View style={[styles.empty, { padding: 32 }]}>
           <Icon name="lock.fill" size={36} color={tokens.blu} />
-          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Notes is a Pro feature</Text>
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Notes is a Plus feature</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-            Upgrade to Pro to create personal notes and link them directly to any AC.
+            Unlock Plus to create personal notes and link them directly to any AC.
           </Text>
           <Pressable
             style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]}
             onPress={() => router.push('/paywall')}
           >
-            <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Upgrade to Pro</Text>
+            <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
           </Pressable>
         </View>
       ) : (
@@ -440,6 +445,7 @@ export default function NotesScreen() {
       />
 
       <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
+      </TabletContainer>
     </View>
   )
 }
@@ -600,7 +606,7 @@ function NoteEditor({
 }) {
   const insets = useSafeAreaInsets()
   const fs = useFS()
-  const { isPro } = useAuth()
+  const { hasPlusAccess } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const [title, setTitle] = useState(note.title)
   const [body, setBody] = useState(note.body)
@@ -885,10 +891,10 @@ function NoteEditor({
                     <ACBody
                       blocks={paneData.pdf_blocks}
                       scrollRef={paneScrollRef}
-                      figures={isPro ? (paneFigures ?? undefined) : undefined}
-                      formulaRefs={isPro ? (paneFormulaRefs ?? undefined) : undefined}
-                      onOpenFigure={isPro ? setViewerFigure : undefined}
-                      onOpenFormulaRef={isPro ? setViewerFormulaRef : undefined}
+                      figures={hasPlusAccess ? (paneFigures ?? undefined) : undefined}
+                      formulaRefs={hasPlusAccess ? (paneFormulaRefs ?? undefined) : undefined}
+                      onOpenFigure={hasPlusAccess ? setViewerFigure : undefined}
+                      onOpenFormulaRef={hasPlusAccess ? setViewerFormulaRef : undefined}
                     />
                   </>
                 ) : (

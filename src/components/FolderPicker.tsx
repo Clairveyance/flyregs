@@ -24,37 +24,39 @@ import {
   removeFromFolder,
   createFolder,
   Folder,
+  FolderItemType,
   DUPLICATE_FOLDER_NAME,
 } from '@/lib/folders'
 import { addManyBookmarks, BookmarkAC } from '@/lib/bookmarks'
 
 interface Props {
   visible: boolean
-  itemType: 'ac' | 'note'
+  itemType: FolderItemType
   itemId: string
   onClose: () => void
   /** Called on close with a ready-to-show confirmation message, only if at
    * least one folder was added to during this session (not on remove-only,
    * not if nothing changed). */
   onAdded?: (message: string) => void
-  /** Display metadata for this AC, needed ONLY when the item being added
-   * isn't already guaranteed to be a bookmark (e.g. opened from Recents or
-   * Offline downloads, as opposed to the Saved > All list itself). If the
-   * item isn't already bookmarked, adding it to a folder also ensures a
-   * bookmark exists using this data — the folder-detail screen resolves an
-   * 'ac' item's title/date/office via the bookmarks list, so without this a
-   * folder item added from a non-bookmark source silently disappears from
-   * its own folder (and gets permanently pruned by the orphaned-item
-   * self-heal in folder/[id].tsx). Omit when itemType is 'note', or when the
-   * item is already known to be a bookmark (harmless to pass anyway --
-   * addManyBookmarks no-ops if already present). */
-  acMeta?: Omit<BookmarkAC, 'id' | 'savedAt'>
+  /** Display metadata for this item, needed ONLY when it isn't already
+   * guaranteed to be a bookmark (e.g. opened from Recents or Offline
+   * downloads, as opposed to the Saved > All list itself). If the item isn't
+   * already bookmarked, adding it to a folder also ensures a bookmark exists
+   * using this data — the folder-detail screen resolves any non-'note' item's
+   * title/label via the bookmarks list, so without this a folder item added
+   * from a non-bookmark source silently disappears from its own folder (and
+   * gets permanently pruned by the orphaned-item self-heal in folder/[id].tsx).
+   * Omit when itemType is 'note', or when the item is already known to be a
+   * bookmark (harmless to pass anyway -- addManyBookmarks no-ops if already
+   * present). itemType is threaded onto the bookmark automatically -- never
+   * include it in the object passed here. */
+  acMeta?: Omit<BookmarkAC, 'id' | 'savedAt' | 'itemType'>
 }
 
 export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMeta }: Props) {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { isPro } = useAuth()
+  const { hasPlusAccess } = useAuth()
   const [folders, setFolders] = useState<Folder[]>([])
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({})
   const [memberIds, setMemberIds] = useState<Set<string>>(new Set())
@@ -68,20 +70,20 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
     // Folders are a Pro feature end-to-end, not just creation -- a user who
     // downgraded after already having folders could otherwise keep adding to
     // them via this picker (opened from Saved, Recents, and AC detail) with
-    // no gate at all, since only the "New Folder" button below checked isPro.
+    // no gate at all, since only the "New Folder" button below checked hasPlusAccess.
     // This is only a backstop -- every call site should gate synchronously
     // before ever setting visible=true (see recents.tsx's handleFolder). A
     // delayed setTimeout(...) push used to live here instead of an immediate
     // one; a second tap shortly after the first, while that delayed push was
     // still pending, landed mid-close and silently no-op'd (BB-006).
-    if (!isPro) {
+    if (!hasPlusAccess) {
       onClose()
       router.push('/paywall')
       return
     }
     setAddedNames([])
     load()
-  }, [visible, itemId, isPro])
+  }, [visible, itemId, hasPlusAccess])
 
   useEffect(() => {
     if (creating) setTimeout(() => inputRef.current?.focus(), 80)
@@ -109,7 +111,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
       setAddedNames((prev) => prev.filter((n) => n !== folder.name))
       setItemCounts((prev) => ({ ...prev, [folder.id]: Math.max(0, (prev[folder.id] ?? 1) - 1) }))
     } else {
-      if (itemType === 'ac' && acMeta) await addManyBookmarks([{ id: itemId, ...acMeta }])
+      if (acMeta) await addManyBookmarks([{ id: itemId, itemType, ...acMeta }])
       await addToFolder(folder.id, itemType, itemId)
       setMemberIds((prev) => new Set([...prev, folder.id]))
       setAddedNames((prev) => [...prev, folder.name])
@@ -130,7 +132,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
       }
       throw e
     }
-    if (itemType === 'ac' && acMeta) await addManyBookmarks([{ id: itemId, ...acMeta }])
+    if (acMeta) await addManyBookmarks([{ id: itemId, itemType, ...acMeta }])
     await addToFolder(folder.id, itemType, itemId)
     setFolders((prev) => [...prev, folder])
     setMemberIds((prev) => new Set([...prev, folder.id]))
@@ -247,7 +249,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
             <Pressable
               style={[styles.newFolderRow, { borderTopColor: tokens.bdr }]}
               onPress={() => {
-                if (!isPro) { handleClose(); router.push('/paywall'); return }
+                if (!hasPlusAccess) { handleClose(); router.push('/paywall'); return }
                 setCreating(true)
               }}
             >

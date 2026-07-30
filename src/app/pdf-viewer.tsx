@@ -50,7 +50,17 @@ export default function PDFViewerScreen() {
       ) : (
         <>
           <WebView
-            source={{ uri: url }}
+            // Android's WebView (unlike iOS's WKWebView) has no reliable
+            // built-in PDF renderer -- loading a raw PDF URL directly there
+            // routinely falls through to a download/"open with" flow
+            // instead of rendering inline (a well-known react-native-
+            // webview gotcha, not something specific to any one PDF host).
+            // Google's public docs-viewer proxy is the standard workaround:
+            // it fetches and renders the PDF as an embedded HTML view, so
+            // the WebView always has real HTML to show regardless of the
+            // PDF's own origin/headers. iOS keeps the direct URL since
+            // WKWebView renders PDFs natively and reliably there.
+            source={{ uri: Platform.OS === 'android' ? `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(url)}` : url }}
             style={styles.webview}
             onLoadEnd={() => setLoading(false)}
             startInLoadingState={false}

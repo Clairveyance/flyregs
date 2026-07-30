@@ -6,6 +6,7 @@ import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
 
 // The actual payoff of the AD expansion, per explicit direction: a pilot/
@@ -14,6 +15,13 @@ import { supabase } from '@/lib/supabase'
 // corpus. This lightweight make/model list (not a full N-number/registry
 // lookup — deliberately kept simple) is what a future AD-alerts job matches
 // new/updated ADs against.
+//
+// 2026-07-28: this screen became a list->detail pair (index.tsx here,
+// [id].tsx for one aircraft) so equipment tags and reminders -- both
+// Premium, see flyregs_decisions.md's AD Compliance-Tracking Scope
+// Decision -- have somewhere to live per-aircraft, matching this app's
+// existing list/detail pattern everywhere else (folders, Ref Packets,
+// etc.) rather than cramming both into this list screen.
 interface UserAircraft {
   id: string
   make: string
@@ -21,10 +29,15 @@ interface UserAircraft {
   nickname: string | null
 }
 
+// Pro: 1 saved aircraft (most owners have exactly one). Premium: unlimited --
+// a natural upsell for shops/mechanics tracking a fleet. See the pricing
+// pivot's aircraft-cap decision in flyregs_decisions.md.
+const PRO_AIRCRAFT_CAP = 1
+
 export default function MyAircraftScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { session, isPro } = useAuth()
+  const { session, isPro, isPremium } = useAuth()
   const [aircraft, setAircraft] = useState<UserAircraft[]>([])
   const [loading, setLoading] = useState(true)
   const [make, setMake] = useState('')
@@ -58,6 +71,19 @@ export default function MyAircraftScreen() {
     }
     if (!isPro) {
       router.push('/paywall')
+      return
+    }
+    // Pro is capped at 1 saved aircraft (most owners have exactly one);
+    // Premium is unlimited -- see flyregs_decisions.md's pricing pivot.
+    if (!isPremium && aircraft.length >= PRO_AIRCRAFT_CAP) {
+      Alert.alert(
+        'Aircraft limit reached',
+        `Pro includes ${PRO_AIRCRAFT_CAP} saved aircraft. Upgrade to Premium for unlimited.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Upgrade to Premium', onPress: () => router.push('/paywall?tier=premium') },
+        ]
+      )
       return
     }
     const trimmedMake = make.trim()
@@ -95,6 +121,7 @@ export default function MyAircraftScreen() {
           <ActivityIndicator color={tokens.blu} />
         </View>
       ) : (
+        <TabletContainer>
         <ScrollView contentContainerStyle={styles.content}>
           <Text style={[styles.intro, { color: tokens.t3, fontSize: fs(13) }]}>
             Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive
@@ -106,9 +133,10 @@ export default function MyAircraftScreen() {
           ) : (
             <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
               {aircraft.map((a, i) => (
-                <View
+                <Pressable
                   key={a.id}
                   style={[styles.row, i < aircraft.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
+                  onPress={() => router.push(`/my-aircraft/${a.id}` as any)}
                 >
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.rowMake, { color: tokens.t1, fontSize: fs(14.5) }]}>
@@ -116,15 +144,18 @@ export default function MyAircraftScreen() {
                     </Text>
                     {a.nickname && <Text style={[styles.rowNickname, { color: tokens.t3, fontSize: fs(12.5) }]}>{a.nickname}</Text>}
                   </View>
-                  <Pressable onPress={() => handleRemove(a.id)} hitSlop={10}>
+                  <Pressable onPress={(e) => { e.stopPropagation(); handleRemove(a.id) }} hitSlop={10} style={{ marginRight: 4 }}>
                     <Icon name="trash" size={17} color={tokens.t3} />
                   </Pressable>
-                </View>
+                  <Icon name="chevron.right" size={14} color={tokens.t4} />
+                </Pressable>
               ))}
             </View>
           )}
 
-          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>ADD AIRCRAFT</Text>
+          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
+            ADD AIRCRAFT{!isPremium ? ` (${aircraft.length}/${PRO_AIRCRAFT_CAP} — Premium for unlimited)` : ''}
+          </Text>
           <View style={[styles.formCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
             <TextInput
               value={make}
@@ -160,6 +191,7 @@ export default function MyAircraftScreen() {
             </Pressable>
           </View>
         </ScrollView>
+        </TabletContainer>
       )}
     </View>
   )
@@ -172,7 +204,7 @@ const styles = StyleSheet.create({
   intro: { lineHeight: 18, marginBottom: 16 },
   empty: { textAlign: 'center', paddingVertical: 20 },
   list: { borderRadius: 12, borderWidth: 1, marginBottom: 20, overflow: 'hidden' },
-  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14 },
+  row: { flexDirection: 'row', alignItems: 'center', padding: 14 },
   rowMake: { fontWeight: '600' },
   rowNickname: { marginTop: 2 },
   groupLabel: { fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 },

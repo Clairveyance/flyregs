@@ -66,8 +66,11 @@ const PATTERNS: LinkPattern[] = [
   // document_number to its real UUID and redirects, so the raw matched
   // number can route directly with no lookup here.
   { regex: /\bAC\)?\s+(\d+(?:\.\d+)?-\d+[A-Za-z]*(?:[\-–]\d+)?)\b/g, buildRoute: (m) => `/ac/${m[1]}` },
-  // FAR section mention ("§ 91.107", "FAR 91.107", "14 CFR 91.107").
-  { regex: /(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:§\s*)?)(\d+\.\d+)\b/g, buildRoute: (m) => `/far/${m[1]}` },
+  // FAR section mention ("§ 91.107", "FAR 91.107", "14 CFR 91.107", "14 CFR
+  // section 91.107") -- confirmed live as a real gap: AIM 5-4-9's "(14 CFR
+  // section 91.123)" rendered as plain text, not a link, because the word
+  // "section" between "14 CFR" and the number wasn't accounted for.
+  { regex: /(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b/g, buildRoute: (m) => `/far/${m[1]}` },
   // P/CG glossary term mention — the exact phrase the AIM/FAR scrapers'
   // own citation regex already looks for.
   { regex: /Pilot\/Controller Glossary Term-\s*([^.]+)\.?/g, buildRoute: (m) => `/pcg/${slugifyPcgTerm(m[1].trim())}` },

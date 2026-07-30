@@ -1,0 +1,49 @@
+name: Daily Reminder Alerts
+
+# Sends a push for each user_aircraft_reminders row entering its "due
+# within 14 days" window (once per reminder, see scripts/send-reminder-
+# alerts.mjs's own header for why). Independent of the weekly content
+# syncs -- this is purely date-driven off what users have entered
+# themselves, same reasoning as Daily Reg of the Day running every day
+# regardless of content changes.
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    # 13:30 UTC daily -- right after Reg of the Day's 13:00 slot, avoids
+    # the 10:00-14:00 UTC window the weekly FAA syncs use.
+    - cron: '30 13 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Write .env.scraper from secrets
+        run: |
+          cat > .env.scraper <<EOF
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          EOF
+
+      - name: Send reminder alerts
+        run: node scripts/send-reminder-alerts.mjs
+
+      - name: Clean up secrets file
+        if: always()
+        run: rm -f .env.scraper

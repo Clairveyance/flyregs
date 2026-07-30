@@ -33,7 +33,7 @@ export default function AboutScreen() {
           />
           <Text style={[styles.appName, { color: wordmarkGoldFor(resolved), fontSize: fs(24), fontFamily: WORDMARK_FONT }]}>{APP_NAME}</Text>
           <Text style={[styles.tagline, { color: tokens.t3, fontSize: fs(13.5) }]}>
-            The complete FAA Advisory Circular reference
+            The complete FAA regulatory reference
           </Text>
           <Text style={[styles.version, { color: tokens.t4, fontSize: fs(12) }]}>
             Version {APP_VERSION} ({BUILD_NUMBER})
@@ -43,9 +43,9 @@ export default function AboutScreen() {
         {/* Description */}
         <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14) }]}>
-            {APP_NAME} puts every active FAA Advisory Circular in your pocket — searchable,
-            browsable by series, and linkable from your own notes. Built for pilots, mechanics, and
-            operators who need the current guidance fast.
+            {APP_NAME} puts the FARs, AIM, Pilot/Controller Glossary, Airworthiness Directives, and
+            every active Advisory Circular in your pocket — searchable, browsable, and linkable from
+            your own notes. Built for pilots, mechanics, and operators who need the current guidance fast.
           </Text>
         </View>
 
@@ -72,9 +72,9 @@ export default function AboutScreen() {
 
         {/* Attribution */}
         <Text style={[styles.attribution, { color: tokens.t4, fontSize: fs(11.5) }]}>
-          Advisory Circular content is published by the U.S. Federal Aviation Administration and is
-          in the public domain. {APP_NAME} is an independent product and is not affiliated with or
-          endorsed by the FAA.
+          All regulatory and guidance content is published by the U.S. Federal Aviation Administration
+          and is in the public domain. {APP_NAME} is an independent product and is not affiliated with
+          or endorsed by the FAA.
         </Text>
 
         <Text style={[styles.copyright, { color: tokens.t4, fontSize: fs(11.5) }]}>

@@ -3,6 +3,11 @@ import { Platform } from 'react-native'
 
 export const ENTITLEMENT_PRO = 'pro'
 export const ENTITLEMENT_PREMIUM = 'premium'
+// One-time non-consumable unlock (Ref Packets, What's Changed, ACs/LOIs,
+// local highlights/notes/folders) — see PROJECT_NOTES/flyregs_decisions.md,
+// "Pricing model pivot". Not yet created in App Store Connect; product ID
+// is provisional until that IAP exists (task tracked separately).
+export const ENTITLEMENT_UNLOCKED = 'unlocked'
 
 // Product IDs — must match App Store Connect exactly
 export const PRODUCT_IDS = {
@@ -10,6 +15,7 @@ export const PRODUCT_IDS = {
   pro_annual:      'com.clairveyance.flyregs.pro_annual',
   premium_monthly: 'com.clairveyance.flyregs.premium_monthly',
   premium_annual:  'com.clairveyance.flyregs.premium_annual',
+  unlock:          'com.clairveyance.flyregs.unlock',
 } as const
 
 export type SubscriptionTier = 'pro' | 'premium'
@@ -32,6 +38,7 @@ export function initRevenueCat(userId?: string) {
 export type SubscriptionStatus = {
   isPro: boolean
   isPremium: boolean
+  isUnlocked: boolean
 }
 
 export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
@@ -41,9 +48,10 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
     return {
       isPro: active[ENTITLEMENT_PRO] !== undefined,
       isPremium: active[ENTITLEMENT_PREMIUM] !== undefined,
+      isUnlocked: active[ENTITLEMENT_UNLOCKED] !== undefined,
     }
   } catch {
-    return { isPro: false, isPremium: false }
+    return { isPro: false, isPremium: false, isUnlocked: false }
   }
 }
 
@@ -104,6 +112,28 @@ export async function purchaseSubscription(
   return {
     isPro: active[ENTITLEMENT_PRO] !== undefined,
     isPremium: active[ENTITLEMENT_PREMIUM] !== undefined,
+    isUnlocked: active[ENTITLEMENT_UNLOCKED] !== undefined,
+  }
+}
+
+// Separate from purchaseSubscription: a non-consumable has no tier/plan
+// (single product, one price, never renews or expires).
+export async function purchaseUnlock(): Promise<SubscriptionStatus> {
+  const offerings = await Purchases.getOfferings()
+  const current = offerings.current
+  if (!current) throw new Error('No offerings available')
+
+  const pkg: PurchasesPackage | undefined = current.availablePackages.find(
+    (p) => p.product.identifier === PRODUCT_IDS.unlock
+  )
+  if (!pkg) throw new Error(`Package not found: ${PRODUCT_IDS.unlock}`)
+
+  const { customerInfo } = await Purchases.purchasePackage(pkg)
+  const active = customerInfo.entitlements.active
+  return {
+    isPro: active[ENTITLEMENT_PRO] !== undefined,
+    isPremium: active[ENTITLEMENT_PREMIUM] !== undefined,
+    isUnlocked: active[ENTITLEMENT_UNLOCKED] !== undefined,
   }
 }
 
@@ -130,8 +160,9 @@ export async function restorePurchases(): Promise<SubscriptionStatus> {
     return {
       isPro: active[ENTITLEMENT_PRO] !== undefined,
       isPremium: active[ENTITLEMENT_PREMIUM] !== undefined,
+      isUnlocked: active[ENTITLEMENT_UNLOCKED] !== undefined,
     }
   } catch {
-    return { isPro: false, isPremium: false }
+    return { isPro: false, isPremium: false, isUnlocked: false }
   }
 }

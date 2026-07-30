@@ -1,7 +1,8 @@
-import { Stack } from 'expo-router'
+import { Stack, router } from 'expo-router'
 import { View, StyleSheet, Platform } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { StatusBar } from 'expo-status-bar'
+import * as Notifications from 'expo-notifications'
 import { useFonts } from 'expo-font'
 import {
   Inter_400Regular,
@@ -17,6 +18,7 @@ import { AuthProvider } from '@/context/auth'
 import { DrawerProvider } from '@/context/drawer'
 import { FontScaleProvider } from '@/context/fontScale'
 import { BadgeLifespanProvider } from '@/context/badgeLifespan'
+import { ResponsiveProvider } from '@/context/responsive'
 import { Drawer } from '@/components/Drawer'
 import { PersistentTabBar } from '@/components/PersistentTabBar'
 import { AnimatedSplash } from '@/components/AnimatedSplash'
@@ -53,6 +55,25 @@ function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [fontsLoaded])
 
+  // Routes a tapped notification to its content. Reg of the Day and Duels
+  // carry a routable payload today (AC/AD update alerts send
+  // documentNumbers/adNumbers with no `type` field and predate this
+  // listener entirely -- deliberately left as-is here rather than
+  // retrofitting their routing as a side effect of this feature; that's
+  // its own gap, tracked separately).
+  useEffect(() => {
+    if (Platform.OS === 'web') return
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data as { type?: string; pcgSlug?: string; challengeId?: string } | undefined
+      if (data?.type === 'reg_of_day' && data.pcgSlug) {
+        router.push(`/pcg/${data.pcgSlug}` as any)
+      } else if (data?.type === 'duel' && data.challengeId) {
+        router.push(`/challenges/${data.challengeId}` as any)
+      }
+    })
+    return () => sub.remove()
+  }, [])
+
   // On web, always render (fonts come from CSS). On native, wait for fonts.
   if (!fontsLoaded && Platform.OS !== 'web') return null
 
@@ -70,6 +91,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 export default function RootLayout() {
   return (
     <ThemeProvider>
+      <ResponsiveProvider>
       <FontScaleProvider>
       <BadgeLifespanProvider>
       <AuthProvider>
@@ -98,6 +120,7 @@ export default function RootLayout() {
       </AuthProvider>
       </BadgeLifespanProvider>
       </FontScaleProvider>
+      </ResponsiveProvider>
     </ThemeProvider>
   )
 }

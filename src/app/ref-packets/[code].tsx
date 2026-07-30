@@ -1,0 +1,138 @@
+import { useEffect, useState } from 'react'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
+import { useLocalSearchParams, router } from 'expo-router'
+import { useTheme } from '@/context/theme'
+import { useAuth } from '@/context/auth'
+import { useFS } from '@/context/fontScale'
+import { OverlayHeader } from '@/components/ScreenHeader'
+import { Icon } from '@/components/Icon'
+import { TabletContainer } from '@/components/TabletContainer'
+import { getRefPacket, RefPacketArea } from '@/lib/refPackets'
+
+export default function RefPacketDetailScreen() {
+  const { code } = useLocalSearchParams<{ code: string }>()
+  const { tokens } = useTheme()
+  const fs = useFS()
+  const { hasPlusAccess } = useAuth()
+  const [title, setTitle] = useState('')
+  const [areas, setAreas] = useState<RefPacketArea[]>([])
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!code || !hasPlusAccess) { setLoading(false); return }
+    getRefPacket(code).then((r) => {
+      if (r) { setTitle(r.title); setAreas(r.areas) }
+      setLoading(false)
+    })
+  }, [code, hasPlusAccess])
+
+  if (!hasPlusAccess) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="RefPack" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <Icon name="lock.fill" size={36} color={tokens.blu} />
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>RefPacks are a Plus feature</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            Certificate and rating study guides, built from the FAA's own ACS/PTS standards — every reference
+            already linked to the real FAR, AC, and AIM text.
+          </Text>
+          <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall?tier=plus')}>
+            <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
+          </Pressable>
+        </View>
+      </View>
+    )
+  }
+
+  return (
+    <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+      <OverlayHeader title={title || 'RefPack'} onBack={() => router.back()} />
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      ) : (
+        <TabletContainer>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.list}>
+            {/* OverlayHeader's title is shared app-wide and hardcoded to
+                1 line, so multi-section packs (same source PDF split into
+                several packs, e.g. "...Sport Pilot Flight Instructor —
+                Section 2") get clipped there with no way to tell them
+                apart -- this shows the real, full, un-truncated title. */}
+            <Text style={[styles.fullTitle, { color: tokens.t1, fontSize: fs(17) }]}>{title}</Text>
+            <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
+              {areas.length} AREA{areas.length !== 1 ? 'S' : ''} OF OPERATION
+            </Text>
+            {areas.map((area) => {
+              const isOpen = expanded === area.areaNumber
+              return (
+                <View key={area.areaNumber} style={[styles.areaCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                  <Pressable
+                    style={styles.areaHeader}
+                    onPress={() => setExpanded((prev) => (prev === area.areaNumber ? null : area.areaNumber))}
+                  >
+                    <View style={[styles.areaNumBadge, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
+                      <Text style={[styles.areaNumText, { color: tokens.gold, fontSize: fs(12) }]}>{area.areaNumber}</Text>
+                    </View>
+                    <Text style={[styles.areaTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={isOpen ? undefined : 2}>
+                      {area.title}
+                    </Text>
+                    <Text style={[styles.taskCount, { color: tokens.t4, fontSize: fs(11.5) }]}>{area.tasks.length}</Text>
+                    <Icon name={isOpen ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+                  </Pressable>
+                  {isOpen && (
+                    <View style={styles.taskList}>
+                      {area.tasks.map((task) => (
+                        <Pressable
+                          key={task.id}
+                          style={[styles.taskRow, { borderTopColor: tokens.bdr }]}
+                          onPress={() => router.push(`/ref-packets/task/${task.id}` as any)}
+                        >
+                          <Text style={[styles.taskLetter, { color: tokens.blu, fontSize: fs(13) }]}>{task.taskLetter}</Text>
+                          <Text style={[styles.taskTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={2}>
+                            {task.title}
+                          </Text>
+                          <Icon name="chevron.right" size={12} color={tokens.t4} />
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )
+            })}
+          </ScrollView>
+        </TabletContainer>
+      )}
+    </View>
+  )
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
+  emptyTitle: { fontWeight: '600', marginTop: 6 },
+  emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },
+  upgradeBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
+  upgradeBtnText: { color: '#fff', fontWeight: '700' },
+
+  list: { padding: 12, paddingBottom: 32 },
+  fullTitle: { fontWeight: '700', lineHeight: 22, marginBottom: 10, paddingLeft: 2 },
+  groupLabel: { fontWeight: '600', letterSpacing: 0.5, marginBottom: 8, paddingLeft: 2 },
+
+  areaCard: { borderRadius: 14, borderWidth: 1, marginBottom: 8, overflow: 'hidden' },
+  areaHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 13 },
+  areaNumBadge: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 4, minWidth: 28, alignItems: 'center' },
+  areaNumText: { fontWeight: '700' },
+  areaTitle: { flex: 1, fontWeight: '600' },
+  taskCount: { fontWeight: '600' },
+
+  taskList: { paddingBottom: 4 },
+  taskRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 10, paddingHorizontal: 14, borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  taskLetter: { fontWeight: '700', width: 18 },
+  taskTitle: { flex: 1, fontWeight: '500' },
+})

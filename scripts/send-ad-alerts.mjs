@@ -21,6 +21,15 @@
 // DA 42 NG"), so a plain equality check would miss real matches; a
 // substring check is deliberately permissive rather than trying to fully
 // parse every possible model-list format an AD might use.
+//
+// 2026-07-28: ALSO matches on tagged equipment (user_aircraft_equipment),
+// independent of airframe make/model -- this is the actual payoff of the
+// parts-catalog feature: an AD keyed to a specific part ("AWI mufflers...
+// installed on but not limited to the airplanes listed...", the real
+// example that motivated this whole feature, see flyregs_decisions.md)
+// would never match on make/model alone if the user's airframe isn't in
+// that AD's own model text, but WOULD match if they've tagged that exact
+// part on their aircraft.
 
 import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
@@ -78,9 +87,11 @@ if (!ads || ads.length === 0) {
 // tables (My Aircraft is deliberately lightweight, one row per saved
 // aircraft), so pulling both fully into memory and matching in JS is
 // simpler and plenty fast, rather than a per-AD SQL query in a loop.
-const [{ data: aircraft, error: acErr }, { data: tokens, error: tokErr }] = await Promise.all([
-  sb.from('user_aircraft').select('user_id, make, model'),
+const [{ data: aircraft, error: acErr }, { data: tokens, error: tokErr }, { data: equipMentions, error: mentErr }, { data: equipTags, error: tagErr }] = await Promise.all([
+  sb.from('user_aircraft').select('id, user_id, make, model'),
   sb.from('push_tokens').select('user_id, expo_push_token').eq('enabled', true),
+  sb.from('ad_part_mentions').select('ad_number, part_id').in('ad_number', touchedAdNumbers),
+  sb.from('user_aircraft_equipment').select('user_aircraft_id, part_id'),
 ])
 if (acErr) {
   console.error('Failed to fetch user_aircraft:', acErr.message)
@@ -88,6 +99,14 @@ if (acErr) {
 }
 if (tokErr) {
   console.error('Failed to fetch push_tokens:', tokErr.message)
+  process.exit(1)
+}
+if (mentErr) {
+  console.error('Failed to fetch ad_part_mentions:', mentErr.message)
+  process.exit(1)
+}
+if (tagErr) {
+  console.error('Failed to fetch user_aircraft_equipment:', tagErr.message)
   process.exit(1)
 }
 if (!aircraft || aircraft.length === 0) {
@@ -101,15 +120,55 @@ for (const t of tokens ?? []) {
   tokensByUser.get(t.user_id).push(t.expo_push_token)
 }
 
+const aircraftById = new Map((aircraft ?? []).map((a) => [a.id, a]))
+
+// part_id -> [ad_number, ...] for this run's touched ADs
+const adNumbersByPartId = new Map()
+for (const m of equipMentions ?? []) {
+  if (!adNumbersByPartId.has(m.part_id)) adNumbersByPartId.set(m.part_id, [])
+  adNumbersByPartId.get(m.part_id).push(m.ad_number)
+}
+
+// part_id -> [user_aircraft rows tagged with it]
+const aircraftByPartId = new Map()
+for (const tag of equipTags ?? []) {
+  const ac = aircraftById.get(tag.user_aircraft_id)
+  if (!ac) continue
+  if (!aircraftByPartId.has(tag.part_id)) aircraftByPartId.set(tag.part_id, [])
+  aircraftByPartId.get(tag.part_id).push(ac)
+}
+
+const adsByNumber = new Map(ads.map((ad) => [ad.ad_number, ad]))
+
 // user_id -> matching ADs
 const matchesByUser = new Map()
+const addMatch = (userId, ad) => {
+  if (!tokensByUser.has(userId)) return // no enabled device, nothing to send
+  if (!matchesByUser.has(userId)) matchesByUser.set(userId, [])
+  matchesByUser.get(userId).push(ad)
+}
+
 for (const ad of ads) {
   if (!ad.make) continue
   const adMake = ad.make.trim().toLowerCase()
   const adModel = (ad.model ?? '').toLowerCase()
   for (const a of aircraft) {
     if (!tokensByUser.has(a.user_id)) continue // no enabled device, nothing to send
-    if (a.make.trim().toLowerCase() !== adMake) continue
+    // Confirmed a real, severe bug live (2026-07-29): this was an EXACT
+    // string equality check, but airworthiness_directives.make is the
+    // FAA's own long-form type-certificate-holder string ("Textron
+    // Aviation Inc. (Type Certificate Previously Held by Cessna Aircraft
+    // Company)"), never the common name a user would actually type
+    // ("Cessna"). Exact equality meant a saved aircraft could NEVER match
+    // any AD for its own manufacturer -- this whole feature's core
+    // promise (get alerted about ADs on YOUR plane) was silently broken
+    // for effectively every real user. Bidirectional substring match
+    // fixes this the same permissive way the model check right below
+    // already handles AD model-list strings, and for the same reason:
+    // occasionally over-matching costs far less than the alert never
+    // firing at all.
+    const userMake = a.make.trim().toLowerCase()
+    if (!adMake.includes(userMake) && !userMake.includes(adMake)) continue
     // If an AD's own model field is null (the scraper's model-extraction
     // regex doesn't catch every Applicability paragraph shape), match on
     // MAKE alone rather than silently excluding it — an occasional extra
@@ -117,8 +176,21 @@ for (const ad of ads) {
     // AD, which is exactly the failure mode this whole feature exists to
     // prevent.
     if (adModel && !adModel.includes(a.model.trim().toLowerCase())) continue
-    if (!matchesByUser.has(a.user_id)) matchesByUser.set(a.user_id, [])
-    matchesByUser.get(a.user_id).push(ad)
+    addMatch(a.user_id, ad)
+  }
+}
+
+// Part-keyed match, independent of airframe make/model — see this
+// script's own header comment for why this direction matters.
+for (const [partId, adNumbers] of adNumbersByPartId) {
+  const taggedAircraft = aircraftByPartId.get(partId)
+  if (!taggedAircraft) continue
+  for (const adNumber of adNumbers) {
+    const ad = adsByNumber.get(adNumber)
+    if (!ad) continue
+    for (const ac of taggedAircraft) {
+      addMatch(ac.user_id, ad)
+    }
   }
 }
 

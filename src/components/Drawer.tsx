@@ -90,7 +90,7 @@ function DrawerContent({
   tokens: ThemeTokens
   onClose: () => void
 }) {
-  const { session, isPro, isPremium, setIsPro, setIsPremium, avatarOverride } = useAuth()
+  const { session, isPro, isPremium, isUnlocked, setIsPro, setIsPremium, setIsUnlocked, avatarOverride } = useAuth()
   const { mode, setMode } = useTheme()
   const { fontScale, setFontScale } = useFontScale()
   const fs = useFS()
@@ -141,12 +141,13 @@ function DrawerContent({
       const status = await restorePurchases()
       setIsPro(status.isPro)
       setIsPremium(status.isPremium)
-      const active = status.isPro || status.isPremium
+      setIsUnlocked(status.isUnlocked)
+      const active = status.isPro || status.isPremium || status.isUnlocked
       Alert.alert(
         active ? 'Purchases Restored' : 'Nothing to Restore',
         active
-          ? `Your FlyRegs ${status.isPremium ? 'Premium' : 'Pro'} subscription is active.`
-          : 'No active subscription was found for this account.'
+          ? `Your FlyRegs ${status.isPremium ? 'Premium' : status.isPro ? 'Pro' : 'Plus'} purchase is active.`
+          : 'No active purchases were found for this account.'
       )
     } catch (err: any) {
       Alert.alert('Restore Failed', err?.message ?? 'Please try again later.')
@@ -189,7 +190,7 @@ function DrawerContent({
             <Text style={[styles.profileName, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={1}>
               {session ? 'My Account' : 'Sign In'}
             </Text>
-            {session && <TierPill isPro={isPro} isPremium={isPremium} tokens={tokens} fs={fs} />}
+            {session && <TierPill isPro={isPro} isPremium={isPremium} isUnlocked={isUnlocked} tokens={tokens} fs={fs} />}
           </View>
           <Text style={[styles.profileEmail, { color: tokens.t2, fontSize: fs(12) }]} numberOfLines={1}>
             {email}
@@ -466,17 +467,23 @@ function Divider({ tokens }: { tokens: ThemeTokens }) {
 }
 
 function TierPill({
-  isPro, isPremium, tokens, fs,
+  isPro, isPremium, isUnlocked, tokens, fs,
 }: {
   isPro: boolean
   isPremium: boolean
+  isUnlocked: boolean
   tokens: ThemeTokens
   fs: (n: number) => number
 }) {
-  const tier = isPremium ? 'Premium' : isPro ? 'Pro' : 'Free'
-  const color = isPremium ? tokens.gold : isPro ? tokens.blu : tokens.t3
-  const bg = isPremium ? tokens.goldlt : isPro ? tokens.bdim : tokens.bg3
-  const bdr = isPremium ? tokens.goldbdr : isPro ? tokens.bbdr : tokens.bdr
+  // Plus (isUnlocked) sits below Pro -- Pro/Premium subscribers already have
+  // hasPlusAccess included, so this branch only ever fires for someone who
+  // bought Plus without also subscribing. No dedicated amb-dim/amb-border
+  // theme tokens exist yet, so this uses the same inline-rgba pattern the
+  // website's .card-tag.plus CSS class uses for the same amber accent.
+  const tier = isPremium ? 'Premium' : isPro ? 'Pro' : isUnlocked ? 'Plus' : 'Free'
+  const color = isPremium ? tokens.gold : isPro ? tokens.blu : isUnlocked ? tokens.amb : tokens.t3
+  const bg = isPremium ? tokens.goldlt : isPro ? tokens.bdim : isUnlocked ? 'rgba(245,158,11,0.12)' : tokens.bg3
+  const bdr = isPremium ? tokens.goldbdr : isPro ? tokens.bbdr : isUnlocked ? 'rgba(245,158,11,0.28)' : tokens.bdr
   return (
     <View style={[styles.tierPill, { backgroundColor: bg, borderColor: bdr }]}>
       <Text style={[styles.tierPillText, { color, fontSize: fs(8.5) }]} numberOfLines={1}>{tier.toUpperCase()}</Text>

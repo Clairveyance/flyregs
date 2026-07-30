@@ -5,12 +5,14 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
 import { getSharedFolderACItems, getSharedFolderNoteItems, leaveSharedFolder, markSharedFolderViewed } from '@/lib/sharedFolders'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
+import { stripFarPrefix } from '@/lib/titleFormat'
 import { getACIndex, detectACs, ACIndexEntry } from '@/lib/acIndex'
 
 interface ACRow {
@@ -173,6 +175,7 @@ export default function SharedFolderDetail() {
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(15) }]}>Nothing here yet</Text>
         </View>
       ) : (
+        <TabletContainer>
         <SectionList
           sections={[
             ...(acs.length ? [{ title: 'ADVISORY CIRCULARS', data: acs }] : []),
@@ -206,7 +209,7 @@ export default function SharedFolderDetail() {
                     })()}
                   </View>
                   <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
-                    {item.title}
+                    {stripFarPrefix(item.title)}
                   </Text>
                 </View>
                 <Icon name="chevron.right" size={14} color={tokens.t4} />
@@ -241,6 +244,7 @@ export default function SharedFolderDetail() {
             )
           }
         />
+        </TabletContainer>
       )}
 
       <Modal visible={!!openNote} transparent animationType="fade" onRequestClose={() => setOpenNote(null)}>

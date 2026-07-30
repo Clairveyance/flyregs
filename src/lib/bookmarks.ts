@@ -1,11 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { syncPushBookmark, syncPushBookmarkDeletes } from '@/lib/syncPush'
-import { removeItemsFromAllFolders } from '@/lib/folders'
+import { removeItemsFromAllFolders, FolderItemType } from '@/lib/folders'
 
 const KEY = '@flyregs/bookmarks'
 
 export interface BookmarkAC {
   id: string
+  /** Absent means 'ac' — every bookmark saved before FAR/AIM/P-CG/AD
+   * whole-document bookmarking existed (2026-07-25) has no itemType field at
+   * all, so treat a missing value as 'ac' everywhere instead of migrating
+   * old rows. Highlights (blockText set) are always itemType 'ac' — the
+   * other types don't have character-level highlighting yet. */
+  itemType?: FolderItemType
   document_number: string
   title: string
   date_issued: string | null
@@ -28,6 +34,11 @@ export interface BookmarkAC {
   blockText?: string
 }
 
+/** Bookmark's own itemType, defaulting missing/legacy rows to 'ac'. */
+export function bookmarkItemType(b: Pick<BookmarkAC, 'itemType'>): FolderItemType {
+  return b.itemType ?? 'ac'
+}
+
 // Resolves the REAL underlying AC id for any bookmark, highlight or not --
 // use this before ever building a share link from a BookmarkAC. Passing
 // `item.id` directly (a highlight's own synthetic id, not a real
@@ -35,6 +46,24 @@ export interface BookmarkAC {
 // never resolve, landing on a real "AC not found" screen.
 export function resolveBookmarkACId(item: BookmarkAC): string {
   return item.acId ?? item.id
+}
+
+// Single source of truth for "where does tapping this bookmark go" — used by
+// Saved, Recents, and Offline so a FAR/AIM/P-CG/AD whole-doc bookmark doesn't
+// silently mis-route to /ac/<section_number> (which 404s, since that's not a
+// real advisory_circulars.id). Highlights/jump-targets are AC-only (see
+// BookmarkAC's own comment), so only the 'ac' branch needs the hlId param.
+export function routeForBookmark(item: BookmarkAC, opts?: { hlId?: string }): string {
+  const type = bookmarkItemType(item)
+  if (type === 'ac') {
+    const acId = resolveBookmarkACId(item)
+    return opts?.hlId ? `/ac/${acId}?hlId=${encodeURIComponent(opts.hlId)}` : `/ac/${acId}`
+  }
+  if (type === 'far') return `/far/${item.id}`
+  if (type === 'aim') return `/aim/${item.id}`
+  if (type === 'pcg') return `/pcg/${item.id}`
+  if (type === 'ad') return `/ad/${item.id}`
+  return `/ac/${item.id}` // 'note' never reaches here — notes aren't bookmarks
 }
 
 export async function getBookmarks(): Promise<BookmarkAC[]> {
@@ -91,12 +120,21 @@ export async function removeBookmark(id: string) {
 export async function removeManyBookmarks(ids: string[]) {
   const list = await getBookmarks()
   const idSet = new Set(ids)
+  const removed = list.filter((b) => idSet.has(b.id))
   await AsyncStorage.setItem(KEY, JSON.stringify(list.filter((b) => !idSet.has(b.id))))
   syncPushBookmarkDeletes(ids)
   // A removed bookmark may still be referenced by one or more folders — drop
   // those references too, or the folder's item count silently drifts ahead
   // of what it actually renders (see folders.ts's removeItemsFromAllFolders).
-  await removeItemsFromAllFolders('ac', ids)
+  // Removed ids can span multiple content types in one call (e.g. a
+  // multi-select bulk delete in Saved), so group by each bookmark's own
+  // itemType rather than assuming everything being removed is an 'ac'.
+  const byType = new Map<FolderItemType, string[]>()
+  for (const b of removed) {
+    const t = bookmarkItemType(b)
+    byType.set(t, [...(byType.get(t) ?? []), b.id])
+  }
+  await Promise.all([...byType.entries()].map(([t, tIds]) => removeItemsFromAllFolders(t, tIds)))
 }
 
 /** Toggle and return the new bookmarked state. */

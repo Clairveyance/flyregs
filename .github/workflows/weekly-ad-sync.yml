@@ -1,0 +1,72 @@
+name: Weekly AD Sync
+
+# Runs sync_ad.sh (Airworthiness Directives — incremental scrape, named-
+# parts extraction, targeted My Aircraft alerts, MagicLink citation
+# extraction). Mirrors weekly-sync.yml
+# / weekly-aim-sync.yml / weekly-far-sync.yml / weekly-pcg-sync.yml for the
+# same reason: shouldn't depend on any one machine being on. Staggered to
+# 14:00 UTC (an hour after the PCG sync) so the five don't contend for
+# Supabase write throughput at the same time.
+#
+# Confirmed a real gap on 2026-07-28: AD had no sync schedule of any kind
+# before this workflow — ad_scraper.py's --mode incremental and
+# send-ad-alerts.mjs both already existed, purpose-built for exactly this,
+# but nothing had ever actually called either one on a recurring basis. See
+# flyregs_gotchas.md / project_flyregs_state.md for the full writeup.
+#
+# Alerting: sync_ad.sh uses `set -euo pipefail`, so a failing step makes the
+# whole job show as FAILED — check via
+# `gh run list --workflow=weekly-ad-sync.yml` any time.
+#
+# Manual runs: use the "Run workflow" button in the Actions tab
+# (workflow_dispatch trigger below).
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '0 14 * * 1'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Python dependencies
+        run: pip install -r sync/requirements.txt
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Write .env.scraper from secrets
+        run: |
+          cat > .env.scraper <<EOF
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+          EOF
+
+      - name: Run AD sync
+        run: |
+          chmod +x sync_ad.sh
+          ./sync_ad.sh
+
+      - name: Clean up secrets file
+        if: always()
+        run: rm -f .env.scraper

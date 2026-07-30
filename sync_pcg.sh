@@ -44,6 +44,14 @@ echo "════════════════════════�
 cd "$APP"
 "$PYTHON3" sync/pcg_scraper.py --mode full
 
+# MagicLink citation extraction (full corpus re-scan) -- was a total, silent
+# gap before 2026-07-28: no script existed for P/CG's own outbound citations
+# to AC/FAR/AIM/AD (distinct from see_refs, which covers pcg-to-pcg "See X"
+# links and is already populated by pcg_scraper.py itself).
+echo ""
+echo "▶ MagicLink citation extraction (P/CG -> AC/FAR/AIM/AD)"
+"$PYTHON3" sync/pcg_citations.py
+
 END_TS="$(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 echo "════════════════════════════════════════════════════"

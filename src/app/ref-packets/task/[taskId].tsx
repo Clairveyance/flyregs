@@ -1,0 +1,277 @@
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator } from 'react-native'
+import { useLocalSearchParams, router } from 'expo-router'
+import { useTheme } from '@/context/theme'
+import { useFS } from '@/context/fontScale'
+import { OverlayHeader } from '@/components/ScreenHeader'
+import { TabletContainer } from '@/components/TabletContainer'
+import { RegPreviewPane } from '@/components/RegPreviewPane'
+import { Icon } from '@/components/Icon'
+import { REG_TYPE } from '@/lib/regTypes'
+import { getRefPacketTask, RefPacketTask, RefPacketElement } from '@/lib/refPackets'
+import { linkifyText } from '@/lib/crossRefLinks'
+import { searchRefPackTopic, RefPackSearchGroup } from '@/lib/refPackSearch'
+
+export default function RefPacketTaskScreen() {
+  const { taskId } = useLocalSearchParams<{ taskId: string }>()
+  const { tokens } = useTheme()
+  const fs = useFS()
+  const [task, setTask] = useState<RefPacketTask | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [previewRoute, setPreviewRoute] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [groups, setGroups] = useState<RefPackSearchGroup[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrollRef = useRef<ScrollView>(null)
+  const searchSectionY = useRef(0)
+
+  const runSearch = useCallback((q: string) => {
+    setSearchLoading(true)
+    searchRefPackTopic(q, 4).then(setGroups).finally(() => setSearchLoading(false))
+  }, [])
+
+  // Knowledge/Risk Management/Skills/Task Elements bullets are topic
+  // phrases, not citations -- linkifyText finds nothing to link in most of
+  // them ("Purpose and characteristics of effective assessment." has no
+  // citation-shaped substring at all), so they rendered as fully dead text.
+  // Tapping a bullet now reuses the exact same search infra as the box
+  // above (searchRefPackTopic), just seeded with the bullet's own text
+  // instead of the task title, and scrolls up to show the results --
+  // "point to somewhere real in the app the user can get the actual info,"
+  // not a second disconnected search UI.
+  const handleTapElement = (bodyText: string) => {
+    setQuery(bodyText)
+    runSearch(bodyText)
+    scrollRef.current?.scrollTo({ y: Math.max(0, searchSectionY.current - 12), animated: true })
+  }
+
+  useEffect(() => {
+    if (!taskId) return
+    getRefPacketTask(taskId).then((t) => {
+      setTask(t)
+      setLoading(false)
+      // Auto-search on load using the task's own title -- this is what
+      // "GUIDE them directly to that info" means in practice: the moment
+      // you open a task, you already see the FAR/AIM/AC hits most relevant
+      // to it, before typing anything.
+      if (t) {
+        setQuery(t.title)
+        runSearch(t.title)
+      }
+    })
+  }, [taskId, runSearch])
+
+  const handleQueryChange = (v: string) => {
+    setQuery(v)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => runSearch(v), 300)
+  }
+
+  return (
+    <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+      <OverlayHeader
+        title={task ? `Task ${task.taskLetter}` : 'Task'}
+        onBack={() => router.back()}
+      />
+      {loading || !task ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      ) : (
+        <TabletContainer>
+          <ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
+            <View style={styles.breadcrumbRow}>
+              <Pressable onPress={() => router.push(`/ref-packets/${task.docCode}` as any)}>
+                <Text style={[styles.breadcrumbText, { color: tokens.t3, fontSize: fs(11.5) }]} numberOfLines={1}>{task.docTitle}</Text>
+              </Pressable>
+              <Icon name="chevron.right" size={9} color={tokens.t4} />
+              <Text style={[styles.breadcrumbText, { color: tokens.t3, fontSize: fs(11.5) }]} numberOfLines={1}>
+                Area {task.areaNumber}{task.areaTitle ? `: ${task.areaTitle}` : ''}
+              </Text>
+              <Icon name="chevron.right" size={9} color={tokens.t4} />
+              <Text style={[styles.breadcrumbText, { color: tokens.t2, fontSize: fs(11.5), fontWeight: '700' }]} numberOfLines={1}>
+                Task {task.taskLetter}
+              </Text>
+            </View>
+
+            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(19) }]}>{task.title}</Text>
+
+            {task.objective && (
+              <Section label="OBJECTIVE" tokens={tokens} fs={fs}>
+                <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14) }]}>{task.objective}</Text>
+              </Section>
+            )}
+
+            <View
+              style={styles.section}
+              onLayout={(e) => { searchSectionY.current = e.nativeEvent.layout.y }}
+            >
+              <Text style={[styles.sectionLabel, { color: tokens.t3, fontSize: fs(11) }]}>RELATED REGULATIONS</Text>
+              <View style={[styles.searchBar, { backgroundColor: tokens.inp, borderColor: tokens.bdr }]}>
+                <Icon name="magnifyingglass" size={15} color={tokens.t3} />
+                <TextInput
+                  style={[styles.searchInput, { color: tokens.t1, fontSize: fs(13.5) }]}
+                  value={query}
+                  onChangeText={handleQueryChange}
+                  placeholder="Search a topic — e.g. runway markings…"
+                  placeholderTextColor={tokens.t4}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {searchLoading && <ActivityIndicator size="small" color={tokens.t3} />}
+              </View>
+
+              {!searchLoading && groups.length === 0 && query.trim().length >= 2 && (
+                <Text style={[styles.emptySub, { color: tokens.t4, fontSize: fs(12.5) }]}>
+                  Nothing in FAR, AIM, P/CG, or AC matches "{query}". This topic may only be covered in other FAA
+                  materials (handbooks, PHAK, etc.) outside what FlyRegs indexes.
+                </Text>
+              )}
+
+              {groups.map((g) => (
+                <View key={g.type} style={styles.regGroup}>
+                  <View style={styles.regGroupHeader}>
+                    <Icon name={REG_TYPE[g.type].icon} size={12} color={tokens.blu} />
+                    <Text style={[styles.regGroupLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>{REG_TYPE[g.type].label}</Text>
+                  </View>
+                  {g.results.map((r) => (
+                    <Pressable
+                      key={`${r.type}-${r.id}`}
+                      style={[styles.regRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                      onPress={() => setPreviewRoute(r.route)}
+                    >
+                      <Text style={[styles.regPrimary, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>{r.primary}</Text>
+                      {!!r.secondary && (
+                        <Text style={[styles.regSecondary, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={2}>{r.secondary}</Text>
+                      )}
+                    </Pressable>
+                  ))}
+                </View>
+              ))}
+            </View>
+
+            {task.referencesText && (
+              <Section label="FAA REFERENCES" tokens={tokens} fs={fs}>
+                <Text style={[styles.body, { color: tokens.t3, fontSize: fs(12.5) }]}>{task.referencesText}</Text>
+              </Section>
+            )}
+
+            <ElementGroup label="KNOWLEDGE" items={task.knowledge} tokens={tokens} fs={fs} onOpenPreview={setPreviewRoute} onTapElement={handleTapElement} />
+            <ElementGroup label="RISK MANAGEMENT" items={task.riskManagement} tokens={tokens} fs={fs} onOpenPreview={setPreviewRoute} onTapElement={handleTapElement} />
+            <ElementGroup label="SKILLS" items={task.skills} tokens={tokens} fs={fs} onOpenPreview={setPreviewRoute} onTapElement={handleTapElement} />
+            <ElementGroup label="TASK ELEMENTS" items={task.topics} tokens={tokens} fs={fs} onOpenPreview={setPreviewRoute} onTapElement={handleTapElement} />
+          </ScrollView>
+        </TabletContainer>
+      )}
+      <RegPreviewPane route={previewRoute} onClose={() => setPreviewRoute(null)} />
+    </View>
+  )
+}
+
+function Section({
+  label,
+  tokens,
+  fs,
+  children,
+}: {
+  label: string
+  tokens: ReturnType<typeof useTheme>['tokens']
+  fs: (n: number) => number
+  children: React.ReactNode
+}) {
+  return (
+    <View style={styles.section}>
+      <Text style={[styles.sectionLabel, { color: tokens.t3, fontSize: fs(11) }]}>{label}</Text>
+      {children}
+    </View>
+  )
+}
+
+function ElementGroup({
+  label,
+  items,
+  tokens,
+  fs,
+  onOpenPreview,
+  onTapElement,
+}: {
+  label: string
+  items: RefPacketElement[]
+  tokens: ReturnType<typeof useTheme>['tokens']
+  fs: (n: number) => number
+  onOpenPreview: (route: string) => void
+  onTapElement: (bodyText: string) => void
+}) {
+  if (items.length === 0) return null
+  return (
+    <View style={styles.section}>
+      <Text style={[styles.sectionLabel, { color: tokens.t3, fontSize: fs(11) }]}>{label}</Text>
+      <Text style={[styles.elementHint, { color: tokens.t4, fontSize: fs(11.5) }]}>
+        Tap any item below to search Related Regulations above for it.
+      </Text>
+      <View style={[styles.elementCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+        {items.map((el, i) => (
+          <Pressable
+            key={el.code}
+            onPress={() => onTapElement(el.bodyText)}
+            style={[styles.elementRow, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.bdr }]}
+          >
+            <Text style={[styles.elementCode, { color: tokens.blu, fontSize: fs(11.5) }]}>{el.code}</Text>
+            <Text style={[styles.elementBody, { color: tokens.t2, fontSize: fs(13.5) }]}>
+              {linkifyText(el.bodyText).map((seg, i) =>
+                seg.route ? (
+                  <Text
+                    key={i}
+                    onPress={(e) => { e.stopPropagation(); onOpenPreview(seg.route as string) }}
+                    style={{ color: tokens.blu, fontWeight: '600' }}
+                  >
+                    {seg.text}
+                  </Text>
+                ) : (
+                  <Text key={i}>{seg.text}</Text>
+                ),
+              )}
+            </Text>
+            <Icon name="magnifyingglass" size={13} color={tokens.t4} />
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  )
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  content: { padding: 16, paddingBottom: 48, gap: 4 },
+
+  breadcrumbRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 10, flexWrap: 'wrap' },
+  breadcrumbText: { fontWeight: '500' },
+
+  title: { fontWeight: '700', marginBottom: 4, lineHeight: 26 },
+
+  section: { marginTop: 16 },
+  sectionLabel: { fontWeight: '600', letterSpacing: 0.6, marginBottom: 8 },
+  elementHint: { marginTop: -4, marginBottom: 8, lineHeight: 15 },
+  body: { lineHeight: 21 },
+  emptySub: { marginTop: 8 },
+
+  searchBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
+  },
+  searchInput: { flex: 1, paddingVertical: 0 },
+
+  regGroup: { marginTop: 12, gap: 6 },
+  regGroupHeader: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  regGroupLabel: { fontWeight: '700', letterSpacing: 0.6 },
+  regRow: { borderRadius: 10, borderWidth: 1, padding: 10, gap: 2 },
+  regPrimary: { fontWeight: '700' },
+  regSecondary: { lineHeight: 16 },
+
+  elementCard: { borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
+  elementRow: { flexDirection: 'row', gap: 10, padding: 12 },
+  elementCode: { fontWeight: '700', width: 74 },
+  elementBody: { flex: 1, lineHeight: 19 },
+})

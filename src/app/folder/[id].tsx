@@ -21,6 +21,7 @@ import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
 import {
   getFolders,
@@ -36,11 +37,12 @@ import {
 } from '@/lib/folders'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { getBookmarks, BookmarkAC } from '@/lib/bookmarks'
+import { getBookmarks, routeForBookmark, bookmarkItemType, BookmarkAC } from '@/lib/bookmarks'
 import { useShareActions, ShareableAC } from '@/lib/share'
 import { highlightSnippet } from '@/lib/acShare'
 import { getOrCreateShareLink, getFolderCollaborators, removeCollaborator, FolderCollaborator } from '@/lib/sharedFolders'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
+import { stripFarPrefix } from '@/lib/titleFormat'
 
 // ── Local Note type (mirrors notes.tsx — local-first AsyncStorage notes) ──────
 interface Note {
@@ -104,13 +106,20 @@ export default function FolderDetail() {
     const orphaned: FolderItem[] = []
 
     for (const item of items) {
-      if (item.item_type === 'ac') {
-        const bm = bookmarkMap.get(item.item_id)
-        if (bm) acs.push({ kind: 'ac', data: bm, folderItem: item })
-        else orphaned.push(item)
-      } else {
+      // Every non-'note' item_type (ac/far/aim/pcg/ad) resolves through the
+      // same bookmarks list -- checking item_type === 'note' explicitly
+      // (rather than === 'ac') matters now that FAR/AIM/P-CG/AD whole-doc
+      // bookmarks exist too: the old inverted check treated anything that
+      // wasn't literally 'ac' as a note, so a FAR/AIM/P-CG/AD folder item
+      // would find nothing in noteMap, get misclassified as orphaned, and
+      // get silently self-heal-deleted below on the very next load.
+      if (item.item_type === 'note') {
         const note = noteMap.get(item.item_id)
         if (note) notesList.push({ kind: 'note', data: note, folderItem: item })
+        else orphaned.push(item)
+      } else {
+        const bm = bookmarkMap.get(item.item_id)
+        if (bm) acs.push({ kind: 'ac', data: bm, folderItem: item })
         else orphaned.push(item)
       }
     }
@@ -194,7 +203,7 @@ export default function FolderDetail() {
   }
 
   const handleRemove = (item: FolderItem) => {
-    const label = item.item_type === 'ac' ? 'this AC' : 'this note'
+    const label = item.item_type === 'note' ? 'this note' : 'this item'
     Alert.alert('Remove from Folder', `Remove ${label} from the folder?`, [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -202,10 +211,10 @@ export default function FolderDetail() {
         style: 'destructive',
         onPress: async () => {
           await removeFromFolder(folder!.id, item.item_type, item.item_id)
-          if (item.item_type === 'ac') {
-            setAcEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
-          } else {
+          if (item.item_type === 'note') {
             setNoteEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
+          } else {
+            setAcEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
           }
         },
       },
@@ -228,10 +237,10 @@ export default function FolderDetail() {
       await addToFolder(destId, item.item_type, item.item_id)
     }
     await removeFromFolder(folder.id, item.item_type, item.item_id)
-    if (item.item_type === 'ac') {
-      setAcEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
-    } else {
+    if (item.item_type === 'note') {
       setNoteEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
+    } else {
+      setAcEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
     }
     // Confirm WHERE it actually landed -- without this the item just
     // silently vanished from the list on Done, with no visible cue of which
@@ -288,6 +297,9 @@ export default function FolderDetail() {
   // resolveBookmarkACId's comment in lib/bookmarks.ts.
   const handleShareAC = (item: BookmarkAC) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    // Share links only resolve for ACs today -- see saved.tsx's handleShare
+    // for the same guard.
+    if (bookmarkItemType(item) !== 'ac') return
     const shareable: ShareableAC = {
       id: item.acId ?? item.id,
       document_number: item.document_number,
@@ -309,7 +321,7 @@ export default function FolderDetail() {
 
   const sections = [
     ...(acEntries.length > 0
-      ? [{ title: `SAVED ACS (${acEntries.length})`, data: acEntries as Entry[] }]
+      ? [{ title: `SAVED ITEMS (${acEntries.length})`, data: acEntries as Entry[] }]
       : []),
     ...(noteEntries.length > 0
       ? [{ title: `NOTES (${noteEntries.length})`, data: noteEntries as Entry[] }]
@@ -432,10 +444,11 @@ export default function FolderDetail() {
           <Icon name="folder" size={40} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Folder is empty</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-            Add ACs from the Saved tab or notes from the Notes tab using the folder icon on each card.
+            Add bookmarks from the Saved tab or notes from the Notes tab using the folder icon on each card.
           </Text>
         </View>
       ) : (
+        <TabletContainer>
         <SectionList
           sections={sections}
           keyExtractor={(item) => item.folderItem.id}
@@ -451,13 +464,9 @@ export default function FolderDetail() {
               <SwipeableACRow
                 entry={item}
                 tokens={tokens}
-                badgeData={badgeDataById[item.data.acId ?? item.data.id]}
+                badgeData={bookmarkItemType(item.data) === 'ac' ? badgeDataById[item.data.acId ?? item.data.id] : undefined}
                 badgeDays={badgeDays}
-                onPress={() => router.push(
-                  item.data.blockText
-                    ? `/ac/${item.data.acId}?hlId=${encodeURIComponent(item.data.id)}`
-                    : `/ac/${item.data.acId ?? item.data.id}`
-                )}
+                onPress={() => router.push(routeForBookmark(item.data, item.data.blockText ? { hlId: item.data.id } : undefined) as any)}
                 onRemove={() => handleRemove(item.folderItem)}
                 onMove={() => handleMove(item.folderItem)}
                 onShare={() => handleShareAC(item.data)}
@@ -474,6 +483,7 @@ export default function FolderDetail() {
             )
           }
         />
+        </TabletContainer>
       )}
 
       {/* Tapping anywhere below the header/rename-bar while renaming cancels
@@ -563,7 +573,9 @@ function SwipeableACRow({
           onPress={handlePress}
         >
           <View style={[styles.typeBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
-            <Text style={[styles.typeBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>AC</Text>
+            <Text style={[styles.typeBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>
+              {bookmarkItemType(item) === 'pcg' ? 'P/CG' : bookmarkItemType(item).toUpperCase()}
+            </Text>
           </View>
           <View style={styles.rowBody}>
             <View style={styles.rowNumBadgeWrap}>
@@ -579,7 +591,7 @@ function SwipeableACRow({
                 )
               })()}
             </View>
-            <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>{item.title}</Text>
+            <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>{stripFarPrefix(item.title)}</Text>
             {item.office && (
               <Text style={[styles.rowMeta, { color: tokens.t4, fontSize: fs(11) }]}>{item.office}</Text>
             )}

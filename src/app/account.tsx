@@ -12,6 +12,7 @@ import {
   Platform,
   Linking,
   Switch,
+  Modal,
 } from 'react-native'
 import { router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
@@ -21,6 +22,7 @@ import { useAuth } from '@/context/auth'
 import { useReturnToMenu } from '@/context/drawer'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { TabletContainer } from '@/components/TabletContainer'
 import { restorePurchases } from '@/lib/revenuecat'
 import { useFS } from '@/context/fontScale'
 import { SUPPORT_EMAIL } from '@/lib/appInfo'
@@ -33,12 +35,21 @@ import {
   isAcUpdateAlertsEnabled,
   enableAcUpdateAlerts,
   disableAcUpdateAlerts,
+  isRegOfTheDayEnabled,
+  enableRegOfTheDay,
+  disableRegOfTheDay,
+  isDuelNotificationsEnabled,
+  enableDuelNotifications,
+  disableDuelNotifications,
 } from '@/lib/notifications'
+import { getMyRatings, addRating, removeRating, RATING_CODES, RATING_LABELS, RATING_SHORT_LABELS, RATING_GROUPS, RatingCode } from '@/lib/profileRatings'
+import { getLeaderboardOptIn, setLeaderboardOptIn } from '@/lib/leaderboard'
+import { getMyCoins, COIN_CATALOG, EarnedCoin, CoinDef } from '@/lib/coins'
 
 export default function AccountScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { session, isPro, setIsPro, isPremium, setIsPremium, signOut, avatarOverride, setAvatarOverride, clearAvatarOverride } = useAuth()
+  const { session, isPro, setIsPro, isPremium, setIsPremium, isUnlocked, setIsUnlocked, signOut, avatarOverride, setAvatarOverride, clearAvatarOverride } = useAuth()
   const insets = useSafeAreaInsets()
   const backToMenu = useReturnToMenu()
   const [restoring, setRestoring] = useState(false)
@@ -57,6 +68,17 @@ export default function AccountScreen() {
   const avatarUrl = avatarOverride ? avatarOverride.uri : cachedAvatarUrl
   const [alertsEnabled, setAlertsEnabled] = useState(false)
   const [alertsBusy, setAlertsBusy] = useState(false)
+  const [regOfDayEnabled, setRegOfDayEnabled] = useState(false)
+  const [regOfDayBusy, setRegOfDayBusy] = useState(false)
+  const [duelNotifEnabled, setDuelNotifEnabled] = useState(false)
+  const [duelNotifBusy, setDuelNotifBusy] = useState(false)
+  const [myRatings, setMyRatings] = useState<RatingCode[]>([])
+  const [ratingBusy, setRatingBusy] = useState<RatingCode | null>(null)
+  const [ratingPickerOpen, setRatingPickerOpen] = useState(false)
+  const [myCoins, setMyCoins] = useState<EarnedCoin[]>([])
+  const [coinDetail, setCoinDetail] = useState<CoinDef | null>(null)
+  const [leaderboardOptIn, setLeaderboardOptInState] = useState(false)
+  const [leaderboardBusy, setLeaderboardBusy] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   // User Handle -- shown to other people wherever this account appears in a
@@ -95,16 +117,69 @@ export default function AccountScreen() {
     setHandleSaving(false)
   }
 
+  // AC update alerts moved from Premium to Pro in the pricing pivot -- see
+  // flyregs_decisions.md.
   useEffect(() => {
-    if (session?.user?.id && isPremium) {
+    if (session?.user?.id && isPro) {
       isAcUpdateAlertsEnabled(session.user.id).then(setAlertsEnabled)
+      isRegOfTheDayEnabled(session.user.id).then(setRegOfDayEnabled)
+      isDuelNotificationsEnabled(session.user.id).then(setDuelNotifEnabled)
     } else {
       setAlertsEnabled(false)
+      setRegOfDayEnabled(false)
+      setDuelNotifEnabled(false)
     }
-  }, [session?.user?.id, isPremium])
+  }, [session?.user?.id, isPro])
+
+  // Ratings are visible to anyone (public SELECT policy) but only load/edit
+  // them for the signed-in owner here -- not gated on isPro for *reading*
+  // your own list back, only for adding a new one (see handleToggleRating).
+  useEffect(() => {
+    if (session?.user?.id) {
+      getMyRatings(session.user.id).then(setMyRatings)
+      getLeaderboardOptIn(session.user.id).then(setLeaderboardOptInState)
+      getMyCoins().then(setMyCoins).catch(() => setMyCoins([]))
+    } else {
+      setMyRatings([])
+      setLeaderboardOptInState(false)
+      setMyCoins([])
+    }
+  }, [session?.user?.id])
+
+  const handleToggleLeaderboard = async (v: boolean) => {
+    if (!session?.user?.id) return
+    if (v && !isPro) { router.push('/paywall'); return }
+    setLeaderboardBusy(true)
+    try {
+      await setLeaderboardOptIn(session.user.id, v)
+      setLeaderboardOptInState(v)
+    } catch (err: any) {
+      Alert.alert('Error', err?.message ?? 'Could not update leaderboard visibility.')
+    }
+    setLeaderboardBusy(false)
+  }
+
+  const handleToggleRating = async (code: RatingCode) => {
+    if (!session?.user?.id) return
+    const has = myRatings.includes(code)
+    if (!has && !isPro) { router.push('/paywall'); return }
+    setRatingBusy(code)
+    try {
+      if (has) {
+        await removeRating(session.user.id, code)
+        setMyRatings((prev) => prev.filter((r) => r !== code))
+      } else {
+        await addRating(session.user.id, code)
+        setMyRatings((prev) => [...prev, code])
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err?.message ?? 'Could not update your ratings.')
+    }
+    setRatingBusy(null)
+  }
 
   const handleToggleAlerts = async (v: boolean) => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!isPro) { router.push('/paywall'); return }
     if (!session?.user?.id) return
     setAlertsBusy(true)
     try {
@@ -131,6 +206,66 @@ export default function AccountScreen() {
       setAlertsEnabled(false)
     }
     setAlertsBusy(false)
+  }
+
+  const handleToggleRegOfDay = async (v: boolean) => {
+    if (!isPro) { router.push('/paywall'); return }
+    if (!session?.user?.id) return
+    setRegOfDayBusy(true)
+    try {
+      if (v) {
+        await enableRegOfTheDay(session.user.id)
+        setRegOfDayEnabled(true)
+      } else {
+        await disableRegOfTheDay(session.user.id)
+        setRegOfDayEnabled(false)
+      }
+    } catch (err: any) {
+      if (err?.message === 'PERMISSION_DENIED') {
+        Alert.alert(
+          'Notifications Disabled',
+          'FlyRegs notifications are turned off in your device Settings. Enable them there to receive Reg of the Day.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
+        )
+      } else {
+        Alert.alert('Error', err?.message ?? 'Could not update alert preference.')
+      }
+      setRegOfDayEnabled(false)
+    }
+    setRegOfDayBusy(false)
+  }
+
+  const handleToggleDuelNotifications = async (v: boolean) => {
+    if (!isPro) { router.push('/paywall'); return }
+    if (!session?.user?.id) return
+    setDuelNotifBusy(true)
+    try {
+      if (v) {
+        await enableDuelNotifications(session.user.id)
+        setDuelNotifEnabled(true)
+      } else {
+        await disableDuelNotifications(session.user.id)
+        setDuelNotifEnabled(false)
+      }
+    } catch (err: any) {
+      if (err?.message === 'PERMISSION_DENIED') {
+        Alert.alert(
+          'Notifications Disabled',
+          'FlyRegs notifications are turned off in your device Settings. Enable them there to receive Duel alerts.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
+        )
+      } else {
+        Alert.alert('Error', err?.message ?? 'Could not update alert preference.')
+      }
+      setDuelNotifEnabled(false)
+    }
+    setDuelNotifBusy(false)
   }
 
   // `source` calls the picker AND uploads -- it takes an onLocalUri callback
@@ -233,10 +368,11 @@ export default function AccountScreen() {
       const status = await restorePurchases()
       setIsPro(status.isPro)
       setIsPremium(status.isPremium)
-      const active = status.isPro || status.isPremium
+      setIsUnlocked(status.isUnlocked)
+      const active = status.isPro || status.isPremium || status.isUnlocked
       Alert.alert(
         active ? 'Purchases Restored' : 'Nothing to Restore',
-        active ? 'Your FlyRegs subscription is active.' : 'No active subscription was found for this account.'
+        active ? 'Your FlyRegs purchases are active.' : 'No active purchases were found for this account.'
       )
     } catch (err: any) {
       Alert.alert('Restore Failed', err?.message ?? 'Please try again later.')
@@ -345,6 +481,7 @@ export default function AccountScreen() {
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title="Account" onBack={backToMenu} />
+      <TabletContainer>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}>
         {/* Profile */}
         <View style={[styles.profileCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
@@ -380,6 +517,11 @@ export default function AccountScreen() {
                 <>
                   <Icon name="checkmark.seal.fill" size={14} color={tokens.gold} />
                   <Text style={[styles.tierText, { color: tokens.gold, fontSize: fs(13) }]}>FlyRegs Pro</Text>
+                </>
+              ) : isUnlocked ? (
+                <>
+                  <Icon name="checkmark.seal.fill" size={14} color={tokens.amb} />
+                  <Text style={[styles.tierText, { color: tokens.amb, fontSize: fs(13) }]}>FlyRegs Plus</Text>
                 </>
               ) : (
                 <Text style={[styles.tierText, { color: tokens.t3, fontSize: fs(13) }]}>Free plan</Text>
@@ -419,6 +561,62 @@ export default function AccountScreen() {
           <Text style={[styles.handleHelp, { color: tokens.t3, fontSize: fs(12) }]}>
             If no User Handle is set, your email prefix will be shown in its place in Premium shared folders and anywhere else this name is relevant to others.
           </Text>
+
+          <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5), marginTop: 18, marginBottom: 4 }]}>Ratings</Text>
+          <Text style={[styles.handleHelp, { color: tokens.t3, fontSize: fs(12), marginBottom: 10 }]}>
+            Self-reported — shown alongside your handle wherever it appears to others. Not verified by FlyRegs.
+          </Text>
+          <View style={styles.ratingChips}>
+            {myRatings.map((code) => (
+              <Pressable
+                key={code}
+                style={[styles.ratingChip, { borderColor: tokens.gold, backgroundColor: tokens.goldlt }]}
+                onPress={() => handleToggleRating(code)}
+                disabled={ratingBusy === code}
+              >
+                {ratingBusy === code ? (
+                  <ActivityIndicator size="small" color={tokens.t3} />
+                ) : (
+                  <Text style={[styles.ratingChipText, { color: tokens.gold, fontSize: fs(12.5) }]}>{RATING_SHORT_LABELS[code]}</Text>
+                )}
+              </Pressable>
+            ))}
+            <Pressable
+              style={[styles.ratingChip, { borderColor: tokens.bdr, backgroundColor: tokens.bg, flexDirection: 'row', gap: 4, alignItems: 'center' }]}
+              onPress={() => setRatingPickerOpen(true)}
+            >
+              <Icon name="plus" size={12} color={tokens.blu} />
+              <Text style={[styles.ratingChipText, { color: tokens.blu, fontSize: fs(12.5) }]}>Add Rating</Text>
+            </Pressable>
+          </View>
+
+          <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5), marginTop: 18, marginBottom: 4 }]}>Challenge Coins</Text>
+          <Text style={[styles.handleHelp, { color: tokens.t3, fontSize: fs(12), marginBottom: 10 }]}>
+            Earned automatically from real study activity — unlike ratings, these aren't self-reported.
+          </Text>
+          <View style={styles.coinGrid}>
+            {COIN_CATALOG.map((coin) => {
+              const earned = myCoins.some((c) => c.code === coin.code)
+              return (
+                <Pressable key={coin.code} style={styles.coinItem} onPress={() => setCoinDetail(coin)}>
+                  <View
+                    style={[
+                      styles.coinMedal,
+                      { borderColor: earned ? tokens.gold : tokens.bdr, backgroundColor: earned ? tokens.goldlt : tokens.bg },
+                    ]}
+                  >
+                    <Icon name={earned ? coin.icon : 'lock.fill'} size={16} color={earned ? tokens.gold : tokens.t4} />
+                  </View>
+                  <Text
+                    style={[styles.coinName, { color: earned ? tokens.t1 : tokens.t4, fontSize: fs(10.5) }]}
+                    numberOfLines={2}
+                  >
+                    {coin.name}
+                  </Text>
+                </Pressable>
+              )
+            })}
+          </View>
         </View>
 
         {/* Subscription group */}
@@ -462,21 +660,22 @@ export default function AccountScreen() {
           />
         </View>
 
-        {/* Notifications group — AC Update Alerts is a Premium feature; the
-            in-app switch is our own send-preference, separate from (and
-            layered on top of) the device's own OS-level notification
-            permission — see src/lib/notifications.ts header comment. */}
+        {/* Notifications group — AC Update Alerts is a Pro feature (moved
+            from Premium in the pricing pivot); the in-app switch is our own
+            send-preference, separate from (and layered on top of) the
+            device's own OS-level notification permission — see
+            src/lib/notifications.ts header comment. */}
         <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>NOTIFICATIONS</Text>
         <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-          <View style={[styles.row, { borderBottomWidth: 0 }]}>
+          <View style={styles.row}>
             <View style={styles.rowIcon}>
               <Icon name="bell" size={17} color={tokens.t2} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>AC Update Alerts</Text>
-              {!isPremium && (
-                <View style={[styles.premBadge, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
-                  <Text style={[styles.premBadgeText, { color: tokens.gold, fontSize: fs(9.5) }]}>PREMIUM</Text>
+              {!isPro && (
+                <View style={[styles.premBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
+                  <Text style={[styles.premBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>PRO</Text>
                 </View>
               )}
             </View>
@@ -486,6 +685,80 @@ export default function AccountScreen() {
               <Switch
                 value={alertsEnabled}
                 onValueChange={handleToggleAlerts}
+                trackColor={{ true: tokens.blu, false: undefined }}
+              />
+            )}
+          </View>
+          <View style={styles.row}>
+            <View style={styles.rowIcon}>
+              <Icon name="star.fill" size={17} color={tokens.t2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>DailyReg</Text>
+              {!isPro && (
+                <View style={[styles.premBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
+                  <Text style={[styles.premBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>PRO</Text>
+                </View>
+              )}
+            </View>
+            {regOfDayBusy ? (
+              <ActivityIndicator size="small" color={tokens.t3} />
+            ) : (
+              <Switch
+                value={regOfDayEnabled}
+                onValueChange={handleToggleRegOfDay}
+                trackColor={{ true: tokens.blu, false: undefined }}
+              />
+            )}
+          </View>
+          <View style={[styles.row, { borderBottomWidth: 0 }]}>
+            <View style={styles.rowIcon}>
+              <Icon name="bolt.fill" size={17} color={tokens.t2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>Duel Alerts</Text>
+              {!isPro && (
+                <View style={[styles.premBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
+                  <Text style={[styles.premBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>PRO</Text>
+                </View>
+              )}
+            </View>
+            {duelNotifBusy ? (
+              <ActivityIndicator size="small" color={tokens.t3} />
+            ) : (
+              <Switch
+                value={duelNotifEnabled}
+                onValueChange={handleToggleDuelNotifications}
+                trackColor={{ true: tokens.blu, false: undefined }}
+              />
+            )}
+          </View>
+        </View>
+
+        {/* Community group — Ready Room leaderboard visibility. Off by
+            default, same privacy stance as shared folders/cloud sync
+            elsewhere in this app: opting in surfaces your handle (or email
+            prefix) and weekly study activity to every other opted-in user. */}
+        <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>COMMUNITY</Text>
+        <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+          <View style={[styles.row, { borderBottomWidth: 0 }]}>
+            <View style={styles.rowIcon}>
+              <Icon name="person.2.fill" size={17} color={tokens.t2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>Show me on the Ready Room leaderboard</Text>
+              {!isPro && (
+                <View style={[styles.premBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
+                  <Text style={[styles.premBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>PRO</Text>
+                </View>
+              )}
+            </View>
+            {leaderboardBusy ? (
+              <ActivityIndicator size="small" color={tokens.t3} />
+            ) : (
+              <Switch
+                value={leaderboardOptIn}
+                onValueChange={handleToggleLeaderboard}
                 trackColor={{ true: tokens.blu, false: undefined }}
               />
             )}
@@ -512,6 +785,7 @@ export default function AccountScreen() {
           />
         </View>
       </ScrollView>
+      </TabletContainer>
       <AvatarEditModal
         visible={avatarEditOpen}
         avatarUrl={avatarUrl}
@@ -524,6 +798,75 @@ export default function AccountScreen() {
         onRemovePhoto={handleRemoveAvatar}
         onDone={() => setAvatarEditOpen(false)}
       />
+      <Modal visible={ratingPickerOpen} animationType="slide" transparent onRequestClose={() => setRatingPickerOpen(false)}>
+        <Pressable style={styles.pickerScrim} onPress={() => setRatingPickerOpen(false)} />
+        <View style={[styles.pickerSheet, { backgroundColor: tokens.bg }]}>
+          <View style={[styles.pickerHeader, { borderBottomColor: tokens.bdr }]}>
+            <Text style={[styles.pickerTitle, { color: tokens.t1, fontSize: fs(15.5) }]}>Add Rating</Text>
+            <Pressable onPress={() => setRatingPickerOpen(false)} hitSlop={12}>
+              <Icon name="xmark" size={18} color={tokens.t3} />
+            </Pressable>
+          </View>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.pickerBody}>
+            {RATING_GROUPS.map((group) => (
+              <View key={group.label} style={{ marginBottom: 18 }}>
+                <Text style={[styles.pickerGroupLabel, { color: tokens.t3, fontSize: fs(11) }]}>{group.label.toUpperCase()}</Text>
+                {group.codes.map((code) => {
+                  const active = myRatings.includes(code)
+                  return (
+                    <Pressable
+                      key={code}
+                      style={[styles.pickerRow, { borderBottomColor: tokens.bdr }]}
+                      onPress={() => handleToggleRating(code)}
+                      disabled={ratingBusy === code}
+                    >
+                      <Text style={[styles.pickerRowText, { color: tokens.t1, fontSize: fs(14.5) }]}>{RATING_LABELS[code]}</Text>
+                      {ratingBusy === code ? (
+                        <ActivityIndicator size="small" color={tokens.t3} />
+                      ) : active ? (
+                        <Icon name="checkmark.circle.fill" size={20} color={tokens.gold} />
+                      ) : (
+                        <View style={[styles.pickerCheckEmpty, { borderColor: tokens.bdr }]} />
+                      )}
+                    </Pressable>
+                  )
+                })}
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
+      <Modal visible={!!coinDetail} animationType="fade" transparent onRequestClose={() => setCoinDetail(null)}>
+        <Pressable style={styles.coinScrim} onPress={() => setCoinDetail(null)}>
+          {coinDetail && (
+            <Pressable style={[styles.coinDetailCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]} onPress={() => {}}>
+              {(() => {
+                const earned = myCoins.some((c) => c.code === coinDetail.code)
+                return (
+                  <>
+                    <View
+                      style={[
+                        styles.coinDetailMedal,
+                        { borderColor: earned ? tokens.gold : tokens.bdr, backgroundColor: earned ? tokens.goldlt : tokens.bg },
+                      ]}
+                    >
+                      <Icon name={earned ? coinDetail.icon : 'lock.fill'} size={26} color={earned ? tokens.gold : tokens.t4} />
+                    </View>
+                    <Text style={[styles.coinDetailName, { color: tokens.t1, fontSize: fs(16) }]}>{coinDetail.name}</Text>
+                    <Text style={[styles.coinDetailStatus, { color: earned ? tokens.gold : tokens.t3, fontSize: fs(12) }]}>
+                      {earned ? 'EARNED' : 'LOCKED — HOW TO UNLOCK'}
+                    </Text>
+                    <Text style={[styles.coinDetailDesc, { color: tokens.t2, fontSize: fs(14) }]}>{coinDetail.description}</Text>
+                    <Pressable style={[styles.coinDetailClose, { borderColor: tokens.bdr }]} onPress={() => setCoinDetail(null)}>
+                      <Text style={{ color: tokens.t2, fontWeight: '600', fontSize: fs(14) }}>Close</Text>
+                    </Pressable>
+                  </>
+                )
+              })()}
+            </Pressable>
+          )}
+        </Pressable>
+      </Modal>
     </View>
   )
 }
@@ -615,6 +958,36 @@ const styles = StyleSheet.create({
   handleSaveBtn: { height: 42, minWidth: 60, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
   handleSaveBtnText: { color: '#fff', fontWeight: '700' },
   handleHelp: { marginTop: 8, lineHeight: 17 },
+  ratingChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  ratingChip: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 7, minHeight: 30, justifyContent: 'center' },
+
+  pickerScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
+  pickerSheet: { height: '78%', borderTopLeftRadius: 18, borderTopRightRadius: 18, overflow: 'hidden' },
+  pickerHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  pickerTitle: { fontWeight: '700' },
+  pickerBody: { padding: 16, paddingBottom: 40 },
+  pickerGroupLabel: { fontWeight: '600', letterSpacing: 0.6, marginBottom: 4 },
+  pickerRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  pickerRowText: { fontWeight: '500' },
+  pickerCheckEmpty: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5 },
+  ratingChipText: { fontWeight: '600' },
+  coinGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  coinItem: { width: 64, alignItems: 'center', gap: 5 },
+  coinMedal: { width: 46, height: 46, borderRadius: 23, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  coinName: { textAlign: 'center', lineHeight: 13, fontWeight: '600' },
+  coinScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 32 },
+  coinDetailCard: { width: '100%', maxWidth: 320, borderRadius: 18, borderWidth: 1, padding: 24, alignItems: 'center', gap: 8 },
+  coinDetailMedal: { width: 60, height: 60, borderRadius: 30, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  coinDetailName: { fontWeight: '700' },
+  coinDetailStatus: { fontWeight: '700', letterSpacing: 0.6 },
+  coinDetailDesc: { textAlign: 'center', lineHeight: 20, marginTop: 4, marginBottom: 8 },
+  coinDetailClose: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 9, marginTop: 4 },
 
   // signed out
   signedOut: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 10 },

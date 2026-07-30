@@ -4,8 +4,18 @@ import type { AcFigure, FormulaRef } from '@/types'
 
 const KEY = '@flyregs/downloads'
 
+// 'ac' keeps its full pdf_blocks/figures/formulaRefs shape (see below) --
+// AD/LOI are simpler documents (plain body text, no block-parsed structure)
+// so their offline copy is just the already-loaded text fields, no
+// separate image-caching pipeline. Confirmed live as a real gap: AD and
+// LOI's detail screens showed an "Open PDF" link with no Download
+// counterpart at all, unlike AC -- this generalizes the same offline
+// mechanism to both rather than leaving them as read-online-only.
+export type DownloadedItemType = 'ac' | 'ad' | 'loi'
+
 export interface DownloadedAC {
   id: string
+  type?: DownloadedItemType // absent/undefined on legacy rows == 'ac', for back-compat with data saved before this field existed
   document_number: string
   title: string
   subject_series: string | null
@@ -28,6 +38,10 @@ export interface DownloadedAC {
    */
   figures?: AcFigure[] | null
   formulaRefs?: FormulaRef[] | null
+  /** AD/LOI offline copy: the plain body text already loaded by the detail
+   * screen, stored as-is (no block parsing) since these render via
+   * PlainTextBody, not ACBody. */
+  body_text?: string | null
   downloadedAt: string
 }
 

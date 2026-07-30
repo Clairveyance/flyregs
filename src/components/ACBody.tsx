@@ -8,12 +8,15 @@ import {
   Platform,
   useWindowDimensions,
 } from 'react-native'
+import { router } from 'expo-router'
 import { useTheme, ThemeTokens } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { parseAC, cleanGlyphs, blockText, ACBlock } from '@/lib/acFormat'
 import type { AcFigure, FormulaRef } from '@/types'
 import { softWrapParagraph } from '@/lib/softWrap'
+import { linkifyText } from '@/lib/crossRefLinks'
+import { setPendingBreadcrumb } from '@/lib/navBreadcrumb'
 
 type Heading = Extract<ACBlock, { id: string }>
 
@@ -165,6 +168,91 @@ function linkifyFigures(
   return <>{result}</>
 }
 
+// Renders the plain (non-figure) leftover text from linkifyBody's figure pass
+// through crossRefLinks' citation linkifier -- FAR/AIM/P-CG/AD/other-AC
+// mentions become tappable, in place, exactly like PlainTextBody already does
+// for FAR/AIM/AD body text. Confirmed a real, total gap before this existed:
+// ACBody never called linkifyText at all, only linkifyFigures -- so AC body
+// text (the app's original core content type) never got a single tappable
+// cross-reference, no matter how many real citations document_citations had
+// for it.
+function linkifyCitations(
+  text: string,
+  tokens: ThemeTokens,
+  currentLabel: string | undefined,
+): React.ReactNode {
+  if (!text) return text
+  const segments = linkifyText(text)
+  if (segments.length === 1 && !segments[0].route) return text
+  return (
+    <>
+      {segments.map((seg, j) =>
+        seg.route ? (
+          <Text
+            key={j}
+            onPress={() => {
+              if (currentLabel) setPendingBreadcrumb(currentLabel)
+              router.push(seg.route as any)
+            }}
+            style={{ color: tokens.blu, fontWeight: '600' }}
+          >
+            {seg.text}
+          </Text>
+        ) : (
+          seg.text
+        ),
+      )}
+    </>
+  )
+}
+
+// Composes figure/table linkification (AC-specific labels, e.g. "Figure
+// 3-1") with citation linkification (FAR/AIM/P-CG/AD/other-AC mentions) over
+// the SAME text without either pass stepping on the other's matches. The two
+// match vocabularies don't overlap in practice (a figure label never looks
+// like a FAR section or an AD number), so this runs the figure scan first to
+// find its spans, then re-runs the citation linkifier over just the plain-
+// text gaps left behind -- rather than trying to merge two independent
+// absolute-position regex scans, which would be far more error-prone.
+function linkifyBody(
+  text: string,
+  labelRe: RegExp | null,
+  figuresByLabel: Map<string, AcFigure>,
+  onOpenFigure: ((f: AcFigure) => void) | undefined,
+  tokens: ThemeTokens,
+  currentLabel: string | undefined,
+): React.ReactNode {
+  if (!text) return text
+  if (!onOpenFigure || !labelRe) return linkifyCitations(text, tokens, currentLabel)
+
+  labelRe.lastIndex = 0
+  const result: React.ReactNode[] = []
+  let pos = 0
+  let m: RegExpExecArray | null
+  while ((m = labelRe.exec(text))) {
+    if (m.index > pos) result.push(<React.Fragment key={`c-${pos}`}>{linkifyCitations(text.slice(pos, m.index), tokens, currentLabel)}</React.Fragment>)
+    const label = m[0]
+    const figure = figuresByLabel.get(normalizeMatchedLabel(label))
+    if (figure) {
+      result.push(
+        <Text
+          key={m.index}
+          style={{ color: tokens.blu, textDecorationLine: 'underline' }}
+          onPress={() => onOpenFigure(figure)}
+        >
+          {label}
+        </Text>
+      )
+    } else {
+      result.push(label)
+    }
+    pos = m.index + label.length
+    if (label.length === 0) labelRe.lastIndex++
+  }
+  if (pos < text.length) result.push(<React.Fragment key={`c-${pos}`}>{linkifyCitations(text.slice(pos), tokens, currentLabel)}</React.Fragment>)
+  return <>{result}</>
+}
+
 // Repairs a PDF line-break mid-word split stored in block data.
 // Pattern: title is a bare ALL-CAPS fragment (e.g. "CO"), body begins with
 // more ALL-CAPS letters + punctuation completing the word (e.g. "NDITIONS.").
@@ -247,7 +335,16 @@ function renderBodyContent(
 
   const nodes: React.ReactNode[] = []
   const intro = text.slice(0, runs[0].introEnd).trim()
-  if (intro) nodes.push(<Text key="intro">{linkify(intro)}</Text>)
+  // Confirmed live as a real, corpus-wide bug: unlike every other Text
+  // element in this file, this one carried no style prop at all -- no
+  // color, nothing -- so it fell back to the browser/RN-Web default black
+  // text color instead of the theme's body color, rendering as an
+  // unreadable dark block against the dark background wherever an AC's
+  // body has an intro paragraph immediately before an auto-detected
+  // numbered list (e.g. AC 120-49B's "2.2.1 Definitions" section).
+  if (intro) nodes.push(
+    <Text key="intro" style={[styles.para, { color: tokens.t2, fontSize: fs(13.5) }]}>{linkify(intro)}</Text>
+  )
 
   runs.forEach((run, r) => {
     run.items.forEach((item, k) => {
@@ -350,8 +447,13 @@ export const ACBody = React.forwardRef<
      * above so this can never affect the T&F extraction/display pipeline. */
     formulaRefs?: FormulaRef[]
     onOpenFormulaRef?: (formulaRef: FormulaRef) => void
+    /** This AC's own display label -- set as the "back to X" breadcrumb right
+     * before an in-body cross-reference link (FAR/AIM/P-CG/AD/other-AC
+     * mention) jumps elsewhere, same mechanism as MagicLinkPod/PlainTextBody's
+     * currentLabel prop. */
+    currentLabel?: string
   }
->(function ACBody({ text, blocks: precomputed, scrollRef, viewportHeight, outerOffsetYRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight, figures, onOpenFigure, formulaRefs, onOpenFormulaRef }, ref) {
+>(function ACBody({ text, blocks: precomputed, scrollRef, viewportHeight, outerOffsetYRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight, figures, onOpenFigure, formulaRefs, onOpenFormulaRef, currentLabel }, ref) {
   const changedSet = useMemo(() => new Set(changedIndices ?? []), [changedIndices])
   const { tokens } = useTheme()
   const fs = useFS()
@@ -812,7 +914,7 @@ export const ACBody = React.forwardRef<
         // Only auto-link body prose (not headings/labels) — a caption never
         // legitimately appears inside a section/item label.
         const linkify = (t: string) =>
-          onOpenFigure ? linkifyFigures(t, figureLabelRe, figuresByLabel, onOpenFigure, tokens) : t
+          linkifyBody(t, figureLabelRe, figuresByLabel, onOpenFigure, tokens, currentLabel)
         switch (b.kind) {
           case 'chapter':
             return (

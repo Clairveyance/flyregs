@@ -13,6 +13,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { TabletContainer } from '@/components/TabletContainer'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
@@ -103,6 +104,7 @@ export default function SeriesScreen() {
           <ActivityIndicator color={tokens.blu} />
         </View>
       ) : (
+        <TabletContainer>
         <FlatList
           data={acs}
           keyExtractor={(item) => item.id}
@@ -118,6 +120,7 @@ export default function SeriesScreen() {
             <ACRow item={item} tokens={tokens} badgeDays={badgeDays} figureCount={figureCounts[item.id]} />
           )}
         />
+        </TabletContainer>
       )}
     </View>
   )

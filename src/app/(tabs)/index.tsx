@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import {
   View,
   Text,
@@ -16,10 +16,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router, useFocusEffect } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
+import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
-import type { ACSeries } from '@/types'
+import { REG_TYPE } from '@/lib/regTypes'
 import { rankSearchResults, isPhrasedQuery, extractPhrase } from '@/lib/searchRank'
 import { searchOtherSources, routeForUnifiedResult, type UnifiedResult } from '@/lib/unifiedSearch'
 import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
@@ -29,8 +30,15 @@ import { getBadgeKind, getBadgeStyle, BadgeKind } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { consumeJustConfirmed } from '@/lib/justConfirmed'
 import { FigureViewer } from '@/components/FigureViewer'
+import { TabletContainer } from '@/components/TabletContainer'
 import type { AcFigure } from '@/types'
 import { getRecentSearches, addRecentSearch, removeRecentSearch, clearRecentSearches } from '@/lib/recentSearches'
+import { ChipFilterSheet, ChipFilterSection } from '@/components/ChipFilterSheet'
+import {
+  filterDocuments, filterResultCount, routeForFilterResult, searchCitableDocuments,
+  getFarPartOptions, getAcSeriesOptions, AUDIENCE_OPTIONS,
+  type FilterParams, type FilterResultRow, type FilterableType, type FilterOption, type CitableDoc,
+} from '@/lib/filterSearch'
 
 // AC search results now use the exact same two-line row shape as every
 // other result type (see dropOtherPrimary/dropTitle below) — one line for
@@ -49,6 +57,14 @@ function acResultPrimary(num: string): string {
 
 const HOME_CACHE_KEY = '@flyregs/home-cache'
 
+// IA redesign (2026-07-28): search now lives entirely on Home -- there is no
+// more standalone Search tab/screen to hand off to, so this dropdown IS the
+// full results view, not a capped preview. Free tier sees the top
+// FREE_RESULT_CAP combined results per query; Plus removes the cap. Search
+// itself (instant, stemming, snippets) stays fully free, matching the
+// (now-retired) Search tab's same pattern -- see flyregs_decisions.md.
+const FREE_RESULT_CAP = 10
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface WhatsNewAC {
@@ -58,6 +74,23 @@ interface WhatsNewAC {
   date_issued: string | null
   cancels: string[]
   changed_block_indices: number[] | null
+}
+
+// AD/LOI use a real, genuinely-varied FAA-side date (citation_publish_date /
+// issued_date), unlike far_sections/aim_paragraphs/pcg_terms's own
+// updated_at -- confirmed live those three are a single uniform bulk-scrape
+// timestamp shared by every row from the same sync run, not a per-item
+// revision signal, so including them here would show an arbitrary slice of
+// "everything we last scraped" as if it were "recently changed by the FAA."
+// FAR/AIM/PCG need real incremental revision-detection (matching what AC's
+// own backfill-blocks.mjs does via content_revisions) before they can join
+// this feed honestly -- that's a scraper/pipeline gap, not fixable here.
+interface WhatsNewOther {
+  id: string
+  type: 'ad' | 'loi'
+  documentNumber: string
+  title: string
+  date: string
 }
 
 interface SearchResult {
@@ -74,10 +107,18 @@ interface SearchResult {
 
 export default function HomeScreen() {
   const { tokens } = useTheme()
+  const { hasPlusAccess } = useAuth()
   const fs = useFS()
-  const [series, setSeries] = useState<ACSeries[]>([])
   const [totalCount, setTotalCount] = useState<number | null>(null)
+  // Regulatory-body card counts -- redesign step 5 (see
+  // PROJECT_NOTES/flyregs_expansion_plan.md, "Home screen — redesigned").
+  const [farCount, setFarCount] = useState<number | null>(null)
+  const [aimCount, setAimCount] = useState<number | null>(null)
+  const [pcgCount, setPcgCount] = useState<number | null>(null)
+  const [adCount, setAdCount] = useState<number | null>(null)
+  const [loiCount, setLoiCount] = useState<number | null>(null)
   const [whatsNew, setWhatsNew] = useState<WhatsNewAC[]>([])
+  const [otherWhatsNew, setOtherWhatsNew] = useState<WhatsNewOther[]>([])
   const [loading, setLoading] = useState(true)
   const { badgeDays } = useBadgeLifespan()
 
@@ -118,20 +159,141 @@ export default function HomeScreen() {
   // distinct from the Recents tab (visited documents, not search terms).
   const [recentSearches, setRecentSearches] = useState<string[]>([])
   const [dropdownTop, setDropdownTop] = useState(0)
+  const searchInputRef = useRef<TextInput>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Only the most-recent search may write results (guards against a slow earlier
   // query resolving late and clobbering the latest query's ranked results).
   const searchSeq = useRef(0)
+
+  // ── Ad hoc Filter sheet — flyregs_expansion_plan.md's "Filter button, v1
+  // scope" (7 dimensions, minus certificate/rating tags -- that dimension
+  // needs per-document rating tags that don't exist yet, same open gap the
+  // RefPacks redesign has to solve; see PROJECT_NOTES). Separate from the
+  // text-search dropdown above -- this is a browse-by-facet view, not a
+  // keyword query, and can be used with zero search text typed at all.
+  const [filterVisible, setFilterVisible] = useState(false)
+  const [filterContentTypes, setFilterContentTypes] = useState<FilterableType[]>([])
+  const [filterFarParts, setFilterFarParts] = useState<string[]>([])
+  const [filterAcSeries, setFilterAcSeries] = useState<string | null>(null)
+  const [filterAudience, setFilterAudience] = useState<string[]>([])
+  const [filterCitesDoc, setFilterCitesDoc] = useState<CitableDoc | null>(null)
+  const [filterDateFrom, setFilterDateFrom] = useState('')
+  const [filterDateTo, setFilterDateTo] = useState('')
+  const [filterHasFigures, setFilterHasFigures] = useState<boolean | null>(null)
+  const [farPartOptions, setFarPartOptions] = useState<FilterOption[]>([])
+  const [acSeriesOptions, setAcSeriesOptions] = useState<FilterOption[]>([])
+  const [citesQuery, setCitesQuery] = useState('')
+  const [citesCandidates, setCitesCandidates] = useState<CitableDoc[]>([])
+  const [citesLoading, setCitesLoading] = useState(false)
+  const [liveCount, setLiveCount] = useState<number | null>(null)
+  const [liveCountLoading, setLiveCountLoading] = useState(false)
+  const [filterApplied, setFilterApplied] = useState(false)
+  const [filterResults, setFilterResults] = useState<FilterResultRow[]>([])
+  const [filterResultsLoading, setFilterResultsLoading] = useState(false)
+
+  const activeFilterParams = useMemo<FilterParams>(() => ({
+    contentTypes: filterContentTypes,
+    farParts: filterFarParts,
+    acSeries: filterAcSeries,
+    audience: filterAudience,
+    citesType: filterCitesDoc?.type ?? null,
+    citesId: filterCitesDoc?.id ?? null,
+    dateFrom: /^\d{4}-\d{2}-\d{2}$/.test(filterDateFrom) ? filterDateFrom : null,
+    dateTo: /^\d{4}-\d{2}-\d{2}$/.test(filterDateTo) ? filterDateTo : null,
+    hasFigures: filterHasFigures,
+  }), [filterContentTypes, filterFarParts, filterAcSeries, filterAudience, filterCitesDoc, filterDateFrom, filterDateTo, filterHasFigures])
+
+  const activeFilterCount = [
+    filterContentTypes.length > 0,
+    filterFarParts.length > 0,
+    !!filterAcSeries,
+    filterAudience.length > 0,
+    !!filterCitesDoc,
+    !!(filterDateFrom || filterDateTo),
+    filterHasFigures != null,
+  ].filter(Boolean).length
+
+  const openFilter = () => {
+    if (farPartOptions.length === 0) getFarPartOptions().then(setFarPartOptions).catch(() => {})
+    if (acSeriesOptions.length === 0) getAcSeriesOptions().then(setAcSeriesOptions).catch(() => {})
+    setFilterVisible(true)
+  }
+
+  const toggleFilterType = (t: FilterableType) => {
+    setFilterContentTypes((prev) => {
+      const next = prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
+      // Has Figures section disappears only when the selection is P/CG-only
+      // (see its own comment) -- clear its state too so it can't stay
+      // silently active with no visible control to turn it back off.
+      if (next.length > 0 && next.every((t) => t === 'pcg')) {
+        setFilterHasFigures(null)
+      }
+      return next
+    })
+  }
+  const toggleAudience = (a: string) => {
+    setFilterAudience((prev) => (prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a]))
+  }
+  const toggleFarPart = (p: string) => {
+    setFilterFarParts((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
+  }
+
+  const clearFilters = () => {
+    setFilterContentTypes([]); setFilterFarParts([]); setFilterAcSeries(null); setFilterAudience([])
+    setFilterCitesDoc(null); setCitesQuery(''); setCitesCandidates([])
+    setFilterDateFrom(''); setFilterDateTo(''); setFilterHasFigures(null)
+  }
+
+  const applyFilters = async () => {
+    setFilterVisible(false)
+    setFilterApplied(true)
+    setFilterResultsLoading(true)
+    try {
+      const rows = await filterDocuments(activeFilterParams, 50, 0)
+      setFilterResults(rows)
+    } catch (_) {
+      setFilterResults([])
+    }
+    setFilterResultsLoading(false)
+  }
+
+  const dismissFilterResults = () => {
+    setFilterApplied(false)
+    setFilterResults([])
+  }
+
+  // Live "N results" readout while the sheet is open -- debounced so rapid
+  // chip taps don't fire a query per tap.
+  useEffect(() => {
+    if (!filterVisible) return
+    setLiveCountLoading(true)
+    const t = setTimeout(() => {
+      filterResultCount(activeFilterParams).then(setLiveCount).catch(() => setLiveCount(null)).finally(() => setLiveCountLoading(false))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [filterVisible, activeFilterParams])
+
+  useEffect(() => {
+    if (citesQuery.trim().length < 2) { setCitesCandidates([]); setCitesLoading(false); return }
+    setCitesLoading(true)
+    const t = setTimeout(() => {
+      searchCitableDocuments(citesQuery)
+        .then(setCitesCandidates)
+        .catch(() => setCitesCandidates([]))
+        .finally(() => setCitesLoading(false))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [citesQuery])
 
   const load = useCallback(async () => {
     // Show cached data immediately so the screen appears in under 100 ms
     try {
       const cached = await AsyncStorage.getItem(HOME_CACHE_KEY)
       if (cached) {
-        const { series: cs, totalCount: ct, whatsNew: cw } = JSON.parse(cached)
-        if (cs?.length) setSeries(cs as ACSeries[])
+        const { totalCount: ct, whatsNew: cw, otherWhatsNew: cow } = JSON.parse(cached)
         if (ct != null) setTotalCount(ct)
         if (cw?.length) setWhatsNew(cw as WhatsNewAC[])
+        if (cow?.length) setOtherWhatsNew(cow as WhatsNewOther[])
         setLoading(false)
       }
     } catch (_) {}
@@ -150,11 +312,19 @@ export default function HomeScreen() {
       cutoffDate.setDate(cutoffDate.getDate() - badgeDays)
       const cutoff = cutoffDate.toISOString().split('T')[0]
 
-      const [seriesRes, countRes, whatsNewRes] = await Promise.all([
-        supabase.from('series_summary').select('*').order('sort_order'),
+      const [countRes, whatsNewRes, adNewRes, loiNewRes] = await Promise.all([
         supabase
           .from('advisory_circulars')
-          .select('*', { count: 'exact', head: true })
+          // 'id' not '*' -- a head:true count request still has to touch
+          // every matching row's data to compute an exact count, and this
+          // table's pdf_text column is large enough that count(*) over the
+          // full row shape was intermittently timing out as a genuine 500
+          // (confirmed live: reproducible via plain fetch() with
+          // select=*+Prefer:count=exact, gone with select=id). Same root
+          // cause as this codebase's established "large pdf_text pulls
+          // need small limits" pattern, just hitting count queries instead
+          // of paginated selects.
+          .select('id', { count: 'exact', head: true })
           .eq('status', 'active'),
         supabase
           .from('advisory_circulars')
@@ -163,21 +333,40 @@ export default function HomeScreen() {
           .gte('date_issued', cutoff)
           .order('date_issued', { ascending: false })
           .limit(20),
+        // AD/LOI have a real, genuinely-varied FAA-side date -- see
+        // WhatsNewOther's own comment for why FAR/AIM/PCG can't join yet.
+        supabase
+          .from('airworthiness_directives')
+          .select('id, ad_number, subject_heading, citation_publish_date')
+          .gte('citation_publish_date', cutoff)
+          .order('citation_publish_date', { ascending: false })
+          .limit(10),
+        supabase
+          .from('legal_interpretations')
+          .select('slug, title, issued_date')
+          .gte('issued_date', cutoff)
+          .order('issued_date', { ascending: false })
+          .limit(10),
       ])
 
-      const freshSeries = (seriesRes.data ?? []) as ACSeries[]
       const freshCount = countRes.count
       const freshWhatsNew = (whatsNewRes.data ?? []) as WhatsNewAC[]
+      const freshOther: WhatsNewOther[] = [
+        ...((adNewRes.data ?? []) as { id: string; ad_number: string; subject_heading: string; citation_publish_date: string }[])
+          .map((r) => ({ id: r.id, type: 'ad' as const, documentNumber: r.ad_number, title: r.subject_heading, date: r.citation_publish_date })),
+        ...((loiNewRes.data ?? []) as { slug: string; title: string; issued_date: string }[])
+          .map((r) => ({ id: r.slug, type: 'loi' as const, documentNumber: r.title.replace(/_Legal_Interpretation$/i, '').replace(/_/g, ' '), title: r.title.replace(/_/g, ' '), date: r.issued_date })),
+      ]
 
-      if (freshSeries.length) setSeries(freshSeries)
       if (freshCount !== null) setTotalCount(freshCount)
       setWhatsNew(freshWhatsNew)
+      setOtherWhatsNew(freshOther)
 
       // Cache for next launch — fire-and-forget
       AsyncStorage.setItem(HOME_CACHE_KEY, JSON.stringify({
-        series: freshSeries,
         totalCount: freshCount,
         whatsNew: freshWhatsNew,
+        otherWhatsNew: freshOther,
       }))
     } catch (_) {
       // Network failed — cached data (if any) stays visible
@@ -187,6 +376,27 @@ export default function HomeScreen() {
   }, [badgeDays])
 
   useEffect(() => { load() }, [load])
+
+  // Regulatory-body card counts -- fetched once, not tied to badgeDays like
+  // load() above. head:true avoids PostgREST's project-wide 1000-row
+  // max-rows cap entirely (no rows are actually returned, just a count) --
+  // see far/index.tsx's comment for the full diagnosis of that cap biting a
+  // naive select().
+  useEffect(() => {
+    Promise.all([
+      supabase.from('far_sections').select('id', { count: 'exact', head: true }),
+      supabase.from('aim_paragraphs').select('id', { count: 'exact', head: true }),
+      supabase.from('pcg_terms').select('id', { count: 'exact', head: true }),
+      supabase.from('airworthiness_directives').select('id', { count: 'exact', head: true }),
+      supabase.from('legal_interpretations').select('id', { count: 'exact', head: true }),
+    ]).then(([farRes, aimRes, pcgRes, adRes, loiRes]) => {
+      setFarCount(farRes.count)
+      setAimCount(aimRes.count)
+      setPcgCount(pcgRes.count)
+      setAdCount(adRes.count)
+      setLoiCount(loiRes.count)
+    })
+  }, [])
 
   // ── Search logic ─────────────────────────────────────────────────────────────
 
@@ -205,7 +415,7 @@ export default function HomeScreen() {
     // race guard (seq) as every other source here.
     const phraseForOther = isPhrasedQuery(trimmed) ? extractPhrase(trimmed) : trimmed
     if (phraseForOther && phraseForOther.length >= 2) {
-      searchOtherSources(phraseForOther).then((results) => {
+      searchOtherSources(phraseForOther, 20).then((results) => {
         if (seq === searchSeq.current) setOtherResults(results)
       })
     } else {
@@ -221,10 +431,10 @@ export default function HomeScreen() {
       const cols = 'id, document_number, title, date_issued, subject_series, description'
       const [titleRes, descRes, rpcRes] = await Promise.all([
         supabase.from('advisory_circulars').select(cols).eq('status', 'active')
-          .ilike('title', `%${phrase}%`).order('document_number').limit(12),
+          .ilike('title', `%${phrase}%`).order('document_number').limit(30),
         supabase.from('advisory_circulars').select(cols).eq('status', 'active')
-          .ilike('description', `%${phrase}%`).order('document_number').limit(10),
-        supabase.rpc('search_acs', { query: phrase, result_limit: 15 }),
+          .ilike('description', `%${phrase}%`).order('document_number').limit(20),
+        supabase.rpc('search_acs', { query: phrase, result_limit: 40 }),
       ])
       if (seq !== searchSeq.current) return
       const seenIds = new Set<string>()
@@ -234,7 +444,7 @@ export default function HomeScreen() {
           if (!seenIds.has(r.id)) { seenIds.add(r.id); merged.push(r) }
         }
       }
-      setSearchResults(rankSearchResults(phrase, merged).slice(0, 8))
+      setSearchResults(rankSearchResults(phrase, merged))
       setSearchLoading(false)
       return
     }
@@ -248,19 +458,19 @@ export default function HomeScreen() {
     // (e.g. a title with a colon returns nothing). rankSearchResults orders all of
     // it so any exact match — number OR title — lands first.
     const [rpcRes, prefixRes, numRes, titleRes] = await Promise.all([
-      supabase.rpc('search_acs', { query: trimmed, result_limit: 10 }),
+      supabase.rpc('search_acs', { query: trimmed, result_limit: 50 }),
       supabase
         .from('advisory_circulars')
         .select(cols).eq('status', 'active')
-        .ilike('document_number', `${trimmed}%`).order('document_number').limit(12),
+        .ilike('document_number', `${trimmed}%`).order('document_number').limit(20),
       supabase
         .from('advisory_circulars')
         .select(cols).eq('status', 'active')
-        .ilike('document_number', `%${trimmed}%`).order('document_number').limit(12),
+        .ilike('document_number', `%${trimmed}%`).order('document_number').limit(20),
       supabase
         .from('advisory_circulars')
         .select(cols).eq('status', 'active')
-        .ilike('title', `%${trimmed}%`).order('document_number').limit(12),
+        .ilike('title', `%${trimmed}%`).order('document_number').limit(20),
     ])
 
     // RPC failed + nothing from the direct queries → broad ilike fallback
@@ -275,9 +485,9 @@ export default function HomeScreen() {
         .eq('status', 'active')
         .or(`document_number.ilike.%${trimmed}%,title.ilike.%${trimmed}%,description.ilike.%${trimmed}%`)
         .order('document_number')
-        .limit(10)
+        .limit(50)
       if (seq !== searchSeq.current) return // superseded by a newer search
-      setSearchResults(rankSearchResults(trimmed, (data ?? []) as SearchResult[]).slice(0, 8))
+      setSearchResults(rankSearchResults(trimmed, (data ?? []) as SearchResult[]))
       setSearchLoading(false)
       return
     }
@@ -293,7 +503,7 @@ export default function HomeScreen() {
     }
 
     if (seq !== searchSeq.current) return // a newer search started while awaiting
-    setSearchResults(rankSearchResults(trimmed, merged).slice(0, 8))
+    setSearchResults(rankSearchResults(trimmed, merged))
     setSearchLoading(false)
   }, [])
 
@@ -378,15 +588,22 @@ export default function HomeScreen() {
     router.push(routeForUnifiedResult(r) as any)
   }, [dismissSearch])
 
-  const goToFullSearch = useCallback(() => {
-    const q = searchQuery.trim()
-    dismissSearch()
-    if (q.length >= 2) {
-      router.push({ pathname: '/(tabs)/search', params: { q } })
-    } else {
-      router.push('/(tabs)/search')
-    }
-  }, [searchQuery, dismissSearch])
+  // IA redesign: there's no more standalone Search tab to hand off to, so
+  // this just dismisses the keyboard — results already stay on screen
+  // (showDropdown is tied to having a query, not focus).
+  const submitSearch = useCallback(() => {
+    Keyboard.dismiss()
+  }, [])
+
+  // Combined, ranked results list for the dropdown — AC results first (that
+  // pipeline is heavily tuned for AC-number/keyword precedence), then
+  // FAR/AIM/P-CG/AD/Figures. The free-tier cap applies to this combined
+  // total, not each source independently, matching the (now-retired) Search
+  // tab's exact behavior — see flyregs_decisions.md.
+  const combinedResults = useMemo(() => [
+    ...searchResults.map((r) => ({ key: `ac-${r.id}`, ac: r, other: null as UnifiedResult | null })),
+    ...otherResults.map((r, i) => ({ key: `${r.type}-${r.id}-${i}`, ac: null as SearchResult | null, other: r })),
+  ], [searchResults, otherResults])
 
   const onSearchZoneLayout = useCallback(
     (e: { nativeEvent: { layout: { y: number; height: number } } }) => {
@@ -412,6 +629,7 @@ export default function HomeScreen() {
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <ScreenHeader showWordmark />
+      <TabletContainer>
 
       {showWelcome && (
         <Animated.View
@@ -437,8 +655,9 @@ export default function HomeScreen() {
         >
           <Icon name="magnifyingglass" size={17} color={searchActive ? tokens.blu : tokens.t3} />
           <TextInput
+            ref={searchInputRef}
             style={[styles.searchInput, { color: tokens.t1, fontSize: fs(13.5) }]}
-            placeholder='AC number, keyword, or "phrase"…'
+            placeholder='Reg number, keyword, or "phrase"…'
             placeholderTextColor={tokens.t3}
             value={searchQuery}
             onChangeText={handleQueryChange}
@@ -450,7 +669,7 @@ export default function HomeScreen() {
             autoCorrect={false}
             spellCheck
             returnKeyType="search"
-            onSubmitEditing={goToFullSearch}
+            onSubmitEditing={submitSearch}
           />
           {searchQuery.length > 0 && (
             <Pressable
@@ -465,6 +684,20 @@ export default function HomeScreen() {
             </Pressable>
           )}
         </View>
+        {!showCancel && (
+          <Pressable
+            onPress={openFilter}
+            style={[styles.filterBtn, { backgroundColor: tokens.inp, borderColor: activeFilterCount > 0 ? tokens.blu : tokens.bdr }]}
+            hitSlop={4}
+          >
+            <Icon name="slider.horizontal.3" size={16} color={activeFilterCount > 0 ? tokens.blu : tokens.t3} />
+            {activeFilterCount > 0 && (
+              <View style={[styles.filterBadge, { backgroundColor: tokens.blu }]}>
+                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+              </View>
+            )}
+          </Pressable>
+        )}
         {showCancel && (
           <Pressable onPress={dismissSearch} style={styles.cancelWrap} hitSlop={4}>
             <Text style={[styles.cancelText, { color: tokens.blu, fontSize: fs(14) }]}>Cancel</Text>
@@ -472,28 +705,186 @@ export default function HomeScreen() {
         )}
       </View>
 
-      {/* Main content */}
+      {/* Main content — redesign step 5: regulatory-body cards replace the
+          AC-series list that used to live here directly (moved to its own
+          screen, ac/library.tsx, matching far/aim/pcg's new index screens).
+          "Several apps under one roof" -- see flyregs_expansion_plan.md. */}
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
+      ) : filterApplied ? (
+        <FlatList
+          data={filterResults}
+          keyExtractor={(item) => `${item.itemType}-${item.itemId}`}
+          contentContainerStyle={styles.listContent}
+          keyboardDismissMode="interactive"
+          ListHeaderComponent={
+            <View style={[styles.filterStatusBar, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+              <Text style={[styles.filterStatusText, { color: tokens.t2, fontSize: fs(13) }]}>
+                {filterResultsLoading ? 'Loading…' : `${filterResults.length} of ${filterResults[0]?.totalCount ?? 0} results`}
+              </Text>
+              <Pressable onPress={openFilter} hitSlop={6}>
+                <Text style={[styles.filterStatusLink, { color: tokens.blu, fontSize: fs(13) }]}>Edit</Text>
+              </Pressable>
+              <Pressable onPress={dismissFilterResults} hitSlop={6}>
+                <Text style={[styles.filterStatusLink, { color: tokens.t3, fontSize: fs(13) }]}>Clear</Text>
+              </Pressable>
+            </View>
+          }
+          ListEmptyComponent={
+            !filterResultsLoading ? (
+              <View style={styles.center}>
+                <Text style={[styles.filterEmptyText, { color: tokens.t3, fontSize: fs(13.5) }]}>No documents match these filters.</Text>
+              </View>
+            ) : null
+          }
+          renderItem={({ item }) => <FilterResultRowView item={item} tokens={tokens} />}
+        />
       ) : (
         <FlatList
-          data={series}
-          keyExtractor={(item) => item.series_prefix}
+          data={[
+            { key: 'far', label: 'Federal Aviation Regulations', abbr: 'FAR', count: farCount, unit: 'sections', route: '/far' },
+            { key: 'aim', label: 'Aeronautical Information Manual', abbr: 'AIM', count: aimCount, unit: 'paragraphs', route: '/aim' },
+            { key: 'pcg', label: 'Pilot/Controller Glossary', abbr: 'P/CG', count: pcgCount, unit: 'terms', route: '/pcg' },
+            { key: 'ad', label: 'Airworthiness Directives', abbr: 'AD', count: adCount, unit: 'directives', route: '/ad' },
+            { key: 'loi', label: 'Legal Interpretations', abbr: 'LOI', count: loiCount, unit: 'interpretations', route: '/loi' },
+            { key: 'ac', label: 'Advisory Circulars', abbr: 'AC', count: totalCount, unit: 'active', route: '/ac/library' },
+          ]}
+          keyExtractor={(item) => item.key}
           contentContainerStyle={styles.listContent}
           keyboardDismissMode="interactive"
           ListHeaderComponent={
             <HomeHeader
               tokens={tokens}
-              totalCount={totalCount}
               whatsNew={whatsNew}
+              otherWhatsNew={otherWhatsNew}
               badgeDays={badgeDays}
+              hasPlusAccess={hasPlusAccess}
             />
           }
-          renderItem={({ item }) => <SeriesRow item={item} tokens={tokens} />}
+          renderItem={({ item }) => <RegBodyCard item={item} tokens={tokens} />}
         />
       )}
+
+      <ChipFilterSheet
+        visible={filterVisible}
+        onClose={() => setFilterVisible(false)}
+        title="Filter"
+        resultCount={liveCount}
+        countLoading={liveCountLoading}
+        onClearAll={clearFilters}
+        onApply={applyFilters}
+      >
+        <ChipFilterSection
+          title="CONTENT TYPE"
+          options={[
+            { value: 'far', label: 'FAR' }, { value: 'aim', label: 'AIM' }, { value: 'pcg', label: 'P/CG' },
+            { value: 'ac', label: 'AC' }, { value: 'loi', label: 'LOI' },
+          ]}
+          selected={filterContentTypes}
+          onToggle={(v) => toggleFilterType(v as FilterableType)}
+        />
+        {filterContentTypes.includes('far') && (
+          <ChipFilterSection
+            title="FAR PART"
+            options={farPartOptions}
+            selected={filterFarParts}
+            onToggle={toggleFarPart}
+          />
+        )}
+        {filterContentTypes.includes('ac') && (
+          <ChipFilterSection
+            title="AC SERIES"
+            options={acSeriesOptions}
+            selected={filterAcSeries ? [filterAcSeries] : []}
+            onToggle={(v) => setFilterAcSeries((prev) => (prev === v ? null : v))}
+          />
+        )}
+        <ChipFilterSection
+          title="AUDIENCE (NARROWS ACs ONLY)"
+          options={AUDIENCE_OPTIONS}
+          selected={filterAudience}
+          onToggle={toggleAudience}
+        />
+        {/* AIM/AC check a real figures table (ac_figures/aim_figures); FAR
+            and LOI have no such table but DO embed real pipe-delimited
+            tables directly in body_text (confirmed: 93 FAR sections, e.g.
+            $ 47.17's fee schedule -- the exact format PlainTextBody already
+            renders as a real grid on the detail screen), which
+            filter_documents now detects directly. P/CG genuinely has zero
+            -- confirmed, not assumed -- so it's the only type this stays
+            hidden for. */}
+        {(filterContentTypes.length === 0 || filterContentTypes.some((t) => t !== 'pcg')) && (
+          <ChipFilterSection
+            title="HAS FIGURES & TABLES"
+            options={[{ value: 'yes', label: 'Yes' }]}
+            selected={filterHasFigures ? ['yes'] : []}
+            onToggle={() => setFilterHasFigures((prev) => (prev ? null : true))}
+          />
+        )}
+        <View style={{ gap: 8 }}>
+          <Text style={[styles.filterSectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>DATE RANGE (ISSUED/UPDATED)</Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TextInput
+              style={[styles.filterDateInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg2, fontSize: fs(13) }]}
+              value={filterDateFrom}
+              onChangeText={setFilterDateFrom}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={tokens.t4}
+            />
+            <TextInput
+              style={[styles.filterDateInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg2, fontSize: fs(13) }]}
+              value={filterDateTo}
+              onChangeText={setFilterDateTo}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={tokens.t4}
+            />
+          </View>
+        </View>
+        <View style={{ gap: 8 }}>
+          <Text style={[styles.filterSectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>CITES THIS DOCUMENT</Text>
+          <Text style={[styles.citesHint, { color: tokens.t4, fontSize: fs(11.5) }]}>
+            Narrows results to only items that reference the FAR section, AIM paragraph, P/CG term, AC, or LOI you pick below.
+          </Text>
+          {filterCitesDoc ? (
+            <Pressable
+              style={[styles.filterCitesChip, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}
+              onPress={() => setFilterCitesDoc(null)}
+            >
+              <Text style={[styles.filterCitesChipText, { color: tokens.gold, fontSize: fs(12.5) }]} numberOfLines={1}>
+                {filterCitesDoc.label}
+              </Text>
+              <Icon name="xmark" size={12} color={tokens.gold} />
+            </Pressable>
+          ) : (
+            <>
+              <View style={[styles.citesInputWrap, { borderColor: tokens.bdr, backgroundColor: tokens.bg2 }]}>
+                <TextInput
+                  style={[styles.citesInput, { color: tokens.t1, fontSize: fs(13) }]}
+                  value={citesQuery}
+                  onChangeText={setCitesQuery}
+                  placeholder="Search a FAR section, AIM paragraph, P/CG term, AC, or LOI…"
+                  placeholderTextColor={tokens.t4}
+                />
+                {citesLoading && <ActivityIndicator size="small" color={tokens.t3} style={{ marginRight: 10 }} />}
+              </View>
+              {!citesLoading && citesCandidates.length === 0 && citesQuery.trim().length >= 2 && (
+                <Text style={[styles.citesHint, { color: tokens.t4, fontSize: fs(12) }]}>No matches for "{citesQuery}".</Text>
+              )}
+              {citesCandidates.map((c) => (
+                <Pressable
+                  key={`${c.type}-${c.id}`}
+                  style={[styles.citesCandidateRow, { borderTopColor: tokens.bdr }]}
+                  onPress={() => { setFilterCitesDoc(c); setCitesQuery(''); setCitesCandidates([]) }}
+                >
+                  <Text style={[styles.citesCandidateText, { color: tokens.t1, fontSize: fs(12.5) }]} numberOfLines={1}>{c.label}</Text>
+                </Pressable>
+              ))}
+            </>
+          )}
+        </View>
+      </ChipFilterSheet>
 
       {/* Search overlay — backdrop + dropdown, rendered last so they sit above content.
           Tied to showDropdown (has a query), not focus — tapping the backdrop only
@@ -537,66 +928,46 @@ export default function HomeScreen() {
               spinner treatment. Previously `searchLoading` replaced the whole
               list with a spinner on every re-search, which is what made results
               flicker away and come back after releasing the mic button. */}
-          {searchResults.length > 0 || otherResults.length > 0 ? (
+          {combinedResults.length > 0 ? (
             <ScrollView
               style={styles.dropScroll}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="interactive"
               nestedScrollEnabled
             >
-              {searchResults.map((r) => (
+              {(hasPlusAccess ? combinedResults : combinedResults.slice(0, FREE_RESULT_CAP)).map((item) => (
                 <Pressable
-                  key={r.id}
+                  key={item.key}
                   style={({ pressed }) => [
                     styles.dropRow,
                     { borderBottomColor: tokens.bdr },
                     pressed && { backgroundColor: tokens.bg3 },
                   ]}
-                  onPress={() => selectResult(r)}
+                  onPress={() => (item.ac ? selectResult(item.ac) : selectOtherResult(item.other!))}
                 >
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={[styles.dropOtherPrimary, { color: tokens.blu, fontSize: fs(12.5) }]} numberOfLines={1}>
-                      {acResultPrimary(r.document_number)}{isOcrScanned(r.document_number) ? ' *' : ''}
+                      {item.ac
+                        ? `${acResultPrimary(item.ac.document_number)}${isOcrScanned(item.ac.document_number) ? ' *' : ''}`
+                        : item.other!.primary}
                     </Text>
                     <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
-                      {r.title}
+                      {item.ac ? item.ac.title : item.other!.secondary}
                     </Text>
                   </View>
                 </Pressable>
               ))}
-              {/* FAR/AIM/P-CG/T&F — same row shape as AC results. `primary`
-                  already leads with its type ("FAR 91.107", "AIM Fig 2-3-5")
-                  so it self-identifies the same way an AC's own document
-                  number always has — no separate badge needed. */}
-              {otherResults.slice(0, 8).map((r, i) => (
+              {!hasPlusAccess && combinedResults.length > FREE_RESULT_CAP && (
                 <Pressable
-                  key={`${r.type}-${r.id}-${i}`}
-                  style={({ pressed }) => [
-                    styles.dropRow,
-                    { borderBottomColor: tokens.bdr },
-                    pressed && { backgroundColor: tokens.bg3 },
-                  ]}
-                  onPress={() => selectOtherResult(r)}
+                  style={[styles.dropSeeAll, { borderTopColor: tokens.bdr }]}
+                  onPress={() => { dismissSearch(); router.push('/paywall?tier=plus') }}
                 >
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={[styles.dropOtherPrimary, { color: tokens.blu, fontSize: fs(12.5) }]} numberOfLines={1}>
-                      {r.primary}
-                    </Text>
-                    <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
-                      {r.secondary}
-                    </Text>
-                  </View>
+                  <Icon name="lock.fill" size={13} color={tokens.amb} />
+                  <Text style={[styles.dropSeeAllText, { color: tokens.blu, fontSize: fs(13) }]}>
+                    Unlock Plus for all {combinedResults.length} results
+                  </Text>
                 </Pressable>
-              ))}
-              <Pressable
-                style={[styles.dropSeeAll, { borderTopColor: tokens.bdr }]}
-                onPress={goToFullSearch}
-              >
-                <Text style={[styles.dropSeeAllText, { color: tokens.blu, fontSize: fs(13) }]}>
-                  See all results
-                </Text>
-                <Icon name="chevron.right" size={12} color={tokens.blu} />
-              </Pressable>
+              )}
             </ScrollView>
           ) : searchLoading ? (
             <View style={styles.dropCenter}>
@@ -687,6 +1058,7 @@ export default function HomeScreen() {
       )}
 
       <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
+      </TabletContainer>
     </View>
   )
 }
@@ -695,54 +1067,187 @@ export default function HomeScreen() {
 
 function HomeHeader({
   tokens,
-  totalCount,
   whatsNew,
+  otherWhatsNew,
   badgeDays,
+  hasPlusAccess,
 }: {
   tokens: ReturnType<typeof useTheme>['tokens']
-  totalCount: number | null
   whatsNew: WhatsNewAC[]
+  otherWhatsNew: WhatsNewOther[]
   badgeDays: number
+  hasPlusAccess: boolean
 }) {
   const fs = useFS()
+
+  // Merge AC (richer NEW/UPD/VER badge data) with AD/LOI (simpler "NEW"
+  // badge, real dates) into one feed sorted by date, most recent first --
+  // confirmed a real gap: this strip previously showed ACs ONLY, giving the
+  // impression nothing else in the app ever changes.
+  type MergedWhatsNew =
+    | { kind: 'ac'; date: string | null; item: WhatsNewAC }
+    | { kind: 'other'; date: string | null; item: WhatsNewOther }
+  const mergedWhatsNew: MergedWhatsNew[] = [
+    ...whatsNew.map((item) => ({ kind: 'ac' as const, date: item.date_issued, item })),
+    ...otherWhatsNew.map((item) => ({ kind: 'other' as const, date: item.date, item })),
+  ].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
+
+  // What's New/Changed is Plus-tier content -- confirmed live as a real
+  // gating gap: even with taps disabled, a free user seeing real AC
+  // titles/badges here IS the paid info (matches AeroRegs' own free tier,
+  // which shows none of this either). Free sees a locked teaser card
+  // instead of the real strip, same pattern as every other Plus-gated
+  // section (Ref Packets, What's Changed screen itself).
+  if (!hasPlusAccess) {
+    return (
+      <>
+        <View style={[styles.sectionLabel, { justifyContent: 'flex-start', gap: 8 }]}>
+          <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(15) }]}>What's New</Text>
+        </View>
+        <Pressable
+          style={[styles.wnLockedCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+          onPress={() => router.push('/paywall?tier=plus')}
+        >
+          <Icon name="lock.fill" size={18} color={tokens.amb} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.wnLockedTitle, { color: tokens.t1, fontSize: fs(13.5) }]}>
+              See what's new and changed
+            </Text>
+            <Text style={[styles.wnLockedSub, { color: tokens.t3, fontSize: fs(12) }]}>
+              Unlock Plus to track new and updated ACs, with real diffs of exactly what changed.
+            </Text>
+          </View>
+          <Icon name="chevron.right" size={14} color={tokens.t4} />
+        </Pressable>
+      </>
+    )
+  }
+
   return (
     <>
       {/* What's New strip — always shown, even with zero results, so a user
           isn't left wondering why the whole section vanished; the empty
           state tells them to widen Badge Duration if they expect to see
-          something. */}
-      <View style={styles.sectionLabel}>
+          something. Now spans AC + AD + LOI (each has a real, genuinely-
+          varied FAA-side date) -- FAR/AIM/PCG still can't join honestly
+          until they get real incremental revision-detection of their own
+          (see WhatsNewOther's header comment); content_revisions exists in
+          schema but is confirmed empty for every doc type right now, so
+          it isn't a usable source yet either. */}
+      <View style={[styles.sectionLabel, { justifyContent: 'flex-start', gap: 8 }]}>
         <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(15) }]}>What's New</Text>
         <Text style={[styles.sectionSub, { color: tokens.t3, fontSize: fs(11.5) }]}>Last {badgeDays} days</Text>
+        <View style={{ flex: 1 }} />
+        <Pressable onPress={() => router.push('/whats-changed' as any)} hitSlop={8}>
+          <Text style={[styles.sectionSub, { color: tokens.blu, fontWeight: '600', fontSize: fs(11.5) }]}>
+            See changes ›
+          </Text>
+        </Pressable>
       </View>
-      {whatsNew.length > 0 ? (
+      {mergedWhatsNew.length > 0 ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.wnScroll}
         >
-          {whatsNew.map((ac) => (
-            <WhatsNewCard key={ac.id} ac={ac} tokens={tokens} badgeDays={badgeDays} />
-          ))}
+          {mergedWhatsNew.map((entry) =>
+            entry.kind === 'ac' ? (
+              <WhatsNewCard key={`ac-${entry.item.id}`} ac={entry.item} tokens={tokens} badgeDays={badgeDays} />
+            ) : (
+              <OtherWhatsNewCard key={`${entry.item.type}-${entry.item.id}`} item={entry.item} tokens={tokens} />
+            )
+          )}
         </ScrollView>
       ) : (
         <View style={[styles.wnEmpty, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <Text style={[styles.wnEmptyText, { color: tokens.t3, fontSize: fs(12.5) }]}>
-            No ACs issued or updated in the last {badgeDays} day{badgeDays === 1 ? '' : 's'}. Try a longer Badge Duration in the menu to see more.
+            Nothing issued or updated in the last {badgeDays} day{badgeDays === 1 ? '' : 's'}. Try a longer Badge Duration in the menu to see more.
           </Text>
         </View>
       )}
 
-      {/* AC Library label */}
+      {/* Regulatory-body cards label */}
       <View style={styles.sectionLabel}>
-        <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(15) }]}>AC Library</Text>
-        {totalCount !== null && (
-          <Text style={[styles.sectionCount, { color: tokens.blu, fontSize: fs(12) }]}>
-            {totalCount} current ACs
-          </Text>
-        )}
+        <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(15) }]}>Browse by Regulation</Text>
       </View>
     </>
+  )
+}
+
+// ─── Regulatory-body card ───────────────────────────────────────────────────
+// "Several apps under one roof" -- tapping a card enters that type's own
+// section with its natural browse structure. Every document inside still
+// cross-links out to the other types via the association bars already built
+// on each detail screen -- see flyregs_expansion_plan.md.
+
+interface RegBodyItem {
+  key: string
+  label: string
+  abbr: string
+  count: number | null
+  unit: string
+  route: string
+  // AD has no dedicated browse screen of its own (unlike FAR/AIM/P-CG/AC) —
+  // this overrides route navigation with an arbitrary action (focusing
+  // Home's own search bar) instead of pushing a route.
+  onCustomPress?: () => void
+}
+
+function RegBodyCard({
+  item,
+  tokens,
+}: {
+  item: RegBodyItem
+  tokens: ReturnType<typeof useTheme>['tokens']
+}) {
+  const fs = useFS()
+  return (
+    <Pressable
+      style={[styles.regCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+      onPress={() => (item.onCustomPress ? item.onCustomPress() : router.push(item.route as any))}
+    >
+      <View style={[styles.regAbbrBadge, { backgroundColor: tokens.bdim }]}>
+        <Icon name={REG_TYPE[item.key as keyof typeof REG_TYPE].icon} size={15} color={tokens.blu} />
+        <Text style={[styles.regAbbrText, { color: tokens.blu, fontSize: fs(11) }]}>{item.abbr}</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.regLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>{item.label}</Text>
+        <Text style={[styles.regCount, { color: tokens.t3, fontSize: fs(12) }]}>
+          {item.count !== null ? `${item.count.toLocaleString()} ${item.unit}` : '…'}
+        </Text>
+      </View>
+      <Icon name="chevron.right" size={14} color={tokens.t4} />
+    </Pressable>
+  )
+}
+
+// ─── Filter result row ───────────────────────────────────────────────────────
+
+function FilterResultRowView({
+  item,
+  tokens,
+}: {
+  item: FilterResultRow
+  tokens: ReturnType<typeof useTheme>['tokens']
+}) {
+  const fs = useFS()
+  const meta = REG_TYPE[item.itemType]
+  return (
+    <Pressable
+      style={[styles.filterRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+      onPress={() => router.push(routeForFilterResult(item) as any)}
+    >
+      <View style={styles.filterRowTop}>
+        <Icon name={meta.icon} size={11} color={tokens.blu} />
+        <View style={[styles.filterTypeTag, { backgroundColor: tokens.bdim }]}>
+          <Text style={[styles.filterTypeTagText, { color: tokens.blu, fontSize: fs(9) }]}>{meta.label}</Text>
+        </View>
+      </View>
+      <Text style={[styles.filterRowPrimary, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>{item.primaryLabel}</Text>
+      {item.secondaryLabel ? (
+        <Text style={[styles.filterRowSecondary, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={2}>{item.secondaryLabel}</Text>
+      ) : null}
+    </Pressable>
   )
 }
 
@@ -774,11 +1279,18 @@ function WhatsNewCard({
     >
       <View style={styles.wnTop}>
         {showBadge && <Badge kind={getBadgeKind(ac)} tokens={tokens} />}
+        <View style={{ flex: 1 }} />
         <Text style={[styles.wnDate, { color: tokens.t3, fontSize: fs(10.5) }]}>{dateStr}</Text>
       </View>
-      <Text style={[styles.wnAcNum, { color: tokens.t1, fontSize: fs(15) }]}>
-        {ac.document_number}{isOcrScanned(ac.document_number) ? ' *' : ''}
-      </Text>
+      <View style={styles.wnIdentRow}>
+        <Icon name={REG_TYPE.ac.icon} size={11} color={tokens.blu} />
+        <View style={[styles.wnTypeTag, { backgroundColor: tokens.bdim }]}>
+          <Text style={[styles.wnTypeTagText, { color: tokens.blu, fontSize: fs(9) }]}>{REG_TYPE.ac.label}</Text>
+        </View>
+        <Text style={[styles.wnAcNum, { color: tokens.t1, fontSize: fs(15) }]}>
+          {ac.document_number}{isOcrScanned(ac.document_number) ? ' *' : ''}
+        </Text>
+      </View>
       <Text style={[styles.wnTitle, { color: tokens.t2, fontSize: fs(11.5) }]} numberOfLines={2}>
         {ac.title}
       </Text>
@@ -786,36 +1298,44 @@ function WhatsNewCard({
   )
 }
 
-// ─── Series row ──────────────────────────────────────────────────────────────
-
-function SeriesRow({
+// AD/LOI variant -- simpler than AC's (no UPD/VER distinction, since we
+// don't yet detect true re-revisions for these types), just a type tag +
+// plain "NEW" + the real FAA date. See WhatsNewOther's header comment for
+// why FAR/AIM/PCG aren't included here.
+function OtherWhatsNewCard({
   item,
   tokens,
 }: {
-  item: ACSeries
+  item: WhatsNewOther
   tokens: ReturnType<typeof useTheme>['tokens']
 }) {
   const fs = useFS()
-  // 4+ digit prefixes (e.g. "8260") are rare but don't fit the fixed-width
-  // column at the normal size and wrap onto a second line — a slightly
-  // smaller base size keeps them on one line while still respecting the
-  // user's text-size preference via fs().
-  const numSize = item.series_prefix.length >= 4 ? 11.5 : 15
+  const dateStr = new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const route = item.type === 'ad' ? `/ad/${item.documentNumber}` : `/loi/${item.id}`
+  const meta = item.type === 'ad' ? REG_TYPE.ad : REG_TYPE.loi
+
   return (
     <Pressable
-      style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-      onPress={() => router.push(`/series/${item.series_prefix}`)}
+      style={[styles.wnCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+      onPress={() => router.push(route as any)}
     >
-      <Text style={[styles.seriesNum, { color: tokens.t3, fontSize: fs(numSize) }]} numberOfLines={1}>{item.series_prefix}</Text>
-      <View style={styles.cardBody}>
-        <Text style={[styles.cardTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
-          {item.display_name}
+      <View style={styles.wnTop}>
+        <Badge kind="new" tokens={tokens} />
+        <View style={{ flex: 1 }} />
+        <Text style={[styles.wnDate, { color: tokens.t3, fontSize: fs(10.5) }]}>{dateStr}</Text>
+      </View>
+      <View style={styles.wnIdentRow}>
+        <Icon name={meta.icon} size={11} color={tokens.blu} />
+        <View style={[styles.wnTypeTag, { backgroundColor: tokens.bdim }]}>
+          <Text style={[styles.wnTypeTagText, { color: tokens.blu, fontSize: fs(9) }]}>{meta.label}</Text>
+        </View>
+        <Text style={[styles.wnAcNum, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={1}>
+          {item.documentNumber}
         </Text>
       </View>
-      <View style={[styles.countPill, { backgroundColor: tokens.bg3 }]}>
-        <Text style={[styles.countText, { color: tokens.t3, fontSize: fs(11.5) }]}>{item.ac_count}</Text>
-      </View>
-      <Icon name="chevron.right" size={14} color={tokens.t4} />
+      <Text style={[styles.wnTitle, { color: tokens.t2, fontSize: fs(11.5) }]} numberOfLines={2}>
+        {item.title}
+      </Text>
     </Pressable>
   )
 }
@@ -866,6 +1386,30 @@ const styles = StyleSheet.create({
   },
   welcomeToastText: { fontWeight: '700' },
 
+  // Regulatory-body cards (redesign step 5)
+  regCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginHorizontal: 16,
+    marginBottom: 8,
+  },
+  regAbbrBadge: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  regAbbrText: { fontWeight: '800', letterSpacing: 0.3 },
+  regLabel: { fontWeight: '600' },
+  regCount: { marginTop: 2 },
+
   // Fixed search zone above the FlatList
   searchZone: {
     flexDirection: 'row',
@@ -896,6 +1440,46 @@ const styles = StyleSheet.create({
   } as any,
   cancelWrap: { paddingRight: 2 },
   cancelText: { fontSize: 14, fontWeight: '500' },
+
+  filterBtn: {
+    width: 38, height: 38, borderRadius: 11, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center', marginLeft: 8,
+  },
+  filterBadge: {
+    position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
+  },
+  filterBadgeText: { color: '#fff', fontSize: 9.5, fontWeight: '800' },
+
+  filterStatusBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11, margin: 12, marginBottom: 4,
+  },
+  filterStatusText: { flex: 1, fontWeight: '500' },
+  filterStatusLink: { fontWeight: '700' },
+  filterEmptyText: { textAlign: 'center', paddingVertical: 30 },
+
+  filterRow: { borderRadius: 12, borderWidth: 1, padding: 12, marginHorizontal: 12, marginBottom: 8, gap: 4 },
+  filterRowTop: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 },
+  filterTypeTag: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
+  filterTypeTagText: { fontWeight: '700', letterSpacing: 0.3 },
+  filterRowPrimary: { fontWeight: '700' },
+  filterRowSecondary: { lineHeight: 16 },
+
+  filterSectionTitle: { fontWeight: '700', letterSpacing: 0.5 },
+  filterDateInput: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  citesHint: { lineHeight: 15, marginTop: -2 },
+  citesInputWrap: {
+    flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 10, paddingRight: 4,
+  },
+  citesInput: { flex: 1, paddingHorizontal: 12, paddingVertical: 9 },
+  filterCitesChip: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+    borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9,
+  },
+  filterCitesChipText: { flex: 1, fontWeight: '600' },
+  citesCandidateRow: { paddingVertical: 9, borderTopWidth: StyleSheet.hairlineWidth },
+  citesCandidateText: { fontWeight: '500' },
 
   // Backdrop — covers content area below the search zone
   backdrop: {
@@ -951,7 +1535,7 @@ const styles = StyleSheet.create({
   dropSeeAll: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 8,
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -968,7 +1552,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontWeight: '600', fontSize: 15 },
   sectionSub: { fontSize: 11.5 },
-  sectionCount: { fontSize: 12, fontWeight: '500' },
 
   wnScroll: { paddingHorizontal: 16, gap: 10, paddingBottom: 4 },
   wnEmpty: {
@@ -979,6 +1562,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 16,
   },
+  wnLockedCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    marginHorizontal: 16, marginBottom: 4,
+    borderRadius: 12, borderWidth: 1,
+    paddingHorizontal: 14, paddingVertical: 14,
+  },
+  wnLockedTitle: { fontWeight: '600', marginBottom: 2 },
+  wnLockedSub: { lineHeight: 16 },
   wnEmptyText: { lineHeight: 18 },
   wnCard: {
     width: 190,
@@ -989,38 +1580,20 @@ const styles = StyleSheet.create({
   wnTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 6,
     marginBottom: 8,
   },
+  wnIdentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 3,
+  },
+  wnTypeTag: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
+  wnTypeTagText: { fontWeight: '700', letterSpacing: 0.3 },
   wnDate: { fontSize: 10.5 },
   wnAcNum: { fontWeight: '700', fontSize: 15, marginBottom: 3 },
   wnTitle: { fontSize: 11.5, lineHeight: 16 },
-
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    gap: 12,
-  },
-  seriesNum: {
-    fontWeight: '700',
-    fontSize: 15,
-    width: 38,
-    textAlign: 'center',
-  },
-  cardBody: { flex: 1, minWidth: 0 },
-  cardTitle: { fontWeight: '500', fontSize: 14 },
-  countPill: {
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  countText: { fontSize: 11.5, fontWeight: '600' },
 
   badge: {
     borderRadius: 5,

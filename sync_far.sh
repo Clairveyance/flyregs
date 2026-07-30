@@ -46,6 +46,14 @@ echo "════════════════════════�
 cd "$APP"
 "$PYTHON3" sync/far_scraper.py --mode full
 
+# MagicLink citation extraction (full corpus re-scan) -- was a total, silent
+# gap before 2026-07-28: no script existed for FAR's own outbound citations
+# at all. Cheap (a few seconds against ~4,300 sections); delete-then-insert
+# per citing_type makes re-running always safe.
+echo ""
+echo "▶ MagicLink citation extraction (FAR -> AC/AIM/P-CG/AD/FAR)"
+"$PYTHON3" sync/far_citations.py
+
 END_TS="$(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 echo "════════════════════════════════════════════════════"

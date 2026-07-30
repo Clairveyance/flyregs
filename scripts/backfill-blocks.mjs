@@ -124,6 +124,18 @@ function computeChangedIndices(oldBlocks, newBlocks) {
   return changed
 }
 
+// Symmetric to computeChangedIndices -- old block text that no longer
+// appears anywhere in the new blocks, i.e. genuinely removed, not just
+// reordered. Together, added + removed text is what content_revisions
+// stores for the What's Changed timeline (block-granularity, not a full
+// word-level diff -- matches the same block abstraction the NEW/UPD badge
+// system already uses, so this is consistent rather than a second,
+// differently-grained notion of "changed").
+function computeRemovedTexts(oldBlocks, newBlocks) {
+  const newTexts = new Set(newBlocks.map(blockText).filter(Boolean))
+  return oldBlocks.map(blockText).filter((t) => t && !newTexts.has(t))
+}
+
 const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } })
 const PAGE = 50
 let processed = 0
@@ -147,7 +159,7 @@ for (;;) {
   // Rows not yet built, or built by an older parser version.
   const { data, error } = await sb
     .from('advisory_circulars')
-    .select('id, document_number, pdf_text, pdf_blocks, pdf_blocks_version')
+    .select('id, document_number, title, pdf_text, pdf_blocks, pdf_blocks_version')
     .or(`pdf_blocks_version.is.null,pdf_blocks_version.lt.${AC_FORMAT_VERSION}`)
     .order('document_number')
     .limit(PAGE)
@@ -170,8 +182,14 @@ for (;;) {
     // compute a fresh diff for genuine revisions, and only when there was a
     // previous version to diff against (not the AC's first-ever parse).
     const oldBlocks = row.pdf_blocks || []
-    if (row.pdf_blocks_version === null && oldBlocks.length > 0) {
-      updatePayload.changed_block_indices = computeChangedIndices(oldBlocks, blocks)
+    let addedTexts = []
+    let removedTexts = []
+    const isRealRevision = row.pdf_blocks_version === null && oldBlocks.length > 0
+    if (isRealRevision) {
+      const changedIdx = computeChangedIndices(oldBlocks, blocks)
+      addedTexts = changedIdx.map((i) => blockText(blocks[i])).filter(Boolean)
+      removedTexts = computeRemovedTexts(oldBlocks, blocks)
+      updatePayload.changed_block_indices = changedIdx
     }
 
     const { error: upErr } = await sb
@@ -185,6 +203,22 @@ for (;;) {
     processed++
     if (blocks.length) withBlocks++
     touchedDocs.push(row.document_number)
+
+    // Log the revision for the What's Changed timeline -- only when there's
+    // real added/removed content to show (a revision that only touched
+    // metadata, or where every "changed" block is whitespace-only, isn't
+    // worth a timeline entry).
+    if (isRealRevision && (addedTexts.length > 0 || removedTexts.length > 0)) {
+      const { error: revErr } = await sb.from('content_revisions').insert({
+        doc_type: 'ac',
+        doc_key: row.document_number,
+        doc_id: row.id,
+        title: row.title,
+        added_text: addedTexts.length ? addedTexts.join('\n\n') : null,
+        removed_text: removedTexts.length ? removedTexts.join('\n\n') : null,
+      })
+      if (revErr) console.error(`  ! content_revisions insert failed for ${row.document_number}: ${revErr.message}`)
+    }
   }
   console.log(`  …processed ${processed} (${withBlocks} with content)`)
 }

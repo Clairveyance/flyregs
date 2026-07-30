@@ -39,7 +39,7 @@ interface Props {
 export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm, onClose, excludeFolderId }: Props) {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { isPro } = useAuth()
+  const { hasPlusAccess } = useAuth()
   const [folders, setFolders] = useState<Folder[]>([])
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -54,7 +54,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
     // Backstop only -- every call site should gate synchronously before ever
     // setting visible=true. Immediate push, not delayed -- see FolderPicker's
     // matching comment for why a delayed push here is fragile (BB-006).
-    if (!isPro) {
+    if (!hasPlusAccess) {
       onClose()
       router.push('/paywall')
       return
@@ -64,7 +64,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
     setSelected(new Set())
     setCreating(false)
     setNewName('')
-  }, [visible, isPro, excludeFolderId])
+  }, [visible, hasPlusAccess, excludeFolderId])
 
   useEffect(() => {
     if (creating) setTimeout(() => inputRef.current?.focus(), 80)
@@ -200,7 +200,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
             <Pressable
               style={[styles.newFolderRow, { borderTopColor: tokens.bdr }]}
               onPress={() => {
-                if (!isPro) { onClose(); router.push('/paywall'); return }
+                if (!hasPlusAccess) { onClose(); router.push('/paywall'); return }
                 setCreating(true)
               }}
             >

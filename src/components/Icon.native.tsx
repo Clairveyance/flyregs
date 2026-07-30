@@ -1,8 +1,12 @@
 import { SymbolView } from 'expo-symbols'
 import type { SymbolViewProps } from 'expo-symbols'
 import type { IconProps } from './Icon.types'
+import { PcgGlyph } from './PcgGlyph'
 
 export function Icon({ name, size = 22, color, weight = 'regular', style }: IconProps) {
+  if (name === 'pcg.az') {
+    return <PcgGlyph size={size} color={color} />
+  }
   return (
     <SymbolView
       name={name as SymbolViewProps['name']}

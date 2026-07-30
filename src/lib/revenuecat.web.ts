@@ -4,9 +4,10 @@ import type { SubscriptionStatus, SubscriptionDetails } from '@/lib/revenuecat'
 
 export const ENTITLEMENT_PRO = 'pro'
 export const ENTITLEMENT_PREMIUM = 'premium'
+export const ENTITLEMENT_UNLOCKED = 'unlocked'
 export function initRevenueCat(_userId?: string) { /* no-op */ }
 export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
-  return { isPro: true, isPremium: true }
+  return { isPro: true, isPremium: true, isUnlocked: true }
 }
 export async function getSubscriptionDetails(): Promise<SubscriptionDetails> {
   return { tier: 'free', plan: null, willRenew: false, expirationDate: null, managementURL: null }

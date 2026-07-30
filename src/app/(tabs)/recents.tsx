@@ -19,8 +19,9 @@ import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { supabase } from '@/lib/supabase'
 import { ScreenHeader } from '@/components/ScreenHeader'
+import { TabletContainer } from '@/components/TabletContainer'
 import { Icon } from '@/components/Icon'
-import { getRecents, removeRecent, removeManyRecents, clearRecents, type RecentAC } from '@/lib/recents'
+import { getRecents, removeRecent, removeManyRecents, clearRecents, routeForRecent, recentItemType, type RecentAC } from '@/lib/recents'
 import { getBookmarks, toggleBookmark, addManyBookmarks } from '@/lib/bookmarks'
 import { addManyToFolder, getFolders } from '@/lib/folders'
 import { FolderPicker } from '@/components/FolderPicker'
@@ -28,6 +29,7 @@ import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions } from '@/lib/share'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
+import { stripFarPrefix } from '@/lib/titleFormat'
 
 interface Group {
   title: string
@@ -60,7 +62,8 @@ function groupByTime(recents: RecentAC[]): Group[] {
 export default function RecentsScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { isPro, isPremium } = useAuth()
+  // Bookmarks/Folders are Plus-tier now; sharing stays Premium.
+  const { isPremium, hasPlusAccess } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const { shareAC, shareMany } = useShareActions()
   const [groups, setGroups] = useState<Group[]>([])
@@ -92,7 +95,15 @@ export default function RecentsScreen() {
   }, [])
 
   useEffect(() => {
-    const ids = [...new Set(groups.flatMap((g) => g.data.map((r) => r.id)))]
+    // AC-only -- advisory_circulars.id is a uuid column, and a FAR/AIM/P-CG/AD
+    // recent's id (e.g. "91.13", "AAM") isn't one. Passing a non-uuid string
+    // into .in('id', ...) throws a Postgres error for the WHOLE query, not
+    // just a no-match for that one id -- which was silently zeroing out
+    // badge data for real AC recents too, the moment any non-AC item was
+    // also in the list.
+    const ids = [...new Set(
+      groups.flatMap((g) => g.data).filter((r) => recentItemType(r) === 'ac').map((r) => r.id)
+    )]
     if (ids.length === 0) { setBadgeDataById({}); return }
     supabase
       .from('advisory_circulars')
@@ -109,9 +120,10 @@ export default function RecentsScreen() {
   useFocusEffect(load)
 
   const handleToggleBookmark = useCallback(async (item: RecentAC) => {
-    if (!isPro) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall'); return }
     const isNowBookmarked = await toggleBookmark({
       id: item.id,
+      itemType: recentItemType(item),
       document_number: item.document_number,
       title: item.title,
       date_issued: item.date_issued,
@@ -123,7 +135,7 @@ export default function RecentsScreen() {
       isNowBookmarked ? next.add(item.id) : next.delete(item.id)
       return next
     })
-  }, [isPro])
+  }, [hasPlusAccess])
 
   const handleRemove = useCallback((item: RecentAC) => {
     setGroups((prev) =>
@@ -170,23 +182,34 @@ export default function RecentsScreen() {
     // folder/[id].tsx's orphaned-item self-heal). Ensure a bookmark exists
     // for everything being added, using data already on hand here.
     const allRecents = groups.flatMap((g) => g.data)
-    const toBookmark = allRecents
-      .filter((r) => ids.includes(r.id))
-      .map((r) => ({
-        id: r.id,
-        document_number: r.document_number,
-        title: r.title,
-        date_issued: r.date_issued,
-        office: null,
-        subject_series: r.subject_series,
-      }))
+    const selectedRecents = allRecents.filter((r) => ids.includes(r.id))
+    const toBookmark = selectedRecents.map((r) => ({
+      id: r.id,
+      itemType: recentItemType(r),
+      document_number: r.document_number,
+      title: r.title,
+      date_issued: r.date_issued,
+      office: null,
+      subject_series: r.subject_series,
+    }))
     await addManyBookmarks(toBookmark)
     setBookmarkedIds((prev) => new Set([...prev, ...toBookmark.map((b) => b.id)]))
+    // Selected items can span multiple content types in one bulk action --
+    // group by itemType before calling addManyToFolder, which takes one type
+    // per call (see folders.ts).
+    const idsByType = new Map<string, string[]>()
+    for (const r of selectedRecents) {
+      const t = recentItemType(r)
+      idsByType.set(t, [...(idsByType.get(t) ?? []), r.id])
+    }
     // Sequential, not Promise.all -- addManyToFolder does its own read-modify-
-    // write on the shared folder_items list, so concurrent calls for different
-    // folders would race and clobber each other (only the last write survives).
+    // write on the shared folder_items list, so concurrent calls (whether for
+    // different folders or different item types) would race and clobber each
+    // other (only the last write survives).
     for (const folderId of folderIds) {
-      await addManyToFolder(folderId, 'ac', ids)
+      for (const [type, typeIds] of idsByType) {
+        await addManyToFolder(folderId, type as any, typeIds)
+      }
     }
     setFolderSheetVisible(false)
     setSelected(new Set())
@@ -228,26 +251,29 @@ export default function RecentsScreen() {
 
   const handleShare = (item: RecentAC) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    // Share links only resolve for ACs today -- see saved.tsx's handleShare.
+    if (recentItemType(item) !== 'ac') return
     shareAC(item)
   }
 
   // Recents is the one list that shows the folder icon to free users without
   // gating the whole screen behind a ProWall first (Saved/Notes both hide
-  // their entire list for non-Pro). Gate synchronously here, same pattern as
+  // their entire list for non-Plus). Gate synchronously here, same pattern as
   // handleToggleBookmark/handleShare above -- FolderPicker's own internal
-  // isPro effect (open -> close -> setTimeout-delayed router.push) was the
-  // only gate before, and a second tap shortly after the first landed while
-  // that effect's queued navigation was still resolving, so it silently
+  // hasPlusAccess effect (open -> close -> setTimeout-delayed router.push) was
+  // the only gate before, and a second tap shortly after the first landed
+  // while that effect's queued navigation was still resolving, so it silently
   // no-op'd instead of opening the paywall again.
   const handleFolder = (item: RecentAC) => {
-    if (!isPro) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall'); return }
     setPickerItem(item)
   }
 
   const handleBulkShare = () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     const all = groups.flatMap((g) => g.data)
-    const items = all.filter((r) => selected.has(r.id))
+    const items = all.filter((r) => selected.has(r.id) && recentItemType(r) === 'ac')
+    if (items.length === 0) return
     shareMany(items)
     setSelected(new Set())
     setSelectMode(false)
@@ -272,6 +298,7 @@ export default function RecentsScreen() {
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <ScreenHeader title="Recents" right={rightSlot} />
+      <TabletContainer>
 
       {loading ? (
         <View style={styles.center}>
@@ -282,7 +309,7 @@ export default function RecentsScreen() {
           <Icon name="clock" size={40} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No history yet</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-            ACs you open will appear here so you can jump back quickly
+            Anything you open will appear here so you can jump back quickly
           </Text>
         </View>
       ) : (
@@ -305,7 +332,7 @@ export default function RecentsScreen() {
               bookmarked={bookmarkedIds.has(item.id)}
               badgeData={badgeDataById[item.id]}
               badgeDays={badgeDays}
-              onPress={selectMode ? () => toggleRow(item.id) : () => router.push(`/ac/${item.id}`)}
+              onPress={selectMode ? () => toggleRow(item.id) : () => router.push(routeForRecent(item) as any)}
               onToggleBookmark={() => handleToggleBookmark(item)}
               onFolder={() => handleFolder(item)}
               onRemove={() => handleRemove(item)}
@@ -324,7 +351,7 @@ export default function RecentsScreen() {
           <Text style={[styles.selectCount, { color: tokens.t2, fontSize: fs(13) }]}>({selected.size})</Text>
           <View style={styles.selectIconRow}>
             <Pressable
-              onPress={() => { if (!isPro) { router.push('/paywall'); return } setFolderSheetVisible(true) }}
+              onPress={() => { if (!hasPlusAccess) { router.push('/paywall'); return } setFolderSheetVisible(true) }}
               disabled={selected.size === 0}
               hitSlop={8}
               style={{ opacity: selected.size > 0 ? 1 : 0.4 }}
@@ -353,7 +380,7 @@ export default function RecentsScreen() {
 
       <FolderPicker
         visible={pickerItem !== null}
-        itemType="ac"
+        itemType={pickerItem ? recentItemType(pickerItem) : 'ac'}
         itemId={pickerItem?.id ?? ''}
         onClose={() => setPickerItem(null)}
         onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1) }}
@@ -374,6 +401,7 @@ export default function RecentsScreen() {
       />
 
       <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
+      </TabletContainer>
     </View>
   )
 }
@@ -491,7 +519,7 @@ function SwipeableRecentRow({
                   })()}
                 </View>
                 <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
-                  {item.title}
+                  {stripFarPrefix(item.title)}
                 </Text>
                 <View style={styles.metaActionRow}>
                   <View style={styles.metaRow}>

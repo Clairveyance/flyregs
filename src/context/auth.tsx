@@ -13,6 +13,17 @@ interface AuthContextType {
   setIsPro: (v: boolean) => void
   isPremium: boolean
   setIsPremium: (v: boolean) => void
+  isUnlocked: boolean
+  setIsUnlocked: (v: boolean) => void
+  // Derived, not stored: Pro/Premium subscribers get everything Plus offers
+  // included, without needing to separately own the Plus entitlement — see
+  // PROJECT_NOTES/flyregs_decisions.md, "Plus/Pro/Premium is a superset
+  // ladder, not siblings" (2026-07-24). Gate every Plus-tier feature
+  // (Highlights, Notes, Bookmarks, Ref Packets, Print/Export, ACs/LOIs,
+  // uncapped search) on this, never on raw isUnlocked -- otherwise a Pro/
+  // Premium subscriber who never separately bought Plus would be missing
+  // the content Pro's sync and Premium's sharing actually depend on.
+  hasPlusAccess: boolean
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string) => Promise<void>
   resendConfirmation: (email: string) => Promise<void>
@@ -38,6 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [isPro, setIsPro] = useState(false)
   const [isPremium, setIsPremium] = useState(false)
+  const [isUnlocked, setIsUnlocked] = useState(false)
+  const hasPlusAccess = isUnlocked || isPro || isPremium
   const [avatarOverride, setAvatarOverrideState] = useState<AvatarOverride | null>(null)
   const setAvatarOverride = (uri: string | null, presetId: string | null) => setAvatarOverrideState({ uri, presetId })
   const clearAvatarOverride = () => setAvatarOverrideState(null)
@@ -55,6 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const status = await getSubscriptionStatus()
         setIsPro(status.isPro)
         setIsPremium(status.isPremium)
+        setIsUnlocked(status.isUnlocked)
         // The sync on/off preference lives on the account (user_metadata),
         // not just this device — reconcile so a device that's never toggled
         // it manually still picks up the same state (and pulls the account's
@@ -73,9 +87,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const status = await getSubscriptionStatus()
         setIsPro(status.isPro)
         setIsPremium(status.isPremium)
+        setIsUnlocked(status.isUnlocked)
       } else {
         setIsPro(false)
         setIsPremium(false)
+        setIsUnlocked(false)
       }
     })
 
@@ -134,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // the paid entitlement isn't available again until signing back in.
     setIsPro(false)
     setIsPremium(false)
+    setIsUnlocked(false)
     // Otherwise a different account signing in on this same device would
     // start out showing the PREVIOUS account's just-picked avatar override.
     setAvatarOverrideState(null)
@@ -146,7 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider
       value={{
-        session, loading, isPro, setIsPro, isPremium, setIsPremium, signIn, signUp, resendConfirmation,
+        session, loading, isPro, setIsPro, isPremium, setIsPremium, isUnlocked, setIsUnlocked, hasPlusAccess, signIn, signUp, resendConfirmation,
         requestPasswordReset, signOut,
         avatarOverride, setAvatarOverride, clearAvatarOverride,
       }}

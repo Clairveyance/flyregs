@@ -33,10 +33,15 @@ export interface Folder {
   shared?: boolean
 }
 
+// 'far'/'aim'/'pcg'/'ad' item_ids are the section_number/paragraph_number/
+// slug/id string each type's own detail route keys on (not necessarily a
+// uuid) -- same shape AC ids already had.
+export type FolderItemType = 'ac' | 'far' | 'aim' | 'pcg' | 'ad' | 'loi' | 'note'
+
 export interface FolderItem {
   id: string
   folder_id: string
-  item_type: 'ac' | 'note'
+  item_type: FolderItemType
   item_id: string
   added_at: string
 }
@@ -126,7 +131,7 @@ export async function getItemsInFolder(folderId: string): Promise<FolderItem[]> 
   return items.filter((i) => i.folder_id === folderId)
 }
 
-export async function getFoldersForItem(itemType: 'ac' | 'note', itemId: string): Promise<string[]> {
+export async function getFoldersForItem(itemType: FolderItemType, itemId: string): Promise<string[]> {
   const items = await getFolderItems()
   return items
     .filter((i) => i.item_type === itemType && i.item_id === itemId)
@@ -135,7 +140,7 @@ export async function getFoldersForItem(itemType: 'ac' | 'note', itemId: string)
 
 export async function addToFolder(
   folderId: string,
-  itemType: 'ac' | 'note',
+  itemType: FolderItemType,
   itemId: string
 ): Promise<void> {
   return addManyToFolder(folderId, itemType, [itemId])
@@ -147,7 +152,7 @@ export async function addToFolder(
 // item survives. This does the read once, adds everything, writes once.
 export async function addManyToFolder(
   folderId: string,
-  itemType: 'ac' | 'note',
+  itemType: FolderItemType,
   itemIds: string[]
 ): Promise<void> {
   const [items, folders] = await Promise.all([getFolderItems(), getFolders()])
@@ -186,7 +191,7 @@ export async function addManyToFolder(
 
 export async function removeFromFolder(
   folderId: string,
-  itemType: 'ac' | 'note',
+  itemType: FolderItemType,
   itemId: string
 ): Promise<void> {
   const [items, folders] = await Promise.all([getFolderItems(), getFolders()])
@@ -208,7 +213,7 @@ export async function removeFromFolder(
 // last removal survives.
 export async function removeManyFromFolder(
   folderId: string,
-  entries: { itemType: 'ac' | 'note'; itemId: string }[]
+  entries: { itemType: FolderItemType; itemId: string }[]
 ): Promise<void> {
   if (!entries.length) return
   const [items, folders] = await Promise.all([getFolderItems(), getFolders()])
@@ -227,7 +232,7 @@ export async function removeManyFromFolder(
 // still counts it (inflating the folder's shown count) while the folder
 // detail screen silently drops it from the list (its bookmark/note lookup
 // fails), producing a folder that claims N items but only renders fewer.
-export async function removeItemFromAllFolders(itemType: 'ac' | 'note', itemId: string): Promise<void> {
+export async function removeItemFromAllFolders(itemType: FolderItemType, itemId: string): Promise<void> {
   return removeItemsFromAllFolders(itemType, [itemId])
 }
 
@@ -236,7 +241,7 @@ export async function removeItemFromAllFolders(itemType: 'ac' | 'note', itemId: 
 // delete) MUST use this instead of Promise.all-ing single-id calls, which
 // races on the same AsyncStorage snapshot and silently drops all but the
 // last removal (see addManyToFolder above for the same class of bug).
-export async function removeItemsFromAllFolders(itemType: 'ac' | 'note', itemIds: string[]): Promise<void> {
+export async function removeItemsFromAllFolders(itemType: FolderItemType, itemIds: string[]): Promise<void> {
   if (!itemIds.length) return
   const idSet = new Set(itemIds)
   const [items, folders] = await Promise.all([getFolderItems(), getFolders()])

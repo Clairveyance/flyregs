@@ -67,6 +67,9 @@ from datetime import date, datetime
 
 import requests
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from revision_log import log_revisions  # noqa: E402
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
 
@@ -274,6 +277,23 @@ def _upsert(table: str, rows: list[dict], on_conflict: str) -> bool:
     if not SUPABASE_URL or not SUPABASE_KEY:
         log.debug(f"  [DRY-RUN] would upsert {len(rows)} rows into {table}")
         return True
+    # What's Changed timeline logging -- must run BEFORE the upsert below,
+    # which is about to overwrite whatever's currently live. See
+    # revision_log.py's own header for why this generalizes AC's
+    # block-level What's Changed logging to plain-text FAR/AIM/P-CG/AD.
+    if table == "airworthiness_directives":
+        try:
+            n = log_revisions(
+                SUPABASE_URL,
+                {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"},
+                doc_type="ad", table="airworthiness_directives",
+                key_field="ad_number", text_field="body_text", title_field="subject_heading",
+                new_rows=rows,
+            )
+            if n:
+                log.info(f"  Logged {n} AD revision(s) for What's Changed")
+        except Exception as e:
+            log.warning(f"  revision logging failed (non-fatal): {e}")
     try:
         resp = requests.post(
             f"{SUPABASE_URL}/rest/v1/{table}",

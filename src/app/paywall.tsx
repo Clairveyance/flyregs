@@ -15,48 +15,51 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuth } from '@/context/auth'
 import { useTheme } from '@/context/theme'
 import { Icon } from '@/components/Icon'
-import { purchaseSubscription, restorePurchases } from '@/lib/revenuecat'
+import { purchaseSubscription, purchaseUnlock, restorePurchases } from '@/lib/revenuecat'
 import { useFS } from '@/context/fontScale'
 
 const WING_ASPECT = 971 / 1071 // flyregs-wing.png width/height
 
 type Plan = 'monthly' | 'annual'
-type Tier = 'pro' | 'premium'
+type Tier = 'plus' | 'pro' | 'premium'
 
 // ─── Feature definitions ──────────────────────────────────────────────────────
+// Pricing pivot 2026-07-24 — see PROJECT_NOTES/flyregs_decisions.md. Reading
+// and searching the FAR/AIM/P-CG/ADs is free, no account needed — don't list
+// either here. Plus is the one-time content/productivity unlock; Pro and
+// Premium are the subscription service layers on top of it.
 
-// NOTE: browsing the library and finding ACs via search are both free, no
-// account needed — don't list either here. These bullets are specifically
-// what Pro adds on top of that free baseline.
-const PRO_FEATURES = [
-  { icon: 'doc.text',          label: 'The complete text of every Advisory Circular — not just a preview, plus the original PDF' },
-  { icon: 'magnifyingglass',   label: 'In-document search — find any phrase across 30,000+ pages of AC text' },
-  { icon: 'photo',             label: 'Every figure and table, linked right in the text' },
-  { icon: 'folder.fill',       label: 'Custom folders — organize the AC library the FAA never built' },
-  { icon: 'bookmark.fill',     label: 'Bookmarks — save any AC for one-tap access' },
-  { icon: 'square.and.pencil', label: 'Personal notes linked directly to your ACs' },
-  { icon: 'highlighter',       label: 'Highlight key sections and jump straight back to them later' },
+const PLUS_FEATURES = [
+  { icon: 'doc.text',          label: 'Complete text of every Advisory Circular & Legal Interpretation' },
+  { icon: 'square.grid.2x2',   label: 'RefPacks — certificate-specific study collections' },
+  { icon: 'highlighter',       label: 'Highlights, Notes & Bookmarks (up to 3 folders)' },
+  { icon: 'square.and.arrow.up', label: 'Print & export any section' },
+  { icon: 'magnifyingglass',   label: 'Unlimited search results' },
 ]
 
-// The features that Premium adds on top of Pro
+const PRO_ADDITIONS = [
+  { icon: 'icloud',    label: 'Cross-device sync for your highlights, notes & bookmarks' },
+  { icon: 'bell.badge', label: 'Airworthiness Directive alerts for your saved aircraft' },
+  { icon: 'doc.badge.clock', label: 'Advisory Circular update alerts' },
+  { icon: 'airplane',  label: '1 saved aircraft' },
+  { icon: 'rectangle.stack', label: 'Study Mode flashcards & mastery tracking' },
+  { icon: 'rosette',   label: 'Challenge Coins for streaks & milestones' },
+  { icon: 'person.2.fill', label: 'Ready Room leaderboard' },
+  { icon: 'bell',      label: '"Reg of the Day" daily notification' },
+]
+
 const PREMIUM_ADDITIONS = [
-  { icon: 'icloud',               label: 'Cloud backup — your library synced across every device' },
-  { icon: 'person.2.fill',        label: 'Shared folders for CFIs, flight schools, operators, mechanics, and students' },
-  { icon: 'arrow.down.circle',    label: 'Download ACs for offline use — no internet required' },
-  { icon: 'bell.badge',           label: 'Instant alerts when ACs are published or updated' },
-]
-
-// Full Premium feature list shown when upgrading from Free
-const PREMIUM_FEATURES = [
-  ...PRO_FEATURES,
-  ...PREMIUM_ADDITIONS,
+  { icon: 'person.2.fill',     label: 'Shared, collaborative folders for CFIs, schools, and shops' },
+  { icon: 'arrow.down.circle', label: 'Offline downloads — no internet required' },
+  { icon: 'airplane',          label: 'Unlimited saved aircraft (up from 1 on Pro)' },
 ]
 
 // ─── Pricing ──────────────────────────────────────────────────────────────────
 
 const PRICING = {
-  pro:     { monthly: '$2.99', annual: '$14.99', annualSaving: 'Save 58%' },
-  premium: { monthly: '$5.99', annual: '$39.99', annualSaving: 'Save 44%' },
+  plus:    { oneTime: '$17.99' },
+  pro:     { monthly: '$1.99', annual: '$12.99', annualSaving: 'Save 46%' },
+  premium: { monthly: '$3.99', annual: '$24.99', annualSaving: 'Save 48%' },
 }
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -64,47 +67,72 @@ const PRICING = {
 export default function PaywallScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { session, isPro, isPremium, setIsPro, setIsPremium } = useAuth()
+  const { session, isPro, isPremium, isUnlocked, hasPlusAccess, setIsPro, setIsPremium, setIsUnlocked } = useAuth()
   const insets = useSafeAreaInsets()
   const { tier: paramTier } = useLocalSearchParams<{ tier?: string }>()
 
-  // upgradeMode: Pro (not yet Premium) users upgrading to Premium
-  // premiumOnlyMode: Free user hit a Premium-only gate → skip tier picker, show Premium
-  // downgradeMode: Premium subscribers -- shows the tier picker again (unlike
-  // upgradeMode/premiumOnlyMode, which hard-lock to Premium) so Pro is a real,
-  // selectable option. Apple's own subscription-group levels (Pro=1,
-  // Premium=2, both in "FlyRegs Pro") already handle a downgrade correctly
-  // via the exact same purchasePackage() call an upgrade uses -- the app
-  // just never gave the user a way to pick the lower tier once already on
-  // Premium, which is the whole reason downgrading looked broken.
-  const upgradeMode = isPro && !isPremium
-  const premiumOnlyMode = !isPro && paramTier === 'premium'
+  // downgradeMode: Premium subscribers -- shows the tier picker again (Plus
+  // isn't offered here since Premium already includes it) so Pro is a real,
+  // selectable option, same as before the pricing pivot.
   const downgradeMode = isPremium
-  // "locked" cases hard-lock the picker to Premium; downgradeMode deliberately
-  // does NOT lock, since letting the user pick Pro is the entire point.
-  const locked = upgradeMode || premiumOnlyMode
+  // upgradeMode: Pro (not yet Premium) subscribers -- Premium is the only
+  // real "more" option, since they already have everything Plus/Pro offer.
+  const upgradeMode = isPro && !isPremium
+  // premiumRequired: arrived from a gate that specifically needs Premium
+  // (shared folders, offline, unlimited aircraft/folders) and doesn't have
+  // it yet -- lock to Premium, since Plus/Pro genuinely don't unlock it.
+  const premiumRequired = paramTier === 'premium' && !isPremium
+  const locked = upgradeMode || premiumRequired
 
-  const [tier, setTier] = useState<Tier>(locked || downgradeMode ? 'premium' : 'pro')
+  // The tiers actually worth showing: skip anything already owned. A Plus
+  // owner hitting a Pro/Premium gate should never see Plus offered again.
+  const availableTiers: Tier[] = locked
+    ? ['premium']
+    : downgradeMode
+    ? ['pro', 'premium']
+    : hasPlusAccess
+    ? ['pro', 'premium']
+    : ['plus', 'pro', 'premium']
+
+  const defaultTier: Tier = locked || downgradeMode
+    ? 'premium'
+    : paramTier === 'pro' && availableTiers.includes('pro')
+    ? 'pro'
+    : paramTier === 'plus' && availableTiers.includes('plus')
+    ? 'plus'
+    : availableTiers[0]
+
+  const [tier, setTier] = useState<Tier>(defaultTier)
   const [plan, setPlan] = useState<Plan>('annual')
   const [loading, setLoading] = useState(false)
 
-  // isPro/isPremium load asynchronously in AuthProvider — both still false on
-  // this screen's first render for a real subscriber, so the tier useState
-  // above locks in 'pro' before the real status arrives. Re-sync once it
-  // does so the pricing shown always matches the messaging around it.
+  // isPro/isPremium/isUnlocked load asynchronously in AuthProvider — all still
+  // false on this screen's first render for a real subscriber, so the tier
+  // useState above locks in a guess before the real status arrives. Re-sync
+  // once it does so the pricing/picker shown always matches reality.
   useEffect(() => {
-    if (locked || downgradeMode) setTier('premium')
-  }, [locked, downgradeMode])
+    setTier(defaultTier)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locked, downgradeMode, hasPlusAccess])
 
   // Viewing "premium" while downgradeMode is true means looking at the
   // CURRENT plan, not something new to buy -- nothing to purchase, and the
   // CTA below is disabled/relabeled for exactly this case.
   const viewingCurrentPlan = downgradeMode && tier === 'premium'
 
-  const features = tier === 'pro' ? PRO_FEATURES : (upgradeMode ? PREMIUM_ADDITIONS : PREMIUM_FEATURES)
-  const pricing = PRICING[tier]
+  // Pro/Premium always show as marginal additions on top of the tier below --
+  // "Everything in Plus, plus:" / "Everything in Plus and Pro, plus:" -- not
+  // just for viewers who already own the lower tier. Previously this only
+  // applied to upgrade flows, so a first-time viewer saw a single flattened
+  // list repeating every lower-tier feature (and, confirmed live, a real
+  // contradiction: Pro's "1 saved aircraft" and Premium's "Unlimited saved
+  // aircraft" both appearing in Premium's own flattened list at once).
+  const features = tier === 'plus' ? PLUS_FEATURES : tier === 'pro' ? PRO_ADDITIONS : PREMIUM_ADDITIONS
+  // Plus has a different shape (one-time, no monthly/annual) -- only read
+  // subscription pricing when the picker is actually showing a subscription.
+  const subPricing = tier === 'premium' ? PRICING.premium : PRICING.pro
 
-  const tierLabel = tier === 'pro' ? 'Pro' : 'Premium'
+  const tierLabel = tier === 'plus' ? 'Plus' : tier === 'pro' ? 'Pro' : 'Premium'
   const ctaLabel = viewingCurrentPlan
     ? 'Current Plan'
     : downgradeMode
@@ -124,7 +152,7 @@ export default function PaywallScreen() {
       return
     }
     if (!session) {
-      Alert.alert('Sign in first', 'Create a free account to subscribe.', [
+      Alert.alert('Sign in first', 'Create a free account to continue.', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Sign In', onPress: () => router.replace('/auth') },
       ])
@@ -134,7 +162,7 @@ export default function PaywallScreen() {
     if (downgradeMode && tier === 'pro') {
       Alert.alert(
         'Downgrade to Pro?',
-        "You'll keep Premium features (cloud sync, shared folders, offline downloads, update alerts) until your current billing period ends, then move to Pro automatically. No refund for the time remaining.",
+        "You'll keep Premium features (shared folders, offline downloads, unlimited aircraft) until your current billing period ends, then move to Pro automatically. No refund for the time remaining.",
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Downgrade', style: 'destructive', onPress: () => void confirmSubscribe() },
@@ -149,9 +177,12 @@ export default function PaywallScreen() {
     setLoading(true)
     try {
       const activeTier = locked ? 'premium' : tier
-      const status = await purchaseSubscription(activeTier, plan)
+      const status = activeTier === 'plus'
+        ? await purchaseUnlock()
+        : await purchaseSubscription(activeTier, plan)
       setIsPro(status.isPro)
       setIsPremium(status.isPremium)
+      setIsUnlocked(status.isUnlocked)
       router.dismiss()
     } catch (err: any) {
       // User cancelled — no alert needed
@@ -167,7 +198,7 @@ export default function PaywallScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 16), borderBottomColor: tokens.bdr }]}>
         <Text style={[styles.headerTitle, { color: tokens.t1, fontSize: fs(16) }]}>
-          {locked ? 'Upgrade to Premium' : downgradeMode ? 'Manage Your Plan' : 'Upgrade FlyRegs'}
+          {locked ? 'Upgrade to Premium' : downgradeMode ? 'Manage Your Plan' : 'Unlock FlyRegs'}
         </Text>
         <Pressable onPress={() => router.dismiss()} hitSlop={8} style={styles.closeBtn}>
           <Icon name="xmark" size={18} color={tokens.t3} />
@@ -186,18 +217,18 @@ export default function PaywallScreen() {
             resizeMode="contain"
           />
           <TierBadge tier={badgeTier} tokens={tokens} fs={fs} />
-          {premiumOnlyMode ? (
+          {premiumRequired ? (
             <>
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>This is a Premium feature</Text>
               <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
-                Upgrade to Premium to unlock this — plus cloud sync, shared folders, offline downloads, and update alerts.
+                Upgrade to Premium to unlock this — plus shared folders, offline downloads, and unlimited aircraft.
               </Text>
             </>
           ) : upgradeMode ? (
             <>
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>Take FlyRegs further</Text>
               <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
-                Add cloud sync, shared folders, unlimited offline, and priority alerts to your Pro subscription.
+                Add shared folders, offline downloads, and unlimited saved aircraft to your Pro subscription.
               </Text>
             </>
           ) : downgradeMode ? (
@@ -211,28 +242,34 @@ export default function PaywallScreen() {
                   : 'You\'ll keep Premium features until your current billing period ends, then move to Pro automatically.'}
               </Text>
             </>
+          ) : hasPlusAccess ? (
+            <>
+              <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>Take FlyRegs further</Text>
+              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+                You already have Plus. Add sync, alerts, sharing, and offline access with a subscription.
+              </Text>
+            </>
           ) : (
             <>
-              <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>The complete FAA AC reference</Text>
+              <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>The complete FAA reference</Text>
               <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
-                Everything a pilot, mechanic, or operator needs — in one place.
+                FAR, AIM, P/CG & ADs are free. Unlock these extras forever. Then subscribe for so much more.
               </Text>
             </>
           )}
         </View>
 
-        {/* Tier picker — free users (not arriving from a Premium-only gate),
-            and Premium subscribers who can pick Pro as a downgrade */}
+        {/* Tier picker */}
         {!locked && (
           <View style={[styles.tierPicker, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-            {(['pro', 'premium'] as Tier[]).map((t) => (
+            {availableTiers.map((t) => (
               <Pressable
                 key={t}
-                style={[styles.tierBtn, tier === t && { backgroundColor: tokens.blu }]}
+                style={[styles.tierBtn, tier === t && { backgroundColor: t === 'plus' ? tokens.amb : tokens.blu }]}
                 onPress={() => setTier(t)}
               >
                 <Text style={[styles.tierBtnText, { color: tier === t ? '#fff' : tokens.t3, fontSize: fs(14) }]}>
-                  {t === 'pro' ? 'Pro' : 'Premium'}
+                  {t === 'plus' ? 'Plus' : t === 'pro' ? 'Pro' : 'Premium'}
                 </Text>
               </Pressable>
             ))}
@@ -241,10 +278,10 @@ export default function PaywallScreen() {
 
         {/* Feature list */}
         <View style={[styles.featureBox, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-          {(locked || viewingCurrentPlan) && (
+          {tier !== 'plus' && (
             <View style={[styles.featureHeader, { borderBottomColor: tokens.bdr }]}>
               <Text style={[styles.featureHeaderText, { color: tokens.t3, fontSize: fs(11.5) }]}>
-                {upgradeMode ? 'Everything in Pro, plus:' : 'Everything in the app, unlocked:'}
+                {tier === 'pro' ? 'Everything in Plus, plus:' : 'Everything in Plus and Pro, plus:'}
               </Text>
             </View>
           )}
@@ -259,46 +296,62 @@ export default function PaywallScreen() {
               <Icon
                 name={f.icon}
                 size={17}
-                color={tier === 'premium' || upgradeMode || premiumOnlyMode ? tokens.gold : tokens.blu}
+                color={tier === 'premium' || upgradeMode || premiumRequired ? tokens.gold : tier === 'plus' ? tokens.amb : tokens.blu}
               />
               <Text style={[styles.featureText, { color: tokens.t1, fontSize: fs(14) }]}>{f.label}</Text>
             </View>
           ))}
         </View>
 
-        {/* Plan picker */}
+        {/* Plan picker — Plus is a single one-time purchase, no monthly/annual */}
         <View style={styles.planHeaderRow}>
-          <Text style={[styles.pickLabel, { color: tokens.t3, fontSize: fs(11) }]}>CHOOSE A PLAN</Text>
+          <Text style={[styles.pickLabel, { color: tokens.t3, fontSize: fs(11) }]}>
+            {tier === 'plus' ? 'ONE-TIME PURCHASE' : 'CHOOSE A PLAN'}
+          </Text>
           <TierBadge tier={badgeTier} tokens={tokens} fs={fs} compact />
         </View>
-        <View style={styles.planRow}>
-          <PlanCard
-            title="Monthly"
-            price={pricing.monthly}
-            period="/mo"
-            badge={null}
-            selected={plan === 'monthly'}
-            onPress={() => setPlan('monthly')}
-            tokens={tokens}
-            isPremium={tier === 'premium' || upgradeMode || premiumOnlyMode}
-          />
-          <PlanCard
-            title="Annual"
-            price={pricing.annual}
-            period="/yr"
-            badge={pricing.annualSaving}
-            selected={plan === 'annual'}
-            onPress={() => setPlan('annual')}
-            tokens={tokens}
-            isPremium={tier === 'premium' || upgradeMode || premiumOnlyMode}
-          />
-        </View>
+        {tier === 'plus' ? (
+          <Pressable
+            style={[
+              styles.planCard,
+              styles.planCardSolo,
+              { backgroundColor: tokens.amb + '18', borderColor: tokens.amb },
+            ]}
+          >
+            <Text style={[styles.planTitle, { color: tokens.amb, fontSize: fs(12) }]}>PLUS</Text>
+            <Text style={[styles.planPrice, { color: tokens.t1, fontSize: fs(28) }]}>{PRICING.plus.oneTime}</Text>
+            <Text style={[styles.planPeriod, { color: tokens.t3, fontSize: fs(12) }]}>one-time — yours forever</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.planRow}>
+            <PlanCard
+              title="Monthly"
+              price={subPricing.monthly}
+              period="/mo"
+              badge={null}
+              selected={plan === 'monthly'}
+              onPress={() => setPlan('monthly')}
+              tokens={tokens}
+              isPremium={tier === 'premium' || upgradeMode || premiumRequired}
+            />
+            <PlanCard
+              title="Annual"
+              price={subPricing.annual}
+              period="/yr"
+              badge={subPricing.annualSaving}
+              selected={plan === 'annual'}
+              onPress={() => setPlan('annual')}
+              tokens={tokens}
+              isPremium={tier === 'premium' || upgradeMode || premiumRequired}
+            />
+          </View>
+        )}
 
         {/* CTA */}
         <Pressable
           style={[
             styles.cta,
-            { backgroundColor: tier === 'premium' || upgradeMode || premiumOnlyMode ? tokens.gold : tokens.blu },
+            { backgroundColor: tier === 'premium' || upgradeMode || premiumRequired ? tokens.gold : tier === 'plus' ? tokens.amb : tokens.blu },
             (loading || viewingCurrentPlan) && styles.ctaDisabled,
           ]}
           onPress={handleSubscribe}
@@ -317,7 +370,7 @@ export default function PaywallScreen() {
           // handleSubscribe above) -- restoring must never hand out
           // entitlements to a signed-out session.
           if (!session) {
-            Alert.alert('Sign in first', 'Create a free account to restore your subscription.', [
+            Alert.alert('Sign in first', 'Create a free account to restore your purchases.', [
               { text: 'Cancel', style: 'cancel' },
               { text: 'Sign In', onPress: () => router.replace('/auth') },
             ])
@@ -327,8 +380,9 @@ export default function PaywallScreen() {
             const status = await restorePurchases()
             setIsPro(status.isPro)
             setIsPremium(status.isPremium)
-            if (status.isPro || status.isPremium) router.dismiss()
-            else Alert.alert('No purchases found', 'No active subscription found for this Apple ID.')
+            setIsUnlocked(status.isUnlocked)
+            if (status.isPro || status.isPremium || status.isUnlocked) router.dismiss()
+            else Alert.alert('No purchases found', 'No active purchases found for this Apple ID.')
           } catch (err: any) {
             Alert.alert('Error', err?.message ?? 'Could not restore purchases.')
           }
@@ -337,8 +391,9 @@ export default function PaywallScreen() {
         </Pressable>
 
         <Text style={[styles.legal, { color: tokens.t4, fontSize: fs(11) }]}>
-          Subscription renews automatically. Cancel anytime in App Store or Google Play settings.
-          Prices shown in USD.
+          {tier === 'plus'
+            ? 'One-time purchase, billed once through the App Store. Prices shown in USD.'
+            : 'Subscription renews automatically. Cancel anytime in App Store or Google Play settings. Prices shown in USD.'}
         </Text>
       </ScrollView>
     </View>
@@ -346,9 +401,9 @@ export default function PaywallScreen() {
 }
 
 // ─── Tier Badge ───────────────────────────────────────────────────────────────
-// Eye-catching gold/blue pill naming the exact plan on offer — shown once up
-// top by the headline and again just above the pricing cards, so it's never
-// ambiguous which plan ("Pro" vs "Premium") a user is about to buy.
+// Eye-catching pill naming the exact plan on offer — shown once up top by the
+// headline and again just above the pricing cards, so it's never ambiguous
+// which plan a user is about to buy.
 
 function TierBadge({
   tier, tokens, fs, compact,
@@ -359,9 +414,10 @@ function TierBadge({
   compact?: boolean
 }) {
   const isPremium = tier === 'premium'
-  const accentColor = isPremium ? tokens.gold : tokens.blu
-  const bg = isPremium ? tokens.goldlt : tokens.bdim
-  const bdr = isPremium ? tokens.goldbdr : tokens.bbdr
+  const isPlus = tier === 'plus'
+  const accentColor = isPremium ? tokens.gold : isPlus ? tokens.amb : tokens.blu
+  const bg = isPremium ? tokens.goldlt : isPlus ? tokens.amb + '20' : tokens.bdim
+  const bdr = isPremium ? tokens.goldbdr : isPlus ? tokens.amb + '48' : tokens.bbdr
 
   return (
     <View style={[
@@ -369,13 +425,13 @@ function TierBadge({
       compact && styles.tierBadgeCompact,
       { backgroundColor: bg, borderColor: bdr },
     ]}>
-      <Icon name={isPremium ? 'crown.fill' : 'star.fill'} size={compact ? 11 : 13} color={accentColor} />
+      <Icon name={isPremium ? 'crown.fill' : isPlus ? 'plus.circle.fill' : 'star.fill'} size={compact ? 11 : 13} color={accentColor} />
       <Text style={[
         styles.tierBadgeText,
         compact && styles.tierBadgeTextCompact,
         { color: accentColor, fontSize: fs(compact ? 11 : 13) },
       ]}>
-        {tier === 'pro' ? 'PRO' : 'PREMIUM'}
+        {tier === 'plus' ? 'PLUS' : tier === 'pro' ? 'PRO' : 'PREMIUM'}
       </Text>
     </View>
   )
@@ -515,6 +571,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
   },
+  planCardSolo: { paddingVertical: 18 },
   planBadge: {
     borderRadius: 6,
     paddingHorizontal: 8,

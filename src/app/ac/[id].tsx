@@ -21,6 +21,7 @@ import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
+import { BackToBreadcrumb } from '@/components/DocNavBar'
 import { Icon } from '@/components/Icon'
 import { ACBody, ACBodyHandle } from '@/components/ACBody'
 import { addRecent } from '@/lib/recents'
@@ -34,10 +35,12 @@ import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { FigureViewer } from '@/components/FigureViewer'
 import { FormulaRefViewer } from '@/components/FormulaRefViewer'
+import { MagicLinkPod } from '@/components/MagicLinkPod'
 import { isOcrScanned, ocrScannedSeq, OCR_SCANNED_TOTAL } from '@/lib/ocrScannedACs'
 import { buildACShareLink, highlightSnippet } from '@/lib/acShare'
 import { FolderPicker } from '@/components/FolderPicker'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
+import { consumePendingBreadcrumb, setPendingBreadcrumb } from '@/lib/navBreadcrumb'
 import type { AdvisoryCircular, AcFigure, FormulaRef } from '@/types'
 
 // Maps a block to the fields a highlight bookmark needs — chapter headings
@@ -67,6 +70,12 @@ function previewBlockCount(totalBlocks: number): number {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+interface RelatedItem {
+  cited_type: string
+  cited_id: string
+  label: string | null
+}
+
 export default function ACDetailScreen() {
   const { id, hlId, hlText } = useLocalSearchParams<{ id: string; hlId?: string; hlText?: string }>()
   const { tokens } = useTheme()
@@ -95,16 +104,65 @@ export default function ACDetailScreen() {
         supabase.from('advisory_circulars').select('id,document_number').ilike('document_number', `${id}%`).eq('status', 'active')
           .then(({ data: matches }) => {
             if (!matches || matches.length === 0) return
-            const best = matches.sort((a, b) => b.document_number.length - a.document_number.length)[0]
+            // A revision suffix is always non-numeric ("120-12" -> "120-12A")
+            // -- confirmed live as a real, wrong-AC bug: unfiltered, this
+            // prefix match also caught "120-126A" for a query of "120-12"
+            // (120-12 IS a literal string-prefix of 120-126A), and being
+            // longer, it won the "take the longest match" sort over the
+            // actual correct target "120-12A". A candidate whose next
+            // character after the matched prefix is a DIGIT is a different
+            // AC's number that happens to share a numeric prefix, not a
+            // missing-revision-letter case of this one -- exclude those.
+            const revisionMatches = matches.filter((m) => !/^\d/.test(m.document_number.slice(id.length)))
+            if (revisionMatches.length === 0) return
+            const best = revisionMatches.sort((a, b) => b.document_number.length - a.document_number.length)[0]
             router.replace(`/ac/${best.id}` as any)
           })
       })
   }, [id])
-  const { isPro, isPremium } = useAuth()
+
+  // Consumed once per screen instance, not on every render -- see
+  // navBreadcrumb.ts's single-slot design. Confirmed a real gap: unlike
+  // far/aim/pcg/loi, this screen never read the pending breadcrumb at all,
+  // so arriving here via a MagicLink (e.g. from FAR 119.39) showed a plain
+  // back arrow instead of "Back to § 119.39" — inconsistent with every
+  // other content type's detail screen.
+  //
+  // AC is unique among content types in redirecting internally: a
+  // MagicLink to an AC lands on its document_number ("120-49B"), which the
+  // effect above resolves and router.replace()s to the canonical UUID
+  // route. That replace() mounts a genuinely NEW component instance with
+  // its own fresh state -- a same-instance guard (a ref, a bool) can't
+  // help, because the FIRST (document_number) instance already emptied
+  // the single slot before the SECOND (UUID) instance -- the one that
+  // actually renders -- ever mounts. Confirmed live: even with a
+  // mount-once ref guard, the breadcrumb still silently vanished.
+  //
+  // Fix: while `id` is still the non-canonical document_number (i.e. this
+  // instance is about to redirect and die), read the pending breadcrumb
+  // and immediately put it right back -- a no-op pass-through that keeps
+  // it alive for the instance that's about to replace this one. Only
+  // consume it for real once `id` is already the canonical UUID, which is
+  // the stable instance that actually renders.
+  useEffect(() => {
+    if (id && !UUID_RE.test(id)) {
+      const label = consumePendingBreadcrumb()
+      if (label) setPendingBreadcrumb(label)
+      return
+    }
+    setBackTo(consumePendingBreadcrumb())
+  }, [id])
+  // FlyRegs pricing pivot (2026-07-24) -- AC/LOI full text, figures, highlights,
+  // notes, bookmarks, and folders are all Plus-tier now, gated on hasPlusAccess
+  // (isUnlocked || isPro || isPremium), not raw isPro. Offline downloads and
+  // sharing stay Premium-only, unchanged from before.
+  const { isPremium, hasPlusAccess } = useAuth()
   const fs = useFS()
   const scrollRef = useRef<ScrollView>(null)
   const acBodyRef = useRef<ACBodyHandle>(null)
   const [ac, setAC] = useState<AdvisoryCircular | null>(null)
+  const [backTo, setBackTo] = useState<string | null>(null)
+  const [related, setRelated] = useState<RelatedItem[]>([])
   const [bookmarked, setBookmarked] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
   const [downloadBusy, setDownloadBusy] = useState(false)
@@ -293,6 +351,40 @@ export default function ACDetailScreen() {
     getHighlightsForAC(id).then((hs) => setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!))))
   }, [id])
 
+  // MagicLink cross-references -- confirmed a total, real gap: document_citations
+  // had zero rows with citing_type='ac' anywhere in the corpus (no extraction
+  // script for AC's own outbound citations had ever been built), so this screen
+  // never had ANY related-content UI at all despite far/aim/ad all having it.
+  // document_citations keys ACs by document_number (what ac_citations.py writes),
+  // not the internal UUID `id` param this screen otherwise uses -- so this waits
+  // for ac.document_number to be loaded rather than running off the raw param.
+  useEffect(() => {
+    const docNum = ac?.document_number
+    if (!docNum) return
+    supabase
+      .from('document_citations')
+      .select('citing_type, citing_id, cited_type, cited_id, label')
+      .or(`and(cited_type.eq.ac,cited_id.eq.${docNum}),and(citing_type.eq.ac,citing_id.eq.${docNum})`)
+      .then(({ data, error }) => {
+        if (error || !data) return
+        // Normalize to "the OTHER document" regardless of which side of the
+        // row this AC is on -- same pattern as far/aim/ad's fixed queries.
+        const rows = data as { citing_type: string; citing_id: string; cited_type: string; cited_id: string; label: string | null }[]
+        const other = rows
+          .map((r) => (r.citing_type === 'ac' && r.citing_id === docNum
+            ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
+            : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
+          .filter((r) => !(r.cited_type === 'ac' && r.cited_id === docNum))
+        setRelated(other)
+      })
+  }, [ac?.document_number])
+
+  const farRefs = related.filter((r) => r.cited_type === 'far' || r.cited_type === 'far_part')
+  const aimRefs = related.filter((r) => r.cited_type === 'aim')
+  const pcgRefs = related.filter((r) => r.cited_type === 'pcg')
+  const adRefs = related.filter((r) => r.cited_type === 'ad')
+  const otherAcRefs = related.filter((r) => r.cited_type === 'ac')
+
   // Opened from a highlight row in Saved (?hlId=<highlight bookmark id>) —
   // jump straight to that block instead of landing at the top like a normal
   // bookmark open. Runs once per hlId, after pdf_blocks is actually available
@@ -318,7 +410,7 @@ export default function ACDetailScreen() {
   // sharing a highlighted passage previously only ever scrolled the
   // recipient to it without marking it yellow on their end, even though
   // that's the whole point of sharing a *highlight* specifically (as
-  // opposed to the AC generally). Gated on isPro, same as creating any
+  // opposed to the AC generally). Gated on hasPlusAccess, same as creating any
   // other highlight -- this only ever adds one the recipient doesn't
   // already have; it never removes/toggles anything of theirs.
   const jumpedToHlText = useRef<string | null>(null)
@@ -331,7 +423,7 @@ export default function ACDetailScreen() {
     jumpedToHlText.current = hlText
     setTimeout(() => acBodyRef.current?.scrollToBlockIndex(idx), 250)
 
-    if (isPro) {
+    if (hasPlusAccess) {
       const block = ac.pdf_blocks[idx]
       const meta = highlightMeta(block)
       const contentKey = blockText(block)
@@ -355,7 +447,7 @@ export default function ACDetailScreen() {
         })
       }
     }
-  }, [hlText, ac?.id, ac?.pdf_blocks, isPro])
+  }, [hlText, ac?.id, ac?.pdf_blocks, hasPlusAccess])
 
   const handleDownload = async () => {
     if (!ac) return
@@ -433,7 +525,7 @@ export default function ACDetailScreen() {
 
   const handleToggleBookmark = async () => {
     if (!ac) return
-    if (!isPro) {
+    if (!hasPlusAccess) {
       router.push('/paywall')
       return
     }
@@ -455,7 +547,7 @@ export default function ACDetailScreen() {
   // the paywall rather than risking a silent no-op.
   const handleOpenFolderPicker = () => {
     if (!ac) return
-    if (!isPro) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall'); return }
     setFolderPickerVisible(true)
   }
 
@@ -478,7 +570,7 @@ export default function ACDetailScreen() {
   const lastToggleAt = useRef(0)
   const handleToggleHighlight = useCallback(async (block: ACBlock) => {
     if (!ac) return
-    if (!isPro) {
+    if (!hasPlusAccess) {
       router.push('/paywall')
       return
     }
@@ -513,7 +605,7 @@ export default function ACDetailScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [ac, isPro])
+  }, [ac, hasPlusAccess])
 
   // Copy is deliberately NOT Pro-gated, unlike highlighting — it only ever
   // copies a block that's already rendered on screen for this reader (Free
@@ -554,7 +646,7 @@ export default function ACDetailScreen() {
   const handleBlockLongPress = useCallback((block: ACBlock, index: number) => {
     const meta = highlightMeta(block)
     if (!meta) return
-    if (!isPro) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall'); return }
     const isHighlighted = highlightedBlockTexts.has(blockText(block))
     Alert.alert('', undefined, [
       { text: 'Copy Text', onPress: () => handleCopyBlock(block) },
@@ -565,7 +657,7 @@ export default function ACDetailScreen() {
       { text: 'Share Passage', onPress: () => handleSharePassage(block) },
       { text: 'Cancel', style: 'cancel' },
     ])
-  }, [isPro, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, handleSharePassage])
+  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, handleSharePassage])
 
   // Jump nav between the blocks the "What's New" diff flagged as changed —
   // mirrors the existing in-doc search prev/next pattern below (goToPrev/
@@ -603,7 +695,7 @@ export default function ACDetailScreen() {
   // Controller's own native share/copy-link button let the raw, un-gated PDF
   // URL leak to someone who never had the app at all).
   const openPDF = () => {
-    if (!isPro) {
+    if (!hasPlusAccess) {
       router.push('/paywall')
       return
     }
@@ -633,7 +725,7 @@ export default function ACDetailScreen() {
         <Icon name="square.and.arrow.up" size={21} color={isPremium ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="folder.badge.plus" size={21} color={isPro ? tokens.t2 : tokens.t4} />
+        <Icon name="folder.badge.plus" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
         <Icon
@@ -652,9 +744,10 @@ export default function ACDetailScreen() {
         onBack={() => router.back()}
         right={headerRight}
       />
+      {backTo && <BackToBreadcrumb label={backTo} onPress={() => router.back()} />}
 
-      {/* Sticky in-AC search — Pro only, only shown when AC has searchable content */}
-      {!loading && isPro && ac?.pdf_blocks && ac.pdf_blocks.length > 0 && (
+      {/* Sticky in-AC search — Plus only, only shown when AC has searchable content */}
+      {!loading && hasPlusAccess && ac?.pdf_blocks && ac.pdf_blocks.length > 0 && (
         <View style={[styles.stickySearch, { backgroundColor: tokens.bg, borderBottomColor: tokens.bdr }]}>
           <View
             style={[
@@ -775,7 +868,7 @@ export default function ACDetailScreen() {
           {changedList.length > 0 && (
             <View style={[styles.updateBanner, { backgroundColor: tokens.bdim, borderColor: tokens.blu }]}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                <Icon name="sparkles" size={14} color={tokens.blu} style={{ marginTop: 2 }} />
+                <Icon name="bell.badge" size={14} color={tokens.blu} style={{ marginTop: 2 }} />
                 <Text style={[styles.updateBannerText, { color: tokens.t1, fontSize: fs(12.5) }]}>
                   This AC was updated — {changedList.length} section{changedList.length === 1 ? '' : 's'} changed
                   {changedLabels.length > 0 ? ` (${changedLabels.join(', ')})` : ''}.
@@ -902,8 +995,22 @@ export default function ACDetailScreen() {
             </Pressable>
           </View>
 
+          <View style={styles.barsWrap}>
+            <MagicLinkPod
+              bars={[
+                { icon: 'doc.text', label: 'Related ACs', items: otherAcRefs },
+                { icon: 'list.bullet', label: 'FAR references', items: farRefs },
+                { icon: 'arrow.up.right.square', label: 'AIM references', items: aimRefs },
+                { icon: 'questionmark.circle', label: 'P/CG terms', items: pcgRefs },
+                { icon: 'wrench.and.screwdriver', label: 'Related ADs', items: adRefs },
+              ]}
+              currentLabel={`AC ${ac.document_number}`}
+              hasPlusAccess={hasPlusAccess}
+            />
+          </View>
+
           {/* Full text — free readers get the Contents + a proportional preview
-              of the beginning, then a gate; Pro gets the complete document. */}
+              of the beginning, then a gate; Plus gets the complete document. */}
           {ac.pdf_blocks && ac.pdf_blocks.length > 0 ? (
             <View
               style={styles.fullTextSection}
@@ -914,33 +1021,34 @@ export default function ACDetailScreen() {
               <ACBody
                 ref={acBodyRef}
                 blocks={ac.pdf_blocks}
-                bodyLimit={isPro ? undefined : previewBlockCount(ac.pdf_blocks.length)}
+                bodyLimit={hasPlusAccess ? undefined : previewBlockCount(ac.pdf_blocks.length)}
                 scrollRef={scrollRef}
                 viewportHeight={scrollViewportHeight}
                 outerOffsetYRef={fullTextSectionYRef}
-                highlightQuery={isPro && acSearchDebounced.length >= 2 ? acSearchDebounced : undefined}
+                highlightQuery={hasPlusAccess && acSearchDebounced.length >= 2 ? acSearchDebounced : undefined}
                 onMatchCount={handleMatchCount}
                 activeMatch={matchCount > 0 ? matchIdx : -1}
                 changedIndices={ac.changed_block_indices}
-                highlightedBlockTexts={isPro ? highlightedBlockTexts : undefined}
+                highlightedBlockTexts={hasPlusAccess ? highlightedBlockTexts : undefined}
                 onToggleHighlight={handleBlockLongPress}
-                figures={isPro ? (figures ?? undefined) : undefined}
-                onOpenFigure={isPro ? setViewerFigure : undefined}
-                formulaRefs={isPro ? (formulaRefs ?? undefined) : undefined}
-                onOpenFormulaRef={isPro ? setViewerFormulaRef : undefined}
+                figures={hasPlusAccess ? (figures ?? undefined) : undefined}
+                onOpenFigure={hasPlusAccess ? setViewerFigure : undefined}
+                formulaRefs={hasPlusAccess ? (formulaRefs ?? undefined) : undefined}
+                onOpenFormulaRef={hasPlusAccess ? setViewerFormulaRef : undefined}
+                currentLabel={`AC ${ac.document_number}`}
               />
-              {!isPro && ac.pdf_blocks.length > previewBlockCount(ac.pdf_blocks.length) && (
+              {!hasPlusAccess && ac.pdf_blocks.length > previewBlockCount(ac.pdf_blocks.length) && (
                 <Pressable
                   style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
                   onPress={() => router.push('/paywall')}
                 >
                   <Icon name="lock.fill" size={20} color={tokens.blu} />
-                  <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Continue reading with Pro</Text>
+                  <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Continue reading with Plus</Text>
                   <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-                    You're reading a preview. Upgrade to Pro for the complete text, with full search and navigation.
+                    You're reading a preview. Unlock Plus for the complete text, with full search and navigation.
                   </Text>
                   <View style={[styles.proGateBtn, { backgroundColor: tokens.blu }]}>
-                    <Text style={[styles.proGateBtnText, { fontSize: fs(15) }]}>Upgrade to Pro</Text>
+                    <Text style={[styles.proGateBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
                   </View>
                 </Pressable>
               )}
@@ -1059,6 +1167,8 @@ const styles = StyleSheet.create({
   // iPad/large screens — the ScrollView itself still fills the full screen,
   // only the content column is capped and centered.
   content: { padding: 16, paddingBottom: 48, gap: 12, width: '100%', maxWidth: 700, alignSelf: 'center' },
+
+  barsWrap: { gap: 6 },
 
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   badge: {

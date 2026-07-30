@@ -1,10 +1,13 @@
-import { Text, StyleSheet } from 'react-native'
+import React, { useMemo, useRef, useEffect, useImperativeHandle, RefObject } from 'react'
+import { Text, View, ScrollView, Platform, StyleSheet } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { linkifyText } from '@/lib/crossRefLinks'
 import { TableGrid } from '@/components/TableGrid'
 import { softWrapParagraph } from '@/lib/softWrap'
+import { setPendingBreadcrumb } from '@/lib/navBreadcrumb'
+import { searchPhrase, countOcc, highlightSpans } from '@/lib/searchHighlight'
 
 // Renders \n\n-delimited body text (FAR/AIM/P-CG's plain-text content, as
 // opposed to the AC pipeline's parsed ACBlock[] structure) as real, visually
@@ -84,11 +87,11 @@ interface CurrentFigure {
   image_url: string
 }
 
-export function PlainTextBody({
-  text,
-  figures,
-  onOpenFigure,
-}: {
+export interface PlainTextBodyHandle {
+  scrollToMatch(n: number): void
+}
+
+export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
   text: string
   // The CURRENT paragraph's own figures (already fetched by the parent
   // screen for its Figures & Tables strip) — used to resolve a TBL/FIG
@@ -100,7 +103,20 @@ export function PlainTextBody({
   // route-based fallback behavior.
   figures?: CurrentFigure[]
   onOpenFigure?: (figure: CurrentFigure) => void
-}) {
+  /** This screen's own display label -- set as the "back to X" breadcrumb
+   * right before an in-doc hyperlink jumps elsewhere, same mechanism as
+   * MagicLinkPod's currentLabel prop. */
+  currentLabel?: string
+  /** IN DOC search -- see InDocSearchBar/useInDocSearch. Mirrors ACBody's
+   * own highlightQuery/activeMatch/onMatchCount contract exactly, so every
+   * content type's detail screen wires this up the same way. */
+  highlightQuery?: string
+  activeMatch?: number
+  onMatchCount?: (n: number) => void
+  /** Needed only for native scrollToMatch (web uses DOM scrollIntoView
+   * instead, same as ACBody) -- the parent screen's own ScrollView ref. */
+  scrollRef?: RefObject<ScrollView | null>
+}>(function PlainTextBody({ text, figures, onOpenFigure, currentLabel, highlightQuery, activeMatch, onMatchCount, scrollRef }, ref) {
   const { tokens } = useTheme()
   const fs = useFS()
   // NOT stripped here — parseTableBlock() below needs the raw marker
@@ -114,24 +130,120 @@ export function PlainTextBody({
   // before the text.
   const paragraphs = text.split(/\n\n+/).filter((p) => p.trim())
 
-  const handlePress = (seg: { route: string | null; isFigure?: boolean }) => {
-    if (seg.isFigure) {
-      // A "(See TBL 3-2-1.)" mention is overwhelmingly a self-reference to
-      // a table/figure already shown in THIS paragraph, not a pointer
-      // elsewhere — confirmed live. One figure on the page: open it
-      // directly, no ambiguity. Multiple or none: fall back to the plain
-      // route rather than guess wrong.
-      if (onOpenFigure && figures && figures.length === 1) {
-        onOpenFigure(figures[0])
+  const hq = highlightQuery && highlightQuery.length >= 2 ? highlightQuery : null
+  const phrase = hq ? searchPhrase(hq) : null
+
+  // One entry per phrase occurrence, in paragraph order -- same idea as
+  // ACBody's own `occurrences`, just simpler (paragraph-granularity, not
+  // block+fraction) since PlainTextBody's content is flat prose, not
+  // ACBody's parsed block tree.
+  const occurrences = useMemo(() => {
+    if (!phrase || phrase.length < 2) return []
+    const result: { paraIndex: number }[] = []
+    paragraphs.forEach((para, i) => {
+      const n = countOcc(para, phrase)
+      for (let k = 0; k < n; k++) result.push({ paraIndex: i })
+    })
+    return result
+  }, [paragraphs, phrase])
+
+  const paraBase = useMemo(() => {
+    const m = new Map<number, number>()
+    for (let k = 0; k < occurrences.length; k++) {
+      if (!m.has(occurrences[k].paraIndex)) m.set(occurrences[k].paraIndex, k)
+    }
+    return m
+  }, [occurrences])
+
+  useEffect(() => {
+    onMatchCount?.(occurrences.length)
+  }, [occurrences, onMatchCount])
+
+  const paraRefs = useRef<Record<number, View | null>>({})
+  const paraRelY = useRef<Record<number, number>>({})
+
+  useImperativeHandle(ref, () => ({
+    scrollToMatch(n: number) {
+      if (Platform.OS === 'web') {
+        // Same approach as ACBody: each phrase occurrence is one
+        // highlighted <span> (RN Web renders Text -> span). Scroll to the
+        // nth, retrying across a few frames in case the highlight hasn't
+        // painted yet on a cold mount.
+        const tryScroll = (attempt: number) => {
+          const spans = Array.from((document as any).querySelectorAll('span') as HTMLSpanElement[])
+          const hl = spans.filter((s) => {
+            const bg = (window as any).getComputedStyle(s).backgroundColor as string
+            return bg.includes('255, 213, 0') || bg.includes('255,213,0') ||
+                   bg.includes('255, 138, 0') || bg.includes('255,138,0')
+          })
+          const target = hl[n]
+          if (!target) {
+            if (attempt < 6) requestAnimationFrame(() => tryScroll(attempt + 1))
+            return
+          }
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+        requestAnimationFrame(() => tryScroll(0))
         return
       }
+      const scroller = scrollRef?.current
+      if (!scroller) return
+      const occ = occurrences[n]
+      if (!occ) return
+      const y = paraRelY.current[occ.paraIndex]
+      if (y == null) return
+      scroller.scrollTo({ y: Math.max(0, y - 100), animated: true })
+    },
+  }), [occurrences, scrollRef])
+
+  const handlePress = (seg: { text: string; route: string | null; isFigure?: boolean }) => {
+    if (seg.isFigure) {
+      // A "(See FIG 4-3-8.)" mention is overwhelmingly a self-reference to
+      // a table/figure already shown on THIS page, not a pointer elsewhere
+      // — confirmed live. First choice: match the mention's exact text
+      // ("FIG 4-3-8") against this page's own figures by label -- reliable
+      // even with several figures on the page (AIM 4-3-11 has 6; its own
+      // FIG 4-3-8/4-3-9/4-3-10 mentions all match real labels here). Only
+      // when that also fails to resolve to a single figure does the old
+      // "just one figure on the page" fallback apply, before finally
+      // giving up and trying the (unreliable, see this file's own header
+      // comment) route guess -- confirmed live as a real bug: with 6
+      // figures on the page, the old code always skipped straight past
+      // this and routed to the wrong AIM paragraph number instead.
+      if (onOpenFigure && figures) {
+        const exact = figures.find((f) => f.label === seg.text)
+        if (exact) { onOpenFigure(exact); return }
+        if (figures.length === 1) { onOpenFigure(figures[0]); return }
+      }
     }
-    if (seg.route) router.push(seg.route as any)
+    if (seg.route) {
+      if (currentLabel) setPendingBreadcrumb(currentLabel)
+      router.push(seg.route as any)
+    }
   }
 
   return (
     <>
       {paragraphs.map((para, i) => {
+        // While actively searching, render the whole paragraph as one
+        // highlighted plain-text block -- same simplification ACBody
+        // already makes (see its own render switch): skip table/marker/
+        // softWrap-chunk handling and crossRefLinks hyperlinking, since
+        // stacking search highlighting on top of them isn't worth the
+        // complexity for what's a temporary interaction mode.
+        if (hq) {
+          return (
+            <View
+              key={i}
+              ref={(el) => { paraRefs.current[i] = el }}
+              onLayout={(e) => { paraRelY.current[i] = e.nativeEvent.layout.y }}
+            >
+              <Text style={[styles.para, { color: tokens.t2, fontSize: fs(14.5) }]}>
+                {highlightSpans(para, hq, { base: paraBase.get(i) ?? 0, active: activeMatch })}
+              </Text>
+            </View>
+          )
+        }
         const table = parseTableBlock(para)
         if (table) {
           // Match this table's own embedded label ("TBL 6-2-6b Air Force
@@ -156,7 +268,23 @@ export function PlainTextBody({
             />
           )
         }
-        const cleaned = para.replace(TABLE_HEADER_MARK_RE, '')
+        const cleaned = para
+          .replace(TABLE_HEADER_MARK_RE, '')
+          // Strips Federal-Register-style plain-text table border rules
+          // (long dash runs used as row/section separators in AD
+          // applicability text, e.g. "----...----") -- pure visual noise
+          // carried over verbatim from the raw source, never real content.
+          // Confirmed live: AD 2018-02-04's Figure 1/2 applicability
+          // tables render with 3+ of these per figure. Safe to strip
+          // broadly (FAR/AIM/AC never produce a line of bare dashes in
+          // their own body text) without needing a full table-grid
+          // reconstruction -- body_text (unlike the flattened
+          // `applicability` field) already keeps its real newlines, so
+          // the surrounding data already renders as separate, readable
+          // lines; only the rule-line noise needed removing.
+          .replace(/^[ \t]*-{10,}[ \t]*$/gm, '')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim()
         const m = cleaned.match(LEADING_MARKER_RE)
         const marker = m ? m[1] : null
         const rest = m ? cleaned.slice(m[0].length) : cleaned
@@ -190,7 +318,7 @@ export function PlainTextBody({
       })}
     </>
   )
-}
+})
 
 const styles = StyleSheet.create({
   para: { lineHeight: 22, marginBottom: 14 },

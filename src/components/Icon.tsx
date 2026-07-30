@@ -1,6 +1,7 @@
 // Web fallback — uses Ionicons (SF Symbols are iOS/Android only)
 import { Ionicons } from '@expo/vector-icons'
 import type { IconProps } from './Icon.types'
+import { PcgGlyph } from './PcgGlyph'
 
 // Maps SF Symbol names → Ionicons names
 const SF_TO_IONICONS: Record<string, string> = {
@@ -85,9 +86,37 @@ const SF_TO_IONICONS: Record<string, string> = {
   'eye': 'eye-outline',
   'eye.fill': 'eye',
   'eye.slash': 'eye-off-outline',
+  'square.grid.2x2': 'grid-outline',
+  'doc.badge.clock': 'document-text-outline',
+  'plus.circle.fill': 'add-circle',
+  'rosette': 'ribbon-outline',
+  'rectangle.stack': 'copy-outline',
+  'arrow.uturn.left': 'arrow-undo-outline',
+  'hourglass': 'hourglass-outline',
+  'wrench': 'construct-outline',
+  'wrench.and.screwdriver': 'construct-outline',
+  // Reg-type identity icons (src/lib/regTypes.ts) — one per content type,
+  // reused everywhere that type's chip/badge appears.
+  'book.closed.fill': 'book',
+  'map.fill': 'map',
+  'text.book.closed.fill': 'reader',
+  'wrench.and.screwdriver.fill': 'construct',
+  // Challenge Coins -- one distinct icon per coin (src/lib/coins.ts)
+  'flag.fill': 'flag',
+  'flame': 'flame-outline',
+  'airplane.circle.fill': 'airplane',
+  'graduationcap.fill': 'school',
+  'trophy.fill': 'trophy',
+  'shield.fill': 'shield',
+  'exclamationmark.triangle.fill': 'warning',
+  'envelope.open.fill': 'mail-open',
+  'megaphone.fill': 'megaphone',
 }
 
 export function Icon({ name, size = 22, color, style }: IconProps) {
+  if (name === 'pcg.az') {
+    return <PcgGlyph size={size} color={color} />
+  }
   const ionName = (SF_TO_IONICONS[name] ?? 'help-circle-outline') as keyof typeof Ionicons.glyphMap
   return (
     <Ionicons

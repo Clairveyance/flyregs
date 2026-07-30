@@ -84,8 +84,18 @@ echo "▶ Step 3/4 — AIM scrape (full)"
 "$PYTHON3" sync/aim_scraper.py --mode full
 
 echo ""
-echo "▶ Step 4/4 — Real page-image backfill"
+echo "▶ Step 4/5 — Real page-image backfill"
 "$PYTHON3" sync/backfill_aim_pdf_images.py --pdf "$PDF_PATH"
+
+# MagicLink citation extraction (full corpus re-scan) -- aim_scraper.py's own
+# reference-box parsing already covers aim/ac/pcg citations (step 3 above),
+# but aim->far body-text mentions need this separate pass (see
+# aim_far_citations.py's own header). Was written but never actually wired
+# into this pipeline before 2026-07-28 -- confirmed a real gap, not just an
+# AC/FAR/P-CG-only problem.
+echo ""
+echo "▶ Step 5/5 — MagicLink citation extraction (AIM -> FAR body-text mentions)"
+"$PYTHON3" sync/aim_far_citations.py
 
 END_TS="$(date '+%Y-%m-%d %H:%M:%S')"
 echo ""

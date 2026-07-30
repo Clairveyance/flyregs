@@ -23,16 +23,19 @@ export async function isSyncEnabled(): Promise<boolean> {
 // specific rows a shared folder actually needs in the cloud (the folder
 // itself, its item pointers, and any notes among those items), so that
 // folder sharing works independent of whether the user has opted into
-// backing up their whole library. Premium/session still apply either way --
+// backing up their whole library. Entitlement still applies either way --
 // force only skips the sync_enabled check, never the entitlement check.
 async function currentUserId(force = false): Promise<string | null> {
   if (!force && !(await isSyncEnabled())) return null
   // The sync_enabled flag only reflects that the user turned it on at some
   // point -- it doesn't get flipped off if their subscription later lapses.
-  // Re-check live entitlement on every push so a downgraded Premium user
-  // can't keep getting free cloud sync just because the local flag is stale.
-  const { isPremium } = await getSubscriptionStatus()
-  if (!isPremium) return null
+  // Re-check live entitlement on every push so a downgraded subscriber can't
+  // keep getting free cloud sync just because the local flag is stale.
+  // General sync moved from Premium to Pro in the pricing pivot -- see
+  // flyregs_decisions.md -- but shared-folder force-pushes stay Premium-
+  // gated, since collaboration itself is still Premium-only and unchanged.
+  const { isPro, isPremium } = await getSubscriptionStatus()
+  if (!(force ? isPremium : isPro)) return null
   const { data } = await supabase.auth.getSession()
   return data.session?.user?.id ?? null
 }

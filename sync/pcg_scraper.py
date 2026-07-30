@@ -42,6 +42,9 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from revision_log import log_revisions  # noqa: E402
+
 # ──────────────────────────────────────────────────────────────────────────────
 #  Config
 # ──────────────────────────────────────────────────────────────────────────────
@@ -325,6 +328,23 @@ def run_full(session: requests.Session):
     total = len(terms)
     added = errors = 0
     error_details = []
+
+    # What's Changed timeline logging -- one batch call for the whole
+    # catalog rather than per-term (upsert_term runs one row at a time
+    # below, but re-fetching "old text" per term would be 1,300+ separate
+    # HTTP calls). Must run BEFORE the per-term upsert loop overwrites
+    # what's currently live. See revision_log.py.
+    if SUPABASE_URL and SUPABASE_KEY:
+        try:
+            n = log_revisions(
+                SUPABASE_URL, _supa_headers(), doc_type="pcg", table="pcg_terms",
+                key_field="slug", text_field="definition", title_field="term",
+                new_rows=terms,
+            )
+            if n:
+                log.info(f"Logged {n} P/CG revision(s) for What's Changed")
+        except Exception as e:
+            log.warning(f"revision logging failed (non-fatal): {e}")
 
     now = datetime.now(timezone.utc).isoformat()
     for i, t in enumerate(terms, 1):

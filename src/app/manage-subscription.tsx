@@ -22,7 +22,7 @@ const FALLBACK_MANAGE_URL = Platform.select({
 export default function ManageSubscriptionScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { session, isPro, isPremium, setIsPro, setIsPremium } = useAuth()
+  const { session, isPro, isPremium, isUnlocked, setIsPro, setIsPremium } = useAuth()
   const insets = useSafeAreaInsets()
   const [details, setDetails] = useState<SubscriptionDetails | null>(null)
   const [restoring, setRestoring] = useState(false)
@@ -31,13 +31,38 @@ export default function ManageSubscriptionScreen() {
     getSubscriptionDetails().then(setDetails)
   }, [])
 
+  const openManageURL = () => {
+    const url = details?.managementURL ?? FALLBACK_MANAGE_URL
+    Linking.openURL(url).catch(() => {})
+  }
+
   const handleManage = () => {
     if (Platform.OS === 'web') {
       Alert.alert('Available on iOS & Android', 'Manage your subscription from the FlyRegs mobile app.')
       return
     }
-    const url = details?.managementURL ?? FALLBACK_MANAGE_URL
-    Linking.openURL(url).catch(() => {})
+    // Cancelling drops the subscriber to whatever they separately own
+    // (isUnlocked) -- if they never bought Plus on its own, that's a full
+    // cliff back to Free, losing Highlights/Notes/Bookmarks and the AC/LOI
+    // library, not just the Pro/Premium-specific extras. Apple/Google require
+    // the actual cancellation to happen in their own settings, so this is the
+    // last point we can intercept before handing off -- offer Plus as a
+    // permanent floor, but "Continue to Cancel" must be just as easy to tap
+    // as "Get Plus" (a real choice, not a buried escape hatch) and there's a
+    // genuine no-op "Not Now" too, so nobody is forced to decide on the spot.
+    if (!isUnlocked) {
+      Alert.alert(
+        'Before you go',
+        'Cancelling will remove access to your Highlights, Notes, and AC/LOI library. Keep that permanently for $17.99 instead?',
+        [
+          { text: 'Not Now', style: 'cancel' },
+          { text: 'Continue to Cancel', style: 'destructive', onPress: openManageURL },
+          { text: 'Get Plus', onPress: () => router.push('/paywall?tier=plus') },
+        ]
+      )
+      return
+    }
+    openManageURL()
   }
 
   const handleRestore = async () => {
