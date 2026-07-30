@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { View, Text, ScrollView, Pressable, TextInput, Switch, ActivityIndicator, StyleSheet } from 'react-native'
+import { View, Text, ScrollView, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -11,8 +11,6 @@ import { getRefPackets, type RefPacket } from '@/lib/refPackets'
 import { getStudyMastery, getCurrency, type StudyMastery, type Currency } from '@/lib/study'
 import { getMyCoins } from '@/lib/coins'
 import { getDuelStats, type DuelStats } from '@/lib/challenges'
-import { getMyRatings, RATING_SHORT_LABELS, type RatingCode } from '@/lib/profileRatings'
-import { getStatsVisible, setStatsVisible, getCurrentAircraft, setCurrentAircraft } from '@/lib/leaderboard'
 
 // IA redesign (2026-07-28): this file used to be the Search tab. Search now
 // lives entirely on Home (see (tabs)/index.tsx's inline search bar +
@@ -36,12 +34,6 @@ export default function CommunityScreen() {
   const [currency, setCurrency] = useState<Currency | null>(null)
   const [coinCount, setCoinCount] = useState<number | null>(null)
   const [duelStats, setDuelStats] = useState<DuelStats | null>(null)
-  const [myRatings, setMyRatings] = useState<RatingCode[]>([])
-  const [statsVisible, setStatsVisibleState] = useState(false)
-  const [statsVisibleBusy, setStatsVisibleBusy] = useState(false)
-  const [aircraftInput, setAircraftInput] = useState('')
-  const [aircraftDirty, setAircraftDirty] = useState(false)
-  const [aircraftSaving, setAircraftSaving] = useState(false)
 
   useEffect(() => {
     getRefPackets().then(setRefPackets)
@@ -53,37 +45,13 @@ export default function CommunityScreen() {
   useEffect(() => {
     if (!session) {
       setMastery(null); setCurrency(null); setCoinCount(null); setDuelStats(null)
-      setMyRatings([]); setStatsVisibleState(false); setAircraftInput(''); setAircraftDirty(false)
       return
     }
     getStudyMastery().then(setMastery).catch(() => {})
     getCurrency().then(setCurrency).catch(() => {})
     getMyCoins().then((c) => setCoinCount(c.length)).catch(() => {})
     getDuelStats().then(setDuelStats).catch(() => {})
-    getMyRatings(session.user.id).then(setMyRatings).catch(() => {})
-    getStatsVisible(session.user.id).then(setStatsVisibleState).catch(() => {})
-    getCurrentAircraft(session.user.id).then((a) => { setAircraftInput(a); setAircraftDirty(false) }).catch(() => {})
   }, [session])
-
-  const handleToggleStatsVisible = async (v: boolean) => {
-    if (!session) return
-    setStatsVisibleBusy(true)
-    try {
-      await setStatsVisible(session.user.id, v)
-      setStatsVisibleState(v)
-    } catch (_) {}
-    setStatsVisibleBusy(false)
-  }
-
-  const handleSaveAircraft = async () => {
-    if (!session || aircraftSaving) return
-    setAircraftSaving(true)
-    try {
-      await setCurrentAircraft(session.user.id, aircraftInput)
-      setAircraftDirty(false)
-    } catch (_) {}
-    setAircraftSaving(false)
-  }
 
   const hasAnyStats = !!(
     (mastery && mastery.seen > 0) ||
@@ -108,87 +76,36 @@ export default function CommunityScreen() {
       <TabletContainer>
         <ScrollView contentContainerStyle={styles.content}>
           {session ? (
-            <>
-              {hasAnyStats && (
-                <StatsStrip
-                  tokens={tokens}
-                  fs={fs}
-                  mastery={mastery}
-                  currency={currency}
-                  coinCount={coinCount}
-                  duelStats={duelStats}
-                />
-              )}
-              <Pressable
-                style={[styles.profileLinkRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => router.push(`/profile/${session.user.id}` as any)}
-              >
-                <Icon name="person.crop.circle" size={18} color={tokens.blu} />
-                <Text style={[styles.profileLinkText, { color: tokens.t1, fontSize: fs(13.5) }]}>View my profile</Text>
-                <Icon name="chevron.right" size={13} color={tokens.t4} />
-              </Pressable>
-              <View style={[styles.visibilityCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-                <View style={styles.visibilityRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Show my stats</Text>
-                    <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12), marginTop: 2 }]}>
-                      Lets other users see your ratings, coin count, and current aircraft. Off by default.
-                    </Text>
-                  </View>
-                  {statsVisibleBusy ? (
-                    <ActivityIndicator size="small" color={tokens.t3} />
-                  ) : (
-                    <Switch value={statsVisible} onValueChange={handleToggleStatsVisible} trackColor={{ true: tokens.blu, false: undefined }} />
-                  )}
-                </View>
-                {statsVisible && (
-                  <>
-                    <View style={styles.aircraftRow}>
-                      <TextInput
-                        style={[styles.aircraftInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg, fontSize: fs(14) }]}
-                        value={aircraftInput}
-                        onChangeText={(v) => { setAircraftInput(v); setAircraftDirty(true) }}
-                        placeholder="Current aircraft (e.g. SR22, G550)"
-                        placeholderTextColor={tokens.t4}
-                        maxLength={40}
-                        autoCapitalize="characters"
-                        returnKeyType="done"
-                        onSubmitEditing={handleSaveAircraft}
-                      />
-                      {aircraftSaving ? (
-                        <ActivityIndicator size="small" color={tokens.t3} style={styles.aircraftSaveBtn} />
-                      ) : (
-                        <Pressable
-                          style={[styles.aircraftSaveBtn, { backgroundColor: aircraftDirty ? tokens.blu : tokens.bg4 }]}
-                          onPress={handleSaveAircraft}
-                          disabled={!aircraftDirty}
-                        >
-                          <Text style={[styles.aircraftSaveBtnText, { fontSize: fs(13) }]}>Save</Text>
-                        </Pressable>
-                      )}
-                    </View>
-                    <View style={styles.previewRatings}>
-                      {myRatings.map((code) => (
-                        <View key={code} style={[styles.previewChip, { borderColor: tokens.gold, backgroundColor: tokens.goldlt }]}>
-                          <Text style={[styles.previewChipText, { color: tokens.gold, fontSize: fs(11.5) }]}>{RATING_SHORT_LABELS[code]}</Text>
-                        </View>
-                      ))}
-                      {/* Ratings are only ever added/removed via the picker on
-                          Account -- this row previously had no way to get
-                          there at all when myRatings was empty, and no way
-                          to add MORE ratings even when it wasn't. */}
-                      <Pressable
-                        style={[styles.previewChip, styles.previewAddChip, { borderColor: tokens.bdr }]}
-                        onPress={() => router.push('/account')}
-                      >
-                        <Icon name="plus" size={11} color={tokens.t2} />
-                        <Text style={[styles.previewChipText, { color: tokens.t2, fontSize: fs(11.5) }]}>Add Rating</Text>
-                      </Pressable>
-                    </View>
-                  </>
+            // A single "who am I and what do I have" identity slate --
+            // replaces the old stats strip + separate "View my profile"
+            // row + always-expanded visibility/aircraft/ratings editor,
+            // which duplicated most of what /profile/[userId] already
+            // shows. Editing (visibility toggle, aircraft, ratings) now
+            // lives on the profile screen itself, reached by tapping this.
+            <Pressable
+              style={[styles.identityCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+              onPress={() => router.push(`/profile/${session.user.id}` as any)}
+            >
+              <View style={[styles.identityAvatar, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
+                <Text style={[styles.identityAvatarText, { color: tokens.gold, fontSize: fs(18) }]}>Y</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.identityHandle, { color: tokens.t1, fontSize: fs(15.5) }]}>You</Text>
+                {hasAnyStats ? (
+                  <IdentityStats
+                    tokens={tokens}
+                    fs={fs}
+                    mastery={mastery}
+                    currency={currency}
+                    coinCount={coinCount}
+                    duelStats={duelStats}
+                  />
+                ) : (
+                  <Text style={[styles.identitySub, { color: tokens.t3, fontSize: fs(12) }]}>View your profile</Text>
                 )}
               </View>
-            </>
+              <Icon name="chevron.right" size={14} color={tokens.t4} />
+            </Pressable>
           ) : (
             <Pressable
               style={[styles.signInCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
@@ -260,9 +177,9 @@ export default function CommunityScreen() {
   )
 }
 
-// ─── Stats strip ─────────────────────────────────────────────────────────────
+// ─── Identity stats (compact, inline in the identity card) ──────────────────
 
-function StatsStrip({
+function IdentityStats({
   tokens,
   fs,
   mastery,
@@ -278,31 +195,28 @@ function StatsStrip({
   duelStats: DuelStats | null
 }) {
   const chips = useMemo(() => {
-    const out: { icon: string; value: string; label: string; color: string }[] = []
+    const out: { icon: string; value: string; color: string }[] = []
     if (mastery && mastery.seen > 0) {
-      out.push({ icon: 'star.fill', value: `${mastery.pct}%`, label: 'mastered', color: tokens.blu })
+      out.push({ icon: 'star.fill', value: `${mastery.pct}% mastered`, color: tokens.blu })
     }
     if (currency && currency.currentStreak > 0) {
-      out.push({ icon: 'flame.fill', value: `${currency.currentStreak}d`, label: currency.isCurrent ? 'current' : 'lapsed', color: tokens.amb })
+      out.push({ icon: 'flame.fill', value: `${currency.currentStreak}d streak`, color: tokens.amb })
     }
     if (coinCount) {
-      out.push({ icon: 'rosette', value: `${coinCount}`, label: coinCount === 1 ? 'coin' : 'coins', color: tokens.gold })
+      out.push({ icon: 'rosette', value: `${coinCount} ${coinCount === 1 ? 'coin' : 'coins'}`, color: tokens.gold })
     }
     if (duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0)) {
-      out.push({ icon: 'bolt.fill', value: `${duelStats.wins}-${duelStats.losses}`, label: 'Duel record', color: tokens.grn })
+      out.push({ icon: 'bolt.fill', value: `${duelStats.wins}-${duelStats.losses}`, color: tokens.grn })
     }
     return out
   }, [mastery, currency, coinCount, duelStats, tokens])
 
-  if (chips.length === 0) return null
-
   return (
-    <View style={[styles.statsStrip, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+    <View style={styles.identityStatsRow}>
       {chips.map((c, i) => (
-        <View key={i} style={[styles.statChip, i > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: tokens.bdr }]}>
-          <Icon name={c.icon} size={15} color={c.color} />
-          <Text style={[styles.statValue, { color: tokens.t1, fontSize: fs(15) }]}>{c.value}</Text>
-          <Text style={[styles.statLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>{c.label}</Text>
+        <View key={i} style={styles.identityStatChip}>
+          <Icon name={c.icon} size={11} color={c.color} />
+          <Text style={[styles.identityStatText, { color: tokens.t3, fontSize: fs(11.5) }]}>{c.value}</Text>
         </View>
       ))}
     </View>
@@ -435,16 +349,17 @@ const styles = StyleSheet.create({
   signInTitle: { fontWeight: '600' },
   signInSub: { marginTop: 2, lineHeight: 17 },
 
-  statsStrip: {
-    flexDirection: 'row',
-    borderRadius: 14,
-    borderWidth: 1,
-    marginBottom: 18,
-    paddingVertical: 12,
+  identityCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 18,
   },
-  statChip: { flex: 1, alignItems: 'center', gap: 2 },
-  statValue: { fontWeight: '700', marginTop: 2 },
-  statLabel: { fontWeight: '500', letterSpacing: 0.2 },
+  identityAvatar: { width: 42, height: 42, borderRadius: 21, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  identityAvatarText: { fontWeight: '800' },
+  identityHandle: { fontWeight: '700' },
+  identitySub: { marginTop: 2 },
+  identityStatsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
+  identityStatChip: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  identityStatText: { fontWeight: '600' },
 
   hubCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -456,23 +371,6 @@ const styles = StyleSheet.create({
   },
   hubTitle: { fontWeight: '600' },
   hubSub: { marginTop: 2, lineHeight: 17 },
-
-  profileLinkRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11, marginBottom: 12,
-  },
-  profileLinkText: { flex: 1, fontWeight: '600' },
-
-  visibilityCard: { borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 18 },
-  visibilityRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  aircraftRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
-  aircraftInput: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
-  aircraftSaveBtn: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
-  aircraftSaveBtnText: { color: '#fff', fontWeight: '700' },
-  previewRatings: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
-  previewChip: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 9, paddingVertical: 4 },
-  previewAddChip: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  previewChipText: { fontWeight: '600' },
 
   // Ref Packet grid
   packetHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8, paddingLeft: 2 },

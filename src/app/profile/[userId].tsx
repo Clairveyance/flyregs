@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, ScrollView, Pressable, TextInput, Switch, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -10,7 +10,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { getDuelStats, type DuelStats } from '@/lib/challenges'
 import { getMyRatings, RATING_SHORT_LABELS, type RatingCode } from '@/lib/profileRatings'
 import { getCoinsForUser, COIN_BY_CODE, type EarnedCoin } from '@/lib/coins'
-import { getStatsVisible, getCurrentAircraft } from '@/lib/leaderboard'
+import { getStatsVisible, setStatsVisible, getCurrentAircraft, setCurrentAircraft } from '@/lib/leaderboard'
 
 // The Community "bragging page" -- badges, ratings, Duel record, current
 // aircraft. Duel record is unconditionally public (get_duel_stats() has no
@@ -29,33 +29,65 @@ export default function ProfileScreen() {
   const isSelf = session?.user.id === userId
 
   const [loading, setLoading] = useState(true)
-  const [visible, setVisible] = useState(false)
+  // `statsVisibleReal` is the actual stored toggle value -- always fetched,
+  // even for isSelf, since the owner needs to see/control the real state.
+  // `visible` is what gates showing ratings/coins/aircraft on screen: the
+  // owner always sees their own (regardless of whether it's public), so
+  // it's `true` for isSelf and mirrors the real toggle for everyone else.
+  const [statsVisibleReal, setStatsVisibleReal] = useState(false)
+  const [statsVisibleBusy, setStatsVisibleBusy] = useState(false)
+  const visible = isSelf || statsVisibleReal
   const [duelStats, setDuelStats] = useState<DuelStats | null>(null)
   const [ratings, setRatings] = useState<RatingCode[]>([])
   const [coins, setCoins] = useState<EarnedCoin[]>([])
   const [aircraft, setAircraft] = useState('')
+  const [aircraftInput, setAircraftInput] = useState('')
+  const [aircraftDirty, setAircraftDirty] = useState(false)
+  const [aircraftSaving, setAircraftSaving] = useState(false)
 
   const load = useCallback(async () => {
     if (!userId) return
     setLoading(true)
-    const [stats, canSeeStats] = await Promise.all([
+    const [stats, realVisible] = await Promise.all([
       getDuelStats(userId).catch(() => ({ wins: 0, losses: 0, ties: 0 })),
-      isSelf ? Promise.resolve(true) : getStatsVisible(userId).catch(() => false),
+      getStatsVisible(userId).catch(() => false),
     ])
     setDuelStats(stats)
-    setVisible(canSeeStats)
-    if (canSeeStats) {
+    setStatsVisibleReal(realVisible)
+    if (isSelf || realVisible) {
       const [r, c, a] = await Promise.all([
         getMyRatings(userId).catch(() => []),
         getCoinsForUser(userId).catch(() => []),
         getCurrentAircraft(userId).catch(() => ''),
       ])
       setRatings(r); setCoins(c); setAircraft(a)
+      setAircraftInput(a); setAircraftDirty(false)
     }
     setLoading(false)
   }, [userId, isSelf])
 
   useEffect(() => { load() }, [load])
+
+  const handleToggleStatsVisible = async (v: boolean) => {
+    if (!isSelf || !userId) return
+    setStatsVisibleBusy(true)
+    try {
+      await setStatsVisible(userId, v)
+      setStatsVisibleReal(v)
+    } catch (_) {}
+    setStatsVisibleBusy(false)
+  }
+
+  const handleSaveAircraft = async () => {
+    if (!isSelf || !userId || aircraftSaving) return
+    setAircraftSaving(true)
+    try {
+      await setCurrentAircraft(userId, aircraftInput)
+      setAircraft(aircraftInput)
+      setAircraftDirty(false)
+    } catch (_) {}
+    setAircraftSaving(false)
+  }
 
   const displayLabel = isSelf ? 'You' : (label || 'Pilot')
 
@@ -81,6 +113,53 @@ export default function ProfileScreen() {
               </View>
             </View>
 
+            {isSelf && (
+              // Editing (visibility toggle, aircraft, ratings) used to live
+              // duplicated on the Community tab's own "Show my stats" panel
+              // -- moved here since this is the actual profile the toggle's
+              // copy describes ("other users see your ratings..."), and
+              // Community already links here via "View my profile".
+              <View style={[styles.editCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                <View style={styles.editRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.editTitle, { color: tokens.t1, fontSize: fs(14) }]}>Show my stats</Text>
+                    <Text style={[styles.editSub, { color: tokens.t3, fontSize: fs(11.5) }]}>
+                      Lets other pilots see your ratings, coin count, and current aircraft.
+                    </Text>
+                  </View>
+                  {statsVisibleBusy ? (
+                    <ActivityIndicator size="small" color={tokens.t3} />
+                  ) : (
+                    <Switch value={statsVisibleReal} onValueChange={handleToggleStatsVisible} trackColor={{ true: tokens.blu, false: undefined }} />
+                  )}
+                </View>
+                <View style={styles.aircraftRow}>
+                  <TextInput
+                    style={[styles.aircraftInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg, fontSize: fs(13.5) }]}
+                    value={aircraftInput}
+                    onChangeText={(v) => { setAircraftInput(v); setAircraftDirty(true) }}
+                    placeholder="Current aircraft (e.g. SR22, G550)"
+                    placeholderTextColor={tokens.t4}
+                    maxLength={40}
+                    autoCapitalize="characters"
+                    returnKeyType="done"
+                    onSubmitEditing={handleSaveAircraft}
+                  />
+                  {aircraftSaving ? (
+                    <ActivityIndicator size="small" color={tokens.t3} style={styles.aircraftSaveBtn} />
+                  ) : (
+                    <Pressable
+                      style={[styles.aircraftSaveBtn, { backgroundColor: aircraftDirty ? tokens.blu : tokens.bg4 }]}
+                      onPress={handleSaveAircraft}
+                      disabled={!aircraftDirty}
+                    >
+                      <Text style={[styles.aircraftSaveBtnText, { fontSize: fs(12.5) }]}>Save</Text>
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+            )}
+
             {duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0) && (
               <View style={[styles.duelCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}>
                 <Icon name="bolt.fill" size={18} color={tokens.gold} />
@@ -102,7 +181,7 @@ export default function ProfileScreen() {
               </View>
             ) : (
               <>
-                {ratings.length > 0 && (
+                {(ratings.length > 0 || isSelf) && (
                   <View style={styles.section}>
                     <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>RATINGS</Text>
                     <View style={styles.chipWrap}>
@@ -111,6 +190,15 @@ export default function ProfileScreen() {
                           <Text style={[styles.ratingChipText, { color: tokens.gold, fontSize: fs(12) }]}>{RATING_SHORT_LABELS[code]}</Text>
                         </View>
                       ))}
+                      {isSelf && (
+                        <Pressable
+                          style={[styles.ratingChip, styles.addRatingChip, { borderColor: tokens.bdr }]}
+                          onPress={() => router.push('/account')}
+                        >
+                          <Icon name="plus" size={11} color={tokens.t2} />
+                          <Text style={[styles.ratingChipText, { color: tokens.t2, fontSize: fs(12) }]}>Add Rating</Text>
+                        </Pressable>
+                      )}
                     </View>
                   </View>
                 )}
@@ -155,6 +243,16 @@ const styles = StyleSheet.create({
   avatarText: { fontWeight: '800' },
   name: { fontWeight: '700' },
   aircraft: { marginTop: 3 },
+
+  editCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 12 },
+  editRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  editTitle: { fontWeight: '600' },
+  editSub: { marginTop: 2, lineHeight: 16 },
+  aircraftRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  aircraftInput: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  aircraftSaveBtn: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
+  aircraftSaveBtnText: { color: '#fff', fontWeight: '700' },
+  addRatingChip: { flexDirection: 'row', alignItems: 'center', gap: 3 },
 
   duelCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,

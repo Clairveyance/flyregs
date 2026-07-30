@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert } from 'react-native'
+import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -206,19 +207,14 @@ export default function StudyScreen() {
             </View>
           </View>
 
-          <Pressable
-            style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
+          <FlashCard
+            term={current.term}
+            definition={current.definition}
+            flipped={flipped}
             onPress={() => setFlipped((f) => !f)}
-          >
-            {!flipped ? (
-              <Text style={[styles.cardTerm, { color: tokens.t1, fontSize: fs(22) }]}>{current.term}</Text>
-            ) : (
-              <Text style={[styles.cardDef, { color: tokens.t2, fontSize: fs(15) }]}>{current.definition}</Text>
-            )}
-            <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>
-              {flipped ? 'Tap to flip back' : 'Tap to reveal'}
-            </Text>
-          </Pressable>
+            tokens={tokens}
+            fs={fs}
+          />
 
           {flipped && (
             <View style={styles.answerRow}>
@@ -242,6 +238,60 @@ export default function StudyScreen() {
       )}
       </TabletContainer>
     </View>
+  )
+}
+
+// ─── Flash card (vertical-axis flip) ────────────────────────────────────────
+// Front (term) and back (definition) are two stacked, absolutely-positioned
+// faces sharing one rotateY progress value -- the standard flip-card
+// technique: the back face starts pre-rotated 180deg so it's showing
+// exactly when the front finishes rotating away, and backfaceVisibility
+// hides whichever face is turned away from the viewer instead of needing a
+// separate opacity toggle timed to the halfway point.
+
+function FlashCard({
+  term,
+  definition,
+  flipped,
+  onPress,
+  tokens,
+  fs,
+}: {
+  term: string
+  definition: string
+  flipped: boolean
+  onPress: () => void
+  tokens: ReturnType<typeof useTheme>['tokens']
+  fs: (n: number) => number
+}) {
+  const progress = useSharedValue(0)
+
+  useEffect(() => {
+    progress.value = withTiming(flipped ? 1 : 0, { duration: 420, easing: Easing.inOut(Easing.quad) })
+  }, [flipped])
+
+  const frontStyle = useAnimatedStyle(() => ({
+    transform: [{ perspective: 1400 }, { rotateY: `${progress.value * 180}deg` }],
+  }))
+  const backStyle = useAnimatedStyle(() => ({
+    transform: [{ perspective: 1400 }, { rotateY: `${progress.value * 180 - 180}deg` }],
+  }))
+
+  return (
+    <Pressable style={styles.cardOuter} onPress={onPress}>
+      <Reanimated.View
+        style={[styles.card, styles.cardFace, frontStyle, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
+      >
+        <Text style={[styles.cardTerm, { color: tokens.t1, fontSize: fs(22) }]}>{term}</Text>
+        <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>Tap to reveal</Text>
+      </Reanimated.View>
+      <Reanimated.View
+        style={[styles.card, styles.cardFace, styles.cardBack, backStyle, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
+      >
+        <Text style={[styles.cardDef, { color: tokens.t2, fontSize: fs(15) }]}>{definition}</Text>
+        <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>Tap to flip back</Text>
+      </Reanimated.View>
+    </Pressable>
   )
 }
 
@@ -275,9 +325,16 @@ const styles = StyleSheet.create({
   progress: { fontVariant: ['tabular-nums'], letterSpacing: 0.3 },
   typeBadge: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
   typeBadgeText: { fontWeight: '700', letterSpacing: 0.4 },
+  cardOuter: { width: '100%', minHeight: 200 },
   card: {
     width: '100%', minHeight: 200, borderRadius: 18, borderWidth: 1,
     alignItems: 'center', justifyContent: 'center', padding: 24, gap: 14,
+  },
+  cardFace: {
+    backfaceVisibility: 'hidden',
+  },
+  cardBack: {
+    position: 'absolute', top: 0, left: 0,
   },
   cardTerm: { fontWeight: '700', textAlign: 'center' },
   cardDef: { textAlign: 'center', lineHeight: 22 },
