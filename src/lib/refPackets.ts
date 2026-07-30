@@ -56,6 +56,24 @@ export interface RefPacketElement {
   bodyText: string
 }
 
+// Multi-category source PDFs (sync/pts_multisection_scraper.py) split into
+// one acs_documents row per section, title suffixed " — <label>" where
+// label is either a real detected category (from an "Addition of a/an X
+// Rating" marker in the source) or a generic "Section N" fallback --
+// confirmed live: only doc_type='pts' rows are ever split this way, never
+// 'acs' (whose own trailing "-N" in some codes, e.g. FAA-S-ACS-12, is that
+// document's own sequential number in the modern ACS numbering scheme, NOT
+// a section suffix -- grouping on code pattern would wrongly conflate the
+// two, so this only ever looks at the title's own " — " marker).
+export function splitPacketTitle(title: string): { mainTitle: string; suffix: string | null } {
+  const base = title.replace(/ ACS$/, '')
+  const dashIdx = base.lastIndexOf(' — ')
+  return {
+    mainTitle: dashIdx > -1 ? base.slice(0, dashIdx) : base,
+    suffix: dashIdx > -1 ? base.slice(dashIdx + 3) : null,
+  }
+}
+
 // Title keywords -> category, since doc_type is 'acs'/'pts' for every row
 // right now (not yet split by aircraft category) -- the title itself always
 // names the category ("...for Airplane Category...", "...Rotorcraft Category

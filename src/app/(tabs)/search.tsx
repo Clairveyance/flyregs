@@ -7,7 +7,7 @@ import { useFS } from '@/context/fontScale'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
-import { getRefPackets, type RefPacket } from '@/lib/refPackets'
+import { getRefPackets, splitPacketTitle, type RefPacket } from '@/lib/refPackets'
 import { getStudyMastery, getCurrency, type StudyMastery, type Currency } from '@/lib/study'
 import { getMyCoins } from '@/lib/coins'
 import { getDuelStats, type DuelStats } from '@/lib/challenges'
@@ -267,6 +267,27 @@ function RefPacketGrid({
   const fs = useFS()
   const filtered = category === 'All' ? refPackets : refPackets.filter((p) => p.category === category)
 
+  // Multi-section source PDFs (sync/pts_multisection_scraper.py) previously
+  // showed as N separate, nearly-identical cards ("Sport Pilot... —
+  // Section 1/2/3") -- confirmed live as genuinely hard to tell apart even
+  // with the suffix badge. Grouped into one card per source document here;
+  // the in-pack Section picker (ref-packets/[code].tsx) is where a specific
+  // section actually gets chosen, matching how a pilot thinks about it
+  // ("the Sport Pilot ACS", not three unrelated things).
+  const groups = useMemo(() => {
+    const byTitle = new Map<string, RefPacket[]>()
+    for (const p of filtered) {
+      const { mainTitle } = splitPacketTitle(p.title)
+      const list = byTitle.get(mainTitle) ?? []
+      list.push(p)
+      byTitle.set(mainTitle, list)
+    }
+    return Array.from(byTitle.entries()).map(([mainTitle, members]) => ({
+      mainTitle,
+      members: members.sort((a, b) => a.code.localeCompare(b.code)),
+    }))
+  }, [filtered])
+
   const openPacket = (p: RefPacket) => {
     if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     router.push(`/ref-packets/${p.code}` as any)
@@ -305,32 +326,22 @@ function RefPacketGrid({
         })}
       </ScrollView>
       <View style={styles.packetGrid}>
-        {filtered.map((p) => {
-          // Multi-category source PDFs (Recreational Pilot Airplane+
-          // Rotorcraft, Sport Pilot Airplane+Gyroplane+Glider, etc.) split
-          // into one pack per category, title suffixed " — <category>" --
-          // but 3 packs from the SAME PDF sharing everything up to that
-          // suffix, truncated to 3 lines in a narrow grid card, were
-          // genuinely indistinguishable (confirmed live: three "Sport Pilot
-          // and Sport Pilot Flight..." cards with no visible difference).
-          // The suffix is the one thing that actually tells them apart, so
-          // it renders separately and is never truncated, instead of being
-          // buried at the end of a clipped title.
-          const base = p.title.replace(/ ACS$/, '')
-          const dashIdx = base.lastIndexOf(' — ')
-          const mainTitle = dashIdx > -1 ? base.slice(0, dashIdx) : base
-          const suffix = dashIdx > -1 ? base.slice(dashIdx + 3) : null
+        {groups.map(({ mainTitle, members }) => {
+          const primary = members[0]
+          const multi = members.length > 1
+          const totalAreas = members.reduce((sum, m) => sum + m.areaCount, 0)
+          const totalTasks = members.reduce((sum, m) => sum + m.taskCount, 0)
           return (
             <Pressable
-              key={p.code}
+              key={mainTitle}
               style={[styles.packetCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
-              onPress={() => openPacket(p)}
+              onPress={() => openPacket(primary)}
             >
               <Icon name="rosette" size={18} color={tokens.gold} />
-              {suffix && (
+              {multi && (
                 <View style={[styles.packetSuffixBadge, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
                   <Text style={[styles.packetSuffixText, { color: tokens.gold, fontSize: fs(10) }]} numberOfLines={1}>
-                    {suffix}
+                    {members.length} sections
                   </Text>
                 </View>
               )}
@@ -338,7 +349,7 @@ function RefPacketGrid({
                 {mainTitle}
               </Text>
               <Text style={[styles.packetMeta, { color: tokens.t4, fontSize: fs(10.5) }]}>
-                {p.areaCount} areas · {p.taskCount} tasks
+                {totalAreas} areas · {totalTasks} tasks
               </Text>
             </Pressable>
           )

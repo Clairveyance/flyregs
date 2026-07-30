@@ -7,25 +7,49 @@ import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
-import { getRefPacket, RefPacketArea } from '@/lib/refPackets'
+import { getRefPacket, getRefPackets, splitPacketTitle, RefPacketArea, RefPacket } from '@/lib/refPackets'
 
 export default function RefPacketDetailScreen() {
-  const { code } = useLocalSearchParams<{ code: string }>()
+  const { code: routeCode } = useLocalSearchParams<{ code: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
   const { hasPlusAccess } = useAuth()
+  // Separate from the route param: tapping a sibling section below updates
+  // this in place (no navigation) instead of pushing a new /ref-packets/X
+  // screen, so switching sections doesn't stack the back button.
+  const [activeCode, setActiveCode] = useState(routeCode)
   const [title, setTitle] = useState('')
   const [areas, setAreas] = useState<RefPacketArea[]>([])
   const [expanded, setExpanded] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [siblings, setSiblings] = useState<RefPacket[]>([])
+
+  useEffect(() => { setActiveCode(routeCode) }, [routeCode])
 
   useEffect(() => {
-    if (!code || !hasPlusAccess) { setLoading(false); return }
-    getRefPacket(code).then((r) => {
+    if (!activeCode || !hasPlusAccess) { setLoading(false); return }
+    setLoading(true)
+    getRefPacket(activeCode).then((r) => {
       if (r) { setTitle(r.title); setAreas(r.areas) }
       setLoading(false)
     })
-  }, [code, hasPlusAccess])
+    setExpanded(null)
+  }, [activeCode, hasPlusAccess])
+
+  // Siblings: other acs_documents rows from the same source PDF (see
+  // splitPacketTitle) -- fetched once against the full catalog rather than
+  // a dedicated query, since RefPacks' whole list is small and already
+  // cached client-side elsewhere (Community's own grid).
+  useEffect(() => {
+    if (!hasPlusAccess || !title) return
+    const { mainTitle } = splitPacketTitle(title)
+    getRefPackets().then((all) => {
+      const group = all
+        .filter((p) => splitPacketTitle(p.title).mainTitle === mainTitle)
+        .sort((a, b) => a.code.localeCompare(b.code))
+      setSiblings(group.length > 1 ? group : [])
+    })
+  }, [hasPlusAccess, title])
 
   if (!hasPlusAccess) {
     return (
@@ -61,7 +85,34 @@ export default function RefPacketDetailScreen() {
                 several packs, e.g. "...Sport Pilot Flight Instructor —
                 Section 2") get clipped there with no way to tell them
                 apart -- this shows the real, full, un-truncated title. */}
-            <Text style={[styles.fullTitle, { color: tokens.t1, fontSize: fs(17) }]}>{title}</Text>
+            <Text style={[styles.fullTitle, { color: tokens.t1, fontSize: fs(17) }]}>{splitPacketTitle(title).mainTitle}</Text>
+
+            {siblings.length > 1 && (
+              <>
+                <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>SECTION</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.sectionRow} contentContainerStyle={styles.sectionRowContent}>
+                  {siblings.map((s) => {
+                    const active = s.code === activeCode
+                    const { suffix } = splitPacketTitle(s.title)
+                    return (
+                      <Pressable
+                        key={s.code}
+                        style={[
+                          styles.sectionChip,
+                          { backgroundColor: active ? tokens.gold : tokens.bg2, borderColor: active ? tokens.gold : tokens.bdr },
+                        ]}
+                        onPress={() => setActiveCode(s.code)}
+                      >
+                        <Text style={[styles.sectionChipText, { color: active ? '#000' : tokens.t2, fontSize: fs(12.5) }]}>
+                          {suffix ?? s.code}
+                        </Text>
+                      </Pressable>
+                    )
+                  })}
+                </ScrollView>
+              </>
+            )}
+
             <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
               {areas.length} AREA{areas.length !== 1 ? 'S' : ''} OF OPERATION
             </Text>
@@ -120,6 +171,10 @@ const styles = StyleSheet.create({
   list: { padding: 12, paddingBottom: 32 },
   fullTitle: { fontWeight: '700', lineHeight: 22, marginBottom: 10, paddingLeft: 2 },
   groupLabel: { fontWeight: '600', letterSpacing: 0.5, marginBottom: 8, paddingLeft: 2 },
+  sectionRow: { marginBottom: 14 },
+  sectionRowContent: { gap: 8, paddingRight: 12 },
+  sectionChip: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 7 },
+  sectionChipText: { fontWeight: '700' },
 
   areaCard: { borderRadius: 14, borderWidth: 1, marginBottom: 8, overflow: 'hidden' },
   areaHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 13 },
