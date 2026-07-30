@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { View, Text, ScrollView, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
+import { View, Text, Image, ScrollView, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -11,6 +11,9 @@ import { getRefPackets, type RefPacket } from '@/lib/refPackets'
 import { getStudyMastery, getCurrency, type StudyMastery, type Currency } from '@/lib/study'
 import { getMyCoins } from '@/lib/coins'
 import { getDuelStats, type DuelStats } from '@/lib/challenges'
+import { getAvatarUrl, resolveAvatarPresetId, getDisplayName } from '@/lib/avatar'
+import { getAvatarPreset } from '@/lib/avatarPresets'
+import { useCachedImage } from '@/lib/imageCache'
 
 // IA redesign (2026-07-28): this file used to be the Search tab. Search now
 // lives entirely on Home (see (tabs)/index.tsx's inline search bar +
@@ -27,7 +30,16 @@ import { getDuelStats, type DuelStats } from '@/lib/challenges'
 export default function CommunityScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { session, isPro, hasPlusAccess } = useAuth()
+  const { session, isPro, hasPlusAccess, avatarOverride } = useAuth()
+  // Same resolution chain Account/Drawer use (avatarOverride takes priority
+  // so a freshly picked photo/preset shows here in the same tick, no
+  // waiting on a session refresh) -- this card previously hardcoded a bare
+  // "Y" and "You" regardless of the real avatar/handle, so neither ever
+  // updated when either changed.
+  const avatarPreset = getAvatarPreset(resolveAvatarPresetId(avatarOverride, session))
+  const cachedAvatarUrl = useCachedImage(session?.user?.id ? `avatar_${session.user.id}` : null, getAvatarUrl(session))
+  const avatarUrl = avatarOverride ? avatarOverride.uri : cachedAvatarUrl
+  const displayName = getDisplayName(session)
   const [refPackets, setRefPackets] = useState<RefPacket[]>([])
   const [packetCat, setPacketCat] = useState<RefPacket['category'] | 'All'>('All')
   const [mastery, setMastery] = useState<StudyMastery | null>(null)
@@ -86,11 +98,19 @@ export default function CommunityScreen() {
               style={[styles.identityCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
               onPress={() => router.push(`/profile/${session.user.id}` as any)}
             >
-              <View style={[styles.identityAvatar, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
-                <Text style={[styles.identityAvatarText, { color: tokens.gold, fontSize: fs(18) }]}>Y</Text>
+              <View style={[styles.identityAvatar, { backgroundColor: avatarPreset?.color ?? tokens.goldlt, borderColor: tokens.goldbdr }]}>
+                {avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={styles.identityAvatarImage} />
+                ) : avatarPreset ? (
+                  <Icon name={avatarPreset.icon} size={19} color="#fff" />
+                ) : (
+                  <Text style={[styles.identityAvatarText, { color: tokens.gold, fontSize: fs(18) }]}>
+                    {displayName.charAt(0).toUpperCase()}
+                  </Text>
+                )}
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.identityHandle, { color: tokens.t1, fontSize: fs(15.5) }]}>You</Text>
+                <Text style={[styles.identityHandle, { color: tokens.t1, fontSize: fs(15.5) }]} numberOfLines={1}>{displayName}</Text>
                 {hasAnyStats ? (
                   <IdentityStats
                     tokens={tokens}
@@ -353,7 +373,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 12,
     borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 18,
   },
-  identityAvatar: { width: 42, height: 42, borderRadius: 21, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  identityAvatar: { width: 42, height: 42, borderRadius: 21, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  identityAvatarImage: { width: '100%', height: '100%' },
   identityAvatarText: { fontWeight: '800' },
   identityHandle: { fontWeight: '700' },
   identitySub: { marginTop: 2 },

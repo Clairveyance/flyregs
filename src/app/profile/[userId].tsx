@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, ScrollView, Pressable, TextInput, Switch, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, Image, ScrollView, Pressable, TextInput, Switch, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -11,6 +11,9 @@ import { getDuelStats, type DuelStats } from '@/lib/challenges'
 import { getMyRatings, RATING_SHORT_LABELS, type RatingCode } from '@/lib/profileRatings'
 import { getCoinsForUser, COIN_BY_CODE, type EarnedCoin } from '@/lib/coins'
 import { getStatsVisible, setStatsVisible, getCurrentAircraft, setCurrentAircraft } from '@/lib/leaderboard'
+import { getAvatarUrl, resolveAvatarPresetId, getDisplayName } from '@/lib/avatar'
+import { getAvatarPreset } from '@/lib/avatarPresets'
+import { useCachedImage } from '@/lib/imageCache'
 
 // The Community "bragging page" -- badges, ratings, Duel record, current
 // aircraft. Duel record is unconditionally public (get_duel_stats() has no
@@ -25,8 +28,14 @@ export default function ProfileScreen() {
   const { userId, label } = useLocalSearchParams<{ userId: string; label?: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
-  const { session } = useAuth()
+  const { session, avatarOverride } = useAuth()
   const isSelf = session?.user.id === userId
+  // Same avatarOverride-first resolution as Account/Drawer/Community's
+  // identity card -- only meaningful for isSelf, since we have no public
+  // avatar lookup for other users here.
+  const selfAvatarPreset = getAvatarPreset(resolveAvatarPresetId(avatarOverride, session))
+  const selfCachedAvatarUrl = useCachedImage(session?.user?.id ? `avatar_${session.user.id}` : null, getAvatarUrl(session))
+  const selfAvatarUrl = avatarOverride ? avatarOverride.uri : selfCachedAvatarUrl
 
   const [loading, setLoading] = useState(true)
   // `statsVisibleReal` is the actual stored toggle value -- always fetched,
@@ -89,7 +98,10 @@ export default function ProfileScreen() {
     setAircraftSaving(false)
   }
 
-  const displayLabel = isSelf ? 'You' : (label || 'Pilot')
+  // Real handle (or email prefix fallback), same as Community's identity
+  // card -- previously hardcoded "You" here, so an updated handle in
+  // Account never showed up on your own profile page.
+  const displayLabel = isSelf ? getDisplayName(session) : (label || 'Pilot')
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
@@ -100,10 +112,16 @@ export default function ProfileScreen() {
         <TabletContainer>
           <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.headerRow}>
-              <View style={[styles.avatar, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
-                <Text style={[styles.avatarText, { color: tokens.gold, fontSize: fs(24) }]}>
-                  {displayLabel.charAt(0).toUpperCase()}
-                </Text>
+              <View style={[styles.avatar, { backgroundColor: (isSelf && selfAvatarPreset?.color) || tokens.goldlt, borderColor: tokens.goldbdr }]}>
+                {isSelf && selfAvatarUrl ? (
+                  <Image source={{ uri: selfAvatarUrl }} style={styles.avatarImage} />
+                ) : isSelf && selfAvatarPreset ? (
+                  <Icon name={selfAvatarPreset.icon} size={26} color="#fff" />
+                ) : (
+                  <Text style={[styles.avatarText, { color: tokens.gold, fontSize: fs(24) }]}>
+                    {displayLabel.charAt(0).toUpperCase()}
+                  </Text>
+                )}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.name, { color: tokens.t1, fontSize: fs(19) }]}>{displayLabel}</Text>
@@ -239,7 +257,8 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 40, gap: 18 },
 
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  avatar: { width: 58, height: 58, borderRadius: 29, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  avatar: { width: 58, height: 58, borderRadius: 29, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarImage: { width: '100%', height: '100%' },
   avatarText: { fontWeight: '800' },
   name: { fontWeight: '700' },
   aircraft: { marginTop: 3 },
