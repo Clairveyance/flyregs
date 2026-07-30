@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
@@ -16,6 +17,14 @@ const TYPE_LABEL: Record<StudyItemType, string> = { pcg: 'P/CG', far: 'FAR', aim
 const ALL_TYPES: StudyItemType[] = ['far', 'aim', 'pcg', 'ac']
 const ALL_LEVELS: KnowledgeLevel[] = ['student', 'private', 'commercial', 'atp', 'cfi', 'mechanic']
 
+// "See the definition, guess the term" (P/CG: see the meaning, guess the
+// word; AC: see the description, guess the number) is the direction most
+// pilots actually study in -- default, but not everyone's preference (an
+// AC number-recall drill wants the reverse), so it's a real toggle,
+// persisted across sessions like fontScale's own AsyncStorage pattern.
+type RevealDirection = 'defFirst' | 'termFirst'
+const REVEAL_DIRECTION_KEY = '@flyregs/study-reveal-direction'
+
 export default function StudyScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -27,6 +36,22 @@ export default function StudyScreen() {
   const [mastery, setMastery] = useState<StudyMastery | null>(null)
   const [currency, setCurrency] = useState<Currency | null>(null)
   const [sessionDone, setSessionDone] = useState(false)
+  const [revealDirection, setRevealDirection] = useState<RevealDirection>('defFirst')
+
+  useEffect(() => {
+    AsyncStorage.getItem(REVEAL_DIRECTION_KEY).then((raw) => {
+      if (raw === 'termFirst' || raw === 'defFirst') setRevealDirection(raw)
+    })
+  }, [])
+
+  const toggleRevealDirection = () => {
+    setRevealDirection((prev) => {
+      const next = prev === 'defFirst' ? 'termFirst' : 'defFirst'
+      AsyncStorage.setItem(REVEAL_DIRECTION_KEY, next)
+      return next
+    })
+    setFlipped(false)
+  }
   // Empty selection means "all types" (still what the backend expects --
   // itemTypes.length > 0 ? itemTypes : null) but ALL and individual chips
   // are now mutually exclusive in the UI: ALL can't be "pared down" since
@@ -183,6 +208,16 @@ export default function StudyScreen() {
           )
         })}
       </View>
+
+      <Pressable style={styles.revealRow} onPress={toggleRevealDirection}>
+        <Icon name="arrow.uturn.left" size={12} color={tokens.t3} />
+        <Text style={[styles.revealRowText, { color: tokens.t3, fontSize: fs(11.5) }]}>
+          {revealDirection === 'defFirst'
+            ? 'Showing definition first — tap to flip'
+            : 'Showing term first — tap to flip'}
+        </Text>
+      </Pressable>
+
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
@@ -254,6 +289,7 @@ export default function StudyScreen() {
           <FlashCard
             term={current.term}
             definition={current.definition}
+            direction={revealDirection}
             flipped={flipped}
             onPress={() => setFlipped((f) => !f)}
             tokens={tokens}
@@ -296,6 +332,7 @@ export default function StudyScreen() {
 function FlashCard({
   term,
   definition,
+  direction,
   flipped,
   onPress,
   tokens,
@@ -303,6 +340,7 @@ function FlashCard({
 }: {
   term: string
   definition: string
+  direction: RevealDirection
   flipped: boolean
   onPress: () => void
   tokens: ReturnType<typeof useTheme>['tokens']
@@ -321,18 +359,31 @@ function FlashCard({
     transform: [{ perspective: 1400 }, { rotateY: `${progress.value * 180 - 180}deg` }],
   }))
 
+  const frontText = direction === 'defFirst' ? definition : term
+  const backText = direction === 'defFirst' ? term : definition
+  // Definition text tends to be a full sentence/paragraph; term/number text
+  // is usually short -- swap which style (large centered term-style vs
+  // smaller left-aligned paragraph-style) applies to whichever face is
+  // showing it, rather than always styling front as "term".
+  const frontStyleText = direction === 'defFirst' ? styles.cardDef : styles.cardTerm
+  const backStyleText = direction === 'defFirst' ? styles.cardTerm : styles.cardDef
+  const frontColor = direction === 'defFirst' ? tokens.t2 : tokens.t1
+  const backColor = direction === 'defFirst' ? tokens.t1 : tokens.t2
+  const frontFs = direction === 'defFirst' ? fs(15) : fs(22)
+  const backFs = direction === 'defFirst' ? fs(22) : fs(15)
+
   return (
     <Pressable style={styles.cardOuter} onPress={onPress}>
       <Reanimated.View
         style={[styles.card, styles.cardFace, frontStyle, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
       >
-        <Text style={[styles.cardTerm, { color: tokens.t1, fontSize: fs(22) }]}>{term}</Text>
+        <Text style={[frontStyleText, { color: frontColor, fontSize: frontFs }]}>{frontText}</Text>
         <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>Tap to reveal</Text>
       </Reanimated.View>
       <Reanimated.View
         style={[styles.card, styles.cardFace, styles.cardBack, backStyle, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
       >
-        <Text style={[styles.cardDef, { color: tokens.t2, fontSize: fs(15) }]}>{definition}</Text>
+        <Text style={[backStyleText, { color: backColor, fontSize: backFs }]}>{backText}</Text>
         <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>Tap to flip back</Text>
       </Reanimated.View>
     </Pressable>
@@ -350,6 +401,8 @@ const styles = StyleSheet.create({
   filterGroupLabel: { fontWeight: '700', letterSpacing: 0.5, paddingHorizontal: 20, paddingTop: 14 },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingTop: 8 },
   levelFilterRow: { marginTop: 10 },
+  revealRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, paddingTop: 12 },
+  revealRowText: { fontWeight: '600' },
   filterChip: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6 },
   filterChipText: { fontWeight: '700', letterSpacing: 0.3 },
 
