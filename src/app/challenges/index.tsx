@@ -34,18 +34,21 @@ export default function ChallengesScreen() {
   const [activeLevels, setActiveLevels] = useState<KnowledgeLevel[]>([])
   const [creating, setCreating] = useState(false)
 
+  // ALL and individual chips are mutually exclusive: ALL can't be "pared
+  // down" (it already means everything), so picking any individual chip
+  // starts a fresh explicit selection and picking ALL clears it -- see
+  // study.tsx's identical fix for why (both could render as selected at
+  // once before, confirmed confusing live).
   const toggleType = (t: DuelItemType) => {
-    setActiveTypes((prev) => {
-      const base = prev.length === 0 ? ALL_TYPES : prev
-      return base.includes(t) ? base.filter((x) => x !== t) : [...base, t]
-    })
+    setActiveTypes((prev) =>
+      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
+    )
   }
 
   const toggleLevel = (l: KnowledgeLevel) => {
-    setActiveLevels((prev) => {
-      const base = prev.length === 0 ? ALL_LEVELS : prev
-      return base.includes(l) ? base.filter((x) => x !== l) : [...base, l]
-    })
+    setActiveLevels((prev) =>
+      prev.includes(l) ? prev.filter((x) => x !== l) : [...prev, l]
+    )
   }
 
   const load = useCallback(() => {
@@ -180,7 +183,7 @@ export default function ChallengesScreen() {
               ))}
             </View>
 
-            <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 14 }]}>CONTENT (TAP TO EXCLUDE)</Text>
+            <Text style={[styles.modalLabel, { color: tokens.gold, fontSize: fs(11), marginTop: 14 }]}>CONTENT</Text>
             <View style={styles.countRow}>
               <Pressable
                 style={[
@@ -192,7 +195,7 @@ export default function ChallengesScreen() {
                 <Text style={[styles.countChipText, { color: activeTypes.length === 0 ? tokens.gold : tokens.t3, fontSize: fs(13) }]}>ALL</Text>
               </Pressable>
               {ALL_TYPES.map((t) => {
-                const active = activeTypes.length === 0 || activeTypes.includes(t)
+                const active = activeTypes.includes(t)
                 return (
                   <Pressable
                     key={t}
@@ -212,30 +215,31 @@ export default function ChallengesScreen() {
                 and vice versa; a mechanic session shouldn't pull pilot
                 certification questions at all -- classification is real FAR
                 structure (far_knowledge_levels() in the DB), not a guess.
-                Same "tap to exclude" pattern as CONTENT above. */}
-            <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 14 }]}>KNOWLEDGE LEVEL (TAP TO EXCLUDE)</Text>
+                Blue accent (vs. CONTENT's gold) so the two filter groups
+                read as distinct dimensions, not one ambiguous chip row. */}
+            <Text style={[styles.modalLabel, { color: tokens.blu, fontSize: fs(11), marginTop: 14 }]}>KNOWLEDGE LEVEL</Text>
             <View style={styles.countRow}>
               <Pressable
                 style={[
                   styles.countChip,
-                  { backgroundColor: activeLevels.length === 0 ? tokens.goldlt : tokens.bg2, borderColor: activeLevels.length === 0 ? tokens.goldbdr : tokens.bdr },
+                  { backgroundColor: activeLevels.length === 0 ? tokens.bdim : tokens.bg2, borderColor: activeLevels.length === 0 ? tokens.blu : tokens.bdr },
                 ]}
                 onPress={() => setActiveLevels([])}
               >
-                <Text style={[styles.countChipText, { color: activeLevels.length === 0 ? tokens.gold : tokens.t3, fontSize: fs(13) }]}>ALL</Text>
+                <Text style={[styles.countChipText, { color: activeLevels.length === 0 ? tokens.blu : tokens.t3, fontSize: fs(13) }]}>ALL</Text>
               </Pressable>
               {ALL_LEVELS.map((l) => {
-                const active = activeLevels.length === 0 || activeLevels.includes(l)
+                const active = activeLevels.includes(l)
                 return (
                   <Pressable
                     key={l}
                     style={[
                       styles.countChip,
-                      { backgroundColor: active ? tokens.goldlt : tokens.bg2, borderColor: active ? tokens.goldbdr : tokens.bdr },
+                      { backgroundColor: active ? tokens.bdim : tokens.bg2, borderColor: active ? tokens.blu : tokens.bdr },
                     ]}
                     onPress={() => toggleLevel(l)}
                   >
-                    <Text style={[styles.countChipText, { color: active ? tokens.gold : tokens.t3, fontSize: fs(13) }]}>{KNOWLEDGE_LEVEL_LABELS[l]}</Text>
+                    <Text style={[styles.countChipText, { color: active ? tokens.blu : tokens.t3, fontSize: fs(13) }]}>{KNOWLEDGE_LEVEL_LABELS[l]}</Text>
                   </Pressable>
                 )
               })}
@@ -245,8 +249,16 @@ export default function ChallengesScreen() {
               OPPONENTS{selectedOpponents.length > 0 ? ` (${selectedOpponents.length} of ${MAX_OPPONENTS} max)` : ''}
             </Text>
             {opponents.length === 0 ? (
+              // Confirmed the actual opt-in/challengeable-user mechanism has
+              // no bug (verified live with a second account): this is a
+              // real cold-start state, not broken -- a friend needs their
+              // own FlyRegs account AND to flip "Show me on the Ready Room
+              // leaderboard" (Account > Community) before they'll show up
+              // here. There's no in-app invite path for someone who doesn't
+              // have the app yet -- that's tracked separately.
               <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13), marginTop: 8 }]}>
-                Nobody's opted into Ready Room yet — ask a friend to opt in from Account &gt; Community first.
+                No other pilots are opted in yet. A friend needs their own FlyRegs account, with
+                "Show me on the Ready Room leaderboard" turned on in Account &gt; Community, before they'll show up here.
               </Text>
             ) : (
               opponents.map((o) => {

@@ -64,7 +64,8 @@ export default function ReadyRoomScreen() {
           <Icon name="person.2.fill" size={36} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Nobody here yet</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-            Opt in from Account &gt; Community and study this week to be the first name on the board.
+            Turn on "Show me on the Ready Room leaderboard" in Account &gt; Community, then study this week to be
+            the first name on the board.
           </Text>
         </View>
       ) : (

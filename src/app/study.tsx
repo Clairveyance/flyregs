@@ -27,26 +27,27 @@ export default function StudyScreen() {
   const [mastery, setMastery] = useState<StudyMastery | null>(null)
   const [currency, setCurrency] = useState<Currency | null>(null)
   const [sessionDone, setSessionDone] = useState(false)
-  // Empty selection means "all types" -- avoids a confusing zero-result
-  // state on first load and matches Duels' filter default.
+  // Empty selection means "all types" (still what the backend expects --
+  // itemTypes.length > 0 ? itemTypes : null) but ALL and individual chips
+  // are now mutually exclusive in the UI: ALL can't be "pared down" since
+  // by definition it already means everything, so tapping any individual
+  // chip starts a fresh explicit selection (clearing ALL's highlight), and
+  // tapping ALL clears any explicit selection back to empty. Previously
+  // both could render as selected at once (every individual chip lit up
+  // gold *because* ALL was active) -- confirmed confusing live.
   const [activeTypes, setActiveTypes] = useState<StudyItemType[]>([])
   const [activeLevels, setActiveLevels] = useState<KnowledgeLevel[]>([])
 
   const toggleType = (t: StudyItemType) => {
-    // Empty selection displays as "all active" -- expand to the explicit
-    // full list first so tapping one chip deselects just that one, not
-    // collapses down to a single-type filter.
-    setActiveTypes((prev) => {
-      const base = prev.length === 0 ? ALL_TYPES : prev
-      return base.includes(t) ? base.filter((x) => x !== t) : [...base, t]
-    })
+    setActiveTypes((prev) =>
+      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
+    )
   }
 
   const toggleLevel = (l: KnowledgeLevel) => {
-    setActiveLevels((prev) => {
-      const base = prev.length === 0 ? ALL_LEVELS : prev
-      return base.includes(l) ? base.filter((x) => x !== l) : [...base, l]
-    })
+    setActiveLevels((prev) =>
+      prev.includes(l) ? prev.filter((x) => x !== l) : [...prev, l]
+    )
   }
 
   const load = useCallback(() => {
@@ -121,6 +122,7 @@ export default function StudyScreen() {
       <OverlayHeader title="Study Mode" onBack={() => router.back()} right={headerRight} />
 
       <TabletContainer>
+      <Text style={[styles.filterGroupLabel, { color: tokens.gold, fontSize: fs(10) }]}>CONTENT</Text>
       <View style={styles.filterRow}>
         <Pressable
           style={[
@@ -132,7 +134,7 @@ export default function StudyScreen() {
           <Text style={[styles.filterChipText, { color: activeTypes.length === 0 ? tokens.gold : tokens.t3, fontSize: fs(11.5) }]}>ALL</Text>
         </Pressable>
         {ALL_TYPES.map((t) => {
-          const active = activeTypes.length === 0 || activeTypes.includes(t)
+          const active = activeTypes.includes(t)
           return (
             <Pressable
               key={t}
@@ -149,28 +151,32 @@ export default function StudyScreen() {
           )
         })}
       </View>
-      <View style={[styles.filterRow, styles.levelFilterRow]}>
+      {/* Blue accent (vs. content's gold) so the two filter groups read as
+          visually distinct dimensions at a glance, not one long ambiguous
+          chip row. */}
+      <Text style={[styles.filterGroupLabel, styles.levelFilterRow, { color: tokens.blu, fontSize: fs(10) }]}>KNOWLEDGE LEVEL</Text>
+      <View style={styles.filterRow}>
         <Pressable
           style={[
             styles.filterChip,
-            { backgroundColor: activeLevels.length === 0 ? tokens.goldlt : tokens.bg2, borderColor: activeLevels.length === 0 ? tokens.goldbdr : tokens.bdr },
+            { backgroundColor: activeLevels.length === 0 ? tokens.bdim : tokens.bg2, borderColor: activeLevels.length === 0 ? tokens.blu : tokens.bdr },
           ]}
           onPress={() => setActiveLevels([])}
         >
-          <Text style={[styles.filterChipText, { color: activeLevels.length === 0 ? tokens.gold : tokens.t3, fontSize: fs(11.5) }]}>ALL LEVELS</Text>
+          <Text style={[styles.filterChipText, { color: activeLevels.length === 0 ? tokens.blu : tokens.t3, fontSize: fs(11.5) }]}>ALL</Text>
         </Pressable>
         {ALL_LEVELS.map((l) => {
-          const active = activeLevels.length === 0 || activeLevels.includes(l)
+          const active = activeLevels.includes(l)
           return (
             <Pressable
               key={l}
               style={[
                 styles.filterChip,
-                { backgroundColor: active ? tokens.goldlt : tokens.bg2, borderColor: active ? tokens.goldbdr : tokens.bdr },
+                { backgroundColor: active ? tokens.bdim : tokens.bg2, borderColor: active ? tokens.blu : tokens.bdr },
               ]}
               onPress={() => toggleLevel(l)}
             >
-              <Text style={[styles.filterChipText, { color: active ? tokens.gold : tokens.t3, fontSize: fs(11.5) }]}>
+              <Text style={[styles.filterChipText, { color: active ? tokens.blu : tokens.t3, fontSize: fs(11.5) }]}>
                 {KNOWLEDGE_LEVEL_LABELS[l]}
               </Text>
             </Pressable>
@@ -341,8 +347,9 @@ const styles = StyleSheet.create({
   upgradeBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
   upgradeBtnText: { color: '#fff', fontWeight: '700' },
 
-  filterRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingTop: 14 },
-  levelFilterRow: { flexWrap: 'wrap', paddingTop: 8 },
+  filterGroupLabel: { fontWeight: '700', letterSpacing: 0.5, paddingHorizontal: 20, paddingTop: 14 },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingTop: 8 },
+  levelFilterRow: { marginTop: 10 },
   filterChip: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6 },
   filterChipText: { fontWeight: '700', letterSpacing: 0.3 },
 
