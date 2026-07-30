@@ -10,6 +10,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { getDuelStats, type DuelStats } from '@/lib/challenges'
 import { getMyRatings, RATING_SHORT_LABELS, type RatingCode } from '@/lib/profileRatings'
 import { getCoinsForUser, COIN_BY_CODE, COIN_CATALOG, type EarnedCoin, type CoinDef } from '@/lib/coins'
+import { CoinMedal } from '@/components/CoinMedal'
 import { getStatsVisible, setStatsVisible, getCurrentAircraft, setCurrentAircraft } from '@/lib/leaderboard'
 import { getAvatarUrl, resolveAvatarPresetId, getDisplayName } from '@/lib/avatar'
 import { getAvatarPreset } from '@/lib/avatarPresets'
@@ -237,10 +238,10 @@ export default function ProfileScreen() {
                         return (
                           <Pressable
                             key={coin.code}
-                            style={[styles.coinCard, { backgroundColor: tokens.bg2, borderColor: earned ? tokens.goldbdr : tokens.bdr }]}
+                            style={styles.coinCard}
                             onPress={() => setCoinDetail(coin)}
                           >
-                            <Icon name={earned ? coin.icon : 'lock.fill'} size={20} color={earned ? tokens.gold : tokens.t4} />
+                            <CoinMedal tier={coin.tier} icon={coin.icon} earned={earned} />
                             <Text style={[styles.coinName, { color: earned ? tokens.t1 : tokens.t4, fontSize: fs(12) }]} numberOfLines={2}>
                               {coin.name}
                             </Text>
@@ -256,8 +257,8 @@ export default function ProfileScreen() {
                         const def = COIN_BY_CODE[c.code]
                         if (!def) return null
                         return (
-                          <View key={c.code} style={[styles.coinCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}>
-                            <Icon name={def.icon} size={20} color={tokens.gold} />
+                          <View key={c.code} style={styles.coinCard}>
+                            <CoinMedal tier={def.tier} icon={def.icon} earned />
                             <Text style={[styles.coinName, { color: tokens.t1, fontSize: fs(12) }]} numberOfLines={2}>{def.name}</Text>
                           </View>
                         )
@@ -277,15 +278,8 @@ export default function ProfileScreen() {
             const earned = coins.some((c) => c.code === coinDetail.code)
             return (
               <Pressable style={[styles.coinDetailCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]} onPress={() => {}}>
-                <View
-                  style={[
-                    styles.coinDetailMedal,
-                    { borderColor: earned ? tokens.gold : tokens.bdr, backgroundColor: earned ? tokens.goldlt : tokens.bg },
-                  ]}
-                >
-                  <Icon name={earned ? coinDetail.icon : 'lock.fill'} size={26} color={earned ? tokens.gold : tokens.t4} />
-                </View>
-                <Text style={[styles.coinDetailName, { color: tokens.t1, fontSize: fs(16) }]}>{coinDetail.name}</Text>
+                <CoinMedal tier={coinDetail.tier} icon={coinDetail.icon} earned={earned} size={64} />
+                <Text style={[styles.coinDetailName, { color: tokens.t1, fontSize: fs(16), marginTop: 8 }]}>{coinDetail.name}</Text>
                 <Text style={[styles.coinDetailStatus, { color: earned ? tokens.gold : tokens.t3, fontSize: fs(12) }]}>
                   {earned ? 'EARNED' : 'LOCKED — HOW TO UNLOCK'}
                 </Text>
@@ -344,15 +338,14 @@ const styles = StyleSheet.create({
   ratingChip: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 11, paddingVertical: 6 },
   ratingChipText: { fontWeight: '700' },
 
-  coinGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  coinGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   coinCard: {
-    width: '31%', borderRadius: 12, borderWidth: 1, padding: 10, gap: 6, alignItems: 'center', minHeight: 74, justifyContent: 'center',
+    width: '26%', gap: 6, alignItems: 'center', justifyContent: 'center',
   },
-  coinName: { fontWeight: '600', textAlign: 'center' },
+  coinName: { fontWeight: '600', textAlign: 'center', lineHeight: 14 },
 
   coinScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 32 },
   coinDetailCard: { width: '100%', maxWidth: 320, borderRadius: 18, borderWidth: 1, padding: 24, alignItems: 'center', gap: 8 },
-  coinDetailMedal: { width: 60, height: 60, borderRadius: 30, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
   coinDetailName: { fontWeight: '700' },
   coinDetailStatus: { fontWeight: '700', letterSpacing: 0.6 },
   coinDetailDesc: { textAlign: 'center', lineHeight: 20, marginTop: 4, marginBottom: 8 },

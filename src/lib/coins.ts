@@ -7,6 +7,8 @@ import { supabase } from '@/lib/supabase'
 // these need no "self-attested" disclaimer. STREAK_90 deliberately mirrors
 // real FAA flight currency (90 days) -- the one coin name with a direct
 // real-world callback.
+export type CoinTier = 'bronze' | 'silver' | 'gold'
+
 export interface CoinDef {
   code: string
   name: string
@@ -20,18 +22,24 @@ export interface CoinDef {
   // 'crown'/'crown.fill' is avoided entirely since that's already the
   // Pro/Premium subscription-tier icon elsewhere in the app.
   icon: string
+  // Each of the 3 progressions (streak/mastery/duel) escalates bronze ->
+  // silver -> gold; FIRST_REP (the very first coin anyone earns) is bronze.
+  // Drives CoinMedal's metallic rim -- real challenge-coin sets are
+  // conventionally tiered this way, and it's a real visual distinguisher
+  // between coins beyond just the center icon.
+  tier: CoinTier
 }
 
 export const COIN_CATALOG: CoinDef[] = [
-  { code: 'FIRST_REP', name: 'First Rep', description: 'Completed your first study review', icon: 'flag.fill' },
-  { code: 'STREAK_7', name: '7-Day Currency', description: '7 consecutive days of practice', icon: 'flame' },
-  { code: 'STREAK_30', name: '30-Day Currency', description: '30 consecutive days of practice', icon: 'flame.fill' },
-  { code: 'STREAK_90', name: '90-Day Currency', description: '90 consecutive days — real aviation currency, matched', icon: 'airplane.circle.fill' },
-  { code: 'MASTERY_25', name: 'Quarter Century', description: '25 P/CG terms mastered', icon: 'graduationcap.fill' },
-  { code: 'MASTERY_100', name: 'Century', description: '100 P/CG terms mastered', icon: 'trophy.fill' },
-  { code: 'DUEL_FIRST_WIN', name: 'First Blood', description: 'Won your first Duel', icon: 'bolt.fill' },
-  { code: 'DUEL_5_WINS', name: 'Squadron Leader', description: '5 Duel wins', icon: 'shield.fill' },
-  { code: 'DUEL_25_WINS', name: 'Top Gun', description: '25 Duel wins', icon: 'rosette' },
+  { code: 'FIRST_REP', name: 'First Rep', description: 'Completed your first study review', icon: 'flag.fill', tier: 'bronze' },
+  { code: 'STREAK_7', name: '7-Day Currency', description: '7 consecutive days of practice', icon: 'flame', tier: 'bronze' },
+  { code: 'STREAK_30', name: '30-Day Currency', description: '30 consecutive days of practice', icon: 'flame.fill', tier: 'silver' },
+  { code: 'STREAK_90', name: '90-Day Currency', description: '90 consecutive days — real aviation currency, matched', icon: 'airplane.circle.fill', tier: 'gold' },
+  { code: 'MASTERY_25', name: 'Quarter Century', description: '25 P/CG terms mastered', icon: 'graduationcap.fill', tier: 'bronze' },
+  { code: 'MASTERY_100', name: 'Century', description: '100 P/CG terms mastered', icon: 'trophy.fill', tier: 'silver' },
+  { code: 'DUEL_FIRST_WIN', name: 'First Blood', description: 'Won your first Duel', icon: 'bolt.fill', tier: 'bronze' },
+  { code: 'DUEL_5_WINS', name: 'Squadron Leader', description: '5 Duel wins', icon: 'shield.fill', tier: 'silver' },
+  { code: 'DUEL_25_WINS', name: 'Top Gun', description: '25 Duel wins', icon: 'rosette', tier: 'gold' },
 ]
 
 export const COIN_BY_CODE: Record<string, CoinDef> = Object.fromEntries(COIN_CATALOG.map((c) => [c.code, c]))
