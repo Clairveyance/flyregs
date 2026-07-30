@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, Image, ScrollView, Pressable, TextInput, Switch, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, Image, ScrollView, Pressable, TextInput, Switch, StyleSheet, ActivityIndicator, Modal } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -9,7 +9,7 @@ import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getDuelStats, type DuelStats } from '@/lib/challenges'
 import { getMyRatings, RATING_SHORT_LABELS, type RatingCode } from '@/lib/profileRatings'
-import { getCoinsForUser, COIN_BY_CODE, type EarnedCoin } from '@/lib/coins'
+import { getCoinsForUser, COIN_BY_CODE, COIN_CATALOG, type EarnedCoin, type CoinDef } from '@/lib/coins'
 import { getStatsVisible, setStatsVisible, getCurrentAircraft, setCurrentAircraft } from '@/lib/leaderboard'
 import { getAvatarUrl, resolveAvatarPresetId, getDisplayName } from '@/lib/avatar'
 import { getAvatarPreset } from '@/lib/avatarPresets'
@@ -53,6 +53,7 @@ export default function ProfileScreen() {
   const [aircraftInput, setAircraftInput] = useState('')
   const [aircraftDirty, setAircraftDirty] = useState(false)
   const [aircraftSaving, setAircraftSaving] = useState(false)
+  const [coinDetail, setCoinDetail] = useState<CoinDef | null>(null)
 
   const load = useCallback(async () => {
     if (!userId) return
@@ -225,7 +226,29 @@ export default function ProfileScreen() {
                   <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>
                     CHALLENGE COINS{coins.length > 0 ? ` · ${coins.length}` : ''}
                   </Text>
-                  {coins.length === 0 ? (
+                  {isSelf ? (
+                    // Full catalog with locked slots + tap-to-detail --
+                    // moved here from Account (which showed the exact same
+                    // grid, now duplicated) since this is the actual
+                    // "bragging page" the coins are for.
+                    <View style={styles.coinGrid}>
+                      {COIN_CATALOG.map((coin) => {
+                        const earned = coins.some((c) => c.code === coin.code)
+                        return (
+                          <Pressable
+                            key={coin.code}
+                            style={[styles.coinCard, { backgroundColor: tokens.bg2, borderColor: earned ? tokens.goldbdr : tokens.bdr }]}
+                            onPress={() => setCoinDetail(coin)}
+                          >
+                            <Icon name={earned ? coin.icon : 'lock.fill'} size={20} color={earned ? tokens.gold : tokens.t4} />
+                            <Text style={[styles.coinName, { color: earned ? tokens.t1 : tokens.t4, fontSize: fs(12) }]} numberOfLines={2}>
+                              {coin.name}
+                            </Text>
+                          </Pressable>
+                        )
+                      })}
+                    </View>
+                  ) : coins.length === 0 ? (
                     <Text style={[styles.emptySub, { color: tokens.t4, fontSize: fs(12.5) }]}>No coins earned yet.</Text>
                   ) : (
                     <View style={styles.coinGrid}>
@@ -247,6 +270,34 @@ export default function ProfileScreen() {
           </ScrollView>
         </TabletContainer>
       )}
+
+      <Modal visible={!!coinDetail} animationType="fade" transparent onRequestClose={() => setCoinDetail(null)}>
+        <Pressable style={styles.coinScrim} onPress={() => setCoinDetail(null)}>
+          {coinDetail && (() => {
+            const earned = coins.some((c) => c.code === coinDetail.code)
+            return (
+              <Pressable style={[styles.coinDetailCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]} onPress={() => {}}>
+                <View
+                  style={[
+                    styles.coinDetailMedal,
+                    { borderColor: earned ? tokens.gold : tokens.bdr, backgroundColor: earned ? tokens.goldlt : tokens.bg },
+                  ]}
+                >
+                  <Icon name={earned ? coinDetail.icon : 'lock.fill'} size={26} color={earned ? tokens.gold : tokens.t4} />
+                </View>
+                <Text style={[styles.coinDetailName, { color: tokens.t1, fontSize: fs(16) }]}>{coinDetail.name}</Text>
+                <Text style={[styles.coinDetailStatus, { color: earned ? tokens.gold : tokens.t3, fontSize: fs(12) }]}>
+                  {earned ? 'EARNED' : 'LOCKED — HOW TO UNLOCK'}
+                </Text>
+                <Text style={[styles.coinDetailDesc, { color: tokens.t2, fontSize: fs(14) }]}>{coinDetail.description}</Text>
+                <Pressable style={[styles.coinDetailClose, { borderColor: tokens.bdr }]} onPress={() => setCoinDetail(null)}>
+                  <Text style={{ color: tokens.t2, fontWeight: '600' }}>Close</Text>
+                </Pressable>
+              </Pressable>
+            )
+          })()}
+        </Pressable>
+      </Modal>
     </View>
   )
 }
@@ -298,4 +349,12 @@ const styles = StyleSheet.create({
     width: '31%', borderRadius: 12, borderWidth: 1, padding: 10, gap: 6, alignItems: 'center', minHeight: 74, justifyContent: 'center',
   },
   coinName: { fontWeight: '600', textAlign: 'center' },
+
+  coinScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 32 },
+  coinDetailCard: { width: '100%', maxWidth: 320, borderRadius: 18, borderWidth: 1, padding: 24, alignItems: 'center', gap: 8 },
+  coinDetailMedal: { width: 60, height: 60, borderRadius: 30, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  coinDetailName: { fontWeight: '700' },
+  coinDetailStatus: { fontWeight: '700', letterSpacing: 0.6 },
+  coinDetailDesc: { textAlign: 'center', lineHeight: 20, marginTop: 4, marginBottom: 8 },
+  coinDetailClose: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 9, marginTop: 4 },
 })

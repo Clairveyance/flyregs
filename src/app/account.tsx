@@ -44,7 +44,6 @@ import {
 } from '@/lib/notifications'
 import { getMyRatings, addRating, removeRating, RATING_CODES, RATING_LABELS, RATING_SHORT_LABELS, RATING_GROUPS, RatingCode } from '@/lib/profileRatings'
 import { getLeaderboardOptIn, setLeaderboardOptIn } from '@/lib/leaderboard'
-import { getMyCoins, COIN_CATALOG, EarnedCoin, CoinDef } from '@/lib/coins'
 
 export default function AccountScreen() {
   const { tokens } = useTheme()
@@ -75,8 +74,6 @@ export default function AccountScreen() {
   const [myRatings, setMyRatings] = useState<RatingCode[]>([])
   const [ratingBusy, setRatingBusy] = useState<RatingCode | null>(null)
   const [ratingPickerOpen, setRatingPickerOpen] = useState(false)
-  const [myCoins, setMyCoins] = useState<EarnedCoin[]>([])
-  const [coinDetail, setCoinDetail] = useState<CoinDef | null>(null)
   const [leaderboardOptIn, setLeaderboardOptInState] = useState(false)
   const [leaderboardBusy, setLeaderboardBusy] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -138,11 +135,9 @@ export default function AccountScreen() {
     if (session?.user?.id) {
       getMyRatings(session.user.id).then(setMyRatings)
       getLeaderboardOptIn(session.user.id).then(setLeaderboardOptInState)
-      getMyCoins().then(setMyCoins).catch(() => setMyCoins([]))
     } else {
       setMyRatings([])
       setLeaderboardOptInState(false)
-      setMyCoins([])
     }
   }, [session?.user?.id])
 
@@ -590,33 +585,6 @@ export default function AccountScreen() {
             </Pressable>
           </View>
 
-          <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5), marginTop: 18, marginBottom: 4 }]}>Challenge Coins</Text>
-          <Text style={[styles.handleHelp, { color: tokens.t3, fontSize: fs(12), marginBottom: 10 }]}>
-            Earned automatically from real study activity — unlike ratings, these aren't self-reported.
-          </Text>
-          <View style={styles.coinGrid}>
-            {COIN_CATALOG.map((coin) => {
-              const earned = myCoins.some((c) => c.code === coin.code)
-              return (
-                <Pressable key={coin.code} style={styles.coinItem} onPress={() => setCoinDetail(coin)}>
-                  <View
-                    style={[
-                      styles.coinMedal,
-                      { borderColor: earned ? tokens.gold : tokens.bdr, backgroundColor: earned ? tokens.goldlt : tokens.bg },
-                    ]}
-                  >
-                    <Icon name={earned ? coin.icon : 'lock.fill'} size={16} color={earned ? tokens.gold : tokens.t4} />
-                  </View>
-                  <Text
-                    style={[styles.coinName, { color: earned ? tokens.t1 : tokens.t4, fontSize: fs(10.5) }]}
-                    numberOfLines={2}
-                  >
-                    {coin.name}
-                  </Text>
-                </Pressable>
-              )
-            })}
-          </View>
         </View>
 
         {/* Subscription group */}
@@ -836,37 +804,6 @@ export default function AccountScreen() {
           </ScrollView>
         </View>
       </Modal>
-      <Modal visible={!!coinDetail} animationType="fade" transparent onRequestClose={() => setCoinDetail(null)}>
-        <Pressable style={styles.coinScrim} onPress={() => setCoinDetail(null)}>
-          {coinDetail && (
-            <Pressable style={[styles.coinDetailCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]} onPress={() => {}}>
-              {(() => {
-                const earned = myCoins.some((c) => c.code === coinDetail.code)
-                return (
-                  <>
-                    <View
-                      style={[
-                        styles.coinDetailMedal,
-                        { borderColor: earned ? tokens.gold : tokens.bdr, backgroundColor: earned ? tokens.goldlt : tokens.bg },
-                      ]}
-                    >
-                      <Icon name={earned ? coinDetail.icon : 'lock.fill'} size={26} color={earned ? tokens.gold : tokens.t4} />
-                    </View>
-                    <Text style={[styles.coinDetailName, { color: tokens.t1, fontSize: fs(16) }]}>{coinDetail.name}</Text>
-                    <Text style={[styles.coinDetailStatus, { color: earned ? tokens.gold : tokens.t3, fontSize: fs(12) }]}>
-                      {earned ? 'EARNED' : 'LOCKED — HOW TO UNLOCK'}
-                    </Text>
-                    <Text style={[styles.coinDetailDesc, { color: tokens.t2, fontSize: fs(14) }]}>{coinDetail.description}</Text>
-                    <Pressable style={[styles.coinDetailClose, { borderColor: tokens.bdr }]} onPress={() => setCoinDetail(null)}>
-                      <Text style={{ color: tokens.t2, fontWeight: '600', fontSize: fs(14) }}>Close</Text>
-                    </Pressable>
-                  </>
-                )
-              })()}
-            </Pressable>
-          )}
-        </Pressable>
-      </Modal>
     </View>
   )
 }
@@ -977,17 +914,6 @@ const styles = StyleSheet.create({
   pickerRowText: { fontWeight: '500' },
   pickerCheckEmpty: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5 },
   ratingChipText: { fontWeight: '600' },
-  coinGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  coinItem: { width: 64, alignItems: 'center', gap: 5 },
-  coinMedal: { width: 46, height: 46, borderRadius: 23, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  coinName: { textAlign: 'center', lineHeight: 13, fontWeight: '600' },
-  coinScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 32 },
-  coinDetailCard: { width: '100%', maxWidth: 320, borderRadius: 18, borderWidth: 1, padding: 24, alignItems: 'center', gap: 8 },
-  coinDetailMedal: { width: 60, height: 60, borderRadius: 30, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
-  coinDetailName: { fontWeight: '700' },
-  coinDetailStatus: { fontWeight: '700', letterSpacing: 0.6 },
-  coinDetailDesc: { textAlign: 'center', lineHeight: 20, marginTop: 4, marginBottom: 8 },
-  coinDetailClose: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 9, marginTop: 4 },
 
   // signed out
   signedOut: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 10 },
