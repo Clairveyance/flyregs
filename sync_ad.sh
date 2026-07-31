@@ -29,6 +29,16 @@
 #      week but had never actually been run before 2026-07-28 (see
 #      flyregs_gotchas.md) -- wiring it here is what keeps it from
 #      silently going stale again the way it already did once.
+#   5. sync/search_index_build.py -- SmartSearch vocabulary + term
+#      associations, full corpus. MUST precede step 6.
+#   6. sync/pcg_term_links.py -- P/CG MagicLinks across FAR/AIM/AC/AD/LOI,
+#      full corpus. MUST precede step 7.
+#   7. sync/refresh_pcg_levels.py -- P/CG knowledge-level classification,
+#      derived from step 6's links.
+#   8. sync/loi_ac_citations.py -- LOI -> AC MagicLinks, full corpus.
+# Steps 5-8 are full-corpus rebuilds that live here because this is the last
+# weekly job of the week; the ordering 5->6->7 is load-bearing (see each
+# step's own comment below).
 #
 # Runs on GitHub Actions on a weekly schedule (see
 # .github/workflows/weekly-ad-sync.yml) — same reasoning as sync.sh/
@@ -39,7 +49,14 @@
 # other sync scripts use.
 #
 # Usage:
-#   ./sync_ad.sh
+#   ./sync_ad.sh                      # all 8 steps (what the schedule runs)
+#   ONLY_STEPS=5,6,7,8 ./sync_ad.sh   # just those steps
+#
+# ONLY_STEPS exists so the full-corpus half of this pipeline (5-8) can be
+# exercised in CI without side effects: step 2 calls Claude (costs real
+# money) and step 3 sends real push notifications to real My Aircraft
+# owners, so a verification run must be able to skip both. The weekly
+# schedule passes nothing and therefore runs everything.
 
 set -euo pipefail
 
@@ -48,6 +65,13 @@ ENV_FILE="$APP/.env.scraper"
 PYTHON3="${PYTHON3:-python3}"
 NODE="${NODE:-node}"
 TOUCHED_FILE="$(mktemp -t flyregs-ad-touched.XXXXXX)"
+ONLY_STEPS="${ONLY_STEPS:-}"
+
+# want_step N -> true if step N should run. Empty ONLY_STEPS means "all".
+want_step() {
+  [[ -z "$ONLY_STEPS" ]] && return 0
+  [[ ",$ONLY_STEPS," == *",$1,"* ]]
+}
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "ERROR: $ENV_FILE not found (SUPABASE_URL + SUPABASE_SERVICE_KEY)" >&2
@@ -71,26 +95,34 @@ echo "════════════════════════�
 
 cd "$APP"
 
-echo ""
-echo "▶ Step 1/8 — AD incremental scrape"
-"$PYTHON3" sync/ad_scraper.py --mode incremental --touched-out="$TOUCHED_FILE"
+if want_step 1; then
+  echo ""
+  echo "▶ Step 1/8 — AD incremental scrape"
+  "$PYTHON3" sync/ad_scraper.py --mode incremental --touched-out="$TOUCHED_FILE"
+fi
+
+if want_step 2; then
+  echo ""
+  echo "▶ Step 2/8 — AD parts extraction (ADs touched this run)"
+  "$PYTHON3" sync/extract_ad_parts.py --mode full --touched-file="$TOUCHED_FILE"
+fi
+
+if want_step 3; then
+  echo ""
+  echo "▶ Step 3/8 — Targeted My Aircraft alerts (ADs touched this run)"
+  "$NODE" scripts/send-ad-alerts.mjs --touched-file="$TOUCHED_FILE"
+fi
 
 echo ""
-echo "▶ Step 2/8 — AD parts extraction (ADs touched this run)"
-"$PYTHON3" sync/extract_ad_parts.py --mode full --touched-file="$TOUCHED_FILE"
-
-echo ""
-echo "▶ Step 3/8 — Targeted My Aircraft alerts (ADs touched this run)"
-"$NODE" scripts/send-ad-alerts.mjs --touched-file="$TOUCHED_FILE"
-
-echo ""
-echo "▶ Step 4/8 — MagicLink citation extraction (AD -> AC/FAR/AIM/AD)"
-# Order-independent as of 2026-07-31: ad_citations.py's delete used to remove
-# EVERY citing_type='ad' row, including the ~450 ad->pcg links Step 6 owns, so
-# it was only safe here by accident of ordering. Its delete is now scoped to
-# cited_type in (ac,far,aim,ad). Verified by running it standalone: ad->pcg
-# stayed at 452 where it previously dropped to 0.
-"$PYTHON3" sync/ad_citations.py
+if want_step 4; then
+  echo "▶ Step 4/8 — MagicLink citation extraction (AD -> AC/FAR/AIM/AD)"
+  # Order-independent as of 2026-07-31: ad_citations.py's delete used to remove
+  # EVERY citing_type='ad' row, including the ~450 ad->pcg links Step 6 owns, so
+  # it was only safe here by accident of ordering. Its delete is now scoped to
+  # cited_type in (ac,far,aim,ad). Verified by running it standalone: ad->pcg
+  # stayed at 452 where it previously dropped to 0.
+  "$PYTHON3" sync/ad_citations.py
+fi
 
 # ── Step 5: SmartSearch index ────────────────────────────────────────────
 # Rebuilds search_vocabulary + search_term_associations from the whole
@@ -99,8 +131,10 @@ echo "▶ Step 4/8 — MagicLink citation extraction (AD -> AC/FAR/AIM/AD)"
 # specific enough to link, so a stale vocabulary silently degrades the
 # quality filter (and SmartSearch expansion along with it).
 echo ""
-echo "▶ Step 5/8 — SmartSearch index rebuild (vocabulary + term associations)"
-"$PYTHON3" sync/search_index_build.py
+if want_step 5; then
+  echo "▶ Step 5/8 — SmartSearch index rebuild (vocabulary + term associations)"
+  "$PYTHON3" sync/search_index_build.py
+fi
 
 echo ""
 # ── Step 6: corpus-wide P/CG term linking ────────────────────────────────
@@ -117,8 +151,10 @@ echo ""
 # Idempotent by design: it deletes the rows it owns before reinserting, so a
 # re-run can't multiply them (document_citations has no unique constraint).
 
-echo "▶ Step 6/8 — MagicLink P/CG term linking (FAR/AIM/AC/AD/LOI -> P/CG, full corpus)"
-"$PYTHON3" sync/pcg_term_links.py
+if want_step 6; then
+  echo "▶ Step 6/8 — MagicLink P/CG term linking (FAR/AIM/AC/AD/LOI -> P/CG, full corpus)"
+  "$PYTHON3" sync/pcg_term_links.py
+fi
 
 # ── Step 7: P/CG knowledge-level classification ───────────────────────────
 # MUST follow Step 6. pcg_term_levels classifies each glossary term by the
@@ -126,18 +162,22 @@ echo "▶ Step 6/8 — MagicLink P/CG term linking (FAR/AIM/AC/AD/LOI -> P/CG, f
 # If Step 6 changes the links and this doesn't re-run, the Study Mode and
 # Duels level filters silently drift out of sync with the corpus.
 echo ""
-echo "▶ Step 7/8 — P/CG knowledge-level classification"
-"$PYTHON3" sync/refresh_pcg_levels.py
+if want_step 7; then
+  echo "▶ Step 7/8 — P/CG knowledge-level classification"
+  "$PYTHON3" sync/refresh_pcg_levels.py
+fi
 
-# ── Step 7: LOI -> AC links ───────────────────────────────────────────────
+# ── Step 8: LOI -> AC links ───────────────────────────────────────────────
 # Lives here for the same reason Steps 5-6 do: it is a full-corpus re-scan,
 # and there is no sync_loi.sh (LOI enumeration is a manual capture, not a
 # weekly cron). Owns ONLY citing_type='loi' + cited_type='ac' -- loi->far
 # belongs to loi_scraper.py and loi->pcg to Step 6, and its delete is scoped
 # so it cannot touch either.
 echo ""
-echo "▶ Step 8/8 — MagicLink LOI -> AC links (full corpus)"
-"$PYTHON3" sync/loi_ac_citations.py
+if want_step 8; then
+  echo "▶ Step 8/8 — MagicLink LOI -> AC links (full corpus)"
+  "$PYTHON3" sync/loi_ac_citations.py
+fi
 
 rm -f "$TOUCHED_FILE"
 

@@ -27,7 +27,16 @@ permissions:
 on:
   schedule:
     - cron: '0 14 * * 1'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      only_steps:
+        description: >-
+          Comma-separated step numbers to run (blank = all 8). Use "5,6,7,8"
+          to exercise the full-corpus half without side effects: step 2 calls
+          Claude (costs money) and step 3 sends real push notifications to
+          My Aircraft owners.
+        required: false
+        default: ''
 
 jobs:
   sync:
@@ -63,6 +72,10 @@ jobs:
           EOF
 
       - name: Run AD sync
+        env:
+          # Blank on the schedule (the `inputs` context is empty for a
+          # non-dispatch trigger), so the weekly run always does all 8 steps.
+          ONLY_STEPS: ${{ inputs.only_steps }}
         run: |
           chmod +x sync_ad.sh
           ./sync_ad.sh
