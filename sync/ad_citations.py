@@ -48,6 +48,26 @@ AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:\.\d+)?-\d+[A-Za-z]*(?:[\-–]\d+)?)\b")
 FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
 AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 
+# AD -> AD. This was the single largest hole in the whole MagicLink graph:
+# measured across the full corpus, 1,454 of 5,023 ADs (29%) name another AD in
+# their text and NONE of it was extracted, because this file only ever looked
+# for AC/FAR/AIM. ADs supersede and amend each other constantly ("This AD
+# replaces AD 2010-26-05"), so the supersedes chain is exactly what an owner
+# or mechanic needs to follow -- and it was invisible.
+#
+# Every ad_number in the table is the 4-digit-year form (verified: 5,023 of
+# 5,023), so this pattern doesn't bother with legacy 2-digit forms that don't
+# exist here.
+#
+# It DOES tolerate stray whitespace around the internal hyphens, because the
+# AD text carries PDF-extraction artifacts -- AD 2024-25-11 contains the
+# literal string "Airworthiness Directive (AD) 2022-19- 02". Measured across
+# the corpus, that recovers references in 14 more documents. Matches are
+# whitespace-stripped below before use, and any target that isn't a real AD
+# is dropped by filter_resolved(), so loosening the pattern can't introduce
+# dead links -- only real ones we were previously dropping on the floor.
+AD_RE = re.compile(r"\bAD\)?\s*(\d{4}\s*-\s*\d{2}\s*-\s*\d{2})\b")
+
 
 def fetch_all_ads() -> list[dict]:
     out = []
@@ -73,6 +93,23 @@ def extract_citations(ad: dict) -> list[dict]:
     citations = []
     seen = set()  # (cited_type, cited_id) dedup WITHIN one AD's own text — repeating the same AC 3x in one AD isn't 3 separate real citations
 
+    # AD -> AD needs one guard the other patterns here don't: SELF-EXCLUSION.
+    # An AD's body restates its own number constantly ("Compliance with this
+    # AD 2026-15-16..."), which would otherwise emit a link from the document
+    # to itself on essentially every AD in the corpus.
+    # Dangling targets (ADs cited but not held -- withdrawn, or a typo in the
+    # source) need no handling here: main() already runs every citation
+    # through citation_validate.filter_resolved(), whose _TABLE_KEY covers
+    # 'ad', so unresolvable ones are dropped before insert.
+    for m in AD_RE.finditer(text):
+        target = re.sub(r"\s+", "", m.group(1))  # "2022-19- 02" -> "2022-19-02"
+        if target == ad["ad_number"]:
+            continue
+        key = ("ad", target)
+        if key not in seen:
+            seen.add(key)
+            citations.append({"citing_type": "ad", "citing_id": ad["ad_number"], "cited_type": "ad", "cited_id": target, "label": None})
+
     for m in AC_RE.finditer(text):
         key = ("ac", m.group(1))
         if key not in seen:
@@ -95,10 +132,22 @@ def extract_citations(ad: dict) -> list[dict]:
 
 
 def delete_ad_citations() -> None:
+    """Clears only the cited_types THIS script produces.
+
+    It used to delete every citing_type='ad' row, which was too broad: it also
+    wiped the ~450 ad->pcg rows owned by pcg_term_links.py. That was survivable
+    only because the weekly pipeline happens to run this at Step 4 and
+    pcg_term_links at Step 6 -- an invisible ordering dependency that silently
+    destroyed those links whenever this script was run on its own (confirmed:
+    running it manually on 2026-07-30 dropped ad->pcg to zero until
+    pcg_term_links was re-run by hand, a ~5-minute full-corpus rebuild).
+    Scoping the delete to what this script actually owns makes the two
+    independent, so either can run alone in any order.
+    """
     resp = requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**HEADERS, "Prefer": "return=minimal"},
-        params={"citing_type": "eq.ad"},
+        params={"citing_type": "eq.ad", "cited_type": "in.(ac,far,aim,ad)"},
         timeout=30,
     )
     resp.raise_for_status()
@@ -125,7 +174,7 @@ def main():
         return
 
     ads = fetch_all_ads()
-    log.info(f"Scanning {len(ads)} ADs for AC/FAR/AIM mentions...")
+    log.info(f"Scanning {len(ads)} ADs for AC/FAR/AIM/AD mentions...")
 
     all_citations = []
     for ad in ads:

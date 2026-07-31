@@ -72,20 +72,72 @@ echo "════════════════════════�
 cd "$APP"
 
 echo ""
-echo "▶ Step 1/4 — AD incremental scrape"
+echo "▶ Step 1/8 — AD incremental scrape"
 "$PYTHON3" sync/ad_scraper.py --mode incremental --touched-out="$TOUCHED_FILE"
 
 echo ""
-echo "▶ Step 2/4 — AD parts extraction (ADs touched this run)"
+echo "▶ Step 2/8 — AD parts extraction (ADs touched this run)"
 "$PYTHON3" sync/extract_ad_parts.py --mode full --touched-file="$TOUCHED_FILE"
 
 echo ""
-echo "▶ Step 3/4 — Targeted My Aircraft alerts (ADs touched this run)"
+echo "▶ Step 3/8 — Targeted My Aircraft alerts (ADs touched this run)"
 "$NODE" scripts/send-ad-alerts.mjs --touched-file="$TOUCHED_FILE"
 
 echo ""
-echo "▶ Step 4/4 — MagicLink citation extraction (AD -> AC/FAR/AIM)"
+echo "▶ Step 4/8 — MagicLink citation extraction (AD -> AC/FAR/AIM/AD)"
+# Order-independent as of 2026-07-31: ad_citations.py's delete used to remove
+# EVERY citing_type='ad' row, including the ~450 ad->pcg links Step 6 owns, so
+# it was only safe here by accident of ordering. Its delete is now scoped to
+# cited_type in (ac,far,aim,ad). Verified by running it standalone: ad->pcg
+# stayed at 452 where it previously dropped to 0.
 "$PYTHON3" sync/ad_citations.py
+
+# ── Step 5: SmartSearch index ────────────────────────────────────────────
+# Rebuilds search_vocabulary + search_term_associations from the whole
+# corpus. MUST run BEFORE Step 6: pcg_term_links.py reads
+# search_vocabulary.doc_freq to decide whether a single-word P/CG term is
+# specific enough to link, so a stale vocabulary silently degrades the
+# quality filter (and SmartSearch expansion along with it).
+echo ""
+echo "▶ Step 5/8 — SmartSearch index rebuild (vocabulary + term associations)"
+"$PYTHON3" sync/search_index_build.py
+
+echo ""
+# ── Step 6: corpus-wide P/CG term linking ────────────────────────────────
+# WHY THIS LIVES IN THE *AD* SCRIPT (it is not an AD concern):
+# pcg_term_links.py is a FULL-CORPUS rebuild -- it re-scans FAR + AIM + AC +
+# AD + LOI for P/CG glossary phrases and rewrites every cited_type='pcg' row
+# in one pass. It therefore has to run AFTER every content table is current,
+# and the AD sync is the last weekly job of the week (Mon 14:00 UTC, after
+# AC 10:00 / AIM 11:00 / FAR 12:00 / P-CG 13:00 -- see .github/workflows/).
+# Running it from each type's own sync instead would repeat the same
+# whole-corpus scan five times and leave the first four runs stale.
+# sync_pcg.sh carries a pointer comment back to here so this stays findable.
+#
+# Idempotent by design: it deletes the rows it owns before reinserting, so a
+# re-run can't multiply them (document_citations has no unique constraint).
+
+echo "▶ Step 6/8 — MagicLink P/CG term linking (FAR/AIM/AC/AD/LOI -> P/CG, full corpus)"
+"$PYTHON3" sync/pcg_term_links.py
+
+# ── Step 7: P/CG knowledge-level classification ───────────────────────────
+# MUST follow Step 6. pcg_term_levels classifies each glossary term by the
+# levels of the documents that cite it, so it reads Step 6's output directly.
+# If Step 6 changes the links and this doesn't re-run, the Study Mode and
+# Duels level filters silently drift out of sync with the corpus.
+echo ""
+echo "▶ Step 7/8 — P/CG knowledge-level classification"
+"$PYTHON3" sync/refresh_pcg_levels.py
+
+# ── Step 7: LOI -> AC links ───────────────────────────────────────────────
+# Lives here for the same reason Steps 5-6 do: it is a full-corpus re-scan,
+# and there is no sync_loi.sh (LOI enumeration is a manual capture, not a
+# weekly cron). Owns ONLY citing_type='loi' + cited_type='ac' -- loi->far
+# belongs to loi_scraper.py and loi->pcg to Step 6, and its delete is scoped
+# so it cannot touch either.
+echo ""
+echo "▶ Step 8/8 — MagicLink LOI -> AC links (full corpus)"
+"$PYTHON3" sync/loi_ac_citations.py
 
 rm -f "$TOUCHED_FILE"
 
