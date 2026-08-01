@@ -546,9 +546,24 @@ def main():
             sys.exit(1)
 
     known_fixed = 0
+    known_fix_skipped = 0
     for fig in existing:
         page_idx = KNOWN_UNCAPTIONED_FIGURES.get((fig["paragraph_number"], fig["label"]))
         if page_idx is None:
+            continue
+        # KNOWN_UNCAPTIONED_FIGURES' page numbers were recorded against
+        # whichever PDF edition was on hand at the time -- a later run
+        # against a different/shorter edition (e.g. "Basic" vs a fully
+        # change-integrated PDF) can reference a page past this doc's own
+        # length. Confirmed live: page 750 doesn't exist in an otherwise
+        # verified-correct 732-page current edition. Skip rather than crash
+        # the whole run over 1 of 8 hardcoded entries -- these are a
+        # narrow, separately-tracked fixup, not core to the relabel pass
+        # that already completed above.
+        if page_idx >= pdf_doc.page_count:
+            print(f"  SKIPPED hardcoded-fix for {fig['paragraph_number']}/{fig['label']}: "
+                  f"page {page_idx} doesn't exist in this {pdf_doc.page_count}-page PDF.")
+            known_fix_skipped += 1
             continue
         new_url = f"[dry-run page {page_idx}]" if args.dry_run else cached_image_for_page(page_idx)
         if not args.dry_run:
@@ -559,7 +574,7 @@ def main():
         f for f in unmatched_existing
         if (f["paragraph_number"], f["label"]) not in KNOWN_UNCAPTIONED_FIGURES
     ]
-    print(f"Total figures (FIG+TBL): {len(existing)}, matched+re-pointed: {updated}, relabeled: {relabeled}, hardcoded-fix: {known_fixed}, unmatched: {len(still_unmatched)}")
+    print(f"Total figures (FIG+TBL): {len(existing)}, matched+re-pointed: {updated}, relabeled: {relabeled}, hardcoded-fix: {known_fixed} (skipped {known_fix_skipped}), unmatched: {len(still_unmatched)}")
     print(f"Distinct PDF pages rendered: {len(page_png_cache)}")
     if still_unmatched:
         print("\nSample unmatched captions:")
