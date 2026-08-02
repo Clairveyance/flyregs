@@ -19,6 +19,7 @@ const TIERS = {
   premium: { isUnlocked: true,  isPro: true,  isPremium: true  },
 }
 const has = (t) => TIERS[t].isUnlocked || TIERS[t].isPro || TIERS[t].isPremium
+const hasPro = (t) => TIERS[t].isPro || TIERS[t].isPremium
 
 // feature -> [file, gate flag, what the paywall claims]
 const FEATURES = [
@@ -35,10 +36,14 @@ const FEATURES = [
   ['Share a folder',        'src/app/folder/[id].tsx',           'isPremium',    'premium'],
   ['Community tab',         'src/app/(tabs)/search.tsx',         'hasPlusAccess','plus'],
   ['DailyReg card',         'src/app/(tabs)/index.tsx',          'hasPlusAccess','plus'],
+  ['Ask FlyRegs',           'src/app/semantic-search.tsx',       'hasProAccess', 'pro'],
+  ['MagicLink expand',      'src/components/MagicLinkPod.tsx',   'hasProAccess', 'pro'],
 ]
 
 const evalGate = (flag, tier) =>
-  flag === 'hasPlusAccess' ? has(tier) : TIERS[tier][flag]
+  flag === 'hasPlusAccess' ? has(tier) :
+  flag === 'hasProAccess'  ? hasPro(tier) :
+  TIERS[tier][flag]
 
 const CLAIM_MIN = { plus: ['plus', 'pro', 'premium'], pro: ['pro', 'premium'], premium: ['premium'] }
 

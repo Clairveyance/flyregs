@@ -49,7 +49,7 @@ const EXAMPLE_PROMPTS = [
 export default function SemanticSearchScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasPlusAccess } = useAuth()
+  const { hasProAccess } = useAuth()
   const [query, setQuery] = useState('')
   const [submittedQuery, setSubmittedQuery] = useState('')
   const [results, setResults] = useState<SemanticSearchResult[]>([])
@@ -77,7 +77,7 @@ export default function SemanticSearchScreen() {
       })
   }
 
-  if (!hasPlusAccess) {
+  if (!hasProAccess) {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>
         <OverlayHeader title="Ask FlyRegs" onBack={() => router.back()} />
@@ -92,9 +92,9 @@ export default function SemanticSearchScreen() {
           </Text>
           <Pressable
             style={[styles.upsellBtn, { backgroundColor: tokens.blu }]}
-            onPress={() => router.push('/paywall?tier=plus')}
+            onPress={() => router.push('/paywall?tier=pro')}
           >
-            <Text style={styles.upsellBtnText}>Unlock with Plus</Text>
+            <Text style={styles.upsellBtnText}>Unlock with Pro</Text>
           </Pressable>
         </View>
       </View>

@@ -57,10 +57,6 @@ const PLUS_FEATURES = [
   { icon: 'highlighter',       label: 'Highlights, Notes, Bookmarks & Folders' },
   { icon: 'printer',           label: 'Print & export any section' },
   { icon: 'magnifyingglass',   label: 'Unlimited search results' },
-  // Ask FlyRegs's own gate is `if (!hasPlusAccess)` (semantic-search.tsx) --
-  // added here per the same audit convention as everything else in this
-  // list: the gate and the promise move together.
-  { icon: 'text.bubble.fill',  label: 'Ask FlyRegs — ask a real question, get the passages that answer it' },
   { icon: 'star.fill',         label: 'DailyReg — a hand-picked reg every day' },
   { icon: 'doc.badge.clock',   label: "What's Changed — see exactly what the FAA revised" },
 ]
@@ -72,6 +68,11 @@ const PRO_ADDITIONS = [
   // explicitly called "the feature no competitor has" in its own tier
   // decision doc -- confirmed live, RC: "def put ML on the feature list."
   { icon: 'sparkles',          label: 'MagicLink — automatic cross-references across FAR, AIM, P/CG, AC, AD & LOIs' },
+  // Ask FlyRegs moved from Plus to Pro, 2026-08-02 (RC: "It needs to be
+  // gated to Pro for sure") -- same "gate and promise move together"
+  // discipline as every correction above; semantic-search.tsx's own gate
+  // moved from hasPlusAccess to hasProAccess in the same change.
+  { icon: 'text.bubble.fill',  label: 'Ask FlyRegs — ask a real question in plain English, get the passages that answer it' },
   { icon: 'icloud',    label: 'Cross-device sync for your highlights, notes & bookmarks' },
   { icon: 'bell.badge', label: 'Airworthiness Directive alerts for your saved aircraft' },
   { icon: 'doc.badge.clock', label: 'Advisory Circular update alerts' },
