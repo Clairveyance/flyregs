@@ -1347,6 +1347,21 @@ function HomeHeader({
 // 2026-07-31. It used to render for everyone, giving away a curated reg a day
 // to free users. Renders a locked teaser instead so the feature is still
 // discoverable (and sells itself) rather than vanishing.
+// RC: "the D and W of DailyWord should have larger font, like ML" then,
+// once that shipped: "same D and R styling for DailyReg needed." Mirrors
+// DailyWordLabel in dictionary/index.tsx exactly, just for "DAILYREG" --
+// kept as its own small component rather than a shared import since each
+// lives beside its own StyleSheet (dailyRegLabel vs wordCardLabel) in a
+// different route file. `suffix` covers the expanded-card variant, which
+// appends " · <SOURCE TYPE>" after the label.
+function DailyRegLabel({ color, fs, suffix }: { color: string; fs: (n: number) => number; suffix?: string }) {
+  return (
+    <Text style={[styles.dailyRegLabel, { color, fontSize: fs(10.5) }]}>
+      <Text style={{ fontSize: fs(13.5) }}>D</Text>AILY<Text style={{ fontSize: fs(13.5) }}>R</Text>EG{suffix ? ` · ${suffix}` : ''}
+    </Text>
+  )
+}
+
 function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; tokens: ReturnType<typeof useTheme>['tokens'] }) {
   const fs = useFS()
   const { hasPlusAccess } = useAuth()
@@ -1363,7 +1378,7 @@ function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; toke
             <Icon name="lock.fill" size={13} color={tokens.gold} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.dailyRegLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>DAILYREG</Text>
+            <DailyRegLabel color={tokens.t3} fs={fs} />
             <Text style={[styles.dailyRegTerm, { color: tokens.t2, fontSize: fs(13.5) }]} numberOfLines={2}>
               A hand-picked reg every day — unlock with Plus
             </Text>
@@ -1383,9 +1398,7 @@ function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; toke
           <Icon name="star.fill" size={14} color={tokens.gold} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.dailyRegLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>
-            DAILYREG · {regOfDay.sourceType.toUpperCase()}
-          </Text>
+          <DailyRegLabel color={tokens.t3} fs={fs} suffix={regOfDay.sourceType.toUpperCase()} />
           <Text style={[styles.dailyRegTerm, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={expanded ? undefined : 1}>
             {regOfDay.term}
           </Text>
