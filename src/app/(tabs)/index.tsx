@@ -1634,16 +1634,18 @@ const styles = StyleSheet.create({
   welcomeToastText: { fontWeight: '700' },
 
   // Regulatory-body cards (redesign step 5)
+  // RC: "slightly reduce the top/bottom space for these bars so more of the
+  // regs show up on the page before needing to scroll down."
   regCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     borderRadius: 14,
     borderWidth: 1,
-    paddingVertical: 14,
+    paddingVertical: 10,
     paddingHorizontal: 14,
     marginHorizontal: 16,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   regAbbrBadge: {
     width: 46,
