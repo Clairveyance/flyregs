@@ -19,7 +19,10 @@ interface TermHit {
 interface MnemonicHit {
   slug: string
   term: string
+  mnemonic_group: string | null
 }
+
+const UNGROUPED = 'Other'
 
 // v1 scope (2026-08-01): FAA JO 7340.2's official Contractions table
 // (3,326 terms, category='contraction') -- see
@@ -51,7 +54,7 @@ export default function DictionaryIndexScreen() {
   // mnemonics." A handful of rows at most, so a direct client-side query
   // rather than a dedicated RPC.
   useEffect(() => {
-    supabase.from('dictionary_terms').select('slug, term').eq('category', 'mnemonic').order('term')
+    supabase.from('dictionary_terms').select('slug, term, mnemonic_group').eq('category', 'mnemonic').order('term')
       .then(({ data }) => setMnemonics((data ?? []) as MnemonicHit[]))
   }, [])
 
@@ -281,8 +284,35 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
 // Collapsed by default -- RC: "there are hundreds or even thousands of
 // mnemonics" once this grows past today's handful, so an always-expanded
 // list can't be the default the way it's fine to be with 2 entries.
+// RC, once the list grew past a handful: "might be nice to 'categorize'
+// them, like what these lists do" (referring to his own grouped source
+// material). Groups render in a fixed, sensible order rather than
+// alphabetically -- preflight/ADM concerns first, in-flight emergencies
+// last, roughly the order a pilot encounters them -- with anything
+// ungrouped (mnemonic_group null) collected under "Other" at the end so
+// it's never silently dropped.
+const GROUP_ORDER = [
+  'Preflight Planning & Risk Management',
+  'VFR & Equipment Requirements',
+  'IFR Flight Planning & En Route',
+  'Approaches & Transitions',
+  'Weather & Navigation Instrument Errors',
+  'Spatial Disorientation & Illusions',
+  'Engine Failures & Emergencies',
+  UNGROUPED,
+]
+
 function MnemonicsCard({ mnemonics, tokens, fs }: { mnemonics: MnemonicHit[]; tokens: ReturnType<typeof useTheme>['tokens']; fs: (n: number) => number }) {
   const [expanded, setExpanded] = useState(false)
+  const byGroup = new Map<string, MnemonicHit[]>()
+  for (const m of mnemonics) {
+    const g = m.mnemonic_group ?? UNGROUPED
+    if (!byGroup.has(g)) byGroup.set(g, [])
+    byGroup.get(g)!.push(m)
+  }
+  const groups = GROUP_ORDER.filter((g) => byGroup.has(g))
+  for (const g of byGroup.keys()) if (!groups.includes(g)) groups.push(g) // any future group not yet in GROUP_ORDER still shows, just at the end
+
   return (
     <View style={[styles.mnemonicsCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
       <Pressable style={styles.mnemonicsHeader} onPress={() => setExpanded((e) => !e)}>
@@ -291,15 +321,22 @@ function MnemonicsCard({ mnemonics, tokens, fs }: { mnemonics: MnemonicHit[]; to
         </Text>
         <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t4} />
       </Pressable>
-      {expanded && mnemonics.map((m, i) => (
-        <Pressable
-          key={m.slug}
-          style={[styles.mnemonicRow, i === mnemonics.length - 1 && { borderBottomWidth: 0 }, { borderColor: tokens.bdr }]}
-          onPress={() => router.push(`/dictionary/${m.slug}` as any)}
-        >
-          <Text style={[styles.mnemonicTerm, { color: tokens.gold, fontSize: fs(14) }]}>{m.term}</Text>
-          <Icon name="chevron.right" size={13} color={tokens.t4} />
-        </Pressable>
+      {expanded && groups.map((group, gi) => (
+        <View key={group}>
+          <Text style={[styles.mnemonicGroupLabel, { color: tokens.t3, fontSize: fs(10.5) }, gi > 0 && { marginTop: 10 }]}>
+            {group.toUpperCase()}
+          </Text>
+          {byGroup.get(group)!.map((m, i, arr) => (
+            <Pressable
+              key={m.slug}
+              style={[styles.mnemonicRow, gi === groups.length - 1 && i === arr.length - 1 && { borderBottomWidth: 0 }, { borderColor: tokens.bdr }]}
+              onPress={() => router.push(`/dictionary/${m.slug}` as any)}
+            >
+              <Text style={[styles.mnemonicTerm, { color: tokens.gold, fontSize: fs(14) }]}>{m.term}</Text>
+              <Icon name="chevron.right" size={13} color={tokens.t4} />
+            </Pressable>
+          ))}
+        </View>
       ))}
     </View>
   )
@@ -338,6 +375,7 @@ const styles = StyleSheet.create({
   mnemonicsHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12,
   },
+  mnemonicGroupLabel: { fontWeight: '700', letterSpacing: 0.4, paddingBottom: 6 },
   mnemonicRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingVertical: 11, borderBottomWidth: 1,
