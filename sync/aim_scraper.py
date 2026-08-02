@@ -525,7 +525,15 @@ def _figure_record(fig_elem, paragraph_number: str, href: str, sort_order: int) 
     return {
         "paragraph_number": paragraph_number,
         "label": fig_number,
-        "caption": fig_title,
+        # Coalesced to "" rather than left None -- same reasoning as the
+        # bare-<img> fallback path's label fix below: aim_figures' upsert
+        # conflict key includes caption, and Postgres never treats two
+        # NULLs as equal, so any figure whose <figcaption> has a number but
+        # no title span (confirmed live, paragraph 5-4-9: three real,
+        # distinct figures share the bare "FIG 5-4-9" label with nothing
+        # else to tell them apart) would silently duplicate on every
+        # re-scrape instead of upserting in place.
+        "caption": fig_title or "",
         "image_url": urljoin(href_to_url(href), img["src"]),
         "sort_order": sort_order,
     }
@@ -657,7 +665,11 @@ def parse_section_page(html: str, chapter: str, section_title: str, href: str) -
                     figures.append({
                         "paragraph_number": synthetic_id,
                         "label": f"IMG {fig_sort + 1}",
-                        "caption": img.get("alt") or None,
+                        # "" not None -- same NULL-never-dedupes reasoning
+                        # as the label fix in this same comment block, now
+                        # that caption is also part of the upsert conflict
+                        # key (see _figure_record()'s matching fix).
+                        "caption": img.get("alt") or "",
                         "image_url": urljoin(href_to_url(href), img["src"]),
                         "sort_order": fig_sort,
                     })
