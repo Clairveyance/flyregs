@@ -133,11 +133,6 @@ export default function DictionaryIndexScreen() {
             )}
           </View>
 
-          {!trimmedQuery && <DailyWordCard wordOfDay={wordOfDay} tokens={tokens} />}
-          {!trimmedQuery && mnemonics.length > 0 && (
-            <MnemonicsCard mnemonics={mnemonics} tokens={tokens} fs={fs} />
-          )}
-
           {trimmedQuery ? (
             searching ? (
               <View style={styles.center}>
@@ -185,7 +180,19 @@ export default function DictionaryIndexScreen() {
               keyExtractor={(l) => l}
               contentContainerStyle={styles.list}
               ListHeaderComponent={
-                <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>{total} TERMS</Text>
+                <>
+                  {/* DailyWordCard/MnemonicsCard used to render as fixed
+                      siblings above this FlatList, outside its own scroll --
+                      fine collapsed, but an expanded Mnemonics card (35
+                      entries across 8 groups) had nowhere to scroll and
+                      just got clipped by the screen. Moving both into the
+                      header means they scroll together with the letter rows
+                      below, using the FlatList's own scroll instead of
+                      needing one of their own. */}
+                  <DailyWordCard wordOfDay={wordOfDay} tokens={tokens} />
+                  {mnemonics.length > 0 && <MnemonicsCard mnemonics={mnemonics} tokens={tokens} fs={fs} />}
+                  <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>{total} TERMS</Text>
+                </>
               }
               renderItem={({ item: letter }) => (
                 <Pressable
@@ -232,7 +239,7 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
             <Icon name="lock.fill" size={13} color={tokens.gold} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.wordCardLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>WORD OF THE DAY</Text>
+            <Text style={[styles.wordCardLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>DAILYWORD</Text>
             <Text style={[styles.wordCardTerm, { color: tokens.t2, fontSize: fs(13.5) }]} numberOfLines={2}>
               A fun new term every day — unlock with Plus
             </Text>
@@ -252,7 +259,7 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
           <Icon name="star.fill" size={14} color={tokens.gold} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.wordCardLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>WORD OF THE DAY</Text>
+          <Text style={[styles.wordCardLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>DAILYWORD</Text>
           <Text style={[styles.wordCardTerm, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={expanded ? undefined : 1}>
             {wordOfDay.term}
           </Text>
@@ -314,12 +321,18 @@ function MnemonicsCard({ mnemonics, tokens, fs }: { mnemonics: MnemonicHit[]; to
   for (const g of byGroup.keys()) if (!groups.includes(g)) groups.push(g) // any future group not yet in GROUP_ORDER still shows, just at the end
 
   return (
-    <View style={[styles.mnemonicsCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+    // Blue border + bold label, NOT the gold glow/tint treatment -- RC:
+    // "I don't want the Mn bar to have the same glow/accents as ML - that's
+    // a specific feature for ML... let's just use the blue, perhaps very
+    // slightly thicker, and embolden the Mn word inside. That should be
+    // enough on its own." Normal bg2 background (same as every other card
+    // on this screen), just the border/label calling it out.
+    <View style={[styles.mnemonicsCard, { backgroundColor: tokens.bg2, borderColor: tokens.blu }]}>
       <Pressable style={styles.mnemonicsHeader} onPress={() => setExpanded((e) => !e)}>
-        <Text style={[styles.wordCardLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>
+        <Text style={[styles.wordCardLabel, { color: tokens.blu, fontSize: fs(10.5), fontWeight: '900' }]}>
           MNEMONICS · {mnemonics.length}
         </Text>
-        <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t4} />
+        <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.blu} />
       </Pressable>
       {expanded && groups.map((group, gi) => (
         <View key={group}>
@@ -370,7 +383,7 @@ const styles = StyleSheet.create({
   wordCardJumpText: { fontWeight: '600' },
 
   mnemonicsCard: {
-    marginHorizontal: 12, marginTop: 10, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12,
+    marginHorizontal: 12, marginTop: 10, marginBottom: 12, borderRadius: 12, borderWidth: 1.5, paddingHorizontal: 12,
   },
   mnemonicsHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12,
