@@ -345,7 +345,12 @@ def write_citations(loi_id: str, slug: str, citations: list[dict]) -> None:
     requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**headers, "Prefer": "return=minimal"},
-        params={"citing_type": "eq.loi", "citing_id": f"eq.{slug}"},
+        # Scoped to the cited_type this scraper OWNS. It used to delete every
+        # row for this LOI regardless of type, which also wiped the loi->pcg
+        # links owned by pcg_term_links.py and the loi->ac links owned by
+        # loi_ac_citations.py -- same defect already fixed in ad_citations.py,
+        # found by auditing for the pattern rather than waiting for it to bite.
+        params={"citing_type": "eq.loi", "citing_id": f"eq.{slug}", "cited_type": "eq.far"},
         timeout=15,
     )
     rows = [

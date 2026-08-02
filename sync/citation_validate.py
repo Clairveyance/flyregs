@@ -25,6 +25,7 @@ prevents.
 from __future__ import annotations
 
 import os
+import re
 
 import requests
 
@@ -70,6 +71,35 @@ def fetch_known_ids() -> dict[str, set[str]]:
     return known
 
 
+# Strips a trailing revision-letter run only -- "90-105A" -> "90-105",
+# "150/5210-7E" -> "150/5210-7". Deliberately narrower than a general
+# alphanumeric strip: an AC number's own numeric segments (the "150/5210"
+# part, or a "-7" sub-part) must never be touched, only a letter suffix
+# sitting at the very end.
+_AC_REVISION_SUFFIX_RE = re.compile(r"[A-Za-z]+$")
+
+
+def _ac_base(document_number: str) -> str:
+    return _AC_REVISION_SUFFIX_RE.sub("", document_number)
+
+
+def build_ac_base_lookup(ac_ids: set[str]) -> dict[str, list[str]]:
+    """base-number -> every real document_number sharing it, e.g.
+    "90-105" -> ["90-105A"]. Confirmed live 2026-08-02 (MagicLink coverage
+    sweep): prose almost always cites an AC by its bare base number ("AC
+    90-105"), never the current revision letter a reader has no way to
+    know without already having the document open -- of 54 real AIM->AC
+    mentions found by aim_far_citations.py, 43 were being dropped as
+    "target doesn't exist" purely because of this, not because the AC
+    itself doesn't exist. See filter_resolved()'s own fallback for how
+    this gets used -- only applied when it resolves to EXACTLY one real AC,
+    never guessed among several."""
+    lookup: dict[str, list[str]] = {}
+    for real_id in ac_ids:
+        lookup.setdefault(_ac_base(real_id), []).append(real_id)
+    return lookup
+
+
 def fetch_known_pcg_slugs() -> set[str]:
     """Different citing scripts derive a PCG cited_id from the same term in
     three different ways -- pcg_scraper.py's own underscore-joined slug
@@ -103,13 +133,26 @@ def fetch_known_pcg_slugs() -> set[str]:
 def filter_resolved(citations: list[dict], known: dict[str, set[str]]) -> tuple[list[dict], int]:
     """Returns (resolved_citations, dropped_count). A citation whose
     cited_type isn't in `known` at all (caller didn't fetch it) passes
-    through unfiltered rather than being silently dropped."""
+    through unfiltered rather than being silently dropped.
+
+    No signature change for any of the five existing callers -- the AC
+    base-number fallback (see build_ac_base_lookup's own docstring) is
+    computed here, once per call, straight from known['ac'] whenever a
+    caller already fetched it (every current caller does, via
+    fetch_known_ids()), so every script gets this fix automatically."""
+    ac_base_lookup = build_ac_base_lookup(known["ac"]) if "ac" in known else {}
+
     resolved = []
     dropped = 0
     for c in citations:
         ids = known.get(c["cited_type"])
         if ids is None or c["cited_id"] in ids:
             resolved.append(c)
-        else:
-            dropped += 1
+            continue
+        if c["cited_type"] == "ac":
+            candidates = ac_base_lookup.get(_ac_base(c["cited_id"]), [])
+            if len(candidates) == 1:
+                resolved.append({**c, "cited_id": candidates[0]})
+                continue
+        dropped += 1
     return resolved, dropped

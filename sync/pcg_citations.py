@@ -96,10 +96,18 @@ def extract_citations(term: dict) -> list[dict]:
 
 
 def delete_pcg_citations() -> None:
+    """Scoped to the cited_types this script writes.
+
+    Harmless today -- sync/pcg_term_links.py scans FAR/AIM/AC/AD/LOI but not
+    the glossary itself, so no pcg->pcg row exists for an unscoped delete to
+    destroy. Scoped anyway so that adding glossary-to-glossary linking later
+    can't silently resurrect the wipe-another-script's-rows bug that hit
+    ad/ac/far/aim. cited_type='pcg' has exactly one owner: pcg_term_links.py.
+    """
     resp = requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**HEADERS, "Prefer": "return=minimal"},
-        params={"citing_type": "eq.pcg"},
+        params={"citing_type": "eq.pcg", "cited_type": "in.(ac,far,aim,ad)"},
         timeout=30,
     )
     resp.raise_for_status()

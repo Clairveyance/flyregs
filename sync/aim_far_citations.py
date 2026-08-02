@@ -48,6 +48,13 @@ HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 # crossRefLinks.ts's render-time linkifier.
 FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
 
+# AC mentions. aim_scraper.py also has an _AC_RE, but it only ever runs over
+# the Reference BOX (`ref_text`), never the paragraph body -- so of the 27 AIM
+# paragraphs that name an AC in their prose, exactly ONE was ever extracted.
+# This script already reads body_text AND reference_text, so it is the right
+# owner for both directions. Same pattern as ad_citations.py.
+AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:\.\d+)?-\d+[A-Za-z]*(?:[\-\u2013]\d+)?)\b")
+
 
 def fetch_all_paragraphs() -> list[dict]:
     out = []
@@ -75,11 +82,21 @@ def extract_citations(para: dict) -> list[dict]:
 
     for m in FAR_RE.finditer(text):
         cited_id = m.group(1)
-        if cited_id not in seen:
-            seen.add(cited_id)
+        if ("far", cited_id) not in seen:
+            seen.add(("far", cited_id))
             citations.append({
                 "citing_type": "aim", "citing_id": para["paragraph_number"],
                 "cited_type": "far", "cited_id": cited_id, "label": None,
+            })
+
+    for m in AC_RE.finditer(text):
+        cited_id = m.group(1)
+        key = ("ac", cited_id)
+        if key not in seen:
+            seen.add(key)
+            citations.append({
+                "citing_type": "aim", "citing_id": para["paragraph_number"],
+                "cited_type": "ac", "cited_id": cited_id, "label": None,
             })
 
     return citations
@@ -89,7 +106,7 @@ def delete_aim_far_citations() -> None:
     resp = requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**HEADERS, "Prefer": "return=minimal"},
-        params={"citing_type": "eq.aim", "cited_type": "eq.far"},
+        params={"citing_type": "eq.aim", "cited_type": "in.(far,ac)"},
         timeout=30,
     )
     resp.raise_for_status()
@@ -122,7 +139,13 @@ def main():
     for para in paragraphs:
         all_citations.extend(extract_citations(para))
 
-    log.info(f"Found {len(all_citations)} aim->far citations across {len(set(c['citing_id'] for c in all_citations))} paragraphs")
+    by_type: dict[str, int] = {}
+    for c in all_citations:
+        by_type[c["cited_type"]] = by_type.get(c["cited_type"], 0) + 1
+    log.info(
+        f"Found {len(all_citations)} citations {by_type} across "
+        f"{len(set(c['citing_id'] for c in all_citations))} paragraphs"
+    )
 
     known = fetch_known_ids()
     all_citations, dropped = filter_resolved(all_citations, known)

@@ -97,12 +97,11 @@ def extract_citations(section: dict) -> list[dict]:
             seen.add(key)
             citations.append({"citing_type": "far", "citing_id": own_id, "cited_type": "ad", "cited_id": m.group(1), "label": None})
 
-    for m in PCG_RE.finditer(text):
-        slug = slugify_pcg_term(m.group(1))
-        key = ("pcg", slug)
-        if slug and key not in seen:
-            seen.add(key)
-            citations.append({"citing_type": "far", "citing_id": own_id, "cited_type": "pcg", "cited_id": slug, "label": None})
+    # far->pcg is NOT written here -- sync/pcg_term_links.py owns every
+    # cited_type='pcg' row corpus-wide. Same reasoning as ac_citations.py:
+    # this narrow pass was a subset that got overwritten anyway (the 2,746
+    # live far->pcg rows are all pcg_term_links output), and writing them
+    # from two places is what forced delete_far_citations() to be unscoped.
 
     for m in AC_RE.finditer(text):
         cited = m.group(1)
@@ -115,10 +114,20 @@ def extract_citations(section: dict) -> list[dict]:
 
 
 def delete_far_citations() -> None:
+    """Scoped to the cited_types this script owns.
+
+    It used to delete EVERY citing_type='far' row, taking the 2,746 far->pcg
+    links that sync/pcg_term_links.py owns with it -- the single largest
+    block of P/CG MagicLinks in the corpus. Safe only by accident of
+    scheduling (this runs Mon 12:00, pcg_term_links at 14:00 inside the AD
+    sync), so the links were missing for two hours every week and would stay
+    missing for a full week if the AD sync failed. Same fix as
+    sync/ad_citations.py and sync/ac_citations.py.
+    """
     resp = requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**HEADERS, "Prefer": "return=minimal"},
-        params={"citing_type": "eq.far"},
+        params={"citing_type": "eq.far", "cited_type": "in.(ac,far,aim,ad)"},
         timeout=30,
     )
     resp.raise_for_status()

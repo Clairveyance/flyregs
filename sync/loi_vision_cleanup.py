@@ -159,10 +159,16 @@ def recover_via_vision(pdf_bytes: bytes, slug: str, client) -> str | None:
 
 
 def write_citations(loi_id: str, slug: str, citations: list[dict]) -> None:
+    # cited_type='far' only -- this script writes nothing else. Unscoped it
+    # also wiped that LOI's loi->ac links (sync/loi_ac_citations.py) and its
+    # loi->pcg links (sync/pcg_term_links.py). Blast radius was one LOI at a
+    # time rather than the whole corpus, which is why it never showed up as
+    # an obvious outage.
     requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**HEADERS, "Prefer": "return=minimal"},
-        params={"citing_type": "eq.loi", "citing_id": f"eq.{slug}"},
+        params={"citing_type": "eq.loi", "citing_id": f"eq.{slug}",
+                "cited_type": "eq.far"},
         timeout=15,
     )
     rows = [

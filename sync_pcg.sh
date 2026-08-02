@@ -52,6 +52,12 @@ echo ""
 echo "▶ MagicLink citation extraction (P/CG -> AC/FAR/AIM/AD)"
 "$PYTHON3" sync/pcg_citations.py
 
+# NOTE: the OTHER direction (FAR/AIM/AC/AD/LOI -> P/CG, i.e. "which documents
+# use this glossary term") is NOT built here. It's sync/pcg_term_links.py, a
+# full-corpus phrase scan that must run after every content table is current,
+# so it lives at the end of sync_ad.sh -- the last weekly job. See the long
+# comment there for the reasoning.
+
 END_TS="$(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 echo "════════════════════════════════════════════════════"

@@ -105,12 +105,13 @@ def extract_citations(ac: dict) -> list[dict]:
             seen.add(key)
             citations.append({"citing_type": "ac", "citing_id": ac["document_number"], "cited_type": "ad", "cited_id": m.group(1), "label": None})
 
-    for m in PCG_RE.finditer(text):
-        slug = slugify_pcg_term(m.group(1))
-        key = ("pcg", slug)
-        if slug and key not in seen:
-            seen.add(key)
-            citations.append({"citing_type": "ac", "citing_id": ac["document_number"], "cited_type": "pcg", "cited_id": slug, "label": None})
+    # ac->pcg is NOT written here. sync/pcg_term_links.py owns every
+    # cited_type='pcg' row and rebuilds them across the whole corpus with
+    # full glossary-phrase matching; this narrow PCG_RE pass was a strict
+    # subset that got overwritten later the same day anyway (verified: the
+    # 515 live ac->pcg rows are all pcg_term_links output). Writing them from
+    # both places is what forced this script's delete to be unscoped, which
+    # in turn wiped pcg_term_links' rows -- see delete_ac_citations().
 
     for m in AC_RE.finditer(text):
         cited = m.group(1)
@@ -125,10 +126,20 @@ def extract_citations(ac: dict) -> list[dict]:
 
 
 def delete_ac_citations() -> None:
+    """Scoped to the cited_types this script owns.
+
+    It used to delete EVERY citing_type='ac' row, which also removed the 515
+    ac->pcg links that sync/pcg_term_links.py owns and rebuilds corpus-wide.
+    That was only safe by accident of scheduling -- pcg_term_links runs last
+    in the week (AD sync, Mon 14:00), after this one at 10:00 -- so between
+    10:00 and 14:00 every AC lost its glossary MagicLinks, and if the AD sync
+    ever failed they stayed gone until the next Monday. Same bug and same fix
+    as sync/ad_citations.py.
+    """
     resp = requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**HEADERS, "Prefer": "return=minimal"},
-        params={"citing_type": "eq.ac"},
+        params={"citing_type": "eq.ac", "cited_type": "in.(ac,far,aim,ad)"},
         timeout=30,
     )
     resp.raise_for_status()
