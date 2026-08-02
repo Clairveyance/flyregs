@@ -7,13 +7,17 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
-import { getSharedFolderACItems, getSharedFolderNoteItems, leaveSharedFolder, markSharedFolderViewed } from '@/lib/sharedFolders'
+import {
+  getSharedFolderACItems, getSharedFolderNoteItems, leaveSharedFolder, markSharedFolderViewed,
+  getSharedFolderFARItems, getSharedFolderAIMItems, getSharedFolderPCGItems, getSharedFolderADItems, getSharedFolderLOIItems,
+} from '@/lib/sharedFolders'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { stripFarPrefix } from '@/lib/titleFormat'
 import { getACIndex, detectACs, ACIndexEntry } from '@/lib/acIndex'
+import { getFarIndex, getAimIndex, getAdIndex, getPcgIndex, detectFARs, detectAIMs, detectADs, detectPCGs, PcgIndexEntry } from '@/lib/regIndex'
 
 interface ACRow {
   id: string
@@ -30,6 +34,29 @@ interface NoteRow {
   body: string
   linked_ac: string | null
   updated_at: string
+}
+
+// FAR/AIM/P-CG/AD/LOI item, normalized to one shape -- `label` is the
+// short id (section/paragraph number, term, AD number) shown the same way
+// document_number is for AC, `route` is the exact path this file already
+// uses for AC (direct navigation, not RegPreviewPane -- matches this
+// screen's own existing pattern rather than notes.tsx's newer preview-pane
+// one, since a shared-folder row here has always just pushed straight to
+// the detail screen).
+interface RegRow {
+  id: string
+  regType: 'far' | 'aim' | 'pcg' | 'ad' | 'loi'
+  label: string
+  title: string
+  route: string
+}
+
+const REG_SECTION_TITLE: Record<RegRow['regType'], string> = {
+  far: 'FEDERAL AVIATION REGULATIONS',
+  aim: 'AERONAUTICAL INFORMATION MANUAL',
+  pcg: 'PILOT/CONTROLLER GLOSSARY',
+  ad: 'AIRWORTHINESS DIRECTIVES',
+  loi: 'LEGAL INTERPRETATIONS',
 }
 
 function timeAgo(iso: string): string {
@@ -54,24 +81,41 @@ export default function SharedFolderDetail() {
   const [folderName, setFolderName] = useState('')
   const [ownerName, setOwnerName] = useState<string | null>(null)
   const [acs, setAcs] = useState<ACRow[]>([])
+  const [regs, setRegs] = useState<RegRow[]>([])
   const [notes, setNotes] = useState<NoteRow[]>([])
   const [loading, setLoading] = useState(true)
   const [removed, setRemoved] = useState(false)
   const [openNote, setOpenNote] = useState<NoteRow | null>(null)
   const [acIndex, setAcIndex] = useState<ACIndexEntry[]>([])
+  const [farIndex, setFarIndex] = useState<string[]>([])
+  const [aimIndex, setAimIndex] = useState<string[]>([])
+  const [adIndex, setAdIndex] = useState<string[]>([])
+  const [pcgIndex, setPcgIndex] = useState<PcgIndexEntry[]>([])
 
-  // Same AC index the owner's own Notes tab uses to auto-link every AC
-  // mention in a note's body, not just the single linked_ac field -- a
-  // collaborator should see the same auto-linked chips the owner does.
-  useEffect(() => { getACIndex().then(setAcIndex) }, [])
+  // Same indexes the owner's own Notes tab uses to auto-link every AC/FAR/
+  // AIM/AD/P-CG mention in a note's body, not just the single linked_ac
+  // field -- a collaborator should see the same auto-linked chips the
+  // owner does.
+  useEffect(() => {
+    getACIndex().then(setAcIndex)
+    getFarIndex().then(setFarIndex)
+    getAimIndex().then(setAimIndex)
+    getAdIndex().then(setAdIndex)
+    getPcgIndex().then(setPcgIndex)
+  }, [])
 
   const load = useCallback(async () => {
     if (typeof id !== 'string') return
     setLoading(true)
-    const [{ data: folder }, acItems, noteItems] = await Promise.all([
+    const [{ data: folder }, acItems, noteItems, farItems, aimItems, pcgItems, adItems, loiItems] = await Promise.all([
       supabase.from('synced_folders').select('name').eq('id', id).eq('deleted', false).maybeSingle(),
       getSharedFolderACItems(id),
       getSharedFolderNoteItems(id),
+      getSharedFolderFARItems(id),
+      getSharedFolderAIMItems(id),
+      getSharedFolderPCGItems(id),
+      getSharedFolderADItems(id),
+      getSharedFolderLOIItems(id),
     ])
     if (!folder) {
       setRemoved(true)
@@ -110,6 +154,42 @@ export default function SharedFolderDetail() {
     } else {
       setNotes([])
     }
+
+    // Each type's item_id matches exactly what that type's own detail
+    // screen passes as FolderPicker's itemId (section_number/paragraph_
+    // number/slug/ad_number) -- see far/[id].tsx, aim/[id].tsx, pcg/[id].tsx,
+    // ad/[id].tsx, loi/[slug].tsx. Fetched in parallel, one query per type,
+    // same shape as the AC fetch above.
+    const farIds = farItems.map((i) => i.item_id)
+    const aimIds = aimItems.map((i) => i.item_id)
+    const pcgIds = pcgItems.map((i) => i.item_id)
+    const adIds = adItems.map((i) => i.item_id)
+    const loiIds = loiItems.map((i) => i.item_id)
+    const [farRows, aimRows, pcgRows, adRows, loiRows] = await Promise.all([
+      farIds.length
+        ? supabase.from('far_sections').select('section_number, title').in('section_number', farIds)
+        : Promise.resolve({ data: [] }),
+      aimIds.length
+        ? supabase.from('aim_paragraphs').select('paragraph_number, title').in('paragraph_number', aimIds)
+        : Promise.resolve({ data: [] }),
+      pcgIds.length
+        ? supabase.from('pcg_terms').select('slug, term').in('slug', pcgIds)
+        : Promise.resolve({ data: [] }),
+      adIds.length
+        ? supabase.from('airworthiness_directives').select('ad_number, title').in('ad_number', adIds)
+        : Promise.resolve({ data: [] }),
+      loiIds.length
+        ? supabase.from('legal_interpretations').select('slug, title').in('slug', loiIds)
+        : Promise.resolve({ data: [] }),
+    ])
+    setRegs([
+      ...(farRows.data ?? []).map((r: any): RegRow => ({ id: r.section_number, regType: 'far', label: `§ ${r.section_number}`, title: r.title, route: `/far/${r.section_number}` })),
+      ...(aimRows.data ?? []).map((r: any): RegRow => ({ id: r.paragraph_number, regType: 'aim', label: r.paragraph_number, title: r.title ?? '', route: `/aim/${r.paragraph_number}` })),
+      ...(pcgRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, regType: 'pcg', label: r.term, title: r.term, route: `/pcg/${r.slug}` })),
+      ...(adRows.data ?? []).map((r: any): RegRow => ({ id: r.ad_number, regType: 'ad', label: r.ad_number, title: r.title, route: `/ad/${r.ad_number}` })),
+      ...(loiRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, regType: 'loi', label: r.slug, title: r.title, route: `/loi/${r.slug}` })),
+    ])
+
     setLoading(false)
   }, [id])
 
@@ -136,6 +216,14 @@ export default function SharedFolderDetail() {
       },
     ])
   }
+
+  const sections: { title: string; data: (ACRow | NoteRow | RegRow)[] }[] = [
+    ...(acs.length ? [{ title: 'ADVISORY CIRCULARS', data: acs as (ACRow | NoteRow | RegRow)[] }] : []),
+    ...(['far', 'aim', 'pcg', 'ad', 'loi'] as const)
+      .map((regType) => ({ title: REG_SECTION_TITLE[regType], data: regs.filter((r) => r.regType === regType) as (ACRow | NoteRow | RegRow)[] }))
+      .filter((s) => s.data.length > 0),
+    ...(notes.length ? [{ title: 'NOTES', data: notes as (ACRow | NoteRow | RegRow)[] }] : []),
+  ]
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
@@ -169,7 +257,7 @@ export default function SharedFolderDetail() {
             The owner deleted it or stopped sharing.
           </Text>
         </View>
-      ) : acs.length === 0 && notes.length === 0 ? (
+      ) : acs.length === 0 && notes.length === 0 && regs.length === 0 ? (
         <View style={styles.center}>
           <Icon name="folder" size={36} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(15) }]}>Nothing here yet</Text>
@@ -177,19 +265,31 @@ export default function SharedFolderDetail() {
       ) : (
         <TabletContainer>
         <SectionList
-          sections={[
-            ...(acs.length ? [{ title: 'ADVISORY CIRCULARS', data: acs }] : []),
-            ...(notes.length ? [{ title: 'NOTES', data: notes }] : []),
-          ]}
-          keyExtractor={(item: ACRow | NoteRow) => item.id}
+          sections={sections}
+          keyExtractor={(item: ACRow | NoteRow | RegRow) => ('regType' in item ? `${item.regType}-${item.id}` : item.id)}
           contentContainerStyle={styles.list}
           renderSectionHeader={({ section }) =>
-            acs.length && notes.length ? (
+            sections.length > 1 ? (
               <Text style={[styles.sectionHeader, { color: tokens.t3, fontSize: fs(11) }]}>{section.title}</Text>
             ) : null
           }
           renderItem={({ item }) =>
-            'document_number' in item ? (
+            'regType' in item ? (
+              <Pressable
+                style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                onPress={() => router.push(item.route as any)}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowDoc, { color: tokens.blu, fontSize: fs(13) }]}>{item.label}</Text>
+                  {item.regType !== 'pcg' && (
+                    <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
+                      {stripFarPrefix(item.title)}
+                    </Text>
+                  )}
+                </View>
+                <Icon name="chevron.right" size={14} color={tokens.t4} />
+              </Pressable>
+            ) : 'document_number' in item ? (
               <Pressable
                 style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
                 onPress={() => router.push(`/ac/${item.id}`)}
@@ -292,6 +392,94 @@ export default function SharedFolderDetail() {
                           </Pressable>
                         )
                       })}
+                    </View>
+                  </View>
+                )
+              })()}
+
+              {(() => {
+                const fars = openNote ? detectFARs(openNote.body, farIndex) : []
+                if (!fars.length) return null
+                return (
+                  <View style={styles.modalChipSection}>
+                    <Text style={[styles.detectedLabel, { color: tokens.t3, fontSize: fs(11) }]}>AUTO-LINKED FARS</Text>
+                    <View style={styles.detectedChips}>
+                      {fars.map((f) => (
+                        <Pressable
+                          key={f}
+                          style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
+                          onPress={() => { setOpenNote(null); router.push(`/far/${f}`) }}
+                        >
+                          <Icon name="link" size={9} color={tokens.blu} />
+                          <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>FAR {f}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                )
+              })()}
+
+              {(() => {
+                const aims = openNote ? detectAIMs(openNote.body, aimIndex) : []
+                if (!aims.length) return null
+                return (
+                  <View style={styles.modalChipSection}>
+                    <Text style={[styles.detectedLabel, { color: tokens.t3, fontSize: fs(11) }]}>AUTO-LINKED AIM</Text>
+                    <View style={styles.detectedChips}>
+                      {aims.map((a) => (
+                        <Pressable
+                          key={a}
+                          style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
+                          onPress={() => { setOpenNote(null); router.push(`/aim/${a}`) }}
+                        >
+                          <Icon name="link" size={9} color={tokens.blu} />
+                          <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>AIM {a}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                )
+              })()}
+
+              {(() => {
+                const ads = openNote ? detectADs(openNote.body, adIndex) : []
+                if (!ads.length) return null
+                return (
+                  <View style={styles.modalChipSection}>
+                    <Text style={[styles.detectedLabel, { color: tokens.t3, fontSize: fs(11) }]}>AUTO-LINKED ADS</Text>
+                    <View style={styles.detectedChips}>
+                      {ads.map((a) => (
+                        <Pressable
+                          key={a}
+                          style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
+                          onPress={() => { setOpenNote(null); router.push(`/ad/${a}`) }}
+                        >
+                          <Icon name="link" size={9} color={tokens.blu} />
+                          <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>AD {a}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                )
+              })()}
+
+              {(() => {
+                const pcgs = openNote ? detectPCGs(openNote.body, pcgIndex) : []
+                if (!pcgs.length) return null
+                return (
+                  <View style={styles.modalChipSection}>
+                    <Text style={[styles.detectedLabel, { color: tokens.t3, fontSize: fs(11) }]}>AUTO-LINKED P/CG TERMS</Text>
+                    <View style={styles.detectedChips}>
+                      {pcgs.map((p) => (
+                        <Pressable
+                          key={p.slug}
+                          style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
+                          onPress={() => { setOpenNote(null); router.push(`/pcg/${p.slug}`) }}
+                        >
+                          <Icon name="link" size={9} color={tokens.blu} />
+                          <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>{p.term}</Text>
+                        </Pressable>
+                      ))}
                     </View>
                   </View>
                 )

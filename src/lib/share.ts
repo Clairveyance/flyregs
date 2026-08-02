@@ -4,6 +4,7 @@ import { useAuth } from '@/context/auth'
 import { useShareCard } from '@/components/ShareCardCapture'
 import { resolveAvatarUrl, resolveAvatarPresetId, getDisplayName } from '@/lib/avatar'
 import { buildACShareLink } from '@/lib/acShare'
+import { buildRegShareLink, RegShareType } from '@/lib/regShare'
 
 // Premium feature — every call site should gate on isPremium and route to
 // /paywall?tier=premium itself before calling these (kept out of here since
@@ -27,6 +28,20 @@ export interface ShareableNote {
   linked_ac?: string | null
 }
 
+// FAR/AIM/P-CG/AD/LOI equivalent of ShareableAC -- Saved/Recents/Folder's
+// own Share buttons silently no-op'd for any bookmark that wasn't itemType
+// 'ac' even though buildRegShareLink/flyregs.com's generic reg/ page
+// already works (each type's own detail screen has used it successfully
+// since #55). `label` is the short display id shown in the message/link
+// (e.g. "§ 91.3", "3-3-3", "SIGMET", "2018-02-04" -- same value stored as
+// a bookmark's own document_number field).
+export interface ShareableReg {
+  type: RegShareType
+  id: string
+  label: string
+  title?: string
+}
+
 // Just the branded flyregs.com/ac/ link, no title/doc-number prefix -- the
 // share card image already shows that, so repeating it as text was the
 // "too much stuff in the message" the sender and recipient both have to
@@ -38,6 +53,10 @@ function acLine(ac: ShareableAC): string {
 function noteLine(note: ShareableNote): string {
   const ref = note.linked_ac ? ` (AC ${note.linked_ac})` : ''
   return `${note.title || 'Untitled'}${ref}\n${note.body}`
+}
+
+function regLine(item: ShareableReg): string {
+  return buildRegShareLink(item.type, item.id, item.label, item.title)
 }
 
 // AC/folder shares are plain text (just the link) -- no branded card image
@@ -83,17 +102,26 @@ export function useShareActions() {
     } catch {}
   }
 
-  const shareMany = async (acs: ShareableAC[], notes: ShareableNote[] = []) => {
-    const total = acs.length + notes.length
+  const shareReg = async (item: ShareableReg) => {
+    try {
+      await Share.share({ title: item.label, message: regLine(item) })
+    } catch {
+      // User cancelled or share unavailable
+    }
+  }
+
+  const shareMany = async (acs: ShareableAC[], notes: ShareableNote[] = [], regs: ShareableReg[] = []) => {
+    const total = acs.length + notes.length + regs.length
     if (!total) return
     try {
       const parts: string[] = []
       if (acs.length) parts.push(acs.map(acLine).join('\n\n'))
+      if (regs.length) parts.push(regs.map(regLine).join('\n\n'))
       if (notes.length) parts.push(notes.map(noteLine).join('\n\n'))
       const message = parts.join('\n\n')
       await Share.share({ message })
     } catch {}
   }
 
-  return { shareAC, shareNote, shareMany }
+  return { shareAC, shareNote, shareReg, shareMany }
 }

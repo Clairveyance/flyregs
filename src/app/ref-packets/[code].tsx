@@ -7,7 +7,7 @@ import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
-import { getRefPacket, getRefPackets, splitPacketTitle, RefPacketArea, RefPacket } from '@/lib/refPackets'
+import { getRefPacket, getRefPackets, splitPacketTitle, refPackKnowledgeLevel, RefPacketArea, RefPacket } from '@/lib/refPackets'
 
 export default function RefPacketDetailScreen() {
   const { code: routeCode } = useLocalSearchParams<{ code: string }>()
@@ -51,6 +51,12 @@ export default function RefPacketDetailScreen() {
     })
   }, [hasPlusAccess, title])
 
+  // Maps this pack's title to a Study Mode knowledge level (e.g. "Private
+  // Pilot..." -> 'private') so a "Study This Rating" button can jump
+  // straight into a correctly-scoped flashcard deck. null for certs that
+  // don't cleanly map onto the 6-level taxonomy (see refPackKnowledgeLevel).
+  const studyLevel = title ? refPackKnowledgeLevel(splitPacketTitle(title).mainTitle) : null
+
   if (!hasPlusAccess) {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>
@@ -86,6 +92,16 @@ export default function RefPacketDetailScreen() {
                 Section 2") get clipped there with no way to tell them
                 apart -- this shows the real, full, un-truncated title. */}
             <Text style={[styles.fullTitle, { color: tokens.t1, fontSize: fs(17) }]}>{splitPacketTitle(title).mainTitle}</Text>
+
+            {studyLevel && (
+              <Pressable
+                style={[styles.studyBtn, { backgroundColor: tokens.blu }]}
+                onPress={() => router.push(`/study?level=${studyLevel}` as any)}
+              >
+                <Icon name="rectangle.stack.fill" size={15} color="#fff" />
+                <Text style={[styles.studyBtnText, { fontSize: fs(13.5) }]}>Study This Rating</Text>
+              </Pressable>
+            )}
 
             {siblings.length > 1 && (
               <>
@@ -170,6 +186,11 @@ const styles = StyleSheet.create({
 
   list: { padding: 12, paddingBottom: 32 },
   fullTitle: { fontWeight: '700', lineHeight: 22, marginBottom: 10, paddingLeft: 2 },
+  studyBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
+    borderRadius: 12, paddingVertical: 11, marginBottom: 14,
+  },
+  studyBtnText: { color: '#fff', fontWeight: '700' },
   groupLabel: { fontWeight: '600', letterSpacing: 0.5, marginBottom: 8, paddingLeft: 2 },
   sectionRow: { marginBottom: 14 },
   sectionRowContent: { gap: 8, paddingRight: 12 },

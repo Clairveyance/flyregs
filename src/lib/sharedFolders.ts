@@ -202,6 +202,29 @@ export async function getSharedFolderACItems(folderId: string): Promise<SharedFo
   return data ?? []
 }
 
+// Generic FAR/AIM/P-CG/AD/LOI item-pointer fetch -- mirrors
+// getSharedFolderACItems exactly (RLS on synced_folder_items is scoped by
+// folder_id only, never item_type, so a collaborator could always read
+// these rows; the shared-folder screen just never fetched anything but
+// 'ac' and 'note'). Confirmed live via the #154 process-flow audit: a
+// FAR/AIM/AD/PCG/LOI item added to a shared folder synced to the cloud
+// correctly but was completely invisible to collaborators.
+async function getSharedFolderItemsByType(folderId: string, itemType: string): Promise<{ item_id: string }[]> {
+  const { data } = await supabase
+    .from('synced_folder_items')
+    .select('item_id')
+    .eq('folder_id', folderId)
+    .eq('item_type', itemType)
+    .eq('deleted', false)
+  return data ?? []
+}
+
+export const getSharedFolderFARItems = (folderId: string) => getSharedFolderItemsByType(folderId, 'far')
+export const getSharedFolderAIMItems = (folderId: string) => getSharedFolderItemsByType(folderId, 'aim')
+export const getSharedFolderPCGItems = (folderId: string) => getSharedFolderItemsByType(folderId, 'pcg')
+export const getSharedFolderADItems = (folderId: string) => getSharedFolderItemsByType(folderId, 'ad')
+export const getSharedFolderLOIItems = (folderId: string) => getSharedFolderItemsByType(folderId, 'loi')
+
 export interface SharedFolderNoteItem {
   item_id: string
 }
@@ -229,8 +252,21 @@ export async function getSharedFolderNoteItems(folderId: string): Promise<Shared
 // from the collaborator list with no trace. join_shared_folder's own
 // ON CONFLICT clears left_at back to null on rejoin, so tapping the same
 // invite link again correctly reactivates the same row.
+// left_at is a SOFT leave, and the RLS policies now check it -- a departed
+// collaborator loses read access to the folder and its items (they didn't
+// before; leaving revoked nothing). The user_id filter is explicit rather
+// than leaning on the UPDATE policy to scope the statement: without it this
+// reads as "stamp left_at on every collaborator of this folder", which is
+// one policy change away from being true.
 export async function leaveSharedFolder(folderId: string): Promise<void> {
-  await supabase.from('folder_collaborators').update({ left_at: new Date().toISOString() }).eq('folder_id', folderId)
+  const { data } = await supabase.auth.getUser()
+  const userId = data.user?.id
+  if (!userId) return
+  await supabase
+    .from('folder_collaborators')
+    .update({ left_at: new Date().toISOString() })
+    .eq('folder_id', folderId)
+    .eq('user_id', userId)
 }
 
 export interface FolderCollaborator {

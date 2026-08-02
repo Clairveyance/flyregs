@@ -25,10 +25,19 @@ export default function RefPacketTaskScreen() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollRef = useRef<ScrollView>(null)
   const searchSectionY = useRef(0)
+  // Kept in a ref (not a dep) so runSearch's identity stays stable for the
+  // debounce and the element-tap handler.
+  const taskRefsRef = useRef<string | null>(null)
 
+  // Pass the task's own references_text so the search can be constrained to
+  // the FAR parts the ACS actually cites, and so ACs it names by number get
+  // pinned above keyword hits. Without it, "Pilot Qualifications" returned
+  // § 135.23 (air carrier manual contents) purely on the word match.
   const runSearch = useCallback((q: string) => {
     setSearchLoading(true)
-    searchRefPackTopic(q, 4).then(setGroups).finally(() => setSearchLoading(false))
+    searchRefPackTopic(q, 4, taskRefsRef.current)
+      .then(setGroups)
+      .finally(() => setSearchLoading(false))
   }, [])
 
   // Knowledge/Risk Management/Skills/Task Elements bullets are topic
@@ -50,6 +59,9 @@ export default function RefPacketTaskScreen() {
     if (!taskId) return
     getRefPacketTask(taskId).then((t) => {
       setTask(t)
+      // Populate BEFORE the auto-search below fires, so the very first
+      // result set is already constrained to the cited parts.
+      taskRefsRef.current = t?.referencesText ?? null
       setLoading(false)
       // Auto-search on load using the task's own title -- this is what
       // "GUIDE them directly to that info" means in practice: the moment
@@ -135,18 +147,49 @@ export default function RefPacketTaskScreen() {
                     <Icon name={REG_TYPE[g.type].icon} size={12} color={tokens.blu} />
                     <Text style={[styles.regGroupLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>{REG_TYPE[g.type].label}</Text>
                   </View>
-                  {g.results.map((r) => (
-                    <Pressable
-                      key={`${r.type}-${r.id}`}
-                      style={[styles.regRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                      onPress={() => setPreviewRoute(r.route)}
-                    >
-                      <Text style={[styles.regPrimary, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>{r.primary}</Text>
-                      {!!r.secondary && (
-                        <Text style={[styles.regSecondary, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={2}>{r.secondary}</Text>
-                      )}
-                    </Pressable>
-                  ))}
+                  {g.results.map((r) => {
+                    // AC is the one type whose `primary` glues a title onto the
+                    // number ("AC 61-146 — Aviation Instructor's Handbook") --
+                    // FAR/AIM/P/CG's primary is always just the bare id, so the
+                    // number-vs-title contrast problem RC flagged only exists
+                    // here. Reconstruct the number prefix from `id` (already the
+                    // document_number) rather than splitting on " — ", which
+                    // would break if a title ever legitimately contained one.
+                    const acPrefix = `AC ${r.id}`
+                    const isAc = r.type === 'ac' && r.primary.startsWith(acPrefix)
+                    const acRest = isAc ? r.primary.slice(acPrefix.length) : ''
+                    return (
+                      <Pressable
+                        key={`${r.type}-${r.id}`}
+                        style={[styles.regRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                        onPress={() => setPreviewRoute(r.route)}
+                      >
+                        {/* No numberOfLines cap -- a long AC title ("AC 150/5210-7E
+                            -- Aircraft Rescue and Fire...") used to cut off mid-word
+                            with no way to read the rest. RC (repeated ask): "any
+                            place in the app where a title runs off the page and
+                            can't be read, we need to make adjustments to fix that.
+                            full titles must be readable everywhere." regRow has no
+                            fixed height, so wrapping just grows the row. Nesting
+                            colored Text spans inside this one (rather than two
+                            separate Text siblings) keeps that single uncapped flow
+                            intact -- the number and title still wrap as one block. */}
+                        <Text style={[styles.regPrimary, { fontSize: fs(13.5) }]}>
+                          {isAc ? (
+                            <>
+                              <Text style={{ color: tokens.blu }}>{acPrefix}</Text>
+                              <Text style={{ color: tokens.t1 }}>{acRest}</Text>
+                            </>
+                          ) : (
+                            <Text style={{ color: tokens.blu }}>{r.primary}</Text>
+                          )}
+                        </Text>
+                        {!!r.secondary && (
+                          <Text style={[styles.regSecondary, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={2}>{r.secondary}</Text>
+                        )}
+                      </Pressable>
+                    )
+                  })}
                 </View>
               ))}
             </View>

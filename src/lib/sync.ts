@@ -61,6 +61,13 @@ async function mergeBookmarks(userId: string) {
     if (!localById.has(r.id)) {
       merged.set(r.id, {
         id: r.id,
+        // Missing means 'ac' (see bookmarks.ts's own BookmarkAC comment) --
+        // was never restored here at all before this fix, so any FAR/AIM/
+        // AD/PCG/LOI bookmark that round-tripped through cloud sync (new
+        // device, reinstall, restore) silently reverted to 'ac' and then
+        // mis-routed via routeForBookmark(). Confirmed live via the #154
+        // process-flow audit.
+        itemType: r.item_type ?? undefined,
         document_number: r.document_number,
         title: r.title,
         date_issued: r.date_issued,

@@ -39,10 +39,12 @@ import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { getBookmarks, routeForBookmark, bookmarkItemType, BookmarkAC } from '@/lib/bookmarks'
 import { useShareActions, ShareableAC } from '@/lib/share'
+import { RegShareType } from '@/lib/regShare'
+import { REG_TYPE, RegType } from '@/lib/regTypes'
 import { highlightSnippet } from '@/lib/acShare'
 import { getOrCreateShareLink, getFolderCollaborators, removeCollaborator, FolderCollaborator } from '@/lib/sharedFolders'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
-import { stripFarPrefix } from '@/lib/titleFormat'
+import { stripFarPrefix, rowTitle } from '@/lib/titleFormat'
 
 // ── Local Note type (mirrors notes.tsx — local-first AsyncStorage notes) ──────
 interface Note {
@@ -65,7 +67,7 @@ export default function FolderDetail() {
   const fs = useFS()
   const { isPremium } = useAuth()
   const { badgeDays } = useBadgeLifespan()
-  const { shareAC, shareNote } = useShareActions()
+  const { shareAC, shareNote, shareReg } = useShareActions()
   const { id } = useLocalSearchParams<{ id: string }>()
 
   const [folder, setFolder] = useState<Folder | null>(null)
@@ -297,9 +299,14 @@ export default function FolderDetail() {
   // resolveBookmarkACId's comment in lib/bookmarks.ts.
   const handleShareAC = (item: BookmarkAC) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
-    // Share links only resolve for ACs today -- see saved.tsx's handleShare
-    // for the same guard.
-    if (bookmarkItemType(item) !== 'ac') return
+    const type = bookmarkItemType(item)
+    // Non-AC folder items now route through buildRegShareLink, same as
+    // Saved/Recents' own fix -- was a silent no-op before (see saved.tsx's
+    // handleShare comment for the #154 process-flow audit finding).
+    if (type !== 'ac') {
+      shareReg({ type: type as RegShareType, id: item.id, label: item.document_number, title: item.title })
+      return
+    }
     const shareable: ShareableAC = {
       id: item.acId ?? item.id,
       document_number: item.document_number,
@@ -574,7 +581,7 @@ function SwipeableACRow({
         >
           <View style={[styles.typeBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
             <Text style={[styles.typeBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>
-              {bookmarkItemType(item) === 'pcg' ? 'P/CG' : bookmarkItemType(item).toUpperCase()}
+              {REG_TYPE[bookmarkItemType(item) as RegType].label}
             </Text>
           </View>
           <View style={styles.rowBody}>
@@ -591,7 +598,9 @@ function SwipeableACRow({
                 )
               })()}
             </View>
-            <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>{stripFarPrefix(item.title)}</Text>
+            {rowTitle(item.document_number, item.title) ? (
+              <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>{rowTitle(item.document_number, item.title)}</Text>
+            ) : null}
             {item.office && (
               <Text style={[styles.rowMeta, { color: tokens.t4, fontSize: fs(11) }]}>{item.office}</Text>
             )}

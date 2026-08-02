@@ -55,6 +55,7 @@ export async function syncPushBookmark(b: BookmarkAC) {
       saved_at: b.savedAt,
       updated_at: new Date().toISOString(),
       deleted: false,
+      item_type: b.itemType ?? null,
       ac_id: b.acId ?? b.id,
       block_kind: b.blockKind ?? null,
       block_label: b.blockLabel ?? null,

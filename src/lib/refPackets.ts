@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import type { KnowledgeLevel } from '@/lib/challenges'
 
 // Ref Packets are FlyRegs' curated certificate/rating study-and-reference
 // guides -- built directly from the FAA's own ACS/PTS documents (see
@@ -72,6 +73,25 @@ export function splitPacketTitle(title: string): { mainTitle: string; suffix: st
     mainTitle: dashIdx > -1 ? base.slice(0, dashIdx) : base,
     suffix: dashIdx > -1 ? base.slice(dashIdx + 3) : null,
   }
+}
+
+// RefPack title -> knowledge-level (see far_knowledge_levels() in the DB,
+// mirrored client-side as challenges.ts's KnowledgeLevel), so a "Study This
+// Rating" button on the pack can jump straight into a correctly-scoped
+// Study Mode session instead of the user re-selecting the same level by
+// hand. Deliberately returns null (no pre-filter, defaults to ALL levels)
+// for certs that don't map onto the 6-level taxonomy at all (Aircraft
+// Dispatcher, Parachute Rigger, Flight Engineer, Remote Pilot/Part 107,
+// bare Instrument Rating docs) rather than guessing -- same "don't be
+// wrong, be honest about limits" rule as the FAR-part classification.
+export function refPackKnowledgeLevel(title: string): KnowledgeLevel | null {
+  if (/aviation mechanic/i.test(title)) return 'mechanic'
+  if (/flight instructor/i.test(title)) return 'cfi'
+  if (/airline transport pilot/i.test(title)) return 'atp'
+  if (/commercial pilot/i.test(title)) return 'commercial'
+  if (/private pilot/i.test(title)) return 'private'
+  if (/recreational pilot|sport pilot/i.test(title)) return 'student'
+  return null
 }
 
 // Title keywords -> category, since doc_type is 'acs'/'pts' for every row

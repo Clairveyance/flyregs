@@ -33,10 +33,10 @@ export interface Folder {
   shared?: boolean
 }
 
-// 'far'/'aim'/'pcg'/'ad' item_ids are the section_number/paragraph_number/
-// slug/id string each type's own detail route keys on (not necessarily a
-// uuid) -- same shape AC ids already had.
-export type FolderItemType = 'ac' | 'far' | 'aim' | 'pcg' | 'ad' | 'loi' | 'note'
+// 'far'/'aim'/'pcg'/'ad'/'dictionary' item_ids are the section_number/
+// paragraph_number/slug/id/slug string each type's own detail route keys
+// on (not necessarily a uuid) -- same shape AC ids already had.
+export type FolderItemType = 'ac' | 'far' | 'aim' | 'pcg' | 'ad' | 'loi' | 'dictionary' | 'note'
 
 export interface FolderItem {
   id: string

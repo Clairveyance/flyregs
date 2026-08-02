@@ -5,13 +5,18 @@ import type { AcFigure, FormulaRef } from '@/types'
 const KEY = '@flyregs/downloads'
 
 // 'ac' keeps its full pdf_blocks/figures/formulaRefs shape (see below) --
-// AD/LOI are simpler documents (plain body text, no block-parsed structure)
-// so their offline copy is just the already-loaded text fields, no
-// separate image-caching pipeline. Confirmed live as a real gap: AD and
-// LOI's detail screens showed an "Open PDF" link with no Download
-// counterpart at all, unlike AC -- this generalizes the same offline
-// mechanism to both rather than leaving them as read-online-only.
-export type DownloadedItemType = 'ac' | 'ad' | 'loi'
+// every other type is a simpler document (plain body text, no block-parsed
+// structure) so its offline copy is just the already-loaded text fields,
+// with no separate image-caching pipeline.
+//
+// FAR/AIM/PCG were added last and are the reason this is worth spelling
+// out: they have NO PDF anywhere in the schema (eCFR XML / FAA HTML
+// sources), so they get no "Open PDF" button -- but offline reading has
+// nothing to do with PDFs, and withholding it from the three biggest
+// regulation sets made "offline access" a Premium feature that didn't
+// cover the FARs. Availability of a PDF and availability of offline are
+// now two independent questions; see DetailActionRow.
+export type DownloadedItemType = 'ac' | 'ad' | 'loi' | 'far' | 'aim' | 'pcg'
 
 export interface DownloadedAC {
   id: string
@@ -38,11 +43,40 @@ export interface DownloadedAC {
    */
   figures?: AcFigure[] | null
   formulaRefs?: FormulaRef[] | null
-  /** AD/LOI offline copy: the plain body text already loaded by the detail
-   * screen, stored as-is (no block parsing) since these render via
-   * PlainTextBody, not ACBody. */
+  /** Non-AC offline copy (FAR/AIM/PCG/AD/LOI): the plain body text already
+   * loaded by the detail screen, stored as-is (no block parsing) since
+   * these render via PlainTextBody, not ACBody. */
   body_text?: string | null
   downloadedAt: string
+}
+
+/** A download's own type, defaulting missing/legacy rows to 'ac' — rows
+ * written before the `type` field existed are all ACs. */
+export function downloadItemType(d: Pick<DownloadedAC, 'type'>): DownloadedItemType {
+  return d.type ?? 'ac'
+}
+
+// Single source of truth for "where does tapping this download go", mirroring
+// bookmarks.ts's routeForBookmark. Saved's Offline tab previously hardcoded
+// `/ac/${item.id}` for every row, so a downloaded AD or LOI opened
+// /ac/<ad_number> -- a real advisory_circulars lookup miss landing the user
+// on "not found", i.e. the offline copy they'd just saved was unreachable.
+export function routeForDownload(item: DownloadedAC): string {
+  const type = downloadItemType(item)
+  if (type === 'far') return `/far/${item.id}`
+  if (type === 'aim') return `/aim/${item.id}`
+  if (type === 'pcg') return `/pcg/${item.id}`
+  if (type === 'ad') return `/ad/${item.id}`
+  if (type === 'loi') return `/loi/${item.id}`
+  return `/ac/${item.id}`
+}
+
+/** The one cached copy for this id, or undefined. Used by every detail
+ * screen's network-failure fallback so a downloaded document actually reads
+ * offline — without this, `addDownload` is write-only storage. */
+export async function findDownload(id: string): Promise<DownloadedAC | undefined> {
+  const list = await getDownloads()
+  return list.find((d) => d.id === id)
 }
 
 export async function getDownloads(): Promise<DownloadedAC[]> {
