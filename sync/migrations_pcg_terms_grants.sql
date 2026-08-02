@@ -1,0 +1,23 @@
+-- ============================================================================
+-- Lock down pcg_terms write grants  --  2026-08-01
+--
+-- pcg_terms (Pilot/Controller Glossary, 1,332 rows, public read content)
+-- granted INSERT/UPDATE/DELETE/TRUNCATE to anon AND authenticated, not just
+-- SELECT. RLS only has a public-read SELECT policy ("pcg_terms public
+-- read", using true) -- no policy restricts writes, so these table-level
+-- GRANTs were the only thing standing between anyone holding the app's
+-- public anon API key and arbitrary writes/deletes via PostgREST, bypassing
+-- the app entirely.
+--
+-- Confirmed via grep across ac-app/src/: every client call site is
+-- `.from('pcg_terms').select(...)` (9 call sites, zero writes) -- all real
+-- P/CG content is written by sync scripts using the service role key, which
+-- this migration doesn't touch.
+--
+-- dictionary_terms (added same day, sync/migrations_dictionary_terms.sql)
+-- was deliberately built with the correct pattern from the start
+-- (SELECT-only for anon/authenticated); this brings pcg_terms in line with
+-- it rather than leaving it as the odd one out.
+-- ============================================================================
+
+revoke insert, update, delete, truncate on public.pcg_terms from anon, authenticated;
