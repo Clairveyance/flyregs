@@ -86,7 +86,9 @@ def normalize_title(title: str) -> str:
     # perfect title matches.
     t = re.sub(r"[‐‑‒–—−]", "-", title)
     t = re.sub(r"[‘’‛]", "'", t)
-    return re.sub(r"\s+", " ", t.strip().lower())
+    t = re.sub(r"\s+", " ", t.strip().lower())
+    # Trailing-period mismatch — see build_aim_pdf_pages.py's identical fix.
+    return t.rstrip(".")
 
 
 def render_page(doc: fitz.Document, page_idx: int) -> bytes:

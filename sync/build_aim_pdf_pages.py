@@ -43,7 +43,14 @@ def normalize_title(title: str) -> str:
     # where the HTML source uses a plain ASCII apostrophe. Confirmed live:
     # "Signalman's Position" never matched despite identical content.
     t = re.sub(r"[‘’‛]", "'", t)
-    return re.sub(r"\s+", " ", t.strip().lower())
+    t = re.sub(r"\s+", " ", t.strip().lower())
+    # A PDF figure/table caption block's own trailing period ("...LNAV/VNAV
+    # DA.") is part of the extracted text but was never part of the HTML
+    # source's caption — confirmed live 2026-08-02: "Example of LNAV and
+    # Circling Minima Lower Than LNAV/VNAV DA" could never auto-confirm via
+    # matching for exactly this reason, silently relying on a past manual
+    # fix staying untouched forever instead of being verified every run.
+    return t.rstrip(".")
 
 
 def _adjacent_caption_candidates(blocks, start_idx, step, label_bbox):

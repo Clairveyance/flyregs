@@ -467,7 +467,11 @@ def _citations_from_reference_box(box_elem, citing_id: str) -> tuple[str, list[d
         href = a.get("href", "")
         frag = href.split("#", 1)[1] if "#" in href else ""
         target_para = frag.strip() or a.get_text(strip=True)
-        if target_para:
+        # Skip self-references. A paragraph's own reference box can link back
+        # to itself, which renders as a MagicLink to the page you are already
+        # on. Measured: exactly one across the corpus (AIM 5-3-8 -> 5-3-8),
+        # so this is cheap insurance rather than a big cleanup.
+        if target_para and target_para != citing_id:
             citations.append({
                 "citing_type": "aim", "citing_id": citing_id,
                 "cited_type": "aim", "cited_id": target_para,
@@ -495,15 +499,14 @@ def _citations_from_reference_box(box_elem, citing_id: str) -> tuple[str, list[d
             "label": None,
         })
 
-    # P/CG mentions: "Pilot/Controller Glossary Term- X" pattern.
-    for m in re.finditer(r"Pilot/Controller Glossary Term-\s*([^.]+)\.?", ref_text):
-        term = m.group(1).strip()
-        if term:
-            citations.append({
-                "citing_type": "aim", "citing_id": citing_id,
-                "cited_type": "pcg", "cited_id": term.upper(),
-                "label": term,
-            })
+    # aim->pcg is NOT written here. sync/pcg_term_links.py owns every
+    # cited_type='pcg' row and rebuilds them corpus-wide with full
+    # glossary-phrase matching -- it produces 2,359 aim->pcg links where this
+    # "Pilot/Controller Glossary Term- X" pattern caught only the handful of
+    # paragraphs that spell that phrase out, and its rows replaced these
+    # later the same day regardless. Writing from both places is what forced
+    # delete_citations_for_source() to be unscoped, which then wiped
+    # pcg_term_links' work -- see that function.
 
     return ref_text, citations
 
@@ -544,16 +547,30 @@ def _disambiguate_figure_labels(figures: list[dict]) -> list[dict]:
     paragraph (matching sort_order, i.e. source document order) turns it
     into "FIG 2-1-8a" / "FIG 2-1-8b" / "FIG 2-1-8c" — self-identifying
     everywhere at a glance, which the source itself doesn't offer. A
-    genuinely one-of-a-kind label in its paragraph is left untouched."""
+    genuinely one-of-a-kind label in its paragraph is left untouched.
+
+    Also stamps every figure with `occurrence` -- its 0-indexed position
+    within this same tied group (0 for anything never tied at all). This is
+    the STABLE identity signal aim_figures' upsert on_conflict actually
+    needs: (paragraph_number, sort_order, caption) is not quite unique on
+    its own -- confirmed live 2026-08-01, three genuinely distinct real
+    NEXRAD Coverage figures in paragraph 7-1-11 share an identical
+    sort_order (the HTML groups them under one parent, so the scraper's
+    fig_sort counter never increments between them) AND an identical
+    caption. `occurrence` is exactly the tiebreak already computed here for
+    the a/b/c label suffix, just persisted as its own column instead of
+    thrown away after building the display string."""
     from collections import defaultdict
     groups: dict[tuple, list[dict]] = defaultdict(list)
     for fig in figures:
+        fig["occurrence"] = 0
         groups[(fig["paragraph_number"], fig["label"])].append(fig)
     for (_, label), group in groups.items():
         if label and len(group) > 1:
             group.sort(key=lambda f: f["sort_order"])
             for i, fig in enumerate(group):
                 fig["label"] = f"{label}{chr(ord('a') + i)}"
+                fig["occurrence"] = i
     return figures
 
 
@@ -862,7 +879,14 @@ def delete_citations_for_source(citing_type: str) -> bool:
         resp = requests.delete(
             f"{SUPABASE_URL}/rest/v1/document_citations",
             headers=_supa_headers({"Prefer": "return=minimal"}),
-            params={"citing_type": f"eq.{citing_type}"},
+            # Scoped to the cited_types this scraper writes. Unscoped it also
+            # deleted the 2,359 aim->pcg links owned by
+            # sync/pcg_term_links.py, which only survived because that script
+            # runs later in the week (AD sync, Mon 14:00, vs AIM at 11:00) --
+            # so they were missing for three hours weekly, and for a full
+            # week whenever the AD sync failed.
+            params={"citing_type": f"eq.{citing_type}",
+                    "cited_type": "in.(ac,far,aim,ad)"},
             timeout=30,
         )
         resp.raise_for_status()
@@ -979,24 +1003,50 @@ def run_full(session: requests.Session):
                 _upsert("aim_paragraphs", result["paragraphs"], "paragraph_number")
                 total_paragraphs += len(result["paragraphs"])
             if result["figures"]:
-                # Conflict key is (paragraph_number, label) ONLY — not
-                # image_url. Confirmed live as a real production incident:
-                # with image_url in the key, a plain re-scrape couldn't
-                # recognize "this is the same figure whose image was later
-                # upgraded by backfill_aim_pdf_images.py" (different
-                # image_url = no conflict detected = a fresh duplicate row
-                # inserted alongside the good one), silently doubling
-                # aim_figures and resurrecting 252 rows' worth of the
-                # exact wrong/duplicate-image FAA URLs that backfill had
-                # already fixed. label is guaranteed unique per paragraph
-                # by _disambiguate_figure_labels() above, so this key is
-                # safe. Re-running this scraper alone WILL overwrite a
-                # backfilled image_url back to the raw FAA source URL for
-                # any figure it re-touches — see sync_aim.sh, which always
-                # runs the PDF backfill immediately afterward to restore
-                # it. Never run this scraper's full mode without that
-                # following step.
-                _upsert("aim_figures", result["figures"], "paragraph_number,label")
+                # Conflict key is (paragraph_number, sort_order, caption,
+                # occurrence) — NOT label, and NOT image_url.
+                #
+                # image_url was excluded first (confirmed live, past
+                # incident): with image_url in the key, a plain re-scrape
+                # couldn't recognize "this is the same figure whose image
+                # was later upgraded by backfill_aim_pdf_images.py"
+                # (different image_url = no conflict detected = a fresh
+                # duplicate row inserted alongside the good one), silently
+                # doubling aim_figures and resurrecting 252 rows' worth of
+                # the exact wrong/duplicate-image FAA URLs that backfill had
+                # already fixed.
+                #
+                # label was ALSO in the key after that fix, on the
+                # reasoning that _disambiguate_figure_labels() makes it
+                # unique per paragraph -- true only WITHIN one run's output,
+                # not across runs. Confirmed live as a second, structurally
+                # identical incident (2026-08-02, 239 duplicate rows found
+                # corpus-wide): backfill_aim_pdf_images.py's entire job is
+                # to CHANGE a row's label from a synthetic placeholder to
+                # the real PDF-matched number. The next week's scrape
+                # recomputes that same OLD synthetic label from the FAA's
+                # HTML (which knows nothing about backfill's relabeling),
+                # that no longer matches the row's now-different real
+                # label, and PostgREST inserts a fresh duplicate instead of
+                # updating in place. Every week, forever.
+                #
+                # (paragraph_number, sort_order, caption) is the actual
+                # stable identity — a figure's position and caption text in
+                # the FAA's HTML don't change just because backfill
+                # relabeled it. The 4th column, occurrence, exists only for
+                # the rare case where sort_order doesn't even advance
+                # between genuinely distinct figures sharing one caption
+                # (three separate real NEXRAD Coverage diagrams in one
+                # paragraph, confirmed live) — see
+                # _disambiguate_figure_labels()'s docstring above, which
+                # computes this same tiebreak for the a/b/c display suffix.
+                #
+                # Re-running this scraper alone WILL overwrite a backfilled
+                # image_url back to the raw FAA source URL for any figure it
+                # re-touches — see sync_aim.sh, which always runs the PDF
+                # backfill immediately afterward to restore it. Never run
+                # this scraper's full mode without that following step.
+                _upsert("aim_figures", result["figures"], "paragraph_number,sort_order,caption,occurrence")
                 total_figures += len(result["figures"])
             if result["citations"]:
                 resolved_citations = [
