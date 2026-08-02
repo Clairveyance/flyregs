@@ -70,7 +70,7 @@ update public.dictionary_terms set senses = '[{
     {"letter": "V", "concept": "enVironment", "detail": "weather, terrain, airport, and airspace conditions"},
     {"letter": "E", "concept": "External pressures", "detail": "\"get-there-itis,\" schedules, passengers, or other pressure to fly as planned regardless of risk"}
   ]
-}]'::jsonb where slug = 'mnem-pave';
+}]'::jsonb where slug = 'rm_glossary-pave';
 
 update public.dictionary_terms set senses = '[{
   "usage": null,
