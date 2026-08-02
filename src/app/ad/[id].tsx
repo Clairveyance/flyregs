@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Platform, Share, Alert } from 'react-native'
+import { View, Text, Image, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Alert } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
@@ -10,6 +10,7 @@ import { Icon } from '@/components/Icon'
 import { printReg } from '@/lib/printReg'
 import { PlainTextBody, PlainTextBodyHandle } from '@/components/PlainTextBody'
 import { MagicLinkPod } from '@/components/MagicLinkPod'
+import { FigureViewer } from '@/components/FigureViewer'
 import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
@@ -23,6 +24,13 @@ import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
 import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
 import { condenseAdSummary, adSummaryWasCondensed, stripAdArtifacts } from '@/lib/adSummary'
+import type { AcFigure } from '@/types'
+
+interface AdFigureRow {
+  id: string
+  page_index: number
+  image_url: string
+}
 
 interface AirworthinessDirective {
   ad_number: string
@@ -74,10 +82,25 @@ export default function AdScreen() {
   const bodyRef = useRef<PlainTextBodyHandle>(null)
   const inDocSearch = useInDocSearch(bodyRef)
   const [backTo, setBackTo] = useState<string | null>(null)
+  const [figures, setFigures] = useState<AdFigureRow[]>([])
+  const [figuresExpanded, setFiguresExpanded] = useState(false)
+  const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
 
   useEffect(() => {
     if (id) isBookmarked(id).then(setBookmarked)
     if (id) isDownloaded(id).then(setDownloaded)
+  }, [id])
+
+  // Full-page renders of this AD's own source PDF -- unlike AC/AIM, an AD
+  // has no per-figure label/caption metadata (its "Table N"/"Figure N"
+  // mentions are almost never individually captioned the way AC/AIM
+  // figures are), so every page of a candidate AD gets rendered rather
+  // than trying to resolve which exact page a mention points to. See
+  // sync/backfill_ad_figures.py.
+  useEffect(() => {
+    if (!id) return
+    supabase.from('ad_figures').select('id, page_index, image_url').eq('ad_number', id).order('page_index')
+      .then(({ data }) => setFigures((data ?? []) as AdFigureRow[]))
   }, [id])
 
   // Confirmed a real gap: AD never read the pending breadcrumb at all,
@@ -175,10 +198,14 @@ export default function AdScreen() {
   // sheet where it could leak to someone who never had the app at all.
   const openPDF = () => {
     if (!ad?.pdf_url) return
-    if (Platform.OS === 'web') {
-      window.open(ad.pdf_url, '_blank')
-      return
-    }
+    // Used to window.open() the raw URL on web -- found live: govinfo.gov
+    // (where every AD's pdf_url points) serves its PDFs in a way that
+    // triggers an OS-level file-download prompt instead of opening as a
+    // page. pdf-viewer.tsx already has a correct, safe web fallback (a
+    // plain "not available in the browser preview" message, no fetch
+    // attempted) -- routing there unconditionally, same as LOI already does,
+    // removes the download risk entirely instead of only fixing it for
+    // native.
     router.push({ pathname: '/pdf-viewer', params: { url: ad.pdf_url, title: `AD ${ad.ad_number}` } })
   }
 
@@ -416,6 +443,41 @@ export default function AdScreen() {
           )}
 
           <View style={[styles.barsWrap, { marginTop: 14 }]}>
+            {/* Always shown, even at 0 -- matches FAR/AC/AIM's own bar (RC:
+                found live on FAR that hiding it entirely at 0 read as
+                broken/missing, not "nothing here"). No per-figure label
+                here (unlike AC/AIM) -- see the AdFigureRow comment above. */}
+            <Pressable
+              style={[styles.tablesBar, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+              onPress={() => setFiguresExpanded((e) => !e)}
+              disabled={figures.length === 0}
+            >
+              <Icon name="photo" size={15} color={tokens.t3} />
+              <Text style={[styles.tablesBarLabel, { color: tokens.t1, fontSize: fs(13) }]}>
+                {figures.length === 1 ? 'Table/Figure' : 'Tables & Figures'}
+              </Text>
+              <View style={{ flex: 1 }} />
+              <Text style={[styles.tablesBarCount, { color: tokens.t3, fontSize: fs(12.5) }]}>{figures.length}</Text>
+              {figures.length > 0 && (
+                <Icon name={figuresExpanded ? 'chevron.up' : 'chevron.down'} size={11} color={tokens.t4} />
+              )}
+            </Pressable>
+            {figuresExpanded && figures.length > 0 && (
+              <View style={styles.figuresWrap}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.figScroll}>
+                  {figures.map((f, i) => (
+                    <Pressable
+                      key={f.id}
+                      style={[styles.figCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                      onPress={() => setViewerFigure({ id: f.id, label: `Page ${i + 1} of ${figures.length}`, caption: null, page: f.page_index, image_url: f.image_url })}
+                    >
+                      <Image source={{ uri: f.image_url }} style={styles.figThumb} resizeMode="cover" />
+                      <Text style={[styles.figLabel, { color: tokens.t1, fontSize: fs(11.5) }]} numberOfLines={1}>Page {i + 1}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
             <MagicLinkPod
               bars={[
                 { icon: 'wrench.and.screwdriver.fill', label: 'Related ADs', items: adRefs },
@@ -445,6 +507,7 @@ export default function AdScreen() {
         </ScrollView>
         </TabletContainer>
       )}
+      <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
       <FolderPicker
         visible={folderPickerVisible}
         itemType="ad"
@@ -503,6 +566,17 @@ const styles = StyleSheet.create({
   // marginTop matches the internal `gap` -- see aim/[id].tsx's own comment
   // (RC, annotated screenshot): the two gaps were 14px and 10px, uneven.
   barsWrap: { gap: 10, marginTop: 10, marginBottom: 22 },
+  tablesBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderRadius: 12, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 14,
+  },
+  tablesBarLabel: { fontWeight: '600' },
+  tablesBarCount: { fontWeight: '500' },
+  figuresWrap: { marginTop: 2 },
+  figScroll: { gap: 10 },
+  figCard: { width: 130, borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
+  figThumb: { width: '100%', height: 90 },
+  figLabel: { fontSize: 11.5, padding: 8 },
   pdfButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     borderRadius: 12, borderWidth: 1, paddingVertical: 12, marginBottom: 18,
