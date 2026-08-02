@@ -16,27 +16,36 @@ const TABS = [
   { name: 'notes',   icon: 'square.and.pencil',  path: '/notes'   },
 ]
 
+// Every route reached FROM the Community tab that has its own top-level
+// path. This list has silently gone stale twice already -- once for
+// study/ready-room/challenges/profile/account, once for ref-packets --
+// because a route added later never got added here, so the tab bar's
+// highlight quietly jumped back to Home while the user was still deep in
+// a Community flow. Found live 2026-08-02: /semantic-search (Ask
+// FlyRegs, reached directly from the Community hub) had the exact same
+// gap, plus two more discovered by auditing every route in src/app/
+// against this list rather than waiting for the next bug report:
+// /my-aircraft and /manage-subscription, both reached from Account (which
+// IS in this list) but neither itself was.
+//
+// KEEP THIS LIST IN SYNC with every route pushed to from search.tsx,
+// account.tsx, or any route already in this list -- if a new one doesn't
+// show up here, it will silently render as Home instead of Community.
+const COMMUNITY_PREFIXES = [
+  '/search',
+  '/study',
+  '/ready-room',
+  '/challenges',
+  '/profile',
+  '/account',
+  '/ref-packets',
+  '/semantic-search',
+  '/my-aircraft',
+  '/manage-subscription',
+]
+
 function activeTabForPath(pathname: string): string {
-  if (pathname.startsWith('/search'))     return 'search'
-  // Everything Community's own cards drill into (Study Mode, Duels'
-  // Ready Room + challenge list, My Profile, Account -- reached from
-  // "+Add Rating"/"View my profile") has its own top-level route, so
-  // none of them matched the '/search' prefix check above and this
-  // function fell through to 'index', making the tab bar's highlight
-  // silently jump back to Home while still inside a Community flow.
-  if (pathname.startsWith('/study'))      return 'search'
-  if (pathname.startsWith('/ready-room')) return 'search'
-  if (pathname.startsWith('/challenges')) return 'search'
-  if (pathname.startsWith('/profile'))    return 'search'
-  if (pathname.startsWith('/account'))    return 'search'
-  // RefPacks are reached from Community and are meant to keep the user
-  // feeling like they never left it (that's the whole point of their
-  // in-place slide-up preview sheet, confirmed working 2026-08-02) -- but
-  // this route was added after the study/ready-room/challenges/profile/
-  // account fix above and got left off this list, so the tab bar's own
-  // highlight silently jumped back to Home while the user was still
-  // mid-RefPack. Same bug class, same fix.
-  if (pathname.startsWith('/ref-packets')) return 'search'
+  if (COMMUNITY_PREFIXES.some((p) => pathname.startsWith(p))) return 'search'
   if (pathname.startsWith('/saved'))   return 'saved'
   if (pathname.startsWith('/folder'))  return 'saved'
   if (pathname.startsWith('/recents')) return 'recents'
