@@ -9,11 +9,13 @@ import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getRefPackets, splitPacketTitle, type RefPacket } from '@/lib/refPackets'
 import { getStudyMastery, getCurrency, type StudyMastery, type Currency } from '@/lib/study'
-import { getMyCoins } from '@/lib/coins'
+import { getMyCoins, type EarnedCoin } from '@/lib/coins'
 import { getDuelStats, type DuelStats } from '@/lib/challenges'
+import { getMyRatings, type RatingCode } from '@/lib/profileRatings'
 import { getAvatarUrl, resolveAvatarPresetId, getDisplayName } from '@/lib/avatar'
 import { getAvatarPreset } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
+import { NameTag } from '@/components/NameTag'
 
 // IA redesign (2026-07-28): this file used to be the Search tab. Search now
 // lives entirely on Home (see (tabs)/index.tsx's inline search bar +
@@ -44,8 +46,9 @@ export default function CommunityScreen() {
   const [packetCat, setPacketCat] = useState<RefPacket['category'] | 'All'>('All')
   const [mastery, setMastery] = useState<StudyMastery | null>(null)
   const [currency, setCurrency] = useState<Currency | null>(null)
-  const [coinCount, setCoinCount] = useState<number | null>(null)
   const [duelStats, setDuelStats] = useState<DuelStats | null>(null)
+  const [ratings, setRatings] = useState<RatingCode[]>([])
+  const [coins, setCoins] = useState<EarnedCoin[]>([])
 
   useEffect(() => {
     getRefPackets().then(setRefPackets)
@@ -56,19 +59,19 @@ export default function CommunityScreen() {
   // past subscription, so this doesn't gate on tier, only on being signed in.
   useEffect(() => {
     if (!session) {
-      setMastery(null); setCurrency(null); setCoinCount(null); setDuelStats(null)
+      setMastery(null); setCurrency(null); setDuelStats(null); setRatings([]); setCoins([])
       return
     }
     getStudyMastery().then(setMastery).catch(() => {})
     getCurrency().then(setCurrency).catch(() => {})
-    getMyCoins().then((c) => setCoinCount(c.length)).catch(() => {})
+    getMyCoins().then(setCoins).catch(() => {})
     getDuelStats().then(setDuelStats).catch(() => {})
+    getMyRatings(session.user.id).then(setRatings).catch(() => {})
   }, [session])
 
   const hasAnyStats = !!(
     (mastery && mastery.seen > 0) ||
     (currency && currency.currentStreak > 0) ||
-    (coinCount && coinCount > 0) ||
     (duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0))
   )
 
@@ -80,6 +83,36 @@ export default function CommunityScreen() {
   const openDuels = () => {
     if (!isPro) { router.push('/paywall'); return }
     router.push('/ready-room')
+  }
+
+  // Community is a PAID area end to end (RC, 2026-07-31): Study Mode, Duels,
+  // Ready Room, RefPacks and Challenge Coins all live here and none of them
+  // are free. Previously the screen rendered for everyone with per-row locks,
+  // which advertised a wall of padlocks instead of the feature set.
+  if (!hasPlusAccess) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <ScreenHeader title="Community" />
+        <TabletContainer>
+          <View style={styles.lockedWrap}>
+            <Icon name="person.2.fill" size={38} color={tokens.blu} />
+            <Text style={[styles.lockedTitle, { color: tokens.t1, fontSize: fs(17) }]}>
+              Community is a paid feature
+            </Text>
+            <Text style={[styles.lockedBody, { color: tokens.t3, fontSize: fs(13.5) }]}>
+              Study Mode flashcards, Duels against other pilots, RefPacks for your
+              certificate, Challenge Coins and the Ready Room leaderboard all live here.
+            </Text>
+            <Pressable
+              style={[styles.lockedBtn, { backgroundColor: tokens.blu }]}
+              onPress={() => router.push('/paywall')}
+            >
+              <Text style={styles.lockedBtnText}>See what's included</Text>
+            </Pressable>
+          </View>
+        </TabletContainer>
+      </View>
+    )
   }
 
   return (
@@ -117,12 +150,12 @@ export default function CommunityScreen() {
                     fs={fs}
                     mastery={mastery}
                     currency={currency}
-                    coinCount={coinCount}
                     duelStats={duelStats}
                   />
                 ) : (
                   <Text style={[styles.identitySub, { color: tokens.t3, fontSize: fs(12) }]}>View your profile</Text>
                 )}
+                <NameTag ratings={ratings} coins={coins} />
               </View>
               <Icon name="chevron.right" size={14} color={tokens.t4} />
             </Pressable>
@@ -144,7 +177,30 @@ export default function CommunityScreen() {
             </Pressable>
           )}
 
-          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>STUDY &amp; PRACTICE</Text>
+          {/* Ask FlyRegs (task #114) -- the semantic-search query UI, sitting
+              apart from Home's own lexical SmartSearch (see
+              smartsearch_architecture memory for why those stay separate).
+              Plus-gated same as the rest of this screen -- no extra lock
+              overlay needed here since hasPlusAccess is already required
+              just to see this screen at all (unlike Study/Duels below,
+              which need the higher isPro tier specifically). */}
+          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>SEARCH</Text>
+          <Pressable
+            style={[styles.hubCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+            onPress={() => router.push('/semantic-search')}
+          >
+            <View style={[styles.hubIconWrap, { backgroundColor: tokens.gdim }]}>
+              <Icon name="text.bubble.fill" size={19} color={tokens.grn} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Ask FlyRegs</Text>
+              <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                Ask a real question in plain English — get the passages that actually answer it
+              </Text>
+            </View>
+          </Pressable>
+
+          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 18 }]}>STUDY &amp; PRACTICE</Text>
           <Pressable
             style={[styles.hubCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
             onPress={openStudy}
@@ -204,16 +260,18 @@ function IdentityStats({
   fs,
   mastery,
   currency,
-  coinCount,
   duelStats,
 }: {
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
   mastery: StudyMastery | null
   currency: Currency | null
-  coinCount: number | null
   duelStats: DuelStats | null
 }) {
+  // Coin count used to also show here as a plain "N coins" text chip,
+  // duplicating the tier-broken-out tally NameTag already renders one row
+  // below -- confirmed confusing live ("coins earned should be on the row
+  // below"). NameTag is now the single place coins show on this card.
   const chips = useMemo(() => {
     const out: { icon: string; value: string; color: string }[] = []
     if (mastery && mastery.seen > 0) {
@@ -222,14 +280,11 @@ function IdentityStats({
     if (currency && currency.currentStreak > 0) {
       out.push({ icon: 'flame.fill', value: `${currency.currentStreak}d streak`, color: tokens.amb })
     }
-    if (coinCount) {
-      out.push({ icon: 'rosette', value: `${coinCount} ${coinCount === 1 ? 'coin' : 'coins'}`, color: tokens.gold })
-    }
     if (duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0)) {
       out.push({ icon: 'bolt.fill', value: `${duelStats.wins}-${duelStats.losses}`, color: tokens.grn })
     }
     return out
-  }, [mastery, currency, coinCount, duelStats, tokens])
+  }, [mastery, currency, duelStats, tokens])
 
   return (
     <View style={styles.identityStatsRow}>
@@ -362,6 +417,11 @@ function RefPacketGrid({
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  lockedWrap: { alignItems: 'center', justifyContent: 'center', padding: 28, gap: 10, paddingTop: 80 },
+  lockedTitle: { fontWeight: '700', marginTop: 6 },
+  lockedBody: { textAlign: 'center', lineHeight: 20, maxWidth: 330 },
+  lockedBtn: { borderRadius: 22, paddingHorizontal: 24, paddingVertical: 12, marginTop: 12 },
+  lockedBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   root: { flex: 1 },
   content: { padding: 12, paddingBottom: 40 },
 

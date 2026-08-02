@@ -31,7 +31,8 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { Icon } from '@/components/Icon'
 import { getBookmarks, removeBookmark, removeManyBookmarks, routeForBookmark, bookmarkItemType, BookmarkAC } from '@/lib/bookmarks'
 import { highlightSnippet } from '@/lib/acShare'
-import { getDownloads, removeDownload, formatBytes, DownloadedAC } from '@/lib/downloads'
+import { getDownloads, removeDownload, formatBytes, DownloadedAC, downloadItemType, routeForDownload } from '@/lib/downloads'
+import { REG_TYPE, RegType } from '@/lib/regTypes'
 import {
   getFolders,
   getFolderItemCounts,
@@ -48,9 +49,10 @@ import { FolderListView } from '@/components/FolderListView'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { useShareActions, ShareableAC, ShareableNote } from '@/lib/share'
+import { useShareActions, ShareableAC, ShareableNote, ShareableReg } from '@/lib/share'
+import { RegShareType } from '@/lib/regShare'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
-import { stripFarPrefix } from '@/lib/titleFormat'
+import { stripFarPrefix, rowTitle } from '@/lib/titleFormat'
 import { useCachedImage } from '@/lib/imageCache'
 import { getAvatarPreset } from '@/lib/avatarPresets'
 
@@ -68,7 +70,7 @@ export default function SavedScreen() {
   // see flyregs_decisions.md's pricing pivot.
   const { session, isPro, isPremium, hasPlusAccess } = useAuth()
   const { badgeDays } = useBadgeLifespan()
-  const { shareAC, shareMany } = useShareActions()
+  const { shareAC, shareReg, shareMany } = useShareActions()
   const [tab, setTab] = useState<Tab>('all')
   const { tab: tabParam, sub: subParam } = useLocalSearchParams<{ tab?: string; sub?: string }>()
   const [syncEnabled, setSyncEnabled] = useState(false)
@@ -294,8 +296,15 @@ export default function SavedScreen() {
     )
   }
 
+  // A DownloadedAC names its type `type`, but handleShare (shared with the
+  // bookmark rows) reads `itemType`. Passing a download straight through left
+  // itemType undefined, which defaults to 'ac' -- so sharing a downloaded
+  // FAR/AIM/P-CG/AD/LOI produced an AC link to an id that is not an AC. Map
+  // the field across explicitly.
+  const shareDownload = (item: DownloadedAC) => handleShare({ ...item, itemType: downloadItemType(item) })
+
   const handleRemoveDownload = (item: DownloadedAC) => {
-    Alert.alert('Remove Download', `Remove the offline copy of AC ${item.document_number}?`, [
+    Alert.alert('Remove Download', `Remove the offline copy of ${item.document_number}?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
@@ -349,23 +358,36 @@ export default function SavedScreen() {
     highlightSnippet: item.blockText ? highlightSnippet(item.blockText) : undefined,
   })
 
+  const toShareableReg = (item: { id: string; document_number: string; title: string; itemType?: BookmarkAC['itemType'] }): ShareableReg => ({
+    type: bookmarkItemType(item) as RegShareType,
+    id: item.id,
+    label: item.document_number,
+    title: item.title,
+  })
+
   // Shared between AC bookmark rows and OfflineListView's DownloadedAC rows
   // (offline downloads are AC-only, so they never carry itemType at all --
   // bookmarkItemType's "absent means 'ac'" default handles that transparently).
   const handleShare = (item: { id: string; document_number: string; title: string; acId?: string; blockText?: string; itemType?: BookmarkAC['itemType'] }) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
-    // Share links only resolve for ACs today (buildACShareLink/flyregs.com
-    // routing is AC-only) -- silently no-op for FAR/AIM/P-CG/AD bookmarks
-    // rather than hand out a link the recipient's app can't open.
-    if (bookmarkItemType(item) !== 'ac') return
-    shareAC(toShareableAC(item))
+    const type = bookmarkItemType(item)
+    // Highlights are AC-only (see BookmarkAC's own comment) and their share
+    // flow carries the passage snippet through buildACShareLink -- keep
+    // that path as-is. Every other type now routes through the same
+    // buildRegShareLink each type's own detail screen already uses,
+    // instead of silently no-op'ing (confirmed live: tapping Share on a
+    // FAR/AIM/P-CG/AD bookmark here did nothing at all).
+    if (type === 'ac') { shareAC(toShareableAC(item)); return }
+    shareReg(toShareableReg(item))
   }
 
   const handleBulkShare = () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
-    const items = bookmarks.filter((b) => selected.has(b.id) && bookmarkItemType(b) === 'ac')
-    if (items.length === 0) return
-    shareMany(items.map(toShareableAC))
+    const selectedItems = bookmarks.filter((b) => selected.has(b.id))
+    const acs = selectedItems.filter((b) => bookmarkItemType(b) === 'ac')
+    const regs = selectedItems.filter((b) => bookmarkItemType(b) !== 'ac')
+    if (acs.length === 0 && regs.length === 0) return
+    shareMany(acs.map(toShareableAC), [], regs.map(toShareableReg))
     setSelected(new Set())
     setSelectMode(false)
   }
@@ -561,8 +583,12 @@ export default function SavedScreen() {
               />
             </View>
             <View style={styles.syncBadgeRow}>
+              {/* Back up & sync gates on isPro (toggleSync above, and
+                  account.tsx), and the paywall sells it under Pro -- this
+                  badge said PREMIUM, so a Pro subscriber looking at the
+                  toggle they'd already paid for was told it was a tier up. */}
               <View style={[styles.premBadge, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
-                <Text style={[styles.premText, { color: tokens.gold, fontSize: fs(9.5) }]}>PREMIUM</Text>
+                <Text style={[styles.premText, { color: tokens.gold, fontSize: fs(9.5) }]}>PRO</Text>
               </View>
               <View style={[
                 styles.statusPill,
@@ -746,10 +772,10 @@ export default function SavedScreen() {
         <OfflineListView
           downloads={downloads}
           tokens={tokens}
-          onOpen={(item) => router.push(`/ac/${item.id}`)}
+          onOpen={(item) => router.push(routeForDownload(item) as any)}
           onFolder={(item) => setPickerDownloadId(item.id)}
           onRemove={handleRemoveDownload}
-          onShare={handleShare}
+          onShare={shareDownload}
         />
       )}
 
@@ -822,7 +848,7 @@ export default function SavedScreen() {
       {/* Folder picker for offline downloads */}
       <FolderPicker
         visible={pickerDownloadId !== null}
-        itemType="ac"
+        itemType={downloadItemType(downloads.find((x) => x.id === pickerDownloadId) ?? {})}
         itemId={pickerDownloadId ?? ''}
         onClose={() => setPickerDownloadId(null)}
         onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1) }}
@@ -1022,9 +1048,11 @@ function BookmarkRow({
                     )
                   })()}
                 </View>
-                <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={2}>
-                  {stripFarPrefix(item.title)}
-                </Text>
+                {rowTitle(item.document_number, item.title) ? (
+                  <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={2}>
+                    {rowTitle(item.document_number, item.title)}
+                  </Text>
+                ) : null}
                 {item.blockText ? (
                   <>
                     <View style={[styles.highlightTag, { backgroundColor: 'rgba(255, 213, 0, 0.12)', borderColor: 'rgba(255, 213, 0, 0.4)' }]}>
@@ -1121,7 +1149,7 @@ function OfflineListView({
         <Icon name="arrow.down.circle" size={40} color={tokens.t4} />
         <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No downloads yet</Text>
         <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-          Open any Advisory Circular and tap "Download" to save it here for reading with no connection.
+          Open any AC, FAR, AIM, P/CG, AD, or LOI and tap "Download" to save it here for reading with no connection.
         </Text>
       </View>
     )
@@ -1135,7 +1163,7 @@ function OfflineListView({
       ListHeaderComponent={
         <View style={styles.offlineHeaderRow}>
           <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
-            {downloads.length} DOWNLOADED AC{downloads.length !== 1 ? 'S' : ''}
+            {downloads.length} DOWNLOADED DOCUMENT{downloads.length !== 1 ? 'S' : ''}
           </Text>
           <View style={styles.sortToggle}>
             {(['recent', 'az'] as OfflineSort[]).map((s) => (
@@ -1235,15 +1263,17 @@ function OfflineRow({
             onPress={handlePress}
           >
             <View style={[styles.offlineIcon, { backgroundColor: tokens.bdim }]}>
-              <Icon name="doc.text" size={18} color={tokens.blu} />
+              <Icon name={REG_TYPE[downloadItemType(item) as RegType].icon} size={18} color={tokens.blu} />
             </View>
             <View style={styles.rowBody}>
               <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
                   {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
                 </Text>
-              <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={2}>
-                {stripFarPrefix(item.title)}
-              </Text>
+              {rowTitle(item.document_number, item.title) ? (
+                <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={2}>
+                  {rowTitle(item.document_number, item.title)}
+                </Text>
+              ) : null}
               <Text style={[styles.savedAt, { color: tokens.t4, fontSize: fs(11) }]}>
                 {formatBytes(item.size)} · Downloaded{' '}
                 {new Date(item.downloadedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}

@@ -21,13 +21,15 @@ import { useFS } from '@/context/fontScale'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { REG_TYPE } from '@/lib/regTypes'
-import { rankSearchResults, isPhrasedQuery, extractPhrase } from '@/lib/searchRank'
+import { rankSearchResults, isPhrasedQuery, extractPhrase, relevanceTier } from '@/lib/searchRank'
 import { searchOtherSources, routeForUnifiedResult, type UnifiedResult } from '@/lib/unifiedSearch'
+import { expandQuery } from '@/lib/searchSynonyms'
 import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { getBadgeKind, getBadgeStyle, BadgeKind } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
+import { getRegOfTheDay, regOfTheDayRoute, type RegOfTheDay } from '@/lib/notifications'
 import { consumeJustConfirmed } from '@/lib/justConfirmed'
 import { FigureViewer } from '@/components/FigureViewer'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -117,8 +119,10 @@ export default function HomeScreen() {
   const [pcgCount, setPcgCount] = useState<number | null>(null)
   const [adCount, setAdCount] = useState<number | null>(null)
   const [loiCount, setLoiCount] = useState<number | null>(null)
+  const [dictCount, setDictCount] = useState<number | null>(null)
   const [whatsNew, setWhatsNew] = useState<WhatsNewAC[]>([])
   const [otherWhatsNew, setOtherWhatsNew] = useState<WhatsNewOther[]>([])
+  const [regOfDay, setRegOfDay] = useState<RegOfTheDay | null>(null)
   const [loading, setLoading] = useState(true)
   const { badgeDays } = useBadgeLifespan()
 
@@ -377,6 +381,19 @@ export default function HomeScreen() {
 
   useEffect(() => { load() }, [load])
 
+  // Independent of `load()` above -- today's pick doesn't depend on
+  // badgeDays/cutoff logic. useFocusEffect (not a plain mount-only
+  // useEffect) for the same reason as the welcome banner above: Home stays
+  // mounted in the background, so a mount-only fetch would show the same
+  // pick forever once the app crosses midnight without a full relaunch.
+  // The RPC is cheap and keyed off CURRENT_DATE server-side, so refetching
+  // on every focus is safe -- same-day refocuses just get the same row back.
+  useFocusEffect(
+    useCallback(() => {
+      getRegOfTheDay().then(setRegOfDay).catch(() => {})
+    }, [])
+  )
+
   // Regulatory-body card counts -- fetched once, not tied to badgeDays like
   // load() above. head:true avoids PostgREST's project-wide 1000-row
   // max-rows cap entirely (no rows are actually returned, just a count) --
@@ -389,12 +406,14 @@ export default function HomeScreen() {
       supabase.from('pcg_terms').select('id', { count: 'exact', head: true }),
       supabase.from('airworthiness_directives').select('id', { count: 'exact', head: true }),
       supabase.from('legal_interpretations').select('id', { count: 'exact', head: true }),
-    ]).then(([farRes, aimRes, pcgRes, adRes, loiRes]) => {
+      supabase.from('dictionary_terms').select('id', { count: 'exact', head: true }),
+    ]).then(([farRes, aimRes, pcgRes, adRes, loiRes, dictRes]) => {
       setFarCount(farRes.count)
       setAimCount(aimRes.count)
       setPcgCount(pcgRes.count)
       setAdCount(adRes.count)
       setLoiCount(loiRes.count)
+      setDictCount(dictRes.count)
     })
   }, [])
 
@@ -413,14 +432,57 @@ export default function HomeScreen() {
     // plain search) — FAR/AIM/P-CG/T&F don't need phrase-search handling
     // for v1, so this runs the same way regardless of query shape. Same
     // race guard (seq) as every other source here.
+    //
+    // Scoped to the Filter sheet's own content-type selection -- was
+    // unconditional before, confirmed live as a real bug ("filter for AIM,
+    // then start a search, it still gives you corpus wide results").
+    // FilterableType includes 'ac'/'loi', neither of which searchOtherSources
+    // covers, so only pass through the subset it actually understands.
+    // undefined (no filter active) is NOT the same as [] (filter active but
+    // resolves to none of far/aim/pcg, e.g. "AC only") -- see
+    // searchOtherSources' own comment for why collapsing those two was the
+    // bug in this fix's first draft.
+    const otherTypes: ('far' | 'aim' | 'pcg')[] | undefined =
+      filterContentTypes.length === 0
+        ? undefined
+        : filterContentTypes.filter((t): t is 'far' | 'aim' | 'pcg' => t === 'far' || t === 'aim' || t === 'pcg')
     const phraseForOther = isPhrasedQuery(trimmed) ? extractPhrase(trimmed) : trimmed
+    // "Smart Search": expand the query into related regulatory vocabulary
+    // (bridge -> corpus associations -> morphology; see searchSynonyms.ts)
+    // and search every expansion alongside the literal query. One await, and
+    // the result is reused by the AC branch below so expansion happens once
+    // per search, not twice.
+    const expansion = phraseForOther && phraseForOther.length >= 2
+      ? await expandQuery(phraseForOther)
+      : { terms: [] as string[], expanded: false }
+    const synonymTerms = expansion.terms
     if (phraseForOther && phraseForOther.length >= 2) {
-      searchOtherSources(phraseForOther, 20).then((results) => {
-        if (seq === searchSeq.current) setOtherResults(results)
+      const searchTerms = [phraseForOther, ...synonymTerms]
+      Promise.all(searchTerms.map((t) => searchOtherSources(t, 20, otherTypes))).then((resultSets) => {
+        if (seq !== searchSeq.current) return
+        const seen = new Set<string>()
+        const merged: UnifiedResult[] = []
+        resultSets.forEach((set, i) => {
+          for (const r of set) {
+            const key = `${r.type}-${r.id}`
+            // Remember WHICH term found this. The merge is a concatenation
+            // (literal query's results, then each expansion's), so without
+            // this a bridge-found answer sat behind every weak literal match
+            // -- "flying drunk" put § 91.17 at #26.
+            if (!seen.has(key)) { seen.add(key); merged.push({ ...r, matchedTerm: searchTerms[i] }) }
+          }
+        })
+        setOtherResults(merged)
       })
     } else {
       setOtherResults([])
     }
+
+    // AC-specific search below (phrase + plain branches) is skipped
+    // entirely when a content-type filter is active and doesn't include
+    // 'ac' -- same fix as above, just for the AC-only path.
+    const skipAC = filterContentTypes.length > 0 && !filterContentTypes.includes('ac')
+    if (skipAC) { setSearchResults([]); setSearchLoading(false); return }
 
     // ── Phrase search: user wrapped query in "double quotes" ─────────────────
     if (isPhrasedQuery(trimmed)) {
@@ -457,7 +519,9 @@ export default function HomeScreen() {
     // an exact/partial title match is fetched even when the RPC tokenises it poorly
     // (e.g. a title with a colon returns nothing). rankSearchResults orders all of
     // it so any exact match — number OR title — lands first.
-    const [rpcRes, prefixRes, numRes, titleRes] = await Promise.all([
+    // Reuses the single expansion computed above rather than expanding again.
+    const acSynonymTerms = synonymTerms
+    const [rpcRes, prefixRes, numRes, titleRes, ...synonymRpcResList] = await Promise.all([
       supabase.rpc('search_acs', { query: trimmed, result_limit: 50 }),
       supabase
         .from('advisory_circulars')
@@ -471,6 +535,7 @@ export default function HomeScreen() {
         .from('advisory_circulars')
         .select(cols).eq('status', 'active')
         .ilike('title', `%${trimmed}%`).order('document_number').limit(20),
+      ...acSynonymTerms.map((t) => supabase.rpc('search_acs', { query: t, result_limit: 20 })),
     ])
 
     // RPC failed + nothing from the direct queries → broad ilike fallback
@@ -496,7 +561,9 @@ export default function HomeScreen() {
     const merged: SearchResult[] = []
     // RPC first within its tier (relevance-ranked), then the direct doc/title
     // queries; rankSearchResults re-tiers so exact matches still win regardless.
-    for (const src of [prefixRes.data, numRes.data, rpcRes.data, titleRes.data]) {
+    // Synonym RPC results go last -- they're a bonus expansion, not the
+    // user's literal query, so an exact match on the real query always wins.
+    for (const src of [prefixRes.data, numRes.data, rpcRes.data, titleRes.data, ...synonymRpcResList.map((r) => r.data)]) {
       for (const r of (src ?? []) as SearchResult[]) {
         if (!seenIds.has(r.id)) { seenIds.add(r.id); merged.push(r) }
       }
@@ -505,7 +572,13 @@ export default function HomeScreen() {
     if (seq !== searchSeq.current) return // a newer search started while awaiting
     setSearchResults(rankSearchResults(trimmed, merged))
     setSearchLoading(false)
-  }, [])
+    // filterContentTypes: this callback reads it (skipAC/otherTypes above) --
+    // an empty dep array here was a real stale-closure bug, confirmed live:
+    // it froze the closure at mount (filterContentTypes = []), so selecting
+    // AIM in the Filter sheet and then searching still ran the unscoped
+    // AC-specific queries below, because `skipAC` always saw the ORIGINAL
+    // empty selection no matter what was actually selected afterward.
+  }, [filterContentTypes])
 
   // Controlled input — the collapse check runs before every setState, so a
   // dictation duplicate never reaches state at all, and standard React
@@ -595,15 +668,79 @@ export default function HomeScreen() {
     Keyboard.dismiss()
   }, [])
 
-  // Combined, ranked results list for the dropdown — AC results first (that
-  // pipeline is heavily tuned for AC-number/keyword precedence), then
-  // FAR/AIM/P-CG/AD/Figures. The free-tier cap applies to this combined
-  // total, not each source independently, matching the (now-retired) Search
-  // tab's exact behavior — see flyregs_decisions.md.
-  const combinedResults = useMemo(() => [
-    ...searchResults.map((r) => ({ key: `ac-${r.id}`, ac: r, other: null as UnifiedResult | null })),
-    ...otherResults.map((r, i) => ({ key: `${r.type}-${r.id}-${i}`, ac: null as SearchResult | null, other: r })),
-  ], [searchResults, otherResults])
+  // One relevance-ordered list across every content type. This used to
+  // concatenate ALL AC hits ahead of ALL other hits, which the user read as
+  // results "segregated by reg" -- an AC matched only in its body text
+  // outranked an exact FAR section-number match purely because of which
+  // pipeline produced it. Both sides are now scored on the SAME tier scale
+  // (see relevanceTier), then interleaved.
+  //
+  // Within a tier, items are ordered by their position in their own source's
+  // ranking, so the best AC and the best FAR of equal tier land adjacent
+  // rather than in two blocks. The free-tier cap still applies to this
+  // combined total, not per-source — see flyregs_decisions.md.
+  const combinedResults = useMemo(() => {
+    const q = normalizeSearchQuery(searchQuery.trim())
+    const eff = isPhrasedQuery(q) ? extractPhrase(q) : q
+    if (!eff) return []
+
+    type Row = { key: string; ac: SearchResult | null; other: UnifiedResult | null; tier: number; ord: number }
+    const rows: Row[] = []
+    const perTierCount = new Map<number, number>()
+    const nextOrd = (tier: number) => {
+      const n = perTierCount.get(tier) ?? 0
+      perTierCount.set(tier, n + 1)
+      return n
+    }
+
+    // Interleave by walking both sources together so neither monopolises a
+    // tier's leading positions.
+    const acScored = searchResults.map((r) => ({
+      r, ...relevanceTier(eff, r.document_number, r.title),
+    }))
+    const otherScored = otherResults.map((r) => {
+      // `id` (not `primary`) is the bare identifier -- `primary` carries a
+      // type prefix ("FAR 91.107") that would never equal a user's query.
+      // Score against the term that actually FOUND it as well as the raw
+      // query, and keep the better (lower) tier. A hit via the expansion
+      // "alcohol" is a tier-3 title match for that term even though it
+      // shares no word with "flying drunk".
+      const direct = relevanceTier(eff, r.id, r.secondary)
+      // An expansion is a WEAKER signal than what the user actually typed,
+      // so it only rescues a result the literal query couldn't place at all
+      // (tier 5 = no title match). Letting it win whenever it scored better
+      // measured worse: spoken questions fell from 5/6 to 2/6, because a
+      // loosely-related expansion term title-matched itself into tier 3 and
+      // outranked the section that actually answered the question.
+      // Rescue applies from tier 4 down (a weak partial title match), not
+      // just tier 5. "vfr mins" title-matches § 91.155 on one word ("vfr")
+      // -> tier 4, which left it at #6; via the bridge term "vfr weather
+      // minimums" it is a full tier-3 title match. Still capped at tier 3 so
+      // an expansion can never manufacture an exact/number match.
+      const viaTerm = direct.tier >= 4 && r.matchedTerm && r.matchedTerm !== eff
+        ? relevanceTier(r.matchedTerm, r.id, r.secondary)
+        : null
+      const scored = viaTerm && viaTerm.tier <= 3 && viaTerm.tier < direct.tier ? viaTerm : direct
+      // A concept anchor means the DB matched the QUESTION to the document
+      // that answers it, which outranks any lexical tier. Without this,
+      // "VFR cloud clearance requirements" put § 91.155 second behind
+      // AC 61-98E ("Currency REQUIREMENTS...") -- both landed in tier 4 on
+      // one title word each, and the tie broke on array position, throwing
+      // away the relevance the search RPC had just computed.
+      return { r, ...scored, tier: r.anchored ? 0 : scored.tier }
+    })
+
+    for (let tier = 0; tier <= 5; tier++) {
+      const a = acScored.filter((x) => x.tier === tier)
+      const b = otherScored.filter((x) => x.tier === tier)
+      const max = Math.max(a.length, b.length)
+      for (let i = 0; i < max; i++) {
+        if (i < a.length) rows.push({ key: `ac-${a[i].r.id}`, ac: a[i].r, other: null, tier, ord: nextOrd(tier) })
+        if (i < b.length) rows.push({ key: `${b[i].r.type}-${b[i].r.id}-${i}`, ac: null, other: b[i].r, tier, ord: nextOrd(tier) })
+      }
+    }
+    return rows
+  }, [searchResults, otherResults, searchQuery])
 
   const onSearchZoneLayout = useCallback(
     (e: { nativeEvent: { layout: { y: number; height: number } } }) => {
@@ -750,6 +887,7 @@ export default function HomeScreen() {
             { key: 'ad', label: 'Airworthiness Directives', abbr: 'AD', count: adCount, unit: 'directives', route: '/ad' },
             { key: 'loi', label: 'Legal Interpretations', abbr: 'LOI', count: loiCount, unit: 'interpretations', route: '/loi' },
             { key: 'ac', label: 'Advisory Circulars', abbr: 'AC', count: totalCount, unit: 'active', route: '/ac/library' },
+            { key: 'dictionary', label: 'Aviation Dictionary', abbr: 'A/D', count: dictCount, unit: 'terms', route: '/dictionary' },
           ]}
           keyExtractor={(item) => item.key}
           contentContainerStyle={styles.listContent}
@@ -761,6 +899,7 @@ export default function HomeScreen() {
               otherWhatsNew={otherWhatsNew}
               badgeDays={badgeDays}
               hasPlusAccess={hasPlusAccess}
+              regOfDay={regOfDay}
             />
           }
           renderItem={({ item }) => <RegBodyCard item={item} tokens={tokens} />}
@@ -771,6 +910,7 @@ export default function HomeScreen() {
         visible={filterVisible}
         onClose={() => setFilterVisible(false)}
         title="Filter"
+        subtitle="Everything is searched by default — pick chips only to narrow."
         resultCount={liveCount}
         countLoading={liveCountLoading}
         onClearAll={clearFilters}
@@ -791,6 +931,8 @@ export default function HomeScreen() {
             options={farPartOptions}
             selected={filterFarParts}
             onToggle={toggleFarPart}
+            selectAll
+            onSetSelected={setFilterFarParts}
           />
         )}
         {filterContentTypes.includes('ac') && (
@@ -951,7 +1093,15 @@ export default function HomeScreen() {
                         ? `${acResultPrimary(item.ac.document_number)}${isOcrScanned(item.ac.document_number) ? ' *' : ''}`
                         : item.other!.primary}
                     </Text>
-                    <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
+                    {/* Full title, wrapped -- NOT clamped to one line. Two
+                        sibling FAR sections routinely differ only past the
+                        truncation point: "§ 121.649 Takeoff and landing
+                        weather minimu..." and "§ 121.651 Takeoff and landing
+                        weather minimu..." were indistinguishable in the
+                        results, so the user couldn't tell which one they
+                        needed. Uniform row height is worth less than being
+                        able to read the result. */}
+                    <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={3}>
                       {item.ac ? item.ac.title : item.other!.secondary}
                     </Text>
                   </View>
@@ -1071,12 +1221,14 @@ function HomeHeader({
   otherWhatsNew,
   badgeDays,
   hasPlusAccess,
+  regOfDay,
 }: {
   tokens: ReturnType<typeof useTheme>['tokens']
   whatsNew: WhatsNewAC[]
   otherWhatsNew: WhatsNewOther[]
   badgeDays: number
   hasPlusAccess: boolean
+  regOfDay: RegOfTheDay | null
 }) {
   const fs = useFS()
 
@@ -1119,6 +1271,7 @@ function HomeHeader({
           </View>
           <Icon name="chevron.right" size={14} color={tokens.t4} />
         </Pressable>
+        <DailyRegCard regOfDay={regOfDay} tokens={tokens} />
       </>
     )
   }
@@ -1166,11 +1319,84 @@ function HomeHeader({
         </View>
       )}
 
+      <DailyRegCard regOfDay={regOfDay} tokens={tokens} />
+
       {/* Regulatory-body cards label */}
       <View style={styles.sectionLabel}>
         <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(15) }]}>Browse by Regulation</Text>
       </View>
     </>
+  )
+}
+
+// ─── DailyReg card (collapsed by default, expand or jump to the full term) ──
+// Shares the get_reg_of_the_day() rotation with the daily push notification
+// (see scripts/send-reg-of-day.mjs) so the in-app pick always matches
+// whatever a Pro/Premium user with the push toggle on saw today -- this is
+// just an always-visible, no-push-required way to see it, since P/CG itself
+// is free to browse regardless of tier.
+// DailyReg is a PAID feature (Plus and above), not free — confirmed with RC
+// 2026-07-31. It used to render for everyone, giving away a curated reg a day
+// to free users. Renders a locked teaser instead so the feature is still
+// discoverable (and sells itself) rather than vanishing.
+function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; tokens: ReturnType<typeof useTheme>['tokens'] }) {
+  const fs = useFS()
+  const { hasPlusAccess } = useAuth()
+  const [expanded, setExpanded] = useState(false)
+  if (!regOfDay) return null
+  if (!hasPlusAccess) {
+    return (
+      <Pressable
+        style={[styles.dailyRegCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+        onPress={() => router.push('/paywall?tier=plus')}
+      >
+        <View style={styles.dailyRegRow}>
+          <View style={[styles.dailyRegIcon, { backgroundColor: tokens.goldlt }]}>
+            <Icon name="lock.fill" size={13} color={tokens.gold} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.dailyRegLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>DAILYREG</Text>
+            <Text style={[styles.dailyRegTerm, { color: tokens.t2, fontSize: fs(13.5) }]} numberOfLines={2}>
+              A hand-picked reg every day — unlock with Plus
+            </Text>
+          </View>
+          <Icon name="chevron.right" size={13} color={tokens.t4} />
+        </View>
+      </Pressable>
+    )
+  }
+  return (
+    <Pressable
+      style={[styles.dailyRegCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+      onPress={() => setExpanded((e) => !e)}
+    >
+      <View style={styles.dailyRegRow}>
+        <View style={[styles.dailyRegIcon, { backgroundColor: tokens.goldlt }]}>
+          <Icon name="star.fill" size={14} color={tokens.gold} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.dailyRegLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>
+            DAILYREG · {regOfDay.sourceType.toUpperCase()}
+          </Text>
+          <Text style={[styles.dailyRegTerm, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={expanded ? undefined : 1}>
+            {regOfDay.term}
+          </Text>
+        </View>
+        <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t4} />
+      </View>
+      {expanded && (
+        <>
+          <Text style={[styles.dailyRegDef, { color: tokens.t2, fontSize: fs(13.5) }]}>{regOfDay.definition}</Text>
+          <Pressable
+            style={[styles.dailyRegJump, { borderColor: tokens.bdr }]}
+            onPress={() => router.push(regOfTheDayRoute(regOfDay) as any)}
+          >
+            <Text style={[styles.dailyRegJumpText, { color: tokens.blu, fontSize: fs(13) }]}>Open full entry</Text>
+            <Icon name="chevron.right" size={12} color={tokens.blu} />
+          </Pressable>
+        </>
+      )}
+    </Pressable>
   )
 }
 
@@ -1245,7 +1471,7 @@ function FilterResultRowView({
       </View>
       <Text style={[styles.filterRowPrimary, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>{item.primaryLabel}</Text>
       {item.secondaryLabel ? (
-        <Text style={[styles.filterRowSecondary, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={2}>{item.secondaryLabel}</Text>
+          <Text style={[styles.filterRowSecondary, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={4}>{item.secondaryLabel}</Text>
       ) : null}
     </Pressable>
   )
@@ -1522,13 +1748,15 @@ const styles = StyleSheet.create({
   dropEmpty: { fontSize: 14 },
   dropRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    // flex-start, not center: once the title can wrap to 2-3 lines, a
+    // centred row leaves the reg number floating in the middle of the block.
+    alignItems: 'flex-start',
     gap: 10,
     paddingHorizontal: 14,
     paddingVertical: 11,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  dropTitle: { flex: 1, fontSize: 13.5 },
+  dropTitle: { flex: 1, fontSize: 13.5, lineHeight: 18 },
   dropTypeBadge: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 3, width: 44, alignItems: 'center' },
   dropTypeBadgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.3 },
   dropOtherPrimary: { fontSize: 12.5, fontWeight: '700', marginBottom: 1 },
@@ -1571,6 +1799,20 @@ const styles = StyleSheet.create({
   wnLockedTitle: { fontWeight: '600', marginBottom: 2 },
   wnLockedSub: { lineHeight: 16 },
   wnEmptyText: { lineHeight: 18 },
+  dailyRegCard: {
+    marginHorizontal: 16, marginTop: 10, marginBottom: 4,
+    borderRadius: 12, borderWidth: 1, padding: 12,
+  },
+  dailyRegRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  dailyRegIcon: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  dailyRegLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 1 },
+  dailyRegTerm: { fontWeight: '700' },
+  dailyRegDef: { lineHeight: 19, marginTop: 10 },
+  dailyRegJump: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4,
+    marginTop: 10, paddingVertical: 9, borderRadius: 9, borderWidth: 1,
+  },
+  dailyRegJumpText: { fontWeight: '600' },
   wnCard: {
     width: 190,
     borderRadius: 14,

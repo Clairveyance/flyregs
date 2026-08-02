@@ -59,10 +59,23 @@ export function routeForBookmark(item: BookmarkAC, opts?: { hlId?: string }): st
     const acId = resolveBookmarkACId(item)
     return opts?.hlId ? `/ac/${acId}?hlId=${encodeURIComponent(opts.hlId)}` : `/ac/${acId}`
   }
-  if (type === 'far') return `/far/${item.id}`
-  if (type === 'aim') return `/aim/${item.id}`
-  if (type === 'pcg') return `/pcg/${item.id}`
-  if (type === 'ad') return `/ad/${item.id}`
+  // A non-AC bookmark carrying blockText was saved from a Study Mode
+  // flashcard and knows which passage it came from -- pass it through so the
+  // detail screen highlights and scrolls to that spot (see each screen's own
+  // `hl` param handling) instead of opening at the top.
+  const hl = item.blockText ? `?hl=${encodeURIComponent(item.blockText)}` : ''
+  if (type === 'far') return `/far/${item.id}${hl}`
+  if (type === 'aim') return `/aim/${item.id}${hl}`
+  if (type === 'pcg') return `/pcg/${item.id}${hl}`
+  if (type === 'ad') return `/ad/${item.id}${hl}`
+  // LOI bookmarks store the LOI's own slug as `id` (see loi/[slug].tsx's
+  // toggleBookmark call), matching /loi/[slug]'s route param directly --
+  // was missing entirely, so a synced LOI bookmark silently mis-routed to
+  // /ac/<slug> (a real AC lookup miss) before this fix.
+  if (type === 'loi') return `/loi/${item.id}`
+  // Dictionary bookmarks store the term's own slug as `id`, matching
+  // /dictionary/[slug]'s route param -- same pattern as loi above.
+  if (type === 'dictionary') return `/dictionary/${item.id}`
   return `/ac/${item.id}` // 'note' never reaches here — notes aren't bookmarks
 }
 

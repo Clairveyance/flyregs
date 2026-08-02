@@ -36,6 +36,8 @@ import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { addManyToFolder, getFolders, removeItemsFromAllFolders } from '@/lib/folders'
 import { getACIndex, ACIndexEntry, detectACs } from '@/lib/acIndex'
+import { getFarIndex, getAimIndex, getAdIndex, getPcgIndex, detectFARs, detectAIMs, detectADs, detectPCGs, PcgIndexEntry } from '@/lib/regIndex'
+import { RegPreviewPane } from '@/components/RegPreviewPane'
 import type { AcFigure, FormulaRef } from '@/types'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions } from '@/lib/share'
@@ -424,6 +426,8 @@ export default function NotesScreen() {
                   ])
               : undefined
           }
+          onShare={editorNote.id ? () => handleShare(editorNote) : undefined}
+          onFolder={editorNote.id ? () => setPickerNote(editorNote) : undefined}
         />
       )}
 
@@ -596,13 +600,15 @@ function NoteCard({
 // ─── Note editor ──────────────────────────────────────────────────────────────
 
 function NoteEditor({
-  note, tokens, onSave, onClose, onDelete,
+  note, tokens, onSave, onClose, onDelete, onShare, onFolder,
 }: {
   note: Note
   tokens: ReturnType<typeof useTheme>['tokens']
   onSave: (n: Note) => void
   onClose: () => void
   onDelete?: () => void
+  onShare?: () => void
+  onFolder?: () => void
 }) {
   const insets = useSafeAreaInsets()
   const fs = useFS()
@@ -611,9 +617,23 @@ function NoteEditor({
   const [title, setTitle] = useState(note.title)
   const [body, setBody] = useState(note.body)
   const [acIndex, setACIndex] = useState<ACIndexEntry[]>([])
+  const [farIndex, setFarIndex] = useState<string[]>([])
+  const [aimIndex, setAimIndex] = useState<string[]>([])
+  const [adIndex, setAdIndex] = useState<string[]>([])
+  const [pcgIndex, setPcgIndex] = useState<PcgIndexEntry[]>([])
+  // Generic single-document preview for the non-AC auto-linked chips below
+  // (AC keeps its own bespoke drag-gesture pane, openAcPane/paneAC --
+  // untouched here to avoid regressing already-working behavior). Route
+  // strings match linkifyText's own convention ("/far/91.3", "/aim/4-3-13",
+  // "/ad/2018-02-04", "/pcg/abeam").
+  const [previewRoute, setPreviewRoute] = useState<string | null>(null)
 
   useEffect(() => {
     getACIndex().then(setACIndex)
+    getFarIndex().then(setFarIndex)
+    getAimIndex().then(setAimIndex)
+    getAdIndex().then(setAdIndex)
+    getPcgIndex().then(setPcgIndex)
   }, [])
 
   // AC bottom sheet state
@@ -724,6 +744,10 @@ function NoteEditor({
   ).current
 
   const acs = useMemo(() => detectACs(body, acIndex), [body, acIndex])
+  const fars = useMemo(() => detectFARs(body, farIndex), [body, farIndex])
+  const aims = useMemo(() => detectAIMs(body, aimIndex), [body, aimIndex])
+  const ads = useMemo(() => detectADs(body, adIndex), [body, adIndex])
+  const pcgs = useMemo(() => detectPCGs(body, pcgIndex), [body, pcgIndex])
   const linkedAC = acs[0] ?? null
 
   const handleDone = () => {
@@ -754,6 +778,16 @@ function NoteEditor({
           {note.id ? 'Edit note' : 'New note'}
         </Text>
         <View style={styles.editorHeaderRight}>
+          {onFolder && (
+            <Pressable onPress={onFolder} hitSlop={10} style={styles.editorDeleteBtn}>
+              <Icon name="folder.badge.plus" size={fs(21)} color={tokens.blu} />
+            </Pressable>
+          )}
+          {onShare && (
+            <Pressable onPress={onShare} hitSlop={10} style={styles.editorDeleteBtn}>
+              <Icon name="square.and.arrow.up" size={fs(20)} color={tokens.blu} />
+            </Pressable>
+          )}
           {onDelete && (
             <Pressable onPress={onDelete} hitSlop={10} style={styles.editorDeleteBtn}>
               <Icon name="trash" size={fs(21)} color="#ef4444" />
@@ -811,7 +845,81 @@ function NoteEditor({
             </View>
           </View>
         )}
+
+        {/* Same auto-link idea as ACs above, generalized to the other 4
+            reg types (see regIndex.ts) -- each opens the generic
+            RegPreviewPane instead of the AC-specific drag pane. */}
+        {fars.length > 0 && (
+          <View style={styles.detectedSection}>
+            <Text style={[styles.detectedLabel, { color: tokens.t3, fontSize: fs(11) }]}>AUTO-LINKED FARS</Text>
+            <View style={styles.detectedChips}>
+              {fars.map((f) => (
+                <Pressable
+                  key={f}
+                  style={[styles.detectedChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
+                  onPress={() => setPreviewRoute(`/far/${f}`)}
+                >
+                  <Icon name="link" size={11} color={tokens.blu} />
+                  <Text style={[styles.detectedChipText, { color: tokens.blu, fontSize: fs(12.5) }]}>§ {f}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
+        {aims.length > 0 && (
+          <View style={styles.detectedSection}>
+            <Text style={[styles.detectedLabel, { color: tokens.t3, fontSize: fs(11) }]}>AUTO-LINKED AIM</Text>
+            <View style={styles.detectedChips}>
+              {aims.map((a) => (
+                <Pressable
+                  key={a}
+                  style={[styles.detectedChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
+                  onPress={() => setPreviewRoute(`/aim/${a}`)}
+                >
+                  <Icon name="link" size={11} color={tokens.blu} />
+                  <Text style={[styles.detectedChipText, { color: tokens.blu, fontSize: fs(12.5) }]}>¶ {a}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
+        {ads.length > 0 && (
+          <View style={styles.detectedSection}>
+            <Text style={[styles.detectedLabel, { color: tokens.t3, fontSize: fs(11) }]}>AUTO-LINKED ADS</Text>
+            <View style={styles.detectedChips}>
+              {ads.map((a) => (
+                <Pressable
+                  key={a}
+                  style={[styles.detectedChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
+                  onPress={() => setPreviewRoute(`/ad/${a}`)}
+                >
+                  <Icon name="link" size={11} color={tokens.blu} />
+                  <Text style={[styles.detectedChipText, { color: tokens.blu, fontSize: fs(12.5) }]}>AD {a}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
+        {pcgs.length > 0 && (
+          <View style={styles.detectedSection}>
+            <Text style={[styles.detectedLabel, { color: tokens.t3, fontSize: fs(11) }]}>AUTO-LINKED P/CG TERMS</Text>
+            <View style={styles.detectedChips}>
+              {pcgs.map((p) => (
+                <Pressable
+                  key={p.slug}
+                  style={[styles.detectedChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
+                  onPress={() => setPreviewRoute(`/pcg/${p.slug}`)}
+                >
+                  <Icon name="link" size={11} color={tokens.blu} />
+                  <Text style={[styles.detectedChipText, { color: tokens.blu, fontSize: fs(12.5) }]}>{p.term}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
       </ScrollView>
+
+      <RegPreviewPane route={previewRoute} onClose={() => setPreviewRoute(null)} />
 
       {/* Scrim behind pane */}
       {paneAC !== null && (

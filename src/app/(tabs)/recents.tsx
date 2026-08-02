@@ -27,9 +27,10 @@ import { addManyToFolder, getFolders } from '@/lib/folders'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { useShareActions } from '@/lib/share'
+import { useShareActions, ShareableReg } from '@/lib/share'
+import { RegShareType } from '@/lib/regShare'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
-import { stripFarPrefix } from '@/lib/titleFormat'
+import { stripFarPrefix, rowTitle } from '@/lib/titleFormat'
 
 interface Group {
   title: string
@@ -65,7 +66,7 @@ export default function RecentsScreen() {
   // Bookmarks/Folders are Plus-tier now; sharing stays Premium.
   const { isPremium, hasPlusAccess } = useAuth()
   const { badgeDays } = useBadgeLifespan()
-  const { shareAC, shareMany } = useShareActions()
+  const { shareAC, shareReg, shareMany } = useShareActions()
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set())
@@ -249,11 +250,18 @@ export default function RecentsScreen() {
     )
   }
 
+  const toShareableReg = (item: RecentAC): ShareableReg => ({
+    type: recentItemType(item) as RegShareType,
+    id: item.id,
+    label: item.document_number,
+    title: item.title,
+  })
+
   const handleShare = (item: RecentAC) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
-    // Share links only resolve for ACs today -- see saved.tsx's handleShare.
-    if (recentItemType(item) !== 'ac') return
-    shareAC(item)
+    const type = recentItemType(item)
+    if (type === 'ac') { shareAC(item); return }
+    shareReg(toShareableReg(item))
   }
 
   // Recents is the one list that shows the folder icon to free users without
@@ -272,9 +280,11 @@ export default function RecentsScreen() {
   const handleBulkShare = () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     const all = groups.flatMap((g) => g.data)
-    const items = all.filter((r) => selected.has(r.id) && recentItemType(r) === 'ac')
-    if (items.length === 0) return
-    shareMany(items)
+    const selectedItems = all.filter((r) => selected.has(r.id))
+    const acs = selectedItems.filter((r) => recentItemType(r) === 'ac')
+    const regs = selectedItems.filter((r) => recentItemType(r) !== 'ac')
+    if (acs.length === 0 && regs.length === 0) return
+    shareMany(acs, [], regs.map(toShareableReg))
     setSelected(new Set())
     setSelectMode(false)
   }
@@ -519,7 +529,7 @@ function SwipeableRecentRow({
                   })()}
                 </View>
                 <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
-                  {stripFarPrefix(item.title)}
+                  {rowTitle(item.document_number, item.title)}
                 </Text>
                 <View style={styles.metaActionRow}>
                   <View style={styles.metaRow}>

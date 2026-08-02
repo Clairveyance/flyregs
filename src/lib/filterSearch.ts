@@ -75,12 +75,17 @@ export interface FilterOption {
 let farPartsCache: FilterOption[] | null = null
 export async function getFarPartOptions(): Promise<FilterOption[]> {
   if (farPartsCache) return farPartsCache
-  const { data, error } = await supabase.from('far_sections').select('part').not('part', 'is', null)
+  // get_far_parts() does DISTINCT in SQL. The old `.select('part')` fetch
+  // hit PostgREST's silent 1,000-row cap on a 4,272-row table, so the
+  // options list was built from a quarter of the corpus — only ~45 of the
+  // real 82 parts appeared, and 318 sections were unreachable through the
+  // Part filter entirely (third occurrence of this cap; see
+  // gotcha_postgrest_1000_row_cap).
+  const { data, error } = await supabase.rpc('get_far_parts')
   if (error) throw error
-  const parts = Array.from(new Set((data ?? []).map((r: any) => r.part as string)))
-  parts.sort((a, b) => parseFloat(a) - parseFloat(b))
-  farPartsCache = parts.map((p) => ({ value: p, label: `Part ${p}` }))
-  return farPartsCache
+  const opts = ((data ?? []) as any[]).map((r) => ({ value: r.part as string, label: `Part ${r.part}` }))
+  farPartsCache = opts
+  return opts
 }
 
 let acSeriesCache: FilterOption[] | null = null

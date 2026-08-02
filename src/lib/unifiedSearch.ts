@@ -24,7 +24,7 @@ function formatAimParagraphNumber(raw: string): string {
   return raw
 }
 
-export type UnifiedResultType = 'far' | 'aim' | 'pcg' | 'ad' | 'figure_ac' | 'figure_aim'
+export type UnifiedResultType = 'far' | 'aim' | 'pcg' | 'ad' | 'figure_ac' | 'figure_aim' | 'dictionary'
 
 export interface UnifiedResult {
   type: UnifiedResultType
@@ -32,6 +32,17 @@ export interface UnifiedResult {
   primary: string // e.g. "§ 61.107", "4-1-1", "LIGHT GUN", "Table 1"
   secondary: string // title / caption / definition snippet
   rank: number
+  /** True when a curated concept anchor matched this document for this
+   * query (search_concept_anchors). It means "this document IS the answer
+   * to the question that was asked", which is a stronger claim than any
+   * lexical score, so the merge ranks it above everything else. */
+  anchored?: boolean
+  /** Which search term actually produced this hit — the literal query, or
+   * one of the SmartSearch expansions. Ranking must score against THIS, not
+   * only the raw query: a result found via the bridge term "alcohol" shares
+   * no words with what the user typed ("flying drunk"), so scoring it
+   * against the raw query alone dropped § 91.17 to the bottom. */
+  matchedTerm?: string
   // Figure/table results only — lets the caller open the image directly
   // (FigureViewer) instead of navigating to the parent document first. See
   // routeForUnifiedResult()'s docstring for why that extra tap was real.
@@ -42,9 +53,10 @@ export interface UnifiedResult {
   figure?: { id: string; label: string | null; caption: string | null; image_url: string }
 }
 
-interface FarRow { section_number: string; part: string; title: string | null; out_rank: number }
-interface AimRow { paragraph_number: string; title: string | null; out_rank: number }
+interface FarRow { section_number: string; part: string; title: string | null; out_rank: number; is_anchor?: boolean }
+interface AimRow { paragraph_number: string; title: string | null; out_rank: number; is_anchor?: boolean }
 interface PcgRow { slug: string; term: string; definition: string | null; out_rank: number }
+interface DictRow { slug: string; term: string; definition: string | null; out_rank: number }
 interface AdRow { ad_number: string; subject_heading: string; out_rank: number }
 interface FigureRow {
   source_type: 'ac' | 'aim'
@@ -63,13 +75,38 @@ interface FigureRow {
 // search target, not just something you stumble onto after opening a
 // document. This is what makes "light gun signals" surface the actual
 // signal-meanings table directly, not just the AIM paragraph that mentions it.
-export async function searchOtherSources(query: string, limitPerSource = 6): Promise<UnifiedResult[]> {
-  const [farRes, aimRes, pcgRes, adRes, figRes] = await Promise.all([
-    supabase.rpc('search_far', { query, result_limit: limitPerSource }),
-    supabase.rpc('search_aim', { query, result_limit: limitPerSource }),
-    supabase.rpc('search_pcg', { query, result_limit: limitPerSource }),
+// `types`: when provided (non-empty), scopes which of far/aim/pcg get
+// queried at all -- previously this ran unconditionally regardless of the
+// Filter sheet's own content-type selection, confirmed live as a real bug
+// ("filter for AIM, then start a search, it still gives you corpus wide
+// results"). AD and figures aren't dimensions the Filter sheet offers at
+// all (see FilterableType's own comment: "AD is deliberately excluded"),
+// so both stay unscoped regardless of `types` -- there's no filter
+// selection that could have meant "hide these," since the sheet never
+// presented them as a choice.
+// `types` undefined means unrestricted (search all three); an empty array
+// is a real, explicit "none of these" (e.g. the Filter sheet is scoped to
+// AC only) and must not be treated the same as undefined -- collapsing
+// those two cases was the actual first draft of this fix and would have
+// re-included far/aim/pcg any time the filter resolved to an empty subset.
+export async function searchOtherSources(
+  query: string,
+  limitPerSource = 6,
+  types?: ('far' | 'aim' | 'pcg')[]
+): Promise<UnifiedResult[]> {
+  const want = (t: 'far' | 'aim' | 'pcg') => types === undefined || types.includes(t)
+  const empty = Promise.resolve({ data: [] as any[] })
+  // Aviation Dictionary, like AD and figures, isn't a dimension the Filter
+  // sheet offers a chip for (see the comment above on `types`), so it
+  // always searches regardless of the far/aim/pcg scoping -- RC: "make sure
+  // our SS is on top of it and smartly sorts and combines searches."
+  const [farRes, aimRes, pcgRes, adRes, figRes, dictRes] = await Promise.all([
+    want('far') ? supabase.rpc('search_far', { query, result_limit: limitPerSource }) : empty,
+    want('aim') ? supabase.rpc('search_aim', { query, result_limit: limitPerSource }) : empty,
+    want('pcg') ? supabase.rpc('search_pcg', { query, result_limit: limitPerSource }) : empty,
     supabase.rpc('search_ads', { query, result_limit: limitPerSource }),
     supabase.rpc('search_figures', { query, result_limit: limitPerSource }),
+    supabase.rpc('search_dictionary', { query, result_limit: limitPerSource }),
   ])
 
   const results: UnifiedResult[] = []
@@ -82,13 +119,16 @@ export async function searchOtherSources(query: string, limitPerSource = 6): Pro
   // reference needs to know at a glance that a hit IS one, not text that
   // happens to mention the topic.
   for (const r of (farRes.data ?? []) as FarRow[]) {
-    results.push({ type: 'far', id: r.section_number, primary: `FAR ${r.section_number}`, secondary: r.title ?? '', rank: r.out_rank })
+    results.push({ type: 'far', id: r.section_number, primary: `FAR ${r.section_number}`, secondary: r.title ?? '', rank: r.out_rank, anchored: r.is_anchor === true })
   }
   for (const r of (aimRes.data ?? []) as AimRow[]) {
-    results.push({ type: 'aim', id: r.paragraph_number, primary: `AIM ${formatAimParagraphNumber(r.paragraph_number)}`, secondary: r.title ?? '', rank: r.out_rank })
+    results.push({ type: 'aim', id: r.paragraph_number, primary: `AIM ${formatAimParagraphNumber(r.paragraph_number)}`, secondary: r.title ?? '', rank: r.out_rank, anchored: r.is_anchor === true })
   }
   for (const r of (pcgRes.data ?? []) as PcgRow[]) {
     results.push({ type: 'pcg', id: r.slug, primary: `P/CG ${r.term}`, secondary: r.definition ?? '', rank: r.out_rank })
+  }
+  for (const r of (dictRes.data ?? []) as DictRow[]) {
+    results.push({ type: 'dictionary', id: r.slug, primary: `A/D ${r.term}`, secondary: r.definition ?? '', rank: r.out_rank })
   }
   for (const r of (adRes.data ?? []) as AdRow[]) {
     results.push({ type: 'ad', id: r.ad_number, primary: `AD ${r.ad_number}`, secondary: r.subject_heading ?? '', rank: r.out_rank })
@@ -127,6 +167,7 @@ export function routeForUnifiedResult(r: UnifiedResult): string {
     case 'ad': return `/ad/${r.id}`
     case 'figure_ac': return `/ac/${r.id}`
     case 'figure_aim': return `/aim/${r.id}`
+    case 'dictionary': return `/dictionary/${r.id}`
   }
 }
 
@@ -138,5 +179,6 @@ export function labelForUnifiedType(t: UnifiedResultType): string {
     case 'ad': return 'AD'
     case 'figure_ac': return 'T&F'
     case 'figure_aim': return 'T&F'
+    case 'dictionary': return 'A/D'
   }
 }
