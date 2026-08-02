@@ -139,20 +139,46 @@ def filter_resolved(citations: list[dict], known: dict[str, set[str]]) -> tuple[
     base-number fallback (see build_ac_base_lookup's own docstring) is
     computed here, once per call, straight from known['ac'] whenever a
     caller already fetched it (every current caller does, via
-    fetch_known_ids()), so every script gets this fix automatically."""
+    fetch_known_ids()), so every script gets this fix automatically.
+
+    Drops two shapes scripts/magiclink_audit.py caught live in production
+    the day the AC base-number fallback above first ran for real: (1)
+    self-links -- a document's own prose citing an earlier, un-revised form
+    of its own number (e.g. AC 00-31A's text says "AC 00-31") now resolves
+    the fallback straight back to the citing document itself; a handful of
+    exact-match self-citations existed before this too (a doc naming itself
+    in its own header/history text). Neither is a real MagicLink. (2)
+    Post-resolution duplicate edges -- extract_citations()'s own dedup runs
+    on the RAW matched text (e.g. "120-28" vs "120-28A" both appearing in
+    the same document), so two distinct raw mentions that resolve to the
+    same real target only collide here, after resolution, not before."""
     ac_base_lookup = build_ac_base_lookup(known["ac"]) if "ac" in known else {}
 
     resolved = []
+    seen_edges: set[tuple] = set()
     dropped = 0
     for c in citations:
         ids = known.get(c["cited_type"])
         if ids is None or c["cited_id"] in ids:
-            resolved.append(c)
-            continue
-        if c["cited_type"] == "ac":
+            final = c
+        elif c["cited_type"] == "ac":
             candidates = ac_base_lookup.get(_ac_base(c["cited_id"]), [])
             if len(candidates) == 1:
-                resolved.append({**c, "cited_id": candidates[0]})
+                final = {**c, "cited_id": candidates[0]}
+            else:
+                dropped += 1
                 continue
-        dropped += 1
+        else:
+            dropped += 1
+            continue
+
+        if final["cited_type"] == final["citing_type"] and final["cited_id"] == final["citing_id"]:
+            dropped += 1
+            continue
+        edge = (final["citing_type"], final["citing_id"], final["cited_type"], final["cited_id"])
+        if edge in seen_edges:
+            dropped += 1
+            continue
+        seen_edges.add(edge)
+        resolved.append(final)
     return resolved, dropped
