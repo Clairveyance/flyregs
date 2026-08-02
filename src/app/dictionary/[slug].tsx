@@ -96,6 +96,8 @@ export default function DictionaryTermScreen() {
   const [bookmarked, setBookmarked] = useState(false)
   const [folderPickerVisible, setFolderPickerVisible] = useState(false)
   const [siblingMnemonics, setSiblingMnemonics] = useState<{ slug: string; term: string; mnemonic_group: string | null }[]>([])
+  const [prevTerm, setPrevTerm] = useState<{ slug: string; term: string } | null>(null)
+  const [nextTerm, setNextTerm] = useState<{ slug: string; term: string } | null>(null)
 
   useEffect(() => {
     if (!slug) return
@@ -132,15 +134,18 @@ export default function DictionaryTermScreen() {
     })
   }, [entry, slug])
 
-  // Prev/Next chevrons, mnemonic entries only -- RC: "we should have some
-  // next/prev chevrons in the Mn pages, when you're viewing the Mn itself,
-  // just move easily to the next one, etc. Same for the A/D itself. The
-  // P/CG already has this." Ordered by group then alphabetically, matching
-  // how the Mnemonics card on the index screen itself groups and presents
-  // them (see MNEMONIC_GROUP_ORDER) -- jumping alphabetically across
-  // unrelated topic groups would feel disconnected from that presentation.
-  // Only ~40 rows today, nowhere near PostgREST's 1000-row cap, but paged
-  // with .range() anyway for consistency with pcg/[id].tsx's own pattern.
+  // Prev/Next chevrons for mnemonic entries specifically -- RC: "we should
+  // have some next/prev chevrons in the Mn pages, when you're viewing the
+  // Mn itself, just move easily to the next one, etc." Ordered by group
+  // then alphabetically, matching how the Mnemonics card on the index
+  // screen itself groups and presents them (see MNEMONIC_GROUP_ORDER) --
+  // jumping alphabetically across unrelated topic groups would feel
+  // disconnected from that presentation. Only ~40 rows today, nowhere near
+  // PostgREST's 1000-row cap, but paged with .range() anyway for
+  // consistency with pcg/[id].tsx's own pattern. See the separate
+  // all-categories effect below for "the A/D itself" (RC's own correction:
+  // "not AD, A/D" -- the Aviation Dictionary as a whole, not Airworthiness
+  // Directives, which briefly got this feature by mistake).
   useEffect(() => {
     if (entry?.category !== 'mnemonic') return
     let cancelled = false
@@ -178,6 +183,27 @@ export default function DictionaryTermScreen() {
   const mnemonicIdx = orderedMnemonics.findIndex((s) => s.slug === slug)
   const prevMnemonic = mnemonicIdx > 0 ? orderedMnemonics[mnemonicIdx - 1] : null
   const nextMnemonic = mnemonicIdx >= 0 && mnemonicIdx < orderedMnemonics.length - 1 ? orderedMnemonics[mnemonicIdx + 1] : null
+
+  // Prev/Next for every OTHER entry -- RC: "the A/D needs the same
+  // prev/next chevrons like we have in AIM and elsewhere," i.e. the
+  // Aviation Dictionary as a whole (10,081 rows across contraction/
+  // handbook/informal), not just the 37-row mnemonic subset above. Same
+  // reasoning as ad/[id].tsx's own prev/next: 10k rows is too large to
+  // fetch in full the way pcg/[id].tsx does for its 1,332, and there's no
+  // natural small scope to fetch (unlike FAR's per-Part scoping), so this
+  // uses two targeted lt/gt + limit(1) queries against the whole table
+  // instead. Deliberately NOT scoped to the current entry's own category
+  // or starting letter -- like flipping pages in a real dictionary, "next"
+  // after the last "M" word should land on the first "N" word, matching
+  // how the index screen's own letter-browse presents one continuous
+  // alphabetized list rather than category- or letter-siloed ones.
+  useEffect(() => {
+    if (!entry || entry.category === 'mnemonic') return
+    supabase.from('dictionary_terms').select('slug, term').lt('term', entry.term).order('term', { ascending: false }).limit(1)
+      .then(({ data }) => setPrevTerm((data?.[0] as { slug: string; term: string } | undefined) ?? null))
+    supabase.from('dictionary_terms').select('slug, term').gt('term', entry.term).order('term', { ascending: true }).limit(1)
+      .then(({ data }) => setNextTerm((data?.[0] as { slug: string; term: string } | undefined) ?? null))
+  }, [entry?.term, entry?.category])
 
   const handleToggleBookmark = async () => {
     if (!entry || !slug) return
@@ -300,14 +326,21 @@ export default function DictionaryTermScreen() {
           </ScrollView>
         </TabletContainer>
       )}
-      {entry?.category === 'mnemonic' && (
+      {entry?.category === 'mnemonic' ? (
         <PrevNextFooter
           prevLabel={prevMnemonic ? prevMnemonic.term : null}
           nextLabel={nextMnemonic ? nextMnemonic.term : null}
           onPrev={() => prevMnemonic && router.replace(`/dictionary/${prevMnemonic.slug}` as any)}
           onNext={() => nextMnemonic && router.replace(`/dictionary/${nextMnemonic.slug}` as any)}
         />
-      )}
+      ) : entry ? (
+        <PrevNextFooter
+          prevLabel={prevTerm ? prevTerm.term : null}
+          nextLabel={nextTerm ? nextTerm.term : null}
+          onPrev={() => prevTerm && router.replace(`/dictionary/${prevTerm.slug}` as any)}
+          onNext={() => nextTerm && router.replace(`/dictionary/${nextTerm.slug}` as any)}
+        />
+      ) : null}
     </View>
   )
 }
