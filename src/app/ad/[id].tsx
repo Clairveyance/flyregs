@@ -496,6 +496,14 @@ export default function AdScreen() {
             <PlainTextBody
               ref={bodyRef}
               text={body}
+              // Always exactly one synthetic entry (never one per real
+              // page) when any figures exist -- see crossRefLinks.ts's own
+              // comment on why: it makes PlainTextBody's normal
+              // figures.length===1 fallback always resolve a tap on
+              // "Table N to Paragraph X" cleanly, without needing an exact
+              // per-mention label match AD doesn't have.
+              figures={figures.length > 0 ? [{ id: figures[0].id, label: '', caption: null, image_url: figures[0].image_url }] : undefined}
+              onOpenFigure={() => figures[0] && setViewerFigure({ id: figures[0].id, label: `Page 1 of ${figures.length}`, caption: null, page: figures[0].page_index, image_url: figures[0].image_url })}
               highlightQuery={inDocSearch.debounced}
               activeMatch={inDocSearch.matchIdx}
               onMatchCount={inDocSearch.setMatchCount}

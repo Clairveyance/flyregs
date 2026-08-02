@@ -87,6 +87,18 @@ const PATTERNS: LinkPattern[] = [
   // requiring the "AD " prefix is enough to avoid false positives from
   // unrelated dates/numbers in surrounding prose.
   { regex: /\bAD\s+(\d{4}-\d{2}-\d{2})\b/g, buildRoute: (m) => `/ad/${m[1]}` },
+  // AD table/figure caption mention ("Table 1 to Paragraph (c)", "Figure 1
+  // to paragraph (j)") -- RC: "make sure the T&Fs are properly hyperlinked
+  // in the text bodies." AD figures don't have per-page labels the way
+  // AC/AIM figures do (see ad_figures' own comment), so there's no exact
+  // label to resolve against -- ad/[id].tsx passes PlainTextBody a single
+  // synthetic figures[0] instead of one per page specifically so the
+  // isFigure length===1 fallback always resolves cleanly regardless of
+  // which of an AD's (usually 1-3) relevant pages this exact mention
+  // refers to. route is never actually used for navigation (isFigure
+  // intercepts before routing) -- must still be a non-empty string, or
+  // this wouldn't render as tappable at all.
+  { regex: /\b(?:Table|Figure)\s+\d+[a-zA-Z]?\s+to\s+[Pp]aragraph\s*\([a-zA-Z0-9]+\)/gi, buildRoute: () => 'ad-figure', isFigure: true },
 ]
 
 export function linkifyText(text: string): LinkSegment[] {
