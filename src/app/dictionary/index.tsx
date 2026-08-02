@@ -278,11 +278,20 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
 // (category='mnemonic', see sync/migrations_mnemonics.sql) -- a real MEA
 // entry (Minimum En Route Altitude) exists elsewhere under M with its own
 // slug; this list and that entry never collide.
+// Collapsed by default -- RC: "there are hundreds or even thousands of
+// mnemonics" once this grows past today's handful, so an always-expanded
+// list can't be the default the way it's fine to be with 2 entries.
 function MnemonicsCard({ mnemonics, tokens, fs }: { mnemonics: MnemonicHit[]; tokens: ReturnType<typeof useTheme>['tokens']; fs: (n: number) => number }) {
+  const [expanded, setExpanded] = useState(false)
   return (
     <View style={[styles.mnemonicsCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-      <Text style={[styles.wordCardLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>MNEMONICS</Text>
-      {mnemonics.map((m, i) => (
+      <Pressable style={styles.mnemonicsHeader} onPress={() => setExpanded((e) => !e)}>
+        <Text style={[styles.wordCardLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>
+          MNEMONICS · {mnemonics.length}
+        </Text>
+        <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t4} />
+      </Pressable>
+      {expanded && mnemonics.map((m, i) => (
         <Pressable
           key={m.slug}
           style={[styles.mnemonicRow, i === mnemonics.length - 1 && { borderBottomWidth: 0 }, { borderColor: tokens.bdr }]}
@@ -325,6 +334,9 @@ const styles = StyleSheet.create({
 
   mnemonicsCard: {
     marginHorizontal: 12, marginTop: 10, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12,
+  },
+  mnemonicsHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12,
   },
   mnemonicRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

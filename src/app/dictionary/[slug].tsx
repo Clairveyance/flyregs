@@ -12,9 +12,20 @@ import { FolderPicker } from '@/components/FolderPicker'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { addRecent } from '@/lib/recents'
 
+interface BreakdownItem {
+  letter: string
+  concept: string
+  detail: string
+}
+
 interface Sense {
   definition: string
   usage: string | null
+  // Present only for category='mnemonic' entries -- one row per letter,
+  // rendered as an actual bulleted list (RC: "list them out as users
+  // would read them. bullet listed with the first letter larger and
+  // bold") instead of the flat prose paragraph every other entry uses.
+  breakdown?: BreakdownItem[]
 }
 
 interface DictTerm {
@@ -153,6 +164,21 @@ export default function DictionaryTermScreen() {
                   <Text style={[styles.senseNum, { color: tokens.t4, fontSize: fs(11) }]}>SENSE {i + 1}</Text>
                 )}
                 <Text style={[styles.definition, { color: tokens.t1, fontSize: fs(16) }]}>{s.definition}</Text>
+                {s.breakdown && s.breakdown.length > 0 && (
+                  <View style={styles.breakdownList}>
+                    {s.breakdown.map((b, bi) => (
+                      <View key={bi} style={styles.breakdownRow}>
+                        <Text style={[styles.breakdownLetter, { color: tokens.gold, fontSize: fs(22) }]}>{b.letter}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.breakdownConcept, { color: tokens.t1, fontSize: fs(15) }]}>{b.concept}</Text>
+                          {b.detail ? (
+                            <Text style={[styles.breakdownDetail, { color: tokens.t2, fontSize: fs(13.5) }]}>{b.detail}</Text>
+                          ) : null}
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
                 {s.usage && (
                   <View style={[styles.usagePill, { backgroundColor: tokens.bdim }]}>
                     <Text style={[styles.usageText, { color: tokens.blu, fontSize: fs(11.5) }]}>
@@ -198,6 +224,11 @@ const styles = StyleSheet.create({
   senseCard: { borderRadius: 14, borderWidth: 1, padding: 16, marginBottom: 10, gap: 8 },
   senseNum: { fontWeight: '700', letterSpacing: 0.6 },
   definition: { lineHeight: 23 },
+  breakdownList: { gap: 12, marginTop: 4 },
+  breakdownRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  breakdownLetter: { fontWeight: '800', width: 26 },
+  breakdownConcept: { fontWeight: '700' },
+  breakdownDetail: { marginTop: 2, lineHeight: 19 },
   usagePill: { alignSelf: 'flex-start', borderRadius: 8, paddingHorizontal: 9, paddingVertical: 4 },
   usageText: { fontWeight: '600' },
   pcgLinkCard: {
