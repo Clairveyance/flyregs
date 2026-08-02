@@ -444,23 +444,28 @@ export default function FarSectionScreen() {
           </View>
 
           <View style={[styles.barsWrap]}>
-            {tableCount > 0 && (
-              <Pressable
-                style={[styles.tablesBar, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => {
-                  if (firstTableParaIndex >= 0) bodyRef.current?.scrollToParagraph(firstTableParaIndex)
-                }}
-                disabled={firstTableParaIndex < 0}
-              >
-                <Icon name="photo" size={15} color={tokens.t3} />
-                <Text style={[styles.tablesBarLabel, { color: tokens.t1, fontSize: fs(13) }]}>
-                  {tableCount === 1 ? 'Table' : 'Tables'}
-                </Text>
-                <View style={{ flex: 1 }} />
-                <Text style={[styles.tablesBarCount, { color: tokens.t3, fontSize: fs(12.5) }]}>{tableCount}</Text>
-                {firstTableParaIndex >= 0 && <Icon name="chevron.down" size={11} color={tokens.t4} />}
-              </Pressable>
-            )}
+            {/* Always shown, even at 0 -- matches AC's ACBody.tsx and AIM's
+                Figures & Tables bar (both explicitly "always shown once
+                loaded, even at 0, so it doesn't look like the feature is
+                broken/missing data"). This bar used to hide entirely below
+                tableCount > 0, which RC caught live on FAR 91.107 (0 real
+                tables): the whole row vanished instead of reading "Tables
+                0" the way every other reg type does. */}
+            <Pressable
+              style={[styles.tablesBar, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+              onPress={() => {
+                if (firstTableParaIndex >= 0) bodyRef.current?.scrollToParagraph(firstTableParaIndex)
+              }}
+              disabled={firstTableParaIndex < 0}
+            >
+              <Icon name="photo" size={15} color={tokens.t3} />
+              <Text style={[styles.tablesBarLabel, { color: tokens.t1, fontSize: fs(13) }]}>
+                {tableCount === 1 ? 'Table' : 'Tables'}
+              </Text>
+              <View style={{ flex: 1 }} />
+              <Text style={[styles.tablesBarCount, { color: tokens.t3, fontSize: fs(12.5) }]}>{tableCount}</Text>
+              {firstTableParaIndex >= 0 && <Icon name="chevron.down" size={11} color={tokens.t4} />}
+            </Pressable>
             <MagicLinkPod
               bars={[
                 { icon: 'doc.text', label: 'Related ACs', items: acRefs },

@@ -732,10 +732,15 @@ export default function ACDetailScreen() {
       ac?.pdf_url_cached ??
       ac?.pdf_url_faa ??
       `https://www.faa.gov/documentLibrary/media/Advisory_Circular/AC_${ac?.document_number}.pdf`
-    if (Platform.OS === 'web') {
-      window.open(url, '_blank') // preview sandbox only allows localhost -- web is dev-preview-only, never shipped
-      return
-    }
+    // Used to window.open() the raw URL on web -- found live: several real
+    // source PDFs (govinfo.gov, confirmed via direct fetch) get served in a
+    // way that triggers an OS-level file-download prompt instead of opening
+    // as a page, not the clean preview-sandbox limitation this branch's old
+    // comment assumed. pdf-viewer.tsx already has a correct, safe web
+    // fallback (a plain "not available in the browser preview" message, no
+    // fetch attempted) -- routing there unconditionally, same as LOI already
+    // does, removes the download risk entirely instead of only fixing it for
+    // native.
     router.push({ pathname: '/pdf-viewer', params: { url, title: ac ? `AC ${ac.document_number}` : undefined } })
   }
 
