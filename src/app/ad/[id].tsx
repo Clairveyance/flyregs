@@ -7,6 +7,7 @@ import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { printReg } from '@/lib/printReg'
 import { PlainTextBody, PlainTextBodyHandle } from '@/components/PlainTextBody'
 import { MagicLinkPod } from '@/components/MagicLinkPod'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -20,7 +21,8 @@ import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
-import { isDownloaded, addDownload, removeDownload } from '@/lib/downloads'
+import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
+import { condenseAdSummary, adSummaryWasCondensed, stripAdArtifacts } from '@/lib/adSummary'
 
 interface AirworthinessDirective {
   ad_number: string
@@ -56,13 +58,14 @@ export default function AdScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasPlusAccess, isPremium } = useAuth()
+  const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
   const [ad, setAd] = useState<AirworthinessDirective | null>(null)
   const [related, setRelated] = useState<RelatedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [bookmarked, setBookmarked] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
   const [downloadBusy, setDownloadBusy] = useState(false)
+  const [summaryExpanded, setSummaryExpanded] = useState(false)
   const [folderPickerVisible, setFolderPickerVisible] = useState(false)
   const [confirmLabel, setConfirmLabel] = useState<string | undefined>()
   const [confirmTick, setConfirmTick] = useState(0)
@@ -103,7 +106,7 @@ export default function AdScreen() {
         .from('document_citations')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.ad,cited_id.eq.${id}),and(citing_type.eq.ad,citing_id.eq.${id})`),
-    ]).then(([adRes, citRes]) => {
+    ]).then(async ([adRes, citRes]) => {
       if (!adRes.error && adRes.data) {
         const a = adRes.data as AirworthinessDirective
         setAd(a)
@@ -115,6 +118,19 @@ export default function AdScreen() {
           date_issued: a.effective_date,
           subject_series: null,
         })
+      } else {
+        // No network (or the row is gone): fall back to the offline copy.
+        // This branch was MISSING -- handleDownload below wrote an offline
+        // copy that nothing ever read back, so a downloaded AD still showed
+        // an empty screen with no connection. Only AC had a cache-read path.
+        const cached = await findDownload(id)
+        if (cached) {
+          setAd({
+            ad_number: cached.id,
+            subject_heading: cached.title,
+            body_text: cached.body_text ?? null,
+          } as AirworthinessDirective)
+        }
       }
       if (!citRes.error && citRes.data) {
         // Normalize to "the OTHER document" regardless of which side of the
@@ -141,6 +157,14 @@ export default function AdScreen() {
   const acRefs = related.filter((r) => r.cited_type === 'ac')
   const farRefs = related.filter((r) => r.cited_type === 'far')
   const pcgRefs = related.filter((r) => r.cited_type === 'pcg')
+  // AD -> AD. The pod had no bar for this at all, so the supersedes/amends
+  // chain -- arguably the most important relationship an AD has, since a
+  // mechanic needs to know which AD replaced which -- was invisible even
+  // once the links existed. `related` is already normalized to "the other
+  // document" by the fetch above, so this covers both directions: ADs this
+  // one references AND ADs that reference it.
+  const adRefs = related.filter((r) => r.cited_type === 'ad')
+  const loiRefs = related.filter((r) => r.cited_type === 'loi')
 
   // Each AD is its own short (2-10 page), complete government PDF — unlike
   // AC/AIM's giant multi-hundred-page combined documents, there's no "which
@@ -215,8 +239,30 @@ export default function AdScreen() {
     setFolderPickerVisible(true)
   }
 
+  // Print is the other half of the Plus "Print & export any section"
+  // promise -- until now the app had no print at all, only the share
+  // sheet (which exports a LINK, not the text).
+  const handlePrint = async () => {
+    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!ad) return
+    try {
+      await printReg({
+        documentNumber: `AD ${ad.ad_number}`,
+        title: ad.subject_heading ?? ad.subject,
+        subtitle: ad.effective_date ? `Effective ${ad.effective_date}` : null,
+        body: ad.body_text ?? '',
+        kindLabel: 'AD',
+      })
+    } catch {
+      Alert.alert('Print failed', "Couldn't open the print dialog. Try again in a moment.")
+    }
+  }
+
   const handleShare = async () => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    // Share/export is a PLUS feature (paywall PLUS_FEATURES), not Premium.
+    // Gating it on isPremium bounced a Plus buyer to a Premium upsell for
+    // something they had already paid for.
+    if (!hasPlusAccess) { router.push('/paywall'); return }
     if (!ad) return
     try {
       await Share.share({
@@ -239,8 +285,11 @@ export default function AdScreen() {
           <Icon name="arrow.up.circle" size={21} color={tokens.t3} />
         </Pressable>
       )}
+      <Pressable onPress={handlePrint} hitSlop={12} style={{ padding: 4 }}>
+        <Icon name="printer" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+      </Pressable>
       <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="square.and.arrow.up" size={21} color={isPremium ? tokens.t2 : tokens.t4} />
+        <Icon name="square.and.arrow.up" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
         <Icon name="folder.badge.plus" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
@@ -292,16 +341,20 @@ export default function AdScreen() {
         >
           <View style={styles.headerRow}>
             <Text style={[styles.adNum, { color: tokens.blu, fontSize: fs(17) }]}>AD {ad.ad_number}</Text>
-            <View
-              style={[
-                styles.statusPill,
-                { backgroundColor: ad.status === 'Current' ? tokens.grn + '22' : tokens.t3 + '22' },
-              ]}
-            >
-              <Text style={[styles.statusText, { color: ad.status === 'Current' ? tokens.grn : tokens.t3, fontSize: fs(11) }]}>
-                {ad.status}
-              </Text>
-            </View>
+            {/* The badge now only appears when it CARRIES INFORMATION.
+                ad_scraper.py hardcodes status = "Current" on every row
+                (line ~345), so a green CURRENT pill rendered on all 5,023
+                ADs and told the reader nothing — the app only carries
+                in-force ADs, so "current" is the baseline expectation, not
+                news. What genuinely matters is the opposite case: an AD that
+                has been SUPERSEDED by a later one, which we do know from
+                `superseded_by`. That gets a warning pill; everything else
+                gets no pill at all. */}
+            {ad.superseded_by ? (
+              <View style={[styles.statusPill, { backgroundColor: tokens.amb + '22' }]}>
+                <Text style={[styles.statusText, { color: tokens.amb, fontSize: fs(11) }]}>Superseded</Text>
+              </View>
+            ) : null}
           </View>
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>{ad.subject_heading}</Text>
 
@@ -333,7 +386,20 @@ export default function AdScreen() {
 
           {ad.summary && (
             <DetailSection title="Summary" tokens={tokens}>
-              <Text style={[styles.summary, { color: tokens.t2, fontSize: fs(14.5) }]}>{ad.summary}</Text>
+              {/* The FAA's SUMMARY field is the full Federal Register preamble
+                  (median 691 chars across the corpus, up to 2,243), so it is
+                  condensed to the actionable sentence. The full text is never
+                  discarded -- it is one tap away. */}
+              <Text style={[styles.summary, { color: tokens.t2, fontSize: fs(14.5) }]}>
+                {summaryExpanded ? stripAdArtifacts(ad.summary) : condenseAdSummary(ad.summary)}
+              </Text>
+              {adSummaryWasCondensed(ad.summary) && (
+                <Pressable onPress={() => setSummaryExpanded((v) => !v)} hitSlop={8}>
+                  <Text style={[styles.summaryToggle, { color: tokens.blu, fontSize: fs(13) }]}>
+                    {summaryExpanded ? 'Show less' : 'Show full summary'}
+                  </Text>
+                </Pressable>
+              )}
             </DetailSection>
           )}
 
@@ -352,13 +418,15 @@ export default function AdScreen() {
           <View style={[styles.barsWrap, { marginTop: 14 }]}>
             <MagicLinkPod
               bars={[
+                { icon: 'wrench.and.screwdriver.fill', label: 'Related ADs', items: adRefs },
                 { icon: 'doc.text', label: 'Related ACs', items: acRefs },
                 { icon: 'doc.plaintext', label: 'FAR references', items: farRefs },
                 { icon: 'list.bullet', label: 'AIM references', items: aimRefs },
                 { icon: 'questionmark.circle', label: 'P/CG terms', items: pcgRefs },
+                { icon: 'checkmark.seal.fill', label: 'Related LOIs', items: loiRefs },
               ]}
               currentLabel={`AD ${ad.ad_number}`}
-              hasPlusAccess={hasPlusAccess}
+              hasProAccess={hasProAccess}
             />
           </View>
 
@@ -429,13 +497,19 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   infoLabel: { fontWeight: '500' },
   infoValue: { flex: 1, textAlign: 'right', fontWeight: '500' },
-  barsWrap: { gap: 6, marginBottom: 16 },
+  // Breathing room around the action/MagicLink stack. These bars used to
+  // butt straight up against the Download button above and the body text
+  // below, so the whole block read as one cramped slab.
+  // marginTop matches the internal `gap` -- see aim/[id].tsx's own comment
+  // (RC, annotated screenshot): the two gaps were 14px and 10px, uneven.
+  barsWrap: { gap: 10, marginTop: 10, marginBottom: 22 },
   pdfButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     borderRadius: 12, borderWidth: 1, paddingVertical: 12, marginBottom: 18,
   },
   pdfButtonText: { fontWeight: '600' },
   sectionLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 },
+  summaryToggle: { fontWeight: '600', marginTop: 6 },
   summary: { lineHeight: 21, marginBottom: 18 },
   body: { fontSize: 14.5, lineHeight: 22 },
 })

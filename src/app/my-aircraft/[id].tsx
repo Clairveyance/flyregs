@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Alert, Modal } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
@@ -10,9 +10,10 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
 import {
   searchParts, getAircraftEquipment, addAircraftEquipment, removeAircraftEquipment,
-  getAircraftReminders, addAircraftReminder, removeAircraftReminder,
-  type AdPart, type AircraftEquipment, type AircraftReminder,
+  getAircraftReminders, addAircraftReminder, updateAircraftReminder, removeAircraftReminder, PART_TYPE_LABELS,
+  type AdPart, type AircraftEquipment, type AircraftReminder, type PartComponentType,
 } from '@/lib/adParts'
+import { getAircraftAdNotifications, markAdNotificationRead, dismissAdNotification, backfillAircraftAds, type AircraftAdNotification } from '@/lib/adNotifications'
 
 // Equipment tags + reminders are both Premium (personalized-tracking
 // depth on top of the free/Pro basics) -- see flyregs_decisions.md's AD
@@ -27,6 +28,7 @@ interface UserAircraft {
   make: string
   model: string
   nickname: string | null
+  type_designator: string | null
 }
 
 function daysUntil(dateStr: string): number {
@@ -38,27 +40,91 @@ function daysUntil(dateStr: string): number {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
+function toISODate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function addMonths(from: Date, months: number): Date {
+  const d = new Date(from)
+  d.setMonth(d.getMonth() + months)
+  return d
+}
+
+// Quick-select reminder types with hardcoded recurrence defaults -- RC:
+// "which schema is more flexible and easy to use for the user? if the
+// gating is better and more accurate and more hands off for the user,
+// that's good. but they should still be able to manually adjust a date if
+// needed to match their exact needs." No schema change: `months` here only
+// pre-fills a SUGGESTED due date at creation time (today + N months) via
+// DatePickerModal, which the user can still scroll to any date they want
+// before saving -- nothing about the interval is enforced or re-applied
+// later. 100-Hour is genuinely hobbs/tach-based, not calendar-based, so it
+// gets no smart default (`months: null`) -- a suggested date would just be
+// wrong. AD Compliance also gets no calendar default since compliance
+// intervals vary per AD and aren't modeled in this schema; picking that
+// type instead reveals the AD-link picker below.
+const REMINDER_TYPES = [
+  { key: 'annual', label: 'Annual', icon: 'checkmark.seal.fill', defaultTitle: 'Annual Inspection', months: 12 },
+  { key: 'transponder', label: 'Transponder', icon: 'dot.radiowaves.left.and.right', defaultTitle: 'Transponder Check', months: 24 },
+  { key: 'elt', label: 'ELT Battery', icon: 'bolt.fill', defaultTitle: 'ELT Battery', months: 24 },
+  { key: '100hour', label: '100-Hour', icon: 'gauge', defaultTitle: '100-Hour Inspection', months: null },
+  { key: 'ad', label: 'AD Compliance', icon: 'wrench.and.screwdriver.fill', defaultTitle: 'AD Compliance', months: null },
+  { key: 'custom', label: 'Custom', icon: 'pencil', defaultTitle: '', months: null },
+] as const
+type ReminderTypeKey = (typeof REMINDER_TYPES)[number]['key']
+
+// "how far back" view filter for Applicable ADs -- RC: "populate that a/c
+// profile with them... allowing them to choose how far back they want ADs
+// for." Client-side only (the backfill itself always pulls the FULL
+// corpus, see adNotifications.ts) -- this just narrows what's shown, so
+// widening the range later never needs a re-fetch.
+type AdRangeFilter = 'all' | '10y' | '5y' | '2y'
+const AD_RANGE_LABELS: Record<AdRangeFilter, string> = { all: 'All time', '10y': '10 yrs', '5y': '5 yrs', '2y': '2 yrs' }
+function withinAdRange(citationPublishDate: string | null, range: AdRangeFilter): boolean {
+  if (range === 'all' || !citationPublishDate) return true
+  const years = range === '10y' ? 10 : range === '5y' ? 5 : 2
+  const cutoff = new Date()
+  cutoff.setFullYear(cutoff.getFullYear() - years)
+  return new Date(citationPublishDate) >= cutoff
+}
+
 export default function AircraftDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
   const { session, isPremium } = useAuth()
   const [aircraft, setAircraft] = useState<UserAircraft | null>(null)
+  const [adNotifications, setAdNotifications] = useState<AircraftAdNotification[]>([])
+  const [adRange, setAdRange] = useState<AdRangeFilter>('all')
+  const [backfilling, setBackfilling] = useState(false)
   const [equipment, setEquipment] = useState<AircraftEquipment[]>([])
   const [reminders, setReminders] = useState<AircraftReminder[]>([])
   const [loading, setLoading] = useState(true)
   const [partPickerVisible, setPartPickerVisible] = useState(false)
   const [reminderFormVisible, setReminderFormVisible] = useState(false)
+  const [editingReminder, setEditingReminder] = useState<AircraftReminder | null>(null)
+  // Per-section collapse -- RC, live, on the Applicable ADs list routinely
+  // running 60+ rows deep: "we need an expand/collapse button for the AD,
+  // Parts, and Reminders sections so the user doesn't have to scroll past
+  // long lists to get to another section." All three default open
+  // (unchanged behavior) -- the toggle just gives an escape hatch that's
+  // reachable from the section header itself, so collapsing a long list
+  // doesn't require scrolling through it first.
+  const [adsCollapsed, setAdsCollapsed] = useState(false)
+  const [equipmentCollapsed, setEquipmentCollapsed] = useState(false)
+  const [remindersCollapsed, setRemindersCollapsed] = useState(false)
 
   const load = useCallback(() => {
     if (!id) return
     setLoading(true)
     Promise.all([
-      supabase.from('user_aircraft').select('id, make, model, nickname').eq('id', id).single(),
+      supabase.from('user_aircraft').select('id, make, model, nickname, type_designator').eq('id', id).single(),
+      getAircraftAdNotifications(id),
       getAircraftEquipment(id),
       getAircraftReminders(id),
-    ]).then(([acRes, equip, rem]) => {
+    ]).then(([acRes, ads, equip, rem]) => {
       if (acRes.data) setAircraft(acRes.data as UserAircraft)
+      setAdNotifications(ads)
       setEquipment(equip)
       setReminders(rem)
       setLoading(false)
@@ -66,6 +132,74 @@ export default function AircraftDetailScreen() {
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  const visibleAdNotifications = useMemo(
+    () => adNotifications.filter((n) => withinAdRange(n.citationPublishDate, adRange)),
+    [adNotifications, adRange]
+  )
+  // Scoped to visibleAdNotifications, not the full adNotifications -- RC,
+  // live, pointing at the section count and unread badge staying fixed at
+  // 4/3 while switching the range pill dropped the visible list to 2:
+  // "what are these two numbers doing? they don't change when i change the
+  // displayed years timeline." Both should describe what's actually on
+  // screen right now, not the unfiltered total.
+  const unreadAdCount = useMemo(() => visibleAdNotifications.filter((n) => !n.readAt).length, [visibleAdNotifications])
+
+  const handleOpenAd = (n: AircraftAdNotification) => {
+    if (!n.readAt) {
+      // Optimistic -- the whole point of the unread dot is that it clears
+      // the moment the user actually looks at it, not after a round trip.
+      setAdNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, readAt: new Date().toISOString() } : x)))
+      markAdNotificationRead(n.id).catch((e) => console.error('Failed to mark AD notification read:', e?.message ?? e))
+    }
+    router.push(`/ad/${n.adNumber}` as any)
+  }
+
+  const handleBackfillAds = async () => {
+    if (!aircraft) return
+    setBackfilling(true)
+    try {
+      const count = await backfillAircraftAds(aircraft.id)
+      const ads = await getAircraftAdNotifications(aircraft.id)
+      setAdNotifications(ads)
+      Alert.alert(
+        count > 0 ? 'Applicable ADs updated' : 'Up to date',
+        count > 0 ? `Found ${count} more Airworthiness Directive${count === 1 ? '' : 's'}.` : 'No additional applicable ADs found.'
+      )
+    } catch (e: any) {
+      Alert.alert('Could not check for ADs', e?.message ?? 'Unknown error')
+    }
+    setBackfilling(false)
+  }
+
+  // Two-step confirm, unlike Equipment/Reminders' single-tap trash -- RC:
+  // "we can keep the trash consistent, but need CTA confirmations for two
+  // step delete process." A dismissed AD is meaningfully harder to undo
+  // than re-adding a part or reminder (see migrations_ad_dismiss.sql: it
+  // stays dismissed across future syncs, not just removed from this
+  // screen), so it gets the extra guard equipment/reminders don't need.
+  const handleDismissAd = (n: AircraftAdNotification) => {
+    Alert.alert(
+      `Remove AD ${n.adNumber}?`,
+      "This removes it from this aircraft's list. It won't come back on future AD syncs unless you add it again yourself.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            setAdNotifications((prev) => prev.filter((x) => x.id !== n.id))
+            try {
+              await dismissAdNotification(n.id)
+            } catch (e: any) {
+              setAdNotifications((prev) => [...prev, n]) // roll back on failure
+              Alert.alert('Could not remove AD', e?.message ?? 'Unknown error')
+            }
+          },
+        },
+      ]
+    )
+  }
 
   const handleRemoveEquipment = async (equipId: string) => {
     await removeAircraftEquipment(equipId)
@@ -84,6 +218,12 @@ export default function AircraftDetailScreen() {
 
   const openAddReminder = () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    setEditingReminder(null)
+    setReminderFormVisible(true)
+  }
+
+  const openEditReminder = (r: AircraftReminder) => {
+    setEditingReminder(r)
     setReminderFormVisible(true)
   }
 
@@ -114,6 +254,9 @@ export default function AircraftDetailScreen() {
         <ScrollView contentContainerStyle={styles.content}>
           <Text style={[styles.acLine, { color: tokens.t1, fontSize: fs(17) }]}>{aircraft.make} {aircraft.model}</Text>
           {aircraft.nickname && <Text style={[styles.acSub, { color: tokens.t3, fontSize: fs(13) }]}>{aircraft.nickname}</Text>}
+          {aircraft.type_designator && (
+            <Text style={[styles.acSub, { color: tokens.t3, fontSize: fs(12) }]}>Type {aircraft.type_designator} — used to match AD filings</Text>
+          )}
 
           <View style={styles.disclaimerCard}>
             <Icon name="info.circle" size={14} color={tokens.t3} />
@@ -124,68 +267,195 @@ export default function AircraftDetailScreen() {
             </Text>
           </View>
 
+          {/* Applicable ADs -- the actual payoff of saving an aircraft at
+              all, per explicit direction: this is what the whole feature
+              is judged on, so it leads the screen, not Equipment/Reminders.
+              Backed by user_ad_notifications (sync/migrations_ad_
+              notification_log.sql) -- populated both by the recurring
+              weekly sync (new/updated ADs) and by backfillAircraftAds
+              (everything that already existed when this aircraft/part was
+              added, see adNotifications.ts). Unread dot clears the moment
+              an AD is opened, not on a timer or a separate "mark read"
+              action. */}
           <View style={styles.sectionHeader}>
-            <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>EQUIPMENT</Text>
+            <Pressable style={styles.sectionTitleRow} onPress={() => setAdsCollapsed((v) => !v)} hitSlop={6}>
+              <Icon name={adsCollapsed ? 'chevron.right' : 'chevron.down'} size={13} color={tokens.t3} />
+              <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>APPLICABLE ADs</Text>
+              {visibleAdNotifications.length > 0 && (
+                <Text style={[styles.sectionCount, { color: tokens.t4, fontSize: fs(11) }]}>{visibleAdNotifications.length}</Text>
+              )}
+              {unreadAdCount > 0 && (
+                <View style={[styles.unreadCountBadge, { backgroundColor: tokens.blu }]}>
+                  <Text style={styles.unreadCountText}>{unreadAdCount}</Text>
+                </View>
+              )}
+            </Pressable>
+            <Pressable onPress={handleBackfillAds} hitSlop={10} disabled={backfilling}>
+              {backfilling ? <ActivityIndicator size="small" color={tokens.blu} /> : <Icon name="arrow.clockwise" size={18} color={tokens.blu} />}
+            </Pressable>
+          </View>
+          {!adsCollapsed && (
+            <>
+              {/* RC: "we need to inform users about that, so they can
+                  choose to widen their search criteria in order to not
+                  miss an AD that might still be relevant." This list only
+                  includes an AD when its own text specifically names this
+                  aircraft's model/type (see flyregs_decisions.md's
+                  "AD-to-aircraft matching precision bug fixed" entry) --
+                  a real, known tradeoff of that fix is that an AD written
+                  with unusual wording could be missed. Links to the full
+                  AD search pre-filled on this aircraft's make so a user
+                  who wants to double-check can do it in one tap, not a
+                  cold search. */}
+              <Pressable
+                style={[styles.widenSearchCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                onPress={() => router.push(`/ad?q=${encodeURIComponent(aircraft.make)}` as any)}
+              >
+                <Icon name="info.circle" size={13} color={tokens.t3} />
+                <Text style={[styles.widenSearchText, { color: tokens.t3, fontSize: fs(11.5) }]}>
+                  Only shows ADs that specifically name this model or type — an unusually worded AD could be missed.{' '}
+                  <Text style={{ color: tokens.blu, fontWeight: '600' }}>Browse all {aircraft.make} ADs →</Text>
+                </Text>
+              </Pressable>
+              {adNotifications.length > 3 && (
+                <View style={styles.rangeRow}>
+                  {(Object.keys(AD_RANGE_LABELS) as AdRangeFilter[]).map((r) => (
+                    <Pressable
+                      key={r}
+                      onPress={() => setAdRange(r)}
+                      style={[
+                        styles.rangePill,
+                        { borderColor: tokens.bdr },
+                        adRange === r && { backgroundColor: tokens.blu, borderColor: tokens.blu },
+                      ]}
+                    >
+                      <Text style={[styles.rangePillText, { color: adRange === r ? '#fff' : tokens.t3, fontSize: fs(11.5) }]}>
+                        {AD_RANGE_LABELS[r]}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+              {adNotifications.length === 0 ? (
+                <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13) }]}>
+                  No Airworthiness Directives currently match this aircraft's make/model or tagged equipment. New or
+                  existing ADs that apply will show up here automatically.
+                </Text>
+              ) : visibleAdNotifications.length === 0 ? (
+                <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13) }]}>
+                  No applicable ADs in the selected time range — widen the range above to see older ones.
+                </Text>
+              ) : (
+                <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                  {visibleAdNotifications.map((n, i) => (
+                    <Pressable
+                      key={n.id}
+                      style={[styles.row, i < visibleAdNotifications.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
+                      onPress={() => handleOpenAd(n)}
+                    >
+                      {!n.readAt && <View style={[styles.unreadDot, { backgroundColor: tokens.blu }]} />}
+                      <Icon name={n.matchedVia === 'equipment' ? 'wrench' : 'airplane'} size={15} color={tokens.t3} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.rowTitle, { color: tokens.blu, fontSize: fs(14) }]}>AD {n.adNumber}</Text>
+                        <Text style={[styles.rowSub, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={2}>{n.subjectHeading}</Text>
+                        <Text style={[styles.rowSub, { color: tokens.t4, fontSize: fs(11) }]}>
+                          {n.matchedVia === 'equipment' ? 'Matched by tagged equipment' : 'Matched by airframe'}
+                          {n.citationPublishDate ? ` · ${n.citationPublishDate}` : ''}
+                        </Text>
+                      </View>
+                      <Pressable onPress={() => handleDismissAd(n)} hitSlop={10}>
+                        <Icon name="trash" size={16} color={tokens.t3} />
+                      </Pressable>
+                      <Icon name="chevron.right" size={14} color={tokens.t4} />
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </>
+          )}
+
+          <View style={[styles.sectionHeader, { marginTop: 20 }]}>
+            <Pressable style={styles.sectionTitleRow} onPress={() => setEquipmentCollapsed((v) => !v)} hitSlop={6}>
+              <Icon name={equipmentCollapsed ? 'chevron.right' : 'chevron.down'} size={13} color={tokens.t3} />
+              <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>EQUIPMENT</Text>
+              {equipment.length > 0 && (
+                <Text style={[styles.sectionCount, { color: tokens.t4, fontSize: fs(11) }]}>{equipment.length}</Text>
+              )}
+            </Pressable>
             <Pressable onPress={openAddEquipment} hitSlop={10}>
               <Icon name="plus.circle.fill" size={20} color={tokens.blu} />
             </Pressable>
           </View>
-          {equipment.length === 0 ? (
-            <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13) }]}>
-              Tag a specific engine, prop, or avionics box so AD alerts also catch part-keyed ADs, not just ones for
-              your airframe model.
-            </Text>
-          ) : (
-            <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-              {equipment.map((e, i) => (
-                <View key={e.id} style={[styles.row, i < equipment.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}>
-                  <Icon name="wrench" size={15} color={tokens.blu} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{e.part.name}</Text>
-                    {e.part.manufacturer && <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]}>{e.part.manufacturer}</Text>}
+          {!equipmentCollapsed && (
+            equipment.length === 0 ? (
+              <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13) }]}>
+                Tag a specific engine, prop, or avionics box so AD alerts also catch part-keyed ADs, not just ones for
+                your airframe model.
+              </Text>
+            ) : (
+              <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                {equipment.map((e, i) => (
+                  <View key={e.id} style={[styles.row, i < equipment.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}>
+                    <Icon name="wrench" size={15} color={tokens.blu} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{e.part.name}</Text>
+                      {e.part.manufacturer && <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]}>{e.part.manufacturer}</Text>}
+                    </View>
+                    <Pressable onPress={() => handleRemoveEquipment(e.id)} hitSlop={10}>
+                      <Icon name="trash" size={16} color={tokens.t3} />
+                    </Pressable>
                   </View>
-                  <Pressable onPress={() => handleRemoveEquipment(e.id)} hitSlop={10}>
-                    <Icon name="trash" size={16} color={tokens.t3} />
-                  </Pressable>
-                </View>
-              ))}
-            </View>
+                ))}
+              </View>
+            )
           )}
 
           <View style={[styles.sectionHeader, { marginTop: 20 }]}>
-            <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>REMINDERS</Text>
+            <Pressable style={styles.sectionTitleRow} onPress={() => setRemindersCollapsed((v) => !v)} hitSlop={6}>
+              <Icon name={remindersCollapsed ? 'chevron.right' : 'chevron.down'} size={13} color={tokens.t3} />
+              <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>REMINDERS</Text>
+              {reminders.length > 0 && (
+                <Text style={[styles.sectionCount, { color: tokens.t4, fontSize: fs(11) }]}>{reminders.length}</Text>
+              )}
+            </Pressable>
             <Pressable onPress={openAddReminder} hitSlop={10}>
               <Icon name="plus.circle.fill" size={20} color={tokens.blu} />
             </Pressable>
           </View>
-          {reminders.length === 0 ? (
-            <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13) }]}>
-              Add a due date for anything you want a nudge on — ELT battery, transponder check, annual, 100-hour, or
-              a compliance part from an AD.
-            </Text>
-          ) : (
-            <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-              {reminders.map((r, i) => {
-                const days = daysUntil(r.dueDate)
-                const overdue = days < 0
-                const soon = days >= 0 && days <= 30
-                return (
-                  <View key={r.id} style={[styles.row, i < reminders.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}>
-                    <Icon name="hourglass" size={15} color={overdue ? tokens.amb : soon ? tokens.gold : tokens.t3} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{r.title}</Text>
-                      <Text style={[styles.rowSub, { color: overdue ? tokens.amb : tokens.t3, fontSize: fs(12) }]}>
-                        {overdue ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due today' : `Due in ${days}d`} · {r.dueDate}
-                        {r.linkedAdNumber ? ` · AD ${r.linkedAdNumber}` : ''}
-                      </Text>
-                    </View>
-                    <Pressable onPress={() => handleRemoveReminder(r.id)} hitSlop={10}>
-                      <Icon name="trash" size={16} color={tokens.t3} />
+          {!remindersCollapsed && (
+            reminders.length === 0 ? (
+              <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13) }]}>
+                Add a due date for anything you want a nudge on — ELT battery, transponder check, annual, 100-hour, or
+                a compliance part from an AD.
+              </Text>
+            ) : (
+              <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                {reminders.map((r, i) => {
+                  const days = daysUntil(r.dueDate)
+                  const overdue = days < 0
+                  const soon = days >= 0 && days <= 30
+                  return (
+                    <Pressable
+                      key={r.id}
+                      style={[styles.row, i < reminders.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
+                      onPress={() => openEditReminder(r)}
+                    >
+                      <Icon name="hourglass" size={15} color={overdue ? tokens.amb : soon ? tokens.gold : tokens.t3} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{r.title}</Text>
+                        <Text style={[styles.rowSub, { color: overdue ? tokens.amb : tokens.t3, fontSize: fs(12) }]}>
+                          {overdue ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due today' : `Due in ${days}d`} · {r.dueDate}
+                          {r.linkedAdNumber ? ` · AD ${r.linkedAdNumber}` : ''}
+                        </Text>
+                      </View>
+                      <Pressable onPress={() => handleRemoveReminder(r.id)} hitSlop={10}>
+                        <Icon name="trash" size={16} color={tokens.t3} />
+                      </Pressable>
                     </Pressable>
-                  </View>
-                )
-              })}
-            </View>
+                  )
+                })}
+              </View>
+            )
           )}
         </ScrollView>
       </TabletContainer>
@@ -198,16 +468,29 @@ export default function AircraftDetailScreen() {
           await addAircraftEquipment(aircraft.id, part.id)
           setPartPickerVisible(false)
           load()
+          // A newly-tagged part can have real historical ADs of its own --
+          // the equipment-keyed match is independent of airframe, so this
+          // needs its own backfill call, not just the one on aircraft add.
+          backfillAircraftAds(aircraft.id)
+            .then((count) => { if (count > 0) getAircraftAdNotifications(aircraft.id).then(setAdNotifications) })
+            .catch((e) => console.error('AD backfill failed for new equipment tag:', e?.message ?? e))
         }}
       />
       <ReminderFormModal
         visible={reminderFormVisible}
-        onClose={() => setReminderFormVisible(false)}
-        onSaved={async (title, dueDate, notes) => {
+        editing={editingReminder}
+        applicableAds={adNotifications}
+        onClose={() => { setReminderFormVisible(false); setEditingReminder(null) }}
+        onSaved={async ({ title, dueDate, notes, linkedAdNumber }) => {
           if (!aircraft || !session) return
           try {
-            await addAircraftReminder(session.user.id, aircraft.id, title, dueDate, null, notes)
+            if (editingReminder) {
+              await updateAircraftReminder(editingReminder.id, title, dueDate, linkedAdNumber, notes)
+            } else {
+              await addAircraftReminder(session.user.id, aircraft.id, title, dueDate, linkedAdNumber, notes)
+            }
             setReminderFormVisible(false)
+            setEditingReminder(null)
             load()
           } catch (e: any) {
             Alert.alert('Could not save reminder', e?.message ?? 'Unknown error')
@@ -223,16 +506,19 @@ function PartPickerModal({ visible, onClose, onPicked }: { visible: boolean; onC
   const fs = useFS()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<AdPart[]>([])
+  const [relatedTo, setRelatedTo] = useState<PartComponentType | null>(null)
   const [searching, setSearching] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const handleChange = (text: string) => {
     setQuery(text)
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (text.trim().length < 2) { setResults([]); return }
+    if (text.trim().length < 2) { setResults([]); setRelatedTo(null); return }
     setSearching(true)
     debounceRef.current = setTimeout(() => {
-      searchParts(text).then((hits) => { setResults(hits); setSearching(false) }).catch(() => setSearching(false))
+      searchParts(text).then(({ results: hits, relatedTo: rel }) => {
+        setResults(hits); setRelatedTo(rel); setSearching(false)
+      }).catch(() => setSearching(false))
     }, 250)
   }
 
@@ -256,6 +542,14 @@ function PartPickerModal({ visible, onClose, onPicked }: { visible: boolean; onC
           <ActivityIndicator color={tokens.blu} style={{ marginTop: 20 }} />
         ) : (
           <ScrollView contentContainerStyle={{ padding: 12 }}>
+            {relatedTo && results.length > 0 && (
+              <View style={[styles.relatedNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                <Icon name="info.circle" size={14} color={tokens.t3} />
+                <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                  No exact match for "{query.trim()}" — showing {PART_TYPE_LABELS[relatedTo]} parts, the closest category.
+                </Text>
+              </View>
+            )}
             {results.map((p) => (
               <Pressable
                 key={p.id}
@@ -281,55 +575,304 @@ function PartPickerModal({ visible, onClose, onPicked }: { visible: boolean; onC
   )
 }
 
-function ReminderFormModal({ visible, onClose, onSaved }: { visible: boolean; onClose: () => void; onSaved: (title: string, dueDate: string, notes: string) => void }) {
+// Redesigned add/edit form (RC: scope the Reminders work, then "which
+// schema is more flexible and easy to use for the user? ... they should
+// still be able to manually adjust a date if needed"). Type chips only
+// show in ADD mode -- picking one is a one-time shortcut that fills
+// title+date, not a persisted category (no schema column for it), so
+// re-showing chips in EDIT mode would imply a selection state that doesn't
+// exist once a reminder is saved. Editing works directly on the same
+// title/date/notes/AD-link fields either way.
+function ReminderFormModal({
+  visible, editing, applicableAds, onClose, onSaved,
+}: {
+  visible: boolean
+  editing: AircraftReminder | null
+  applicableAds: AircraftAdNotification[]
+  onClose: () => void
+  onSaved: (input: { title: string; dueDate: string; notes: string; linkedAdNumber: string | null }) => void
+}) {
   const { tokens } = useTheme()
   const fs = useFS()
+  const [typeKey, setTypeKey] = useState<ReminderTypeKey | null>(null)
   const [title, setTitle] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [notes, setNotes] = useState('')
+  const [linkedAdNumber, setLinkedAdNumber] = useState<string | null>(null)
+  const [datePickerVisible, setDatePickerVisible] = useState(false)
+  const [adPickerVisible, setAdPickerVisible] = useState(false)
+
+  useEffect(() => {
+    if (!visible) return
+    setTypeKey(null)
+    setTitle(editing?.title ?? '')
+    setDueDate(editing?.dueDate ?? '')
+    setNotes(editing?.notes ?? '')
+    setLinkedAdNumber(editing?.linkedAdNumber ?? null)
+  }, [visible, editing])
+
+  const selectType = (key: ReminderTypeKey) => {
+    setTypeKey(key)
+    const def = REMINDER_TYPES.find((t) => t.key === key)!
+    setTitle(def.defaultTitle)
+    setDueDate(def.months != null ? toISODate(addMonths(new Date(), def.months)) : '')
+    if (key !== 'ad') setLinkedAdNumber(null)
+  }
 
   const handleSave = () => {
     if (!title.trim()) { Alert.alert('Title required', 'Enter what this reminder is for.'); return }
-    if (!DATE_RE.test(dueDate.trim())) { Alert.alert('Invalid date', 'Enter the due date as YYYY-MM-DD.'); return }
-    onSaved(title, dueDate.trim(), notes)
-    setTitle(''); setDueDate(''); setNotes('')
+    if (!DATE_RE.test(dueDate.trim())) { Alert.alert('Pick a due date', 'Use the date picker to set when this is due.'); return }
+    onSaved({ title: title.trim(), dueDate: dueDate.trim(), notes, linkedAdNumber })
   }
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent>
+    <>
+      <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>{editing ? 'Edit Reminder' : 'New Reminder'}</Text>
+              <Pressable onPress={onClose} hitSlop={10}>
+                <Icon name="xmark" size={18} color={tokens.t3} />
+              </Pressable>
+            </View>
+
+            {!editing && (
+              <>
+                <Text style={[styles.formLabel, { color: tokens.t3, fontSize: fs(11) }]}>TYPE</Text>
+                <View style={styles.chipGrid}>
+                  {REMINDER_TYPES.map((t) => {
+                    const active = typeKey === t.key
+                    return (
+                      <Pressable
+                        key={t.key}
+                        style={[
+                          styles.typeChip,
+                          { backgroundColor: active ? tokens.bdim : tokens.bg2, borderColor: active ? tokens.blu : tokens.bdr },
+                        ]}
+                        onPress={() => selectType(t.key)}
+                      >
+                        <Icon name={t.icon} size={15} color={active ? tokens.blu : tokens.t2} />
+                        <Text style={[styles.typeChipText, { color: active ? tokens.blu : tokens.t1, fontSize: fs(12.5) }]}>{t.label}</Text>
+                      </Pressable>
+                    )
+                  })}
+                </View>
+              </>
+            )}
+
+            <TextInput
+              value={title}
+              onChangeText={setTitle}
+              placeholder="What (e.g. ELT battery, Annual)"
+              placeholderTextColor={tokens.t3}
+              style={[styles.formInput, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }]}
+            />
+
+            <Pressable style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr }]} onPress={() => setDatePickerVisible(true)}>
+              <Text style={{ color: dueDate ? tokens.t1 : tokens.t3, fontSize: fs(14.5) }}>{dueDate || 'Due date'}</Text>
+              <Icon name="chevron.down" size={14} color={tokens.t4} />
+            </Pressable>
+
+            {(typeKey === 'ad' || (editing && linkedAdNumber)) && (
+              <Pressable style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr }]} onPress={() => setAdPickerVisible(true)}>
+                <Text style={{ color: linkedAdNumber ? tokens.t1 : tokens.t3, fontSize: fs(14.5) }} numberOfLines={1}>
+                  {linkedAdNumber ? `AD ${linkedAdNumber}` : 'Link an Applicable AD (optional)'}
+                </Text>
+                <Icon name="chevron.down" size={14} color={tokens.t4} />
+              </Pressable>
+            )}
+
+            <TextInput
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Notes (optional)"
+              placeholderTextColor={tokens.t3}
+              style={[styles.formInput, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }]}
+            />
+
+            <Pressable style={[styles.addButton, { backgroundColor: tokens.blu }]} onPress={handleSave}>
+              <Text style={styles.addButtonText}>{editing ? 'Save Changes' : 'Save Reminder'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <DatePickerModal
+        visible={datePickerVisible}
+        initialDate={dueDate}
+        onClose={() => setDatePickerVisible(false)}
+        onSelect={setDueDate}
+        tokens={tokens}
+        fs={fs}
+      />
+
+      <Modal visible={adPickerVisible} animationType="slide" transparent onRequestClose={() => setAdPickerVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, maxHeight: '70%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Link an AD</Text>
+              <Pressable onPress={() => setAdPickerVisible(false)} hitSlop={10}>
+                <Icon name="xmark" size={18} color={tokens.t3} />
+              </Pressable>
+            </View>
+            {applicableAds.length === 0 ? (
+              <Text style={{ color: tokens.t3, fontSize: fs(13), padding: 12, textAlign: 'center' }}>
+                No Applicable ADs found for this aircraft yet.
+              </Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 320 }}>
+                {applicableAds.map((ad) => (
+                  <Pressable
+                    key={ad.id}
+                    style={[styles.row, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
+                    onPress={() => { setLinkedAdNumber(ad.adNumber); setAdPickerVisible(false) }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.rowTitle, { color: tokens.blu, fontSize: fs(14) }]}>AD {ad.adNumber}</Text>
+                      <Text style={[styles.rowSub, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={2}>{ad.subjectHeading}</Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+    </>
+  )
+}
+
+const DATE_ROW_HEIGHT = 40
+const DATE_VISIBLE_ROWS = 5
+const CURRENT_YEAR = new Date().getFullYear()
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+// Reminders are near-term, forward-looking dates (recurring inspections,
+// AD compliance) -- CURRENT_YEAR-1 covers backfilling something already
+// slightly overdue, +15 comfortably covers even a long AD compliance
+// window without needing an unbounded wheel.
+const DATE_YEARS = Array.from({ length: 17 }, (_, i) => CURRENT_YEAR - 1 + i)
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate()
+}
+
+// Three-wheel month/day/year picker, same snap-scroll mechanics as
+// YearPickerModal above (see that component's comment for why plain
+// ScrollView + onMomentumScrollEnd + onScroll-debounce over a native
+// picker dependency). Reused wholesale here instead of a text input for
+// reminder due dates -- RC wanted a "real date picker," and free-text
+// YYYY-MM-DD entry was the thing being replaced.
+function DatePickerModal({
+  visible, initialDate, onClose, onSelect, tokens, fs,
+}: {
+  visible: boolean
+  initialDate: string
+  onClose: () => void
+  onSelect: (iso: string) => void
+  tokens: ReturnType<typeof useTheme>['tokens']
+  fs: (n: number) => number
+}) {
+  const parsed = DATE_RE.test(initialDate) ? new Date(initialDate + 'T00:00:00') : new Date()
+  const [month, setMonth] = useState(parsed.getMonth() + 1)
+  const [day, setDay] = useState(parsed.getDate())
+  const [year, setYear] = useState(parsed.getFullYear())
+
+  const monthRef = useRef<ScrollView>(null)
+  const dayRef = useRef<ScrollView>(null)
+  const yearRef = useRef<ScrollView>(null)
+  const settleRefs = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({})
+
+  useEffect(() => {
+    if (!visible) return
+    const d = DATE_RE.test(initialDate) ? new Date(initialDate + 'T00:00:00') : new Date()
+    setMonth(d.getMonth() + 1); setDay(d.getDate()); setYear(d.getFullYear())
+    const t = setTimeout(() => {
+      monthRef.current?.scrollTo({ y: (d.getMonth() + 1 - 1) * DATE_ROW_HEIGHT, animated: false })
+      dayRef.current?.scrollTo({ y: (d.getDate() - 1) * DATE_ROW_HEIGHT, animated: false })
+      yearRef.current?.scrollTo({ y: Math.max(0, DATE_YEARS.indexOf(d.getFullYear())) * DATE_ROW_HEIGHT, animated: false })
+    }, 50)
+    return () => clearTimeout(t)
+  }, [visible, initialDate])
+
+  const days = daysInMonth(year, month)
+  // Clamp day when switching to a shorter month (e.g. 31 -> Feb) so the
+  // wheel never shows a day that doesn't exist for the selected month/year.
+  useEffect(() => { if (day > days) setDay(days) }, [days, day])
+
+  const makeHandlers = (key: 'month' | 'day' | 'year', values: number[], setter: (v: number) => void) => {
+    const update = (offsetY: number) => {
+      const idx = Math.max(0, Math.min(values.length - 1, Math.round(offsetY / DATE_ROW_HEIGHT)))
+      setter(values[idx])
+    }
+    return {
+      onMomentumScrollEnd: (e: any) => update(e.nativeEvent.contentOffset.y),
+      onScroll: (e: any) => {
+        const offsetY = e.nativeEvent.contentOffset.y
+        if (settleRefs.current[key]) clearTimeout(settleRefs.current[key]!)
+        settleRefs.current[key] = setTimeout(() => update(offsetY), 120)
+      },
+    }
+  }
+
+  const monthValues = Array.from({ length: 12 }, (_, i) => i + 1)
+  const dayValues = Array.from({ length: days }, (_, i) => i + 1)
+  const wheelHeight = DATE_ROW_HEIGHT * DATE_VISIBLE_ROWS
+
+  const renderWheel = (
+    values: number[], selected: number, refObj: React.RefObject<ScrollView | null>,
+    handlers: ReturnType<typeof makeHandlers>, labelFor: (v: number) => string, flex: number,
+  ) => (
+    <View style={{ flex, height: wheelHeight }}>
+      <ScrollView
+        ref={refObj}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={DATE_ROW_HEIGHT}
+        decelerationRate="fast"
+        scrollEventThrottle={32}
+        contentContainerStyle={{ paddingVertical: DATE_ROW_HEIGHT * Math.floor(DATE_VISIBLE_ROWS / 2) }}
+        {...handlers}
+      >
+        {values.map((v) => (
+          <Pressable
+            key={v}
+            style={{ height: DATE_ROW_HEIGHT, alignItems: 'center', justifyContent: 'center' }}
+            onPress={() => refObj.current?.scrollTo({ y: values.indexOf(v) * DATE_ROW_HEIGHT, animated: true })}
+          >
+            <Text style={{ color: v === selected ? tokens.t1 : tokens.t3, fontWeight: v === selected ? '700' : '400', fontSize: fs(v === selected ? 16 : 13.5) }}>
+              {labelFor(v)}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </View>
+  )
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
         <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
           <View style={styles.modalHeader}>
-            <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>New Reminder</Text>
-            <Pressable onPress={onClose} hitSlop={10}>
-              <Icon name="xmark" size={18} color={tokens.t3} />
+            <Pressable onPress={onClose} hitSlop={10}><Text style={{ color: tokens.t3, fontSize: fs(14.5) }}>Cancel</Text></Pressable>
+            <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Due Date</Text>
+            <Pressable
+              onPress={() => { onSelect(toISODate(new Date(year, month - 1, Math.min(day, daysInMonth(year, month))))); onClose() }}
+              hitSlop={10}
+            >
+              <Text style={{ color: tokens.blu, fontWeight: '700', fontSize: fs(14.5) }}>Done</Text>
             </Pressable>
           </View>
-          <TextInput
-            value={title}
-            onChangeText={setTitle}
-            placeholder="What (e.g. ELT battery, Annual)"
-            placeholderTextColor={tokens.t3}
-            style={[styles.formInput, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }]}
-          />
-          <TextInput
-            value={dueDate}
-            onChangeText={setDueDate}
-            placeholder="Due date (YYYY-MM-DD)"
-            placeholderTextColor={tokens.t3}
-            style={[styles.formInput, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }]}
-            keyboardType="numbers-and-punctuation"
-          />
-          <TextInput
-            value={notes}
-            onChangeText={setNotes}
-            placeholder="Notes (optional)"
-            placeholderTextColor={tokens.t3}
-            style={[styles.formInput, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }]}
-          />
-          <Pressable style={[styles.addButton, { backgroundColor: tokens.blu }]} onPress={handleSave}>
-            <Text style={styles.addButtonText}>Save Reminder</Text>
-          </Pressable>
+          <View style={{ flexDirection: 'row', marginTop: 4 }}>
+            <View pointerEvents="none" style={{
+              position: 'absolute', left: 0, right: 0,
+              top: DATE_ROW_HEIGHT * Math.floor(DATE_VISIBLE_ROWS / 2), height: DATE_ROW_HEIGHT,
+              borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
+              borderColor: tokens.bdr, backgroundColor: tokens.bdim,
+            }} />
+            {renderWheel(monthValues, month, monthRef, makeHandlers('month', monthValues, setMonth), (v) => MONTH_NAMES[v - 1], 1.3)}
+            {renderWheel(dayValues, day, dayRef, makeHandlers('day', dayValues, setDay), (v) => String(v), 0.9)}
+            {renderWheel(DATE_YEARS, year, yearRef, makeHandlers('year', DATE_YEARS, setYear), (v) => String(v), 1.1)}
+          </View>
         </View>
       </View>
     </Modal>
@@ -340,6 +883,11 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   content: { padding: 16, paddingBottom: 40 },
+  relatedNote: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 7,
+    borderRadius: 10, borderWidth: 1, padding: 10, marginBottom: 10,
+  },
+  relatedNoteText: { flex: 1, lineHeight: 17 },
   acLine: { fontWeight: '700' },
   acSub: { marginTop: 2, marginBottom: 4 },
 
@@ -350,8 +898,21 @@ const styles = StyleSheet.create({
   disclaimerText: { flex: 1, lineHeight: 16 },
 
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, marginBottom: 8 },
+  sectionTitleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   groupLabel: { fontWeight: '600', letterSpacing: 0.5 },
+  sectionCount: { fontWeight: '600' },
   emptyHint: { lineHeight: 18, marginBottom: 4 },
+  unreadCountBadge: { minWidth: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
+  unreadCountText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  widenSearchCard: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 7,
+    borderRadius: 10, borderWidth: 1, padding: 10, marginBottom: 10,
+  },
+  widenSearchText: { flex: 1, lineHeight: 16 },
+  rangeRow: { flexDirection: 'row', gap: 6, marginBottom: 10 },
+  rangePill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1 },
+  rangePillText: { fontWeight: '600' },
+  unreadDot: { width: 7, height: 7, borderRadius: 3.5 },
 
   list: { borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14 },
@@ -370,6 +931,14 @@ const styles = StyleSheet.create({
   modalCard: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, padding: 18, gap: 10 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   modalTitle: { fontWeight: '700' },
+  formLabel: { fontWeight: '700', letterSpacing: 0.5, marginTop: 2 },
+  chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 4 },
+  typeChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderRadius: 16, borderWidth: 1, paddingHorizontal: 11, paddingVertical: 7,
+  },
+  typeChipText: { fontWeight: '600' },
+  dateField: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   formInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
   addButton: { borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   addButtonText: { color: '#fff', fontWeight: '600', fontSize: 14.5 },

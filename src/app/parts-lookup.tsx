@@ -7,7 +7,7 @@ import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
-import { searchParts, getAdsForPart, type AdPart, type PartMentionAd } from '@/lib/adParts'
+import { searchParts, getAdsForPart, bestMatchingToken, PART_TYPE_LABELS, type AdPart, type PartMentionAd, type PartComponentType } from '@/lib/adParts'
 
 // Tier boundary (revised 2026-07-28, see flyregs_decisions.md): general AD
 // lookup stays free tier-wide, but a specialized parts/component search is
@@ -15,9 +15,24 @@ import { searchParts, getAdsForPart, type AdPart, type PartMentionAd } from '@/l
 // tagging a specific aircraft with a part stays Premium, handled in
 // my-aircraft.tsx, not here -- this screen is pure retrieval.
 
-const TYPE_LABELS: Record<string, string> = {
-  engine: 'Engine', propeller: 'Propeller', avionics: 'Avionics',
-  airframe: 'Airframe', appliance: 'Appliance', other: 'Other',
+const TYPE_LABELS = PART_TYPE_LABELS
+
+// Bolds/colors the specific part number within a result's (often dense,
+// comma-separated) name that actually matched the search -- RC, live, on a
+// screenshot of a long multi-part-number listing: "there's so many
+// condensed numbers on screen, maybe we can 'suggest' correct answer by
+// highlighting them in some way to make it easier for the user?"
+function HighlightedPartName({ name, words, color, style }: { name: string; words: string[]; color: string; style: object }) {
+  const match = bestMatchingToken(name, words)?.trim()
+  const idx = match ? name.indexOf(match) : -1
+  if (!match || idx === -1) return <Text style={style}>{name}</Text>
+  return (
+    <Text style={style}>
+      {name.slice(0, idx)}
+      <Text style={{ color, fontWeight: '800' }}>{match}</Text>
+      {name.slice(idx + match.length)}
+    </Text>
+  )
 }
 
 export default function PartsLookupScreen() {
@@ -25,7 +40,14 @@ export default function PartsLookupScreen() {
   const fs = useFS()
   const { hasPlusAccess } = useAuth()
   const [query, setQuery] = useState('')
+  const queryWords = query.trim().split(/\s+/).filter(Boolean)
   const [results, setResults] = useState<AdPart[]>([])
+  const [relatedTo, setRelatedTo] = useState<PartComponentType | null>(null)
+  const [partialMatch, setPartialMatch] = useState<{ droppedWords: string[]; usedWords: string[] } | null>(null)
+  // Parts Lookup is FREE, like the AD list itself -- but free results are
+  // capped the same way, so the value of the full list stays behind the
+  // paywall without hiding the feature's existence from anyone.
+  const FREE_RESULT_CAP = 5
   const [searching, setSearching] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [adsByPart, setAdsByPart] = useState<Record<string, PartMentionAd[]>>({})
@@ -35,12 +57,14 @@ export default function PartsLookupScreen() {
 
   const runSearch = useCallback((q: string) => {
     const trimmed = q.trim()
-    if (trimmed.length < 2) { seq.current++; setResults([]); setSearching(false); return }
+    if (trimmed.length < 2) { seq.current++; setResults([]); setRelatedTo(null); setPartialMatch(null); setSearching(false); return }
     const mySeq = ++seq.current
     setSearching(true)
-    searchParts(trimmed).then((hits) => {
+    searchParts(trimmed).then(({ results: hits, relatedTo: rel, partialMatch: partial }) => {
       if (mySeq !== seq.current) return
       setResults(hits)
+      setRelatedTo(rel)
+      setPartialMatch(partial)
       setSearching(false)
     }).catch(() => setSearching(false))
   }, [])
@@ -63,24 +87,6 @@ export default function PartsLookupScreen() {
     }
   }
 
-  if (!hasPlusAccess) {
-    return (
-      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-        <OverlayHeader title="Parts Lookup" onBack={() => router.back()} />
-        <View style={styles.center}>
-          <Icon name="lock.fill" size={36} color={tokens.blu} />
-          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Parts Lookup is a Plus feature</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-            Search Airworthiness Directives by named part or component — engines, propellers, avionics, and more —
-            not just aircraft model or AD number.
-          </Text>
-          <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall?tier=plus')}>
-            <Text style={styles.upgradeBtnText}>Unlock Plus</Text>
-          </Pressable>
-        </View>
-      </View>
-    )
-  }
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
@@ -129,9 +135,39 @@ export default function PartsLookupScreen() {
         ) : (
           <FlatList
             style={styles.flatList}
-            data={results}
+            data={hasPlusAccess ? results : results.slice(0, FREE_RESULT_CAP)}
             keyExtractor={(p) => p.id}
             contentContainerStyle={styles.list}
+            ListHeaderComponent={
+              partialMatch ? (
+                <View style={[styles.relatedNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                  <Icon name="info.circle" size={14} color={tokens.t3} />
+                  <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                    No direct match for "{partialMatch.droppedWords.join(' ')}" — showing results for "{partialMatch.usedWords.join(' ')}" instead. Double-check the model number?
+                  </Text>
+                </View>
+              ) : relatedTo ? (
+                <View style={[styles.relatedNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                  <Icon name="info.circle" size={14} color={tokens.t3} />
+                  <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                    No exact match for "{query.trim()}" — showing {TYPE_LABELS[relatedTo]} parts, the closest category.
+                  </Text>
+                </View>
+              ) : null
+            }
+            ListFooterComponent={
+              !hasPlusAccess && results.length > FREE_RESULT_CAP ? (
+                <Pressable
+                  style={[styles.moreRow, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
+                  onPress={() => router.push('/paywall?tier=plus')}
+                >
+                  <Icon name="lock.fill" size={14} color={tokens.gold} />
+                  <Text style={[styles.moreText, { color: tokens.t2, fontSize: fs(13) }]}>
+                    {results.length - FREE_RESULT_CAP} more {results.length - FREE_RESULT_CAP === 1 ? 'part' : 'parts'} match — unlock Plus to see them all
+                  </Text>
+                </Pressable>
+              ) : null
+            }
             renderItem={({ item }) => {
               const expanded = expandedId === item.id
               const ads = adsByPart[item.id] ?? []
@@ -142,7 +178,12 @@ export default function PartsLookupScreen() {
                     onPress={() => togglePart(item)}
                   >
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.partName, { color: tokens.t1, fontSize: fs(14.5) }]}>{item.name}</Text>
+                      <HighlightedPartName
+                        name={item.name}
+                        words={queryWords}
+                        color={tokens.blu}
+                        style={[styles.partName, { color: tokens.t1, fontSize: fs(14.5) }]}
+                      />
                       <Text style={[styles.partMeta, { color: tokens.t3, fontSize: fs(12) }]}>
                         {TYPE_LABELS[item.componentType] ?? item.componentType}
                         {item.manufacturer ? ` · ${item.manufacturer}` : ''}
@@ -187,6 +228,16 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 8 },
   emptyTitle: { fontWeight: '600', marginTop: 6 },
   emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 320 },
+  moreRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderRadius: 12, borderWidth: 1, padding: 13, marginTop: 10,
+  },
+  moreText: { flex: 1, fontWeight: '500', lineHeight: 18 },
+  relatedNote: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 7,
+    borderRadius: 10, borderWidth: 1, padding: 10, marginBottom: 10,
+  },
+  relatedNoteText: { flex: 1, lineHeight: 17 },
   upgradeBtn: { borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12, marginTop: 12 },
   upgradeBtnText: { color: '#fff', fontWeight: '700', fontSize: 14.5 },
 
