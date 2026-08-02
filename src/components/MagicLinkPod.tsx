@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
-import { View, Text, Pressable, StyleSheet } from 'react-native'
+import { useState, useEffect, useRef } from 'react'
+import { View, Text, Pressable, StyleSheet, Modal, Dimensions, GestureResponderEvent } from 'react-native'
 import { router } from 'expo-router'
 import Reanimated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
+import * as Haptics from 'expo-haptics'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
@@ -82,15 +83,17 @@ interface BarDef {
 // behind a same-shaped inner panel inset by exactly the border's own width,
 // so only a thin ring of the moving gradient is ever visible. Counts always
 // show for every user (matches the existing "0 when empty" pattern
-// app-wide) -- but the expand-and-navigate action is Plus-gated, per the
-// 2026-07-26 tier decision (see flyregs_decisions.md): the cross-reference
-// convenience is the paywalled thing, not the fact that connections exist.
+// app-wide) -- but the expand-and-navigate action is Pro-gated (RC,
+// 2026-07-31: "ML has to at least be Pro tier" -- the earlier Plus gate,
+// from the 2026-07-26 tier decision in flyregs_decisions.md, was corrected
+// up a tier): the cross-reference convenience is the paywalled thing, not
+// the fact that connections exist.
 export function MagicLinkPod({
-  bars, currentLabel, hasPlusAccess,
+  bars, currentLabel, hasProAccess,
 }: {
   bars: BarDef[]
   currentLabel?: string
-  hasPlusAccess: boolean
+  hasProAccess: boolean
 }) {
   const { tokens, resolved } = useTheme()
   const fs = useFS()
@@ -217,7 +220,7 @@ export function MagicLinkPod({
               bar={bar}
               isLast={i === bars.length - 1}
               currentLabel={currentLabel}
-              hasPlusAccess={hasPlusAccess}
+              hasProAccess={hasProAccess}
               tokens={tokens}
             />
           ))}
@@ -226,48 +229,100 @@ export function MagicLinkPod({
   )
 }
 
+// (table, key column, title column) for every cited_type that has one --
+// pcg deliberately excluded, its cited_id is already the human-readable
+// term (see the fetch effect below).
+const TITLE_SOURCE: Partial<Record<string, [string, string, string]>> = {
+  far: ['far_sections', 'section_number', 'title'],
+  aim: ['aim_paragraphs', 'paragraph_number', 'title'],
+  ac: ['advisory_circulars', 'document_number', 'title'],
+  ad: ['airworthiness_directives', 'ad_number', 'subject_heading'],
+  loi: ['legal_interpretations', 'slug', 'title'],
+}
+
 function PodRow({
-  bar, isLast, currentLabel, hasPlusAccess, tokens,
+  bar, isLast, currentLabel, hasProAccess, tokens,
 }: {
   bar: BarDef
   isLast: boolean
   currentLabel?: string
-  hasPlusAccess: boolean
+  hasProAccess: boolean
   tokens: ReturnType<typeof useTheme>['tokens']
 }) {
   const fs = useFS()
   const [expanded, setExpanded] = useState(false)
-  const [loiTitles, setLoiTitles] = useState<Record<string, string>>({})
+  const [titles, setTitles] = useState<Record<string, string>>({})
+  const [preview, setPreview] = useState<{ x: number; y: number; text: string } | null>(null)
+  // Pressable's onPress fires on release regardless of whether onLongPress
+  // already fired -- without this guard, releasing a long-press to dismiss
+  // the preview card would ALSO navigate away, immediately undoing the
+  // "just let me peek" point of the feature.
+  const longPressFired = useRef(false)
   const count = bar.items.length
   const hasItems = count > 0
 
   const handlePressBar = () => {
     if (!hasItems) return
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setExpanded((e) => !e)
   }
 
-  // LOI item labels previously showed ONLY item.label -- confirmed a real
-  // bug live: unlike every other cited_type (where cited_id alone is
-  // self-explanatory, e.g. "91.107" or "120-49B"), an LOI's cited_id is an
-  // opaque slug and its label is just the paragraph suffix ("(b)"), so a
-  // "Related LOIs" bar showed nothing but "(b)", "(e)", "(e),(f)" with no
-  // way to tell which letter was which. Fetch real titles once per
-  // expand, only for the LOI items actually present in this bar.
+  // Item rows previously showed only the bare number (item.label is always
+  // null -- every citation writer sets it that way, see e.g.
+  // aim_far_citations.py) -- confirmed live, RC: "offer some textual
+  // elaboration on the regs, so users have a sense of what info is linked,
+  // other than just the numbers." LOI already had its own one-off version
+  // of this (its cited_id is an opaque slug, unreadable on its own);
+  // generalized to every type that has a real title field. Fetched once
+  // per expand, scoped to only the items actually present in this bar.
   useEffect(() => {
     if (!expanded) return
-    const loiIds = bar.items.filter((it) => it.cited_type === 'loi').map((it) => it.cited_id)
-    if (loiIds.length === 0) return
-    supabase.from('legal_interpretations').select('slug, title').in('slug', loiIds)
-      .then(({ data }) => {
-        if (!data) return
-        const map: Record<string, string> = {}
-        for (const row of data as { slug: string; title: string }[]) {
-          map[row.slug] = row.title.replace(/_Legal_Interpretation$/i, '').replace(/_/g, ' ')
-        }
-        setLoiTitles(map)
+    const byType = new Map<string, string[]>()
+    for (const it of bar.items) {
+      if (!TITLE_SOURCE[it.cited_type]) continue
+      const list = byType.get(it.cited_type) ?? []
+      list.push(it.cited_id)
+      byType.set(it.cited_type, list)
+    }
+    if (byType.size === 0) return
+    Promise.all(
+      Array.from(byType.entries()).map(async ([citedType, ids]) => {
+        const [table, keyCol, titleCol] = TITLE_SOURCE[citedType]!
+        // Supabase's typed .select() tries to statically parse the column
+        // list at the type level -- a dynamic template literal can't be
+        // parsed that way, hence the `as any` escape hatch (same pattern
+        // as other genuinely-dynamic-column selects elsewhere in the app).
+        const { data } = await supabase.from(table).select(`${keyCol}, ${titleCol}` as any).in(keyCol, ids)
+        return { citedType, data: (data ?? []) as unknown as Record<string, string>[], keyCol, titleCol }
       })
+    ).then((results) => {
+      const map: Record<string, string> = {}
+      for (const { citedType, data, keyCol, titleCol } of results) {
+        for (const row of data) {
+          let title = row[titleCol] ?? ''
+          if (citedType === 'loi') title = title.replace(/_Legal_Interpretation$/i, '').replace(/_/g, ' ')
+          map[`${citedType}-${row[keyCol]}`] = title
+        }
+      }
+      setTitles(map)
+    })
   }, [expanded, bar.items])
+
+  const titleFor = (item: RelatedItem): string | null => {
+    if (item.cited_type === 'pcg') return item.cited_id.replace(/_/g, ' ')
+    return titles[`${item.cited_type}-${item.cited_id}`] ?? null
+  }
+
+  const primaryFor = (item: RelatedItem): string =>
+    item.cited_type === 'loi' ? (titleFor(item) ?? item.cited_id) : item.label ?? item.cited_id
+
+  const showPreview = (item: RelatedItem, e: GestureResponderEvent) => {
+    const title = item.cited_type === 'loi' ? null : titleFor(item)
+    if (!title) return // nothing extra to elaborate on, or not loaded yet -- don't show an empty card
+    longPressFired.current = true
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    setPreview({ x: e.nativeEvent.pageX, y: e.nativeEvent.pageY, text: title })
+  }
 
   return (
     <View>
@@ -279,34 +334,68 @@ function PodRow({
         <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(13) }]}>{bar.label}</Text>
         <View style={{ flex: 1 }} />
         <Text style={[styles.rowCount, { color: hasItems ? tokens.gold : tokens.t3, fontSize: fs(12.5) }]}>{count}</Text>
-        {hasItems && !hasPlusAccess ? (
+        {hasItems && !hasProAccess ? (
           <Icon name="lock.fill" size={11} color={tokens.t4} />
         ) : hasItems ? (
           <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={12} color={tokens.t4} />
         ) : null}
       </Pressable>
 
-      {expanded && hasItems && hasPlusAccess && (
+      {expanded && hasItems && hasProAccess && (
         <View style={[styles.expandedList, { borderBottomColor: tokens.bdr }, isLast && styles.expandedListLast]}>
           {bar.items.map((item, i) => (
             <Pressable
               key={`${item.cited_type}-${item.cited_id}-${i}`}
               style={[styles.expandedRow, i > 0 && { borderTopColor: tokens.bdr, borderTopWidth: StyleSheet.hairlineWidth }]}
               onPress={() => {
+                if (longPressFired.current) { longPressFired.current = false; return }
                 if (currentLabel) setPendingBreadcrumb(currentLabel)
                 router.push(routeForCitedItem(item.cited_type, item.cited_id) as any)
               }}
+              onLongPress={(e) => showPreview(item, e)}
+              onPressOut={() => setPreview(null)}
+              delayLongPress={350}
             >
-              <Text style={[styles.expandedLabel, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={1}>
-                {item.cited_type === 'loi'
-                  ? (loiTitles[item.cited_id] ?? item.cited_id) + (item.label ? ` — ${item.label}` : '')
-                  : item.label ?? item.cited_id}
-              </Text>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.expandedLabel, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={1}>
+                  {primaryFor(item)}
+                </Text>
+                {item.cited_type !== 'loi' && !!titleFor(item) && (
+                  <Text style={[styles.expandedTitle, { color: tokens.t4, fontSize: fs(11) }]} numberOfLines={1}>
+                    {titleFor(item)}
+                  </Text>
+                )}
+              </View>
               <Icon name="chevron.right" size={12} color={tokens.t4} />
             </Pressable>
           ))}
         </View>
       )}
+
+      {/* Modal, not an absolutely-positioned sibling View -- MagicLinkPod's
+          own outer container clips with overflow:hidden (needed for the
+          rotating border), which would silently clip a same-tree popup
+          the instant it tried to render above the pod's own top edge, the
+          most common case for a row near the top of the expanded list. */}
+      <Modal visible={!!preview} transparent animationType="none">
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setPreview(null)}>
+          {preview && (
+            <View
+              style={[
+                styles.previewCard,
+                {
+                  backgroundColor: tokens.bg3,
+                  borderColor: tokens.bdr,
+                  left: Math.min(Math.max(preview.x - 120, 12), Dimensions.get('window').width - 252),
+                  top: Math.max(preview.y - 64, 12),
+                },
+              ]}
+            >
+              <Text style={[styles.previewText, { color: tokens.t1, fontSize: fs(13) }]}>{preview.text}</Text>
+            </View>
+          )}
+        </Pressable>
+      </Modal>
     </View>
   )
 }
@@ -371,4 +460,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 9, marginHorizontal: 8,
   },
   expandedLabel: { flex: 1, marginRight: 8 },
+  expandedTitle: { marginTop: 1 },
+  previewCard: {
+    position: 'absolute',
+    maxWidth: 240,
+    minWidth: 100,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 6,
+  },
+  previewText: { fontWeight: '600' },
 })
