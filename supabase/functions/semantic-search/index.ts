@@ -34,7 +34,17 @@ const MAX_MATCH_COUNT = 30
 // per-document dedup so one very-relevant document can't crowd out
 // everything else; the real fix is asking Postgres for more than the
 // client-facing result count and trimming here.
-const RAW_FETCH_MULTIPLIER = 3
+// Widened from 3 to 8, 2026-08-02: several broad conceptual queries had
+// their genuinely best-matching FAR/AIM/PCG/AC document sitting just
+// outside the raw candidate window entirely -- e.g. AC 90-120 (literally
+// titled "Operational Use of Airborne Collision Avoidance Systems") never
+// appeared for "what guidance exists on installing airborne collision
+// avoidance systems?" even after the AD priority discount below, because
+// it wasn't in the top matchCount*3 raw pgvector matches to begin with.
+// A wider raw pool costs nothing extra (pgvector KNN over 46K rows is
+// effectively free regardless of LIMIT) and gives the priority discount
+// and per-document dedup more real candidates to actually choose from.
+const RAW_FETCH_MULTIPLIER = 8
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
@@ -134,7 +144,9 @@ Deno.serve(async (req: Request) => {
   }> = await rpcRes.json()
 
   // Dedup to one (best) chunk per real document, preserving similarity
-  // order -- see RAW_FETCH_MULTIPLIER's own comment.
+  // order -- see RAW_FETCH_MULTIPLIER's own comment. Not yet trimmed to
+  // matchCount -- the priority re-rank below needs the full deduped set
+  // to work with before the final cut.
   const seen = new Set<string>()
   const deduped: typeof rawResults = []
   for (const r of rawResults) {
@@ -142,8 +154,27 @@ Deno.serve(async (req: Request) => {
     if (seen.has(key)) continue
     seen.add(key)
     deduped.push(r)
-    if (deduped.length >= matchCount) break
   }
 
-  return jsonResponse({ results: deduped })
+  // RC: "the majority of AFR query material will come from FAR, AIM, P/CG,
+  // ACs. The ADs and LOIs do need to be included... but hardly the
+  // priority result in most cases." Found live: broad conceptual queries
+  // returned only AD results at mediocre similarity (0.40-0.57), crowding
+  // out real FAR/AIM/PCG/AC matches in the same range -- AD's sheer volume
+  // (15,983 of 46,270 chunks corpus-wide) statistically wins slots in the
+  // shared embedding space regardless of topical fit. A flat discount
+  // (not a hard partition) so a genuinely dominant AD/LOI match -- "AD for
+  // Lycoming crankshafts" scored 0.713, far above anything else for that
+  // query -- still wins outright, while a borderline one drops back below
+  // the FAR/AIM/PCG/AC match it was crowding out. Applied only for
+  // ranking; `similarity` shown to the client stays the real score.
+  const DEPRIORITIZED_TYPES = new Set(['ad', 'loi'])
+  const RANK_DISCOUNT = 0.08
+  const reranked = deduped
+    .map((r) => ({ r, rankScore: r.similarity - (DEPRIORITIZED_TYPES.has(r.source_type) ? RANK_DISCOUNT : 0) }))
+    .sort((a, b) => b.rankScore - a.rankScore)
+    .slice(0, matchCount)
+    .map((x) => x.r)
+
+  return jsonResponse({ results: reranked })
 })

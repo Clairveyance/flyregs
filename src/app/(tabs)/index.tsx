@@ -732,7 +732,15 @@ export default function HomeScreen() {
 
     for (let tier = 0; tier <= 5; tier++) {
       const a = acScored.filter((x) => x.tier === tier)
-      const b = otherScored.filter((x) => x.tier === tier)
+      // RC: "the majority of AFR query material will come from FAR, AIM,
+      // P/CG, ACs. The ADs and LOIs do need to be included... but hardly
+      // the priority result in most cases." A stable sort (guaranteed
+      // order-preserving for equal keys since ES2019) pushes AD entries to
+      // the back of THIS tier's other-source bucket without touching
+      // relative order among everything else, or disturbing which tier any
+      // result lands in -- the tier computation above (anchors, viaTerm
+      // rescue, etc.) is untouched.
+      const b = otherScored.filter((x) => x.tier === tier).sort((x, y) => (x.r.type === 'ad' ? 1 : 0) - (y.r.type === 'ad' ? 1 : 0))
       const max = Math.max(a.length, b.length)
       for (let i = 0; i < max; i++) {
         if (i < a.length) rows.push({ key: `ac-${a[i].r.id}`, ac: a[i].r, other: null, tier, ord: nextOrd(tier) })
