@@ -6,6 +6,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { TabletContainer } from '@/components/TabletContainer'
+import { DictionarySearchBar } from '@/components/DictionarySearchBar'
 
 interface DictTermRow {
   term: string
@@ -32,6 +33,7 @@ export default function DictionaryLetterScreen() {
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title={`Aviation Dictionary — ${letter}`} onBack={() => router.back()} />
+      <DictionarySearchBar />
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />

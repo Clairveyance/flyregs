@@ -13,6 +13,7 @@ import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { addRecent } from '@/lib/recents'
 import { linkifyText } from '@/lib/crossRefLinks'
 import { PrevNextFooter } from '@/components/DocNavBar'
+import { DictionarySearchBar } from '@/components/DictionarySearchBar'
 import { MNEMONIC_GROUP_ORDER, MNEMONIC_UNGROUPED } from './index'
 
 interface BreakdownItem {
@@ -245,6 +246,7 @@ export default function DictionaryTermScreen() {
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title="Aviation Dictionary" onBack={() => router.back()} right={headerRight} />
+      <DictionarySearchBar />
       {slug && (
         <FolderPicker
           visible={folderPickerVisible}
