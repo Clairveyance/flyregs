@@ -10,6 +10,7 @@ import {
   getMyChallenges, getChallengeableUsers, createChallenge, respondToChallenge, getDuelStats, sendDuelPush,
   MyChallenge, ChallengeableUser, DuelStats, DuelItemType, KnowledgeLevel, KNOWLEDGE_LEVEL_LABELS,
 } from '@/lib/challenges'
+import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS } from '@/lib/profileRatings'
 
 const QUESTION_COUNTS = [3, 5, 10]
 const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac']
@@ -22,7 +23,7 @@ const MAX_OPPONENTS = 7
 export default function ChallengesScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasPlusAccess } = useAuth()
+  const { isPremium } = useAuth()
   const [challenges, setChallenges] = useState<MyChallenge[]>([])
   const [myStats, setMyStats] = useState<DuelStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -32,22 +33,36 @@ export default function ChallengesScreen() {
   const [questionCount, setQuestionCount] = useState(5)
   const [activeTypes, setActiveTypes] = useState<DuelItemType[]>([])
   const [activeLevels, setActiveLevels] = useState<KnowledgeLevel[]>([])
+  const [activeCategoryClasses, setActiveCategoryClasses] = useState<CategoryClass[]>([])
   const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   // ALL and individual chips are mutually exclusive: ALL can't be "pared
   // down" (it already means everything), so picking any individual chip
   // starts a fresh explicit selection and picking ALL clears it -- see
   // study.tsx's identical fix for why (both could render as selected at
   // once before, confirmed confusing live).
+  // Any filter change invalidates a "no questions match those filters"
+  // error -- leaving it up while the player fixes the selection reads as
+  // though the fix didn't work.
   const toggleType = (t: DuelItemType) => {
+    setCreateError(null)
     setActiveTypes((prev) =>
       prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
     )
   }
 
   const toggleLevel = (l: KnowledgeLevel) => {
+    setCreateError(null)
     setActiveLevels((prev) =>
       prev.includes(l) ? prev.filter((x) => x !== l) : [...prev, l]
+    )
+  }
+
+  const toggleCategoryClass = (c: CategoryClass) => {
+    setCreateError(null)
+    setActiveCategoryClasses((prev) =>
+      prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
     )
   }
 
@@ -57,11 +72,12 @@ export default function ChallengesScreen() {
     getDuelStats().then(setMyStats)
   }, [])
 
-  useFocusEffect(useCallback(() => { if (hasPlusAccess) load() }, [hasPlusAccess, load]))
+  useFocusEffect(useCallback(() => { if (isPremium) load() }, [isPremium, load]))
 
   const openPicker = () => {
     getChallengeableUsers().then(setOpponents)
     setSelectedOpponents([])
+    setCreateError(null)
     setPickerVisible(true)
   }
 
@@ -76,38 +92,59 @@ export default function ChallengesScreen() {
     })
   }
 
+  // Shown INLINE in the sheet rather than via Alert.alert: the only failure
+  // a player can actually act on is "no questions match those filters", and
+  // the fix is two inches above the button they just pressed. (Alert is also
+  // a no-op on react-native-web, so the preview showed no feedback at all.)
   const handleStartDuel = async () => {
     if (selectedOpponents.length === 0 || creating) return
     setCreating(true)
+    setCreateError(null)
     try {
-      const id = await createChallenge(selectedOpponents, questionCount, activeTypes, activeLevels)
+      const id = await createChallenge(selectedOpponents, questionCount, activeTypes, activeLevels, activeCategoryClasses)
       setPickerVisible(false)
       sendDuelPush(id, 'invited')
       router.push(`/challenges/${id}` as any)
     } catch (err: any) {
-      Alert.alert('Error', err?.message ?? 'Could not create the duel.')
+      setCreateError(err?.message ?? 'Could not create the duel.')
     }
     setCreating(false)
   }
 
+  // respond_to_challenge legitimately rejects now (the duel finished or was
+  // cancelled while this invite sat in the list), so this can't be a bare
+  // await -- an unhandled rejection here used to leave the row looking
+  // untouched with no explanation.
   const handleRespond = async (c: MyChallenge, accept: boolean) => {
-    await respondToChallenge(c.challengeId, accept)
+    try {
+      await respondToChallenge(c.challengeId, accept)
+    } catch (err: any) {
+      Alert.alert('Duel unavailable', err?.message ?? 'That duel is no longer available.')
+      load()
+      return
+    }
     if (accept) {
       sendDuelPush(c.challengeId, 'accepted')
       router.push(`/challenges/${c.challengeId}` as any)
     } else load()
   }
 
-  if (!hasPlusAccess) {
+  if (!isPremium) {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>
         <OverlayHeader title="Duels" onBack={() => router.back()} />
         <View style={styles.center}>
           <Icon name="lock.fill" size={36} color={tokens.blu} />
-          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Duels are a Pro feature</Text>
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Duels are a Premium feature</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             Challenge 1-7 other pilots to a free-for-all multiple-choice quiz across FAR, AIM, P/CG, and ACs — most correct answers wins, with time as the tiebreaker.
           </Text>
+          {/* This lock screen had no CTA at all -- a free user who found
+              Duels hit a dead end with no way to unlock it, unlike Study
+              Mode's lock right next to it. */}
+          <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall?tier=premium')}>
+            <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Premium</Text>
+          </Pressable>
         </View>
       </View>
     )
@@ -190,7 +227,7 @@ export default function ChallengesScreen() {
                   styles.countChip,
                   { backgroundColor: activeTypes.length === 0 ? tokens.goldlt : tokens.bg2, borderColor: activeTypes.length === 0 ? tokens.goldbdr : tokens.bdr },
                 ]}
-                onPress={() => setActiveTypes([])}
+                onPress={() => { setCreateError(null); setActiveTypes([]) }}
               >
                 <Text style={[styles.countChipText, { color: activeTypes.length === 0 ? tokens.gold : tokens.t3, fontSize: fs(13) }]}>ALL</Text>
               </Pressable>
@@ -224,7 +261,7 @@ export default function ChallengesScreen() {
                   styles.countChip,
                   { backgroundColor: activeLevels.length === 0 ? tokens.bdim : tokens.bg2, borderColor: activeLevels.length === 0 ? tokens.blu : tokens.bdr },
                 ]}
-                onPress={() => setActiveLevels([])}
+                onPress={() => { setCreateError(null); setActiveLevels([]) }}
               >
                 <Text style={[styles.countChipText, { color: activeLevels.length === 0 ? tokens.blu : tokens.t3, fontSize: fs(13) }]}>ALL</Text>
               </Pressable>
@@ -240,6 +277,37 @@ export default function ChallengesScreen() {
                     onPress={() => toggleLevel(l)}
                   >
                     <Text style={[styles.countChipText, { color: active ? tokens.blu : tokens.t3, fontSize: fs(13) }]}>{KNOWLEDGE_LEVEL_LABELS[l]}</Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+
+            {/* Green accent, same as Study Mode's own Category/Class row --
+                keeps an ASEL-only opponent from getting quizzed on
+                glider/helicopter-specific material and vice versa. */}
+            <Text style={[styles.modalLabel, { color: tokens.grn, fontSize: fs(11), marginTop: 14 }]}>CATEGORY / CLASS</Text>
+            <View style={styles.countRow}>
+              <Pressable
+                style={[
+                  styles.countChip,
+                  { backgroundColor: activeCategoryClasses.length === 0 ? tokens.bdim : tokens.bg2, borderColor: activeCategoryClasses.length === 0 ? tokens.grn : tokens.bdr },
+                ]}
+                onPress={() => { setCreateError(null); setActiveCategoryClasses([]) }}
+              >
+                <Text style={[styles.countChipText, { color: activeCategoryClasses.length === 0 ? tokens.grn : tokens.t3, fontSize: fs(13) }]}>ALL</Text>
+              </Pressable>
+              {CATEGORY_CLASSES.map((c) => {
+                const active = activeCategoryClasses.includes(c)
+                return (
+                  <Pressable
+                    key={c}
+                    style={[
+                      styles.countChip,
+                      { backgroundColor: active ? tokens.bdim : tokens.bg2, borderColor: active ? tokens.grn : tokens.bdr },
+                    ]}
+                    onPress={() => toggleCategoryClass(c)}
+                  >
+                    <Text style={[styles.countChipText, { color: active ? tokens.grn : tokens.t3, fontSize: fs(13) }]}>{RATING_SHORT_LABELS[c]}</Text>
                   </Pressable>
                 )
               })}
@@ -278,6 +346,13 @@ export default function ChallengesScreen() {
               })
             )}
 
+            {createError && (
+              <View style={[styles.createError, { backgroundColor: tokens.bg2, borderColor: tokens.red }]}>
+                <Icon name="exclamationmark.triangle" size={14} color={tokens.red} />
+                <Text style={[styles.createErrorText, { color: tokens.t2, fontSize: fs(12.5) }]}>{createError}</Text>
+              </View>
+            )}
+
             {selectedOpponents.length > 0 && (
               <Pressable
                 style={[styles.startBtn, { backgroundColor: tokens.gold, opacity: creating ? 0.6 : 1 }]}
@@ -313,8 +388,12 @@ function ChallengeRow({
     ? item.others.map((o) => o.label).join(', ')
     : `${item.others.slice(0, 2).map((o) => o.label).join(', ')} +${item.others.length - 2} more`
 
+  // 'cancelled' had no case here and fell through to the "x/y answered"
+  // label, which read as an in-progress duel. It's a real state now: the DB
+  // cancels a duel once every invitee has declined (migrations_duels_2.sql).
   const statusLabel =
-    item.status === 'completed' ? 'Completed'
+    item.status === 'cancelled' ? (item.myStatus === 'declined' ? 'You declined' : 'Cancelled — nobody accepted')
+    : item.status === 'completed' ? 'Completed'
     : isPendingForMe ? `${item.others.find((o) => o.status !== 'pending')?.label ?? 'Someone'} wants to duel you`
     : pendingOthers.length > 0 && acceptedOthers.length === 0 ? 'Waiting for them to accept'
     : `${item.myAnsweredCount}/${item.questionCount} answered · ${acceptedOthers.length} of ${item.others.length} joined`
@@ -360,6 +439,8 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
   emptyTitle: { fontWeight: '600', marginTop: 6 },
+  upgradeBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
+  upgradeBtnText: { color: '#fff', fontWeight: '700' },
   emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },
 
   myStatsBar: {
@@ -395,6 +476,11 @@ const styles = StyleSheet.create({
   },
   checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   opponentText: { fontWeight: '500', flex: 1 },
+  createError: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderRadius: 12, borderWidth: 1, padding: 11, marginTop: 14,
+  },
+  createErrorText: { flex: 1, lineHeight: 17 },
   startBtn: { borderRadius: 20, alignItems: 'center', paddingVertical: 13, marginTop: 16 },
   startBtnText: { color: '#000', fontWeight: '800', letterSpacing: 0.6, fontSize: 13.5 },
 })

@@ -37,7 +37,11 @@ export const COIN_CATALOG: CoinDef[] = [
   { code: 'STREAK_90', name: '90-Day Currency', description: '90 consecutive days — real aviation currency, matched', icon: 'airplane.circle.fill', tier: 'gold' },
   { code: 'MASTERY_25', name: 'Quarter Century', description: '25 P/CG terms mastered', icon: 'graduationcap.fill', tier: 'bronze' },
   { code: 'MASTERY_100', name: 'Century', description: '100 P/CG terms mastered', icon: 'trophy.fill', tier: 'silver' },
-  { code: 'DUEL_FIRST_WIN', name: 'First Blood', description: 'Won your first Duel', icon: 'bolt.fill', tier: 'bronze' },
+  // 'target' not 'bolt.fill' -- the bolt is Duels' own icon everywhere else
+  // in the app (ready-room, account, search, challenges); reusing it here
+  // made this coin look like a generic Duels badge instead of its own
+  // achievement. Confirmed live: "use a diff icon for this one."
+  { code: 'DUEL_FIRST_WIN', name: 'First Blood', description: 'Won your first Duel', icon: 'target', tier: 'bronze' },
   { code: 'DUEL_5_WINS', name: 'Squadron Leader', description: '5 Duel wins', icon: 'shield.fill', tier: 'silver' },
   { code: 'DUEL_25_WINS', name: 'Top Gun', description: '25 Duel wins', icon: 'rosette', tier: 'gold' },
 ]

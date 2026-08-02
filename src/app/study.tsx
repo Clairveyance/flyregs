@@ -1,21 +1,37 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert } from 'react-native'
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated'
-import { router } from 'expo-router'
+import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, withRepeat, Easing } from 'react-native-reanimated'
+import { router, useLocalSearchParams } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
-import { getStudyQueue, recordStudyReview, getStudyMastery, getCurrency, StudyCard, StudyMastery, Currency, StudyItemType } from '@/lib/study'
-import { COIN_BY_CODE } from '@/lib/coins'
+import { getStudyQueue, getStudyPoolCount, recordStudyReview, getStudyMastery, getCurrency, getAimFacts, StudyCard, StudyMastery, Currency, StudyItemType, StudyFact } from '@/lib/study'
+import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
+import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { KnowledgeLevel, KNOWLEDGE_LEVEL_LABELS } from '@/lib/challenges'
+import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS } from '@/lib/profileRatings'
+import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
+import { buildStudyCard, type QuizSourceType } from '@/lib/quizQuestion'
 
 const TYPE_LABEL: Record<StudyItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC' }
 const ALL_TYPES: StudyItemType[] = ['far', 'aim', 'pcg', 'ac']
 const ALL_LEVELS: KnowledgeLevel[] = ['student', 'private', 'commercial', 'atp', 'cfi', 'mechanic']
+
+// Neutral starting tone for the mastery ring at 0% -- interpolated toward
+// tokens.gold as mastery % rises (see masteryGlow above).
+const MASTERY_RING_DULL = '#5a5a62'
+
+function lerpColor(a: string, b: string, t: number): string {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16)
+  const ar = (pa >> 16) & 255, ag = (pa >> 8) & 255, ab = pa & 255
+  const br = (pb >> 16) & 255, bg = (pb >> 8) & 255, bb = pb & 255
+  const r = Math.round(ar + (br - ar) * t), g = Math.round(ag + (bg - ag) * t), bl = Math.round(ab + (bb - ab) * t)
+  return `#${((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1)}`
+}
 
 // "See the definition, guess the term" (P/CG: see the meaning, guess the
 // word; AC: see the description, guess the number) is the direction most
@@ -25,24 +41,93 @@ const ALL_LEVELS: KnowledgeLevel[] = ['student', 'private', 'commercial', 'atp',
 type RevealDirection = 'defFirst' | 'termFirst'
 const REVEAL_DIRECTION_KEY = '@flyregs/study-reveal-direction'
 
+// The deck size was a bare hardcoded 20 with no UI anywhere naming it or
+// letting the user change it -- confirmed confusing live ("where is this
+// 1/20 preset coming from? how does the user control that?"). Mirrors
+// Duels' own QUESTIONS chip row (3/5/10) for the same concept in that
+// feature, persisted the same way revealDirection is.
+const SESSION_SIZES = [10, 20, 30, 50] as const
+
+// Caps how tall a flashcard can grow before its text scrolls internally --
+// without this, a long definition made the card (and the invisible sizer
+// that reserves height for whichever face is longer) fill nearly the
+// entire screen even when the currently-visible face was just two words,
+// confirmed live as its own new bug once the "buttons unreachable" fix
+// landed.
+const MAX_CARD_HEIGHT = 340
+const SESSION_SIZE_KEY = '@flyregs/study-session-size'
+// Must match FlashCard's own withTiming duration below. handleAnswer defers
+// swapping to the next card by exactly this long so the reverse-flip
+// animation finishes showing the CURRENT card's front face before content
+// changes underneath it -- see handleAnswer for the bug this fixes.
+const FLIP_DURATION = 420
+
 export default function StudyScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
   const { isPro } = useAuth()
+  // Entry point from a RefPack's "Study This Rating" button (see
+  // refPackKnowledgeLevel() in refPackets.ts) -- pre-scopes the Knowledge
+  // Level filter to that rating so the user lands in an already-relevant
+  // deck instead of re-selecting the same level by hand. Read once on
+  // mount only; this screen doesn't need to react to the param changing
+  // after the fact since it's not re-navigated-to without a fresh mount.
+  const { level: levelParam } = useLocalSearchParams<{ level?: string }>()
   const [loading, setLoading] = useState(true)
   const [deck, setDeck] = useState<StudyCard[]>([])
   const [index, setIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [mastery, setMastery] = useState<StudyMastery | null>(null)
+  // Mastery ring: starts a dull neutral tone and grows toward full gold as
+  // mastery % rises, with a soft pulsing glow whose intensity also scales
+  // with %, evoking MagicLink's own gold shimmer without needing its full
+  // rotating-gradient-border rig (that trick measures/sizes off a real
+  // layout box -- overkill for a fixed 64px badge). Confirmed live, RC:
+  // "this ring should be a 'duller' color to begin with, and 'grow' gold
+  // (and maybe even shimmer like our ML a bit) as you increase your total %
+  // of mastery."
+  const masteryGlow = useSharedValue(0)
+  useEffect(() => {
+    if (!mastery || mastery.pct <= 0) { masteryGlow.value = 0; return }
+    masteryGlow.value = withRepeat(withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.sin) }), -1, true)
+  }, [mastery?.pct])
+  // Hooks can't be called conditionally, so this reads unconditionally at
+  // the top level (unlike the JSX below, which only renders once `mastery`
+  // is loaded) -- pct falls back to 0 pre-load, which just means no glow.
+  const masteryPct = mastery?.pct ?? 0
+  const masteryGlowStyle = useAnimatedStyle(() => ({ shadowOpacity: masteryGlow.value * (masteryPct / 100) * 0.75 }))
   const [currency, setCurrency] = useState<Currency | null>(null)
+  const [poolCount, setPoolCount] = useState<number | null>(null)
   const [sessionDone, setSessionDone] = useState(false)
+  const [revealCoin, setRevealCoin] = useState<CoinDef | null>(null)
   const [revealDirection, setRevealDirection] = useState<RevealDirection>('defFirst')
+  const [sessionSize, setSessionSize] = useState<number>(20)
+  // Collapsed by default -- with Content, Knowledge Level, Category/Class,
+  // and Session Size all as chip rows, the filter block was pushing the
+  // actual flashcard below the fold on first load (confirmed live: "this
+  // will prevent the actual Q/A content from being pushed down that it has
+  // to be scrolled to to see"). A summary line stays visible either way so
+  // the active selection is never hidden, just the chip rows themselves.
+  const [filtersExpanded, setFiltersExpanded] = useState(false)
+  // Real content-recall Q/A for AIM paragraphs (see getAimFacts' own
+  // comment for why the plain "Which AIM paragraph covers X?" shape was
+  // rejected) -- fetched inside load() below, alongside the deck itself.
+  const [aimFacts, setAimFacts] = useState<Map<string, StudyFact>>(new Map())
 
   useEffect(() => {
     AsyncStorage.getItem(REVEAL_DIRECTION_KEY).then((raw) => {
       if (raw === 'termFirst' || raw === 'defFirst') setRevealDirection(raw)
     })
+    AsyncStorage.getItem(SESSION_SIZE_KEY).then((raw) => {
+      const n = raw ? parseInt(raw, 10) : NaN
+      if ((SESSION_SIZES as readonly number[]).includes(n)) setSessionSize(n)
+    })
   }, [])
+
+  const changeSessionSize = (n: number) => {
+    setSessionSize(n)
+    AsyncStorage.setItem(SESSION_SIZE_KEY, String(n))
+  }
 
   const toggleRevealDirection = () => {
     setRevealDirection((prev) => {
@@ -61,7 +146,16 @@ export default function StudyScreen() {
   // both could render as selected at once (every individual chip lit up
   // gold *because* ALL was active) -- confirmed confusing live.
   const [activeTypes, setActiveTypes] = useState<StudyItemType[]>([])
-  const [activeLevels, setActiveLevels] = useState<KnowledgeLevel[]>([])
+  const [activeLevels, setActiveLevels] = useState<KnowledgeLevel[]>(() =>
+    levelParam && (ALL_LEVELS as string[]).includes(levelParam) ? [levelParam as KnowledgeLevel] : []
+  )
+  const [activeCategoryClasses, setActiveCategoryClasses] = useState<CategoryClass[]>([])
+
+  // True when the deck is narrowed at all. Used to relabel the mastery
+  // counter, which always reports the WHOLE corpus and otherwise appears to
+  // contradict the "N items match the filters" line directly beneath it.
+  const filtersActive =
+    activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0
 
   const toggleType = (t: StudyItemType) => {
     setActiveTypes((prev) =>
@@ -75,19 +169,43 @@ export default function StudyScreen() {
     )
   }
 
+  const toggleCategoryClass = (c: CategoryClass) => {
+    setActiveCategoryClasses((prev) =>
+      prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
+    )
+  }
+
   const load = useCallback(() => {
     setLoading(true)
-    Promise.all([getStudyQueue(20, activeTypes, activeLevels), getStudyMastery(), getCurrency()])
-      .then(([queue, m, c]) => {
-        setDeck(queue)
+    Promise.all([
+      getStudyQueue(sessionSize, activeTypes, activeLevels, activeCategoryClasses),
+      getStudyMastery(),
+      getCurrency(),
+      getStudyPoolCount(activeTypes, activeLevels, activeCategoryClasses),
+      getAimFacts(),
+    ])
+      .then(([queue, m, c, pool, facts]) => {
+        // AIM items with no authored content fact are excluded rather than
+        // falling back to the rejected "Which AIM paragraph covers X?"
+        // shape -- see getAimFacts' own comment. ~14 of 438 AIM paragraphs
+        // (bare "General" section intros, an abbreviations appendix, chart-
+        // ordering logistics) genuinely have nothing fact-worthy to ask and
+        // never will; the rest just aren't authored yet. Fetched in the
+        // SAME Promise.all as the deck (not a separate effect) so the
+        // filter always runs against a fully-resolved fact map, never a
+        // still-empty one from a race between two independent fetches.
+        setAimFacts(facts)
+        const filtered = queue.filter((c) => c.item_type !== 'aim' || facts.has(c.item_id))
+        setDeck(filtered)
         setMastery(m)
         setCurrency(c)
+        setPoolCount(pool)
         setIndex(0)
         setFlipped(false)
-        setSessionDone(queue.length === 0)
+        setSessionDone(filtered.length === 0)
       })
       .finally(() => setLoading(false))
-  }, [activeTypes, activeLevels])
+  }, [activeTypes, activeLevels, activeCategoryClasses, sessionSize])
 
   useEffect(() => {
     if (isPro) load()
@@ -95,27 +213,108 @@ export default function StudyScreen() {
 
   const current = deck[index]
 
-  const handleAnswer = async (correct: boolean) => {
+  // "Save for later" -- explicitly requested this session ("it would be
+  // nice to be able to 'mark' quiz questions to be put into some kind of
+  // 'storage bank'... or add it to a folder, or bookmark it"). Reuses the
+  // exact same bookmark system as everywhere else in the app (Saved tab,
+  // folders, sync) rather than a separate storage bank -- a flashcard IS
+  // just the underlying FAR/AIM/P-CG/AC item, so bookmarking it here and
+  // finding it in Saved later is the same mental model as bookmarking it
+  // from the item's own detail screen.
+  const [currentBookmarked, setCurrentBookmarked] = useState(false)
+  useEffect(() => {
+    if (!current) { setCurrentBookmarked(false); return }
+    let cancelled = false
+    isBookmarked(current.item_id).then((v) => { if (!cancelled) setCurrentBookmarked(v) })
+    return () => { cancelled = true }
+  }, [current?.item_id])
+
+  const handleToggleBookmark = async () => {
     if (!current) return
-    try {
-      const result = await recordStudyReview(current.item_id, correct)
-      if (result.newCoins.length > 0) {
-        // Fires after state below settles the next card, not before -- a
-        // rewarding moment shouldn't block advancing to the next question.
-        const coin = COIN_BY_CODE[result.newCoins[0]]
-        if (coin) {
-          setTimeout(() => Alert.alert(`Coin earned: ${coin.name}`, coin.description), 300)
-        }
+    // document_number/title must match what each type's OWN detail screen
+    // writes (far/[id].tsx, aim/[id].tsx, pcg/[id].tsx, ac/[id].tsx), or
+    // the same document bookmarked from two places renders differently in
+    // Saved. Confirmed live as a real bug: passing the raw item_id here
+    // showed a P/CG card as "TRAFFIC_NO_FACTOR" (the slug) stacked above
+    // "TRAFFIC NO FACTOR" (the term) -- the same words twice.
+    //
+    // `current.term` is the queue's own display string, which for FAR/AIM/AC
+    // already embeds the number ("§ 91.3 Responsibility...", "AC 121-33B:
+    // Emergency Medical Equipment") -- strip that prefix back off for the
+    // title so it isn't repeated next to document_number.
+    const t = current.item_type
+    const docNumber =
+      t === 'far' ? `§ ${current.item_id}`
+      : t === 'pcg' ? current.term
+      : current.item_id
+    const title =
+      t === 'far' ? current.term.replace(/^§\s*[\d.]+\s*/, '')
+      : t === 'ac' ? current.term.replace(/^AC\s+[^:]+:\s*/, '')
+      : t === 'aim' ? current.term.replace(/^[\d-]+\s*/, '')
+      : current.term
+    // Mark WHERE in the reg this Q/A came from, so opening the bookmark
+    // jumps to that passage instead of the top of the document -- the same
+    // idea as an AC highlight, reusing the existing blockText/blockSnippet
+    // fields. Deliberately does NOT set `acId`: saved.tsx's stale-highlight
+    // check filters on `blockText && acId` and resolves acId against
+    // advisory_circulars, so setting it on a FAR/AIM/P-CG bookmark would
+    // make every one of them render as "Section changed -- won't jump to
+    // this spot anymore".
+    //
+    // Snippet comes from the RAW definition, not the displayed question:
+    // shortenQuestion() may append an ellipsis, which would never match the
+    // real body text it has to be found in.
+    const raw = (current.definition ?? '').trim()
+    const snippet = passageSnippet(raw)
+    const next = await toggleBookmark({
+      id: current.item_id,
+      itemType: t,
+      document_number: docNumber,
+      title,
+      date_issued: null,
+      office: null,
+      subject_series: null,
+      blockText: snippet || undefined,
+      blockSnippet: snippet || undefined,
+    })
+    setCurrentBookmarked(next)
+  }
+
+  const handleAnswer = (correct: boolean) => {
+    if (!current) return
+    const item = current // capture -- index/current may have advanced by the time the network call resolves
+
+    // Bug this fixes, confirmed live: tapping Knew/Missed used to set
+    // BOTH setIndex(i+1) and setFlipped(false) in the same tick, after
+    // awaiting the network call. The content swap (new card's Q/A) is
+    // instant, but the flip-back is a 420ms animation -- so for that
+    // whole window the card was mid-rotation showing the NEW card's BACK
+    // face (its answer), spoiling it before the user ever saw its
+    // question. Fix: flip back immediately (using the CURRENT card's own
+    // content, so the reverse animation shows the right thing), and defer
+    // the actual index advance until that animation has finished.
+    setFlipped(false)
+    const advance = () => {
+      if (index + 1 >= deck.length) {
+        setSessionDone(true)
+        getStudyMastery().then(setMastery).catch(() => {})
+      } else {
+        setIndex((i) => i + 1)
       }
-    } catch { /* best-effort -- don't block the study flow on a network blip */ }
-    getCurrency().then(setCurrency).catch(() => {})
-    if (index + 1 >= deck.length) {
-      setSessionDone(true)
-      getStudyMastery().then(setMastery).catch(() => {})
-    } else {
-      setIndex((i) => i + 1)
-      setFlipped(false)
     }
+    setTimeout(advance, FLIP_DURATION)
+
+    recordStudyReview(item.item_id, correct, item.item_type)
+      .then((result) => {
+        if (result.newCoins.length > 0) {
+          // Fires well after the card has already advanced -- a rewarding
+          // moment shouldn't block or race the flip/advance flow.
+          const coin = COIN_BY_CODE[result.newCoins[0]]
+          if (coin) setTimeout(() => setRevealCoin(coin), 300)
+        }
+      })
+      .catch(() => {}) // best-effort -- don't block the study flow on a network blip
+    getCurrency().then(setCurrency).catch(() => {})
   }
 
   if (!isPro) {
@@ -147,6 +346,31 @@ export default function StudyScreen() {
       <OverlayHeader title="Study Mode" onBack={() => router.back()} right={headerRight} />
 
       <TabletContainer>
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <Pressable style={styles.filtersHeader} onPress={() => setFiltersExpanded((v) => !v)}>
+        {/* Same slider.horizontal.3 glyph Home's own filter button uses (see
+            (tabs)/index.tsx) -- one consistent "this is a filter control"
+            icon app-wide instead of a plain chevron. Tinted blue whenever
+            any dimension is narrowed from its default, same as Home's own
+            active-filter tint. */}
+        <Icon
+          name="slider.horizontal.3"
+          size={15}
+          color={activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0 ? tokens.blu : tokens.t3}
+        />
+        <Text style={[styles.filtersHeaderText, { color: tokens.t2, fontSize: fs(12.5) }]}>Filters</Text>
+        <Text style={[styles.filtersSummary, { color: tokens.t4, fontSize: fs(11) }]} numberOfLines={1}>
+          {[
+            activeTypes.length === 0 ? 'All content' : activeTypes.map((t) => TYPE_LABEL[t]).join(', '),
+            activeLevels.length > 0 ? activeLevels.map((l) => KNOWLEDGE_LEVEL_LABELS[l]).join(', ') : null,
+            activeCategoryClasses.length > 0 ? activeCategoryClasses.map((c) => RATING_SHORT_LABELS[c]).join(', ') : null,
+            `${sessionSize} cards`,
+          ].filter(Boolean).join(' · ')}
+        </Text>
+        <Icon name={filtersExpanded ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+      </Pressable>
+      {filtersExpanded && (
+      <>
       <Text style={[styles.filterGroupLabel, { color: tokens.gold, fontSize: fs(10) }]}>CONTENT</Text>
       <View style={styles.filterRow}>
         <Pressable
@@ -209,6 +433,64 @@ export default function StudyScreen() {
         })}
       </View>
 
+      {/* Green accent, distinct from CONTENT (gold) and KNOWLEDGE LEVEL
+          (blue) -- a third filter dimension so an ASEL student stops
+          getting glider/helicopter-only questions and vice versa. Only a
+          minority of content is genuinely category/class-specific (most
+          FAR/AC/P-CG entries apply to every rating), so unmatched items
+          stay visible under any selection -- same "NULL means universal"
+          convention as Knowledge Level's own far_knowledge_levels(). */}
+      <Text style={[styles.filterGroupLabel, styles.levelFilterRow, { color: tokens.grn, fontSize: fs(10) }]}>CATEGORY / CLASS</Text>
+      <View style={styles.filterRow}>
+        <Pressable
+          style={[
+            styles.filterChip,
+            { backgroundColor: activeCategoryClasses.length === 0 ? tokens.bdim : tokens.bg2, borderColor: activeCategoryClasses.length === 0 ? tokens.grn : tokens.bdr },
+          ]}
+          onPress={() => setActiveCategoryClasses([])}
+        >
+          <Text style={[styles.filterChipText, { color: activeCategoryClasses.length === 0 ? tokens.grn : tokens.t3, fontSize: fs(11.5) }]}>ALL</Text>
+        </Pressable>
+        {CATEGORY_CLASSES.map((c) => {
+          const active = activeCategoryClasses.includes(c)
+          return (
+            <Pressable
+              key={c}
+              style={[
+                styles.filterChip,
+                { backgroundColor: active ? tokens.bdim : tokens.bg2, borderColor: active ? tokens.grn : tokens.bdr },
+              ]}
+              onPress={() => toggleCategoryClass(c)}
+            >
+              <Text style={[styles.filterChipText, { color: active ? tokens.grn : tokens.t3, fontSize: fs(11.5) }]}>
+                {RATING_SHORT_LABELS[c]}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
+
+      <Text style={[styles.filterGroupLabel, styles.levelFilterRow, { color: tokens.t3, fontSize: fs(10) }]}>SESSION SIZE</Text>
+      <View style={styles.filterRow}>
+        {SESSION_SIZES.map((n) => {
+          const active = sessionSize === n
+          return (
+            <Pressable
+              key={n}
+              style={[
+                styles.filterChip,
+                { backgroundColor: active ? tokens.bdim : tokens.bg2, borderColor: active ? tokens.blu : tokens.bdr },
+              ]}
+              onPress={() => changeSessionSize(n)}
+            >
+              <Text style={[styles.filterChipText, { color: active ? tokens.blu : tokens.t3, fontSize: fs(11.5) }]}>{n}</Text>
+            </Pressable>
+          )
+        })}
+      </View>
+      </>
+      )}
+
       <Pressable style={styles.revealRow} onPress={toggleRevealDirection}>
         <Icon name="arrow.uturn.left" size={12} color={tokens.t3} />
         <Text style={[styles.revealRowText, { color: tokens.t3, fontSize: fs(11.5) }]}>
@@ -224,19 +506,40 @@ export default function StudyScreen() {
         </View>
       ) : mastery && (
         <View style={styles.gaugeRow}>
-          {/* A plain gold-bordered badge, not a partial-fill ring -- a ring
+          {/* A plain color-graded badge, not a partial-fill ring -- a ring
               drawn from rotated View borders only sweeps correctly up to
               50%; rendering past that needs react-native-svg, a new native
               dependency this session can't build/test (web preview only).
-              Honest and correct beats a good-looking-until-51% gauge. */}
-          <View style={[styles.gaugeBadge, { backgroundColor: tokens.bg2, borderColor: tokens.gold }]}>
+              Honest and correct beats a good-looking-until-51% gauge. What
+              IS accurate without SVG: the border color and glow intensity
+              both track mastery % directly (dull -> gold, see masteryGlow
+              above), so the badge still visibly communicates progress. */}
+          <Reanimated.View
+            style={[
+              styles.gaugeBadge,
+              {
+                backgroundColor: tokens.bg2,
+                borderColor: lerpColor(MASTERY_RING_DULL, tokens.gold, mastery.pct / 100),
+                shadowColor: tokens.gold,
+                shadowRadius: 9,
+                shadowOffset: { width: 0, height: 0 },
+              },
+              masteryGlowStyle,
+            ]}
+          >
             <Text style={[styles.gaugeNum, { color: tokens.t1, fontSize: fs(19) }]}>{mastery.pct}</Text>
             <Text style={[styles.gaugeUnit, { color: tokens.t4, fontSize: fs(8.5) }]}>PCT</Text>
-          </View>
+          </Reanimated.View>
           <View style={styles.gaugeMeta}>
             <Text style={[styles.gaugeMetaTitle, { color: tokens.t1, fontSize: fs(13.5) }]}>Overall Mastery</Text>
             <Text style={[styles.gaugeMetaSub, { color: tokens.t4, fontSize: fs(11.5) }]}>
-              {mastery.mastered} mastered of {mastery.seen} reviewed · {mastery.total_available} items total
+              {/* "items total" is the WHOLE corpus (mastery is tracked across
+                  everything, not per filter). Saying "6,283 items total" while
+                  the filter line right below reads "1,316 items match" reads as
+                  a contradiction, so it's labelled as the full corpus whenever
+                  a filter is narrowing the deck. */}
+              {mastery.mastered} mastered of {mastery.seen} reviewed ·{' '}
+              {mastery.total_available} {filtersActive ? 'in full corpus' : 'items total'}
             </Text>
           </View>
         </View>
@@ -277,24 +580,59 @@ export default function StudyScreen() {
 
       {!loading && !sessionDone && current && (
         <View style={styles.cardArea}>
+          {/* Names every active CONTENT/KNOWLEDGE LEVEL filter, not just the
+              current card's own single type -- the gold type badge below
+              only ever showed what THIS card happens to be, which reads
+              like a bug once more than one content type is selected
+              (confirmed confusing live: "it should list each filter
+              you're using"). */}
+          <Text style={[styles.activeFilters, { color: tokens.t3, fontSize: fs(11) }]}>
+            Studying: {activeTypes.length === 0 ? 'All content' : activeTypes.map((t) => TYPE_LABEL[t]).join(', ')}
+            {activeLevels.length > 0 ? ` · ${activeLevels.map((l) => KNOWLEDGE_LEVEL_LABELS[l]).join(', ')}` : ''}
+            {activeCategoryClasses.length > 0 ? ` · ${activeCategoryClasses.map((c) => RATING_SHORT_LABELS[c]).join(', ')}` : ''}
+          </Text>
           <View style={styles.progressRow}>
             <Text style={[styles.progress, { color: tokens.t4, fontSize: fs(11.5) }]}>
               {index + 1} / {deck.length}{current.is_new ? ' · new' : ''}
             </Text>
-            <View style={[styles.typeBadge, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
-              <Text style={[styles.typeBadgeText, { color: tokens.gold, fontSize: fs(10.5) }]}>{TYPE_LABEL[current.item_type]}</Text>
-            </View>
+            <Pressable onPress={handleToggleBookmark} hitSlop={10} style={styles.bookmarkBtn}>
+              <Icon name={currentBookmarked ? 'bookmark.fill' : 'bookmark'} size={16} color={currentBookmarked ? tokens.gold : tokens.t3} />
+            </Pressable>
           </View>
+          {poolCount != null && (
+            // This session is always a small batch (getStudyQueue caps at
+            // 20) -- without this, "1 / 20" reads like the whole filtered
+            // pool is 20 items, which is wrong the moment ALL is selected
+            // (thousands). Shows what the CONTENT/KNOWLEDGE LEVEL filters
+            // above actually resolve to, so it stays honest either way.
+            <Text style={[styles.poolCount, { color: tokens.t4, fontSize: fs(11) }]}>
+              {poolCount.toLocaleString()} item{poolCount === 1 ? '' : 's'} match{poolCount === 1 ? 'es' : ''} the filters above
+            </Text>
+          )}
 
-          <FlashCard
-            term={current.term}
-            definition={current.definition}
-            direction={revealDirection}
-            flipped={flipped}
-            onPress={() => setFlipped((f) => !f)}
-            tokens={tokens}
-            fs={fs}
-          />
+          <View style={styles.cardWithBadge}>
+            {/* Which reg this Q/A is FROM, made hard to miss -- was a tiny
+                pill sitting in the progress row above the card, easy to
+                skim right past. Confirmed live: "let's make this chip more
+                prominent... something easier to recognize." Now a tag
+                overlapping the card's own top-left corner, like a label
+                clipped onto it, so it reads as part of the card itself
+                rather than incidental metadata next to it. */}
+            <View style={[styles.typeBadge, { backgroundColor: tokens.gold, borderColor: tokens.bg }]}>
+              <Text style={[styles.typeBadgeText, { color: '#1c1c1f', fontSize: fs(13) }]}>{TYPE_LABEL[current.item_type]}</Text>
+            </View>
+            <FlashCard
+              term={current.term}
+              definition={current.definition}
+              itemType={current.item_type}
+              fact={current.item_type === 'aim' ? aimFacts.get(current.item_id) : undefined}
+              direction={revealDirection}
+              flipped={flipped}
+              onPress={() => setFlipped((f) => !f)}
+              tokens={tokens}
+              fs={fs}
+            />
+          </View>
 
           {flipped && (
             <View style={styles.answerRow}>
@@ -316,7 +654,9 @@ export default function StudyScreen() {
           )}
         </View>
       )}
+      </ScrollView>
       </TabletContainer>
+      <CoinRevealModal coin={revealCoin} onClose={() => setRevealCoin(null)} />
     </View>
   )
 }
@@ -329,9 +669,62 @@ export default function StudyScreen() {
 // hides whichever face is turned away from the viewer instead of needing a
 // separate opacity toggle timed to the halfway point.
 
+// Confirmed live as a real complaint, not a nitpick: a full multi-sentence
+// P/CG definition with several blanked-out phrases reads as a dense
+// paragraph puzzle, not a quick quiz question -- and since cardSizer sizes
+// the whole card off this same text, a long question also produced an
+// oversized, mostly-empty box even for cards whose answer face was two
+// words. Only the QUESTION side gets shortened -- the reveal/answer side
+// always shows the full, unedited FAA text (see feedback_data_is_king.md:
+// the source text itself is the product, truncating what the user is
+// actually being told the answer IS would misinform them, not just look
+// bad). Cuts at the nearest sentence boundary at or before the limit; falls
+// back to the nearest word boundary if the first sentence alone is still
+// too long.
+// A bookmarked flashcard highlights the passage its Q/A came from, so the
+// snippet has to END SOMEWHERE THAT READS AS A COMPLETE THOUGHT. Cutting at
+// a word boundary looked broken in the real app -- the highlight stopped
+// mid-clause ("...areas of aviation safety and") with no visible reason,
+// which reads as a rendering bug rather than a deliberate marker.
+//
+// Prefer the last sentence end inside a generous window; a leading stub like
+// AIM's "General." is far too short to be the whole highlight, hence the
+// MIN floor. Falls back to a word boundary only when the passage genuinely
+// contains no sentence break.
+const SNIPPET_MAX = 220
+const SNIPPET_MIN = 45
+function passageSnippet(raw: string): string {
+  const text = raw.trim()
+  if (text.length <= SNIPPET_MIN) return text
+  const window = text.slice(0, SNIPPET_MAX)
+  let best = -1
+  const re = /[.!?](?=\s|$)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(window)) !== null) {
+    if (m.index + 1 >= SNIPPET_MIN) best = m.index + 1
+  }
+  if (best > 0) return text.slice(0, best)
+  const cut = text.slice(0, SNIPPET_MAX)
+  const lastSpace = cut.lastIndexOf(' ')
+  return lastSpace > SNIPPET_MIN ? cut.slice(0, lastSpace) : cut
+}
+
+const QUESTION_MAX_CHARS = 170
+function shortenQuestion(text: string, max = QUESTION_MAX_CHARS): string {
+  const trimmed = text.trim()
+  if (trimmed.length <= max) return trimmed
+  const window = trimmed.slice(0, max + 1)
+  const sentenceEnd = Math.max(window.lastIndexOf('. '), window.lastIndexOf('? '), window.lastIndexOf('! '))
+  if (sentenceEnd > 40) return trimmed.slice(0, sentenceEnd + 1)
+  const wordBoundary = window.slice(0, max).lastIndexOf(' ')
+  return `${trimmed.slice(0, wordBoundary > 40 ? wordBoundary : max)}…`
+}
+
 function FlashCard({
   term,
   definition,
+  itemType,
+  fact,
   direction,
   flipped,
   onPress,
@@ -340,6 +733,11 @@ function FlashCard({
 }: {
   term: string
   definition: string
+  itemType: StudyItemType
+  /** Real content-recall Q/A for this AIM paragraph, when one exists --
+   * see getAimFacts' own comment. Overrides buildStudyCard's AIM branch
+   * entirely when present; undefined for every other item type. */
+  fact?: StudyFact
   direction: RevealDirection
   flipped: boolean
   onPress: () => void
@@ -349,41 +747,124 @@ function FlashCard({
   const progress = useSharedValue(0)
 
   useEffect(() => {
-    progress.value = withTiming(flipped ? 1 : 0, { duration: 420, easing: Easing.inOut(Easing.quad) })
+    progress.value = withTiming(flipped ? 1 : 0, { duration: FLIP_DURATION, easing: Easing.inOut(Easing.quad) })
   }, [flipped])
 
+  // opacity is a belt-and-suspenders addition to backfaceVisibility, not a
+  // replacement for it -- confirmed live as a real bug once each face's
+  // text got wrapped in a ScrollView (see cardTextScroll): RN Web's
+  // backface-visibility:hidden doesn't reliably hide a nested scrollable
+  // container's content once rotated past 90deg in every browser, so the
+  // rotated-away face's (mirrored) text was bleeding through on top of the
+  // visible face. Snapping opacity to 0 at the halfway point (when the
+  // card is edge-on anyway, so the cut isn't visible) hides it regardless
+  // of the browser's own backface-visibility support.
   const frontStyle = useAnimatedStyle(() => ({
     transform: [{ perspective: 1400 }, { rotateY: `${progress.value * 180}deg` }],
+    opacity: progress.value < 0.5 ? 1 : 0,
   }))
   const backStyle = useAnimatedStyle(() => ({
     transform: [{ perspective: 1400 }, { rotateY: `${progress.value * 180 - 180}deg` }],
+    opacity: progress.value >= 0.5 ? 1 : 0,
   }))
 
-  const frontText = direction === 'defFirst' ? definition : term
-  const backText = direction === 'defFirst' ? term : definition
-  // Definition text tends to be a full sentence/paragraph; term/number text
-  // is usually short -- swap which style (large centered term-style vs
-  // smaller left-aligned paragraph-style) applies to whichever face is
-  // showing it, rather than always styling front as "term".
-  const frontStyleText = direction === 'defFirst' ? styles.cardDef : styles.cardTerm
-  const backStyleText = direction === 'defFirst' ? styles.cardTerm : styles.cardDef
+  // No fill-in-the-blank redaction, for any type -- confirmed unwanted
+  // live and explicitly rejected twice ("NO blank spaces. just ask a
+  // straight question. then let the user tap to reveal."). A P/CG
+  // definition that happens to reuse its own term's word (roughly 54% of
+  // terms do, per a direct DB audit) just reads as ordinary prose; the
+  // flip still reveals the actual term, which is the thing being tested,
+  // not the blanked word itself.
+  // A REAL question, not a slab of the regulation. `term` embeds the
+  // document number for FAR/AIM/AC ("§ 91.3 Responsibility and authority..."),
+  // so it is split back into number + title to anchor the question properly.
+  // See quizQuestion.ts for why the card used to show raw reg text and why
+  // that made the deck unusable.
+  const docNumber =
+    itemType === 'far' ? `§ ${term.match(/^§?\s*([\d.]+)/)?.[1] ?? term}`
+    : itemType === 'aim' ? (term.match(/^([\d-]+)/)?.[1] ?? term)
+    : itemType === 'ac' ? (term.match(/^AC\s+([^:]+)/)?.[1] ?? term)
+    : term
+  const docTitle =
+    itemType === 'far' ? term.replace(/^§?\s*[\d.]+\s*/, '')
+    : itemType === 'ac' ? term.replace(/^AC\s+[^:]+:\s*/, '')
+    : itemType === 'aim' ? term.replace(/^[\d-]+\s*/, '')
+    : term
+  // RC's flashcard contract (2026-07-31): Q is one short sentence, A is a
+  // reg name/number — see buildStudyCard() for the full shape per type. The
+  // old model revealed the raw regulation body as the "answer", which was a
+  // wall of text and got rejected on sight.
+  //
+  // AIM is the one exception: a real authored content fact (see `fact`'s
+  // own comment) completely replaces buildStudyCard's "Which AIM paragraph
+  // covers X?" shape when one exists for this paragraph -- reference-recall
+  // on an internal indexing scheme isn't a real skill, rejected live by RC.
+  // Reverse direction flips it the same way P/CG's def<->term already does:
+  // see the answer, recall the question.
+  const faces = fact
+    ? { question: fact.question, answer: fact.answer, reverseFront: fact.answer, reverseBack: fact.question }
+    : buildStudyCard({
+        type: itemType as QuizSourceType,
+        documentNumber: docNumber,
+        title: docTitle,
+        text: definition,
+      })
+
+  const frontText = direction === 'defFirst' ? faces.question : faces.reverseFront
+  const backText = direction === 'defFirst' ? faces.answer : faces.reverseBack
+
+  // Style by what the face actually CONTAINS, not by which direction we're
+  // in. The direction-based version assumed the defFirst back face was
+  // always a short term -- but for FAR/AIM it's the full passage, so a
+  // multi-paragraph body got rendered in the big bold centered term style.
+  // Seen live on AIM 11-2-1: every line clipped at both edges
+  // ("t 107 sUAS", "wledge test"). Content-driven selection also gets the
+  // new short AC answer ("AC 36-1H") the large treatment it deserves.
+  const isLongFace = (s: string) => (s ?? '').length > 120
+  const frontStyleText = isLongFace(frontText) ? styles.cardDef : styles.cardTerm
+  const backStyleText = isLongFace(backText) ? styles.cardDef : styles.cardTerm
   const frontColor = direction === 'defFirst' ? tokens.t2 : tokens.t1
   const backColor = direction === 'defFirst' ? tokens.t1 : tokens.t2
-  const frontFs = direction === 'defFirst' ? fs(15) : fs(22)
-  const backFs = direction === 'defFirst' ? fs(22) : fs(15)
+  const frontFs = isLongFace(frontText) ? fs(15) : fs(22)
+  const backFs = isLongFace(backText) ? fs(15) : fs(22)
 
   return (
     <Pressable style={styles.cardOuter} onPress={onPress}>
+      {/* Invisible sizer, stacked normally (not absolute like the two real
+          faces below) so it's what actually gives cardOuter its height.
+          Without this, the container's height came from whichever face
+          happened to be in normal flow (the front one) -- fine when both
+          faces are similar length, but confirmed live as a real bug for a
+          long AIM definition + short term: flipping to the short back
+          face left the tall front-sized gap empty above the answer
+          buttons, pushing them far down the screen for no visible reason.
+          Stacking both real texts here (rather than measuring and taking
+          the max) means the card is sized for the longer of the two,
+          whichever one that is. */}
+      <View style={styles.cardSizer} pointerEvents="none">
+        <Text style={[frontStyleText, { fontSize: frontFs, opacity: 0 }]}>{frontText}</Text>
+        <Text style={[backStyleText, { fontSize: backFs, opacity: 0 }]}>{backText}</Text>
+      </View>
       <Reanimated.View
         style={[styles.card, styles.cardFace, frontStyle, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
       >
-        <Text style={[frontStyleText, { color: frontColor, fontSize: frontFs }]}>{frontText}</Text>
+        {/* Card height is now capped (see cardSizer/card's maxHeight) so a
+            long definition can't blow the card up to fill the whole
+            screen -- confirmed live as its own new bug once the sizer fix
+            landed: a two-line answer sat inside a nearly-empty box the
+            height of the longest possible question. Overflow scrolls
+            inside the card instead of growing it further. */}
+        <ScrollView style={styles.cardTextScroll} contentContainerStyle={styles.cardTextScrollContent}>
+          <Text style={[frontStyleText, { color: frontColor, fontSize: frontFs }]}>{frontText}</Text>
+        </ScrollView>
         <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>Tap to reveal</Text>
       </Reanimated.View>
       <Reanimated.View
         style={[styles.card, styles.cardFace, styles.cardBack, backStyle, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
       >
-        <Text style={[backStyleText, { color: backColor, fontSize: backFs }]}>{backText}</Text>
+        <ScrollView style={styles.cardTextScroll} contentContainerStyle={styles.cardTextScrollContent}>
+          <Text style={[backStyleText, { color: backColor, fontSize: backFs }]}>{backText}</Text>
+        </ScrollView>
         <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>Tap to flip back</Text>
       </Reanimated.View>
     </Pressable>
@@ -392,6 +873,14 @@ function FlashCard({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  // flexGrow (not flex) on the ScrollView's own content container: lets
+  // short content (loading/empty states, which use flex:1 centering
+  // internally) still fill and center within the viewport, while letting
+  // genuinely tall content (a long definition + answer buttons) grow past
+  // the viewport and actually scroll -- the screen had no ScrollView at
+  // all before this, so a long card's answer buttons could run off the
+  // bottom of the screen with no way to reach them.
+  scrollContent: { flexGrow: 1, paddingBottom: 24 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
   emptyTitle: { fontWeight: '600', marginTop: 6 },
   emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 280 },
@@ -399,6 +888,9 @@ const styles = StyleSheet.create({
   upgradeBtnText: { color: '#fff', fontWeight: '700' },
 
   filterGroupLabel: { fontWeight: '700', letterSpacing: 0.5, paddingHorizontal: 20, paddingTop: 14 },
+  filtersHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4 },
+  filtersHeaderText: { fontWeight: '700' },
+  filtersSummary: { flex: 1 },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingTop: 8 },
   levelFilterRow: { marginTop: 10 },
   revealRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, paddingTop: 12 },
@@ -420,23 +912,61 @@ const styles = StyleSheet.create({
   currencySub: { marginTop: 1 },
 
   cardArea: { flex: 1, padding: 20, alignItems: 'center' },
-  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
+  activeFilters: { fontWeight: '600', marginBottom: 6, textAlign: 'center' },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
+  poolCount: { marginBottom: 12 },
   progress: { fontVariant: ['tabular-nums'], letterSpacing: 0.3 },
-  typeBadge: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
-  typeBadgeText: { fontWeight: '700', letterSpacing: 0.4 },
+  // Relative anchor for the overlaid type badge below -- width matches the
+  // card's own 100% so the badge's left-alignment lines up with the card's
+  // left edge, not the (potentially narrower) TabletContainer around it.
+  cardWithBadge: { width: '100%', alignItems: 'center' },
+  // Overlaps the card's own top-left corner by half its own height (top is
+  // negative) -- reads as a tag clipped onto the card, not a separate
+  // element floating above it. zIndex/elevation so it draws over the
+  // card's border on both platforms.
+  typeBadge: {
+    position: 'absolute', top: -14, left: 18, zIndex: 2, elevation: 4,
+    borderRadius: 8, borderWidth: 2, paddingHorizontal: 11, paddingVertical: 5,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4,
+  },
+  bookmarkBtn: { padding: 2 },
+  typeBadgeText: { fontWeight: '800', letterSpacing: 0.5 },
   cardOuter: { width: '100%', minHeight: 200 },
+  // Reserves cardOuter's real height (see the sizer comment above) -- both
+  // real faces are absolutely positioned now (moved from just the back
+  // face onto the shared cardFace style below), since this is what gives
+  // the container its layout height instead. Capped at MAX_CARD_HEIGHT so
+  // a long definition can't blow the card up to fill the whole screen;
+  // matches `card`'s own cap so the sizer and the real faces agree on the
+  // ceiling.
+  cardSizer: { width: '100%', minHeight: 200, maxHeight: MAX_CARD_HEIGHT, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 14 },
   card: {
-    width: '100%', minHeight: 200, borderRadius: 18, borderWidth: 1,
-    alignItems: 'center', justifyContent: 'center', padding: 24, gap: 14,
+    width: '100%', minHeight: 200, maxHeight: MAX_CARD_HEIGHT, borderRadius: 18, borderWidth: 1, padding: 24,
   },
   cardFace: {
     backfaceVisibility: 'hidden',
+    // bottom: 0 (not just top/left/right) so this actually stretches to
+    // fill cardOuter's full height -- without it, an absolutely positioned
+    // view with no explicit height sizes to its OWN content only, so once
+    // cardOuter was made tall enough for the longer face (see cardSizer),
+    // the shorter face just floated as a small box at the top with a
+    // large empty gap below it before the answer buttons, which was worse
+    // than the original bug.
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
   },
-  cardBack: {
-    position: 'absolute', top: 0, left: 0,
-  },
-  cardTerm: { fontWeight: '700', textAlign: 'center' },
-  cardDef: { textAlign: 'center', lineHeight: 22 },
+  cardBack: {},
+  // Fills `card` (minus its padding) and centers short content the same
+  // way the old plain View + justifyContent:'center' did; content taller
+  // than the card's capped height scrolls within this instead of pushing
+  // the card's own bounds out.
+  cardTextScroll: { flex: 1, width: '100%' },
+  cardTextScrollContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 18 },
+  // width:'100%' is load-bearing. cardTextScrollContent centers its children
+  // with alignItems:'center', which makes a Text size to its own intrinsic
+  // width instead of the card's -- a long passage then overflowed the card
+  // and was clipped at BOTH edges rather than wrapping.
+  cardTerm: { fontWeight: '700', textAlign: 'center', width: '100%' },
+  cardDef: { textAlign: 'center', lineHeight: 22, width: '100%' },
   cardHint: { position: 'absolute', bottom: 14 },
   answerRow: { flexDirection: 'row', gap: 12, marginTop: 20, width: '100%' },
   answerBtn: {

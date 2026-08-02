@@ -6,11 +6,13 @@ import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { RatingPicker } from '@/components/RatingPicker'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getDuelStats, type DuelStats } from '@/lib/challenges'
 import { getMyRatings, RATING_SHORT_LABELS, type RatingCode } from '@/lib/profileRatings'
 import { getCoinsForUser, COIN_BY_CODE, COIN_CATALOG, type EarnedCoin, type CoinDef } from '@/lib/coins'
 import { CoinMedal } from '@/components/CoinMedal'
+import { NameTag } from '@/components/NameTag'
 import { getStatsVisible, setStatsVisible, getCurrentAircraft, setCurrentAircraft } from '@/lib/leaderboard'
 import { getAvatarUrl, resolveAvatarPresetId, getDisplayName } from '@/lib/avatar'
 import { getAvatarPreset } from '@/lib/avatarPresets'
@@ -49,6 +51,8 @@ export default function ProfileScreen() {
   const visible = isSelf || statsVisibleReal
   const [duelStats, setDuelStats] = useState<DuelStats | null>(null)
   const [ratings, setRatings] = useState<RatingCode[]>([])
+  // Ratings are edited HERE now, not on Account — see RatingPicker.tsx.
+  const [ratingPickerOpen, setRatingPickerOpen] = useState(false)
   const [coins, setCoins] = useState<EarnedCoin[]>([])
   const [aircraft, setAircraft] = useState('')
   const [aircraftInput, setAircraftInput] = useState('')
@@ -130,6 +134,7 @@ export default function ProfileScreen() {
                 {aircraft ? (
                   <Text style={[styles.aircraft, { color: tokens.t3, fontSize: fs(13) }]}>Flying: {aircraft}</Text>
                 ) : null}
+                {visible && <NameTag ratings={ratings} coins={coins} />}
               </View>
             </View>
 
@@ -213,7 +218,7 @@ export default function ProfileScreen() {
                       {isSelf && (
                         <Pressable
                           style={[styles.ratingChip, styles.addRatingChip, { borderColor: tokens.bdr }]}
-                          onPress={() => router.push('/account')}
+                          onPress={() => setRatingPickerOpen(true)}
                         >
                           <Icon name="plus" size={11} color={tokens.t2} />
                           <Text style={[styles.ratingChipText, { color: tokens.t2, fontSize: fs(12) }]}>Add Rating</Text>
@@ -292,6 +297,15 @@ export default function ProfileScreen() {
           })()}
         </Pressable>
       </Modal>
+      {isSelf && session?.user.id && (
+        <RatingPicker
+          visible={ratingPickerOpen}
+          userId={session.user.id}
+          ratings={ratings}
+          onClose={() => setRatingPickerOpen(false)}
+          onChange={setRatings}
+        />
+      )}
     </View>
   )
 }

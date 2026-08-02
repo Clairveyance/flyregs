@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import type { CategoryClass } from '@/lib/profileRatings'
 
 // "Duels" -- async free-for-all quizzes, 2-8 participants (the creator plus
 // 1-7 invitees). Everyone gets the same question set and plays at their own
@@ -31,6 +32,14 @@ export interface MyChallenge {
   questionCount: number
   myAnsweredCount: number
   createdAt: string
+  // The Challenger's filter picks at creation time, persisted on the
+  // challenges row itself (not derivable after the fact from
+  // challenge_questions, which has no knowledge-level column) -- null
+  // means "ALL" for that dimension, same convention the filter chips use.
+  // Both players see the same values since it's read off the shared row.
+  itemTypes: DuelItemType[] | null
+  levels: KnowledgeLevel[] | null
+  categoryClasses: CategoryClass[] | null
   others: ChallengeParticipant[]
 }
 
@@ -111,12 +120,19 @@ export async function getChallengeableUsers(): Promise<ChallengeableUser[]> {
 }
 
 // opponentIds: 1-7 invitees (2-8 total participants including the caller).
-export async function createChallenge(opponentIds: string[], questionCount = 5, itemTypes?: DuelItemType[], levels?: KnowledgeLevel[]): Promise<string> {
+export async function createChallenge(
+  opponentIds: string[],
+  questionCount = 5,
+  itemTypes?: DuelItemType[],
+  levels?: KnowledgeLevel[],
+  categoryClasses?: CategoryClass[]
+): Promise<string> {
   const { data, error } = await supabase.rpc('create_challenge', {
     p_opponent_ids: opponentIds,
     p_question_count: questionCount,
     p_item_types: itemTypes && itemTypes.length > 0 ? itemTypes : null,
     p_levels: levels && levels.length > 0 ? levels : null,
+    p_category_classes: categoryClasses && categoryClasses.length > 0 ? categoryClasses : null,
   })
   if (error) throw error
   return data as string
@@ -138,6 +154,9 @@ export async function getMyChallenges(): Promise<MyChallenge[]> {
     questionCount: r.question_count,
     myAnsweredCount: r.my_answered_count,
     createdAt: r.created_at,
+    itemTypes: r.item_types ?? null,
+    levels: r.levels ?? null,
+    categoryClasses: r.category_classes ?? null,
     others: (r.others ?? []).map((o: any) => ({
       userId: o.userId, label: o.label, status: o.status, answeredCount: o.answeredCount,
     })),

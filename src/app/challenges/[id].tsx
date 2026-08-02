@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -9,13 +9,56 @@ import {
   getMyChallenges, respondToChallenge, getNextChallengeQuestion, submitChallengeAnswer,
   getChallengeResults, getChallengeStandings, getDuelStats, sendDuelPush,
   MyChallenge, NextQuestion, AnswerResult, ChallengeResultRow, StandingRow, DuelStats, DuelItemType,
+  KNOWLEDGE_LEVEL_LABELS,
 } from '@/lib/challenges'
-import { COIN_BY_CODE } from '@/lib/coins'
+import { RATING_SHORT_LABELS } from '@/lib/profileRatings'
+import { slugifyPcgTerm } from '@/lib/pcg'
+import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
+import { CoinRevealModal } from '@/components/CoinRevealModal'
+import { ConfettiBurst } from '@/components/Confetti'
 
 type Phase = 'loading' | 'pending_response' | 'ready' | 'playing' | 'revealed' | 'waiting_opponent' | 'results' | 'declined'
 
 const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC' }
-const QUESTION_LABEL: Record<DuelItemType, string> = { pcg: 'DEFINITION', far: 'FAR TITLE', aim: 'AIM TITLE', ac: 'ADVISORY CIRCULAR' }
+// Phrased as the ACTUAL QUESTION being asked, not as a label for the data
+// type below it. A Duel shows a title/definition and offers document numbers
+// as choices, so the implicit task is "identify the source" -- but "FAR TITLE"
+// stated that in schema terms and left the player to infer what to do with it.
+const QUESTION_LABEL: Record<DuelItemType, string> = {
+  pcg: 'WHICH TERM IS THIS THE DEFINITION OF?',
+  far: 'WHICH FAR SECTION IS THIS?',
+  aim: 'WHICH AIM PARAGRAPH IS THIS?',
+  ac: 'WHICH ADVISORY CIRCULAR IS THIS?',
+}
+
+// The Challenger picks Content/Level filters when starting a Duel, but
+// nothing showed either player what was actually selected -- an opponent
+// had no way to know they were about to be quizzed on, say, ATP-only FAR
+// material. Reads straight off the challenges row (itemTypes/levels,
+// persisted at creation time by create_challenge()), so it's the same for
+// both players rather than something only the Challenger's own client knew.
+function FilterSummary({ challenge, tokens, fs }: { challenge: MyChallenge; tokens: ReturnType<typeof useTheme>['tokens']; fs: (n: number) => number }) {
+  if (!challenge.itemTypes?.length && !challenge.levels?.length && !challenge.categoryClasses?.length) return null
+  return (
+    <View style={styles.filterSummaryRow}>
+      {(challenge.itemTypes ?? []).map((t) => (
+        <View key={t} style={[styles.filterPill, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
+          <Text style={[styles.filterPillText, { color: tokens.gold, fontSize: fs(10.5) }]}>{TYPE_LABEL[t]}</Text>
+        </View>
+      ))}
+      {(challenge.levels ?? []).map((l) => (
+        <View key={l} style={[styles.filterPill, { backgroundColor: tokens.bdim, borderColor: tokens.blu }]}>
+          <Text style={[styles.filterPillText, { color: tokens.blu, fontSize: fs(10.5) }]}>{KNOWLEDGE_LEVEL_LABELS[l]}</Text>
+        </View>
+      ))}
+      {(challenge.categoryClasses ?? []).map((c) => (
+        <View key={c} style={[styles.filterPill, { backgroundColor: tokens.bdim, borderColor: tokens.grn }]}>
+          <Text style={[styles.filterPillText, { color: tokens.grn, fontSize: fs(10.5) }]}>{RATING_SHORT_LABELS[c]}</Text>
+        </View>
+      ))}
+    </View>
+  )
+}
 
 export default function ChallengeGameScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -30,6 +73,7 @@ export default function ChallengeGameScreen() {
   const [results, setResults] = useState<ChallengeResultRow[]>([])
   const [standings, setStandings] = useState<StandingRow[]>([])
   const [myStats, setMyStats] = useState<DuelStats | null>(null)
+  const [revealCoin, setRevealCoin] = useState<CoinDef | null>(null)
   const [liveMs, setLiveMs] = useState(0)
   const startedAt = useRef(0)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -78,7 +122,15 @@ export default function ChallengeGameScreen() {
 
   const handleRespond = async (accept: boolean) => {
     if (!id) return
-    await respondToChallenge(id, accept)
+    try {
+      await respondToChallenge(id, accept)
+    } catch (err: any) {
+      // The duel can legitimately be over by the time this invite is
+      // answered (everyone else finished, or the last invitee declined).
+      Alert.alert('Duel unavailable', err?.message ?? 'That duel is no longer available.')
+      loadState()
+      return
+    }
     if (accept) sendDuelPush(id, 'accepted')
     loadState()
   }
@@ -96,11 +148,29 @@ export default function ChallengeGameScreen() {
     if (!question || selectedChoice) return
     setSelectedChoice(choice)
     const timeMs = Date.now() - startedAt.current
-    const r = await submitChallengeAnswer(question.questionId, choice, timeMs)
+    let r: AnswerResult
+    try {
+      r = await submitChallengeAnswer(question.questionId, choice, timeMs)
+    } catch (err: any) {
+      // Submitting into a duel that ended underneath you (e.g. the last
+      // other player declined and it finalized). Reload rather than
+      // stranding the player on a dead question with a spinner.
+      setSelectedChoice(null)
+      Alert.alert('Duel unavailable', err?.message ?? 'That duel is no longer available.')
+      loadState()
+      return
+    }
     setMyTimeMs(timeMs)
     setResult(r)
     setPhase('revealed')
-    if (r.newCoins.length) getDuelStats().then(setMyStats)
+    if (r.newCoins.length) {
+      getDuelStats().then(setMyStats)
+      // Same reveal moment Study Mode uses (see CoinRevealModal) -- fires
+      // after the answer-correct/incorrect state above so it doesn't cover
+      // that feedback the instant you tap an answer.
+      const coin = COIN_BY_CODE[r.newCoins[0]]
+      if (coin) setTimeout(() => setRevealCoin(coin), 400)
+    }
     if (r.challengeCompleted && id) sendDuelPush(id, 'completed')
   }
 
@@ -112,13 +182,33 @@ export default function ChallengeGameScreen() {
   }
 
   const otherCount = challenge?.others.length ?? 0
+  const stillPending = challenge?.others.filter((o) => o.status === 'pending') ?? []
+  const stillPlaying = challenge?.others.filter(
+    (o) => o.status === 'active' && o.answeredCount < (challenge?.questionCount ?? 0)
+  ) ?? []
+  const waitingCopy =
+    stillPending.length > 0 && stillPlaying.length === 0
+      ? stillPending.length === 1
+        ? `Waiting on ${stillPending[0].label} to accept the invite — you'll see the full results once everyone's played.`
+        : `Waiting on ${stillPending.length} invited players to accept — you'll see the full results once everyone's played.`
+      : stillPending.length > 0
+        ? "Waiting on the other players — some are still playing and some haven't accepted yet."
+        : otherCount === 1
+          ? `Waiting on ${challenge?.others[0]?.label} to finish — you'll see the full results once they do.`
+          : "Waiting on the other players to finish — you'll see the full results once everyone's done."
+
   const title = !challenge ? 'Duel'
     : otherCount === 1 ? `Duel · ${challenge.others[0].label}`
+    // 0 others is real: the only opponent deleted their account (their
+    // participant row cascades away). "Duel · 1 players" read as a bug.
+    : otherCount === 0 ? 'Duel'
     : `Duel · ${otherCount + 1} players`
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title={title} onBack={() => router.back()} />
+
+      {challenge && phase !== 'loading' && <FilterSummary challenge={challenge} tokens={tokens} fs={fs} />}
 
       {(phase === 'ready' || phase === 'playing' || phase === 'revealed') && myStats && (
         <View style={[styles.statsBar, { borderBottomColor: tokens.bdr }]}>
@@ -129,9 +219,22 @@ export default function ChallengeGameScreen() {
       {phase === 'loading' ? (
         <View style={styles.center}><ActivityIndicator color={tokens.blu} /></View>
       ) : phase === 'declined' ? (
+        // 'cancelled' now has a distinct cause from 'I declined': the DB
+        // cancels a duel when nobody is left to play it (every invitee
+        // declined), so "Duel declined" would misattribute that to the
+        // viewer. See sync/migrations_duels_2.sql.
         <View style={styles.center}>
           <Icon name="xmark.circle" size={36} color={tokens.t4} />
-          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Duel declined</Text>
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>
+            {challenge?.myStatus === 'declined' ? 'You declined this duel' : 'Duel cancelled'}
+          </Text>
+          {challenge?.myStatus !== 'declined' && (
+            <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+              {otherCount === 1
+                ? `${challenge?.others[0]?.label ?? 'Your opponent'} declined, so there was nobody to duel.`
+                : 'Everyone invited declined, so there was nobody to duel.'}
+            </Text>
+          )}
         </View>
       ) : phase === 'pending_response' ? (
         <View style={styles.center}>
@@ -149,14 +252,13 @@ export default function ChallengeGameScreen() {
           </View>
         </View>
       ) : phase === 'waiting_opponent' ? (
+        // "Waiting on them to finish" was wrong whenever the other player
+        // hadn't even accepted yet -- a real state now that a duel no longer
+        // completes out from under a pending invitee (migrations_duels.sql).
         <View style={styles.center}>
           <Icon name="hourglass" size={36} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>You've answered every question</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-            {otherCount === 1
-              ? `Waiting on ${challenge?.others[0].label} to finish — you'll see the full results once they do.`
-              : "Waiting on the other players to finish — you'll see the full results once everyone's done."}
-          </Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>{waitingCopy}</Text>
         </View>
       ) : phase === 'ready' ? (
         <View style={styles.center}>
@@ -216,17 +318,13 @@ export default function ChallengeGameScreen() {
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             Your time: {(myTimeMs / 1000).toFixed(1)}s (only counts if everyone tied with you got it right)
           </Text>
+          {/* "0 of 0 others answered this one so far" is what this read
+              before anyone accepted the invite -- seen live. */}
           <Text style={[styles.emptySub, { color: tokens.t4, fontSize: fs(12.5) }]}>
-            {result?.othersAnsweredCount ?? 0} of {result?.othersTotalCount ?? 0} other{result?.othersTotalCount === 1 ? '' : 's'} answered this one so far
+            {(result?.othersTotalCount ?? 0) === 0
+              ? "You're playing ahead — nobody else has joined yet"
+              : `${result?.othersAnsweredCount ?? 0} of ${result?.othersTotalCount} other${result?.othersTotalCount === 1 ? '' : 's'} answered this one so far`}
           </Text>
-          {result && result.newCoins.length > 0 && (
-            <View style={[styles.coinToast, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
-              <Icon name="rosette" size={16} color={tokens.gold} />
-              <Text style={[styles.coinToastText, { color: tokens.gold, fontSize: fs(13) }]}>
-                Earned: {result.newCoins.map((c) => COIN_BY_CODE[c]?.name ?? c).join(', ')}
-              </Text>
-            </View>
-          )}
           <Pressable style={[styles.goBtnSmall, { backgroundColor: tokens.gold }]} onPress={handleNext}>
             <Text style={styles.goBtnSmallText}>{result?.challengeCompleted ? 'SEE FULL RESULTS' : 'NEXT QUESTION'}</Text>
           </Pressable>
@@ -234,6 +332,7 @@ export default function ChallengeGameScreen() {
       ) : phase === 'results' ? (
         <ResultsView results={results} standings={standings} tokens={tokens} fs={fs} />
       ) : null}
+      <CoinRevealModal coin={revealCoin} onClose={() => setRevealCoin(null)} />
     </View>
   )
 }
@@ -256,6 +355,14 @@ function StatPill({
   )
 }
 
+// r.term is the item's own identifier for every type except P/CG, where it's
+// the term text and the route wants the slug.
+function openResultItem(r: ChallengeResultRow) {
+  if (!r.term) return
+  if (r.itemType === 'pcg') router.push(`/pcg/${slugifyPcgTerm(r.term)}` as any)
+  else router.push(`/${r.itemType}/${r.term}` as any)
+}
+
 function ResultsView({
   results, standings, tokens, fs,
 }: {
@@ -270,6 +377,7 @@ function ResultsView({
 
   return (
     <View style={styles.resultsWrap}>
+      {outcome === 'won' && <ConfettiBurst />}
       <View style={styles.resultsSummary}>
         <Icon name={outcome === 'won' ? 'rosette' : 'bolt.fill'} size={32} color={tokens.gold} />
         <Text style={[styles.readyTitle, { color: tokens.t1, fontSize: fs(18) }]}>
@@ -300,24 +408,43 @@ function ResultsView({
         ))}
       </View>
 
+      {/* The breakdown used to show only r.term -- i.e. the answer key --
+          so a player reviewing a duel saw "AIM 9-1-6  You: ✕" with no way
+          to tell what the question had been or what they'd picked. Both
+          r.definition (the prompt) and a.answerText (the pick) were already
+          being fetched and thrown away. Rows also open the source document
+          now: the moment right after you get one wrong is exactly when you
+          want to read the actual reg. */}
       <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>PER-QUESTION BREAKDOWN</Text>
       {results.map((r) => (
-        <View key={r.sortOrder} style={[styles.resultRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+        <Pressable
+          key={r.sortOrder}
+          style={[styles.resultRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+          onPress={() => openResultItem(r)}
+        >
           <View style={styles.resultTermRow}>
             <View style={[styles.typeBadge, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
               <Text style={[styles.typeBadgeText, { color: tokens.gold, fontSize: fs(9.5) }]}>{TYPE_LABEL[r.itemType]}</Text>
             </View>
             <Text style={[styles.resultTerm, { color: tokens.t1, fontSize: fs(13.5) }]}>{r.term}</Text>
+            <Icon name="chevron.right" size={12} color={tokens.t4} />
           </View>
+          {!!r.definition && (
+            <Text style={[styles.resultPrompt, { color: tokens.t3, fontSize: fs(12.5) }]} numberOfLines={3}>
+              {r.definition}
+            </Text>
+          )}
           {r.answers.map((a) => (
             <Text
               key={a.userId}
               style={[styles.resultAnswer, { color: a.isCorrect ? tokens.grn : tokens.red, fontSize: fs(12) }]}
             >
-              {a.isMe ? 'You' : a.label}: {a.isCorrect ? '✓' : '✕'}{a.timeMs != null ? ` ${(a.timeMs / 1000).toFixed(1)}s` : ''}
+              {a.isMe ? 'You' : a.label}: {a.isCorrect ? '✓' : '✕'}
+              {!a.isCorrect && a.answerText ? ` ${a.answerText}` : ''}
+              {a.timeMs != null ? ` · ${(a.timeMs / 1000).toFixed(1)}s` : ''}
             </Text>
           ))}
-        </View>
+        </Pressable>
       ))}
     </View>
   )
@@ -328,6 +455,13 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
   emptyTitle: { fontWeight: '600', marginTop: 6, textAlign: 'center' },
   emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },
+
+  filterSummaryRow: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center',
+    paddingHorizontal: 16, paddingTop: 10,
+  },
+  filterPill: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
+  filterPillText: { fontWeight: '700', letterSpacing: 0.3 },
 
   statsBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -361,12 +495,6 @@ const styles = StyleSheet.create({
   answerBtnGood: {},
   answerBtnText: { fontWeight: '700' },
 
-  coinToast: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10, marginTop: 8,
-  },
-  coinToastText: { fontWeight: '700' },
-
   resultsWrap: { flex: 1, padding: 16, gap: 10 },
   resultsSummary: { alignItems: 'center', gap: 6, paddingVertical: 16 },
 
@@ -385,5 +513,6 @@ const styles = StyleSheet.create({
   typeBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 1.5 },
   typeBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
   resultTerm: { fontWeight: '700', flexShrink: 1 },
+  resultPrompt: { lineHeight: 17, marginBottom: 5 },
   resultAnswer: { fontWeight: '600' },
 })

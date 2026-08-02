@@ -99,6 +99,20 @@ export const RATING_GROUPS: { label: string; codes: RatingCode[] }[] = [
   { label: 'Other', codes: ['DPE', 'FE', 'PART107', 'DISPATCHER'] },
 ]
 
+// The "Category / Class" subset of RATING_CODES, reused by Study Mode and
+// Duels' own category/class filter (see get_study_queue/create_challenge's
+// p_category_classes param) so the filter chips stay in sync with whatever
+// codes the +Add Rating picker offers, and a user's own saved ratings can
+// eventually pre-populate the filter -- they're the same codes either way.
+// Lives here (not study.ts/challenges.ts) so both can import it without a
+// circular dependency, since challenges.ts already exports KnowledgeLevel
+// for study.ts to import.
+export type CategoryClass = Extract<
+  RatingCode,
+  'ASEL' | 'ASES' | 'AMEL' | 'AMES' | 'HELI' | 'GYRO' | 'GLIDER' | 'AIRSHIP' | 'BALLOON' | 'POWLIFT'
+>
+export const CATEGORY_CLASSES: CategoryClass[] = ['ASEL', 'ASES', 'AMEL', 'AMES', 'HELI', 'GYRO', 'GLIDER', 'AIRSHIP', 'BALLOON', 'POWLIFT']
+
 export async function getMyRatings(userId: string): Promise<RatingCode[]> {
   const { data, error } = await supabase
     .from('user_profile_ratings')
