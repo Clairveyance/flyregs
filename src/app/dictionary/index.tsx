@@ -223,6 +223,19 @@ export default function DictionaryIndexScreen() {
 // unlimited and free (matches AC's own pattern); this one curated daily
 // pick is now Plus+, same locked-teaser-when-not-entitled treatment as
 // DailyRegCard so the feature stays discoverable rather than vanishing.
+// RC: "the D and W of DailyWord should have larger font, like ML" -- the two
+// compound-word letters ("Daily" + "Word") get bumped up, same spirit as
+// MagicLink's own label treatment, without copying its full letter-by-letter
+// shimmer animation for what's otherwise a plain small-caps label everywhere
+// else on this screen.
+function DailyWordLabel({ color, fs }: { color: string; fs: (n: number) => number }) {
+  return (
+    <Text style={[styles.wordCardLabel, { color, fontSize: fs(10.5) }]}>
+      <Text style={{ fontSize: fs(13.5) }}>D</Text>AILY<Text style={{ fontSize: fs(13.5) }}>W</Text>ORD
+    </Text>
+  )
+}
+
 function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; tokens: ReturnType<typeof useTheme>['tokens'] }) {
   const fs = useFS()
   const { hasPlusAccess } = useAuth()
@@ -239,7 +252,7 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
             <Icon name="lock.fill" size={13} color={tokens.gold} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.wordCardLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>DAILYWORD</Text>
+            <DailyWordLabel color={tokens.t3} fs={fs} />
             <Text style={[styles.wordCardTerm, { color: tokens.t2, fontSize: fs(13.5) }]} numberOfLines={2}>
               A fun new term every day — unlock with Plus
             </Text>
@@ -259,7 +272,7 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
           <Icon name="star.fill" size={14} color={tokens.gold} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.wordCardLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>DAILYWORD</Text>
+          <DailyWordLabel color={tokens.t3} fs={fs} />
           <Text style={[styles.wordCardTerm, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={expanded ? undefined : 1}>
             {wordOfDay.term}
           </Text>
