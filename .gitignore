@@ -74,3 +74,21 @@ heading_gaps_categorized.json
 heading_gaps_report.json
 inline_lists_report.json
 ocr_scans_report.json
+
+# fact-deck authoring (Anthropic Batches API) — resumable batch-id/id-map
+# checkpoint state, not source of truth; author_fact_deck.py regenerates
+# these on each run
+scripts/.fact_deck_batch_state*.json
+scripts/.fact_deck_id_map*.json
+scripts/.fact_deck_verify_state.json
+
+# Aviation Dictionary sourcing scratch — raw scraped/OCR'd source text and
+# batch-job checkpoint state the load_dictionary_*.py scripts consume and
+# regenerate; not source of truth
+sync/.dictionary_contractions_source.html
+sync/.dictionary_prose_batch_state.json
+sync/.dictionary_prose_id_map.json
+sync/.dictionary_sources/
+sync/.iph_appendix_b_raw.txt
+sync/.phak_appendix_b_outline.txt
+sync/.weather_appendix_e_raw.txt
