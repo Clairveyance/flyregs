@@ -29,15 +29,49 @@ type Tier = 'plus' | 'pro' | 'premium'
 // either here. Plus is the one-time content/productivity unlock; Pro and
 // Premium are the subscription service layers on top of it.
 
+// These lists are the PRODUCT PROMISE, so they are kept honest against the
+// actual gate in code. Audited 2026-07-31 by reading every gate:
+//   hasPlusAccess (= Plus OR Pro OR Premium) -> belongs in PLUS_FEATURES
+//   hasProAccess  (= Pro OR Premium)         -> belongs in PRO_ADDITIONS
+//   isPremium                                -> PREMIUM_ADDITIONS
+// Three corrections came out of that audit:
+//   - "Print & export any section" is a PLUS feature, but handleShare()
+//     gated on isPremium in all six reg screens (ac/far/aim/pcg/ad/loi) and
+//     there was no print function anywhere -- a Plus buyer paying for that
+//     line got bounced to the Premium upsell. Confirmed with RC that Plus is
+//     correct, so the GATE was fixed (now hasPlusAccess) and a real print
+//     feature added (src/lib/printReg.ts). This line stays here.
+//   - "(up to 3 folders)" described a cap that does not exist in code.
+//   - What's Changed was hasPlusAccess-gated but appeared in NO tier list.
+//   - Duels is PREMIUM (RC, 2026-07-31) -- was gated hasPlusAccess.
+//   - Parts Lookup is FREE like the AD list, with results capped for free
+//     users the same way, so it is not sold as a tier feature at all.
+// A fourth correction, 2026-07-31 (later same day): MagicLink was briefly
+// listed here as PLUS_FEATURES, matching its gate at the time
+// (`if (!hasPlusAccess)`) -- RC then corrected the gate itself: "no, ML has
+// to at least be Pro tier." The gate (MagicLinkPod.tsx) and this list moved
+// together, not independently -- see hasProAccess in context/auth.tsx.
 const PLUS_FEATURES = [
   { icon: 'doc.text',          label: 'Complete text of every Advisory Circular & Legal Interpretation' },
   { icon: 'square.grid.2x2',   label: 'RefPacks — certificate-specific study collections' },
-  { icon: 'highlighter',       label: 'Highlights, Notes & Bookmarks (up to 3 folders)' },
-  { icon: 'square.and.arrow.up', label: 'Print & export any section' },
+  { icon: 'highlighter',       label: 'Highlights, Notes, Bookmarks & Folders' },
+  { icon: 'printer',           label: 'Print & export any section' },
   { icon: 'magnifyingglass',   label: 'Unlimited search results' },
+  // Ask FlyRegs's own gate is `if (!hasPlusAccess)` (semantic-search.tsx) --
+  // added here per the same audit convention as everything else in this
+  // list: the gate and the promise move together.
+  { icon: 'text.bubble.fill',  label: 'Ask FlyRegs — ask a real question, get the passages that answer it' },
+  { icon: 'star.fill',         label: 'DailyReg — a hand-picked reg every day' },
+  { icon: 'doc.badge.clock',   label: "What's Changed — see exactly what the FAA revised" },
 ]
 
 const PRO_ADDITIONS = [
+  // MagicLink's own expand-and-navigate gate is `if (!hasProAccess)` --
+  // listed here, not PLUS_FEATURES, per the correction above. Previously
+  // missing from every tier list on this whole screen despite being
+  // explicitly called "the feature no competitor has" in its own tier
+  // decision doc -- confirmed live, RC: "def put ML on the feature list."
+  { icon: 'sparkles',          label: 'MagicLink — automatic cross-references across FAR, AIM, P/CG, AC, AD & LOIs' },
   { icon: 'icloud',    label: 'Cross-device sync for your highlights, notes & bookmarks' },
   { icon: 'bell.badge', label: 'Airworthiness Directive alerts for your saved aircraft' },
   { icon: 'doc.badge.clock', label: 'Advisory Circular update alerts' },
@@ -45,12 +79,13 @@ const PRO_ADDITIONS = [
   { icon: 'rectangle.stack', label: 'Study Mode flashcards & mastery tracking' },
   { icon: 'rosette',   label: 'Challenge Coins for streaks & milestones' },
   { icon: 'person.2.fill', label: 'Ready Room leaderboard' },
-  { icon: 'bell',      label: '"Reg of the Day" daily notification' },
+  { icon: 'bell',      label: 'DailyReg daily notification' },
 ]
 
 const PREMIUM_ADDITIONS = [
   { icon: 'person.2.fill',     label: 'Shared, collaborative folders for CFIs, schools, and shops' },
   { icon: 'arrow.down.circle', label: 'Offline downloads — no internet required' },
+  { icon: 'bolt.fill',         label: 'Duels — challenge other pilots to a reg quiz' },
   { icon: 'airplane',          label: 'Unlimited saved aircraft (up from 1 on Pro)' },
 ]
 
@@ -82,19 +117,32 @@ export default function PaywallScreen() {
   // (shared folders, offline, unlimited aircraft/folders) and doesn't have
   // it yet -- lock to Premium, since Plus/Pro genuinely don't unlock it.
   const premiumRequired = paramTier === 'premium' && !isPremium
-  const locked = upgradeMode || premiumRequired
+  // proRequired: arrived from a gate that specifically needs Pro (e.g.
+  // MagicLink, per the 2026-07-31 correction -- see hasProAccess's own
+  // comment in context/auth.tsx) and doesn't have it yet -- lock the
+  // picker to Pro/Premium so Plus (which genuinely does NOT unlock it)
+  // isn't offered as if it would. Same shape as premiumRequired above,
+  // just one rung down the ladder.
+  const proRequired = paramTier === 'pro' && !isPro && !isPremium
+  const locked = upgradeMode || premiumRequired || proRequired
 
   // The tiers actually worth showing: skip anything already owned. A Plus
   // owner hitting a Pro/Premium gate should never see Plus offered again.
-  const availableTiers: Tier[] = locked
+  const availableTiers: Tier[] = (upgradeMode || premiumRequired)
     ? ['premium']
+    : proRequired
+    ? ['pro', 'premium']
     : downgradeMode
     ? ['pro', 'premium']
     : hasPlusAccess
     ? ['pro', 'premium']
     : ['plus', 'pro', 'premium']
 
-  const defaultTier: Tier = locked || downgradeMode
+  const defaultTier: Tier = (upgradeMode || premiumRequired)
+    ? 'premium'
+    : proRequired
+    ? 'pro'
+    : downgradeMode
     ? 'premium'
     : paramTier === 'pro' && availableTiers.includes('pro')
     ? 'pro'
@@ -137,14 +185,18 @@ export default function PaywallScreen() {
     ? 'Current Plan'
     : downgradeMode
     ? 'Downgrade to Pro'
-    : locked
+    : premiumRequired || upgradeMode
     ? 'Upgrade to Premium'
+    : proRequired
+    ? 'Upgrade to Pro'
     : `Get ${tierLabel}`
 
   // The badge tier always reads "Premium" once the user is locked into a
-  // Premium-only or Pro→Premium flow; otherwise it follows whichever tier
-  // they currently have selected in the picker.
-  const badgeTier: Tier = locked ? 'premium' : tier
+  // Premium-only or Pro→Premium flow; a proRequired lock reads "Pro"
+  // instead (tier state already tracks 'pro' for it via defaultTier, so
+  // just falling through to the normal `tier` branch is correct); otherwise
+  // it follows whichever tier they currently have selected in the picker.
+  const badgeTier: Tier = premiumRequired || upgradeMode ? 'premium' : tier
 
   const handleSubscribe = async () => {
     if (Platform.OS === 'web') {
@@ -176,7 +228,10 @@ export default function PaywallScreen() {
   const confirmSubscribe = async () => {
     setLoading(true)
     try {
-      const activeTier = locked ? 'premium' : tier
+      // premiumRequired/upgradeMode force Premium (the only real option);
+      // proRequired does NOT force Premium -- Pro genuinely satisfies it,
+      // so purchase whatever the picker actually has selected.
+      const activeTier = premiumRequired || upgradeMode ? 'premium' : tier
       const status = activeTier === 'plus'
         ? await purchaseUnlock()
         : await purchaseSubscription(activeTier, plan)
@@ -198,7 +253,7 @@ export default function PaywallScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 16), borderBottomColor: tokens.bdr }]}>
         <Text style={[styles.headerTitle, { color: tokens.t1, fontSize: fs(16) }]}>
-          {locked ? 'Upgrade to Premium' : downgradeMode ? 'Manage Your Plan' : 'Unlock FlyRegs'}
+          {premiumRequired || upgradeMode ? 'Upgrade to Premium' : proRequired ? 'Upgrade to Pro' : downgradeMode ? 'Manage Your Plan' : 'Unlock FlyRegs'}
         </Text>
         <Pressable onPress={() => router.dismiss()} hitSlop={8} style={styles.closeBtn}>
           <Icon name="xmark" size={18} color={tokens.t3} />
@@ -222,6 +277,13 @@ export default function PaywallScreen() {
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>This is a Premium feature</Text>
               <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
                 Upgrade to Premium to unlock this — plus shared folders, offline downloads, and unlimited aircraft.
+              </Text>
+            </>
+          ) : proRequired ? (
+            <>
+              <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>This is a Pro feature</Text>
+              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+                Upgrade to Pro to unlock this — plus sync, AD alerts, and Study Mode.
               </Text>
             </>
           ) : upgradeMode ? (
@@ -259,8 +321,12 @@ export default function PaywallScreen() {
           )}
         </View>
 
-        {/* Tier picker */}
-        {!locked && (
+        {/* Tier picker — hidden only when there's truly nothing to choose
+            (premiumRequired/upgradeMode narrow availableTiers to a single
+            entry). proRequired still offers a real choice (Pro or Premium,
+            since Premium is a superset) so the picker stays, defaulted to
+            Pro rather than hidden outright. */}
+        {availableTiers.length > 1 && (
           <View style={[styles.tierPicker, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
             {availableTiers.map((t) => (
               <Pressable

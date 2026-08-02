@@ -13,7 +13,7 @@ const SECTIONS: ProseSection[] = [
     heading: 'Notes, bookmarks & on-device data',
     body: [
       'By default, your notes, bookmarks, folders, and recently viewed list are stored privately on this device and are never uploaded to our servers.',
-      'If you enable Back up & sync (a Premium feature), your notes, bookmarks, and folders are uploaded to your account so they survive a reinstall and sync across your devices. This data is protected in transit (HTTPS) and at rest, and access is restricted to your account — but it is not end-to-end encrypted, meaning it is technically readable by our infrastructure provider under our data-access controls, the same as most cloud-synced apps. If that distinction matters to you, you can leave Back up & sync off and your notes will stay device-only.',
+      'If you enable Back up & sync (a Pro feature), your notes, bookmarks, and folders are uploaded to your account so they survive a reinstall and sync across your devices. This data is protected in transit (HTTPS) and at rest, and access is restricted to your account — but it is not end-to-end encrypted, meaning it is technically readable by our infrastructure provider under our data-access controls, the same as most cloud-synced apps. If that distinction matters to you, you can leave Back up & sync off and your notes will stay device-only.',
     ],
   },
   {

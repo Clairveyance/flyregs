@@ -55,7 +55,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [fontsLoaded])
 
-  // Routes a tapped notification to its content. Reg of the Day and Duels
+  // Routes a tapped notification to its content. DailyReg and Duels
   // carry a routable payload today (AC/AD update alerts send
   // documentNumbers/adNumbers with no `type` field and predate this
   // listener entirely -- deliberately left as-is here rather than
@@ -64,8 +64,16 @@ function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (Platform.OS === 'web') return
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as { type?: string; pcgSlug?: string; challengeId?: string } | undefined
-      if (data?.type === 'reg_of_day' && data.pcgSlug) {
+      // sourceType is the current field (get_reg_of_the_day now rotates
+      // P/CG + FAR + AIM, not just P/CG) -- pcgSlug/no-sourceType kept as a
+      // fallback so an already-delivered/queued notification sent by the
+      // previous version of send-reg-of-day.mjs before this shipped still
+      // routes correctly instead of silently no-op'ing.
+      const data = response.notification.request.content.data as
+        { type?: string; slug?: string; sourceType?: string; pcgSlug?: string; challengeId?: string } | undefined
+      if (data?.type === 'reg_of_day' && data.slug && data.sourceType) {
+        router.push(`/${data.sourceType}/${data.slug}` as any)
+      } else if (data?.type === 'reg_of_day' && data.pcgSlug) {
         router.push(`/pcg/${data.pcgSlug}` as any)
       } else if (data?.type === 'duel' && data.challengeId) {
         router.push(`/challenges/${data.challengeId}` as any)

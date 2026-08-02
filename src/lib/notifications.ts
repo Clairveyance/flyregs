@@ -147,6 +147,59 @@ export async function isRegOfTheDayEnabled(userId: string): Promise<boolean> {
   return (data?.length ?? 0) > 0
 }
 
+// P/CG deliberately excluded -- RC, 2026-08-02: "DailyReg is supposed to
+// rotate through FAR, AIM, and AC. P/CGs aren't regs, they're just handy
+// to have." (P/CG had been in the rotation pool since it was P/CG-only
+// originally; broadened to include FAR/AIM/AC without ever actually
+// dropping P/CG, until now.) get_reg_of_the_day() now only pools FAR/AIM
+// (via study_facts) and AC (via advisory_circulars).
+export type RegOfTheDaySource = 'far' | 'aim' | 'ac'
+
+export interface RegOfTheDay {
+  slug: string
+  term: string
+  definition: string
+  sourceType: RegOfTheDaySource
+}
+
+// Maps a RegOfTheDay's sourceType to its real detail-screen route.
+export function regOfTheDayRoute(item: Pick<RegOfTheDay, 'slug' | 'sourceType'>): string {
+  return `/${item.sourceType}/${item.slug}`
+}
+
+// The same rotation get_reg_of_the_day() drives for the daily push (see
+// scripts/send-reg-of-day.mjs) -- reused here so Home can show today's pick
+// inline regardless of whether the user has the push toggle on. Not gated
+// by tier: the underlying content (P/CG, FAR, AIM) is freely browsable,
+// this is just a discovery surface for something already free to read.
+export async function getRegOfTheDay(): Promise<RegOfTheDay | null> {
+  const { data, error } = await supabase.rpc('get_reg_of_the_day')
+  if (error) throw error
+  const row = data?.[0]
+  return row ? { slug: row.slug, term: row.term, definition: row.definition, sourceType: row.source_type } : null
+}
+
+export interface WordOfTheDay {
+  slug: string
+  term: string
+  definition: string
+}
+
+// Mirrors getRegOfTheDay()'s pattern (own get_word_of_the_day() rotation
+// function, same deterministic-by-date hash approach) but scoped only to
+// dictionary_terms. Gated Plus+ same as DailyReg -- RC first wanted this
+// free for everyone (2026-08-01), then reconsidered the next day given
+// the app's overall free/paid balance and asked to gate it like DailyReg
+// (2026-08-02); the fetch itself stays ungated here, the UI-level lock is
+// in DailyWordCard (src/app/dictionary/index.tsx). No push-notification
+// toggle exists for this (unlike Reg of the Day) since none was asked for.
+export async function getWordOfTheDay(): Promise<WordOfTheDay | null> {
+  const { data, error } = await supabase.rpc('get_word_of_the_day')
+  if (error) throw error
+  const row = data?.[0]
+  return row ? { slug: row.slug, term: row.term, definition: row.definition } : null
+}
+
 // Duel notifications -- mirrors the Reg of the Day toggle exactly (own
 // opt-in column on push_tokens, off by default, independent of the base
 // AC Update Alerts `enabled` flag). Fires on: a challenge created against

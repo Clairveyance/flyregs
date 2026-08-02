@@ -23,6 +23,7 @@ import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { BackToBreadcrumb } from '@/components/DocNavBar'
 import { Icon } from '@/components/Icon'
+import { printReg } from '@/lib/printReg'
 import { ACBody, ACBodyHandle } from '@/components/ACBody'
 import { addRecent } from '@/lib/recents'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
@@ -156,7 +157,7 @@ export default function ACDetailScreen() {
   // notes, bookmarks, and folders are all Plus-tier now, gated on hasPlusAccess
   // (isUnlocked || isPro || isPremium), not raw isPro. Offline downloads and
   // sharing stay Premium-only, unchanged from before.
-  const { isPremium, hasPlusAccess } = useAuth()
+  const { isPremium, hasPlusAccess, hasProAccess } = useAuth()
   const fs = useFS()
   const scrollRef = useRef<ScrollView>(null)
   const acBodyRef = useRef<ACBodyHandle>(null)
@@ -384,6 +385,12 @@ export default function ACDetailScreen() {
   const pcgRefs = related.filter((r) => r.cited_type === 'pcg')
   const adRefs = related.filter((r) => r.cited_type === 'ad')
   const otherAcRefs = related.filter((r) => r.cited_type === 'ac')
+  // Confirmed a real gap live: far/[id].tsx already builds a "Related LOIs"
+  // bar off this same bidirectional citation fetch, but AC/P-CG/AIM/AD never
+  // did -- an LOI interpreting an AC or P/CG term (33 + 24 real citation
+  // rows respectively) was fetched by the query above but silently dropped
+  // on the floor since nothing filtered cited_type==='loi' into its own bar.
+  const loiRefs = related.filter((r) => r.cited_type === 'loi')
 
   // Opened from a highlight row in Saved (?hlId=<highlight bookmark id>) —
   // jump straight to that block instead of landing at the top like a normal
@@ -505,9 +512,31 @@ export default function ACDetailScreen() {
     setDownloadBusy(false)
   }
 
+  // Print is the other half of the Plus "Print & export any section"
+  // promise. An AC's text lives in pdf_blocks rather than one body column,
+  // so flatten it with the same blockText() the reader renders from.
+  const handlePrint = async () => {
+    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!ac) return
+    const body = (ac.pdf_blocks ?? []).map((b) => blockText(b)).filter(Boolean).join('\n\n')
+    try {
+      await printReg({
+        documentNumber: `AC ${ac.document_number}`,
+        title: ac.title,
+        body: body || ac.description || '',
+        kindLabel: 'Advisory Circular',
+      })
+    } catch {
+      Alert.alert('Print failed', "Couldn't open the print dialog. Try again in a moment.")
+    }
+  }
+
   const handleShare = async () => {
-    if (!isPremium) {
-      router.push('/paywall?tier=premium')
+    // Share/export is a PLUS feature (paywall PLUS_FEATURES), not Premium.
+    // Gating it on isPremium bounced a Plus buyer to a Premium upsell for
+    // something they had already paid for.
+    if (!hasPlusAccess) {
+      router.push('/paywall')
       return
     }
     if (!ac) return
@@ -721,8 +750,11 @@ export default function ACDetailScreen() {
           <Icon name="arrow.up.circle" size={21} color={tokens.t3} />
         </Pressable>
       )}
+      <Pressable onPress={handlePrint} hitSlop={12} style={{ padding: 4 }}>
+        <Icon name="printer" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+      </Pressable>
       <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="square.and.arrow.up" size={21} color={isPremium ? tokens.t2 : tokens.t4} />
+        <Icon name="square.and.arrow.up" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
         <Icon name="folder.badge.plus" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
@@ -1003,9 +1035,10 @@ export default function ACDetailScreen() {
                 { icon: 'arrow.up.right.square', label: 'AIM references', items: aimRefs },
                 { icon: 'questionmark.circle', label: 'P/CG terms', items: pcgRefs },
                 { icon: 'wrench.and.screwdriver', label: 'Related ADs', items: adRefs },
+                { icon: 'checkmark.seal.fill', label: 'Related LOIs', items: loiRefs },
               ]}
               currentLabel={`AC ${ac.document_number}`}
-              hasPlusAccess={hasPlusAccess}
+              hasProAccess={hasProAccess}
             />
           </View>
 
@@ -1168,7 +1201,12 @@ const styles = StyleSheet.create({
   // only the content column is capped and centered.
   content: { padding: 16, paddingBottom: 48, gap: 12, width: '100%', maxWidth: 700, alignSelf: 'center' },
 
-  barsWrap: { gap: 6 },
+  // Breathing room around the action/MagicLink stack. These bars used to
+  // butt straight up against the Download button above and the body text
+  // below, so the whole block read as one cramped slab.
+  // marginTop matches the internal `gap` -- see aim/[id].tsx's own comment
+  // (RC, annotated screenshot): the two gaps were 14px and 10px, uneven.
+  barsWrap: { gap: 10, marginTop: 10, marginBottom: 22 },
 
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   badge: {

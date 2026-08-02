@@ -9,10 +9,44 @@ import type { CoinTier } from '@/lib/coins'
 // gradient rings (outer rim, inner bevel) plus a dark face disc, using
 // only what's already in the app (LinearGradient, same as MagicLink's own
 // gold effect) rather than needing commissioned per-coin artwork.
+//
+// Tiers progressively escalate in ornamentation, not just color, so a
+// bronze/silver/gold set of the same coin reads as genuinely harder-won
+// rather than a recolor: bronze is the plain single-ring rim; silver adds
+// an inner bevel ring and a soft glow; gold adds a warmer/stronger glow
+// plus a diagonal shine sweep across the rim -- the same "more is rarer"
+// escalation real challenge-coin sets use.
+//
+// The shine replaced four small solid-circle "sparkle" dots fixed at the
+// rim's N/S/E/W points -- confirmed live: "these four dots on these icons.
+// they look weird, not premium. find a better way to 'accent' the gold
+// coins. something that's more fluid and more distinguished." A rigid
+// 4-point cardinal pattern is the opposite of fluid regardless of what
+// shape sits at each point; a single soft diagonal highlight (how light
+// actually catches a curved polished-metal surface) reads as an intrinsic
+// property of the coin's finish rather than a decoration stuck on top.
+// Bronze was '#E0A868' -- a pale warm tan that, at coin size, read as just a
+// dimmer gold rather than its own distinct tone. Confirmed live: "they all
+// look gold-ish. the 'lesser' ones can be diff tones." Real bronze is a
+// saturated orange-brown copper (the classic "bronze" reference is
+// #CD7F32), clearly cooler and darker than gold's pale yellow -- bronze is
+// the tier with NO bevel/glow escalation (see showBevel below), so its rim
+// gradient is the ONLY signal it gets; it needs to carry the difference on
+// its own.
 const TIER_GRADIENTS: Record<CoinTier, readonly [string, string, string]> = {
-  bronze: ['#E0A868', '#8C5A2B', '#E0A868'],
+  bronze: ['#CD8032', '#7A4A1D', '#CD8032'],
   silver: ['#F2F2F2', '#9A9A9A', '#F2F2F2'],
   gold: ['#FFE9A8', '#C9971F', '#FFE9A8'],
+}
+const TIER_BEVEL: Record<CoinTier, readonly [string, string]> = {
+  bronze: ['#8C5A2B', '#8C5A2B'],
+  silver: ['#FFFFFF', '#C7C7C7'],
+  gold: ['#FFF6D9', '#E8B923'],
+}
+const TIER_GLOW: Record<CoinTier, string | null> = {
+  bronze: null,
+  silver: 'rgba(226,226,226,0.45)',
+  gold: 'rgba(255,201,64,0.6)',
 }
 const LOCKED_GRADIENT: readonly [string, string, string] = ['#4a4a52', '#2a2a30', '#4a4a52']
 
@@ -29,34 +63,94 @@ export function CoinMedal({
 }) {
   const colors = earned ? TIER_GRADIENTS[tier] : LOCKED_GRADIENT
   const faceSize = size * 0.78
+  const bevelSize = size * 0.9
+  const showBevel = earned && tier !== 'bronze'
+  const showShine = earned && tier === 'gold'
+  const glow = earned ? TIER_GLOW[tier] : null
 
   return (
-    <LinearGradient
-      colors={colors}
-      start={{ x: 0.15, y: 0.15 }}
-      end={{ x: 0.9, y: 0.9 }}
-      style={[styles.rim, { width: size, height: size, borderRadius: size / 2 }]}
+    <View
+      style={[
+        styles.wrap,
+        { width: size * 1.3, height: size * 1.3 },
+        glow ? { shadowColor: glow, shadowOpacity: 1, shadowRadius: size * 0.22, shadowOffset: { width: 0, height: 0 } } : null,
+      ]}
     >
-      <View
-        style={[
-          styles.face,
-          {
-            width: faceSize,
-            height: faceSize,
-            borderRadius: faceSize / 2,
-            backgroundColor: earned ? '#1c1c1f' : '#242429',
-            borderColor: colors[1],
-          },
-        ]}
+      <LinearGradient
+        colors={colors}
+        start={{ x: 0.15, y: 0.15 }}
+        end={{ x: 0.9, y: 0.9 }}
+        style={[styles.rim, { width: size, height: size, borderRadius: size / 2, overflow: 'hidden' }]}
       >
-        <Icon name={earned ? icon : 'lock.fill'} size={size * 0.4} color={earned ? colors[0] : '#7a7a82'} />
-      </View>
-    </LinearGradient>
+        {showBevel ? (
+          <LinearGradient
+            colors={TIER_BEVEL[tier]}
+            start={{ x: 0.2, y: 0.2 }}
+            end={{ x: 0.85, y: 0.85 }}
+            style={[styles.bevel, { width: bevelSize, height: bevelSize, borderRadius: bevelSize / 2 }]}
+          >
+            <View
+              style={[
+                styles.face,
+                { width: faceSize, height: faceSize, borderRadius: faceSize / 2, backgroundColor: '#1c1c1f', borderColor: colors[1] },
+              ]}
+            >
+              <Icon name={icon} size={size * 0.4} color={colors[0]} />
+            </View>
+          </LinearGradient>
+        ) : (
+          <View
+            style={[
+              styles.face,
+              {
+                width: faceSize,
+                height: faceSize,
+                borderRadius: faceSize / 2,
+                backgroundColor: earned ? '#1c1c1f' : '#242429',
+                borderColor: colors[1],
+              },
+            ]}
+          >
+            <Icon name={earned ? icon : 'lock.fill'} size={size * 0.4} color={earned ? colors[0] : '#7a7a82'} />
+          </View>
+        )}
+        {/* Diagonal glint, not a decoration bolted onto the coin -- rim has
+            overflow:hidden (its borderRadius makes it a circle) so this
+            oversized rotated bar gets clipped to exactly the coin's curve,
+            same way real light only catches a thin arc of a curved
+            polished surface. pointerEvents="none" so it never intercepts
+            the coin's own press target. */}
+        {showShine && (
+          <LinearGradient
+            pointerEvents="none"
+            colors={['transparent', 'rgba(255,255,255,0.55)', 'transparent']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={{
+              position: 'absolute',
+              width: size * 1.6,
+              height: size * 0.3,
+              top: size * 0.12,
+              left: -size * 0.3,
+              transform: [{ rotate: '-35deg' }],
+            }}
+          />
+        )}
+      </LinearGradient>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
+  wrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   rim: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bevel: {
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -24,6 +24,12 @@ interface AuthContextType {
   // Premium subscriber who never separately bought Plus would be missing
   // the content Pro's sync and Premium's sharing actually depend on.
   hasPlusAccess: boolean
+  // Pro tier and above (Premium includes Pro per the same superset ladder --
+  // see hasPlusAccess's own comment). Gate any feature that specifically
+  // requires Pro (not satisfied by owning Plus alone) on this, e.g.
+  // MagicLink's expand-and-navigate action (RC, 2026-07-31: "ML has to at
+  // least be Pro tier" -- corrected off an earlier, wrong hasPlusAccess gate).
+  hasProAccess: boolean
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string) => Promise<void>
   resendConfirmation: (email: string) => Promise<void>
@@ -51,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isPremium, setIsPremium] = useState(false)
   const [isUnlocked, setIsUnlocked] = useState(false)
   const hasPlusAccess = isUnlocked || isPro || isPremium
+  const hasProAccess = isPro || isPremium
   const [avatarOverride, setAvatarOverrideState] = useState<AvatarOverride | null>(null)
   const setAvatarOverride = (uri: string | null, presetId: string | null) => setAvatarOverrideState({ uri, presetId })
   const clearAvatarOverride = () => setAvatarOverrideState(null)
@@ -163,7 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider
       value={{
-        session, loading, isPro, setIsPro, isPremium, setIsPremium, isUnlocked, setIsUnlocked, hasPlusAccess, signIn, signUp, resendConfirmation,
+        session, loading, isPro, setIsPro, isPremium, setIsPremium, isUnlocked, setIsUnlocked, hasPlusAccess, hasProAccess, signIn, signUp, resendConfirmation,
         requestPasswordReset, signOut,
         avatarOverride, setAvatarOverride, clearAvatarOverride,
       }}

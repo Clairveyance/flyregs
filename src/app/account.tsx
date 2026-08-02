@@ -219,7 +219,7 @@ export default function AccountScreen() {
       if (err?.message === 'PERMISSION_DENIED') {
         Alert.alert(
           'Notifications Disabled',
-          'FlyRegs notifications are turned off in your device Settings. Enable them there to receive Reg of the Day.',
+          'FlyRegs notifications are turned off in your device Settings. Enable them there to receive DailyReg.',
           [
             { text: 'Cancel', style: 'cancel' },
             { text: 'Open Settings', onPress: () => Linking.openSettings() },
@@ -557,34 +557,11 @@ export default function AccountScreen() {
             If no User Handle is set, your email prefix will be shown in its place in Premium shared folders and anywhere else this name is relevant to others.
           </Text>
 
-          <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5), marginTop: 18, marginBottom: 4 }]}>Ratings</Text>
-          <Text style={[styles.handleHelp, { color: tokens.t3, fontSize: fs(12), marginBottom: 10 }]}>
-            Self-reported — shown alongside your handle wherever it appears to others. Not verified by FlyRegs.
-          </Text>
-          <View style={styles.ratingChips}>
-            {myRatings.map((code) => (
-              <Pressable
-                key={code}
-                style={[styles.ratingChip, { borderColor: tokens.gold, backgroundColor: tokens.goldlt }]}
-                onPress={() => handleToggleRating(code)}
-                disabled={ratingBusy === code}
-              >
-                {ratingBusy === code ? (
-                  <ActivityIndicator size="small" color={tokens.t3} />
-                ) : (
-                  <Text style={[styles.ratingChipText, { color: tokens.gold, fontSize: fs(12.5) }]}>{RATING_SHORT_LABELS[code]}</Text>
-                )}
-              </Pressable>
-            ))}
-            <Pressable
-              style={[styles.ratingChip, { borderColor: tokens.bdr, backgroundColor: tokens.bg, flexDirection: 'row', gap: 4, alignItems: 'center' }]}
-              onPress={() => setRatingPickerOpen(true)}
-            >
-              <Icon name="plus" size={12} color={tokens.blu} />
-              <Text style={[styles.ratingChipText, { color: tokens.blu, fontSize: fs(12.5) }]}>Add Rating</Text>
-            </Pressable>
-          </View>
-
+          {/* Ratings live on Community > Profile, not here. They are a
+              profile/bragging concept shown to other pilots, and having the
+              editor in Account while the display was on Profile meant the
+              Profile's own "+ Add Rating" just threw you to a settings
+              screen. See components/RatingPicker.tsx. */}
         </View>
 
         {/* Subscription group */}
@@ -766,44 +743,6 @@ export default function AccountScreen() {
         onRemovePhoto={handleRemoveAvatar}
         onDone={() => setAvatarEditOpen(false)}
       />
-      <Modal visible={ratingPickerOpen} animationType="slide" transparent onRequestClose={() => setRatingPickerOpen(false)}>
-        <Pressable style={styles.pickerScrim} onPress={() => setRatingPickerOpen(false)} />
-        <View style={[styles.pickerSheet, { backgroundColor: tokens.bg }]}>
-          <View style={[styles.pickerHeader, { borderBottomColor: tokens.bdr }]}>
-            <Text style={[styles.pickerTitle, { color: tokens.t1, fontSize: fs(15.5) }]}>Add Rating</Text>
-            <Pressable onPress={() => setRatingPickerOpen(false)} hitSlop={12}>
-              <Icon name="xmark" size={18} color={tokens.t3} />
-            </Pressable>
-          </View>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.pickerBody}>
-            {RATING_GROUPS.map((group) => (
-              <View key={group.label} style={{ marginBottom: 18 }}>
-                <Text style={[styles.pickerGroupLabel, { color: tokens.t3, fontSize: fs(11) }]}>{group.label.toUpperCase()}</Text>
-                {group.codes.map((code) => {
-                  const active = myRatings.includes(code)
-                  return (
-                    <Pressable
-                      key={code}
-                      style={[styles.pickerRow, { borderBottomColor: tokens.bdr }]}
-                      onPress={() => handleToggleRating(code)}
-                      disabled={ratingBusy === code}
-                    >
-                      <Text style={[styles.pickerRowText, { color: tokens.t1, fontSize: fs(14.5) }]}>{RATING_LABELS[code]}</Text>
-                      {ratingBusy === code ? (
-                        <ActivityIndicator size="small" color={tokens.t3} />
-                      ) : active ? (
-                        <Icon name="checkmark.circle.fill" size={20} color={tokens.gold} />
-                      ) : (
-                        <View style={[styles.pickerCheckEmpty, { borderColor: tokens.bdr }]} />
-                      )}
-                    </Pressable>
-                  )
-                })}
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      </Modal>
     </View>
   )
 }

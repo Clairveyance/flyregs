@@ -29,16 +29,29 @@ const CATEGORIES = [
   { key: 'other', label: 'Something else', icon: 'envelope' },
 ] as const
 
-type CatKey = (typeof CATEGORIES)[number]['key']
+// Pro/Premium-only category -- RC, live: "we could consider adding a
+// special 'Suggest Aircraft & Parts' feedback selection box in the menu,
+// just for Pro and Premium subs ... might make it nicer, easier for those
+// top tier subs to have a dedicated place to ask for an a/c or part to be
+// added in the rare chance we don't have it." Kept as its own entry in
+// this same screen/pipe (not a separate screen) rather than new
+// infrastructure -- it's the identical "compose an email to support"
+// mechanism every other category already uses, just a dedicated label +
+// placeholder so a Pro/Premium user doesn't have to guess which bucket
+// "please add the Zenith CH 750" belongs in.
+const AIRCRAFT_PART_CATEGORY = { key: 'aircraft_part', label: 'Suggest Aircraft or Part', icon: 'airplane' } as const
+
+type CatKey = (typeof CATEGORIES)[number]['key'] | typeof AIRCRAFT_PART_CATEGORY.key
 
 export default function FeedbackScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { session } = useAuth()
+  const { session, hasProAccess } = useAuth()
   const insets = useSafeAreaInsets()
   const backToMenu = useReturnToMenu()
   const [category, setCategory] = useState<CatKey>('idea')
   const [message, setMessage] = useState('')
+  const visibleCategories = hasProAccess ? [...CATEGORIES, AIRCRAFT_PART_CATEGORY] : CATEGORIES
   const [showSentToast, setShowSentToast] = useState(false)
   const toastOpacity = useRef(new Animated.Value(0)).current
 
@@ -57,7 +70,7 @@ export default function FeedbackScreen() {
       Alert.alert('Add a little more', 'Tell us what happened or what you have in mind.')
       return
     }
-    const catLabel = CATEGORIES.find((c) => c.key === category)?.label ?? 'Feedback'
+    const catLabel = [...CATEGORIES, AIRCRAFT_PART_CATEGORY].find((c) => c.key === category)?.label ?? 'Feedback'
     const subject = `${APP_NAME} — ${catLabel}`
     const footer = `\n\n—\n${APP_NAME} v${APP_VERSION} · ${Platform.OS}${
       session?.user?.email ? ` · ${session.user.email}` : ''
@@ -110,7 +123,7 @@ export default function FeedbackScreen() {
 
         <Text style={[styles.label, { color: tokens.t3, fontSize: fs(11) }]}>CATEGORY</Text>
         <View style={styles.catGrid}>
-          {CATEGORIES.map((c) => {
+          {visibleCategories.map((c) => {
             const active = category === c.key
             return (
               <Pressable
@@ -139,7 +152,11 @@ export default function FeedbackScreen() {
             styles.input,
             { backgroundColor: tokens.bg2, borderColor: tokens.bdr, color: tokens.t1, fontSize: fs(14.5) },
           ]}
-          placeholder="Describe the bug, idea, or correction…"
+          placeholder={
+            category === 'aircraft_part'
+              ? 'When requesting a new aircraft or part, please include as much information and be as specific as possible, so we can find it correctly and get it added for you. Thank you for being a valued subscriber.'
+              : 'Describe the bug, idea, or correction…'
+          }
           placeholderTextColor={tokens.t3}
           value={message}
           onChangeText={setMessage}

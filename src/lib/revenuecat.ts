@@ -1,4 +1,4 @@
-import Purchases, { LOG_LEVEL, PurchasesPackage } from 'react-native-purchases'
+import Purchases, { LOG_LEVEL, PurchasesPackage, CustomerInfo } from 'react-native-purchases'
 import { Platform } from 'react-native'
 
 export const ENTITLEMENT_PRO = 'pro'
@@ -41,15 +41,22 @@ export type SubscriptionStatus = {
   isUnlocked: boolean
 }
 
+// Single place reading the three entitlements out of a CustomerInfo --
+// every purchase/restore/status call below built this same three-line
+// object inline, which the new update-listener (below) also needs.
+function statusFromCustomerInfo(customerInfo: CustomerInfo): SubscriptionStatus {
+  const active = customerInfo.entitlements.active
+  return {
+    isPro: active[ENTITLEMENT_PRO] !== undefined,
+    isPremium: active[ENTITLEMENT_PREMIUM] !== undefined,
+    isUnlocked: active[ENTITLEMENT_UNLOCKED] !== undefined,
+  }
+}
+
 export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
   try {
     const customerInfo = await Purchases.getCustomerInfo()
-    const active = customerInfo.entitlements.active
-    return {
-      isPro: active[ENTITLEMENT_PRO] !== undefined,
-      isPremium: active[ENTITLEMENT_PREMIUM] !== undefined,
-      isUnlocked: active[ENTITLEMENT_UNLOCKED] !== undefined,
-    }
+    return statusFromCustomerInfo(customerInfo)
   } catch {
     return { isPro: false, isPremium: false, isUnlocked: false }
   }
@@ -108,12 +115,7 @@ export async function purchaseSubscription(
   if (!pkg) throw new Error(`Package not found: ${productId}`)
 
   const { customerInfo } = await Purchases.purchasePackage(pkg)
-  const active = customerInfo.entitlements.active
-  return {
-    isPro: active[ENTITLEMENT_PRO] !== undefined,
-    isPremium: active[ENTITLEMENT_PREMIUM] !== undefined,
-    isUnlocked: active[ENTITLEMENT_UNLOCKED] !== undefined,
-  }
+  return statusFromCustomerInfo(customerInfo)
 }
 
 // Separate from purchaseSubscription: a non-consumable has no tier/plan
@@ -129,12 +131,7 @@ export async function purchaseUnlock(): Promise<SubscriptionStatus> {
   if (!pkg) throw new Error(`Package not found: ${PRODUCT_IDS.unlock}`)
 
   const { customerInfo } = await Purchases.purchasePackage(pkg)
-  const active = customerInfo.entitlements.active
-  return {
-    isPro: active[ENTITLEMENT_PRO] !== undefined,
-    isPremium: active[ENTITLEMENT_PREMIUM] !== undefined,
-    isUnlocked: active[ENTITLEMENT_UNLOCKED] !== undefined,
-  }
+  return statusFromCustomerInfo(customerInfo)
 }
 
 // Resets RevenueCat's own identity back to anonymous -- without this, the
@@ -156,12 +153,7 @@ export async function logOutRevenueCat() {
 export async function restorePurchases(): Promise<SubscriptionStatus> {
   try {
     const customerInfo = await Purchases.restorePurchases()
-    const active = customerInfo.entitlements.active
-    return {
-      isPro: active[ENTITLEMENT_PRO] !== undefined,
-      isPremium: active[ENTITLEMENT_PREMIUM] !== undefined,
-      isUnlocked: active[ENTITLEMENT_UNLOCKED] !== undefined,
-    }
+    return statusFromCustomerInfo(customerInfo)
   } catch {
     return { isPro: false, isPremium: false, isUnlocked: false }
   }
