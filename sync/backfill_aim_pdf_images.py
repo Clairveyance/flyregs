@@ -243,20 +243,22 @@ def rebuild_tbl_figures(existing_tbl_figures: list[dict], pdf_pages: dict) -> di
         bare_label_seen: dict[str, int] = {}
         pdf_cursor: dict[str, int] = {}
 
-        tentative: list[tuple[int, str, str]] = []  # (block_i, title, label)
+        tentative: list[tuple[int, str, str, int | None]] = []  # (block_i, title, label, pdf_page)
         for block_i, bare_label, title in all_blocks:
             norm = normalize_title(title)
             occurrences = pdf_pages.get(norm, [])
             idx = pdf_cursor.get(norm, 0)
+            page = None
             if idx < len(occurrences):
                 label = f"TBL {occurrences[idx]['number']}"
+                page = occurrences[idx]["page"]
                 pdf_cursor[norm] = idx + 1
             else:
                 n = bare_label_seen.get(bare_label, 0)
                 bare_label_seen[bare_label] = n + 1
                 suffixed = bare_label_counts[bare_label] > 1
                 label = f"{bare_label}{chr(ord('a') + n)}" if suffixed else bare_label
-            tentative.append((block_i, title, label))
+            tentative.append((block_i, title, label, page))
 
         # Safety net for the near-impossible case where two DIFFERENT
         # tables in the same paragraph resolve to the same real PDF number
@@ -264,22 +266,22 @@ def rebuild_tbl_figures(existing_tbl_figures: list[dict], pdf_pages: dict) -> di
         # another's real one) -- suffix only the colliding subset, in
         # document order, rather than letting a silent duplicate through.
         label_counts: dict[str, int] = {}
-        for _, _, label in tentative:
+        for _, _, label, _ in tentative:
             label_counts[label] = label_counts.get(label, 0) + 1
         occurrence: dict[str, int] = {}
-        final: list[tuple[int, str, str]] = []
-        for block_i, title, base_label in tentative:
+        final: list[tuple[int, str, str, int | None]] = []
+        for block_i, title, base_label, page in tentative:
             if label_counts[base_label] > 1:
                 n = occurrence.get(base_label, 0)
                 occurrence[base_label] = n + 1
                 label = f"{base_label}{chr(ord('a') + n)}"
             else:
                 label = base_label
-            final.append((block_i, title, label))
+            final.append((block_i, title, label, page))
 
         new_rows = []
         changed = False
-        for block_i, title, correct_label in final:
+        for block_i, title, correct_label, pdf_page in final:
             candidates = existing_by_caption.get(title, [])
             image_url = None
             for c in candidates:
@@ -295,6 +297,18 @@ def rebuild_tbl_figures(existing_tbl_figures: list[dict], pdf_pages: dict) -> di
                 "caption": title,
                 "image_url": image_url,
                 "sort_order": block_i,
+                # Not a real column -- resolved to a real image_url (or
+                # stripped) by the caller before this ever reaches
+                # apply_tbl_rebuild. Exists because this function has no
+                # PDF/network access of its own (kept pure/testable); only
+                # populated when there's truly no existing row to salvage
+                # image_url from (image_url is None above) AND a real PDF
+                # page was matched -- confirmed live as a real crash
+                # (2026-08-02, aim_figures.image_url NOT NULL violation):
+                # every prior run always had SOME existing TBL row to
+                # salvage from, so this path was never exercised until a
+                # full from-empty rebuild hit it for the first time.
+                "_pdf_page": pdf_page if image_url is None else None,
             })
 
             old_first_line = blocks[block_i].split("\n")[0]
@@ -392,6 +406,26 @@ def main():
         f"insert={len(tbl_plan['insert_rows'])} "
         f"body_text_patches={len(tbl_plan['body_text_updates'])} paragraphs"
     )
+    # rebuild_tbl_figures has no PDF/network access of its own -- resolve
+    # its `_pdf_page` marker (set only when a brand-new row has no existing
+    # image_url to salvage) into a real rendered page here, same cache the
+    # FIG-matching pass below uses. aim_figures.image_url is NOT NULL; a row
+    # with neither a salvageable existing image nor a PDF match (only
+    # possible if a table's own caption text matches nothing in the current
+    # PDF at all) falls back to an empty string rather than crashing the
+    # whole batch insert over one unmatched table.
+    unresolved_tbl = 0
+    for row in tbl_plan["insert_rows"]:
+        pdf_page = row.pop("_pdf_page", None)
+        if row["image_url"] is not None:
+            continue
+        if pdf_page is not None:
+            row["image_url"] = f"[dry-run page {pdf_page}]" if args.dry_run else cached_image_for_page(pdf_page)
+        else:
+            row["image_url"] = ""
+            unresolved_tbl += 1
+    if unresolved_tbl:
+        print(f"  {unresolved_tbl} new TBL row(s) have no PDF match and nothing to salvage -- image_url left empty.")
     if not args.dry_run:
         apply_tbl_rebuild(tbl_plan)
         # Re-fetch so ids/state are accurate for the title-matching pass
