@@ -22,7 +22,7 @@ interface MnemonicHit {
   mnemonic_group: string | null
 }
 
-const UNGROUPED = 'Other'
+export const MNEMONIC_UNGROUPED = 'Other'
 
 // v1 scope (2026-08-01): FAA JO 7340.2's official Contractions table
 // (3,326 terms, category='contraction') -- see
@@ -311,7 +311,7 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
 // last, roughly the order a pilot encounters them -- with anything
 // ungrouped (mnemonic_group null) collected under "Other" at the end so
 // it's never silently dropped.
-const GROUP_ORDER = [
+export const MNEMONIC_GROUP_ORDER = [
   'Preflight Planning & Risk Management',
   'VFR & Equipment Requirements',
   'IFR Flight Planning & En Route',
@@ -319,19 +319,19 @@ const GROUP_ORDER = [
   'Weather & Navigation Instrument Errors',
   'Spatial Disorientation & Illusions',
   'Engine Failures & Emergencies',
-  UNGROUPED,
+  MNEMONIC_UNGROUPED,
 ]
 
 function MnemonicsCard({ mnemonics, tokens, fs }: { mnemonics: MnemonicHit[]; tokens: ReturnType<typeof useTheme>['tokens']; fs: (n: number) => number }) {
   const [expanded, setExpanded] = useState(false)
   const byGroup = new Map<string, MnemonicHit[]>()
   for (const m of mnemonics) {
-    const g = m.mnemonic_group ?? UNGROUPED
+    const g = m.mnemonic_group ?? MNEMONIC_UNGROUPED
     if (!byGroup.has(g)) byGroup.set(g, [])
     byGroup.get(g)!.push(m)
   }
-  const groups = GROUP_ORDER.filter((g) => byGroup.has(g))
-  for (const g of byGroup.keys()) if (!groups.includes(g)) groups.push(g) // any future group not yet in GROUP_ORDER still shows, just at the end
+  const groups = MNEMONIC_GROUP_ORDER.filter((g) => byGroup.has(g))
+  for (const g of byGroup.keys()) if (!groups.includes(g)) groups.push(g) // any future group not yet in MNEMONIC_GROUP_ORDER still shows, just at the end
 
   return (
     // Blue border + bold label, NOT the gold glow/tint treatment -- RC:

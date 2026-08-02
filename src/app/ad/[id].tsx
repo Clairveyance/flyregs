@@ -14,7 +14,7 @@ import { FigureViewer } from '@/components/FigureViewer'
 import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { BackToBreadcrumb } from '@/components/DocNavBar'
+import { BackToBreadcrumb, PrevNextFooter } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { MetaChip, MetaChipRow, DetailSection, DetailActionRow } from '@/components/DetailMeta'
@@ -85,6 +85,8 @@ export default function AdScreen() {
   const [figures, setFigures] = useState<AdFigureRow[]>([])
   const [figuresExpanded, setFiguresExpanded] = useState(false)
   const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
+  const [prevAd, setPrevAd] = useState<{ ad_number: string } | null>(null)
+  const [nextAd, setNextAd] = useState<{ ad_number: string } | null>(null)
 
   useEffect(() => {
     if (id) isBookmarked(id).then(setBookmarked)
@@ -101,6 +103,23 @@ export default function AdScreen() {
     if (!id) return
     supabase.from('ad_figures').select('id, page_index, image_url').eq('ad_number', id).order('page_index')
       .then(({ data }) => setFigures((data ?? []) as AdFigureRow[]))
+  }, [id])
+
+  // Prev/Next chevrons -- RC: "we should have some next/prev chevrons in
+  // the Mn pages... Same for the A/D itself. The P/CG already has this."
+  // Unlike P/CG (1,332 rows) or FAR (scoped to one Part), the AD corpus is
+  // ~5,000 rows with no natural small grouping to scope to, so fetching
+  // every sibling up front the way those two do would mean downloading the
+  // whole table on every single AD view. ad_number is a zero-padded
+  // "YYYY-WW-NN" string (confirmed live: "2000-01-06" < "2000-01-10" <
+  // "2000-02-14" sorts correctly as plain text), so two targeted
+  // lt/gt + limit(1) queries find the immediate neighbor directly instead.
+  useEffect(() => {
+    if (!id) return
+    supabase.from('airworthiness_directives').select('ad_number').lt('ad_number', id).order('ad_number', { ascending: false }).limit(1)
+      .then(({ data }) => setPrevAd((data?.[0] as { ad_number: string } | undefined) ?? null))
+    supabase.from('airworthiness_directives').select('ad_number').gt('ad_number', id).order('ad_number', { ascending: true }).limit(1)
+      .then(({ data }) => setNextAd((data?.[0] as { ad_number: string } | undefined) ?? null))
   }, [id])
 
   // Confirmed a real gap: AD never read the pending breadcrumb at all,
@@ -514,6 +533,14 @@ export default function AdScreen() {
           )}
         </ScrollView>
         </TabletContainer>
+      )}
+      {ad && (
+        <PrevNextFooter
+          prevLabel={prevAd ? `AD ${prevAd.ad_number}` : null}
+          nextLabel={nextAd ? `AD ${nextAd.ad_number}` : null}
+          onPrev={() => prevAd && router.replace(`/ad/${prevAd.ad_number}` as any)}
+          onNext={() => nextAd && router.replace(`/ad/${nextAd.ad_number}` as any)}
+        />
       )}
       <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
       <FolderPicker

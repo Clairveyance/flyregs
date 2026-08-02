@@ -12,6 +12,8 @@ import { FolderPicker } from '@/components/FolderPicker'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { addRecent } from '@/lib/recents'
 import { linkifyText } from '@/lib/crossRefLinks'
+import { PrevNextFooter } from '@/components/DocNavBar'
+import { MNEMONIC_GROUP_ORDER, MNEMONIC_UNGROUPED } from './index'
 
 interface BreakdownItem {
   letter: string
@@ -93,6 +95,7 @@ export default function DictionaryTermScreen() {
   const [loading, setLoading] = useState(true)
   const [bookmarked, setBookmarked] = useState(false)
   const [folderPickerVisible, setFolderPickerVisible] = useState(false)
+  const [siblingMnemonics, setSiblingMnemonics] = useState<{ slug: string; term: string; mnemonic_group: string | null }[]>([])
 
   useEffect(() => {
     if (!slug) return
@@ -128,6 +131,53 @@ export default function DictionaryTermScreen() {
       subject_series: null,
     })
   }, [entry, slug])
+
+  // Prev/Next chevrons, mnemonic entries only -- RC: "we should have some
+  // next/prev chevrons in the Mn pages, when you're viewing the Mn itself,
+  // just move easily to the next one, etc. Same for the A/D itself. The
+  // P/CG already has this." Ordered by group then alphabetically, matching
+  // how the Mnemonics card on the index screen itself groups and presents
+  // them (see MNEMONIC_GROUP_ORDER) -- jumping alphabetically across
+  // unrelated topic groups would feel disconnected from that presentation.
+  // Only ~40 rows today, nowhere near PostgREST's 1000-row cap, but paged
+  // with .range() anyway for consistency with pcg/[id].tsx's own pattern.
+  useEffect(() => {
+    if (entry?.category !== 'mnemonic') return
+    let cancelled = false
+    async function fetchAll() {
+      const all: { slug: string; term: string; mnemonic_group: string | null }[] = []
+      let from = 0
+      const page = 1000
+      while (!cancelled) {
+        const { data } = await supabase
+          .from('dictionary_terms')
+          .select('slug, term, mnemonic_group')
+          .eq('category', 'mnemonic')
+          .order('term', { ascending: true })
+          .range(from, from + page - 1)
+        if (!data || data.length === 0) break
+        all.push(...(data as { slug: string; term: string; mnemonic_group: string | null }[]))
+        if (data.length < page) break
+        from += page
+      }
+      if (!cancelled) setSiblingMnemonics(all)
+    }
+    fetchAll()
+    return () => { cancelled = true }
+  }, [entry?.category])
+
+  const byMnemonicGroup = new Map<string, typeof siblingMnemonics>()
+  for (const m of siblingMnemonics) {
+    const g = m.mnemonic_group ?? MNEMONIC_UNGROUPED
+    if (!byMnemonicGroup.has(g)) byMnemonicGroup.set(g, [])
+    byMnemonicGroup.get(g)!.push(m)
+  }
+  const mnemonicGroups = MNEMONIC_GROUP_ORDER.filter((g) => byMnemonicGroup.has(g))
+  for (const g of byMnemonicGroup.keys()) if (!mnemonicGroups.includes(g)) mnemonicGroups.push(g)
+  const orderedMnemonics = mnemonicGroups.flatMap((g) => byMnemonicGroup.get(g)!)
+  const mnemonicIdx = orderedMnemonics.findIndex((s) => s.slug === slug)
+  const prevMnemonic = mnemonicIdx > 0 ? orderedMnemonics[mnemonicIdx - 1] : null
+  const nextMnemonic = mnemonicIdx >= 0 && mnemonicIdx < orderedMnemonics.length - 1 ? orderedMnemonics[mnemonicIdx + 1] : null
 
   const handleToggleBookmark = async () => {
     if (!entry || !slug) return
@@ -249,6 +299,14 @@ export default function DictionaryTermScreen() {
             <Text style={[styles.sourceLine, { color: tokens.t4, fontSize: fs(11.5) }]}>Source: {entry.source}</Text>
           </ScrollView>
         </TabletContainer>
+      )}
+      {entry?.category === 'mnemonic' && (
+        <PrevNextFooter
+          prevLabel={prevMnemonic ? prevMnemonic.term : null}
+          nextLabel={nextMnemonic ? nextMnemonic.term : null}
+          onPrev={() => prevMnemonic && router.replace(`/dictionary/${prevMnemonic.slug}` as any)}
+          onNext={() => nextMnemonic && router.replace(`/dictionary/${nextMnemonic.slug}` as any)}
+        />
       )}
     </View>
   )
