@@ -221,8 +221,18 @@ def parse_ad_text(raw_text: str, document_number: str) -> dict | None:
 
     # Subject heading is the document's own title line, printed once near
     # the top ("Airworthiness Directives; Textron Aviation Inc. Airplanes").
-    title_match = re.search(r"\n(Airworthiness Directives;[^\n]+)\n", text)
-    subject_heading = title_match.group(1).strip() if title_match else None
+    # Matched against `single_line` (already wrap-collapsed above for
+    # header_match), NOT the raw `text` -- a long manufacturer name that
+    # wraps across two physical PDF lines (e.g. "Embraer S.A. (Type
+    # Certificate Previously Held by ...) Airplanes") used to get cut at
+    # wherever the PDF happened to line-wrap, since `[^\n]+` against raw
+    # `text` stops at the first newline regardless of whether that's the
+    # end of the real title. Found live via a corpus-wide truncation sweep
+    # (2026-08-02): 406 of 5,023 ADs affected, all truncated mid-phrase at
+    # "(Type" specifically because that's a common wrap point for this
+    # exact manufacturer-name pattern.
+    title_match = re.search(r"Airworthiness Directives;[^\n]+", single_line)
+    subject_heading = title_match.group(0).strip() if title_match else None
 
     summary_match = re.search(r"SUMMARY:\s*(.+?)(?=\nDATES:|\nADDRESSES:)", text, re.DOTALL)
     summary = re.sub(r"\s+", " ", summary_match.group(1)).strip() if summary_match else None
