@@ -71,7 +71,7 @@ const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: fal
 
 const { data: ads, error: adErr } = await sb
   .from('airworthiness_directives')
-  .select('ad_number, subject_heading, make, model')
+  .select('ad_number, subject_heading, make, model, applicability')
   .in('ad_number', touchedAdNumbers)
 
 if (adErr) {
@@ -88,7 +88,7 @@ if (!ads || ads.length === 0) {
 // aircraft), so pulling both fully into memory and matching in JS is
 // simpler and plenty fast, rather than a per-AD SQL query in a loop.
 const [{ data: aircraft, error: acErr }, { data: tokens, error: tokErr }, { data: equipMentions, error: mentErr }, { data: equipTags, error: tagErr }] = await Promise.all([
-  sb.from('user_aircraft').select('id, user_id, make, model'),
+  sb.from('user_aircraft').select('id, user_id, make, model, type_designator'),
   sb.from('push_tokens').select('user_id, expo_push_token').eq('enabled', true),
   sb.from('ad_part_mentions').select('ad_number, part_id').in('ad_number', touchedAdNumbers),
   sb.from('user_aircraft_equipment').select('user_aircraft_id, part_id'),
@@ -140,20 +140,35 @@ for (const tag of equipTags ?? []) {
 
 const adsByNumber = new Map(ads.map((ad) => [ad.ad_number, ad]))
 
-// user_id -> matching ADs
-const matchesByUser = new Map()
-const addMatch = (userId, ad) => {
-  if (!tokensByUser.has(userId)) return // no enabled device, nothing to send
-  if (!matchesByUser.has(userId)) matchesByUser.set(userId, [])
-  matchesByUser.get(userId).push(ad)
+// Every real match, aircraft-level (not just user-level) -- this is what
+// the user_ad_notifications table exists for: the in-app "new AD in
+// your aircraft folder" marker needs to know WHICH aircraft matched, not
+// just which user, and it fires independent of whether that user has a
+// working push token (push is layered on top, not a precondition -- a
+// user with a matching aircraft but no enabled device still gets the
+// in-app marker, just no push).
+// key: `${userAircraftId}:${adNumber}` -> { userId, userAircraftId, ad, matchedVia }
+const matches = new Map()
+const addMatch = (userId, userAircraftId, ad, matchedVia) => {
+  const key = `${userAircraftId}:${ad.ad_number}`
+  if (matches.has(key)) return
+  matches.set(key, { userId, userAircraftId, ad, matchedVia })
 }
 
 for (const ad of ads) {
   if (!ad.make) continue
   const adMake = ad.make.trim().toLowerCase()
   const adModel = (ad.model ?? '').toLowerCase()
+  // Fallback text checked when ad.model is null -- see the block below for
+  // why (RC, live, screenshot: a Cessna 172S showed 65 Applicable ADs,
+  // most for entirely different Cessna models). applicability is full,
+  // untruncated FR text; subject_heading is hard-truncated to 65 chars at
+  // ingest (confirmed by direct query) so it only catches a model name
+  // that happens to land in the title's first ~65 characters -- still
+  // strictly better than no check at all, which is what this used to fall
+  // straight through to.
+  const adFallbackText = (ad.applicability ?? ad.subject_heading ?? '').toLowerCase()
   for (const a of aircraft) {
-    if (!tokensByUser.has(a.user_id)) continue // no enabled device, nothing to send
     // Confirmed a real, severe bug live (2026-07-29): this was an EXACT
     // string equality check, but airworthiness_directives.make is the
     // FAA's own long-form type-certificate-holder string ("Textron
@@ -169,14 +184,30 @@ for (const ad of ads) {
     // firing at all.
     const userMake = a.make.trim().toLowerCase()
     if (!adMake.includes(userMake) && !userMake.includes(adMake)) continue
-    // If an AD's own model field is null (the scraper's model-extraction
-    // regex doesn't catch every Applicability paragraph shape), match on
-    // MAKE alone rather than silently excluding it — an occasional extra
-    // notification is a much smaller cost than missing a real applicable
-    // AD, which is exactly the failure mode this whole feature exists to
-    // prevent.
-    if (adModel && !adModel.includes(a.model.trim().toLowerCase())) continue
-    addMatch(a.user_id, ad)
+    // Real AD applicability text is written against the FAA type
+    // designator ("PA-28-181", "LA-4-200"), not the marketing name a pilot
+    // knows their plane by ("Warrior", "Buccaneer") -- a saved model of
+    // "Buccaneer" would never substring-match an AD's "LA-4" model text.
+    // type_designator (src/lib/aircraftModels.ts's alias bridge, entered
+    // via My Aircraft) is an alternate value to check for the same AD; a
+    // match on EITHER the marketing model or the type designator counts.
+    const userType = (a.type_designator ?? '').trim().toLowerCase()
+    const userModel = a.model.trim().toLowerCase()
+    if (adModel) {
+      // Structured model column populated -- most precise, unchanged.
+      if (!adModel.includes(userModel) && !(userType && adModel.includes(userType))) continue
+    } else if (adFallbackText) {
+      // REVISED 2026-08-01 (see this file's own header + flyregs_decisions.md
+      // for the full measured scope: 1,592/5,023 ADs corpus-wide, and
+      // ~75% of Cessna's specifically, have model = NULL -- "occasional"
+      // was the original premise for matching on make alone here, and it
+      // was wrong). Check the fallback text before assuming a match.
+      if (!adFallbackText.includes(userModel) && !(userType && adFallbackText.includes(userType))) continue
+    }
+    // else: genuinely no model text ANYWHERE on this AD -- true last
+    // resort, make-only match (the original behavior, now scoped to only
+    // the rows that actually need it).
+    addMatch(a.user_id, a.id, ad, 'airframe')
   }
 }
 
@@ -189,21 +220,66 @@ for (const [partId, adNumbers] of adNumbersByPartId) {
     const ad = adsByNumber.get(adNumber)
     if (!ad) continue
     for (const ac of taggedAircraft) {
-      addMatch(ac.user_id, ad)
+      addMatch(ac.user_id, ac.id, ad, 'equipment')
     }
   }
 }
 
-if (matchesByUser.size === 0) {
+if (matches.size === 0) {
   console.log(`${ads.length} AD(s) touched this run, but none matched any saved aircraft — nothing to notify.`)
   process.exit(0)
 }
 
-console.log(`Sending targeted AD alerts to ${matchesByUser.size} user(s)...`)
+console.log(`${matches.size} aircraft/AD match(es) this run.`)
+
+// Write EVERY match to the durable log first, independent of push status --
+// this is what makes the in-app "new AD in your aircraft folder" marker
+// work for a user with no enabled push token, and what gives this run a
+// real audit trail regardless of what happens with Expo below. on_conflict
+// does nothing on an existing (aircraft, AD) row so a re-touched AD never
+// resets an already-read notification back to unread.
+const logRows = [...matches.values()].map((m) => ({
+  user_id: m.userId,
+  user_aircraft_id: m.userAircraftId,
+  ad_number: m.ad.ad_number,
+  matched_via: m.matchedVia,
+}))
+{
+  const LOG_BATCH = 500
+  for (let i = 0; i < logRows.length; i += LOG_BATCH) {
+    const { error: logErr } = await sb
+      .from('user_ad_notifications')
+      .upsert(logRows.slice(i, i + LOG_BATCH), { onConflict: 'user_aircraft_id,ad_number', ignoreDuplicates: true })
+    if (logErr) {
+      // Not fatal -- the push below is still real and worth attempting --
+      // but this must be loud, since a failure here is exactly the kind
+      // of silent gap this table exists to prevent.
+      console.error(`FAILED to write ${logRows.length - i} notification-log row(s):`, logErr.message)
+    }
+  }
+}
+
+// Group by user for the push step (unchanged bundling logic: one
+// notification per user combining every aircraft/AD match they have this
+// run), but keep the per-match keys so a delivery result can be written
+// back to the specific log rows below.
+const matchKeysByUser = new Map()
+for (const [key, m] of matches) {
+  if (!tokensByUser.has(m.userId)) continue // no enabled device, nothing to push
+  if (!matchKeysByUser.has(m.userId)) matchKeysByUser.set(m.userId, [])
+  matchKeysByUser.get(m.userId).push(key)
+}
+
+if (matchKeysByUser.size === 0) {
+  console.log('No matched user has an enabled push token — folder markers written, nothing to push.')
+  process.exit(0)
+}
+
+console.log(`Sending targeted AD alerts to ${matchKeysByUser.size} user(s)...`)
 
 const messages = []
-for (const [userId, matchedAds] of matchesByUser) {
-  const uniqueAds = [...new Map(matchedAds.map((a) => [a.ad_number, a])).values()]
+for (const [userId, keys] of matchKeysByUser) {
+  const uniqueAds = [...new Map(keys.map((k) => [matches.get(k).ad.ad_number, matches.get(k).ad])).values()]
   const title =
     uniqueAds.length === 1 ? `New AD for your aircraft: ${uniqueAds[0].ad_number}` : `${uniqueAds.length} new ADs for your aircraft`
   const body =
@@ -217,27 +293,100 @@ for (const [userId, matchedAds] of matchesByUser) {
       title,
       body,
       data: { adNumbers: uniqueAds.map((a) => a.ad_number) },
+      // Not sent to Expo -- stripped before the request below. Carried
+      // alongside so a per-token delivery result can be folded back into
+      // this user's own match keys once the batch response comes back.
+      _userId: userId,
     })
   }
 }
 
+// One outcome per user (not per-token/device): a real push failure on one
+// of a user's several devices shouldn't mark the notification as
+// undelivered if it succeeded on another. Upgrades to 'sent' on any 'ok'
+// ticket; otherwise records the last real error seen.
+const pushResultByUser = new Map()
+
 const BATCH = 100
 for (let i = 0; i < messages.length; i += BATCH) {
   const chunk = messages.slice(i, i + BATCH)
+  const payload = chunk.map(({ _userId, ...m }) => m)
   const res = await fetch('https://exp.host/--/api/v2/push/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(chunk),
+    body: JSON.stringify(payload),
   })
   if (!res.ok) {
-    console.error(`Expo push API returned ${res.status} for batch starting at ${i}`)
+    const errText = `Expo push API returned ${res.status} for batch starting at ${i}`
+    console.error(errText)
+    for (const m of chunk) {
+      const prev = pushResultByUser.get(m._userId)
+      if (!prev || prev.status !== 'sent') pushResultByUser.set(m._userId, { status: 'error', error: errText })
+    }
     continue
   }
   const json = await res.json()
-  const errors = (json.data ?? []).filter((r) => r.status === 'error')
+  const tickets = json.data ?? []
+  const errors = tickets.filter((r) => r.status === 'error')
   if (errors.length) {
     console.error(`${errors.length} of ${chunk.length} messages in batch failed:`, errors.slice(0, 3))
   }
+  tickets.forEach((ticket, idx) => {
+    const userId = chunk[idx]._userId
+    if (ticket.status === 'ok') {
+      pushResultByUser.set(userId, { status: 'sent', error: null })
+    } else {
+      const prev = pushResultByUser.get(userId)
+      if (!prev || prev.status !== 'sent') {
+        pushResultByUser.set(userId, { status: 'error', error: ticket.message ?? 'unknown Expo error' })
+      }
+    }
+  })
 }
 
-console.log('Done.')
+// Fold delivery results back into the durable log so "was this user
+// actually notified" has a real answer after the fact, not just a CI log
+// line. Runs even if some rows above failed to write -- an upsert with
+// ignoreDuplicates:false here so an existing row's push fields DO get
+// filled in (unlike the log-write step above, which must NOT clobber an
+// already-read notification's state).
+const updateRows = []
+for (const [userId, keys] of matchKeysByUser) {
+  const result = pushResultByUser.get(userId)
+  if (!result) continue
+  for (const key of keys) {
+    const m = matches.get(key)
+    updateRows.push({
+      user_id: m.userId,
+      user_aircraft_id: m.userAircraftId,
+      ad_number: m.ad.ad_number,
+      matched_via: m.matchedVia,
+      push_status: result.status,
+      push_error: result.error,
+      push_sent_at: new Date().toISOString(),
+    })
+  }
+}
+{
+  const UPD_BATCH = 500
+  for (let i = 0; i < updateRows.length; i += UPD_BATCH) {
+    const { error: updErr } = await sb
+      .from('user_ad_notifications')
+      .upsert(updateRows.slice(i, i + UPD_BATCH), { onConflict: 'user_aircraft_id,ad_number' })
+    if (updErr) {
+      console.error(`FAILED to record push delivery status for ${updateRows.length - i} row(s):`, updErr.message)
+    }
+  }
+}
+
+const sentCount = [...pushResultByUser.values()].filter((r) => r.status === 'sent').length
+const errorCount = pushResultByUser.size - sentCount
+console.log(`Done. Push delivered to ${sentCount} user(s), failed for ${errorCount}. All matches logged to user_ad_notifications.`)
+if (errorCount > 0) {
+  // Loud but not fatal -- see this file's header: a delivery failure for
+  // some users must never block the ones who succeeded, but it must be
+  // impossible to miss in the run's own summary line, and it's now also
+  // durably queryable via user_ad_notifications.push_status = 'error'
+  // instead of only existing in this ephemeral log.
+  console.error(`WARNING: ${errorCount} user(s) matched a new AD but push delivery failed. See user_ad_notifications.push_error.`)
+}

@@ -61,15 +61,20 @@ console.log(`Sending "${today.term}" to ${tokens.length} device(s).`)
 
 // Truncated to a single readable line -- this is a lock-screen notification
 // body, not the full glossary entry; tapping it opens the real definition
-// in-app (see data.pcgSlug, read by the app's notification-response handler).
+// in-app (see data.slug/sourceType, read by the app's notification-response
+// handler in _layout.tsx).
 const bodyText = today.definition.length > 120 ? `${today.definition.slice(0, 117)}...` : today.definition
 
+// get_reg_of_the_day() rotates FAR/AIM/AC (P/CG deliberately excluded --
+// see notifications.ts's RegOfTheDaySource comment) -- the deep link has
+// to carry which one so the tap handler routes to /far, /aim, or /ac
+// correctly.
 const messages = tokens.map((t) => ({
   to: t.expo_push_token,
   sound: 'default',
   title: `Reg of the Day: ${today.term}`,
   body: bodyText,
-  data: { type: 'reg_of_day', pcgSlug: today.slug },
+  data: { type: 'reg_of_day', slug: today.slug, sourceType: today.source_type },
 }))
 
 const BATCH = 100

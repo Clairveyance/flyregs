@@ -6,13 +6,13 @@ Premium account (the web build's RevenueCat stub — src/lib/revenuecat.web.ts �
 treats every signed-in user as isPro/isPremium regardless of real subscription
 status, so any real account works for exercising Pro/Premium-gated screens).
 
-NEVER use review@flyregs.com or any real account for this kind of ad-hoc
+NEVER use review@flyregs.invalid or any real account for this kind of ad-hoc
 testing — always create a throwaway user, verify, then delete it in the same
 session. Reads ac-app/.env.scraper for the Supabase service-role key.
 
 Usage:
     python3 scripts/disposable_test_user.py create [email-prefix]
-        -> creates <prefix or "temp-test">-<unix-timestamp>@flyregs.com,
+        -> creates <prefix or "temp-test">-<unix-timestamp>@flyregs.invalid,
            prints "id=<uuid>" and "email=<address>" and "password=<password>"
     python3 scripts/disposable_test_user.py delete <user-id>
         -> deletes the user by id (cascades to every app table via each
@@ -57,7 +57,7 @@ def request(method, path, env, body=None):
 
 def create(prefix):
     env = load_env()
-    email = f"{prefix}-{int(time.time())}@flyregs.com"
+    email = f"{prefix}-{int(time.time())}@flyregs.invalid"
     password = f"Tmp{secrets.token_urlsafe(12)}!"
     status, text = request(
         "POST",
