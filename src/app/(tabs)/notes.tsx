@@ -262,13 +262,23 @@ export default function NotesScreen() {
     }
     if (v && session?.user?.id) {
       setSyncBusy(true)
-      await enableSync(session.user.id)
-      setNotes(await getNotes())
+      try {
+        await enableSync(session.user.id)
+        setNotes(await getNotes())
+        setSyncEnabled(v)
+      } catch {
+        // Matches saved.tsx's toggleSync -- same underlying enableSync() can
+        // genuinely throw (a transient network blip on its own auth/backup
+        // calls), and this screen shares the exact same toggle with saved.tsx.
+        // Without this, a throw here left the switch stuck without ever
+        // clearing syncBusy or telling the user anything failed.
+        Alert.alert('Error', "Couldn't turn on Back up & sync. Try again in a moment.")
+      }
       setSyncBusy(false)
     } else {
       await disableSync()
+      setSyncEnabled(v)
     }
-    setSyncEnabled(v)
   }
 
   const rightSlot = hasPlusAccess ? (

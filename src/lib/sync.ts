@@ -178,20 +178,38 @@ async function mergeNotes(userId: string) {
 // applyRemoteSyncPreference, called on app launch in context/auth.tsx.
 export async function enableSync(userId: string): Promise<void> {
   await AsyncStorage.setItem(SYNC_ENABLED_KEY, 'true')
-  await supabase.auth.updateUser({ data: { sync_enabled: true } })
-  const [bookmarks, folders, folderItems, notes] = await Promise.all([
-    getBookmarks(),
-    getFolders(),
-    getFolderItems(),
-    getNotes(),
-  ])
-  await Promise.all([
-    ...bookmarks.map((b) => syncPushBookmark(b)),
-    ...folders.map((f) => syncPushFolder(f)),
-    syncPushFolderItems(folderItems),
-    ...notes.filter((n) => !isSeedNote(n.id)).map((n) => syncPushNote(n)),
-  ])
-  await pullAndMergeAll(userId)
+  try {
+    const [bookmarks, folders, folderItems, notes] = await Promise.all([
+      getBookmarks(),
+      getFolders(),
+      getFolderItems(),
+      getNotes(),
+    ])
+    await Promise.all([
+      ...bookmarks.map((b) => syncPushBookmark(b)),
+      ...folders.map((f) => syncPushFolder(f)),
+      syncPushFolderItems(folderItems),
+      ...notes.filter((n) => !isSeedNote(n.id)).map((n) => syncPushNote(n)),
+    ])
+    await pullAndMergeAll(userId)
+  } catch (e) {
+    // Roll the flag back so it can't disagree with the caller's own reverted
+    // UI state (saved.tsx/notes.tsx both flip their Switch back off on a
+    // thrown enableSync) -- found live: a transient failure here left
+    // AsyncStorage's flag stuck at 'true' with the toggle showing off,
+    // which made isSyncEnabled() (and therefore every later bookmark/folder/
+    // note push) silently succeed despite the user seeing an error and the
+    // initial bulk push/pull never having completed.
+    await AsyncStorage.setItem(SYNC_ENABLED_KEY, 'false')
+    throw e
+  }
+  // Cross-device preference write is best-effort -- it records that OTHER
+  // devices should auto-enable sync too, but it isn't the backup itself.
+  // Firing it after the real push/pull (rather than blocking on it first)
+  // means a transient failure here can't abort or roll back a backup that
+  // already succeeded; the next successful enable/disable, or app-launch's
+  // applyRemoteSyncPreference, will reconcile it.
+  supabase.auth.updateUser({ data: { sync_enabled: true } }).catch(() => {})
 }
 
 export async function disableSync(): Promise<void> {
@@ -215,6 +233,10 @@ export async function applyRemoteSyncPreference(userId: string, remoteSyncEnable
   } else if (remoteSyncEnabled === false && local) {
     await disableSync()
   } else if (remoteSyncEnabled == null && local) {
-    await supabase.auth.updateUser({ data: { sync_enabled: true } })
+    // Best-effort for the same reason as enableSync's own preference write
+    // above -- this fires unawaited from auth.tsx on every app launch, so an
+    // unguarded throw here would surface as a console warning on any
+    // transient blip for no benefit (nothing awaits or reacts to it).
+    supabase.auth.updateUser({ data: { sync_enabled: true } }).catch(() => {})
   }
 }

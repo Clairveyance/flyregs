@@ -1,9 +1,27 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import * as Sentry from '@sentry/react-native'
 import { supabase } from '@/lib/supabase'
 import { getSubscriptionStatus } from '@/lib/revenuecat'
 import type { BookmarkAC } from '@/lib/bookmarks'
 import type { Folder, FolderItem } from '@/lib/folders'
 import type { Note } from '@/lib/notes'
+
+// supabase-js query builder calls resolve with { data, error } -- they don't
+// throw on a Postgres-level failure (RLS denial, CHECK constraint, etc.)
+// unless you opt into .throwOnError(). Every push function below used to
+// await its upsert/update and never look at the returned error, so a bad
+// constraint failed COMPLETELY silently: no thrown exception, no console
+// output, nothing -- found live 2026-08-02 when synced_folder_items'
+// item_type CHECK constraint didn't include 'dictionary' (added with
+// Aviation Dictionary v1) and every dictionary/mnemonic folder-add had been
+// failing to sync since, with zero signal anywhere. Surfacing to both
+// console and Sentry means the NEXT constraint/RLS gap (e.g. a future
+// content type) fails loudly instead of silently.
+function reportSyncError(context: string, error: { message: string } | null) {
+  if (!error) return
+  console.error(`[sync] ${context} failed:`, error.message)
+  Sentry.captureException(new Error(`sync push failed (${context}): ${error.message}`))
+}
 
 // Split out from sync.ts specifically so bookmarks.ts/folders.ts/notes.ts can
 // import push functions without creating a require cycle — this file only
@@ -43,7 +61,7 @@ async function currentUserId(force = false): Promise<string | null> {
 export async function syncPushBookmark(b: BookmarkAC) {
   const userId = await currentUserId()
   if (!userId) return
-  await supabase.from('synced_bookmarks').upsert(
+  const { error } = await supabase.from('synced_bookmarks').upsert(
     {
       id: b.id,
       user_id: userId,
@@ -64,41 +82,45 @@ export async function syncPushBookmark(b: BookmarkAC) {
     },
     { onConflict: 'user_id,id' }
   )
+  reportSyncError('bookmark upsert', error)
 }
 
 export async function syncPushBookmarkDeletes(ids: string[]) {
   const userId = await currentUserId()
   if (!userId || !ids.length) return
-  await supabase
+  const { error } = await supabase
     .from('synced_bookmarks')
     .update({ deleted: true, updated_at: new Date().toISOString() })
     .eq('user_id', userId)
     .in('id', ids)
+  reportSyncError('bookmark delete', error)
 }
 
 export async function syncPushFolder(f: Folder, force = false) {
   const userId = await currentUserId(force)
   if (!userId) return
-  await supabase.from('synced_folders').upsert(
+  const { error } = await supabase.from('synced_folders').upsert(
     { id: f.id, user_id: userId, name: f.name, created_at: f.created_at, updated_at: f.updated_at, deleted: false },
     { onConflict: 'user_id,id' }
   )
+  reportSyncError('folder upsert', error)
 }
 
 export async function syncPushFolderDelete(id: string) {
   const userId = await currentUserId()
   if (!userId) return
-  await supabase
+  const { error } = await supabase
     .from('synced_folders')
     .update({ deleted: true, updated_at: new Date().toISOString() })
     .eq('user_id', userId)
     .eq('id', id)
+  reportSyncError('folder delete', error)
 }
 
 export async function syncPushFolderItems(items: FolderItem[], force = false) {
   const userId = await currentUserId(force)
   if (!userId || !items.length) return
-  await supabase.from('synced_folder_items').upsert(
+  const { error } = await supabase.from('synced_folder_items').upsert(
     items.map((i) => ({
       id: i.id,
       user_id: userId,
@@ -111,33 +133,37 @@ export async function syncPushFolderItems(items: FolderItem[], force = false) {
     })),
     { onConflict: 'user_id,id' }
   )
+  reportSyncError('folder item upsert', error)
 }
 
 export async function syncPushFolderItemDeletes(ids: string[], force = false) {
   const userId = await currentUserId(force)
   if (!userId || !ids.length) return
-  await supabase
+  const { error } = await supabase
     .from('synced_folder_items')
     .update({ deleted: true, updated_at: new Date().toISOString() })
     .eq('user_id', userId)
     .in('id', ids)
+  reportSyncError('folder item delete', error)
 }
 
 export async function syncPushNote(n: Note, force = false) {
   const userId = await currentUserId(force)
   if (!userId) return
-  await supabase.from('synced_notes').upsert(
+  const { error } = await supabase.from('synced_notes').upsert(
     { id: n.id, user_id: userId, title: n.title, body: n.body, linked_ac: n.linked_ac, updated_at: n.updated_at, deleted: false },
     { onConflict: 'user_id,id' }
   )
+  reportSyncError('note upsert', error)
 }
 
 export async function syncPushNoteDeletes(ids: string[]) {
   const userId = await currentUserId()
   if (!userId || !ids.length) return
-  await supabase
+  const { error } = await supabase
     .from('synced_notes')
     .update({ deleted: true, updated_at: new Date().toISOString() })
     .eq('user_id', userId)
     .in('id', ids)
+  reportSyncError('note delete', error)
 }
