@@ -54,6 +54,17 @@ echo ""
 echo "▶ MagicLink citation extraction (FAR -> AC/AIM/P-CG/AD/FAR)"
 "$PYTHON3" sync/far_citations.py
 
+echo ""
+echo "▶ Refresh study_far_sections (within-part-unique FAR titles for Study Mode)"
+# Materialized: the membership only changes when far_sections changes, and
+# computing it live inside get_study_queue measured a statement timeout.
+# See sync/migrations_study_far_dupes.sql.
+curl -sf -X POST "$SUPABASE_URL/rest/v1/rpc/refresh_study_far_sections" \
+  -H "apikey: $SUPABASE_SERVICE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
+  -H "Content-Type: application/json" -d '{}' > /dev/null
+echo "  refreshed."
+
 END_TS="$(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 echo "════════════════════════════════════════════════════"

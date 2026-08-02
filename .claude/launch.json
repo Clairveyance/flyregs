@@ -4,8 +4,27 @@
     {
       "name": "flyregs-web-b26",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--web", "--port", "8083"],
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8083"
+      ],
       "port": 8083,
+      "autoPort": false
+    },
+    {
+      "name": "flyregs-web-duel",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8091"
+      ],
+      "port": 8091,
       "autoPort": false
     }
   ]
