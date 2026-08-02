@@ -991,6 +991,19 @@ def run_full(session: requests.Session):
     total_paragraphs = total_figures = total_citations = 0
     errors = 0
     error_details = []
+    # _upsert() catches its own HTTP errors and logs them rather than
+    # raising, so a broken conflict key (or any other write failure) was
+    # invisible to this function's error accounting entirely -- confirmed
+    # live 2026-08-02: a stale on_conflict target after a schema change made
+    # every single aim_figures upsert this run fail with a logged 400, yet
+    # the run still finished, reported "Errors=0/53", and exited 0. The
+    # header comment above claims `set -euo pipefail` makes any failing
+    # step show red in Actions -- true only for exceptions that actually
+    # propagate, which these never did. Counted separately from `errors`
+    # (page-fetch failures) since a write failure is a different, arguably
+    # worse class of problem: the page parsed fine, we just silently didn't
+    # save any of it.
+    upsert_failures = 0
 
     for i, page in enumerate(pages, 1):
         log.info(f"[{i}/{len(pages)}] {page['href']} — {page['section_title']}")
@@ -1000,7 +1013,8 @@ def run_full(session: requests.Session):
             for p in result["paragraphs"]:
                 p["updated_at"] = now
             if result["paragraphs"]:
-                _upsert("aim_paragraphs", result["paragraphs"], "paragraph_number")
+                if not _upsert("aim_paragraphs", result["paragraphs"], "paragraph_number"):
+                    upsert_failures += 1
                 total_paragraphs += len(result["paragraphs"])
             if result["figures"]:
                 # Conflict key is (paragraph_number, sort_order, caption,
@@ -1046,7 +1060,8 @@ def run_full(session: requests.Session):
                 # re-touches — see sync_aim.sh, which always runs the PDF
                 # backfill immediately afterward to restore it. Never run
                 # this scraper's full mode without that following step.
-                _upsert("aim_figures", result["figures"], "paragraph_number,sort_order,caption,occurrence")
+                if not _upsert("aim_figures", result["figures"], "paragraph_number,sort_order,caption,occurrence"):
+                    upsert_failures += 1
                 total_figures += len(result["figures"])
             if result["citations"]:
                 resolved_citations = [
@@ -1067,16 +1082,23 @@ def run_full(session: requests.Session):
 
     run_record.update({
         "completed_at": datetime.now(timezone.utc).isoformat(),
-        "status": "success" if errors == 0 else "partial",
+        "status": "success" if errors == 0 and upsert_failures == 0 else "partial",
         "aim_paragraphs_total": total_paragraphs,
         "aim_figures_total": total_figures,
         "aim_citations_total": total_citations,
         "aim_errors": errors,
+        "aim_upsert_failures": upsert_failures,
         "error_details": error_details,
     })
     log_scraper_run(run_record)
     log.info(f"\nDone. Paragraphs={total_paragraphs} Figures={total_figures} "
-             f"Citations={total_citations} Errors={errors}/{len(pages)}")
+             f"Citations={total_citations} Errors={errors}/{len(pages)} "
+             f"UpsertFailures={upsert_failures}")
+    if upsert_failures:
+        log.error(f"{upsert_failures} batch(es) failed to write to the database this run "
+                  f"(see 'upsert failed' lines above) -- failing so this shows red in Actions "
+                  f"instead of silently writing nothing.")
+        sys.exit(1)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
