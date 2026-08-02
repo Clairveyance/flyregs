@@ -10,7 +10,7 @@ import { Icon } from '@/components/Icon'
 // itself moved to Home.
 const TABS = [
   { name: 'index',   icon: 'house',             path: '/'        },
-  { name: 'search',  icon: 'bolt.fill',          path: '/search'  },
+  { name: 'search',  icon: 'bolt',               path: '/search'  },
   { name: 'saved',   icon: 'bookmark',           path: '/saved'   },
   { name: 'recents', icon: 'clock',              path: '/recents' },
   { name: 'notes',   icon: 'square.and.pencil',  path: '/notes'   },
@@ -29,6 +29,14 @@ function activeTabForPath(pathname: string): string {
   if (pathname.startsWith('/challenges')) return 'search'
   if (pathname.startsWith('/profile'))    return 'search'
   if (pathname.startsWith('/account'))    return 'search'
+  // RefPacks are reached from Community and are meant to keep the user
+  // feeling like they never left it (that's the whole point of their
+  // in-place slide-up preview sheet, confirmed working 2026-08-02) -- but
+  // this route was added after the study/ready-room/challenges/profile/
+  // account fix above and got left off this list, so the tab bar's own
+  // highlight silently jumped back to Home while the user was still
+  // mid-RefPack. Same bug class, same fix.
+  if (pathname.startsWith('/ref-packets')) return 'search'
   if (pathname.startsWith('/saved'))   return 'saved'
   if (pathname.startsWith('/folder'))  return 'saved'
   if (pathname.startsWith('/recents')) return 'recents'

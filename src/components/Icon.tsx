@@ -1,7 +1,8 @@
 // Web fallback — uses Ionicons (SF Symbols are iOS/Android only)
 import { Ionicons } from '@expo/vector-icons'
 import type { IconProps } from './Icon.types'
-import { PcgGlyph } from './PcgGlyph'
+import { View } from 'react-native'
+import { AviationHeadset } from './AviationHeadset'
 
 // Maps SF Symbol names → Ionicons names
 const SF_TO_IONICONS: Record<string, string> = {
@@ -11,6 +12,7 @@ const SF_TO_IONICONS: Record<string, string> = {
   'bookmark.fill': 'bookmark',
   'clock': 'time-outline',
   'square.and.pencil': 'create-outline',
+  'printer': 'print-outline',
   'line.3.horizontal': 'menu-outline',
   'xmark': 'close-outline',
   'chevron.right': 'chevron-forward-outline',
@@ -79,6 +81,7 @@ const SF_TO_IONICONS: Record<string, string> = {
   'cloud.fill': 'cloud',
   'sun.max.fill': 'sunny',
   'moon.stars.fill': 'moon',
+  'bolt': 'flash-outline',
   'bolt.fill': 'flash',
   'flame.fill': 'flame',
   'exclamationmark.triangle': 'warning-outline',
@@ -95,6 +98,10 @@ const SF_TO_IONICONS: Record<string, string> = {
   'hourglass': 'hourglass-outline',
   'wrench': 'construct-outline',
   'wrench.and.screwdriver': 'construct-outline',
+  // Ask FlyRegs (semantic search) -- a real SF Symbol, resolves natively via
+  // expo-symbols with no special-casing needed; only the web fallback needs
+  // this entry.
+  'text.bubble.fill': 'chatbubble-outline',
   // Reg-type identity icons (src/lib/regTypes.ts) — one per content type,
   // reused everywhere that type's chip/badge appears.
   'book.closed.fill': 'book',
@@ -108,14 +115,35 @@ const SF_TO_IONICONS: Record<string, string> = {
   'graduationcap.fill': 'school',
   'trophy.fill': 'trophy',
   'shield.fill': 'shield',
+  // First Blood (won your first Duel) used to reuse 'bolt.fill', the same
+  // glyph Duels itself uses everywhere else in the app (ready-room, account,
+  // search, challenges) -- confirmed live as real visual confusion, RC:
+  // "use a diff icon for this one. the lightning bolt is used elsewhere."
+  // A crosshair reads as "scored a hit" without colliding with anything.
+  'target': 'locate-outline',
   'exclamationmark.triangle.fill': 'warning',
   'envelope.open.fill': 'mail-open',
   'megaphone.fill': 'megaphone',
+  // Reminder type-chip icons (My Aircraft > Reminders quick-select).
+  'dot.radiowaves.left.and.right': 'radio-outline',
+  'gauge': 'speedometer-outline',
+  // Aviation Dictionary -- distinct from FAR's 'book.closed.fill' (already
+  // in use), a stack of books reads as a broader reference/lookup source
+  // than a single regulation volume. See flyregs_decisions.md.
+  'books.vertical.fill': 'library',
 }
 
 export function Icon({ name, size = 22, color, style }: IconProps) {
-  if (name === 'pcg.az') {
-    return <PcgGlyph size={size} color={color} />
+  // Drawn, not mapped: Ionicons' headset is a music headphone, and the P/CG
+  // needs a pilot's headset (ear cup + boom mic) to read as aviation. Sharing
+  // one glyph with Icon.native.tsx also keeps web and device identical --
+  // previously the native side silently rendered nothing at all here.
+  if (name === 'headset') {
+    return (
+      <View style={style as object}>
+        <AviationHeadset size={size} color={color ?? '#000'} />
+      </View>
+    )
   }
   const ionName = (SF_TO_IONICONS[name] ?? 'help-circle-outline') as keyof typeof Ionicons.glyphMap
   return (

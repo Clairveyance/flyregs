@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Modal, View, Text, Image, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
@@ -32,6 +33,22 @@ export function FigureViewer({
   // instantly if nothing's cached yet, so online viewing never regresses.
   const imageUri = useCachedImage(figure?.id ?? null, figure?.image_url ?? null)
 
+  // Some source PDF pages print a figure sideways relative to the page's
+  // own portrait bounding box (the scraped page image is portrait, but the
+  // diagram inside it is landscape). Following the DEVICE's orientation
+  // (useAllowRotation above) can't fix this -- the image's own pixels are
+  // still sideways no matter which way the phone is held. This is a manual
+  // per-image counter-rotation instead: confirmed live, RC: "could we offer
+  // an in-app, on-this-screen, rotation lock button? it should 'timeout'
+  // each time that single T&F is closed, not affecting anything else."
+  // Resets to 0 on every figure change/close so it never carries over and
+  // mis-rotates the NEXT figure, which is likely already right-side-up.
+  const [manualRotation, setManualRotation] = useState(0)
+  useEffect(() => { setManualRotation(0) }, [figure?.id])
+  const rotated90 = manualRotation === 90 || manualRotation === 270
+  const boxWidth = width
+  const boxHeight = height - insets.top - 56
+
   return (
     <Modal
       visible={!!figure}
@@ -53,6 +70,14 @@ export function FigureViewer({
             {figure?.label}
             {figure?.caption ? ` — ${figure.caption}` : ''}
           </Text>
+          <Pressable
+            onPress={() => setManualRotation((r) => (r + 90) % 360)}
+            hitSlop={14}
+            style={styles.closeBtn}
+            accessibilityLabel="Rotate image"
+          >
+            <Icon name="arrow.clockwise" size={20} color="#fff" />
+          </Pressable>
           <Pressable onPress={onClose} hitSlop={14} style={styles.closeBtn}>
             <Icon name="xmark" size={20} color="#fff" />
           </Pressable>
@@ -69,7 +94,11 @@ export function FigureViewer({
           {figure && (
             <Image
               source={{ uri: imageUri ?? figure.image_url }}
-              style={{ width, height: height - insets.top - 56 }}
+              style={{
+                width: rotated90 ? boxHeight : boxWidth,
+                height: rotated90 ? boxWidth : boxHeight,
+                transform: [{ rotate: `${manualRotation}deg` }],
+              }}
               resizeMode="contain"
             />
           )}

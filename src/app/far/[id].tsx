@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Alert } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
@@ -7,6 +7,7 @@ import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { printReg } from '@/lib/printReg'
 import { PlainTextBody, PlainTextBodyHandle } from '@/components/PlainTextBody'
 import { MagicLinkPod } from '@/components/MagicLinkPod'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -16,10 +17,14 @@ import { BackToBreadcrumb, PrevNextFooter } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
+import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
+import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
+import { getLatestRevision, changedParagraphIndices, splitParagraphs, type ContentRevision } from '@/lib/whatsChanged'
 import { stripFarPrefix } from '@/lib/titleFormat'
+import { normalizeRegBody } from '@/lib/regTextFormat'
 
 // Natural-sort section numbers ("91.3" before "91.107") for Prev/Next --
 // same comparator far/part/[part].tsx already uses to browse a Part.
@@ -51,14 +56,16 @@ interface RelatedItem {
 }
 
 export default function FarSectionScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>()
+  const { id, hl } = useLocalSearchParams<{ id: string; hl?: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasPlusAccess, isPremium } = useAuth()
+  const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
   const [section, setSection] = useState<FarSection | null>(null)
   const [related, setRelated] = useState<RelatedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [bookmarked, setBookmarked] = useState(false)
+  const [downloaded, setDownloaded] = useState(false)
+  const [downloadBusy, setDownloadBusy] = useState(false)
   const [folderPickerVisible, setFolderPickerVisible] = useState(false)
   const [confirmLabel, setConfirmLabel] = useState<string | undefined>()
   const [confirmTick, setConfirmTick] = useState(0)
@@ -68,6 +75,45 @@ export default function FarSectionScreen() {
   const scrollRef = useRef<ScrollView>(null)
   const bodyRef = useRef<PlainTextBodyHandle>(null)
   const inDocSearch = useInDocSearch(bodyRef)
+
+  // Opened from a Study Mode flashcard bookmark, which stored the passage
+  // the Q/A came from (see study.tsx + routeForBookmark). Seeding the in-doc
+  // search with it reuses the existing highlight + auto-scroll-to-first-match
+  // path, so the reg opens AT that passage rather than at the top. Runs once
+  // per distinct hl value; a normal visit has no param and is unaffected.
+  useEffect(() => {
+    if (id) isDownloaded(id).then(setDownloaded)
+  }, [id])
+
+  const seededHlRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (typeof hl !== 'string' || !hl.trim()) return
+    if (seededHlRef.current === hl) return
+    seededHlRef.current = hl
+    inDocSearch.onQueryChange(hl)
+  }, [hl, inDocSearch])
+
+  // What's Changed parity with AC: pull this document's most recent
+  // revision so the changed paragraphs can be flagged inline and jumped to.
+  // AC gets this from its own changed_block_indices column; FAR/AIM have no
+  // such column, so the indices are derived from the revision's added_text.
+  const [revision, setRevision] = useState<ContentRevision | null>(null)
+  useEffect(() => {
+    if (!id) return
+    getLatestRevision('far', id).then(setRevision).catch(() => setRevision(null))
+  }, [id])
+
+  const changedIdx = useMemo(
+    () => changedParagraphIndices(section?.body_text ?? '', revision?.addedText ?? null),
+    [section?.body_text, revision],
+  )
+  const [changedCursor, setChangedCursor] = useState(0)
+  const jumpToChanged = (dir: 1 | -1) => {
+    if (changedIdx.length === 0) return
+    const next = (changedCursor + dir + changedIdx.length) % changedIdx.length
+    setChangedCursor(next)
+    setTimeout(() => bodyRef.current?.scrollToParagraph(changedIdx[next]), 60)
+  }
 
   useEffect(() => {
     if (id) isBookmarked(id).then(setBookmarked)
@@ -96,7 +142,7 @@ export default function FarSectionScreen() {
         .from('document_citations')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.far,cited_id.eq.${id}),and(citing_type.eq.far,citing_id.eq.${id})`),
-    ]).then(([secRes, citRes]) => {
+    ]).then(async ([secRes, citRes]) => {
       if (!secRes.error && secRes.data) {
         const s = secRes.data as FarSection
         setSection(s)
@@ -108,6 +154,25 @@ export default function FarSectionScreen() {
           date_issued: null,
           subject_series: null,
         })
+      } else {
+        // No network (or the row is gone): fall back to the offline copy if
+        // this section was downloaded. Without this branch, "Download" is
+        // write-only storage — the user saves a section, loses signal, opens
+        // it, and gets an empty screen, which is exactly the case the feature
+        // exists for. Citations/figures aren't cached, so the offline view is
+        // the regulation text itself; that's the part that matters with no
+        // connection.
+        const cached = await findDownload(id)
+        if (cached) {
+          setSection({
+            section_number: cached.document_number.replace(/^§\s*/, ''),
+            part: cached.subject_series ?? '',
+            subpart_letter: null,
+            subpart_title: null,
+            title: cached.title,
+            body_text: cached.body_text ?? null,
+          })
+        }
       }
       if (!citRes.error && citRes.data) {
         // Normalize to "the OTHER document" regardless of which side of the
@@ -142,6 +207,14 @@ export default function FarSectionScreen() {
           setSiblingSections(
             (data as { section_number: string }[])
               .map((r) => r.section_number)
+              // "§§ 91.27-91.99 [Reserved]"-style rows use a hyphenated
+              // range as their section_number instead of a real single
+              // section -- confirmed live as a real bug: Prev/Next from
+              // § 91.3 landed on this placeholder instead of skipping to
+              // the next real section. Verified all 36 hyphenated rows
+              // app-wide are reserved placeholders, zero real content, so
+              // this exclusion is safe everywhere, not just Part 91.
+              .filter((n) => !n.includes('-'))
               .sort(compareSectionNumbers),
           )
         }
@@ -169,6 +242,17 @@ export default function FarSectionScreen() {
     const pipedLines = para.split('\n').filter((l) => l.includes(' | '))
     return pipedLines.length >= 2
   }).length
+  // Index (in PlainTextBody's own paragraph-split space, NOT the raw
+  // tableCount split above) of the first inline table -- lets the badge
+  // actually DO something when tapped. Confirmed live as a real bug: the
+  // badge rendered with no onPress and no chevron at all, an inert-looking
+  // affordance sitting right next to AIM/AC's identically-styled bar that
+  // IS tappable -- "this T&F doesn't even open, not good."
+  const bodyParagraphs = normalizeRegBody(body).split(/\n\n+/).filter((p) => p.trim())
+  const firstTableParaIndex = bodyParagraphs.findIndex((para) => {
+    const pipedLines = para.split('\n').filter((l) => l.includes(' | '))
+    return pipedLines.length >= 2
+  })
 
   const aimRefs = related.filter((r) => r.cited_type === 'aim')
   const acRefs = related.filter((r) => r.cited_type === 'ac')
@@ -198,8 +282,62 @@ export default function FarSectionScreen() {
     setFolderPickerVisible(true)
   }
 
+  // Premium-gated like AC/AD/LOI's download. The `!downloaded` guard on the
+  // paywall check is deliberate and matches the others: a user who lapses
+  // from Premium can still REMOVE what they already saved, rather than being
+  // stuck with undeletable offline copies behind a paywall.
+  const handleDownload = async () => {
+    if (!section) return
+    if (!isPremium && !downloaded) { router.push('/paywall?tier=premium'); return }
+    if (downloaded) {
+      setDownloaded(false)
+      await removeDownload(section.section_number)
+      return
+    }
+    setDownloadBusy(true)
+    try {
+      await addDownload({
+        id: section.section_number,
+        type: 'far',
+        document_number: `§ ${section.section_number}`,
+        title: section.title ?? '',
+        // subject_series is a free-form slot on DownloadedAC; FAR reuses it to
+        // carry the Part number so the offline header reads "FAR — Part 91"
+        // instead of a bare "FAR — Part".
+        subject_series: section.part,
+        size: (section.body_text ?? '').length,
+        body_text: section.body_text ?? null,
+      })
+      setDownloaded(true)
+    } catch {
+      Alert.alert('Error', "Couldn't save this section for offline reading. Try again in a moment.")
+    }
+    setDownloadBusy(false)
+  }
+
+  // Print is the other half of the Plus "Print & export any section"
+  // promise -- until now the app had no print at all, only the share
+  // sheet (which exports a LINK, not the text).
+  const handlePrint = async () => {
+    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!section) return
+    try {
+      await printReg({
+        documentNumber: `§ ${section.section_number}`,
+        title: section.title,
+        body: section.body_text ?? '',
+        kindLabel: 'FAR',
+      })
+    } catch {
+      Alert.alert('Print failed', "Couldn't open the print dialog. Try again in a moment.")
+    }
+  }
+
   const handleShare = async () => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    // Share/export is a PLUS feature (paywall PLUS_FEATURES), not Premium.
+    // Gating it on isPremium bounced a Plus buyer to a Premium upsell for
+    // something they had already paid for.
+    if (!hasPlusAccess) { router.push('/paywall'); return }
     if (!section) return
     try {
       await Share.share({
@@ -222,8 +360,11 @@ export default function FarSectionScreen() {
           <Icon name="arrow.up.circle" size={21} color={tokens.t3} />
         </Pressable>
       )}
+      <Pressable onPress={handlePrint} hitSlop={12} style={{ padding: 4 }}>
+        <Icon name="printer" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+      </Pressable>
       <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="square.and.arrow.up" size={21} color={isPremium ? tokens.t2 : tokens.t4} />
+        <Icon name="square.and.arrow.up" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
         <Icon name="folder.badge.plus" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
@@ -280,16 +421,35 @@ export default function FarSectionScreen() {
             <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>{stripFarPrefix(section.title)}</Text>
           )}
 
+          {/* Download only — the FARs come from eCFR XML and have no PDF to
+              open, so this renders the Download button full width rather
+              than pairing it with an "Open PDF" that couldn't work. */}
+          <View style={{ marginTop: 18 }}>
+            <DetailActionRow
+              onDownload={handleDownload}
+              downloaded={downloaded}
+              downloadBusy={downloadBusy}
+              tokens={tokens}
+            />
+          </View>
+
           <View style={[styles.barsWrap]}>
             {tableCount > 0 && (
-              <View style={[styles.tablesBar, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+              <Pressable
+                style={[styles.tablesBar, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                onPress={() => {
+                  if (firstTableParaIndex >= 0) bodyRef.current?.scrollToParagraph(firstTableParaIndex)
+                }}
+                disabled={firstTableParaIndex < 0}
+              >
                 <Icon name="photo" size={15} color={tokens.t3} />
                 <Text style={[styles.tablesBarLabel, { color: tokens.t1, fontSize: fs(13) }]}>
                   {tableCount === 1 ? 'Table' : 'Tables'}
                 </Text>
                 <View style={{ flex: 1 }} />
                 <Text style={[styles.tablesBarCount, { color: tokens.t3, fontSize: fs(12.5) }]}>{tableCount}</Text>
-              </View>
+                {firstTableParaIndex >= 0 && <Icon name="chevron.down" size={11} color={tokens.t4} />}
+              </Pressable>
             )}
             <MagicLinkPod
               bars={[
@@ -300,10 +460,24 @@ export default function FarSectionScreen() {
                 { icon: 'checkmark.seal.fill', label: 'Related LOIs', items: loiRefs },
               ]}
               currentLabel={currentLabel}
-              hasPlusAccess={hasPlusAccess}
+              hasProAccess={hasProAccess}
             />
           </View>
 
+            {changedIdx.length > 0 && (
+              <View style={[styles.changedBanner, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
+                <Icon name="sparkles" size={13} color={tokens.blu} />
+                <Text style={[styles.changedBannerText, { color: tokens.blu, fontSize: fs(12.5) }]}>
+                  Updated — {changedIdx.length} paragraph{changedIdx.length === 1 ? '' : 's'} changed
+                </Text>
+                <Pressable onPress={() => jumpToChanged(-1)} hitSlop={8}>
+                  <Icon name="chevron.up" size={14} color={tokens.blu} />
+                </Pressable>
+                <Pressable onPress={() => jumpToChanged(1)} hitSlop={8}>
+                  <Icon name="chevron.down" size={14} color={tokens.blu} />
+                </Pressable>
+              </View>
+            )}
           {body ? (
             <PlainTextBody
               ref={bodyRef}
@@ -311,6 +485,7 @@ export default function FarSectionScreen() {
               currentLabel={currentLabel}
               highlightQuery={inDocSearch.debounced}
               activeMatch={inDocSearch.matchIdx}
+              changedIndices={changedIdx}
               onMatchCount={inDocSearch.setMatchCount}
               scrollRef={scrollRef}
             />
@@ -354,6 +529,9 @@ export default function FarSectionScreen() {
 }
 
 const styles = StyleSheet.create({
+  changedBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 12 },
+  changedBannerText: { fontWeight: '700', flex: 1 },
+
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   empty: { fontSize: 15, textAlign: 'center' },
@@ -361,7 +539,12 @@ const styles = StyleSheet.create({
   subpart: { fontSize: 12, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.3 },
   secNum: { fontWeight: '600', fontSize: 15 },
   title: { fontWeight: '600', fontSize: 17, marginTop: 2, marginBottom: 14, lineHeight: 23 },
-  barsWrap: { gap: 6, marginBottom: 16 },
+  // Breathing room around the action/MagicLink stack. These bars used to
+  // butt straight up against the Download button above and the body text
+  // below, so the whole block read as one cramped slab.
+  // marginTop matches the internal `gap` -- see aim/[id].tsx's own comment
+  // (RC, annotated screenshot): the two gaps were 14px and 10px, uneven.
+  barsWrap: { gap: 10, marginTop: 10, marginBottom: 22 },
   tablesBar: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10,

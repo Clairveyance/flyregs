@@ -56,7 +56,15 @@ const PATTERNS: LinkPattern[] = [
   // Routing straight to /aim/3-2-1 would land on a completely unrelated
   // paragraph. Opening the current paragraph's own figure directly sidesteps
   // this numbering mismatch entirely instead of trying to resolve it.
-  { regex: /\b(?:TBL|FIG)\s+(\d+-\d+-\d+[a-z]?)\b/g, buildRoute: (m) => `/aim/${m[1]}`, isFigure: true },
+  // Accepts the spelled-out forms too. AIM prose is inconsistent with
+  // itself: most paragraphs write "(See FIG 4-3-4.)" but some write
+  // "Figure 4-3-4 is an example of a chart used to determine the
+  // headwind..." -- confirmed live in AIM 4-3-3, where that mention
+  // rendered as plain text with no way to open the figure it names,
+  // even though the figure was sitting in the same paragraph's own
+  // Figures & Tables strip. Case-insensitive so "figure"/"table"
+  // mid-sentence match too.
+  { regex: /\b(?:TBL|FIG|TABLE|FIGURE)\s+(\d+-\d+-\d+[a-z]?)\b/gi, buildRoute: (m) => `/aim/${m[1]}`, isFigure: true },
   // Explicit AIM paragraph reference in prose ("Paragraph 4-3-13", "Para.
   // 4-1-2"). Deliberately requires this prefix rather than matching bare
   // X-X-X numbers anywhere — a bare number in running prose is too easy to

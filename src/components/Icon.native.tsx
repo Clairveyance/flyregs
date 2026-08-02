@@ -1,11 +1,19 @@
+import { View } from 'react-native'
 import { SymbolView } from 'expo-symbols'
 import type { SymbolViewProps } from 'expo-symbols'
 import type { IconProps } from './Icon.types'
-import { PcgGlyph } from './PcgGlyph'
+import { AviationHeadset } from './AviationHeadset'
 
 export function Icon({ name, size = 22, color, weight = 'regular', style }: IconProps) {
-  if (name === 'pcg.az') {
-    return <PcgGlyph size={size} color={color} />
+  // SF Symbols has no "headset" symbol (headphones/airpods/earbuds only), so
+  // this name reached SymbolView and rendered NOTHING on device. Intercept it
+  // and draw the real aviation headset instead. See AviationHeadset.tsx.
+  if (name === 'headset') {
+    return (
+      <View style={style as object}>
+        <AviationHeadset size={size} color={color ?? '#000'} />
+      </View>
+    )
   }
   return (
     <SymbolView

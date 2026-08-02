@@ -5,11 +5,22 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
-import { parsePreviewRoute, fetchRegPreview, RegPreviewData } from '@/lib/regPreview'
+import { supabase } from '@/lib/supabase'
+import { parsePreviewRoute, fetchRegPreview, resolveAimFigureGlobally, RegPreviewData } from '@/lib/regPreview'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { FolderPicker } from '@/components/FolderPicker'
+import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { PlainTextBody } from '@/components/PlainTextBody'
+import { FigureViewer } from '@/components/FigureViewer'
 import { stripFarPrefix } from '@/lib/titleFormat'
+import type { AcFigure } from '@/types'
+
+interface PreviewFigure {
+  id: string
+  label: string | null
+  caption: string | null
+  image_url: string
+}
 
 // Generic "stay where you are" reg preview -- same idea as notes.tsx's AC
 // bottom pane (openAcPane), generalized to any single-document route
@@ -40,9 +51,35 @@ export function RegPreviewPane({ route, onClose }: { route: string | null; onClo
   const [notFound, setNotFound] = useState(false)
   const [bookmarked, setBookmarked] = useState(false)
   const [folderPickerOpen, setFolderPickerOpen] = useState(false)
+  // AIM's own figures/tables for the previewed paragraph -- fetched
+  // alongside the body text so a "(See FIG x-x-x.)" mention inside this
+  // preview can open the real image instead of silently falling through to
+  // PlainTextBody's route-guess fallback. FAR has no dedicated figures
+  // table (its tables are inline in body_text, handled by PlainTextBody's
+  // own parseTableBlock), so this only ever populates for kind==='aim'.
+  const [figures, setFigures] = useState<PreviewFigure[]>([])
+  const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
+  // "Added to X" confirmation -- every other screen with a FolderPicker
+  // wires this (see ac/far/aim/pcg/ad/loi [id].tsx, notes/recents/saved.tsx);
+  // this one never did, confirmed live as a real gap: saving to a folder
+  // from inside a RefPack/notes/shared-folder preview happened silently,
+  // with no toast anywhere -- because RegPreviewPane is the ONE shared
+  // component all of those screens render their FolderPicker through.
+  const [confirmTick, setConfirmTick] = useState(0)
+  const [confirmLabel, setConfirmLabel] = useState('')
+  // Tapping a citation INSIDE this preview opens ANOTHER RegPreviewPane on
+  // top of it (this component rendering itself, recursively) instead of
+  // navigating away -- confirmed live as a real bug/ask: "inside that reg
+  // are hyperlinks to other regs and T&Fs... if you click on those, the app
+  // needs to open another half screen over that half screen... this ENTIRE
+  // process MUST take place in and STAY inside the RP." Closing the nested
+  // sheet just clears this state, which reveals the still-mounted parent
+  // sheet underneath -- unlimited depth for free, no stack data structure
+  // needed since each level owns its own childRoute.
+  const [childRoute, setChildRoute] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!route) { setData(null); setNotFound(false); return }
+    if (!route) { setData(null); setNotFound(false); setFigures([]); return }
     const parsed = parsePreviewRoute(route)
     if (!parsed) {
       onClose()
@@ -51,10 +88,21 @@ export function RegPreviewPane({ route, onClose }: { route: string | null; onClo
     }
     setData(null)
     setNotFound(false)
+    setFigures([])
     setLoading(true)
     fetchRegPreview(parsed.kind, parsed.id).then((d) => {
-      if (d) { setData(d); isBookmarked(d.id).then(setBookmarked) }
-      else setNotFound(true)
+      if (d) {
+        setData(d)
+        isBookmarked(d.id).then(setBookmarked)
+        if (parsed.kind === 'aim') {
+          supabase
+            .from('aim_figures')
+            .select('id, label, caption, image_url')
+            .eq('paragraph_number', d.id)
+            .order('sort_order')
+            .then(({ data: figRows }) => setFigures(figRows ?? []))
+        }
+      } else setNotFound(true)
       setLoading(false)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -122,12 +170,26 @@ export function RegPreviewPane({ route, onClose }: { route: string | null; onClo
                 Previously a bare <Text>, which dumped AIM's " | "-delimited
                 table rows as one unreadable run-on line and left every
                 citation/T&F mention as dead plain text -- confirmed live
-                on AIM 2-3-3's own runway-marking tables. One known gap:
-                tapping a citation link in here navigates away via
-                router.push rather than opening a second nested preview --
-                PlainTextBody has no link-press override to redirect that
-                through RegPreviewPane recursively. */}
-            <PlainTextBody text={data.body} />
+                on AIM 2-3-3's own runway-marking tables. figures+onOpenFigure
+                let a "(See FIG x-x-x.)" mention open the real image inline
+                (via the nested FigureViewer below) instead of silently
+                falling through to PlainTextBody's route-guess fallback --
+                confirmed live as a serious bug: tapping FIG 1-1-6 inside a
+                RefPack's AIM 1-1-9 preview did nothing visible AND pushed
+                the background router to the wrong page (/aim/1-1-6, an
+                unrelated paragraph) out from under the still-open modal.
+                onNavigate redirects every other citation link (§ 91.107,
+                AC 90-67B, etc.) into a NESTED RegPreviewPane (see
+                childRoute below) instead of navigating away -- the whole
+                point of a Ref Packet is staying inside it. */}
+            <PlainTextBody
+              text={data.body}
+              figures={figures}
+              onOpenFigure={(f) => setViewerFigure({ id: f.id, label: f.label ?? '', caption: f.caption, page: 0, image_url: f.image_url })}
+              resolveFigureGlobally={data.kind === 'aim' ? resolveAimFigureGlobally : undefined}
+              onNavigate={setChildRoute}
+              currentLabel={data.label}
+            />
             <Pressable
               style={[styles.openBtn, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
               onPress={() => {
@@ -140,6 +202,7 @@ export function RegPreviewPane({ route, onClose }: { route: string | null; onClo
             </Pressable>
           </ScrollView>
         ) : null}
+        <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
       </View>
       {data && (
         <FolderPicker
@@ -147,9 +210,16 @@ export function RegPreviewPane({ route, onClose }: { route: string | null; onClo
           itemType={data.kind}
           itemId={data.id}
           onClose={() => setFolderPickerOpen(false)}
+          onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1) }}
           acMeta={{ document_number: data.label, title: data.title, date_issued: null, office: null, subject_series: null }}
         />
       )}
+      <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
+      {/* Self-recursive nesting -- see childRoute's own comment. Rendered as
+          a sibling Modal INSIDE this one, not outside it, so closing the
+          outer pane (its `route` prop going null) unmounts this whole tree,
+          nested children included, with no separate cleanup needed. */}
+      <RegPreviewPane route={childRoute} onClose={() => setChildRoute(null)} />
     </Modal>
   )
 }

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Modal, View, Text, Image, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
@@ -33,6 +34,16 @@ export function FormulaRefViewer({
   // instantly if nothing's cached yet, so online viewing never regresses.
   const imageUri = useCachedImage(formulaRef?.id ?? null, formulaRef?.image_url ?? null)
 
+  // Same fix as FigureViewer.tsx: a scraped page image can print its
+  // content sideways relative to its own portrait bounding box, which
+  // following the device's orientation can never correct. Manual per-image
+  // counter-rotation, reset on every formulaRef change/close.
+  const [manualRotation, setManualRotation] = useState(0)
+  useEffect(() => { setManualRotation(0) }, [formulaRef?.id])
+  const rotated90 = manualRotation === 90 || manualRotation === 270
+  const boxWidth = width
+  const boxHeight = height - insets.top - 90
+
   return (
     <Modal
       visible={!!formulaRef}
@@ -49,6 +60,14 @@ export function FormulaRefViewer({
           <Text style={[styles.headerText, { fontSize: fs(13.5) }]} numberOfLines={1}>
             {formulaRef?.label}
           </Text>
+          <Pressable
+            onPress={() => setManualRotation((r) => (r + 90) % 360)}
+            hitSlop={14}
+            style={styles.closeBtn}
+            accessibilityLabel="Rotate image"
+          >
+            <Icon name="arrow.clockwise" size={20} color="#fff" />
+          </Pressable>
           <Pressable onPress={onClose} hitSlop={14} style={styles.closeBtn}>
             <Icon name="xmark" size={20} color="#fff" />
           </Pressable>
@@ -70,7 +89,11 @@ export function FormulaRefViewer({
           {formulaRef && (
             <Image
               source={{ uri: imageUri ?? formulaRef.image_url }}
-              style={{ width, height: height - insets.top - 90 }}
+              style={{
+                width: rotated90 ? boxHeight : boxWidth,
+                height: rotated90 ? boxWidth : boxHeight,
+                transform: [{ rotate: `${manualRotation}deg` }],
+              }}
               resizeMode="contain"
             />
           )}

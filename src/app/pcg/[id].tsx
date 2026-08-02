@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Alert } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
@@ -8,12 +8,15 @@ import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { BackToBreadcrumb, PrevNextFooter } from '@/components/DocNavBar'
 import { Icon } from '@/components/Icon'
+import { printReg } from '@/lib/printReg'
 import { slugifyPcgTerm } from '@/lib/pcg'
 import { MagicLinkPod } from '@/components/MagicLinkPod'
 import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
+import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
+import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
 import { linkifyText } from '@/lib/crossRefLinks'
 import { setPendingBreadcrumb, consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
@@ -46,7 +49,7 @@ export default function PcgTermScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasPlusAccess, isPremium } = useAuth()
+  const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
   const [term, setTerm] = useState<PcgTerm | null>(null)
   // A P/CG definition is a single short block (no separate paragraphs to
   // split, usually already fully visible), so unlike PlainTextBody's
@@ -59,6 +62,8 @@ export default function PcgTermScreen() {
   const [backTo, setBackTo] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [bookmarked, setBookmarked] = useState(false)
+  const [downloaded, setDownloaded] = useState(false)
+  const [downloadBusy, setDownloadBusy] = useState(false)
   const [folderPickerVisible, setFolderPickerVisible] = useState(false)
   const [confirmLabel, setConfirmLabel] = useState<string | undefined>()
   const [confirmTick, setConfirmTick] = useState(0)
@@ -72,6 +77,9 @@ export default function PcgTermScreen() {
   useEffect(() => {
     if (!term) return
     isBookmarked(term.slug).then(setBookmarked)
+    // Same resolved-slug keying as the bookmark check above, for the same
+    // reason: an un-normalized route param would check the wrong id.
+    isDownloaded(term.slug).then(setDownloaded)
     addRecent({
       id: term.slug,
       itemType: 'pcg',
@@ -111,6 +119,21 @@ export default function PcgTermScreen() {
             .eq('slug', normalized)
             .single()
           if (!retry.error && retry.data) { setTerm(retry.data as PcgTerm); setLoading(false); return }
+        }
+        // Still nothing -- most often no network. Fall back to the offline
+        // copy if this term was downloaded; without this branch "Download"
+        // is write-only storage and the saved term reads as "not found" in
+        // exactly the offline case the feature exists for.
+        const cached = await findDownload(id)
+        if (cached) {
+          setTerm({
+            slug: cached.id,
+            term: cached.document_number,
+            definition: cached.body_text ?? null,
+            frequently_used: false,
+            see_refs: [],
+            external_refs: [],
+          })
         }
         setLoading(false)
       })
@@ -190,6 +213,7 @@ export default function PcgTermScreen() {
   const farRefs = related.filter((r) => r.cited_type === 'far' || r.cited_type === 'far_part')
   const aimRefs = related.filter((r) => r.cited_type === 'aim')
   const adRefs = related.filter((r) => r.cited_type === 'ad')
+  const loiRefs = related.filter((r) => r.cited_type === 'loi')
 
   const handleToggleBookmark = async () => {
     if (!term) return
@@ -213,8 +237,59 @@ export default function PcgTermScreen() {
     setFolderPickerVisible(true)
   }
 
+  // Premium-gated like every other type's download. The `!downloaded` guard
+  // on the paywall check is deliberate: a user who lapses from Premium can
+  // still REMOVE what they already saved, rather than being stuck with
+  // undeletable offline copies behind a paywall.
+  const handleDownload = async () => {
+    if (!term) return
+    if (!isPremium && !downloaded) { router.push('/paywall?tier=premium'); return }
+    if (downloaded) {
+      setDownloaded(false)
+      await removeDownload(term.slug)
+      return
+    }
+    setDownloadBusy(true)
+    try {
+      await addDownload({
+        id: term.slug,
+        type: 'pcg',
+        document_number: term.term,
+        title: term.term,
+        subject_series: null,
+        size: (term.definition ?? '').length,
+        body_text: term.definition ?? null,
+      })
+      setDownloaded(true)
+    } catch {
+      Alert.alert('Error', "Couldn't save this term for offline reading. Try again in a moment.")
+    }
+    setDownloadBusy(false)
+  }
+
+  // Print is the other half of the Plus "Print & export any section"
+  // promise -- until now the app had no print at all, only the share
+  // sheet (which exports a LINK, not the text).
+  const handlePrint = async () => {
+    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!term) return
+    try {
+      await printReg({
+        documentNumber: term.term,
+        title: null,
+        body: term.definition ?? '',
+        kindLabel: 'P/CG',
+      })
+    } catch {
+      Alert.alert('Print failed', "Couldn't open the print dialog. Try again in a moment.")
+    }
+  }
+
   const handleShare = async () => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    // Share/export is a PLUS feature (paywall PLUS_FEATURES), not Premium.
+    // Gating it on isPremium bounced a Plus buyer to a Premium upsell for
+    // something they had already paid for.
+    if (!hasPlusAccess) { router.push('/paywall'); return }
     if (!term) return
     try {
       await Share.share({
@@ -237,8 +312,11 @@ export default function PcgTermScreen() {
           <Icon name="arrow.up.circle" size={21} color={tokens.t3} />
         </Pressable>
       )}
+      <Pressable onPress={handlePrint} hitSlop={12} style={{ padding: 4 }}>
+        <Icon name="printer" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+      </Pressable>
       <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="square.and.arrow.up" size={21} color={isPremium ? tokens.t2 : tokens.t4} />
+        <Icon name="square.and.arrow.up" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
         <Icon name="folder.badge.plus" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
@@ -318,6 +396,17 @@ export default function PcgTermScreen() {
             )}
           </Text>
 
+          {/* Download only -- the P/CG is scraped from FAA HTML and has no
+              PDF of its own to open. */}
+          <View style={{ marginTop: 16 }}>
+            <DetailActionRow
+              onDownload={handleDownload}
+              downloaded={downloaded}
+              downloadBusy={downloadBusy}
+              tokens={tokens}
+            />
+          </View>
+
           <View style={styles.barsWrap}>
             <MagicLinkPod
               bars={[
@@ -325,9 +414,10 @@ export default function PcgTermScreen() {
                 { icon: 'list.bullet', label: 'FAR references', items: farRefs },
                 { icon: 'arrow.up.right.square', label: 'AIM references', items: aimRefs },
                 { icon: 'wrench.and.screwdriver', label: 'Related ADs', items: adRefs },
+                { icon: 'checkmark.seal.fill', label: 'Related LOIs', items: loiRefs },
               ]}
               currentLabel={term.term}
-              hasPlusAccess={hasPlusAccess}
+              hasProAccess={hasProAccess}
             />
           </View>
 
@@ -396,7 +486,12 @@ const styles = StyleSheet.create({
   freqPill: { alignSelf: 'flex-start', borderRadius: 6, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 14 },
   freqText: { fontSize: 11, fontWeight: '600' },
   def: { fontSize: 15, lineHeight: 22 },
-  barsWrap: { gap: 6, marginTop: 16 },
+  // Breathing room around the action/MagicLink stack. These bars used to
+  // butt straight up against the Download button above and the body text
+  // below, so the whole block read as one cramped slab.
+  // marginTop matches the internal `gap` -- see aim/[id].tsx's own comment
+  // (RC, annotated screenshot): the two gaps were 14px and 10px, uneven.
+  barsWrap: { gap: 10, marginTop: 10, marginBottom: 22 },
   section: { marginTop: 22 },
   sectionLabel: { fontWeight: '600', fontSize: 13, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.3 },
   seeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth },

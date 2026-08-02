@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Image, Share } from 'react-native'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Image, Share, Alert } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
@@ -7,8 +7,10 @@ import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { printReg } from '@/lib/printReg'
 import { FigureViewer } from '@/components/FigureViewer'
 import { PlainTextBody, PlainTextBodyHandle } from '@/components/PlainTextBody'
+import { resolveAimFigureGlobally } from '@/lib/regPreview'
 import { MagicLinkPod } from '@/components/MagicLinkPod'
 import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
@@ -17,9 +19,12 @@ import { BackToBreadcrumb, PrevNextFooter } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
+import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
+import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
+import { getLatestRevision, changedParagraphIndices, splitParagraphs, type ContentRevision } from '@/lib/whatsChanged'
 import type { AcFigure } from '@/types'
 
 // Natural-sort AIM paragraph numbers ("4-3-2" before "4-10-1") for
@@ -59,10 +64,10 @@ interface RelatedItem {
 }
 
 export default function AimParagraphScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>()
+  const { id, hl } = useLocalSearchParams<{ id: string; hl?: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasPlusAccess, isPremium } = useAuth()
+  const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
   const [para, setPara] = useState<AimParagraph | null>(null)
   const [figures, setFigures] = useState<AimFigureRow[]>([])
   const [figuresExpanded, setFiguresExpanded] = useState(false)
@@ -70,6 +75,8 @@ export default function AimParagraphScreen() {
   const [loading, setLoading] = useState(true)
   const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
   const [bookmarked, setBookmarked] = useState(false)
+  const [downloaded, setDownloaded] = useState(false)
+  const [downloadBusy, setDownloadBusy] = useState(false)
   const [folderPickerVisible, setFolderPickerVisible] = useState(false)
   const [confirmLabel, setConfirmLabel] = useState<string | undefined>()
   const [confirmTick, setConfirmTick] = useState(0)
@@ -80,6 +87,41 @@ export default function AimParagraphScreen() {
   const bodyRef = useRef<PlainTextBodyHandle>(null)
   const inDocSearch = useInDocSearch(bodyRef)
 
+  // Opened from a Study Mode flashcard bookmark, which stored the passage
+  // the Q/A came from (see study.tsx + routeForBookmark). Seeding the in-doc
+  // search with it reuses the existing highlight + auto-scroll-to-first-match
+  // path, so the reg opens AT that passage rather than at the top. Runs once
+  // per distinct hl value; a normal visit has no param and is unaffected.
+  const seededHlRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (typeof hl !== 'string' || !hl.trim()) return
+    if (seededHlRef.current === hl) return
+    seededHlRef.current = hl
+    inDocSearch.onQueryChange(hl)
+  }, [hl, inDocSearch])
+
+  // What's Changed parity with AC: pull this document's most recent
+  // revision so the changed paragraphs can be flagged inline and jumped to.
+  // AC gets this from its own changed_block_indices column; FAR/AIM have no
+  // such column, so the indices are derived from the revision's added_text.
+  const [revision, setRevision] = useState<ContentRevision | null>(null)
+  useEffect(() => {
+    if (!id) return
+    getLatestRevision('aim', id).then(setRevision).catch(() => setRevision(null))
+  }, [id])
+
+  const changedIdx = useMemo(
+    () => changedParagraphIndices(para?.body_text ?? '', revision?.addedText ?? null),
+    [para?.body_text, revision],
+  )
+  const [changedCursor, setChangedCursor] = useState(0)
+  const jumpToChanged = (dir: 1 | -1) => {
+    if (changedIdx.length === 0) return
+    const next = (changedCursor + dir + changedIdx.length) % changedIdx.length
+    setChangedCursor(next)
+    setTimeout(() => bodyRef.current?.scrollToParagraph(changedIdx[next]), 60)
+  }
+
   // Consumed once per screen instance (on mount / id change), not on every
   // render -- see navBreadcrumb.ts's single-slot design.
   useEffect(() => {
@@ -88,6 +130,10 @@ export default function AimParagraphScreen() {
 
   useEffect(() => {
     if (id) isBookmarked(id).then(setBookmarked)
+  }, [id])
+
+  useEffect(() => {
+    if (id) isDownloaded(id).then(setDownloaded)
   }, [id])
 
   useEffect(() => {
@@ -108,7 +154,7 @@ export default function AimParagraphScreen() {
         .from('document_citations')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.aim,cited_id.eq.${id}),and(citing_type.eq.aim,citing_id.eq.${id})`),
-    ]).then(([paraRes, figRes, citRes]) => {
+    ]).then(async ([paraRes, figRes, citRes]) => {
       if (!paraRes.error && paraRes.data) {
         const p = paraRes.data as AimParagraph
         setPara(p)
@@ -120,6 +166,24 @@ export default function AimParagraphScreen() {
           date_issued: null,
           subject_series: null,
         })
+      } else {
+        // No network (or the row is gone): fall back to the offline copy if
+        // this paragraph was downloaded. Without this branch "Download" is
+        // write-only storage -- the user saves a paragraph, loses signal,
+        // opens it, and gets an empty screen, which is the exact case the
+        // feature exists for. Figures aren't cached (their bytes live in
+        // Storage), so the offline view is the text itself.
+        const cached = await findDownload(id)
+        if (cached) {
+          setPara({
+            paragraph_number: cached.document_number,
+            chapter: cached.subject_series ?? '',
+            section_title: null,
+            title: cached.title,
+            body_text: cached.body_text ?? null,
+            reference_text: null,
+          })
+        }
       }
       if (!figRes.error && figRes.data) setFigures(figRes.data as AimFigureRow[])
       if (!citRes.error && citRes.data) {
@@ -178,6 +242,7 @@ export default function AimParagraphScreen() {
   // a real coverage gap, not correctly-empty data.
   const aimRefs = related.filter((r) => r.cited_type === 'aim')
   const adRefs = related.filter((r) => r.cited_type === 'ad')
+  const loiRefs = related.filter((r) => r.cited_type === 'loi')
 
   const handleToggleBookmark = async () => {
     if (!para) return
@@ -205,8 +270,62 @@ export default function AimParagraphScreen() {
     setFolderPickerVisible(true)
   }
 
+  // Premium-gated like AC/AD/LOI. The `!downloaded` guard on the paywall
+  // check is deliberate and matches the others: a user who lapses from
+  // Premium can still REMOVE what they already saved, rather than being
+  // stuck with undeletable offline copies behind a paywall.
+  const handleDownload = async () => {
+    if (!para) return
+    if (!isPremium && !downloaded) { router.push('/paywall?tier=premium'); return }
+    if (downloaded) {
+      setDownloaded(false)
+      await removeDownload(para.paragraph_number)
+      return
+    }
+    setDownloadBusy(true)
+    try {
+      await addDownload({
+        id: para.paragraph_number,
+        type: 'aim',
+        document_number: para.paragraph_number,
+        title: para.title ?? '',
+        // subject_series is a free-form slot on DownloadedAC; AIM reuses it to
+        // carry the chapter so the offline header reads "AIM — Chapter 11"
+        // instead of a bare "AIM — Chapter".
+        subject_series: para.chapter,
+        size: (para.body_text ?? '').length,
+        body_text: para.body_text ?? null,
+      })
+      setDownloaded(true)
+    } catch {
+      Alert.alert('Error', "Couldn't save this paragraph for offline reading. Try again in a moment.")
+    }
+    setDownloadBusy(false)
+  }
+
+  // Print is the other half of the Plus "Print & export any section"
+  // promise -- until now the app had no print at all, only the share
+  // sheet (which exports a LINK, not the text).
+  const handlePrint = async () => {
+    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!para) return
+    try {
+      await printReg({
+        documentNumber: `AIM ${para.paragraph_number}`,
+        title: para.title,
+        body: para.body_text ?? '',
+        kindLabel: 'AIM',
+      })
+    } catch {
+      Alert.alert('Print failed', "Couldn't open the print dialog. Try again in a moment.")
+    }
+  }
+
   const handleShare = async () => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    // Share/export is a PLUS feature (paywall PLUS_FEATURES), not Premium.
+    // Gating it on isPremium bounced a Plus buyer to a Premium upsell for
+    // something they had already paid for.
+    if (!hasPlusAccess) { router.push('/paywall'); return }
     if (!para) return
     try {
       await Share.share({
@@ -229,8 +348,11 @@ export default function AimParagraphScreen() {
           <Icon name="arrow.up.circle" size={21} color={tokens.t3} />
         </Pressable>
       )}
+      <Pressable onPress={handlePrint} hitSlop={12} style={{ padding: 4 }}>
+        <Icon name="printer" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+      </Pressable>
       <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="square.and.arrow.up" size={21} color={isPremium ? tokens.t2 : tokens.t4} />
+        <Icon name="square.and.arrow.up" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
         <Icon name="folder.badge.plus" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
@@ -295,6 +417,18 @@ export default function AimParagraphScreen() {
             <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>{para.title}</Text>
           )}
 
+          {/* Download only -- the AIM is scraped from FAA HTML and has no
+              PDF of its own to open, so this renders full width rather than
+              pairing with an "Open PDF" that couldn't work. */}
+          <View style={{ marginTop: 18 }}>
+            <DetailActionRow
+              onDownload={handleDownload}
+              downloaded={downloaded}
+              downloadBusy={downloadBusy}
+              tokens={tokens}
+            />
+          </View>
+
           <View style={styles.barsWrap}>
             {/* Figures & Tables isn't a MagicLink -- it's this document's own
                 figures, not a cross-document citation, so it keeps the plain
@@ -321,9 +455,10 @@ export default function AimParagraphScreen() {
                 { icon: 'list.bullet', label: 'FAR references', items: farRefs },
                 { icon: 'questionmark.circle', label: 'P/CG terms', items: pcgRefs },
                 { icon: 'wrench.and.screwdriver', label: 'Related ADs', items: adRefs },
+                { icon: 'checkmark.seal.fill', label: 'Related LOIs', items: loiRefs },
               ]}
               currentLabel={currentLabel}
-              hasPlusAccess={hasPlusAccess}
+              hasProAccess={hasProAccess}
             />
           </View>
 
@@ -352,15 +487,31 @@ export default function AimParagraphScreen() {
             </View>
           )}
 
+            {changedIdx.length > 0 && (
+              <View style={[styles.changedBanner, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
+                <Icon name="sparkles" size={13} color={tokens.blu} />
+                <Text style={[styles.changedBannerText, { color: tokens.blu, fontSize: fs(12.5) }]}>
+                  Updated — {changedIdx.length} paragraph{changedIdx.length === 1 ? '' : 's'} changed
+                </Text>
+                <Pressable onPress={() => jumpToChanged(-1)} hitSlop={8}>
+                  <Icon name="chevron.up" size={14} color={tokens.blu} />
+                </Pressable>
+                <Pressable onPress={() => jumpToChanged(1)} hitSlop={8}>
+                  <Icon name="chevron.down" size={14} color={tokens.blu} />
+                </Pressable>
+              </View>
+            )}
           {body ? (
             <PlainTextBody
               ref={bodyRef}
               text={body}
               figures={figures}
               onOpenFigure={(f) => setViewerFigure({ id: f.id, label: f.label ?? '', caption: f.caption, page: 0, image_url: f.image_url })}
+              resolveFigureGlobally={resolveAimFigureGlobally}
               currentLabel={currentLabel}
               highlightQuery={inDocSearch.debounced}
               activeMatch={inDocSearch.matchIdx}
+              changedIndices={changedIdx}
               onMatchCount={inDocSearch.setMatchCount}
               scrollRef={scrollRef}
             />
@@ -417,6 +568,9 @@ export default function AimParagraphScreen() {
 }
 
 const styles = StyleSheet.create({
+  changedBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 12 },
+  changedBannerText: { fontWeight: '700', flex: 1 },
+
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   empty: { fontSize: 15, textAlign: 'center' },
@@ -424,7 +578,14 @@ const styles = StyleSheet.create({
   section: { fontSize: 12, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.3 },
   paraNum: { fontWeight: '600', fontSize: 15 },
   title: { fontWeight: '600', fontSize: 17, marginTop: 2, marginBottom: 14, lineHeight: 23 },
-  barsWrap: { gap: 6, marginBottom: 16 },
+  // Breathing room around the action/MagicLink stack. These bars used to
+  // butt straight up against the Download button above and the body text
+  // below, so the whole block read as one cramped slab.
+  // marginTop matches the internal `gap` so the space above the first bar
+  // (Figures & Tables) and the space between it and MagicLink read as one
+  // consistent rhythm -- confirmed live as a real complaint (RC, annotated
+  // screenshot): the two gaps were 14px and 10px, visibly uneven.
+  barsWrap: { gap: 10, marginTop: 10, marginBottom: 22 },
   bar: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10,

@@ -7,6 +7,7 @@ import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { printReg } from '@/lib/printReg'
 import { PlainTextBody, PlainTextBodyHandle } from '@/components/PlainTextBody'
 import { MagicLinkPod } from '@/components/MagicLinkPod'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -20,7 +21,7 @@ import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
-import { isDownloaded, addDownload, removeDownload } from '@/lib/downloads'
+import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
 
 // LOI detail screen. Per the expansion plan's explicit priority reframe:
 // citation-driven discovery from a FAR page (the Related LOIs MagicLink
@@ -50,11 +51,23 @@ interface RelatedItem {
   label: string | null
 }
 
+
+// LOI titles arrive as file-style slugs ("Collins_2011_Legal_Interpretation").
+// Rendering that raw reads like a bug in a premium app. Every LOI carries
+// the same "_Legal_Interpretation" boilerplate, so drop it and space the
+// separators: "Collins 2011".
+function humanizeLoiTitle(t: string): string {
+  return t
+    .replace(/[_-]?legal[_-]interpretation$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+}
+
 export default function LoiDetailScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasPlusAccess, isPremium } = useAuth()
+  const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
   const [loi, setLoi] = useState<LegalInterpretation | null>(null)
   const [related, setRelated] = useState<RelatedItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -96,7 +109,7 @@ export default function LoiDetailScreen() {
         .from('document_citations')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.loi,cited_id.eq.${slug}),and(citing_type.eq.loi,citing_id.eq.${slug})`),
-    ]).then(([loiRes, citRes]) => {
+    ]).then(async ([loiRes, citRes]) => {
       if (!loiRes.error && loiRes.data) {
         const l = loiRes.data as LegalInterpretation
         setLoi(l)
@@ -108,6 +121,19 @@ export default function LoiDetailScreen() {
           date_issued: l.issued_date,
           subject_series: null,
         })
+      } else {
+        // No network (or the row is gone): fall back to the offline copy.
+        // This branch was MISSING -- handleDownload wrote an offline copy
+        // that nothing ever read back, so a downloaded LOI still showed an
+        // empty screen with no connection. Only AC had a cache-read path.
+        const cached = await findDownload(slug)
+        if (cached) {
+          setLoi({
+            slug: cached.id,
+            title: cached.document_number,
+            body_text: cached.body_text ?? null,
+          } as LegalInterpretation)
+        }
       }
       if (!citRes.error && citRes.data) {
         const rows = citRes.data as {
@@ -125,7 +151,7 @@ export default function LoiDetailScreen() {
   }, [slug])
 
   const body = loi?.body_text ?? ''
-  const currentLabel = loi ? loi.title.replace(/-/g, ' ') : undefined
+  const currentLabel = loi ? humanizeLoiTitle(loi.title) : undefined
   const farRefs = related.filter((r) => r.cited_type === 'far')
 
   const handleToggleBookmark = async () => {
@@ -150,8 +176,29 @@ export default function LoiDetailScreen() {
     setFolderPickerVisible(true)
   }
 
+  // Print is the other half of the Plus "Print & export any section"
+  // promise -- until now the app had no print at all, only the share
+  // sheet (which exports a LINK, not the text).
+  const handlePrint = async () => {
+    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!loi) return
+    try {
+      await printReg({
+        documentNumber: humanizeLoiTitle(loi.title),
+        title: loi.summary,
+        body: loi.body_text ?? '',
+        kindLabel: 'LOI',
+      })
+    } catch {
+      Alert.alert('Print failed', "Couldn't open the print dialog. Try again in a moment.")
+    }
+  }
+
   const handleShare = async () => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    // Share/export is a PLUS feature (paywall PLUS_FEATURES), not Premium.
+    // Gating it on isPremium bounced a Plus buyer to a Premium upsell for
+    // something they had already paid for.
+    if (!hasPlusAccess) { router.push('/paywall'); return }
     if (!loi) return
     try {
       await Share.share({
@@ -198,8 +245,11 @@ export default function LoiDetailScreen() {
           <Icon name="arrow.up.circle" size={21} color={tokens.t3} />
         </Pressable>
       )}
+      <Pressable onPress={handlePrint} hitSlop={12} style={{ padding: 4 }}>
+        <Icon name="printer" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+      </Pressable>
       <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="square.and.arrow.up" size={21} color={isPremium ? tokens.t2 : tokens.t4} />
+        <Icon name="square.and.arrow.up" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
         <Icon name="folder.badge.plus" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
@@ -242,7 +292,7 @@ export default function LoiDetailScreen() {
           onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
           scrollEventThrottle={100}
         >
-          <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>{loi.title.replace(/-/g, ' ')}</Text>
+          <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>{humanizeLoiTitle(loi.title)}</Text>
 
           {/* Unified with AC/AD's own meta-chip row -- was a bare text
               line for addressee/year plus a separate CFR-ref line, visually
@@ -281,7 +331,7 @@ export default function LoiDetailScreen() {
             <MagicLinkPod
               bars={[{ icon: 'list.bullet', label: 'FAR references', items: farRefs }]}
               currentLabel={currentLabel}
-              hasPlusAccess={hasPlusAccess}
+              hasProAccess={hasProAccess}
             />
           </View>
 
@@ -329,7 +379,12 @@ const styles = StyleSheet.create({
   meta: { marginBottom: 4, textTransform: 'capitalize' },
   title: { fontWeight: '700', lineHeight: 24, marginBottom: 4, textTransform: 'capitalize' },
   cfrRef: { marginBottom: 4 },
-  barsWrap: { marginTop: 12, marginBottom: 12, gap: 6 },
+  // Breathing room around the action/MagicLink stack. These bars used to
+  // butt straight up against the Download button above and the body text
+  // below, so the whole block read as one cramped slab.
+  // marginTop matches the internal `gap` -- see aim/[id].tsx's own comment
+  // (RC, annotated screenshot): the two gaps were 14px and 10px, uneven.
+  barsWrap: { gap: 10, marginTop: 10, marginBottom: 22 },
   pdfButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     borderRadius: 12, borderWidth: 1, paddingVertical: 12, marginBottom: 16,
