@@ -30,6 +30,7 @@ Usage (called BEFORE the real upsert, so the "old" text is still live):
 from __future__ import annotations
 
 import logging
+import re
 
 import requests
 
@@ -40,6 +41,27 @@ def _split_paragraphs(text: str | None) -> list[str]:
     if not text:
         return []
     return [p.strip() for p in text.split("\n\n") if p.strip()]
+
+
+# A TBL/FIG's own display number is internal bookkeeping recomputed by
+# backfill_aim_pdf_images.py's rebuild-from-truth pass (see that file's
+# docstring) -- it can change between syncs (a table's real PDF number
+# shifts as the AIM gets renumbered) with the table's CONTENT completely
+# unchanged. Confirmed live 2026-08-02: a single local re-scrape+backfill
+# cycle run for an unrelated fix logged 249 false "revisions" across the
+# AIM corpus, every single one a pure "TBL 1-1-1" -> "TBL 1-1-8"-style
+# renumber with byte-identical table content on both sides -- 100% noise,
+# zero genuine FAA content changes, but indistinguishable from a real
+# revision to a user reading What's Changed. Stripping the label prefix
+# before comparing (comparison only -- the ORIGINAL text, label included,
+# is still what gets stored if a paragraph turns out to have a genuine
+# content difference elsewhere) makes a pure renumber invisible to the
+# diff while a real content change still triggers it normally.
+_LABEL_PREFIX_RE = re.compile(r"^(TBL|FIG)\s+[\d\-]+[A-Za-z]?\.?\s*")
+
+
+def _normalize_for_diff(paragraph: str) -> str:
+    return _LABEL_PREFIX_RE.sub("", paragraph, count=1)
 
 
 def _fetch_existing(
@@ -103,13 +125,19 @@ def log_revisions(
         if old_text == new_text:
             continue
 
-        old_paras = set(_split_paragraphs(old_text))
+        old_paras_list = _split_paragraphs(old_text)
         new_paras_list = _split_paragraphs(new_text)
-        new_paras = set(new_paras_list)
-        added = [p for p in new_paras_list if p not in old_paras]
-        removed = [p for p in _split_paragraphs(old_text) if p not in new_paras]
+        # Matched on NORMALIZED text (label prefix stripped) so a table/
+        # figure that only got renumbered -- not a real content change --
+        # doesn't count as added+removed. added/removed still store the
+        # ORIGINAL (label-included) text for accurate display; only the
+        # matching decision ignores the label.
+        old_normalized = {_normalize_for_diff(p) for p in old_paras_list}
+        new_normalized = {_normalize_for_diff(p) for p in new_paras_list}
+        added = [p for p in new_paras_list if _normalize_for_diff(p) not in old_normalized]
+        removed = [p for p in old_paras_list if _normalize_for_diff(p) not in new_normalized]
         if not added and not removed:
-            continue  # whitespace-only difference -- not worth a timeline entry
+            continue  # whitespace/label-only difference -- not worth a timeline entry
 
         to_insert.append({
             "doc_type": doc_type,
