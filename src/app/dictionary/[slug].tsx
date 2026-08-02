@@ -11,6 +11,7 @@ import { Icon } from '@/components/Icon'
 import { FolderPicker } from '@/components/FolderPicker'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { addRecent } from '@/lib/recents'
+import { linkifyText } from '@/lib/crossRefLinks'
 
 interface BreakdownItem {
   letter: string
@@ -48,6 +49,39 @@ const USAGE_LABELS: Record<string, string> = {
   METAR: 'METAR weather-report usage',
   'METAR/TAF': 'METAR/TAF weather-report usage',
   TAF: 'TAF weather-report usage',
+}
+
+// Turns a FAR/AC/AIM/AD/P-CG citation inside mnemonic explanation text
+// ("not itself listed in § 91.203...") into a real tappable link, using the
+// exact same linkifyText() already used for FAR/AIM/P-CG/AC body text --
+// RC: "could we create hyperlinks out to the actual reg data if those regs
+// appear in the Mn explanations?" This is a ONE-WAY, purely additive read:
+// linkifyText() just scans plain text for citation-shaped substrings and
+// has no connection whatsoever to reg_mnemonic_anchors (the separate table
+// that highlights a mnemonic's OWN moniker, like "MEA", inside real FAR/AIM
+// body text) -- applying it here can't affect that isolation in either
+// direction, which was the one thing RC was careful to ask about.
+// Deliberately gated to category='mnemonic' only, not every dictionary
+// entry -- scoped to exactly what was asked, not the other ~10k contraction
+// entries this same screen renders.
+function LinkedText({ text, style, linkColor }: { text: string; style: object; linkColor: string }) {
+  const segments = linkifyText(text)
+  if (segments.length === 1 && segments[0].route === null) {
+    return <Text style={style}>{text}</Text>
+  }
+  return (
+    <Text style={style}>
+      {segments.map((seg, i) =>
+        seg.route ? (
+          <Text key={i} onPress={() => router.push(seg.route as any)} style={{ color: linkColor, fontWeight: '700' }}>
+            {seg.text}
+          </Text>
+        ) : (
+          <Text key={i}>{seg.text}</Text>
+        ),
+      )}
+    </Text>
+  )
 }
 
 export default function DictionaryTermScreen() {
@@ -163,7 +197,11 @@ export default function DictionaryTermScreen() {
                 {entry.senses.length > 1 && (
                   <Text style={[styles.senseNum, { color: tokens.t4, fontSize: fs(11) }]}>SENSE {i + 1}</Text>
                 )}
-                <Text style={[styles.definition, { color: tokens.t1, fontSize: fs(16) }]}>{s.definition}</Text>
+                {entry.category === 'mnemonic' ? (
+                  <LinkedText text={s.definition} style={[styles.definition, { color: tokens.t1, fontSize: fs(16) }]} linkColor={tokens.blu} />
+                ) : (
+                  <Text style={[styles.definition, { color: tokens.t1, fontSize: fs(16) }]}>{s.definition}</Text>
+                )}
                 {s.breakdown && s.breakdown.length > 0 && (
                   <View style={styles.breakdownList}>
                     {s.breakdown.map((b, bi) => (
@@ -172,7 +210,7 @@ export default function DictionaryTermScreen() {
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.breakdownConcept, { color: tokens.t1, fontSize: fs(15) }]}>{b.concept}</Text>
                           {b.detail ? (
-                            <Text style={[styles.breakdownDetail, { color: tokens.t2, fontSize: fs(13.5) }]}>{b.detail}</Text>
+                            <LinkedText text={b.detail} style={[styles.breakdownDetail, { color: tokens.t2, fontSize: fs(13.5) }]} linkColor={tokens.blu} />
                           ) : null}
                         </View>
                       </View>
