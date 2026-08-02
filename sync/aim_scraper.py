@@ -463,6 +463,7 @@ def _citations_from_reference_box(box_elem, citing_id: str) -> tuple[str, list[d
     # across the corpus (e.g. "aim:4-1-20 -> aim:Chapter 5"). Falls back to
     # visible text only if the href has no usable fragment, since that's
     # still strictly better than nothing for the rare non-standard link.
+    seen_aim_targets: set[str] = set()
     for a in box_elem.find_all("a", class_="xref"):
         href = a.get("href", "")
         frag = href.split("#", 1)[1] if "#" in href else ""
@@ -471,7 +472,14 @@ def _citations_from_reference_box(box_elem, citing_id: str) -> tuple[str, list[d
         # to itself, which renders as a MagicLink to the page you are already
         # on. Measured: exactly one across the corpus (AIM 5-3-8 -> 5-3-8),
         # so this is cheap insurance rather than a big cleanup.
-        if target_para and target_para != citing_id:
+        #
+        # Skip repeats too -- a reference box can carry two <a class="xref">
+        # tags pointing at the same paragraph (e.g. the same target named
+        # once in prose and once in a "See also" line). Found live via
+        # scripts/magiclink_audit.py: 3 duplicate aim->aim rows corpus-wide,
+        # all same-box repeats.
+        if target_para and target_para != citing_id and target_para not in seen_aim_targets:
+            seen_aim_targets.add(target_para)
             citations.append({
                 "citing_type": "aim", "citing_id": citing_id,
                 "cited_type": "aim", "cited_id": target_para,
@@ -876,6 +884,51 @@ def _upsert(table: str, rows: list[dict], on_conflict: str) -> bool:
         return False
 
 
+def prune_dead_aim_aim_citations() -> int:
+    """Deletes aim->aim citations whose target paragraph doesn't actually
+    exist, now that the full run has finished and aim_paragraphs holds the
+    complete corpus.
+
+    aim->aim is deliberately left unvalidated during the page loop (see the
+    comment at its call site) since a forward reference to a not-yet-
+    scraped page would look "dead" against a mid-run snapshot when it's
+    perfectly real. That means genuinely-dead targets -- a stale href to a
+    paragraph number the FAA renumbered or removed -- were never checked
+    against anything. Found live via scripts/magiclink_audit.py: 14 such
+    rows corpus-wide. Runs once, after the loop, against the now-complete
+    paragraph set."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return 0
+    known = fetch_known_ids()["aim"]
+    cited_ids: set[str] = set()
+    offset = 0
+    while True:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/document_citations",
+            headers=_supa_headers(),
+            params={"select": "cited_id", "citing_type": "eq.aim", "cited_type": "eq.aim",
+                    "limit": 1000, "offset": offset},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        batch = resp.json()
+        cited_ids.update(r["cited_id"] for r in batch)
+        if len(batch) < 1000:
+            break
+        offset += 1000
+    dead = sorted({c for c in cited_ids if c not in known})
+    if not dead:
+        return 0
+    del_resp = requests.delete(
+        f"{SUPABASE_URL}/rest/v1/document_citations",
+        headers=_supa_headers({"Prefer": "return=minimal"}),
+        params={"citing_type": "eq.aim", "cited_type": "eq.aim", "cited_id": f"in.({','.join(dead)})"},
+        timeout=30,
+    )
+    del_resp.raise_for_status()
+    return len(dead)
+
+
 def delete_citations_for_source(citing_type: str) -> bool:
     """Clears every document_citations row this scraper previously wrote,
     right before a full re-run repopulates them — see insert_citations()'s
@@ -1091,6 +1144,10 @@ def run_full(session: requests.Session):
             errors += 1
             error_details.append({"page": page["href"], "error": str(e)})
         time.sleep(REQUEST_DELAY)
+
+    pruned_dead_aim = prune_dead_aim_aim_citations()
+    if pruned_dead_aim:
+        log.info(f"Pruned {pruned_dead_aim} aim->aim citation(s) whose target paragraph doesn't exist.")
 
     run_record.update({
         "completed_at": datetime.now(timezone.utc).isoformat(),
