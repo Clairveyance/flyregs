@@ -25,6 +25,7 @@ import { buildRegShareLink } from '@/lib/regShare'
 import { getLatestRevision, changedParagraphIndices, splitParagraphs, type ContentRevision } from '@/lib/whatsChanged'
 import { stripFarPrefix } from '@/lib/titleFormat'
 import { normalizeRegBody } from '@/lib/regTextFormat'
+import { fetchMnemonicAnchors, MnemonicAnchor } from '@/lib/regMnemonics'
 
 // Natural-sort section numbers ("91.3" before "91.107") for Prev/Next --
 // same comparator far/part/[part].tsx already uses to browse a Part.
@@ -101,6 +102,15 @@ export default function FarSectionScreen() {
   useEffect(() => {
     if (!id) return
     getLatestRevision('far', id).then(setRevision).catch(() => setRevision(null))
+  }, [id])
+
+  // Curated memory-aid highlights (AVE-F, MEA's lost-comm sense, etc.) --
+  // empty for the overwhelming majority of sections, so this is a cheap
+  // no-op fetch most of the time. See src/lib/regMnemonics.ts.
+  const [mnemonicAnchors, setMnemonicAnchors] = useState<MnemonicAnchor[]>([])
+  useEffect(() => {
+    if (!id) return
+    fetchMnemonicAnchors('far', id).then(setMnemonicAnchors).catch(() => setMnemonicAnchors([]))
   }, [id])
 
   const changedIdx = useMemo(
@@ -488,6 +498,7 @@ export default function FarSectionScreen() {
               changedIndices={changedIdx}
               onMatchCount={inDocSearch.setMatchCount}
               scrollRef={scrollRef}
+              mnemonicAnchors={mnemonicAnchors}
             />
           ) : /reserved/i.test(section.title || '') ? (
             <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>

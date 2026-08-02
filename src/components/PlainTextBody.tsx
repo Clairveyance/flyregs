@@ -9,6 +9,7 @@ import { TableGrid } from '@/components/TableGrid'
 import { softWrapParagraph } from '@/lib/softWrap'
 import { setPendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { searchPhrase, countOcc, highlightSpans } from '@/lib/searchHighlight'
+import { splitMnemonicSpans, MnemonicAnchor } from '@/lib/regMnemonics'
 
 // Renders \n\n-delimited body text (FAR/AIM/P-CG's plain-text content, as
 // opposed to the AC pipeline's parsed ACBlock[] structure) as real, visually
@@ -348,7 +349,13 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
    * What's Changed reads identically across every content type instead of
    * being an AC-only affordance. */
   changedIndices?: number[]
-}>(function PlainTextBody({ text, figures, onOpenFigure, resolveFigureGlobally, onNavigate, currentLabel, highlightQuery, activeMatch, onMatchCount, scrollRef, changedIndices }, ref) {
+  /** Curated per-paragraph memory-aid highlight spans (AVE-F, MEA's lost-
+   * comm sense, etc.) -- fetched by the parent screen via
+   * fetchMnemonicAnchors, same "parent fetches, PlainTextBody just renders"
+   * pattern as `figures`. Optional; screens that don't pass it render
+   * exactly as before. See src/lib/regMnemonics.ts. */
+  mnemonicAnchors?: MnemonicAnchor[]
+}>(function PlainTextBody({ text, figures, onOpenFigure, resolveFigureGlobally, onNavigate, currentLabel, highlightQuery, activeMatch, onMatchCount, scrollRef, changedIndices, mnemonicAnchors }, ref) {
   const { tokens } = useTheme()
   const fs = useFS()
   // NOT stripped here — parseTableBlock() below needs the raw marker
@@ -652,6 +659,16 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
                   >
                     {seg.text}
                   </Text>
+                ) : mnemonicAnchors && mnemonicAnchors.length > 0 ? (
+                  splitMnemonicSpans(seg.text, mnemonicAnchors).map((mseg, k) =>
+                    mseg.mnemonic ? (
+                      <Text key={`${j}-${k}`} style={{ color: tokens.gold, fontWeight: '700' }}>
+                        {mseg.text}
+                      </Text>
+                    ) : (
+                      <Text key={`${j}-${k}`}>{mseg.text}</Text>
+                    ),
+                  )
                 ) : (
                   <Text key={j}>{seg.text}</Text>
                 ),

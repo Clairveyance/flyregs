@@ -16,6 +16,11 @@ interface TermHit {
   definition: string | null
 }
 
+interface MnemonicHit {
+  slug: string
+  term: string
+}
+
 // v1 scope (2026-08-01): FAA JO 7340.2's official Contractions table
 // (3,326 terms, category='contraction') -- see
 // sync/migrations_dictionary_terms.sql for why this is additive to, not a
@@ -34,9 +39,20 @@ export default function DictionaryIndexScreen() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchSeq = useRef(0)
   const [wordOfDay, setWordOfDay] = useState<WordOfTheDay | null>(null)
+  const [mnemonics, setMnemonics] = useState<MnemonicHit[]>([])
 
   useEffect(() => {
     getWordOfTheDay().then(setWordOfDay).catch(() => {})
+  }, [])
+
+  // Small, separate browse entry point for category='mnemonic' entries
+  // (AVE-F, MEA's lost-comm sense, etc.) -- RC: "we could create a small
+  // 'Mnemonic' filter inside the A/D which could house all the aviation
+  // mnemonics." A handful of rows at most, so a direct client-side query
+  // rather than a dedicated RPC.
+  useEffect(() => {
+    supabase.from('dictionary_terms').select('slug, term').eq('category', 'mnemonic').order('term')
+      .then(({ data }) => setMnemonics((data ?? []) as MnemonicHit[]))
   }, [])
 
   useEffect(() => {
@@ -115,6 +131,9 @@ export default function DictionaryIndexScreen() {
           </View>
 
           {!trimmedQuery && <DailyWordCard wordOfDay={wordOfDay} tokens={tokens} />}
+          {!trimmedQuery && mnemonics.length > 0 && (
+            <MnemonicsCard mnemonics={mnemonics} tokens={tokens} fs={fs} />
+          )}
 
           {trimmedQuery ? (
             searching ? (
@@ -253,6 +272,30 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
   )
 }
 
+// RC: "isolated in a way that would allow MEA to be found there as the
+// moniker, but not have it interact with or disturb the 'real' MEA in
+// the regs." Each row here is its own dictionary_terms entry
+// (category='mnemonic', see sync/migrations_mnemonics.sql) -- a real MEA
+// entry (Minimum En Route Altitude) exists elsewhere under M with its own
+// slug; this list and that entry never collide.
+function MnemonicsCard({ mnemonics, tokens, fs }: { mnemonics: MnemonicHit[]; tokens: ReturnType<typeof useTheme>['tokens']; fs: (n: number) => number }) {
+  return (
+    <View style={[styles.mnemonicsCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+      <Text style={[styles.wordCardLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>MNEMONICS</Text>
+      {mnemonics.map((m, i) => (
+        <Pressable
+          key={m.slug}
+          style={[styles.mnemonicRow, i === mnemonics.length - 1 && { borderBottomWidth: 0 }, { borderColor: tokens.bdr }]}
+          onPress={() => router.push(`/dictionary/${m.slug}` as any)}
+        >
+          <Text style={[styles.mnemonicTerm, { color: tokens.gold, fontSize: fs(14) }]}>{m.term}</Text>
+          <Icon name="chevron.right" size={13} color={tokens.t4} />
+        </Pressable>
+      ))}
+    </View>
+  )
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
@@ -279,6 +322,15 @@ const styles = StyleSheet.create({
     marginTop: 10, alignSelf: 'flex-start', borderBottomWidth: 1, paddingBottom: 2,
   },
   wordCardJumpText: { fontWeight: '600' },
+
+  mnemonicsCard: {
+    marginHorizontal: 12, marginTop: 10, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12,
+  },
+  mnemonicRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 11, borderBottomWidth: 1,
+  },
+  mnemonicTerm: { fontWeight: '700' },
 
   flatList: { flex: 1 },
   list: { padding: 12, paddingBottom: 32 },
