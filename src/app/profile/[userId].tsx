@@ -9,6 +9,7 @@ import { Icon } from '@/components/Icon'
 import { RatingPicker } from '@/components/RatingPicker'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getDuelStats, type DuelStats } from '@/lib/challenges'
+import { getStudyMastery, type StudyMastery } from '@/lib/study'
 import { getMyRatings, RATING_SHORT_LABELS, type RatingCode } from '@/lib/profileRatings'
 import { getCoinsForUser, COIN_BY_CODE, COIN_CATALOG, type EarnedCoin, type CoinDef } from '@/lib/coins'
 import { CoinMedal } from '@/components/CoinMedal'
@@ -50,6 +51,7 @@ export default function ProfileScreen() {
   const [statsVisibleBusy, setStatsVisibleBusy] = useState(false)
   const visible = isSelf || statsVisibleReal
   const [duelStats, setDuelStats] = useState<DuelStats | null>(null)
+  const [mastery, setMastery] = useState<StudyMastery | null>(null)
   const [ratings, setRatings] = useState<RatingCode[]>([])
   // Ratings are edited HERE now, not on Account — see RatingPicker.tsx.
   const [ratingPickerOpen, setRatingPickerOpen] = useState(false)
@@ -63,12 +65,14 @@ export default function ProfileScreen() {
   const load = useCallback(async () => {
     if (!userId) return
     setLoading(true)
-    const [stats, realVisible] = await Promise.all([
+    const [stats, realVisible, masteryStats] = await Promise.all([
       getDuelStats(userId).catch(() => ({ wins: 0, losses: 0, ties: 0 })),
       getStatsVisible(userId).catch(() => false),
+      getStudyMastery(userId).catch(() => null),
     ])
     setDuelStats(stats)
     setStatsVisibleReal(realVisible)
+    setMastery(masteryStats)
     if (isSelf || realVisible) {
       const [r, c, a] = await Promise.all([
         getMyRatings(userId).catch(() => []),
@@ -193,6 +197,25 @@ export default function ProfileScreen() {
                     {duelStats.wins}W · {duelStats.losses}L{duelStats.ties > 0 ? ` · ${duelStats.ties}T` : ''}
                   </Text>
                   <Text style={[styles.duelSub, { color: tokens.t3, fontSize: fs(11.5) }]}>Duel record</Text>
+                </View>
+              </View>
+            )}
+
+            {/* Overall Mastery -- same "unconditionally public, brag-
+                worthy" treatment as Duel record above (RC: "your total
+                Overall Mastery %. plus the nametag. all the things to
+                really brag about"), not gated behind the "Show my stats"
+                toggle the way ratings/coins/aircraft are -- it's a
+                competitive/comparison stat like the duel record, not a
+                personal detail. */}
+            {mastery && mastery.mastered > 0 && (
+              <View style={[styles.duelCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}>
+                <Icon name="rectangle.stack" size={18} color={tokens.gold} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.duelRecord, { color: tokens.t1, fontSize: fs(17) }]}>{mastery.pct}%</Text>
+                  <Text style={[styles.duelSub, { color: tokens.t3, fontSize: fs(11.5) }]}>
+                    Overall Mastery · {mastery.mastered} terms
+                  </Text>
                 </View>
               </View>
             )}

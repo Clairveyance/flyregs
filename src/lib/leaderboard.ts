@@ -22,6 +22,58 @@ export async function getReadyRoomLeaderboard(limit = 20): Promise<LeaderboardRo
   }))
 }
 
+// Global leaderboards, RC: "can the RR have a 'global' leaderboard?...
+// duels ranking, and probably your total Overall Mastery %. plus the
+// nametag. all the things to really brag about." Same opt-in flag
+// (leaderboard_opt_in) and is_me shape as getReadyRoomLeaderboard above --
+// ready-room.tsx switches between all three as tabs against one consistent
+// row contract, not three separate screens.
+export interface DuelsLeaderboardRow {
+  userId: string
+  displayLabel: string
+  wins: number
+  losses: number
+  ties: number
+  isMe: boolean
+}
+
+export async function getDuelsLeaderboard(limit = 50): Promise<DuelsLeaderboardRow[]> {
+  const { data, error } = await supabase.rpc('get_duels_leaderboard', { p_limit: limit })
+  if (error) throw error
+  return (data ?? []).map((r: any) => ({
+    userId: r.user_id,
+    displayLabel: r.display_label,
+    wins: r.wins,
+    losses: r.losses,
+    ties: r.ties,
+    isMe: r.is_me,
+  }))
+}
+
+export interface MasteryLeaderboardRow {
+  userId: string
+  displayLabel: string
+  mastered: number
+  seen: number
+  totalAvailable: number
+  pct: number
+  isMe: boolean
+}
+
+export async function getMasteryLeaderboard(limit = 50): Promise<MasteryLeaderboardRow[]> {
+  const { data, error } = await supabase.rpc('get_mastery_leaderboard', { p_limit: limit })
+  if (error) throw error
+  return (data ?? []).map((r: any) => ({
+    userId: r.user_id,
+    displayLabel: r.display_label,
+    mastered: r.mastered,
+    seen: r.seen,
+    totalAvailable: r.total_available,
+    pct: r.pct,
+    isMe: r.is_me,
+  }))
+}
+
 // Opting in surfaces your User Handle (or email prefix, if no handle is
 // set) and weekly study activity to every other opted-in user -- off by
 // default, same privacy stance as shared folders and cloud sync elsewhere

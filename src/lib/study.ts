@@ -73,8 +73,13 @@ export async function recordStudyReview(itemId: string, correct: boolean, itemTy
   return { correctStreak: row?.correct_streak ?? 0, nextReviewAt: row?.next_review_at ?? '', newCoins: row?.new_coins ?? [] }
 }
 
-export async function getStudyMastery(): Promise<StudyMastery> {
-  const { data, error } = await supabase.rpc('get_study_mastery')
+// userId optional -- omitted (the normal case, Study Mode's own gauge)
+// means "the calling user," same as before. profile/[userId].tsx's
+// nametag page passes another user's id explicitly to show THEIR Overall
+// Mastery %, RC: "your total Overall Mastery %. plus the nametag. all the
+// things to really brag about."
+export async function getStudyMastery(userId?: string): Promise<StudyMastery> {
+  const { data, error } = await supabase.rpc('get_study_mastery', userId ? { p_user_id: userId } : {})
   if (error) throw error
   const row = data?.[0]
   return row ?? { mastered: 0, seen: 0, total_available: 0, pct: 0 }
