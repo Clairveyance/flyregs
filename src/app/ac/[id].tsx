@@ -527,8 +527,19 @@ export default function ACDetailScreen() {
         body: body || ac.description || '',
         kindLabel: 'Advisory Circular',
       })
-    } catch {
-      Alert.alert('Print failed', "Couldn't open the print dialog. Try again in a moment.")
+    } catch (err) {
+      // RC, real device: "when you tap print it opens the phone's print
+      // dialog box, but when you close it, the app puts a CTA on screen
+      // about it not closing." expo-print's iOS path can reject AFTER the
+      // system print sheet already opened and was used (e.g. no printer
+      // configured, so there's nowhere to actually send the finished job)
+      // -- by the time this catch fires, the user has already seen and
+      // interacted with a dialog that visibly worked, so an alert
+      // insisting it "couldn't open" is actively wrong, not just unhelpful.
+      // A genuine failure to open at all is self-evident (nothing
+      // appears) and needs no alert to announce it either. Log for our
+      // own visibility, don't tell the user something that isn't true.
+      Sentry.captureException(err)
     }
   }
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Alert } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
+import * as Sentry from '@sentry/react-native'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -203,8 +204,13 @@ export default function LoiDetailScreen() {
         body: loi.body_text ?? '',
         kindLabel: 'LOI',
       })
-    } catch {
-      Alert.alert('Print failed', "Couldn't open the print dialog. Try again in a moment.")
+    } catch (err) {
+      // See ac/[id].tsx's handlePrint for the full reasoning -- expo-print
+      // on iOS can reject AFTER the system print sheet already opened and
+      // was used, so alerting the user that it "couldn't open" is often
+      // just wrong by the time this fires. Log only, don't tell them
+      // something untrue.
+      Sentry.captureException(err)
     }
   }
 
