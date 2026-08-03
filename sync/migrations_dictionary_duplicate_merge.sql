@@ -1,0 +1,59 @@
+-- ============================================================================
+-- Merge duplicate-source dictionary_terms -- 2026-08-02
+--
+-- RC (comparing two "UHF" entries): "we've got some multiples in the A/D.
+-- some with more comprehensive explanations than others." A scripted audit
+-- found 21 groups where the same real headword had been loaded
+-- independently from 2+ different FAA handbook glossaries (e.g. "Angle of
+-- Attack" defined separately by the Glider Flying Handbook AND the Powered
+-- Parachute Flying Handbook), each with its own slug and its own single
+-- sense -- not data corruption, just two loaders that never knew about each
+-- other. The app already handles multi-source entries correctly elsewhere
+-- (UHF's own working entry has 2 senses from 2 handbooks); this applies the
+-- same pattern to the other 21.
+--
+-- Confirmed zero risk before merging: no rows in synced_bookmarks,
+-- synced_folder_items, or document_citations reference any of the 42
+-- affected slugs (dictionary_terms doesn't participate in the citations
+-- table at all yet), so deleting the redundant half of each pair orphans
+-- nothing.
+--
+-- Applied directly via the Supabase Management API's SQL endpoint (curl,
+-- not Python urllib -- see migrations_dictionary_see_also.sql for why).
+-- The actual merge script (scratchpad/merge_duplicate_terms.py) fetched
+-- each pair's full senses/source, concatenated senses arrays, joined
+-- source strings with "; ", UPDATEd the kept ("primary") slug, then
+-- DELETEd the redundant one. Primary = alphabetically-first slug in each
+-- pair -- arbitrary but deterministic, since nothing external references
+-- either slug.
+--
+-- Result: 10,081 -> 10,060 rows. Verified live: hb-airworthiness-directive-ad
+-- (which happened to already carry 2 senses before this pass) now correctly
+-- shows all 3, each attributed to its own handbook source.
+--
+-- Merged pairs (primary <- deleted):
+--   hb-airworthiness-directive-ad <- hfh_glossary-airworthiness-directive
+--   gfh_glossary-angle-of-attack <- hb-angle-of-attack-aoa
+--   iph_glossary-automated-surface-observing-system-asos <- wx-automated-surface-observing-system
+--   hb-back-course <- phak_real_glossary-back-course-bc
+--   hb-bernoulli-s-principle <- phak_real_glossary-bernoulli-s-principle
+--   hb-buttock-line <- hb-buttock-line-bl
+--   afh_glossary-controllable-pitch-propeller <- phak_real_glossary-controllable-pitch-propeller-cpp
+--   gfh_glossary-convective-condensation-level-ccl <- wx-convective-condensation-level
+--   gfh_glossary-dry-adiabatic-lapse-rate-dalr <- wx-dry-adiabatic-lapse-rate
+--   rm_glossary-instrument-flight-rules-ifr <- wx-instrument-flight-rules
+--   hb-magnetic-bearing <- ifh_glossary-magnetic-bearing-mb
+--   afh_glossary-manifold-pressure-mp <- hb-manifold-pressure
+--   hb-pilot-in-command <- phak_real_glossary-pilot-in-command-pic
+--   afh_glossary-pilot-s-operating-handbook-poh <- hb-pilot-s-operating-handbook-poh
+--   hb-plan-position-indicator-ppi <- wx-plan-position-indicator
+--   phak_real_glossary-runway-visual-range-rvr <- wx-runway-visual-range
+--   hb-s-a-e <- hb-sae
+--   ifh_glossary-selective-availability <- phak_real_glossary-selective-availability-sa
+--   ifh_glossary-st-elmo-s-fire <- phak_real_glossary-st-elmo-s-fire
+--   ifh_glossary-standard-service-volume-ssv <- iph_glossary-standard-service-volume
+--   afh_glossary-wind-correction-angle <- ifh_glossary-wind-correction-angle-wca
+--
+-- No SQL to re-run here -- this file documents an already-applied,
+-- already-verified one-time cleanup, not a repeatable migration.
+-- ============================================================================
