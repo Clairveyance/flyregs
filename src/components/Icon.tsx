@@ -131,6 +131,9 @@ const SF_TO_IONICONS: Record<string, string> = {
   // in use), a stack of books reads as a broader reference/lookup source
   // than a single regulation volume. See flyregs_decisions.md.
   'books.vertical.fill': 'library',
+  // "See X" dictionary cross-reference card (dictionary/[slug].tsx) -- a
+  // real SF Symbol on native, needs the explicit web-fallback mapping here.
+  'arrow.turn.down.right': 'return-down-forward-outline',
 }
 
 export function Icon({ name, size = 22, color, style }: IconProps) {

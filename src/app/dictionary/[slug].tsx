@@ -39,6 +39,7 @@ interface DictTerm {
   category: string
   pcg_term_id: string | null
   pcg_terms: { slug: string; term: string } | null
+  see_also_slug: string | null
 }
 
 // FAA's own 3-5 char category code (JO 7340.2 §1-2-3) shown as a plain-
@@ -99,10 +100,11 @@ export default function DictionaryTermScreen() {
   const [siblingMnemonics, setSiblingMnemonics] = useState<{ slug: string; term: string; mnemonic_group: string | null }[]>([])
   const [prevTerm, setPrevTerm] = useState<{ slug: string; term: string } | null>(null)
   const [nextTerm, setNextTerm] = useState<{ slug: string; term: string } | null>(null)
+  const [seeAlsoTerm, setSeeAlsoTerm] = useState<string | null>(null)
 
   useEffect(() => {
     if (!slug) return
-    supabase.from('dictionary_terms').select('term, senses, source, category, pcg_term_id, pcg_terms(slug, term)').eq('slug', slug).single()
+    supabase.from('dictionary_terms').select('term, senses, source, category, pcg_term_id, pcg_terms(slug, term), see_also_slug').eq('slug', slug).single()
       .then(({ data }) => {
         // pcg_terms comes back as a plain object for this to-one relation
         // (dictionary_terms.pcg_term_id -> pcg_terms.id is a single FK), but
@@ -122,6 +124,20 @@ export default function DictionaryTermScreen() {
     // did, but keeping the same slug-as-id convention for consistency).
     isBookmarked(slug).then(setBookmarked)
   }, [slug])
+
+  // "See X" cross-reference -- RC: "some (like ultralight) don't have
+  // enough of a real explanation." A scripted audit found 79 entries whose
+  // whole definition was a bare "See X." stub with zero real content; 67
+  // resolve unambiguously to another entry that HAS the real explanation
+  // (see migrations_dictionary_see_also.sql). A separate small fetch here
+  // (rather than a PostgREST embed) since this FK is self-referential and
+  // the embed syntax wasn't resolving cleanly even after a schema-cache
+  // reload -- not worth fighting further for a single extra field.
+  useEffect(() => {
+    if (!entry?.see_also_slug) { setSeeAlsoTerm(null); return }
+    supabase.from('dictionary_terms').select('term').eq('slug', entry.see_also_slug).single()
+      .then(({ data }) => setSeeAlsoTerm((data as { term: string } | null)?.term ?? null))
+  }, [entry?.see_also_slug])
 
   useEffect(() => {
     if (!entry || !slug) return
@@ -304,6 +320,22 @@ export default function DictionaryTermScreen() {
                 )}
               </View>
             ))}
+
+            {entry.see_also_slug && seeAlsoTerm && (
+              // "See X" stub entries had zero real content of their own --
+              // this makes the referenced term a real tap-through to the
+              // full entry that actually explains it, instead of a dead end.
+              <Pressable
+                style={[styles.pcgLinkCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                onPress={() => router.push(`/dictionary/${entry.see_also_slug}` as any)}
+              >
+                <Icon name="arrow.turn.down.right" size={16} color={tokens.blu} />
+                <Text style={[styles.pcgLinkText, { color: tokens.blu, fontSize: fs(13.5) }]}>
+                  See {seeAlsoTerm}
+                </Text>
+                <Icon name="chevron.right" size={14} color={tokens.t4} />
+              </Pressable>
+            )}
 
             {entry.pcg_terms && (
               // Cross-link to the formal ATC-phraseology definition when this
