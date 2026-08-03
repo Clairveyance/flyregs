@@ -320,7 +320,17 @@ function SwipeableFolderRow({
   // Only active on the small drag-handle icon (not the whole row), so it
   // never has to be composed against panGesture (swipe) or the row's own tap
   // -- both of those are already disabled in reorderMode anyway.
+  // Same directional-gating technique panGesture above already relies on
+  // (proven on real devices this session, unlike this drag gesture at first
+  // -- RC: "my drag to reorder Folders isn't working in phone dev"). Without
+  // an explicit activeOffsetY, an ungated Pan on this small handle loses
+  // gesture arbitration to the parent FlatList's own scroll responder on
+  // native and never activates at all -- it only "worked" in the Browser
+  // preview because synthetic DOM pointer events have no competing native
+  // scroll responder to lose against.
   const dragGesture = Gesture.Pan()
+    .activeOffsetY([-8, 8])
+    .failOffsetX([-10, 10])
     .onStart(() => {
       if (onDragStart) runOnJS(onDragStart)()
     })
