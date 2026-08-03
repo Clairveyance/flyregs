@@ -27,6 +27,14 @@ interface LoiHit {
 // legal_interpretations_fts_idx GIN index) against body_text, not a
 // plain ILIKE title match -- title alone can't answer "what does the FAA
 // say about wet leasing" the way body-text search can.
+//
+// Search-first doesn't mean search-ONLY, though -- RC, real device: "the
+// entire LOI sections field is just blank, with only some recents and a
+// note to search... we should be populating this." A year browse gives
+// anyone without a specific keyword in mind something real to explore,
+// without undermining the reasoning above: YEAR (not title) is the
+// browse key specifically because it sidesteps the "addressee name is a
+// useless label" problem entirely.
 export default function LoiIndexScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -34,11 +42,24 @@ export default function LoiIndexScreen() {
   const [hits, setHits] = useState<LoiHit[]>([])
   const [searching, setSearching] = useState(false)
   const [recentLoi, setRecentLoi] = useState<RecentAC[]>([])
+  const [yearCounts, setYearCounts] = useState<{ year: number; count: number }[]>([])
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchSeq = useRef(0)
 
   useEffect(() => {
     getRecents().then((rs) => setRecentLoi(rs.filter((r) => recentItemType(r) === 'loi').slice(0, 10)))
+    // One lightweight column across all ~1,055 rows, grouped client-side --
+    // not worth a dedicated RPC for a single int column at this volume.
+    supabase.from('legal_interpretations').select('year').not('year', 'is', null).then(({ data }) => {
+      if (!data) return
+      const counts = new Map<number, number>()
+      for (const row of data as { year: number }[]) {
+        counts.set(row.year, (counts.get(row.year) ?? 0) + 1)
+      }
+      setYearCounts(
+        Array.from(counts, ([year, count]) => ({ year, count })).sort((a, b) => b.year - a.year)
+      )
+    })
   }, [])
 
   const runSearch = useCallback((q: string) => {
@@ -97,29 +118,6 @@ export default function LoiIndexScreen() {
           )}
         </View>
 
-        {!trimmedQuery && recentLoi.length > 0 && (
-          <View style={styles.recentWrap}>
-            <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>RECENTLY VIEWED</Text>
-            {recentLoi.map((r) => (
-              <Pressable
-                key={r.id}
-                style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => router.push(`/loi/${r.id}` as any)}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
-                    {r.document_number.replace(/-/g, ' ')}
-                  </Text>
-                  <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={1}>
-                    {r.title}
-                  </Text>
-                </View>
-                <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
-              </Pressable>
-            ))}
-          </View>
-        )}
-
         {trimmedQuery ? (
           searching ? (
             <View style={styles.center}>
@@ -166,14 +164,60 @@ export default function LoiIndexScreen() {
             />
           )
         ) : (
-          <View style={styles.center}>
-            <Icon name="magnifyingglass" size={fs(28)} color={tokens.t4} />
-            <Text style={[styles.hintTitle, { color: tokens.t2, fontSize: fs(15) }]}>Search FAA Legal Interpretations</Text>
-            <Text style={[styles.hintSub, { color: tokens.t3, fontSize: fs(13) }]}>
-              Search by topic or keyword — interpretation letters are named after the requester,
-              not the subject, so full-text search is the fastest way to find one.
-            </Text>
-          </View>
+          <FlatList
+            style={styles.flatList}
+            keyboardDismissMode="interactive"
+            data={yearCounts}
+            keyExtractor={(item) => String(item.year)}
+            contentContainerStyle={styles.list}
+            ListHeaderComponent={
+              <>
+                {recentLoi.length > 0 && (
+                  <View style={styles.recentWrap}>
+                    <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>RECENTLY VIEWED</Text>
+                    {recentLoi.map((r) => (
+                      <Pressable
+                        key={r.id}
+                        style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                        onPress={() => router.push(`/loi/${r.id}` as any)}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
+                            {r.document_number.replace(/-/g, ' ')}
+                          </Text>
+                          <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={1}>
+                            {r.title}
+                          </Text>
+                        </View>
+                        <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+                <View style={styles.hintBar}>
+                  <Icon name="magnifyingglass" size={fs(13)} color={tokens.t4} />
+                  <Text style={[styles.hintBarText, { color: tokens.t4, fontSize: fs(11.5) }]}>
+                    Interpretation letters are named after the requester, not the subject —
+                    full-text search above is the fastest way to find one by topic.
+                  </Text>
+                </View>
+                <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>BROWSE BY YEAR</Text>
+              </>
+            }
+            renderItem={({ item }) => (
+              <Pressable
+                style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                onPress={() => router.push(`/loi/year/${item.year}` as any)}
+              >
+                <Text style={[styles.yearText, { color: tokens.blu, fontSize: fs(15) }]}>{item.year}</Text>
+                <View style={{ flex: 1 }} />
+                <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                  {item.count} interpretation{item.count === 1 ? '' : 's'}
+                </Text>
+                <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
+              </Pressable>
+            )}
+          />
         )}
       </TabletContainer>
     </View>
@@ -183,8 +227,12 @@ export default function LoiIndexScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8, marginTop: 40 },
-  hintTitle: { fontWeight: '600', marginTop: 6, textAlign: 'center' },
-  hintSub: { textAlign: 'center', lineHeight: 19, maxWidth: 320 },
+  hintBar: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 6,
+    marginHorizontal: 2, marginBottom: 14, paddingHorizontal: 2,
+  },
+  hintBarText: { flex: 1, lineHeight: 15 },
+  yearText: { fontWeight: '700' },
 
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
