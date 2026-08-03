@@ -352,23 +352,22 @@ export default function StudyScreen() {
             (tabs)/index.tsx) -- one consistent "this is a filter control"
             icon app-wide instead of a plain chevron. Tinted blue whenever
             any dimension is narrowed from its default, same as Home's own
-            active-filter tint. Sized up from fs(15) -- RC, real device:
-            "the filter icon is too small on the phone." */}
+            active-filter tint. RC, real device, second pass: the row's old
+            "All content · 20 cards" summary duplicated the "Studying: X"
+            line lower on this same screen, and the trailing chevron was a
+            second "tap to expand" cue doing the same job as the icon itself
+            -- "if these are saying basically the same thing, we don't need
+            both... just keep the icon up top, and make it bigger." Checked
+            whether other screens put their filter icon in the header (RC
+            asked to move it there if so) -- Home is the only other one in
+            the app, and it's ALSO inline like this, not in a header, so
+            there's no "upper right" convention to match; left in place. */}
         <Icon
           name="slider.horizontal.3"
-          size={fs(19)}
+          size={fs(24)}
           color={activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0 ? tokens.blu : tokens.t3}
         />
-        <Text style={[styles.filtersHeaderText, { color: tokens.t2, fontSize: fs(12.5) }]}>Filters</Text>
-        <Text style={[styles.filtersSummary, { color: tokens.t4, fontSize: fs(11) }]} numberOfLines={1}>
-          {[
-            activeTypes.length === 0 ? 'All content' : activeTypes.map((t) => TYPE_LABEL[t]).join(', '),
-            activeLevels.length > 0 ? activeLevels.map((l) => KNOWLEDGE_LEVEL_LABELS[l]).join(', ') : null,
-            activeCategoryClasses.length > 0 ? activeCategoryClasses.map((c) => RATING_SHORT_LABELS[c]).join(', ') : null,
-            `${sessionSize} cards`,
-          ].filter(Boolean).join(' · ')}
-        </Text>
-        <Icon name={filtersExpanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
+        <Text style={[styles.filtersHeaderText, { color: tokens.t2, fontSize: fs(13.5) }]}>Filters</Text>
       </Pressable>
       {filtersExpanded && (
       <>
@@ -907,7 +906,6 @@ const styles = StyleSheet.create({
   filterGroupLabel: { fontWeight: '700', letterSpacing: 0.5, paddingHorizontal: 20, paddingTop: 14 },
   filtersHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4 },
   filtersHeaderText: { fontWeight: '700' },
-  filtersSummary: { flex: 1 },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingTop: 8 },
   levelFilterRow: { marginTop: 10 },
   filterChip: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6 },
