@@ -100,6 +100,13 @@ export default function AccountScreen() {
   const [callsignInput, setCallsignInput] = useState(existingCallsign)
   const [callsignSaving, setCallsignSaving] = useState(false)
   const [callsignDirty, setCallsignDirty] = useState(false)
+  // RC: "we can omit this sentence [the always-visible 'must be unique'
+  // help text]. that will be understood when the box turns red if a user
+  // inputs an already-taken callsign -- then they get a similar red
+  // warning as the account sign in page." Same field-level pattern as
+  // auth.tsx's emailError/passwordError: red border + a short message
+  // below the field, instead of a blocking Alert.
+  const [callsignError, setCallsignError] = useState<string | null>(null)
 
   // session loads asynchronously -- on first render it's often still null,
   // so useState(existingCallsign) above captures an empty string that a
@@ -112,12 +119,13 @@ export default function AccountScreen() {
 
   const handleSaveCallsign = async () => {
     const trimmed = callsignInput.trim().slice(0, 40)
+    setCallsignError(null)
     setCallsignSaving(true)
     try {
       const { error: reserveError } = await supabase.rpc('set_callsign', { p_callsign: trimmed })
       if (reserveError) {
         if (reserveError.message === 'CALLSIGN_TAKEN') {
-          Alert.alert('Callsign Taken', 'Someone already flies under that callsign. Try another.')
+          setCallsignError('Someone already flies under that callsign. Try another.')
           setCallsignSaving(false)
           return
         }
@@ -551,9 +559,9 @@ export default function AccountScreen() {
           <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5), marginBottom: 8 }]}>Callsign</Text>
           <View style={styles.handleInputRow}>
             <TextInput
-              style={[styles.handleInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg, fontSize: fs(14.5) }]}
+              style={[styles.handleInput, { color: tokens.t1, borderColor: callsignError ? tokens.red : tokens.bdr, backgroundColor: tokens.bg, fontSize: fs(14.5) }]}
               value={callsignInput}
-              onChangeText={(v) => { setCallsignInput(v); setCallsignDirty(true) }}
+              onChangeText={(v) => { setCallsignInput(v); setCallsignDirty(true); setCallsignError(null) }}
               placeholder="e.g. Maverick"
               placeholderTextColor={tokens.t4}
               maxLength={40}
@@ -573,8 +581,11 @@ export default function AccountScreen() {
               </Pressable>
             )}
           </View>
+          {callsignError ? (
+            <Text style={[styles.fieldError, { color: tokens.red, fontSize: fs(12.5) }]}>{callsignError}</Text>
+          ) : null}
           <Text style={[styles.handleHelp, { color: tokens.t3, fontSize: fs(12) }]}>
-            Your callsign must be unique — if it's already taken, you'll be asked to pick another. If none is set, your email prefix is shown in its place in Premium shared folders, leaderboards, and anywhere else this name is relevant to others.
+            If none is set, your email prefix is shown in its place in Premium shared folders, leaderboards, and anywhere else this name is relevant to others.
           </Text>
 
           {/* Ratings live on Community > Profile, not here. They are a
@@ -854,6 +865,7 @@ const styles = StyleSheet.create({
   handleSaveBtn: { height: 42, minWidth: 60, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
   handleSaveBtnText: { color: '#fff', fontWeight: '700' },
   handleHelp: { marginTop: 8, lineHeight: 17 },
+  fieldError: { marginTop: 6, fontWeight: '500' },
   ratingChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   ratingChip: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 7, minHeight: 30, justifyContent: 'center' },
 
