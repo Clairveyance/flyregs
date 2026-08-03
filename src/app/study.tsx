@@ -491,11 +491,18 @@ export default function StudyScreen() {
       </>
       )}
 
+      {/* Hidden once a card is actively on screen (current && !sessionDone)
+          -- RC, real device: "make it so that while playing, the app
+          centers the 'gaming area' up on the screen." The mastery/streak
+          summary is pre-session and post-session context, not something
+          you need on every single flip; dropping it during play reclaims
+          the vertical space that was pushing the answer buttons off the
+          bottom of the screen. */}
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
-      ) : (mastery || (currency && currency.currentStreak > 0)) ? (
+      ) : (sessionDone || !current) && (mastery || (currency && currency.currentStreak > 0)) ? (
         // Mastery + streak grouped into one bordered card instead of two
         // loose rows stacked directly in the scroll flow -- RC, real
         // device: "the other stuff is pretty packed together." Grouping
@@ -650,24 +657,30 @@ export default function StudyScreen() {
             />
           </View>
 
-          {flipped && (
-            <View style={styles.answerRow}>
-              <Pressable
-                style={[styles.answerBtn, { borderColor: tokens.bdr }]}
-                onPress={() => handleAnswer(false)}
-              >
-                <Icon name="xmark" size={fs(16)} color={tokens.t3} />
-                <Text style={[styles.answerText, { color: tokens.t2, fontSize: fs(13.5) }]}>Missed it</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.answerBtn, styles.answerBtnGood, { borderColor: tokens.goldbdr, backgroundColor: tokens.goldlt }]}
-                onPress={() => handleAnswer(true)}
-              >
-                <Icon name="checkmark" size={fs(16)} color={tokens.gold} />
-                <Text style={[styles.answerText, { color: tokens.gold, fontSize: fs(13.5) }]}>Knew it</Text>
-              </Pressable>
-            </View>
-          )}
+          {/* Always rendered (not `{flipped && ...}`) so it never appears as
+              NEW content that pushes the page taller on flip -- that was the
+              actual bug behind RC's "I have to scroll down" complaint: the
+              row didn't exist in the tree until flipped became true.
+              Opacity + pointerEvents toggle instead of mount/unmount, so its
+              reserved space -- and screen position, combined with
+              cardWithBadge's own fixed height above -- is identical whether
+              the card is showing its question or its answer. */}
+          <View style={[styles.answerRow, { opacity: flipped ? 1 : 0 }]} pointerEvents={flipped ? 'auto' : 'none'}>
+            <Pressable
+              style={[styles.answerBtn, { borderColor: tokens.bdr }]}
+              onPress={() => handleAnswer(false)}
+            >
+              <Icon name="xmark" size={fs(16)} color={tokens.t3} />
+              <Text style={[styles.answerText, { color: tokens.t2, fontSize: fs(13.5) }]}>Missed it</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.answerBtn, styles.answerBtnGood, { borderColor: tokens.goldbdr, backgroundColor: tokens.goldlt }]}
+              onPress={() => handleAnswer(true)}
+            >
+              <Icon name="checkmark" size={fs(16)} color={tokens.gold} />
+              <Text style={[styles.answerText, { color: tokens.gold, fontSize: fs(13.5) }]}>Knew it</Text>
+            </Pressable>
+          </View>
         </View>
       )}
       </ScrollView>
@@ -947,7 +960,17 @@ const styles = StyleSheet.create({
   // Relative anchor for the overlaid type badge below -- width matches the
   // card's own 100% so the badge's left-alignment lines up with the card's
   // left edge, not the (potentially narrower) TabletContainer around it.
-  cardWithBadge: { width: '100%', alignItems: 'center' },
+  // Fixed at MAX_CARD_HEIGHT (not sized to content, unlike cardOuter/
+  // cardSizer below) so the answer-button row that follows always lands at
+  // the exact same Y position, on every card, flipped or not -- RC, real
+  // device: "the Missed/Knew buttons are just off the bottom, so each time
+  // the answer flips over, I have to scroll down... design the M/K buttons
+  // to stay fixed... so they never overlap." A short card just leaves quiet
+  // space below it inside this box instead of the card itself stretching --
+  // the card's own visible box still shrink-wraps to content (see
+  // cardSizer), so a short answer still doesn't sit in an oversized empty
+  // bordered box either.
+  cardWithBadge: { width: '100%', alignItems: 'center', height: MAX_CARD_HEIGHT },
   // Overlaps the card's own top-left corner by half its own height (top is
   // negative) -- reads as a tag clipped onto the card, not a separate
   // element floating above it. zIndex/elevation so it draws over the
