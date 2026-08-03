@@ -7,8 +7,16 @@
 // embed their query text with the SAME model used to build content_chunks
 // (any mismatch would put the query vector in a different space, making
 // every cosine-distance comparison meaningless), then call the
-// `semantic_search` Postgres RPC (pgvector, already deployed) with that
-// vector and return the results.
+// `hybrid_search` Postgres RPC with that vector AND the raw query text,
+// and return the results.
+//
+// Switched from `semantic_search` (pure pgvector) 2026-08-04, task #64 --
+// confirmed live that pure cosine similarity fails bare citation lookups
+// ("61.87" surfaced an unrelated AC's turbine-engine data table instead of
+// FAR § 61.87 itself). `hybrid_search` fuses vector + full-text + an
+// exact-citation boost via Reciprocal Rank Fusion; see
+// sync/migrations_hybrid_search.sql for the full fix writeup. Everything
+// below this RPC call -- dedup, AD/LOI rank discount -- is unchanged.
 //
 // No third-party imports -- plain fetch to GoTrue/PostgREST/OpenAI, same
 // convention as delete-account/revenuecat-webhook (confirmed live: `jsr:`
@@ -117,7 +125,7 @@ Deno.serve(async (req: Request) => {
   const matchCount = Math.min(Math.max(Math.trunc(body.matchCount ?? DEFAULT_MATCH_COUNT), 1), MAX_MATCH_COUNT)
   const contentTypes = Array.isArray(body.contentTypes) && body.contentTypes.length > 0 ? body.contentTypes : null
 
-  const rpcRes = await fetch(`${supabaseUrl}/rest/v1/rpc/semantic_search`, {
+  const rpcRes = await fetch(`${supabaseUrl}/rest/v1/rpc/hybrid_search`, {
     method: 'POST',
     headers: {
       apikey: serviceRoleKey,
@@ -126,12 +134,13 @@ Deno.serve(async (req: Request) => {
     },
     body: JSON.stringify({
       p_query_embedding: `[${embedding.join(',')}]`,
+      p_query_text: query,
       p_content_types: contentTypes,
       p_match_count: matchCount * RAW_FETCH_MULTIPLIER,
     }),
   })
   if (!rpcRes.ok) {
-    console.error('semantic_search RPC error', rpcRes.status, await rpcRes.text())
+    console.error('hybrid_search RPC error', rpcRes.status, await rpcRes.text())
     return jsonResponse({ error: 'Search failed.' }, 500)
   }
   const rawResults: Array<{
@@ -141,6 +150,7 @@ Deno.serve(async (req: Request) => {
     title: string
     chunk_text: string
     similarity: number
+    rrf_score: number
   }> = await rpcRes.json()
 
   // Dedup to one (best) chunk per real document, preserving similarity
@@ -168,13 +178,32 @@ Deno.serve(async (req: Request) => {
   // query -- still wins outright, while a borderline one drops back below
   // the FAR/AIM/PCG/AC match it was crowding out. Applied only for
   // ranking; `similarity` shown to the client stays the real score.
+  //
+  // Ranks by rrf_score now, not `similarity` -- 2026-08-04 bug found live
+  // during the hybrid_search switchover: sorting by raw similarity here
+  // silently discarded the RPC's own fused ranking (vector + lexical +
+  // citation boost), so a bare citation query like "61.87" still surfaced
+  // an unrelated AC first, because FAR 61.87's real cosine similarity
+  // (0.20) is much lower than a document that merely LOOKS similar in
+  // embedding space (0.41) -- the entire point of hybrid_search is that
+  // rrf_score, not similarity, is the correct ranking signal. The AD/LOI
+  // discount also moved from an additive subtraction (calibrated for
+  // similarity's 0-1 range) to a proportional multiplier, since rrf_score
+  // has no fixed range (~0.003-0.033 for a normal fused match, but 1.0+
+  // when the citation boost fires) -- a flat subtraction would either do
+  // nothing against a citation-boosted score or blot out every non-boosted
+  // one entirely, depending on scale, whereas a proportional cut keeps the
+  // same "genuinely dominant wins outright, borderline gets pushed down"
+  // behavior at any score magnitude.
   const DEPRIORITIZED_TYPES = new Set(['ad', 'loi'])
-  const RANK_DISCOUNT = 0.08
+  const RANK_DISCOUNT_FACTOR = 0.85
   const reranked = deduped
-    .map((r) => ({ r, rankScore: r.similarity - (DEPRIORITIZED_TYPES.has(r.source_type) ? RANK_DISCOUNT : 0) }))
+    .map((r) => ({ r, rankScore: r.rrf_score * (DEPRIORITIZED_TYPES.has(r.source_type) ? RANK_DISCOUNT_FACTOR : 1) }))
     .sort((a, b) => b.rankScore - a.rankScore)
     .slice(0, matchCount)
-    .map((x) => x.r)
+    // rrf_score is an internal ranking signal, not part of the client contract -- drop it here
+    // rather than leaking hybrid_search's implementation details into the API response.
+    .map(({ r: { rrf_score: _rrf_score, ...rest } }) => rest)
 
   return jsonResponse({ results: reranked })
 })
