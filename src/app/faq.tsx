@@ -95,10 +95,10 @@ const FAQ: QA[] = [
     category: 'Getting Started',
     a: [
       'No — browsing the entire library and searching to find an AC are both free, with no account needed, and no limit on how many you can look up. Every AC\'s detail page shows its full Table of Contents plus the beginning of its text for free.',
-      { tier: 'plus', text: 'The complete text of every AC and LOI, in-document search, bookmarks, notes, highlighting, and folders (up to 3) — a one-time purchase, not a subscription.' },
-      { tier: 'pro', text: 'Cross-device sync, AD and AC update alerts, opening a linked item from MagicLink, Study Mode and Community, Ask FlyRegs, and 1 saved aircraft.' },
-      { tier: 'premium', text: 'Offline downloads, shared folders, unlimited folders, and unlimited saved aircraft with equipment tags and reminders.' },
-      'An account is only required when you start a subscription (Pro or Premium) or make the one-time Plus purchase — creating an account by itself is free and doesn\'t unlock anything.',
+      { tier: 'plus', text: 'A one-time purchase, not a subscription:\n• Complete text of every AC and LOI\n• In-document search\n• Bookmarks, notes, highlighting\n• Folders (up to 3)' },
+      { tier: 'pro', text: 'Everything in Plus, plus:\n• Cross-device sync\n• AD and AC update alerts\n• Study Mode and Community, Ask FlyRegs\n• 1 saved aircraft' },
+      { tier: 'premium', text: 'Everything in Pro, plus:\n• Offline downloads\n• Shared folders, unlimited\n• Unlimited saved aircraft, with equipment tags and reminders' },
+      'An account is only required when you start a subscription (Pro or Premium, either of which already includes everything Plus does) or make the one-time Plus purchase — creating an account by itself is free and doesn\'t unlock anything.',
     ],
   },
   {
@@ -254,9 +254,9 @@ const FAQ: QA[] = [
     q: 'What does a subscription unlock?',
     category: 'Subscriptions & Sync',
     a: [
-      'Plus is a one-time purchase, not a subscription — see "Do I need an account?" above for what it unlocks on its own. Pro and Premium below both build on top of it.',
-      { tier: 'pro', text: 'Everything in Plus, plus cross-device sync, AD and AC update alerts, opening linked items from MagicLink, Ask FlyRegs, Community (Study Mode, Duels, Challenge Coins), and 1 saved aircraft.' },
-      { tier: 'premium', text: 'Everything in Pro, plus offline downloads, shared folders, unlimited folders, and unlimited saved aircraft with equipment tags and reminders.' },
+      'Plus is a one-time purchase — see "Do I need an account?" above for what it unlocks on its own. You don\'t have to buy it first: Pro and Premium each already include everything Plus does, so you can subscribe straight to either one and skip Plus entirely.',
+      { tier: 'pro', text: 'Everything in Plus, plus:\n• Cross-device sync\n• AD and AC update alerts\n• Opening linked items from MagicLink\n• Ask FlyRegs\n• Community (Study Mode, Duels, Challenge Coins)\n• 1 saved aircraft' },
+      { tier: 'premium', text: 'Everything in Pro, plus:\n• Offline downloads\n• Shared folders, unlimited\n• Unlimited saved aircraft, with equipment tags and reminders' },
     ],
   },
   {
