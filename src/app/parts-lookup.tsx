@@ -9,10 +9,12 @@ import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { searchParts, getAdsForPart, bestMatchingToken, PART_TYPE_LABELS, type AdPart, type PartMentionAd, type PartComponentType } from '@/lib/adParts'
 
-// Tier boundary (revised 2026-07-28, see flyregs_decisions.md): general AD
-// lookup stays free tier-wide, but a specialized parts/component search is
-// more specialized than general AD lookup and gates to Plus. Saving/
-// tagging a specific aircraft with a part stays Premium, handled in
+// Tier boundary (revised 2026-07-28, see flyregs_decisions.md): a specialized
+// parts/component search gates to Plus. RC, 2026-08-03: general AD reading
+// itself moved to Plus too (ad/[id].tsx), so this screen's cap is no longer
+// a contrast against a free neighbor -- it's the same tier, just its own
+// separate cap (5 results here vs. no preview at all on the AD body itself).
+// Saving/tagging a specific aircraft with a part stays Premium, handled in
 // my-aircraft.tsx, not here -- this screen is pure retrieval.
 
 const TYPE_LABELS = PART_TYPE_LABELS

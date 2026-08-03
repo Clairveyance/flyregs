@@ -75,13 +75,35 @@ type Tier = 'plus' | 'pro' | 'premium'
 // (`if (!hasPlusAccess)`) -- RC then corrected the gate itself: "no, ML has
 // to at least be Pro tier." The gate (MagicLinkPod.tsx) and this list moved
 // together, not independently -- see hasProAccess in context/auth.tsx.
+//
+// Fifth round, 2026-08-03 -- RC reviewed the real tier-comparison chart
+// (PROJECT_NOTES/flyregs_tier_comparison.html) built from this exact list
+// and moved several boundaries at once, each gate updated in the same pass:
+//   - DailyReg: Plus -> Pro ("daily reg is Pro gated, not Plus"). Card
+//     (index.tsx) and notification (account.tsx) are now both Pro instead
+//     of split across two tiers -- one line here instead of two.
+//   - Legal Interpretations: had NO gate at all (a real bug -- this list
+//     already claimed Plus, decisions.md claimed Plus, neither was ever
+//     enforced in loi/[slug].tsx). RC went further than restoring Plus:
+//     "LOIs are a Pro feature" -- new hasProAccess gate, previewText().
+//   - Airworthiness Directives: were fully free tier-wide, RC: "ADs
+//     shouldn't come alive until Plus... mainly for O&Os anyway" -- new
+//     hasPlusAccess gate on the body text (ad/[id].tsx), no preview at all
+//     (stricter than AC's, see that screen's own comment for why).
+//   - AC preview: RC: "free tier can preview 2 sections of an AC, not 5" --
+//     previewBlockCount() is now a flat 2, was a 2-5 range.
+//   - Mnemonics: were fully free inside the Aviation Dictionary (which
+//     stays free) -- RC: "if we did make it free, at the very least we'd
+//     remove the Mnemonic look up and gate that at Plus." New hasPlusAccess
+//     gate on both the index card and the entry detail page.
 const PLUS_FEATURES = [
-  { icon: 'doc.text',          label: 'Complete text of every Advisory Circular & Legal Interpretation' },
+  { icon: 'doc.text',          label: 'Complete text of every Advisory Circular' },
+  { icon: 'wrench.and.screwdriver', label: 'Full text of every Airworthiness Directive' },
+  { icon: 'list.bullet',       label: 'Mnemonics — memory aids for checkride prep' },
   { icon: 'square.grid.2x2',   label: 'RefPacks — certificate-specific study collections' },
   { icon: 'highlighter',       label: 'Highlights, Notes, Bookmarks & Folders' },
   { icon: 'printer',           label: 'Print & export any section' },
   { icon: 'magnifyingglass',   label: 'Unlimited search results' },
-  { icon: 'star.fill',         label: 'DailyReg — a hand-picked reg every day' },
   { icon: 'doc.badge.clock',   label: "What's Changed — see exactly what the FAA revised" },
 ]
 
@@ -97,6 +119,7 @@ const PRO_ADDITIONS = [
   // discipline as every correction above; semantic-search.tsx's own gate
   // moved from hasPlusAccess to hasProAccess in the same change.
   { icon: 'text.bubble.fill',  label: 'Ask FlyRegs — ask a real question in plain English, get the passages that answer it' },
+  { icon: 'checkmark.seal.fill', label: 'Legal Interpretations — full text of every LOI' },
   { icon: 'icloud',    label: 'Cross-device sync for your highlights, notes & bookmarks' },
   { icon: 'bell.badge', label: 'Airworthiness Directive alerts for your saved aircraft' },
   { icon: 'doc.badge.clock', label: 'Advisory Circular update alerts' },
@@ -104,7 +127,7 @@ const PRO_ADDITIONS = [
   { icon: 'rectangle.stack', label: 'Study Mode flashcards & mastery tracking' },
   { icon: 'rosette',   label: 'Challenge Coins for streaks & milestones' },
   { icon: 'person.2.fill', label: 'Ready Room leaderboard' },
-  { icon: 'bell',      label: 'DailyReg daily notification' },
+  { icon: 'star.fill', label: 'DailyReg — a hand-picked reg every day' },
 ]
 
 const PREMIUM_ADDITIONS = [
@@ -112,6 +135,10 @@ const PREMIUM_ADDITIONS = [
   { icon: 'arrow.down.circle', label: 'Offline downloads — no internet required' },
   { icon: 'bolt.fill',         label: 'Duels — challenge other players to a reg quiz' },
   { icon: 'airplane',          label: 'Unlimited saved aircraft (up from 1 on Pro)' },
+  // Found undocumented on this screen during the 2026-08-03 chart audit --
+  // my-aircraft/[id].tsx already gated this on isPremium (not just isPro,
+  // unlike the rest of My Aircraft), it just was never written down here.
+  { icon: 'wrench.and.screwdriver.fill', label: 'Tag specific parts to your aircraft for part-keyed AD alerts' },
 ]
 
 // ─── Pricing ──────────────────────────────────────────────────────────────────

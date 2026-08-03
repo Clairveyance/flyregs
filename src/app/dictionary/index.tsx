@@ -343,7 +343,16 @@ export const MNEMONIC_GROUP_ORDER = [
   MNEMONIC_UNGROUPED,
 ]
 
+// RC, 2026-08-03: "if we did make [the Dictionary] free, at the very least
+// we'd remove the Mnemonic look up and gate that at Plus, as well as
+// DailyWord." DailyWord (DailyWordCard above) was already Plus-gated;
+// Mnemonics had no gate at all until now. Same locked-teaser pattern as
+// DailyWordCard -- the card stays visible and discoverable, tapping it
+// routes to the paywall instead of expanding, and the individual mnemonic
+// entries themselves are ALSO gated (see dictionary/[slug].tsx) so a free
+// user can't route around this card by deep-linking or search.
 function MnemonicsCard({ mnemonics, tokens, fs }: { mnemonics: MnemonicHit[]; tokens: ReturnType<typeof useTheme>['tokens']; fs: (n: number) => number }) {
+  const { hasPlusAccess } = useAuth()
   const [expanded, setExpanded] = useState(false)
   const byGroup = new Map<string, MnemonicHit[]>()
   for (const m of mnemonics) {
@@ -353,6 +362,30 @@ function MnemonicsCard({ mnemonics, tokens, fs }: { mnemonics: MnemonicHit[]; to
   }
   const groups = MNEMONIC_GROUP_ORDER.filter((g) => byGroup.has(g))
   for (const g of byGroup.keys()) if (!groups.includes(g)) groups.push(g) // any future group not yet in MNEMONIC_GROUP_ORDER still shows, just at the end
+
+  if (!hasPlusAccess) {
+    return (
+      <Pressable
+        style={[styles.mnemonicsCard, { backgroundColor: tokens.bg2, borderColor: tokens.blu }]}
+        onPress={() => router.push('/paywall?tier=plus' as any)}
+      >
+        <View style={[styles.mnemonicsHeader, styles.wordCardRow]}>
+          <View style={[styles.wordCardIcon, { backgroundColor: tokens.goldlt }]}>
+            <Icon name="lock.fill" size={fs(13)} color={tokens.gold} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.wordCardLabel, { color: tokens.blu, fontSize: fs(10.5), fontWeight: '900' }]}>
+              MNEMONICS · {mnemonics.length}
+            </Text>
+            <Text style={[styles.wordCardTerm, { color: tokens.t2, fontSize: fs(13.5) }]} numberOfLines={2}>
+              Memory aids for checkride prep — unlock with Plus
+            </Text>
+          </View>
+          <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
+        </View>
+      </Pressable>
+    )
+  }
 
   return (
     // Blue border + bold label, NOT the gold glow/tint treatment -- RC:

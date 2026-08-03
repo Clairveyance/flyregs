@@ -343,7 +343,27 @@ export default function DictionaryTermScreen() {
           <ScrollView contentContainerStyle={styles.content}>
             <Text style={[styles.term, { color: tokens.t1, fontSize: fs(24) }]}>{entry.term}</Text>
 
-            {entry.senses.map((s, i) => (
+            {entry.category === 'mnemonic' && !hasPlusAccess ? (
+              // RC, 2026-08-03: "remove the Mnemonic look up and gate that
+              // at Plus." No partial reveal (unlike AC's 2-section preview)
+              // -- a mnemonic's whole value IS its letter-by-letter
+              // breakdown, so showing half of one is a worse experience
+              // than showing none. The term itself (its "moniker," e.g.
+              // "AVIATES") still shows above -- just not what it means.
+              <Pressable
+                style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
+                onPress={() => router.push('/paywall?tier=plus' as any)}
+              >
+                <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
+                <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Unlock this mnemonic with Plus</Text>
+                <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+                  See the full letter-by-letter breakdown for every memory aid in the Aviation Dictionary.
+                </Text>
+                <View style={[styles.proGateBtn, { backgroundColor: tokens.blu }]}>
+                  <Text style={[styles.proGateBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
+                </View>
+              </Pressable>
+            ) : entry.senses.map((s, i) => (
               <View key={i} style={[styles.senseCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                 {entry.senses.length > 1 && (
                   <Text style={[styles.senseNum, { color: tokens.t4, fontSize: fs(11) }]}>SENSE {i + 1}</Text>
@@ -454,4 +474,22 @@ const styles = StyleSheet.create({
   },
   pcgLinkText: { flex: 1, fontWeight: '600' },
   sourceLine: { marginTop: 8, paddingHorizontal: 2 },
+  proGate: {
+    marginTop: 4,
+    marginBottom: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 24,
+    alignItems: 'center',
+    gap: 8,
+  },
+  proGateTitle: { fontWeight: '700', fontSize: 16, marginTop: 4 },
+  proGateSub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 260 },
+  proGateBtn: {
+    marginTop: 8,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+  },
+  proGateBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 })

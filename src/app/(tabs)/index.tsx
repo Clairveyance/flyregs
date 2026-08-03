@@ -1367,10 +1367,13 @@ function HomeHeader({
 // whatever a Pro/Premium user with the push toggle on saw today -- this is
 // just an always-visible, no-push-required way to see it, since P/CG itself
 // is free to browse regardless of tier.
-// DailyReg is a PAID feature (Plus and above), not free — confirmed with RC
-// 2026-07-31. It used to render for everyone, giving away a curated reg a day
-// to free users. Renders a locked teaser instead so the feature is still
-// discoverable (and sells itself) rather than vanishing.
+// DailyReg is a PAID feature, not free — confirmed with RC 2026-07-31 (it
+// used to render for everyone, giving away a curated reg a day to free
+// users). Moved from Plus to Pro 2026-08-03 ("daily reg is Pro gated, not
+// Plus") so the card and its push notification (see DailyReg daily
+// notification in account.tsx) are both gated at the same tier instead of
+// splitting one feature across two. Renders a locked teaser instead of
+// vanishing so it's still discoverable (and sells itself).
 // RC: "the D and W of DailyWord should have larger font, like ML" then,
 // once that shipped: "same D and R styling for DailyReg needed." Mirrors
 // DailyWordLabel in dictionary/index.tsx exactly, just for "DAILYREG" --
@@ -1388,14 +1391,14 @@ function DailyRegLabel({ color, fs, suffix }: { color: string; fs: (n: number) =
 
 function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; tokens: ReturnType<typeof useTheme>['tokens'] }) {
   const fs = useFS()
-  const { hasPlusAccess } = useAuth()
+  const { isPro } = useAuth()
   const [expanded, setExpanded] = useState(false)
   if (!regOfDay) return null
-  if (!hasPlusAccess) {
+  if (!isPro) {
     return (
       <Pressable
         style={[styles.dailyRegCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-        onPress={() => router.push('/paywall?tier=plus')}
+        onPress={() => router.push('/paywall?tier=pro')}
       >
         <View style={styles.dailyRegRow}>
           <View style={[styles.dailyRegIcon, { backgroundColor: tokens.goldlt }]}>
@@ -1404,7 +1407,7 @@ function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; toke
           <View style={{ flex: 1 }}>
             <DailyRegLabel color={tokens.t3} fs={fs} />
             <Text style={[styles.dailyRegTerm, { color: tokens.t2, fontSize: fs(13.5) }]} numberOfLines={2}>
-              A hand-picked reg every day — unlock with Plus
+              A hand-picked reg every day — unlock with Pro
             </Text>
           </View>
           <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />

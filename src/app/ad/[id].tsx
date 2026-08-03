@@ -548,7 +548,7 @@ export default function AdScreen() {
             />
           </View>
 
-          {body ? (
+          {body && hasPlusAccess ? (
             <PlainTextBody
               ref={bodyRef}
               text={body}
@@ -566,6 +566,27 @@ export default function AdScreen() {
               scrollRef={scrollRef}
               viewportHeight={scrollViewportHeight}
             />
+          ) : body && !hasPlusAccess ? (
+            // RC, 2026-08-03: "ADs shouldn't come alive until Plus. ADs are
+            // not a Free tier, they're mainly for O&Os anyway." A firmer cut
+            // than AC's (which still shows a 2-section preview): the AD
+            // number, subject, make/model, effective date, and summary
+            // above are enough to tell a free user an AD exists and applies
+            // to them -- the compliance body text itself (what to actually
+            // DO about it) is Plus-only, with no partial preview at all.
+            <Pressable
+              style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
+              onPress={() => router.push('/paywall?tier=plus')}
+            >
+              <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
+              <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Read the full AD with Plus</Text>
+              <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+                The summary above tells you this AD exists — unlock Plus to read the full compliance text.
+              </Text>
+              <View style={[styles.proGateBtn, { backgroundColor: tokens.blu }]}>
+                <Text style={[styles.proGateBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
+              </View>
+            </Pressable>
           ) : (
             <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No further text available for this AD.</Text>
           )}
@@ -659,4 +680,21 @@ const styles = StyleSheet.create({
   summaryToggle: { fontWeight: '600', marginTop: 6 },
   summary: { lineHeight: 21, marginBottom: 18 },
   body: { fontSize: 14.5, lineHeight: 22 },
+  proGate: {
+    marginTop: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 24,
+    alignItems: 'center',
+    gap: 8,
+  },
+  proGateTitle: { fontWeight: '700', fontSize: 16, marginTop: 4 },
+  proGateSub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 260 },
+  proGateBtn: {
+    marginTop: 8,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+  },
+  proGateBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 })

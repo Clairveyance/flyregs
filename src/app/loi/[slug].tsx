@@ -70,7 +70,7 @@ export default function LoiDetailScreen() {
   const { slug, hl } = useLocalSearchParams<{ slug: string; hl?: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
+  const { hasProAccess, isPremium } = useAuth()
   const [loi, setLoi] = useState<LegalInterpretation | null>(null)
   const [related, setRelated] = useState<RelatedItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -171,9 +171,14 @@ export default function LoiDetailScreen() {
   const currentLabel = loi ? humanizeLoiTitle(loi.title) : undefined
   const farRefs = related.filter((r) => r.cited_type === 'far')
 
+  // LOI's own actions gate on hasProAccess, not the app-wide hasPlusAccess
+  // every other content type's print/share/bookmark/folder uses -- since
+  // the body text itself now requires Pro (see the body-render block
+  // below), letting a Plus-only user bookmark/print/share/folder an
+  // interpretation they can't even read would be incoherent.
   const handleToggleBookmark = async () => {
     if (!loi) return
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setBookmarked((prev) => !prev)
     const next = await toggleBookmark({
       id: loi.slug,
@@ -189,15 +194,15 @@ export default function LoiDetailScreen() {
 
   const handleOpenFolderPicker = () => {
     if (!loi) return
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setFolderPickerVisible(true)
   }
 
   // Print is the other half of the Plus "Print & export any section"
-  // promise -- until now the app had no print at all, only the share
-  // sheet (which exports a LINK, not the text).
+  // promise app-wide -- but see the hasProAccess comment above for why
+  // LOI specifically is the one exception, gated at Pro instead.
   const handlePrint = async () => {
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     if (!loi) return
     try {
       await printReg({
@@ -217,10 +222,9 @@ export default function LoiDetailScreen() {
   }
 
   const handleShare = async () => {
-    // Share/export is a PLUS feature (paywall PLUS_FEATURES), not Premium.
-    // Gating it on isPremium bounced a Plus buyer to a Premium upsell for
-    // something they had already paid for.
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    // Share/export is a PLUS feature app-wide (paywall PLUS_FEATURES), but
+    // LOI is gated at Pro instead -- see the hasProAccess comment above.
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     if (!loi) return
     try {
       await Share.share({
@@ -269,9 +273,9 @@ export default function LoiDetailScreen() {
       )}
       <HeaderOverflowMenu
         items={[
-          { icon: 'printer', label: 'Print', onPress: handlePrint, disabled: !hasPlusAccess },
-          { icon: 'square.and.arrow.up', label: 'Share', onPress: handleShare, disabled: !hasPlusAccess },
-          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasPlusAccess },
+          { icon: 'printer', label: 'Print', onPress: handlePrint, disabled: !hasProAccess },
+          { icon: 'square.and.arrow.up', label: 'Share', onPress: handleShare, disabled: !hasProAccess },
+          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasProAccess },
         ]}
       />
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
@@ -367,7 +371,7 @@ export default function LoiDetailScreen() {
             />
           </View>
 
-          {body ? (
+          {body && hasProAccess ? (
             <PlainTextBody
               ref={bodyRef}
               text={body}
@@ -378,6 +382,30 @@ export default function LoiDetailScreen() {
               scrollRef={scrollRef}
               viewportHeight={scrollViewportHeight}
             />
+          ) : body && !hasProAccess ? (
+            // No partial preview -- same call as AD's, and for the same
+            // reason: RC's "LOIs are a Pro feature" is the same flat,
+            // no-preview-length-specified framing as AD's "not a Free
+            // tier," not AC's explicit "preview 2 sections." (Also:
+            // paragraph-count-based truncation was tried first and found
+            // to not actually limit anything on 719 of 1,054 real LOIs --
+            // most of this corpus has 0-2 blank-line breaks in the WHOLE
+            // document, so "first 2 paragraphs" was often the entire
+            // document. The Summary section above already tells a free
+            // reader what this interpretation is about.)
+            <Pressable
+              style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
+              onPress={() => router.push('/paywall?tier=pro')}
+            >
+              <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
+              <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Read the full interpretation with Pro</Text>
+              <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+                The summary above tells you what this interpretation covers — unlock Pro to read the full text.
+              </Text>
+              <View style={[styles.proGateBtn, { backgroundColor: tokens.blu }]}>
+                <Text style={[styles.proGateBtnText, { fontSize: fs(15) }]}>Unlock Pro</Text>
+              </View>
+            </Pressable>
           ) : (
             <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No text available for this interpretation.</Text>
           )}
@@ -427,4 +455,21 @@ const styles = StyleSheet.create({
   sectionLabel: { fontWeight: '600', letterSpacing: 0.6, marginBottom: 8 },
   summary: { lineHeight: 21 },
   body: { lineHeight: 22 },
+  proGate: {
+    marginTop: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 24,
+    alignItems: 'center',
+    gap: 8,
+  },
+  proGateTitle: { fontWeight: '700', fontSize: 16, marginTop: 4 },
+  proGateSub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 260 },
+  proGateBtn: {
+    marginTop: 8,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+  },
+  proGateBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 })

@@ -63,12 +63,12 @@ function highlightMeta(b: ACBlock): { kind: 'section' | 'item' | 'para'; label: 
 }
 
 // Free-tier body preview: just enough to show how the app is organized, not
-// a real read of the content -- the old 20%-floored-at-3 formula let short
-// ACs show 20-50% of the whole document. Tightened to 8%, floored at 2,
-// capped at 5, so even long ACs never show more than the first couple
-// sections.
-function previewBlockCount(totalBlocks: number): number {
-  return Math.min(5, Math.max(2, Math.ceil(totalBlocks * 0.08)))
+// a real read of the content. Was a 20%-floored-at-3 formula (let short ACs
+// show 20-50% of the whole document), then an 8%-scaled, 2-5 range -- RC,
+// 2026-08-03: "free tier can preview 2 sections of an AC, not 5." Flat 2
+// now, no scaling with document length.
+function previewBlockCount(_totalBlocks: number): number {
+  return 2
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
