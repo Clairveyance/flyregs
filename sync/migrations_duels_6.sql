@@ -1,0 +1,168 @@
+-- ============================================================================
+-- Duel question-pool weighting: de-emphasize AC vs. FAR/AIM/P-CG
+--                                                            2026-08-03
+--
+-- RC: "most questions should come from the FAR or the AIM or the PCG. The
+-- ACs are not typically as well known... we don't want them to show up
+-- with the same scope and frequency as the FAR and AIM questions."
+--
+-- Verified live before this fix: an unfiltered 100-question test duel
+-- (two preview accounts, deleted after counting) came back PCG 26 / AIM 26
+-- / FAR 23 / AC 25 -- AC was drawing at essentially the SAME rate as the
+-- other three. Root cause: the candidate pool inside create_challenge took
+-- an equal `limit p_question_count` from each of the four quizzable_*
+-- sources before the final `order by random() limit p_question_count`
+-- draw, so each source's share of the union was ~1/4 regardless of how
+-- well-known that content type actually is to a typical pilot.
+--
+-- Fix: PCG/FAR/AIM each contribute a 3x-larger candidate slice than AC
+-- before that final draw, so AC's expected share of a duel drops to
+-- ~1/10 (present, but clearly the minority) while PCG/FAR/AIM stay
+-- roughly even with each other at ~3/10 each. Only the CANDIDATE POOL
+-- SIZE changed -- the level/category_class/item_type filtering and the
+-- distractor-generation logic below are untouched.
+--
+-- Re-verified live after this fix, same two accounts, same unfiltered
+-- 100-question shape: PCG 36 / FAR 29 / AIM 25 / AC 10 -- AC now the clear
+-- minority, PCG/FAR/AIM all still well-represented (exact split shifts
+-- run to run, it's `order by random()`, but AC stays pinned near 1/10).
+--
+-- This only ever matters for the unfiltered/mixed case. Also re-verified:
+-- an explicit, narrow item_type filter (a Duel deliberately set up as
+-- AC-only, p_item_types = array['ac']) still returned 20/20 AC questions
+-- for a 20-question request -- only the surviving branches' `where
+-- p_item_types is null or 'X' = any(p_item_types)` guards pass, so a
+-- single-type duel is unaffected by the other three branches' weights.
+-- ============================================================================
+
+create or replace function public.create_challenge(
+  p_opponent_ids uuid[],
+  p_question_count integer default 5,
+  p_item_types text[] default null::text[],
+  p_levels text[] default null::text[],
+  p_category_classes text[] default null::text[]
+)
+returns uuid
+language plpgsql
+security definer
+as $function$
+declare
+  v_challenge_id uuid;
+  v_item record;
+  v_i int := 0;
+  v_choices text[];
+  v_opp uuid;
+begin
+  if array_length(p_opponent_ids, 1) is null or array_length(p_opponent_ids, 1) < 1 then
+    raise exception 'At least one opponent required';
+  end if;
+  if array_length(p_opponent_ids, 1) > 7 then
+    raise exception 'Duels support up to 8 total participants';
+  end if;
+  if auth.uid() = any(p_opponent_ids) then
+    raise exception 'Cannot challenge yourself';
+  end if;
+
+  insert into challenges (challenger_id, status, question_count, item_types, levels, category_classes)
+  values (auth.uid(), 'active', p_question_count, p_item_types, p_levels, p_category_classes)
+  returning id into v_challenge_id;
+
+  insert into challenge_participants (challenge_id, user_id, is_creator, status, responded_at)
+  values (v_challenge_id, auth.uid(), true, 'active', now());
+
+  foreach v_opp in array p_opponent_ids loop
+    insert into challenge_participants (challenge_id, user_id, is_creator, status)
+    values (v_challenge_id, v_opp, false, 'pending')
+    on conflict (challenge_id, user_id) do nothing;
+  end loop;
+
+  -- D7: every branch draws from quizzable_*, so the prompt always has
+  -- exactly one correct answer. PCG/FAR/AIM draw a 3x candidate slice vs.
+  -- AC's 1x (see header) -- the final `order by random() limit
+  -- p_question_count` below picks proportionally from whatever's in the
+  -- combined pool, so a bigger slice means a bigger share of real duels.
+  for v_item in
+    select * from (
+      select item_type, item_id from (
+        select 'pcg' as item_type, term as item_id
+        from quizzable_pcg_terms
+        where (p_levels is null or pcg_knowledge_levels(slug) && p_levels)
+          and (p_category_classes is null or category_classes_from_text(term) is null or category_classes_from_text(term) && p_category_classes)
+        order by random() limit p_question_count * 3
+      ) x
+      where p_item_types is null or 'pcg' = any(p_item_types)
+      union all
+      select item_type, item_id from (
+        select 'far' as item_type, section_number as item_id
+        from quizzable_far_sections f2
+        where (p_levels is null or far_knowledge_levels(f2.part, f2.subpart_letter) is null or far_knowledge_levels(f2.part, f2.subpart_letter) && p_levels)
+          and (p_category_classes is null or far_category_classes(f2.part, f2.title) is null or far_category_classes(f2.part, f2.title) && p_category_classes)
+        order by random() limit p_question_count * 3
+      ) x
+      where p_item_types is null or 'far' = any(p_item_types)
+      union all
+      select item_type, item_id from (
+        select 'aim' as item_type, paragraph_number as item_id
+        from quizzable_aim_paragraphs
+        where (p_levels is null or aim_knowledge_levels(chapter, paragraph_number) && p_levels)
+          and (p_category_classes is null or category_classes_from_text(coalesce(title, '')) is null or category_classes_from_text(coalesce(title, '')) && p_category_classes)
+        order by random() limit p_question_count * 3
+      ) x
+      where p_item_types is null or 'aim' = any(p_item_types)
+      union all
+      select item_type, item_id from (
+        select 'ac' as item_type, document_number as item_id
+        from quizzable_advisory_circulars c2
+        where (p_levels is null or ac_knowledge_levels(c2.subject_series) is null or ac_knowledge_levels(c2.subject_series) && p_levels)
+          and (p_category_classes is null or category_classes_from_text(c2.title) is null or category_classes_from_text(c2.title) && p_category_classes)
+        order by random() limit p_question_count
+      ) x
+      where p_item_types is null or 'ac' = any(p_item_types)
+    ) pool
+    order by random() limit p_question_count
+  loop
+    -- Distractors respect the SAME knowledge-level filter as the question
+    -- pool. Without this a Student-level duel offered Part 121/125 sections
+    -- as decoys, which both gives the answer away by elimination and quizzes
+    -- on material the filter exists to exclude.
+    case v_item.item_type
+      when 'pcg' then
+        select array_cat(array[v_item.item_id], coalesce(array_agg(t.term), array[]::text[]))
+        into v_choices
+        from (select term from pcg_terms where definition is not null and definition <> '' and term is not null and (p_levels is null or pcg_knowledge_levels(slug) && p_levels) and term <> v_item.item_id order by random() limit 5) t;
+      when 'far' then
+        select array_cat(array[v_item.item_id], coalesce(array_agg(t.section_number), array[]::text[]))
+        into v_choices
+        from (select section_number from far_sections f3 where f3.title is not null and f3.title <> ''
+              and (p_levels is null or far_knowledge_levels(f3.part, f3.subpart_letter) is null or far_knowledge_levels(f3.part, f3.subpart_letter) && p_levels)
+              and f3.section_number <> v_item.item_id order by random() limit 5) t;
+      when 'aim' then
+        select array_cat(array[v_item.item_id], coalesce(array_agg(t.paragraph_number), array[]::text[]))
+        into v_choices
+        from (select paragraph_number from aim_paragraphs where title is not null and title <> '' and (p_levels is null or aim_knowledge_levels(chapter, paragraph_number) && p_levels) and paragraph_number <> v_item.item_id order by random() limit 5) t;
+      when 'ac' then
+        select array_cat(array[v_item.item_id], coalesce(array_agg(t.document_number), array[]::text[]))
+        into v_choices
+        from (select document_number from advisory_circulars c3 where c3.status = 'active' and c3.description is not null and c3.description <> '' and c3.title is not null and c3.title <> ''
+              and (p_levels is null or ac_knowledge_levels(c3.subject_series) is null or ac_knowledge_levels(c3.subject_series) && p_levels)
+              and c3.document_number <> v_item.item_id order by random() limit 5) t;
+    end case;
+
+    select array_agg(c order by random()) into v_choices from unnest(v_choices) c;
+
+    insert into challenge_questions (challenge_id, sort_order, item_type, item_id, choices)
+    values (v_challenge_id, v_i, v_item.item_type, v_item.item_id, v_choices);
+    v_i := v_i + 1;
+  end loop;
+
+  if v_i = 0 then
+    raise exception 'No questions match those filters. Try widening the Content or Knowledge Level selection.';
+  end if;
+
+  if v_i <> p_question_count then
+    update challenges set question_count = v_i where id = v_challenge_id;
+  end if;
+
+  return v_challenge_id;
+end;
+$function$;
