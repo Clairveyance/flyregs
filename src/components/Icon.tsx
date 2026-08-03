@@ -135,6 +135,11 @@ const SF_TO_IONICONS: Record<string, string> = {
   // "See X" dictionary cross-reference card (dictionary/[slug].tsx) -- a
   // real SF Symbol on native, needs the explicit web-fallback mapping here.
   'arrow.turn.down.right': 'return-down-forward-outline',
+  // Study Mode's "Reveal" button (study.tsx) -- distinct from both
+  // 'arrow.uturn.left' (already the Def-first/Term-first toggle on this
+  // same screen) and 'arrow.clockwise' (-> refresh-outline, used
+  // elsewhere for reloading a deck), so it doesn't collide with either.
+  'arrow.triangle.2.circlepath': 'sync-outline',
 }
 
 export function Icon({ name, size = 22, color, style }: IconProps) {

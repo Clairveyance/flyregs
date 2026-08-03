@@ -660,21 +660,33 @@ export default function StudyScreen() {
           {/* Always rendered (not `{flipped && ...}`) so it never appears as
               NEW content that pushes the page taller on flip -- that was the
               actual bug behind RC's "I have to scroll down" complaint: the
-              row didn't exist in the tree until flipped became true.
-              Opacity + pointerEvents toggle instead of mount/unmount, so its
-              reserved space -- and screen position, combined with
-              cardWithBadge's own fixed height above -- is identical whether
-              the card is showing its question or its answer. */}
-          <View style={[styles.answerRow, { opacity: flipped ? 1 : 0 }]} pointerEvents={flipped ? 'auto' : 'none'}>
+              row didn't exist in the tree until flipped became true. Each
+              button now toggles its OWN opacity/pointerEvents (not the whole
+              row at once, like before) so Reveal and Missed/Knew can be
+              inverses of each other within the same fixed-height row.
+              RC, real device, second pass: pinning this row low on screen
+              fixed the "buttons moved on flip" bug, but created a new one --
+              "now the user has to tap the card, then go down to tap the
+              button." The card itself still flips on tap (unchanged), but
+              Reveal gives a second, reachable way to do it without a thumb
+              trip up to the card and back down to this row. */}
+          <View style={styles.answerRow}>
             <Pressable
-              style={[styles.answerBtn, { borderColor: tokens.bdr }]}
+              style={[styles.answerBtn, { borderColor: tokens.bdr, opacity: flipped ? 1 : 0, pointerEvents: flipped ? 'auto' : 'none' }]}
               onPress={() => handleAnswer(false)}
             >
               <Icon name="xmark" size={fs(16)} color={tokens.t3} />
               <Text style={[styles.answerText, { color: tokens.t2, fontSize: fs(13.5) }]}>Missed it</Text>
             </Pressable>
             <Pressable
-              style={[styles.answerBtn, styles.answerBtnGood, { borderColor: tokens.goldbdr, backgroundColor: tokens.goldlt }]}
+              style={[styles.answerBtn, { borderColor: tokens.bbdr, backgroundColor: tokens.bdim, opacity: flipped ? 0 : 1, pointerEvents: flipped ? 'none' : 'auto' }]}
+              onPress={() => setFlipped((f) => !f)}
+            >
+              <Icon name="arrow.triangle.2.circlepath" size={fs(15)} color={tokens.blu} />
+              <Text style={[styles.answerText, { color: tokens.blu, fontSize: fs(13.5) }]}>Reveal</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.answerBtn, styles.answerBtnGood, { borderColor: tokens.goldbdr, backgroundColor: tokens.goldlt, opacity: flipped ? 1 : 0, pointerEvents: flipped ? 'auto' : 'none' }]}
               onPress={() => handleAnswer(true)}
             >
               <Icon name="checkmark" size={fs(16)} color={tokens.gold} />
