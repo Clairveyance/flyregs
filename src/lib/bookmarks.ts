@@ -71,8 +71,11 @@ export function routeForBookmark(item: BookmarkAC, opts?: { hlId?: string }): st
   // LOI bookmarks store the LOI's own slug as `id` (see loi/[slug].tsx's
   // toggleBookmark call), matching /loi/[slug]'s route param directly --
   // was missing entirely, so a synced LOI bookmark silently mis-routed to
-  // /ac/<slug> (a real AC lookup miss) before this fix.
-  if (type === 'loi') return `/loi/${item.id}`
+  // /ac/<slug> (a real AC lookup miss) before this fix. Carries `hl` like
+  // every other non-AC type above; it alone used to return bare, so a LOI
+  // bookmark could never open at its passage even once loi/[slug].tsx knew
+  // how to honor the param.
+  if (type === 'loi') return `/loi/${item.id}${hl}`
   // Dictionary bookmarks store the term's own slug as `id`, matching
   // /dictionary/[slug]'s route param -- same pattern as loi above.
   if (type === 'dictionary') return `/dictionary/${item.id}`

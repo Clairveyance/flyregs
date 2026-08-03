@@ -64,7 +64,7 @@ function humanizeLoiTitle(t: string): string {
 }
 
 export default function LoiDetailScreen() {
-  const { slug } = useLocalSearchParams<{ slug: string }>()
+  const { slug, hl } = useLocalSearchParams<{ slug: string; hl?: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
   const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
@@ -82,6 +82,19 @@ export default function LoiDetailScreen() {
   const scrollRef = useRef<ScrollView>(null)
   const bodyRef = useRef<PlainTextBodyHandle>(null)
   const inDocSearch = useInDocSearch(bodyRef)
+
+  // Same Study-bookmark passage seeding FAR/AIM/P-CG/AD do. LOI was missing
+  // this on BOTH ends -- routeForBookmark's own loi branch returned a bare
+  // `/loi/<slug>` with no hl at all, unlike every other non-AC type -- so both
+  // halves are wired here and there. Latent like AD's (LOI isn't a study type
+  // today), fixed together so all five PlainTextBody screens behave the same.
+  const seededHlRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (typeof hl !== 'string' || !hl.trim()) return
+    if (seededHlRef.current === hl) return
+    seededHlRef.current = hl
+    inDocSearch.onQueryChange(hl)
+  }, [hl, inDocSearch])
 
   useEffect(() => {
     setBackTo(consumePendingBreadcrumb())

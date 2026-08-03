@@ -46,7 +46,7 @@ interface RelatedItem {
 // search results useful even for a free-tier user deciding whether to
 // subscribe.
 export default function PcgTermScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>()
+  const { id, hl } = useLocalSearchParams<{ id: string; hl?: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
   const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
@@ -57,6 +57,29 @@ export default function PcgTermScreen() {
   // place -- no real scroll target needed.
   const noScrollRef = useRef<InDocSearchTarget>({ scrollToMatch: () => {} })
   const inDocSearch = useInDocSearch(noScrollRef)
+
+  // Opened from a Study Mode flashcard bookmark, which stored the passage the
+  // Q/A came from (see study.tsx + routeForBookmark). Same seeding FAR/AIM
+  // already do. This was a REAL live gap, not a hypothetical: routeForBookmark
+  // has always built `/pcg/<id>?hl=<snippet>` for P/CG bookmarks (its own
+  // comment even says "see each screen's own `hl` param handling"), study.tsx
+  // has always set blockText for every study type including 'pcg' -- but this
+  // screen never read the param, so those bookmarks opened with the term
+  // un-highlighted and the search box empty. Confirmed live before fixing:
+  // /pcg/ABEAM?hl=aircraft highlighted nothing.
+  //
+  // Highlighting is the whole payoff here rather than scrolling -- a P/CG
+  // definition is one short block that's already fully on screen (hence
+  // noScrollRef above), so seeding the query lights up the matched phrase
+  // in place, which is exactly what "jump to that passage" means for this
+  // content type.
+  const seededHlRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (typeof hl !== 'string' || !hl.trim()) return
+    if (seededHlRef.current === hl) return
+    seededHlRef.current = hl
+    inDocSearch.onQueryChange(hl)
+  }, [hl, inDocSearch])
   const [related, setRelated] = useState<RelatedItem[]>([])
   const [siblingTerms, setSiblingTerms] = useState<{ slug: string; term: string }[]>([])
   const [backTo, setBackTo] = useState<string | null>(null)

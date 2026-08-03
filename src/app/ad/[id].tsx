@@ -63,7 +63,7 @@ interface RelatedItem {
 }
 
 export default function AdScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>()
+  const { id, hl } = useLocalSearchParams<{ id: string; hl?: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
   const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
@@ -81,6 +81,22 @@ export default function AdScreen() {
   const scrollRef = useRef<ScrollView>(null)
   const bodyRef = useRef<PlainTextBodyHandle>(null)
   const inDocSearch = useInDocSearch(bodyRef)
+
+  // Same Study-bookmark passage seeding FAR/AIM/P-CG do. routeForBookmark
+  // already builds `/ad/<id>?hl=<snippet>` for AD bookmarks; this screen was
+  // silently dropping it. Not reachable from Study Mode today (StudyItemType
+  // is pcg|far|aim|ac, no 'ad'), so unlike the P/CG case this was a latent
+  // half-built path rather than a live bug -- wired up anyway so the two ends
+  // agree and it can't quietly no-op the day AD becomes studiable or anything
+  // else starts passing a passage through.
+  const seededHlRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (typeof hl !== 'string' || !hl.trim()) return
+    if (seededHlRef.current === hl) return
+    seededHlRef.current = hl
+    inDocSearch.onQueryChange(hl)
+  }, [hl, inDocSearch])
+
   const [backTo, setBackTo] = useState<string | null>(null)
   const [figures, setFigures] = useState<AdFigureRow[]>([])
   const [figuresExpanded, setFiguresExpanded] = useState(false)
