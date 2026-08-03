@@ -186,7 +186,7 @@ export function MagicLinkPod({
           style={[styles.brandRow, podExpanded && { borderBottomColor: tokens.bdr, borderBottomWidth: StyleSheet.hairlineWidth }]}
           onPress={() => setPodExpanded((e) => !e)}
         >
-          <Icon name="sparkles" size={fs(13)} color={tokens.gold} />
+          <Icon name="sparkles" size={fs(16)} color={tokens.gold} />
           <Text style={[styles.brandText, { fontSize: fs(13) }]}>
             {MAGICLINK_LETTERS.map((ch, i) => (
               <Text
@@ -235,8 +235,14 @@ export function MagicLinkPod({
 // on top of the card's own (measured) height; fallback is only used for
 // the single frame before the real height is known, so it's fine to be
 // generously oversized.
-const PREVIEW_GAP_ABOVE_TOUCH = 24
-const PREVIEW_FALLBACK_HEIGHT = 90
+// RC, real device, second pass: "the ML tap to reveal fix is better, but
+// still not high enough. you need to at least double the fix height you
+// built." Doubled both -- the gap is the one that matters in steady state
+// (previewHeight is measured for real via onLayout after the first
+// frame); the fallback only covers that one frame but doubled it too for
+// consistency.
+const PREVIEW_GAP_ABOVE_TOUCH = 48
+const PREVIEW_FALLBACK_HEIGHT = 180
 
 // (table, key column, title column) for every cited_type that has one --
 // pcg deliberately excluded, its cited_id is already the human-readable

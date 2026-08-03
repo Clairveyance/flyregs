@@ -281,12 +281,19 @@ export default function AircraftDetailScreen() {
             <Pressable style={styles.sectionTitleRow} onPress={() => setAdsCollapsed((v) => !v)} hitSlop={6}>
               <Icon name={adsCollapsed ? 'chevron.right' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
               <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>APPLICABLE ADs</Text>
+              {/* RC, real device: "i'm still not sure what each of these
+                  numbers is referencing or doing." Two adjacent bare
+                  numbers (total, then unread) with no label read as one
+                  ambiguous pair -- spelling out what each one counts, and
+                  sizing both up, per RC's ask. */}
               {visibleAdNotifications.length > 0 && (
-                <Text style={[styles.sectionCount, { color: tokens.t4, fontSize: fs(11) }]}>{visibleAdNotifications.length}</Text>
+                <Text style={[styles.sectionCount, { color: tokens.t4, fontSize: fs(13) }]}>
+                  {visibleAdNotifications.length} total
+                </Text>
               )}
               {unreadAdCount > 0 && (
                 <View style={[styles.unreadCountBadge, { backgroundColor: tokens.blu }]}>
-                  <Text style={[styles.unreadCountText, { fontSize: fs(11) }]}>{unreadAdCount}</Text>
+                  <Text style={[styles.unreadCountText, { fontSize: fs(12) }]}>{unreadAdCount} new</Text>
                 </View>
               )}
             </Pressable>
@@ -920,8 +927,8 @@ const styles = StyleSheet.create({
   groupLabel: { fontWeight: '600', letterSpacing: 0.5 },
   sectionCount: { fontWeight: '600' },
   emptyHint: { lineHeight: 18, marginBottom: 4 },
-  unreadCountBadge: { minWidth: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
-  unreadCountText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  unreadCountBadge: { minHeight: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  unreadCountText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   widenSearchCard: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 7,
     borderRadius: 10, borderWidth: 1, padding: 10, marginBottom: 10,
