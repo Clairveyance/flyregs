@@ -82,15 +82,9 @@ export default function PcgIndexScreen() {
   const total = Object.values(counts).reduce((a, b) => a + b, 0)
   const trimmedQuery = query.trim()
 
-  const headerRight = (
-    <Pressable onPress={() => router.push('/study')} hitSlop={12} style={{ padding: 4 }}>
-      <Icon name="flame.fill" size={fs(21)} color={tokens.gold} />
-    </Pressable>
-  )
-
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title="Pilot/Controller Glossary" onBack={() => router.back()} right={headerRight} />
+      <OverlayHeader title="Pilot/Controller Glossary" onBack={() => router.back()} />
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
