@@ -15,6 +15,7 @@ import { resolveAimFigureGlobally } from '@/lib/regPreview'
 import { MagicLinkPod } from '@/components/MagicLinkPod'
 import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
+import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { BackToBreadcrumb, PrevNextFooter } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
@@ -354,15 +355,13 @@ export default function AimParagraphScreen() {
           <Icon name="arrow.up.circle" size={fs(21)} color={tokens.t3} />
         </Pressable>
       )}
-      <Pressable onPress={handlePrint} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="printer" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
-      </Pressable>
-      <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="square.and.arrow.up" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
-      </Pressable>
-      <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="folder.badge.plus" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
-      </Pressable>
+      <HeaderOverflowMenu
+        items={[
+          { icon: 'printer', label: 'Print', onPress: handlePrint, disabled: !hasPlusAccess },
+          { icon: 'square.and.arrow.up', label: 'Share', onPress: handleShare, disabled: !hasPlusAccess },
+          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasPlusAccess },
+        ]}
+      />
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
         <Icon
           name={bookmarked ? 'bookmark.fill' : 'bookmark'}
