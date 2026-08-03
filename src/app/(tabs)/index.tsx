@@ -472,7 +472,7 @@ export default function HomeScreen() {
     const synonymTerms = expansion.terms
     if (phraseForOther && phraseForOther.length >= 2) {
       const searchTerms = [phraseForOther, ...synonymTerms]
-      Promise.all(searchTerms.map((t) => searchOtherSources(t, 20, otherTypes))).then((resultSets) => {
+      Promise.all(searchTerms.map((t) => searchOtherSources(t, 20, otherTypes, hasPlusAccess))).then((resultSets) => {
         if (seq !== searchSeq.current) return
         const seen = new Set<string>()
         const merged: UnifiedResult[] = []
@@ -592,7 +592,7 @@ export default function HomeScreen() {
     // AIM in the Filter sheet and then searching still ran the unscoped
     // AC-specific queries below, because `skipAC` always saw the ORIGINAL
     // empty selection no matter what was actually selected afterward.
-  }, [filterContentTypes])
+  }, [filterContentTypes, hasPlusAccess])
 
   // Controlled input — the collapse check runs before every setState, so a
   // dictation duplicate never reaches state at all, and standard React

@@ -92,19 +92,30 @@ interface FigureRow {
 export async function searchOtherSources(
   query: string,
   limitPerSource = 6,
-  types?: ('far' | 'aim' | 'pcg')[]
+  types?: ('far' | 'aim' | 'pcg')[],
+  // RC, 2026-08-04: "ADs don't need to surface in free tier search" -- AD
+  // body text has been Plus-gated with zero preview since the tier-boundary
+  // pass (c440af8), so a free user hitting an AD from a general search only
+  // ever reaches a locked page; keeping it out of Home's results entirely
+  // is a cleaner free-tier experience than a result that just gates on tap.
+  // Defaults true so every OTHER caller (RefPack task search, which is
+  // already a Plus+-only area) is unaffected -- only Home's own call site
+  // passes hasPlusAccess through.
+  includeAd = true
 ): Promise<UnifiedResult[]> {
   const want = (t: 'far' | 'aim' | 'pcg') => types === undefined || types.includes(t)
   const empty = Promise.resolve({ data: [] as any[] })
-  // Aviation Dictionary, like AD and figures, isn't a dimension the Filter
-  // sheet offers a chip for (see the comment above on `types`), so it
-  // always searches regardless of the far/aim/pcg scoping -- RC: "make sure
-  // our SS is on top of it and smartly sorts and combines searches."
+  // Aviation Dictionary and figures aren't a dimension the Filter sheet
+  // offers a chip for (see the comment above on `types`), so they always
+  // search regardless of the far/aim/pcg scoping -- RC: "make sure our SS
+  // is on top of it and smartly sorts and combines searches." AD is a
+  // separate, tier-driven exclusion (see `includeAd` above), not tied to
+  // that scoping either.
   const [farRes, aimRes, pcgRes, adRes, figRes, dictRes] = await Promise.all([
     want('far') ? supabase.rpc('search_far', { query, result_limit: limitPerSource }) : empty,
     want('aim') ? supabase.rpc('search_aim', { query, result_limit: limitPerSource }) : empty,
     want('pcg') ? supabase.rpc('search_pcg', { query, result_limit: limitPerSource }) : empty,
-    supabase.rpc('search_ads', { query, result_limit: limitPerSource }),
+    includeAd ? supabase.rpc('search_ads', { query, result_limit: limitPerSource }) : empty,
     supabase.rpc('search_figures', { query, result_limit: limitPerSource }),
     supabase.rpc('search_dictionary', { query, result_limit: limitPerSource }),
   ])
