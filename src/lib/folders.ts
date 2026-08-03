@@ -31,6 +31,11 @@ export interface Folder {
    * shared. Deliberately never unset by unsharing -- if they re-share later,
    * the cloud rows are already there, no harm in leaving them. */
   shared?: boolean
+  /** User-controlled display order (lower = earlier), set by reorderFolders().
+   * Undefined on a folder that's never been touched by the reorder feature --
+   * getFolders() falls back to array position for those, which was always the
+   * de facto order before this field existed (createFolder always appended). */
+  sort_order?: number
 }
 
 // 'far'/'aim'/'pcg'/'ad'/'dictionary' item_ids are the section_number/
@@ -55,7 +60,12 @@ function makeId() {
 export async function getFolders(): Promise<Folder[]> {
   try {
     const raw = await AsyncStorage.getItem(FOLDERS_KEY)
-    return raw ? JSON.parse(raw) : []
+    const folders: Folder[] = raw ? JSON.parse(raw) : []
+    // Stable sort -- a folder with no sort_order yet (never touched by
+    // reorderFolders or a synced-down remote row) falls back to wherever it
+    // already sat in the stored array, which was always the de facto order
+    // before this field existed.
+    return [...folders].sort((a, b) => (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity))
   } catch {
     return []
   }
@@ -73,10 +83,36 @@ export async function createFolder(name: string): Promise<Folder> {
     throw new Error(DUPLICATE_FOLDER_NAME)
   }
   const now = new Date().toISOString()
-  const folder: Folder = { id: makeId(), name: trimmed, created_at: now, updated_at: now }
+  const nextOrder = folders.reduce((max, f) => Math.max(max, f.sort_order ?? -1), -1) + 1
+  const folder: Folder = { id: makeId(), name: trimmed, created_at: now, updated_at: now, sort_order: nextOrder }
   await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify([...folders, folder]))
   syncPushFolder(folder)
   return folder
+}
+
+// Persists a full new display order after a drag-and-drop reorder in the UI.
+// Takes the complete list of folder ids in their new order (not just the
+// ones that visually moved) -- moving one folder shifts every folder between
+// its old and new position, so "what actually changed" isn't worth computing
+// separately from "here's the whole new order."
+export async function reorderFolders(orderedIds: string[]): Promise<Folder[]> {
+  const folders = await getFolders()
+  const byId = new Map(folders.map((f) => [f.id, f]))
+  const now = new Date().toISOString()
+  const reordered: Folder[] = orderedIds
+    .map((id, i): Folder | null => {
+      const f = byId.get(id)
+      return f ? { ...f, sort_order: i, updated_at: now } : null
+    })
+    .filter((f): f is Folder => f !== null)
+  // Any folder not present in orderedIds (shouldn't normally happen -- the
+  // caller reorders the exact list it was given) is kept, appended after,
+  // rather than silently dropped.
+  const missing = folders.filter((f) => !orderedIds.includes(f.id))
+  const next = [...reordered, ...missing]
+  await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(next))
+  for (const f of reordered) syncPushFolder(f, f.shared)
+  return next
 }
 
 export async function renameFolder(id: string, name: string): Promise<void> {

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useMemo } from 'react'
 import {
   View,
   Text,
@@ -11,13 +11,26 @@ import {
   Alert,
 } from 'react-native'
 import { router } from 'expo-router'
-import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
+import Reanimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  runOnJS,
+  LinearTransition,
+  type SharedValue,
+} from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
 import { renameFolder, Folder, DUPLICATE_FOLDER_NAME } from '@/lib/folders'
+
+// Fallback only for the one frame before a row's real height is measured via
+// onLayout -- every row uses that measured height once known, since actual
+// height varies with the text-size slider (fs()) and must never be a fixed
+// guess baked into the drag math.
+const FALLBACK_ROW_HEIGHT = 78
 
 // Folder list for the Saved tab. Fully prop-driven — the parent (saved.tsx)
 // owns folders/counts/select state so it can run bulk actions (share) and a
@@ -34,6 +47,14 @@ interface Props {
   onShare: (folder: Folder) => void
   onCreateFolder: () => void
   listHeader?: React.ReactElement
+  /** True while the user is in "Reorder" mode (a header toggle owned by the
+   * parent, same pattern as selectMode) -- rows swap their rename/share icons
+   * for a drag handle and disable tap-to-open/swipe-to-delete. */
+  reorderMode?: boolean
+  /** Called once, on drop, with the complete new folder-id order. Not called
+   * on every intermediate frame of the drag -- see reorderFolders() in
+   * lib/folders.ts for why persisting only the final order is enough. */
+  onReorder?: (orderedIds: string[]) => void
 }
 
 export function FolderListView({
@@ -48,6 +69,8 @@ export function FolderListView({
   onShare,
   onCreateFolder,
   listHeader,
+  reorderMode = false,
+  onReorder,
 }: Props) {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -55,6 +78,51 @@ export function FolderListView({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const listRef = useRef<FlatList<Folder>>(null)
+
+  // Drag-to-reorder state. rowHeight is measured (not guessed) from the
+  // first rendered row so the drag math stays correct at any text-size-
+  // slider setting. dragId/dragStartIndex are plain state (drive React
+  // re-renders of the live-splice order below); dragY is a shared value so
+  // the dragged row's own translateY can update on the UI thread every
+  // frame without round-tripping through React.
+  const [rowHeight, setRowHeight] = useState(FALLBACK_ROW_HEIGHT)
+  const rowHeightMeasured = useRef(false)
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [dragStartIndex, setDragStartIndex] = useState(0)
+  const [dragHoverIndex, setDragHoverIndex] = useState(0)
+  const dragY = useSharedValue(0)
+
+  const onRowLayout = (h: number) => {
+    if (!rowHeightMeasured.current && h > 0) {
+      rowHeightMeasured.current = true
+      setRowHeight(h)
+    }
+  }
+
+  // The order actually rendered: while a drag is in flight, splice the
+  // dragged folder out of its start position and into its current hover
+  // position, purely for display -- nothing is persisted until drop.
+  const displayFolders = useMemo(() => {
+    if (!dragId || dragHoverIndex === dragStartIndex) return folders
+    const next = [...folders]
+    const [moved] = next.splice(dragStartIndex, 1)
+    next.splice(dragHoverIndex, 0, moved)
+    return next
+  }, [folders, dragId, dragStartIndex, dragHoverIndex])
+
+  const handleDragUpdate = (translationY: number, startIndex: number, len: number) => {
+    dragY.value = translationY
+    const hover = Math.min(len - 1, Math.max(0, startIndex + Math.round(translationY / rowHeight)))
+    setDragHoverIndex((prev) => (prev === hover ? prev : hover))
+  }
+
+  const handleDragEnd = () => {
+    dragY.value = withSpring(0, { damping: 20, stiffness: 300 })
+    if (dragId && dragHoverIndex !== dragStartIndex) {
+      onReorder?.(displayFolders.map((f) => f.id))
+    }
+    setDragId(null)
+  }
 
   // Renaming happens inline in the list — scroll the row into view since the
   // keyboard can cover a row that was visible before it opened.
@@ -126,11 +194,13 @@ export function FolderListView({
     >
       <FlatList
         ref={listRef}
-        data={folders}
+        data={displayFolders}
+        extraData={[reorderMode, dragId, dragHoverIndex]}
         keyExtractor={(f) => f.id}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
+        scrollEnabled={!dragId}
         ListHeaderComponent={listHeader}
         ListFooterComponent={editingId ? <Pressable style={styles.dismissFooter} onPress={cancelRename} /> : null}
         onScrollToIndexFailed={({ index }) => {
@@ -178,6 +248,22 @@ export function FolderListView({
               onRename={() => startRename(item, index)}
               onDelete={() => onDelete(item)}
               onShare={() => onShare(item)}
+              reorderMode={reorderMode}
+              isDragging={dragId === item.id}
+              dragY={dragY}
+              // The dragged row's own rendered `index` moves as displayFolders
+              // splices it past other rows -- that's a real layout shift, not
+              // a visual one, so raw dragY (the pointer's offset from where
+              // the drag STARTED) would double-count it and the row would
+              // overshoot by (indexDelta * rowHeight) on top of where the
+              // finger actually is. Subtracting that delta in the row's own
+              // transform cancels the double-count.
+              dragIndexDelta={dragId === item.id ? index - dragStartIndex : 0}
+              rowHeight={rowHeight}
+              onLayoutHeight={onRowLayout}
+              onDragStart={() => { setDragStartIndex(index); setDragHoverIndex(index); setDragId(item.id) }}
+              onDragUpdate={(translationY: number) => handleDragUpdate(translationY, index, displayFolders.length)}
+              onDragEnd={handleDragEnd}
             />
           )
         }}
@@ -188,6 +274,8 @@ export function FolderListView({
 
 function SwipeableFolderRow({
   folder, count, tokens, selectMode, selected, onPress, onRename, onShare, onDelete,
+  reorderMode = false, isDragging = false, dragY, dragIndexDelta = 0, rowHeight = FALLBACK_ROW_HEIGHT,
+  onLayoutHeight, onDragStart, onDragUpdate, onDragEnd,
 }: {
   folder: Folder
   count: number
@@ -198,6 +286,15 @@ function SwipeableFolderRow({
   onRename: () => void
   onShare: () => void
   onDelete: () => void
+  reorderMode?: boolean
+  isDragging?: boolean
+  dragY?: SharedValue<number>
+  dragIndexDelta?: number
+  rowHeight?: number
+  onLayoutHeight?: (height: number) => void
+  onDragStart?: () => void
+  onDragUpdate?: (translationY: number) => void
+  onDragEnd?: () => void
 }) {
   const fs = useFS()
   const translateX = useSharedValue(0)
@@ -206,7 +303,7 @@ function SwipeableFolderRow({
   const panGesture = Gesture.Pan()
     .activeOffsetX([-6, 6])
     .failOffsetY([-10, 10])
-    .enabled(!selectMode)
+    .enabled(!selectMode && !reorderMode)
     .onUpdate((e) => {
       translateX.value = Math.min(0, Math.max(-84, e.translationX))
     })
@@ -220,8 +317,31 @@ function SwipeableFolderRow({
       }
     })
 
+  // Only active on the small drag-handle icon (not the whole row), so it
+  // never has to be composed against panGesture (swipe) or the row's own tap
+  // -- both of those are already disabled in reorderMode anyway.
+  const dragGesture = Gesture.Pan()
+    .onStart(() => {
+      if (onDragStart) runOnJS(onDragStart)()
+    })
+    .onUpdate((e) => {
+      if (onDragUpdate) runOnJS(onDragUpdate)(e.translationY)
+    })
+    .onEnd(() => {
+      if (onDragEnd) runOnJS(onDragEnd)()
+    })
+
   const cardStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
+    transform: [
+      { translateX: translateX.value },
+      // dragY is the raw pointer offset from where this drag started.
+      // dragIndexDelta * rowHeight is how far this row has ALREADY moved via
+      // plain layout reflow (displayFolders splicing it to a new index) --
+      // subtracting it stops that shift from double-counting on top of the
+      // transform, which otherwise sends the row far past the real finger
+      // position the moment it crosses its first neighbor.
+      { translateY: isDragging && dragY ? dragY.value - dragIndexDelta * rowHeight : 0 },
+    ],
   }))
 
   const handlePress = () => {
@@ -240,7 +360,11 @@ function SwipeableFolderRow({
   }
 
   return (
-    <View style={styles.swipeWrap}>
+    <Reanimated.View
+      layout={LinearTransition}
+      style={[styles.swipeWrap, isDragging && styles.swipeWrapDragging]}
+      onLayout={(e) => onLayoutHeight?.(e.nativeEvent.layout.height)}
+    >
       <View style={styles.removeBg}>
         <Pressable style={styles.removeAction} onPress={handleSwipeDelete}>
           <Text style={[styles.removeActionText, { fontSize: fs(12) }]}>Delete</Text>
@@ -250,10 +374,13 @@ function SwipeableFolderRow({
       <GestureDetector gesture={panGesture}>
         <Reanimated.View style={cardStyle}>
           <Pressable
-            style={[styles.folderCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-            onPress={handlePress}
+            style={[
+              styles.folderCard,
+              { backgroundColor: tokens.bg2, borderColor: isDragging ? tokens.blu : tokens.bdr },
+            ]}
+            onPress={reorderMode ? undefined : handlePress}
           >
-            {selectMode && (
+            {selectMode && !reorderMode && (
               <View style={[
                 styles.checkbox,
                 selected
@@ -272,7 +399,7 @@ function SwipeableFolderRow({
                 {count} item{count !== 1 ? 's' : ''}
               </Text>
             </View>
-            {!selectMode && (
+            {!selectMode && !reorderMode && (
               <>
                 <Pressable onPress={onRename} hitSlop={10} style={styles.iconBtn}>
                   <Icon name="pencil" size={fs(20)} color={tokens.t3} />
@@ -282,10 +409,17 @@ function SwipeableFolderRow({
                 </Pressable>
               </>
             )}
+            {reorderMode && (
+              <GestureDetector gesture={dragGesture}>
+                <Reanimated.View style={styles.dragHandle} hitSlop={12}>
+                  <Icon name="arrow.up.arrow.down" size={fs(20)} color={tokens.t3} />
+                </Reanimated.View>
+              </GestureDetector>
+            )}
           </Pressable>
         </Reanimated.View>
       </GestureDetector>
-    </View>
+    </Reanimated.View>
   )
 }
 
@@ -319,6 +453,15 @@ const styles = StyleSheet.create({
   createCtaText: { fontWeight: '600', fontSize: 14 },
 
   swipeWrap: { marginBottom: 8, borderRadius: 14, overflow: 'hidden' },
+  swipeWrapDragging: {
+    zIndex: 10,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  dragHandle: { padding: 4, marginLeft: 2 },
   removeBg: {
     position: 'absolute',
     top: 0, bottom: 0, right: 0,

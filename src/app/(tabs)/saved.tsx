@@ -40,12 +40,14 @@ import {
   deleteFolder,
   addManyToFolder,
   unshareFolder,
+  reorderFolders,
   Folder,
   DUPLICATE_FOLDER_NAME,
 } from '@/lib/folders'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
 import { getMyCollaborations, getMySharedFolders, getOrCreateShareLink, SharedFolderSummary, SharedByMeFolder } from '@/lib/sharedFolders'
 import { FolderListView } from '@/components/FolderListView'
+import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
@@ -108,6 +110,7 @@ export default function SavedScreen() {
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [folderSelectMode, setFolderSelectMode] = useState(false)
+  const [folderReorderMode, setFolderReorderMode] = useState(false)
   const [selectedFolders, setSelectedFolders] = useState<Set<string>>(new Set())
   const [newFolderVisible, setNewFolderVisible] = useState(false)
   const [folderSheetVisible, setFolderSheetVisible] = useState(false)
@@ -398,7 +401,20 @@ export default function SavedScreen() {
 
   const toggleFolderSelect = () => {
     if (folderSelectMode) { setFolderSelectMode(false); setSelectedFolders(new Set()) }
-    else setFolderSelectMode(true)
+    else { setFolderReorderMode(false); setFolderSelectMode(true) }
+  }
+
+  // Mutually exclusive with folderSelectMode (see toggleFolderSelect) --
+  // dragging while some rows show bulk-action checkboxes would be a
+  // confusing state to be in, so entering one exits the other.
+  const toggleFolderReorder = () => {
+    if (folderReorderMode) { setFolderReorderMode(false) }
+    else { setFolderSelectMode(false); setSelectedFolders(new Set()); setFolderReorderMode(true) }
+  }
+
+  const handleFolderReorder = async (orderedIds: string[]) => {
+    const next = await reorderFolders(orderedIds)
+    setFolders(next)
   }
 
   const toggleFolderRow = (id: string) => {
@@ -515,12 +531,19 @@ export default function SavedScreen() {
 
   const folderRightSlot = (
     <View style={styles.headerRight}>
-      <Pressable onPress={toggleFolderSelect} hitSlop={8}>
-        <Text style={[styles.selectBtn, { color: tokens.blu, fontSize: fs(13) }]}>
-          {folderSelectMode ? 'Done' : 'Select'}
-        </Text>
-      </Pressable>
-      {!folderSelectMode && (
+      {(folderSelectMode || folderReorderMode) ? (
+        <Pressable onPress={folderReorderMode ? toggleFolderReorder : toggleFolderSelect} hitSlop={8}>
+          <Text style={[styles.selectBtn, { color: tokens.blu, fontSize: fs(13) }]}>Done</Text>
+        </Pressable>
+      ) : (
+        <HeaderOverflowMenu
+          items={[
+            { icon: 'checkmark.circle', label: 'Select Folders', onPress: toggleFolderSelect },
+            { icon: 'arrow.up.arrow.down', label: 'Reorder Folders', onPress: toggleFolderReorder },
+          ]}
+        />
+      )}
+      {!folderSelectMode && !folderReorderMode && (
         <Pressable
           onPress={() => (hasPlusAccess ? setNewFolderVisible(true) : router.push('/paywall'))}
           style={[styles.addBtn, { backgroundColor: tokens.blu }]}
@@ -554,6 +577,7 @@ export default function SavedScreen() {
                 setSelected(new Set())
                 setFolderSelectMode(false)
                 setSelectedFolders(new Set())
+                setFolderReorderMode(false)
               }}
             >
               <Text style={[styles.segText, { color: tab === t ? '#fff' : tokens.t3, fontSize: fs(13) }]}>
@@ -669,6 +693,8 @@ export default function SavedScreen() {
             onRenamed={load}
             onDelete={handleDeleteFolder}
             onShare={handleShareFolder}
+            reorderMode={folderReorderMode}
+            onReorder={handleFolderReorder}
             onCreateFolder={() => setNewFolderVisible(true)}
           />
         )

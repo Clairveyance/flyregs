@@ -160,7 +160,19 @@ async function mergeFolders(userId: string) {
       continue
     }
     if (remoteNewer) {
-      merged.set(r.id, { id: r.id, name: r.name, created_at: r.created_at, updated_at: r.updated_at })
+      // Carries `shared` forward from the existing local value -- synced_folders
+      // has no such column (it's a local-only "has this ever been shared" flag,
+      // see the Folder.shared comment in folders.ts), so a remote-newer update
+      // must not silently drop it, only sort_order and the other real columns
+      // actually come from `r`.
+      merged.set(r.id, {
+        id: r.id,
+        name: r.name,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        sort_order: r.sort_order ?? undefined,
+        shared: loc?.shared,
+      })
     }
   }
   const toPushUp = local.filter((loc) => {

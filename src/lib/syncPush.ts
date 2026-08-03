@@ -100,7 +100,7 @@ export async function syncPushFolder(f: Folder, force = false) {
   const userId = await currentUserId(force)
   if (!userId) return
   const { error } = await supabase.from('synced_folders').upsert(
-    { id: f.id, user_id: userId, name: f.name, created_at: f.created_at, updated_at: f.updated_at, deleted: false },
+    { id: f.id, user_id: userId, name: f.name, created_at: f.created_at, updated_at: f.updated_at, deleted: false, sort_order: f.sort_order ?? null },
     { onConflict: 'user_id,id' }
   )
   reportSyncError('folder upsert', error)

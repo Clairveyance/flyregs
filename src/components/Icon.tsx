@@ -14,6 +14,7 @@ const SF_TO_IONICONS: Record<string, string> = {
   'square.and.pencil': 'create-outline',
   'printer': 'print-outline',
   'line.3.horizontal': 'menu-outline',
+  'arrow.up.arrow.down': 'swap-vertical-outline',
   'xmark': 'close-outline',
   'chevron.right': 'chevron-forward-outline',
   'chevron.left': 'chevron-back-outline',
