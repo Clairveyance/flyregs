@@ -232,6 +232,19 @@ export default function HomeScreen() {
       if (next.length > 0 && next.every((t) => t === 'pcg')) {
         setFilterHasFigures(null)
       }
+      // Date Range only has real per-document dates for AC (date_issued)
+      // and LOI (issued_date) -- FAR/AIM/P-CG's date_from/date_to filters
+      // against updated_at, which every weekly scraper run unconditionally
+      // stamps to now() on EVERY row regardless of real content change
+      // (see memory/gotcha_far_aim_pcg_date_filter_broken.md). Confirmed
+      // live: filtering FAR to a real historical range like 2020 returns
+      // ZERO of 4272 sections, not "unfiltered" -- actively implying no
+      // FAR content exists from that era, which is false. Same
+      // hide-when-wholly-inapplicable treatment as Has Figures above,
+      // rather than leaving a control that can silently lie.
+      if (next.length > 0 && next.every((t) => t === 'far' || t === 'aim' || t === 'pcg')) {
+        setFilterDateFrom(''); setFilterDateTo('')
+      }
       return next
     })
   }
@@ -973,25 +986,35 @@ export default function HomeScreen() {
             onToggle={() => setFilterHasFigures((prev) => (prev ? null : true))}
           />
         )}
-        <View style={{ gap: 8 }}>
-          <Text style={[styles.filterSectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>DATE RANGE (ISSUED/UPDATED)</Text>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TextInput
-              style={[styles.filterDateInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg2, fontSize: fs(13) }]}
-              value={filterDateFrom}
-              onChangeText={setFilterDateFrom}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={tokens.t4}
-            />
-            <TextInput
-              style={[styles.filterDateInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg2, fontSize: fs(13) }]}
-              value={filterDateTo}
-              onChangeText={setFilterDateTo}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={tokens.t4}
-            />
+        {/* Only AC (date_issued) and LOI (issued_date) have a real,
+            per-document date to filter on -- FAR/AIM/P-CG's updated_at is
+            a weekly-sync stamp, not a content date, and filtering by it
+            can return zero results for a range that plainly has content.
+            Hidden outright (not just disclosed) when the selection is
+            wholly within the broken types, same treatment as Has Figures
+            above; otherwise shown with an honest scope in the title, same
+            convention as Audience's own "(NARROWS ACs ONLY)". */}
+        {(filterContentTypes.length === 0 || filterContentTypes.some((t) => t === 'ac' || t === 'loi')) && (
+          <View style={{ gap: 8 }}>
+            <Text style={[styles.filterSectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>DATE RANGE (ACs & LOIs ONLY)</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TextInput
+                style={[styles.filterDateInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg2, fontSize: fs(13) }]}
+                value={filterDateFrom}
+                onChangeText={setFilterDateFrom}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={tokens.t4}
+              />
+              <TextInput
+                style={[styles.filterDateInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg2, fontSize: fs(13) }]}
+                value={filterDateTo}
+                onChangeText={setFilterDateTo}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={tokens.t4}
+              />
+            </View>
           </View>
-        </View>
+        )}
         <View style={{ gap: 8 }}>
           <Text style={[styles.filterSectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>CITES THIS DOCUMENT</Text>
           <Text style={[styles.citesHint, { color: tokens.t4, fontSize: fs(11.5) }]}>
