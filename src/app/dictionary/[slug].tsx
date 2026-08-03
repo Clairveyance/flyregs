@@ -55,19 +55,23 @@ const USAGE_LABELS: Record<string, string> = {
   TAF: 'TAF weather-report usage',
 }
 
-// Turns a FAR/AC/AIM/AD/P-CG citation inside mnemonic explanation text
-// ("not itself listed in § 91.203...") into a real tappable link, using the
-// exact same linkifyText() already used for FAR/AIM/P-CG/AC body text --
-// RC: "could we create hyperlinks out to the actual reg data if those regs
-// appear in the Mn explanations?" This is a ONE-WAY, purely additive read:
-// linkifyText() just scans plain text for citation-shaped substrings and
-// has no connection whatsoever to reg_mnemonic_anchors (the separate table
-// that highlights a mnemonic's OWN moniker, like "MEA", inside real FAR/AIM
-// body text) -- applying it here can't affect that isolation in either
-// direction, which was the one thing RC was careful to ask about.
-// Deliberately gated to category='mnemonic' only, not every dictionary
-// entry -- scoped to exactly what was asked, not the other ~10k contraction
-// entries this same screen renders.
+// Turns a FAR/AC/AIM/AD/P-CG citation inside a definition ("not itself
+// listed in § 91.203...", "as defined by 14 CFR 103.1") into a real
+// tappable link, using the exact same linkifyText() already used for
+// FAR/AIM/P-CG/AC body text -- RC: "could we create hyperlinks out to the
+// actual reg data if those regs appear in the Mn explanations?" This is a
+// ONE-WAY, purely additive read: linkifyText() just scans plain text for
+// citation-shaped substrings and has no connection whatsoever to
+// reg_mnemonic_anchors (the separate table that highlights a mnemonic's
+// OWN moniker, like "MEA", inside real FAR/AIM body text) -- applying it
+// here can't affect that isolation in either direction, which was the one
+// thing RC was careful to ask about.
+// Originally gated to category='mnemonic' only; extended to every
+// dictionary entry (RC: "yes, extend the citation links to handbook
+// entries") after the handbook-definitions spot check found real,
+// verbatim-FAA citations like ULTRALIGHT's "A vehicle as defined by 14
+// CFR 103.1." sitting as dead text even though FlyRegs already has that
+// section's full body available to link to.
 function LinkedText({ text, style, linkColor }: { text: string; style: object; linkColor: string }) {
   const segments = linkifyText(text)
   if (segments.length === 1 && segments[0].route === null) {
@@ -291,11 +295,7 @@ export default function DictionaryTermScreen() {
                 {entry.senses.length > 1 && (
                   <Text style={[styles.senseNum, { color: tokens.t4, fontSize: fs(11) }]}>SENSE {i + 1}</Text>
                 )}
-                {entry.category === 'mnemonic' ? (
-                  <LinkedText text={s.definition} style={[styles.definition, { color: tokens.t1, fontSize: fs(16) }]} linkColor={tokens.blu} />
-                ) : (
-                  <Text style={[styles.definition, { color: tokens.t1, fontSize: fs(16) }]}>{s.definition}</Text>
-                )}
+                <LinkedText text={s.definition} style={[styles.definition, { color: tokens.t1, fontSize: fs(16) }]} linkColor={tokens.blu} />
                 {s.breakdown && s.breakdown.length > 0 && (
                   <View style={styles.breakdownList}>
                     {s.breakdown.map((b, bi) => (

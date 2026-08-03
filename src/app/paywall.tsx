@@ -12,7 +12,6 @@ import {
 } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import Reanimated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, withDelay, Easing } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useAuth } from '@/context/auth'
 import { useTheme } from '@/context/theme'
@@ -22,21 +21,33 @@ import { useFS } from '@/context/fontScale'
 
 // Premium's own gold spectrum -- RC: "the Premium paywall, buttons, etc
 // need to look more 'golden' -- like the FlyRegs logo. it's our flagship
-// product... maybe even some subtle 'shimmer'." Deliberately separate from
-// MagicLinkPod.tsx's own GOLD_SPECTRUM_DARK/LIGHT, which is tuned for a thin
-// animated rotating BORDER over a busy background -- these are OPAQUE fill
-// surfaces (CTA button, tier badge) with an icon/label sitting directly on
-// top, so a pale shimmer-stroke color like MagicLinkPod's own #F0D890 would
-// wash out badly here. Real gold is light/mid luminance by nature (high R+G
+// product." Deliberately separate from MagicLinkPod.tsx's own
+// GOLD_SPECTRUM_DARK/LIGHT, which is tuned for a thin animated rotating
+// BORDER over a busy background -- these are OPAQUE fill surfaces (CTA
+// button, tier badge) with an icon/label sitting directly on top, so a
+// pale shimmer-stroke color like MagicLinkPod's own #F0D890 would wash
+// out badly here. Real gold is light/mid luminance by nature (high R+G
 // channels), which fights white text -- rather than darkening the fill
 // toward brown to force white-text contrast, both surfaces use dark ink on
 // a bright gold fill instead, like engraving on a gold plaque, which also
 // reads as more convincingly "gold" than a muddy dark-bronze button would.
-// One shared pair (not per-surface) so the CTA and badge read as the same
-// material; light theme goes a shade deeper so it doesn't wash out against
-// a near-white page, same reason lightTokens.gold is deeper than dark's.
-const GOLD_FILL_DARK = ['#F0D890', '#D4AF37', '#B8860B'] as const
-const GOLD_FILL_LIGHT = ['#E8C468', '#C9A227', '#A8790F'] as const
+//
+// TWO separate gradient pairs, not one shared pair -- the same 3-stop
+// diagonal that reads as a clean, punchy gold on a small dense pill (the
+// badge) visibly spreads its darker end across much more surface area on
+// a wide 54pt-tall button, reading as duller overall even though the
+// colors are identical. RC, after seeing this in practice: "it still
+// looks dull. it needs to be brighter with more contrast like the other
+// two [badges]." Rather than brighten the shared constant (which would
+// also shift the badges RC already approved of), the CTA gets its own
+// more saturated, wider-contrast ramp tuned for its larger size; the
+// badge keeps its original values unchanged. Light theme stays a shade
+// deeper than dark in both pairs so neither washes out against a
+// near-white page, same reason lightTokens.gold is deeper than dark's.
+const BADGE_GOLD_DARK = ['#F0D890', '#D4AF37', '#B8860B'] as const
+const BADGE_GOLD_LIGHT = ['#E8C468', '#C9A227', '#A8790F'] as const
+const CTA_GOLD_DARK = ['#FFE9A8', '#FFC93C', '#E8A317'] as const
+const CTA_GOLD_LIGHT = ['#F5D06B', '#E0A526', '#C27D0E'] as const
 const GOLD_INK = '#3D2B00'
 
 const WING_ASPECT = 971 / 1071 // flyregs-wing.png width/height
@@ -483,7 +494,7 @@ export default function PaywallScreen() {
             flagship product... maybe even some subtle shimmer"); Plus/Pro
             keep the plain flat-color button, unchanged. */}
         {tier === 'premium' || upgradeMode || premiumRequired ? (
-          <ShimmerGoldCta
+          <GoldCta
             label={ctaLabel}
             onPress={handleSubscribe}
             disabled={loading || viewingCurrentPlan}
@@ -543,15 +554,17 @@ export default function PaywallScreen() {
   )
 }
 
-// ─── Shimmer Gold CTA (Premium only) ───────────────────────────────────────────
-// A real gold gradient fill (not a flat color) plus a soft diagonal highlight
-// band that sweeps across the button on a loop, pausing between passes so it
-// reads as a subtle glint, not a distracting constant animation. Same
-// Reanimated + expo-linear-gradient technique MagicLinkPod.tsx already uses
-// for its own rotating gold border, just a different specific effect (a
-// linear sweep, not a rotation) suited to a rectangular button.
+// ─── Gold CTA (Premium only) ────────────────────────────────────────────────
+// Plain gold gradient fill, no animation. RC tried an animated shimmer
+// first (sweep, then a slower/rarer randomized version after "looks
+// cheesy... not premium looking"), then dropped the idea entirely: "forget
+// the shimmer, just make the button look gold, like this [TierBadge]" --
+// pointing at the compact PREMIUM pill above the pricing cards. Own
+// CTA_GOLD_*/GOLD_INK material, not the badge's -- see the comment on
+// those constants for why a shared gradient still read "dull" here even
+// though the colors were identical.
 
-function ShimmerGoldCta({
+function GoldCta({
   label, onPress, disabled, loading,
 }: {
   label: string
@@ -561,29 +574,6 @@ function ShimmerGoldCta({
 }) {
   const fs = useFS()
   const { resolved } = useTheme()
-  const sweep = useSharedValue(-1)
-
-  useEffect(() => {
-    // withTiming animates from whatever the shared value already is -- once
-    // the first pass reaches 1, a bare withRepeat(withTiming(1,...)) has
-    // nothing left to animate (1 -> 1) and freezes there forever. Each
-    // repeat must explicitly snap back to -1 first (duration: 0) before
-    // sweeping to 1 again. Caught by reading the live DOM transform twice a
-    // beat apart, not by eyeballing screenshots -- it was frozen mid-sweep
-    // in a way that looked plausible as a paused animation at a glance.
-    sweep.value = withRepeat(
-      withSequence(
-        withTiming(-1, { duration: 0 }),
-        withDelay(900, withTiming(1, { duration: 1300, easing: Easing.inOut(Easing.ease) })),
-      ),
-      -1,
-      false,
-    )
-  }, [])
-
-  const sweepStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: sweep.value * 280 }, { rotate: '18deg' }],
-  }))
 
   return (
     <Pressable
@@ -592,19 +582,11 @@ function ShimmerGoldCta({
       disabled={disabled}
     >
       <LinearGradient
-        colors={resolved === 'dark' ? GOLD_FILL_DARK : GOLD_FILL_LIGHT}
+        colors={resolved === 'dark' ? CTA_GOLD_DARK : CTA_GOLD_LIGHT}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-      <Reanimated.View style={[styles.ctaShimmerBand, sweepStyle]} pointerEvents="none">
-        <LinearGradient
-          colors={['transparent', 'rgba(255,255,255,0.7)', 'transparent']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={StyleSheet.absoluteFill}
-        />
-      </Reanimated.View>
       {loading ? (
         <ActivityIndicator color={GOLD_INK} />
       ) : (
@@ -647,15 +629,16 @@ function TierBadge({
     </>
   )
 
-  // Premium's badge gets the same gold gradient fill as ShimmerGoldCta,
-  // instead of a flat tint -- RC: "the Premium paywall, buttons, etc need to
-  // look more 'golden' -- like the FlyRegs logo. it's our flagship product."
-  // One shared gold material (GOLD_FILL_*/GOLD_INK) across badge and button
-  // so Premium reads as one consistent "gold tier," not two different golds.
+  // Premium's badge gets a real gold gradient fill instead of a flat tint --
+  // RC: "the Premium paywall, buttons, etc need to look more 'golden' --
+  // like the FlyRegs logo. it's our flagship product." Own BADGE_GOLD_*
+  // constants, not shared with the CTA button -- see the comment where
+  // those are defined for why a shared gradient looked "dull" on the
+  // larger button surface even at identical color values.
   if (isPremium) {
     return (
       <LinearGradient
-        colors={isDark ? GOLD_FILL_DARK : GOLD_FILL_LIGHT}
+        colors={isDark ? BADGE_GOLD_DARK : BADGE_GOLD_LIGHT}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={[styles.tierBadge, compact && styles.tierBadgeCompact, { borderColor: bdr }]}
@@ -832,12 +815,9 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.6 },
   ctaText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  // overflow:hidden so the gradient fill respects the button's own
+  // borderRadius instead of squaring off its corners.
   ctaGoldWrap: { overflow: 'hidden' },
-  // Narrow, tall, rotated band swept horizontally across the button by
-  // ShimmerGoldCta -- oversized top/bottom so the rotated rectangle still
-  // fully covers the button's height at its 18deg tilt, clipped by the
-  // wrapper's own overflow:hidden.
-  ctaShimmerBand: { position: 'absolute', top: -30, bottom: -30, left: -20, width: 50 },
 
   restoreRow: { alignItems: 'center', paddingVertical: 4 },
   restoreText: { fontSize: 13 },
