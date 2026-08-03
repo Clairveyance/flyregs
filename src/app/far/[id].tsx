@@ -75,6 +75,7 @@ export default function FarSectionScreen() {
   const [backTo, setBackTo] = useState<string | null>(null)
   const [siblingSections, setSiblingSections] = useState<string[]>([])
   const [scrollY, setScrollY] = useState(0)
+  const [scrollViewportHeight, setScrollViewportHeight] = useState<number | undefined>(undefined)
   const scrollRef = useRef<ScrollView>(null)
   const bodyRef = useRef<PlainTextBodyHandle>(null)
   const inDocSearch = useInDocSearch(bodyRef)
@@ -426,6 +427,7 @@ export default function FarSectionScreen() {
           ref={scrollRef}
           contentContainerStyle={styles.content}
           onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
+          onLayout={(e) => setScrollViewportHeight(e.nativeEvent.layout.height)}
           scrollEventThrottle={100}
         >
           {section.subpart_title && (
@@ -508,6 +510,7 @@ export default function FarSectionScreen() {
               changedIndices={changedIdx}
               onMatchCount={inDocSearch.setMatchCount}
               scrollRef={scrollRef}
+              viewportHeight={scrollViewportHeight}
               mnemonicAnchors={mnemonicAnchors}
             />
           ) : /reserved/i.test(section.title || '') ? (

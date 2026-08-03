@@ -81,6 +81,7 @@ export default function AdScreen() {
   const [confirmLabel, setConfirmLabel] = useState<string | undefined>()
   const [confirmTick, setConfirmTick] = useState(0)
   const [scrollY, setScrollY] = useState(0)
+  const [scrollViewportHeight, setScrollViewportHeight] = useState<number | undefined>(undefined)
   const scrollRef = useRef<ScrollView>(null)
   const bodyRef = useRef<PlainTextBodyHandle>(null)
   const inDocSearch = useInDocSearch(bodyRef)
@@ -405,6 +406,7 @@ export default function AdScreen() {
           ref={scrollRef}
           contentContainerStyle={styles.content}
           onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
+          onLayout={(e) => setScrollViewportHeight(e.nativeEvent.layout.height)}
           scrollEventThrottle={100}
         >
           <View style={styles.headerRow}>
@@ -562,6 +564,7 @@ export default function AdScreen() {
               activeMatch={inDocSearch.matchIdx}
               onMatchCount={inDocSearch.setMatchCount}
               scrollRef={scrollRef}
+              viewportHeight={scrollViewportHeight}
             />
           ) : (
             <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No further text available for this AD.</Text>

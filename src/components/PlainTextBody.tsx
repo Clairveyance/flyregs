@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useEffect, useImperativeHandle, RefObject } from 'react'
-import { Text, View, ScrollView, Platform, StyleSheet, Alert } from 'react-native'
+import { Text, View, ScrollView, Platform, StyleSheet, Alert, useWindowDimensions } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { normalizeRegBody } from '@/lib/regTextFormat'
@@ -8,7 +8,7 @@ import { linkifyText } from '@/lib/crossRefLinks'
 import { TableGrid } from '@/components/TableGrid'
 import { softWrapParagraph } from '@/lib/softWrap'
 import { setPendingBreadcrumb } from '@/lib/navBreadcrumb'
-import { searchPhrase, countOcc, highlightSpans } from '@/lib/searchHighlight'
+import { searchPhrase, highlightSpans } from '@/lib/searchHighlight'
 import { splitMnemonicSpans, MnemonicAnchor } from '@/lib/regMnemonics'
 
 // Renders \n\n-delimited body text (FAR/AIM/P-CG's plain-text content, as
@@ -344,6 +344,12 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
   /** Needed only for native scrollToMatch (web uses DOM scrollIntoView
    * instead, same as ACBody) -- the parent screen's own ScrollView ref. */
   scrollRef?: RefObject<ScrollView | null>
+  /** The scrollRef ScrollView's own rendered height (from the parent
+   * screen's onLayout) -- same purpose and same fallback-to-window-height
+   * behavior as ACBody's identical prop. Without a real measured viewport,
+   * centering overshoots wherever the header/tab-bar chrome makes the true
+   * visible area shorter than the full device window. */
+  viewportHeight?: number
   /** Indices of paragraphs changed in the most recent revision -- renders the
    * same blue left-rail + "UPDATED" tag ACBody already shows for AC, so
    * What's Changed reads identically across every content type instead of
@@ -355,9 +361,18 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
    * pattern as `figures`. Optional; screens that don't pass it render
    * exactly as before. See src/lib/regMnemonics.ts. */
   mnemonicAnchors?: MnemonicAnchor[]
-}>(function PlainTextBody({ text, figures, onOpenFigure, resolveFigureGlobally, onNavigate, currentLabel, highlightQuery, activeMatch, onMatchCount, scrollRef, changedIndices, mnemonicAnchors }, ref) {
+}>(function PlainTextBody({ text, figures, onOpenFigure, resolveFigureGlobally, onNavigate, currentLabel, highlightQuery, activeMatch, onMatchCount, scrollRef, viewportHeight, changedIndices, mnemonicAnchors }, ref) {
   const { tokens } = useTheme()
   const fs = useFS()
+  // Same approximation of scrollIntoView({block:'center'}) as ACBody -- see
+  // its own viewportHeight comment. Real device, real bug: matches landed
+  // off-screen or didn't visibly move between Prev/Next taps, root-caused to
+  // this file targeting only a paragraph's top edge with a flat, non-
+  // proportional offset instead of the actual occurrence position -- ACBody
+  // solved the identical problem (six iterations, see its own history) a
+  // week before this file was built, and that fix was never ported over.
+  const { height: windowHeight } = useWindowDimensions()
+  const centerOffset = (viewportHeight ?? windowHeight) / 2
   // NOT stripped here — parseTableBlock() below needs the raw marker
   // intact to tell a real <thead> row apart from a data row. It strips
   // it once done reading it; the non-table fallback path further down
@@ -379,16 +394,27 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
   const hq = highlightQuery && highlightQuery.length >= 2 ? highlightQuery : null
   const phrase = hq ? searchPhrase(hq) : null
 
-  // One entry per phrase occurrence, in paragraph order -- same idea as
-  // ACBody's own `occurrences`, just simpler (paragraph-granularity, not
-  // block+fraction) since PlainTextBody's content is flat prose, not
-  // ACBody's parsed block tree.
+  // One entry per phrase occurrence, in paragraph order, now WITH a
+  // fractional offset (0 = paragraph start, 1 = paragraph end) -- same
+  // approach as ACBody's own occurrences/absoluteOccurrenceY, ported in to
+  // fix a real bug: this used to store only `{ paraIndex }`, so every
+  // occurrence in a paragraph collapsed to the same target position (the
+  // paragraph's top edge) -- multiple matches sharing one paragraph looked
+  // like Prev/Next "didn't move" between them, and a match deep in a long
+  // paragraph could land off-screen since only the top was ever centered.
   const occurrences = useMemo(() => {
     if (!phrase || phrase.length < 2) return []
-    const result: { paraIndex: number }[] = []
+    const result: { paraIndex: number; fraction: number }[] = []
     paragraphs.forEach((para, i) => {
-      const n = countOcc(para, phrase)
-      for (let k = 0; k < n; k++) result.push({ paraIndex: i })
+      const lower = para.toLowerCase()
+      const len = para.length || 1
+      let pos = 0
+      let idx = lower.indexOf(phrase, pos)
+      while (idx !== -1) {
+        result.push({ paraIndex: i, fraction: idx / len })
+        pos = idx + phrase.length
+        idx = lower.indexOf(phrase, pos)
+      }
     })
     return result
   }, [paragraphs, phrase])
@@ -407,6 +433,22 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
 
   const paraRefs = useRef<Record<number, View | null>>({})
   const paraRelY = useRef<Record<number, number>>({})
+  // Each paragraph's own rendered height, from the same onLayout event as
+  // paraRelY -- lets a specific occurrence be placed PROPORTIONALLY within
+  // its paragraph (see absoluteOccurrenceY) instead of always the top edge.
+  const paraHeight = useRef<Record<number, number>>({})
+
+  // No offset-chain summing needed here (unlike ACBody's outerOffsetYRef/
+  // rootOffsetYRef) -- every screen that renders PlainTextBody does so as a
+  // DIRECT child of its own ScrollView with no wrapping container in
+  // between, so each paragraph's own onLayout y is already relative to the
+  // scrollable content.
+  const absoluteOccurrenceY = (i: number, fraction: number): number | undefined => {
+    const rel = paraRelY.current[i]
+    if (rel == null) return undefined
+    const h = paraHeight.current[i] ?? 0
+    return rel + fraction * h
+  }
 
   useImperativeHandle(ref, () => ({
     scrollToParagraph(i: number) {
@@ -420,7 +462,7 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
         }
       }
       const y = paraRelY.current[i] ?? 0
-      scrollRef?.current?.scrollTo({ y: Math.max(0, y - 100), animated: true })
+      scrollRef?.current?.scrollTo({ y: Math.max(0, y - centerOffset), animated: true })
     },
     scrollToMatch(n: number) {
       if (Platform.OS === 'web') {
@@ -448,12 +490,11 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
       const scroller = scrollRef?.current
       if (!scroller) return
       const occ = occurrences[n]
-      if (!occ) return
-      const y = paraRelY.current[occ.paraIndex]
+      const y = occ != null ? absoluteOccurrenceY(occ.paraIndex, occ.fraction) : undefined
       if (y == null) return
-      scroller.scrollTo({ y: Math.max(0, y - 100), animated: true })
+      scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true })
     },
-  }), [occurrences, scrollRef])
+  }), [occurrences, scrollRef, centerOffset])
 
   const handlePress = async (seg: { text: string; route: string | null; isFigure?: boolean }) => {
     if (seg.isFigure) {
@@ -551,7 +592,7 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
             <View
               key={i}
               ref={(el) => { paraRefs.current[i] = el }}
-              onLayout={(e) => { paraRelY.current[i] = e.nativeEvent.layout.y }}
+              onLayout={(e) => { paraRelY.current[i] = e.nativeEvent.layout.y; paraHeight.current[i] = e.nativeEvent.layout.height }}
             >
               {withChangedRail(i,
                 <Text style={[styles.para, { color: tokens.t2, fontSize: fs(14.5) }]}>
@@ -680,7 +721,7 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
           <View
             key={i}
             ref={(el) => { paraRefs.current[i] = el }}
-            onLayout={(e) => { paraRelY.current[i] = e.nativeEvent.layout.y }}
+            onLayout={(e) => { paraRelY.current[i] = e.nativeEvent.layout.y; paraHeight.current[i] = e.nativeEvent.layout.height }}
           >
             {withChangedRail(i, <>{rendered}</>)}
           </View>

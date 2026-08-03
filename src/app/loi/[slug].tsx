@@ -82,6 +82,7 @@ export default function LoiDetailScreen() {
   const [confirmTick, setConfirmTick] = useState(0)
   const [backTo, setBackTo] = useState<string | null>(null)
   const [scrollY, setScrollY] = useState(0)
+  const [scrollViewportHeight, setScrollViewportHeight] = useState<number | undefined>(undefined)
   const scrollRef = useRef<ScrollView>(null)
   const bodyRef = useRef<PlainTextBodyHandle>(null)
   const inDocSearch = useInDocSearch(bodyRef)
@@ -309,6 +310,7 @@ export default function LoiDetailScreen() {
           ref={scrollRef}
           contentContainerStyle={styles.content}
           onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
+          onLayout={(e) => setScrollViewportHeight(e.nativeEvent.layout.height)}
           scrollEventThrottle={100}
         >
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>{humanizeLoiTitle(loi.title)}</Text>
@@ -374,6 +376,7 @@ export default function LoiDetailScreen() {
               activeMatch={inDocSearch.matchIdx}
               onMatchCount={inDocSearch.setMatchCount}
               scrollRef={scrollRef}
+              viewportHeight={scrollViewportHeight}
             />
           ) : (
             <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No text available for this interpretation.</Text>

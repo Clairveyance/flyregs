@@ -85,6 +85,7 @@ export default function AimParagraphScreen() {
   const [backTo, setBackTo] = useState<string | null>(null)
   const [siblingParagraphs, setSiblingParagraphs] = useState<string[]>([])
   const [scrollY, setScrollY] = useState(0)
+  const [scrollViewportHeight, setScrollViewportHeight] = useState<number | undefined>(undefined)
   const scrollRef = useRef<ScrollView>(null)
   const bodyRef = useRef<PlainTextBodyHandle>(null)
   const inDocSearch = useInDocSearch(bodyRef)
@@ -412,6 +413,7 @@ export default function AimParagraphScreen() {
           ref={scrollRef}
           contentContainerStyle={styles.content}
           onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
+          onLayout={(e) => setScrollViewportHeight(e.nativeEvent.layout.height)}
           scrollEventThrottle={100}
         >
           {para.section_title && (
@@ -519,6 +521,7 @@ export default function AimParagraphScreen() {
               changedIndices={changedIdx}
               onMatchCount={inDocSearch.setMatchCount}
               scrollRef={scrollRef}
+              viewportHeight={scrollViewportHeight}
             />
           ) : (
             <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No text available for this paragraph.</Text>
