@@ -137,7 +137,7 @@ export default function ChallengesScreen() {
           <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Duels are a Premium feature</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-            Challenge 1-7 other pilots to a free-for-all multiple-choice quiz across FAR, AIM, P/CG, and ACs — most correct answers wins, with time as the tiebreaker.
+            Challenge 1-7 other players to a free-for-all multiple-choice quiz across FAR, AIM, P/CG, and ACs — most correct answers wins, with time as the tiebreaker.
           </Text>
           {/* This lock screen had no CTA at all -- a free user who found
               Duels hit a dead end with no way to unlock it, unlike Study
@@ -180,7 +180,7 @@ export default function ChallengesScreen() {
           <Icon name="bolt.fill" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No duels yet</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-            Tap + to challenge one or more pilots from Ready Room.
+            Tap + to challenge one or more players from Ready Room.
           </Text>
         </View>
       ) : (
@@ -323,11 +323,23 @@ export default function ChallengesScreen() {
               // own FlyRegs account AND to flip "Show me on the Ready Room
               // leaderboard" (Account > Community) before they'll show up
               // here. There's no in-app invite path for someone who doesn't
-              // have the app yet -- that's tracked separately.
-              <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13), marginTop: 8 }]}>
-                No other pilots are opted in yet. A friend needs their own FlyRegs account, with
-                "Show me on the Ready Room leaderboard" turned on in Account &gt; Community, before they'll show up here.
-              </Text>
+              // have the app yet -- that's tracked separately. RC, real
+              // device, looking at exactly this state: "how do you hit 'go'
+              // or start the game?" -- a plain paragraph here read like
+              // filler text rather than a real stopping point, so this is
+              // now a bordered notice with an icon, matching the app's other
+              // empty-state treatments, to read clearly as "this is expected,
+              // here's what to do" instead of looking unfinished.
+              <View style={[styles.noOpponentsCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                <Icon name="person.2.fill" size={fs(20)} color={tokens.t3} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.noOpponentsTitle, { color: tokens.t2, fontSize: fs(13.5) }]}>No one to challenge yet</Text>
+                  <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(12.5), textAlign: 'left', marginTop: 3 }]}>
+                    A friend needs their own FlyRegs account, with "Show me on the Ready Room leaderboard"
+                    turned on in Account &gt; Community, before they'll show up here.
+                  </Text>
+                </View>
+              </View>
             ) : (
               opponents.map((o) => {
                 const selected = selectedOpponents.includes(o.userId)
@@ -468,6 +480,11 @@ const styles = StyleSheet.create({
   modalTitle: { fontWeight: '700' },
   modalLabel: { fontWeight: '600', letterSpacing: 0.5 },
   countRow: { flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' },
+  noOpponentsCard: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    borderRadius: 12, borderWidth: 1, padding: 12, marginTop: 8,
+  },
+  noOpponentsTitle: { fontWeight: '700' },
   countChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 16, borderWidth: 1 },
   countChipText: { fontWeight: '700' },
   opponentRow: {
