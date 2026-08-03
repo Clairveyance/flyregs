@@ -9,7 +9,7 @@ import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
-import { getStudyQueue, getStudyPoolCount, recordStudyReview, getStudyMastery, getCurrency, getAimFacts, StudyCard, StudyMastery, Currency, StudyItemType, StudyFact } from '@/lib/study'
+import { getStudyQueue, getStudyPoolCount, recordStudyReview, getStudyMastery, getCurrency, getStudyFactsForItems, StudyCard, StudyMastery, Currency, StudyItemType, StudyFact } from '@/lib/study'
 import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { KnowledgeLevel, KNOWLEDGE_LEVEL_LABELS } from '@/lib/challenges'
@@ -109,10 +109,12 @@ export default function StudyScreen() {
   // to be scrolled to to see"). A summary line stays visible either way so
   // the active selection is never hidden, just the chip rows themselves.
   const [filtersExpanded, setFiltersExpanded] = useState(false)
-  // Real content-recall Q/A for AIM paragraphs (see getAimFacts' own
-  // comment for why the plain "Which AIM paragraph covers X?" shape was
-  // rejected) -- fetched inside load() below, alongside the deck itself.
-  const [aimFacts, setAimFacts] = useState<Map<string, StudyFact>>(new Map())
+  // Real content-recall Q/A, now for FAR and AIM (and opportunistically
+  // P/CG/AC) -- see getStudyFactsForItems' own comment for why this used to
+  // be AIM-only despite FAR/P-CG/AC facts already existing live in the same
+  // table. Keyed `${item_type}:${item_id}`, fetched inside load() below
+  // once the deck itself is known.
+  const [studyFacts, setStudyFacts] = useState<Map<string, StudyFact>>(new Map())
 
   useEffect(() => {
     AsyncStorage.getItem(REVEAL_DIRECTION_KEY).then((raw) => {
@@ -182,28 +184,38 @@ export default function StudyScreen() {
       getStudyMastery(),
       getCurrency(),
       getStudyPoolCount(activeTypes, activeLevels, activeCategoryClasses),
-      getAimFacts(),
     ])
-      .then(([queue, m, c, pool, facts]) => {
-        // AIM items with no authored content fact are excluded rather than
-        // falling back to the rejected "Which AIM paragraph covers X?"
-        // shape -- see getAimFacts' own comment. ~14 of 438 AIM paragraphs
-        // (bare "General" section intros, an abbreviations appendix, chart-
-        // ordering logistics) genuinely have nothing fact-worthy to ask and
-        // never will; the rest just aren't authored yet. Fetched in the
-        // SAME Promise.all as the deck (not a separate effect) so the
-        // filter always runs against a fully-resolved fact map, never a
-        // still-empty one from a race between two independent fetches.
-        setAimFacts(facts)
-        const filtered = queue.filter((c) => c.item_type !== 'aim' || facts.has(c.item_id))
-        setDeck(filtered)
-        setMastery(m)
-        setCurrency(c)
-        setPoolCount(pool)
-        setIndex(0)
-        setFlipped(false)
-        setSessionDone(filtered.length === 0)
-      })
+      .then(([queue, m, c, pool]) =>
+        // Facts are fetched AFTER the deck (not in the same Promise.all --
+        // getStudyFactsForItems needs the deck's own item_ids to ask for)
+        // and only for the up-to-20 items actually in it, not the whole
+        // study_facts table -- see that function's own comment.
+        getStudyFactsForItems(queue.map((c) => ({ item_type: c.item_type, item_id: c.item_id }))).then((facts) => {
+          setStudyFacts(facts)
+          // AIM and FAR items with no authored content fact are excluded
+          // rather than falling back to citation-recall ("Which AIM
+          // paragraph covers X?" / "Which FAR section is this?") -- see
+          // getStudyFactsForItems' own comment. Coverage is high enough on
+          // both (94% of FAR, ~100%+ of quizzable AIM, since some facted
+          // AIM paragraphs fall outside the stricter D7 quizzable-uniqueness
+          // view) that excluding the rest costs little. P/CG and AC do NOT
+          // exclude: P/CG's own fallback (term<->definition) already IS
+          // real content, not citation recall, and AC's fact coverage is
+          // still sparse (13%, authoring AC was always scoped as a much
+          // bigger separate job) -- excluding there would gut the AC pool
+          // rather than just trim it.
+          const filtered = queue.filter((c) =>
+            c.item_type !== 'aim' && c.item_type !== 'far' ? true : facts.has(`${c.item_type}:${c.item_id}`)
+          )
+          setDeck(filtered)
+          setMastery(m)
+          setCurrency(c)
+          setPoolCount(pool)
+          setIndex(0)
+          setFlipped(false)
+          setSessionDone(filtered.length === 0)
+        })
+      )
       .finally(() => setLoading(false))
   }, [activeTypes, activeLevels, activeCategoryClasses, sessionSize])
 
@@ -648,7 +660,7 @@ export default function StudyScreen() {
               term={current.term}
               definition={current.definition}
               itemType={current.item_type}
-              fact={current.item_type === 'aim' ? aimFacts.get(current.item_id) : undefined}
+              fact={studyFacts.get(`${current.item_type}:${current.item_id}`)}
               direction={revealDirection}
               flipped={flipped}
               onPress={() => setFlipped((f) => !f)}
@@ -783,9 +795,9 @@ function FlashCard({
   term: string
   definition: string
   itemType: StudyItemType
-  /** Real content-recall Q/A for this AIM paragraph, when one exists --
-   * see getAimFacts' own comment. Overrides buildStudyCard's AIM branch
-   * entirely when present; undefined for every other item type. */
+  /** Real content-recall Q/A for this item, when one exists -- see
+   * getStudyFactsForItems' own comment. Overrides buildStudyCard entirely
+   * when present, for any item type; undefined when none was authored. */
   fact?: StudyFact
   direction: RevealDirection
   flipped: boolean

@@ -127,37 +127,56 @@ export interface StudyFact {
 // One fact per paragraph -- Study Mode is still one-card-per-item -- but
 // picked at RANDOM among however many live facts that paragraph has, fresh
 // on every call (see the reservoir-sampling comment below for why).
-export async function getAimFacts(): Promise<Map<string, StudyFact>> {
+// Was getAimFacts(): AIM-only, and fetched EVERY live AIM fact (2,100+ rows,
+// paginated across 3 requests) on every single session even though a deck
+// is capped at 20 cards. Two problems found together, 2026-08-03: (1) the
+// study_facts table has always held live, verified facts for FAR (13,392!)
+// and P/CG (583) and AC (125) too, per scripts/author_fact_deck.py's own
+// two authoring runs -- but study.tsx only ever asked for 'aim', so 14,000+
+// already-paid-for, already-verified real content questions sat unused.
+// RC, real device: "a lot of our Qs are just asking the player to remember
+// the FAR, AC, etc number cold... we need to figure out how to ask similar
+// Qs about the other regs" -- the content questions already existed, they
+// just weren't wired in for anything but AIM. (2) fetching the WHOLE table
+// doesn't scale to 4 types (16,000+ rows) the way it barely did for one --
+// this version instead asks only for the item_ids actually in THIS deck
+// (<=20), grouped by type, which is both correct for every type and far
+// cheaper than the old whole-table fetch ever was.
+export async function getStudyFactsForItems(
+  items: { item_type: StudyItemType; item_id: string }[]
+): Promise<Map<string, StudyFact>> {
   const map = new Map<string, StudyFact>()
-  const counts = new Map<string, number>()
-  const page = 1000
-  let offset = 0
-  while (true) {
-    // PostgREST caps an unfiltered .select() at 1000 rows with no error --
-    // see memory/gotcha_postgrest_1000_row_cap.md. Well over 1,000 live AIM
-    // facts exist, so this WILL span multiple pages.
-    const { data, error } = await supabase
-      .from('study_facts')
-      .select('item_id, question, answer')
-      .eq('item_type', 'aim')
-      .eq('status', 'live')
-      .order('item_id', { ascending: true })
-      .range(offset, offset + page - 1)
-    if (error) throw error
-    for (const row of data ?? []) {
-      // Reservoir sampling (k=1): a uniform-random pick among however many
-      // live facts this paragraph has, not always the first one authored.
-      // Confirmed live as a real gap RC flagged ("each FC session must draw
-      // diff random Qs") -- most AIM paragraphs have 2-3 verified facts,
-      // but the original "first by created_at" dedup meant re-drawing the
-      // same paragraph in a later session (a near-certainty under spaced
-      // repetition) always showed the IDENTICAL question, forever.
-      const seen = (counts.get(row.item_id) ?? 0) + 1
-      counts.set(row.item_id, seen)
-      if (Math.random() < 1 / seen) map.set(row.item_id, { question: row.question, answer: row.answer })
-    }
-    if (!data || data.length < page) break
-    offset += page
+  if (items.length === 0) return map
+  const idsByType = new Map<StudyItemType, string[]>()
+  for (const it of items) {
+    if (!idsByType.has(it.item_type)) idsByType.set(it.item_type, [])
+    idsByType.get(it.item_type)!.push(it.item_id)
   }
+  await Promise.all(
+    [...idsByType.entries()].map(async ([itemType, ids]) => {
+      const { data, error } = await supabase
+        .from('study_facts')
+        .select('item_id, question, answer')
+        .eq('item_type', itemType)
+        .eq('status', 'live')
+        .in('item_id', ids)
+      if (error) throw error
+      const counts = new Map<string, number>()
+      for (const row of data ?? []) {
+        // Reservoir sampling (k=1): a uniform-random pick among however many
+        // live facts this item has, not always the first one authored.
+        // Confirmed live as a real gap RC flagged ("each FC session must draw
+        // diff random Qs") -- most items with multiple facts have 2-3
+        // verified ones, but always picking the same one (e.g. lowest id,
+        // or first by created_at) meant re-drawing the same item in a later
+        // session -- a near-certainty under spaced repetition -- always
+        // showed the IDENTICAL question, forever.
+        const key = `${itemType}:${row.item_id}`
+        const seen = (counts.get(key) ?? 0) + 1
+        counts.set(key, seen)
+        if (Math.random() < 1 / seen) map.set(key, { question: row.question, answer: row.answer })
+      }
+    })
+  )
   return map
 }
