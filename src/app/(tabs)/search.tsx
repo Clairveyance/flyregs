@@ -101,7 +101,8 @@ export default function CommunityScreen() {
             </Text>
             <Text style={[styles.lockedBody, { color: tokens.t3, fontSize: fs(13.5) }]}>
               Study Mode flashcards, Duels against other pilots, RefPacks for your
-              certificate, Challenge Coins and the Ready Room leaderboard all live here.
+              certificate, Challenge Coins and the Ready Room leaderboard all live here
+              — and much more.
             </Text>
             <Pressable
               style={[styles.lockedBtn, { backgroundColor: tokens.blu }]}

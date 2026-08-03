@@ -313,10 +313,40 @@ export default function PaywallScreen() {
               </Text>
             </>
           ) : (
+            // RC: "this verbage only works for the Plus paywall. it's out
+            // of place here. need new language for Pro and Prem" -- this
+            // branch used one static "Unlock these extras forever" line
+            // regardless of which tab was selected, but that one-time-
+            // purchase framing only makes sense for Plus. Now keyed off
+            // the actually-selected tier tab, each with its own pitch.
+            // Plus's own line also does double duty per RC: "remind
+            // customers that pro and premium subscriptions already include
+            // everything in Plus... they don't have to buy Plus and then
+            // upgrade" -- so a viewer landing on Plus isn't left thinking
+            // it's a required first step.
             <>
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>The complete FAA reference</Text>
               <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
-                FAR, AIM, P/CG & ADs are free. Unlock these extras forever. Then subscribe for so much more.
+                {tier === 'plus' ? (
+                  <>
+                    FAR, AIM, P/CG & ADs are free. Unlock these extras forever with a one-time purchase — or skip
+                    straight to <Text style={{ color: tokens.blu, fontWeight: '700' }}>Pro</Text> or{' '}
+                    <Text style={{ color: tokens.gold, fontWeight: '700' }}>Premium</Text> and get everything in
+                    Plus automatically, plus a lot more.
+                  </>
+                ) : tier === 'pro' ? (
+                  <>
+                    FAR, AIM, P/CG & ADs are free. Subscribe to{' '}
+                    <Text style={{ color: tokens.blu, fontWeight: '700' }}>Pro</Text> for MagicLink, Ask FlyRegs,
+                    cross-device sync, and everything in Plus — all in one plan.
+                  </>
+                ) : (
+                  <>
+                    FAR, AIM, P/CG & ADs are free. Go{' '}
+                    <Text style={{ color: tokens.gold, fontWeight: '700' }}>Premium</Text> for the complete
+                    experience — everything in Plus and Pro, plus offline access and shared folders.
+                  </>
+                )}
               </Text>
             </>
           )}
@@ -332,7 +362,7 @@ export default function PaywallScreen() {
             {availableTiers.map((t) => (
               <Pressable
                 key={t}
-                style={[styles.tierBtn, tier === t && { backgroundColor: t === 'plus' ? tokens.amb : tokens.blu }]}
+                style={[styles.tierBtn, tier === t && { backgroundColor: t === 'plus' ? tokens.amb : t === 'premium' ? tokens.gold : tokens.blu }]}
                 onPress={() => setTier(t)}
               >
                 <Text style={[styles.tierBtnText, { color: tier === t ? '#fff' : tokens.t3, fontSize: fs(14) }]}>
@@ -346,9 +376,23 @@ export default function PaywallScreen() {
         {/* Feature list */}
         <View style={[styles.featureBox, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           {tier !== 'plus' && (
-            <View style={[styles.featureHeader, { borderBottomColor: tokens.bdr }]}>
-              <Text style={[styles.featureHeaderText, { color: tokens.t3, fontSize: fs(11.5) }]}>
-                {tier === 'pro' ? 'Everything in Plus, plus:' : 'Everything in Plus and Pro, plus:'}
+            // RC: "we need to highlight this better, and use the color Plus
+            // chip in the line. the goal is to get subs... lead them there
+            // amap." Bumped up from a small muted caption to a real,
+            // tinted banner with each tier's own accent color on its name --
+            // the same colors already used for the tier picker/badges above,
+            // so "Plus" always reads amber and "Pro" always reads blue
+            // wherever they appear on this screen.
+            <View style={[
+              styles.featureHeader,
+              { borderBottomColor: tokens.bdr, backgroundColor: (tier === 'premium' ? tokens.gold : tokens.blu) + '14' },
+            ]}>
+              <Text style={[styles.featureHeaderText, { color: tokens.t2, fontSize: fs(13) }]}>
+                Everything in <Text style={{ color: tokens.amb, fontWeight: '800' }}>Plus</Text>
+                {tier === 'premium' ? (
+                  <> and <Text style={{ color: tokens.blu, fontWeight: '800' }}>Pro</Text></>
+                ) : null}
+                , plus:
               </Text>
             </View>
           )}
@@ -607,7 +651,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: 1,
   },
-  featureHeaderText: { fontSize: 11.5, fontWeight: '600', letterSpacing: 0.3 },
+  featureHeaderText: { fontSize: 13, fontWeight: '700', letterSpacing: 0.2 },
   featureRow: {
     flexDirection: 'row',
     alignItems: 'center',
