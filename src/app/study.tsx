@@ -347,15 +347,16 @@ export default function StudyScreen() {
 
       <TabletContainer>
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-      <Pressable style={styles.filtersHeader} onPress={() => setFiltersExpanded((v) => !v)}>
+      <Pressable style={styles.filtersHeader} onPress={() => setFiltersExpanded((v) => !v)} hitSlop={6}>
         {/* Same slider.horizontal.3 glyph Home's own filter button uses (see
             (tabs)/index.tsx) -- one consistent "this is a filter control"
             icon app-wide instead of a plain chevron. Tinted blue whenever
             any dimension is narrowed from its default, same as Home's own
-            active-filter tint. */}
+            active-filter tint. Sized up from fs(15) -- RC, real device:
+            "the filter icon is too small on the phone." */}
         <Icon
           name="slider.horizontal.3"
-          size={fs(15)}
+          size={fs(19)}
           color={activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0 ? tokens.blu : tokens.t3}
         />
         <Text style={[styles.filtersHeaderText, { color: tokens.t2, fontSize: fs(12.5) }]}>Filters</Text>
@@ -491,75 +492,75 @@ export default function StudyScreen() {
       </>
       )}
 
-      <Pressable style={styles.revealRow} onPress={toggleRevealDirection}>
-        <Icon name="arrow.uturn.left" size={fs(12)} color={tokens.t3} />
-        <Text style={[styles.revealRowText, { color: tokens.t3, fontSize: fs(11.5) }]}>
-          {revealDirection === 'defFirst'
-            ? 'Showing definition first — tap to flip'
-            : 'Showing term first — tap to flip'}
-        </Text>
-      </Pressable>
-
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
-      ) : mastery && (
-        <View style={styles.gaugeRow}>
-          {/* A plain color-graded badge, not a partial-fill ring -- a ring
-              drawn from rotated View borders only sweeps correctly up to
-              50%; rendering past that needs react-native-svg, a new native
-              dependency this session can't build/test (web preview only).
-              Honest and correct beats a good-looking-until-51% gauge. What
-              IS accurate without SVG: the border color and glow intensity
-              both track mastery % directly (dull -> gold, see masteryGlow
-              above), so the badge still visibly communicates progress. */}
-          <Reanimated.View
-            style={[
-              styles.gaugeBadge,
-              {
-                backgroundColor: tokens.bg2,
-                borderColor: lerpColor(MASTERY_RING_DULL, tokens.gold, mastery.pct / 100),
-                shadowColor: tokens.gold,
-                shadowRadius: 9,
-                shadowOffset: { width: 0, height: 0 },
-              },
-              masteryGlowStyle,
-            ]}
-          >
-            <Text style={[styles.gaugeNum, { color: tokens.t1, fontSize: fs(19) }]}>{mastery.pct}</Text>
-            <Text style={[styles.gaugeUnit, { color: tokens.t4, fontSize: fs(8.5) }]}>PCT</Text>
-          </Reanimated.View>
-          <View style={styles.gaugeMeta}>
-            <Text style={[styles.gaugeMetaTitle, { color: tokens.t1, fontSize: fs(13.5) }]}>Overall Mastery</Text>
-            <Text style={[styles.gaugeMetaSub, { color: tokens.t4, fontSize: fs(11.5) }]}>
-              {/* "items total" is the WHOLE corpus (mastery is tracked across
-                  everything, not per filter). Saying "6,283 items total" while
-                  the filter line right below reads "1,316 items match" reads as
-                  a contradiction, so it's labelled as the full corpus whenever
-                  a filter is narrowing the deck. */}
-              {mastery.mastered} mastered of {mastery.seen} reviewed ·{' '}
-              {mastery.total_available} {filtersActive ? 'in full corpus' : 'items total'}
-            </Text>
-          </View>
-        </View>
-      )}
+      ) : (mastery || (currency && currency.currentStreak > 0)) ? (
+        // Mastery + streak grouped into one bordered card instead of two
+        // loose rows stacked directly in the scroll flow -- RC, real
+        // device: "the other stuff is pretty packed together." Grouping
+        // "your stats" as one visually contained unit reads as organized;
+        // two ungrouped rows back to back just reads as more stacking.
+        <View style={[styles.statsCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+          {mastery && (
+            <View style={styles.gaugeRow}>
+              {/* A plain color-graded badge, not a partial-fill ring -- a ring
+                  drawn from rotated View borders only sweeps correctly up to
+                  50%; rendering past that needs react-native-svg, a new native
+                  dependency this session can't build/test (web preview only).
+                  Honest and correct beats a good-looking-until-51% gauge. What
+                  IS accurate without SVG: the border color and glow intensity
+                  both track mastery % directly (dull -> gold, see masteryGlow
+                  above), so the badge still visibly communicates progress. */}
+              <Reanimated.View
+                style={[
+                  styles.gaugeBadge,
+                  {
+                    backgroundColor: tokens.bg,
+                    borderColor: lerpColor(MASTERY_RING_DULL, tokens.gold, mastery.pct / 100),
+                    shadowColor: tokens.gold,
+                    shadowRadius: 9,
+                    shadowOffset: { width: 0, height: 0 },
+                  },
+                  masteryGlowStyle,
+                ]}
+              >
+                <Text style={[styles.gaugeNum, { color: tokens.t1, fontSize: fs(19) }]}>{mastery.pct}</Text>
+                <Text style={[styles.gaugeUnit, { color: tokens.t4, fontSize: fs(8.5) }]}>PCT</Text>
+              </Reanimated.View>
+              <View style={styles.gaugeMeta}>
+                <Text style={[styles.gaugeMetaTitle, { color: tokens.t1, fontSize: fs(13.5) }]}>Overall Mastery</Text>
+                <Text style={[styles.gaugeMetaSub, { color: tokens.t4, fontSize: fs(11.5) }]}>
+                  {/* "items total" is the WHOLE corpus (mastery is tracked across
+                      everything, not per filter). Saying "6,283 items total" while
+                      the filter line right below reads "1,316 items match" reads as
+                      a contradiction, so it's labelled as the full corpus whenever
+                      a filter is narrowing the deck. */}
+                  {mastery.mastered} mastered of {mastery.seen} reviewed ·{' '}
+                  {mastery.total_available} {filtersActive ? 'in full corpus' : 'items total'}
+                </Text>
+              </View>
+            </View>
+          )}
 
-      {!loading && currency && currency.currentStreak > 0 && (
-        <View style={styles.currencyBadge}>
-          <View style={[styles.currencyIcon, { borderColor: tokens.gold }]}>
-            <Icon name="bolt.fill" size={fs(14)} color={tokens.gold} />
-          </View>
-          <View>
-            <Text style={[styles.currencyTitle, { color: tokens.t1, fontSize: fs(13) }]}>
-              Current — {currency.currentStreak} day{currency.currentStreak === 1 ? '' : 's'}
-            </Text>
-            <Text style={[styles.currencySub, { color: tokens.t4, fontSize: fs(10.5) }]}>
-              Lapses after a day with no study session
-            </Text>
-          </View>
+          {currency && currency.currentStreak > 0 && (
+            <View style={[styles.currencyBadge, mastery ? { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.bdr } : null]}>
+              <View style={[styles.currencyIcon, { borderColor: tokens.gold }]}>
+                <Icon name="bolt.fill" size={fs(14)} color={tokens.gold} />
+              </View>
+              <View>
+                <Text style={[styles.currencyTitle, { color: tokens.t1, fontSize: fs(13) }]}>
+                  Current — {currency.currentStreak} day{currency.currentStreak === 1 ? '' : 's'}
+                </Text>
+                <Text style={[styles.currencySub, { color: tokens.t4, fontSize: fs(10.5) }]}>
+                  Lapses after a day with no study session
+                </Text>
+              </View>
+            </View>
+          )}
         </View>
-      )}
+      ) : null}
 
       {!loading && sessionDone && (
         <View style={styles.center}>
@@ -595,9 +596,25 @@ export default function StudyScreen() {
             <Text style={[styles.progress, { color: tokens.t4, fontSize: fs(11.5) }]}>
               {index + 1} / {deck.length}{current.is_new ? ' · new' : ''}
             </Text>
-            <Pressable onPress={handleToggleBookmark} hitSlop={10} style={styles.bookmarkBtn}>
-              <Icon name={currentBookmarked ? 'bookmark.fill' : 'bookmark'} size={fs(16)} color={currentBookmarked ? tokens.gold : tokens.t3} />
-            </Pressable>
+            {/* Flip (term/definition order) moved here from its own standalone
+                row up near Filters -- RC, real device: "the 'flip Q/A' button
+                is oddly placed." It's a per-card control, so it now lives with
+                the other per-card control (bookmark) instead of floating up
+                near session setup; it also only shows once a card actually
+                exists to flip. Condensed from a full sentence to icon + two
+                words so it fits this tighter row without recreating the same
+                clutter it was moved to fix. */}
+            <View style={styles.cardControls}>
+              <Pressable onPress={toggleRevealDirection} hitSlop={10} style={styles.flipBtn}>
+                <Icon name="arrow.uturn.left" size={fs(15)} color={tokens.t3} />
+                <Text style={[styles.flipBtnText, { color: tokens.t3, fontSize: fs(11) }]}>
+                  {revealDirection === 'defFirst' ? 'Def first' : 'Term first'}
+                </Text>
+              </Pressable>
+              <Pressable onPress={handleToggleBookmark} hitSlop={10} style={styles.bookmarkBtn}>
+                <Icon name={currentBookmarked ? 'bookmark.fill' : 'bookmark'} size={fs(20)} color={currentBookmarked ? tokens.gold : tokens.t3} />
+              </Pressable>
+            </View>
           </View>
           {poolCount != null && (
             // This session is always a small batch (getStudyQueue caps at
@@ -893,12 +910,15 @@ const styles = StyleSheet.create({
   filtersSummary: { flex: 1 },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingTop: 8 },
   levelFilterRow: { marginTop: 10 },
-  revealRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, paddingTop: 12 },
-  revealRowText: { fontWeight: '600' },
   filterChip: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6 },
   filterChipText: { fontWeight: '700', letterSpacing: 0.3 },
 
-  gaugeRow: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 6 },
+  // Mastery + streak now live inside this one bordered card (see the JSX
+  // comment above) instead of as two bare rows -- gives "your stats" a
+  // visible boundary instead of blending into the rest of the stacked
+  // controls above/below it.
+  statsCard: { marginHorizontal: 20, marginTop: 14, borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
+  gaugeRow: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 16, paddingVertical: 14 },
   gaugeBadge: { width: 64, height: 64, borderRadius: 32, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   gaugeNum: { fontWeight: '700' },
   gaugeUnit: { letterSpacing: 0.5, marginTop: -2 },
@@ -906,15 +926,25 @@ const styles = StyleSheet.create({
   gaugeMetaTitle: { fontWeight: '600' },
   gaugeMetaSub: { marginTop: 2 },
 
-  currencyBadge: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingBottom: 12 },
+  currencyBadge: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 12 },
   currencyIcon: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   currencyTitle: { fontWeight: '600' },
   currencySub: { marginTop: 1 },
 
   cardArea: { flex: 1, padding: 20, alignItems: 'center' },
   activeFilters: { fontWeight: '600', marginBottom: 6, textAlign: 'center' },
-  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
-  poolCount: { marginBottom: 12 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 6 },
+  cardControls: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  flipBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  flipBtnText: { fontWeight: '600' },
+  // 24 (was 12) so the card's overlaid type badge -- which pokes up 14px
+  // above the card's own top edge, see typeBadge below -- can never
+  // encroach on this text. RC, real device: "make sure the 'reg tag' isn't
+  // covering up the question pool count": at the old 12px margin the badge's
+  // -14px reach already ate into it by 2px at baseline, before even
+  // accounting for font metrics/line-height at larger text-size-slider
+  // settings -- there was never real clearance here, at any scale.
+  poolCount: { marginBottom: 24 },
   progress: { fontVariant: ['tabular-nums'], letterSpacing: 0.3 },
   // Relative anchor for the overlaid type badge below -- width matches the
   // card's own 100% so the badge's left-alignment lines up with the card's
