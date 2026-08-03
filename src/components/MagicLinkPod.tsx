@@ -229,6 +229,15 @@ export function MagicLinkPod({
   )
 }
 
+// Long-press preview card vertical positioning -- see the card's own
+// `top:` comment where these are used for the full reasoning. Gap is
+// clearance between the card's bottom edge and the touch point itself,
+// on top of the card's own (measured) height; fallback is only used for
+// the single frame before the real height is known, so it's fine to be
+// generously oversized.
+const PREVIEW_GAP_ABOVE_TOUCH = 24
+const PREVIEW_FALLBACK_HEIGHT = 90
+
 // (table, key column, title column) for every cited_type that has one --
 // pcg deliberately excluded, its cited_id is already the human-readable
 // term (see the fetch effect below).
@@ -253,6 +262,9 @@ function PodRow({
   const [expanded, setExpanded] = useState(false)
   const [titles, setTitles] = useState<Record<string, string>>({})
   const [preview, setPreview] = useState<{ x: number; y: number; text: string } | null>(null)
+  // Real measured height of the currently-open preview card -- see showPreview
+  // and the card's own onLayout below for why this can't be a fixed constant.
+  const [previewHeight, setPreviewHeight] = useState<number | null>(null)
   // Pressable's onPress fires on release regardless of whether onLongPress
   // already fired -- without this guard, releasing a long-press to dismiss
   // the preview card would ALSO navigate away, immediately undoing the
@@ -321,6 +333,10 @@ function PodRow({
     if (!title) return // nothing extra to elaborate on, or not loaded yet -- don't show an empty card
     longPressFired.current = true
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    // Discard the last card's measured height -- this new text can wrap to a
+    // different number of lines, and reusing a stale height would position
+    // against the WRONG card size for one frame.
+    setPreviewHeight(null)
     setPreview({ x: e.nativeEvent.pageX, y: e.nativeEvent.pageY, text: title })
   }
 
@@ -381,13 +397,36 @@ function PodRow({
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setPreview(null)}>
           {preview && (
             <View
+              onLayout={(e) => {
+                const h = e.nativeEvent.layout.height
+                if (h && h !== previewHeight) setPreviewHeight(h)
+              }}
               style={[
                 styles.previewCard,
                 {
                   backgroundColor: tokens.bg3,
                   borderColor: tokens.bdr,
                   left: Math.min(Math.max(preview.x - 120, 12), Dimensions.get('window').width - 252),
-                  top: Math.max(preview.y - 64, 12),
+                  // RC, on a real device: "it pops up right under the finger so
+                  // you can't read it." A fixed `y - 64` only clears a card
+                  // short enough to be ONE line -- but this feature exists
+                  // specifically for text too long to fit in the row, so
+                  // wrapping to 2-3 lines is the common case, not the
+                  // exception, and a taller card's bottom edge lands AT or
+                  // BELOW the touch point instead of above it (confirmed by
+                  // computing it: a realistic 3-line card's bottom edge sits
+                  // ~5px past the finger, not clear of it). Fixed by
+                  // measuring the card's real rendered height (onLayout,
+                  // above) and placing its bottom edge a real gap above the
+                  // touch point, whatever the text's actual line count turns
+                  // out to be -- PREVIEW_GAP_ABOVE_TOUCH on top of that gives
+                  // clearance for the finger pad's real on-screen footprint,
+                  // not just the exact reported coordinate. Before the first
+                  // onLayout fires (one frame, Modal has no fade to make a
+                  // reflow visible), PREVIEW_FALLBACK_HEIGHT is deliberately
+                  // generous -- overshooting upward for a frame is invisible;
+                  // undershooting reproduces this exact bug.
+                  top: Math.max(preview.y - (previewHeight ?? PREVIEW_FALLBACK_HEIGHT) - PREVIEW_GAP_ABOVE_TOUCH, 12),
                 },
               ]}
             >
