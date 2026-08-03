@@ -6,6 +6,7 @@ import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
 import {
@@ -259,12 +260,15 @@ export default function AircraftDetailScreen() {
           )}
 
           <View style={styles.disclaimerCard}>
-            <Icon name="info.circle" size={fs(14)} color={tokens.t3} />
             <Text style={[styles.disclaimerText, { color: tokens.t3, fontSize: fs(11.5) }]}>
-              Equipment tags and reminders are based only on what you enter here — FlyRegs doesn't verify serial
-              numbers or maintenance records. ADs shown may apply; always confirm against your aircraft's official
-              records.
+              Equipment & reminders are self-reported
             </Text>
+            <InfoPopup
+              id="my-aircraft-equipment-disclaimer"
+              title="Equipment & Reminders"
+              body="Equipment tags and reminders are based only on what you enter here — FlyRegs doesn't verify serial numbers or maintenance records. ADs shown may apply; always confirm against your aircraft's official records."
+              forceOnce
+            />
           </View>
 
           {/* Applicable ADs -- the actual payoff of saving an aircraft at
@@ -917,7 +921,7 @@ const styles = StyleSheet.create({
   acSub: { marginTop: 2, marginBottom: 4 },
 
   disclaimerCard: {
-    flexDirection: 'row', gap: 8, marginTop: 14, marginBottom: 4,
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, marginBottom: 4,
     padding: 10, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.03)',
   },
   disclaimerText: { flex: 1, lineHeight: 16 },

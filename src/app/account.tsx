@@ -22,6 +22,7 @@ import { useAuth } from '@/context/auth'
 import { useReturnToMenu } from '@/context/drawer'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
 import { restorePurchases } from '@/lib/revenuecat'
 import { useFS } from '@/context/fontScale'
@@ -556,7 +557,15 @@ export default function AccountScreen() {
         {/* Profile group — Callsign */}
         <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>PROFILE</Text>
         <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, padding: 14 }]}>
-          <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5), marginBottom: 8 }]}>Callsign</Text>
+          <View style={styles.callsignLabelRow}>
+            <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>Callsign</Text>
+            <InfoPopup
+              id="account-callsign-fallback"
+              title="Callsign"
+              body="If none is set, your email prefix is shown in its place in Premium shared folders, leaderboards, and anywhere else this name is relevant to others."
+              iconSize={fs(15)}
+            />
+          </View>
           <View style={styles.handleInputRow}>
             <TextInput
               style={[styles.handleInput, { color: tokens.t1, borderColor: callsignError ? tokens.red : tokens.bdr, backgroundColor: tokens.bg, fontSize: fs(14.5) }]}
@@ -584,9 +593,6 @@ export default function AccountScreen() {
           {callsignError ? (
             <Text style={[styles.fieldError, { color: tokens.red, fontSize: fs(12.5) }]}>{callsignError}</Text>
           ) : null}
-          <Text style={[styles.handleHelp, { color: tokens.t3, fontSize: fs(12) }]}>
-            If none is set, your email prefix is shown in its place in Premium shared folders, leaderboards, and anywhere else this name is relevant to others.
-          </Text>
 
           {/* Ratings live on Community > Profile, not here. They are a
               profile/bragging concept shown to other pilots, and having the
@@ -860,11 +866,11 @@ const styles = StyleSheet.create({
   rowLabel: { flex: 1, fontSize: 14.5, fontWeight: '500' },
   premBadge: { alignSelf: 'flex-start', borderRadius: 6, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 2, marginTop: 3 },
   premBadgeText: { fontSize: 9.5, fontWeight: '700', letterSpacing: 0.4 },
+  callsignLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   handleInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   handleInput: { flex: 1, height: 42, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12 },
   handleSaveBtn: { height: 42, minWidth: 60, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
   handleSaveBtnText: { color: '#fff', fontWeight: '700' },
-  handleHelp: { marginTop: 8, lineHeight: 17 },
   fieldError: { marginTop: 6, fontWeight: '500' },
   ratingChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   ratingChip: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 7, minHeight: 30, justifyContent: 'center' },

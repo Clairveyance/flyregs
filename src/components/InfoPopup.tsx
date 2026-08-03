@@ -1,0 +1,123 @@
+import { useEffect, useState } from 'react'
+import { Modal, View, Text, Pressable, StyleSheet } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { useTheme } from '@/context/theme'
+import { useFS } from '@/context/fontScale'
+import { Icon } from '@/components/Icon'
+
+const SEEN_KEY_PREFIX = '@flyregs/info-seen/'
+
+// RC, real device: "rather than have the paragraphs on screen all the
+// time, we need to just make these info icons bigger and active, so
+// tapping them opens a popup dialog box to read. then tap to close... if
+// something is important to share, we can force it once (auto popup CTA
+// first time opened with an 'i understand' button - so we're clear of
+// liability). then the info icon stays so they can always ref it anytime."
+//
+// Two modes in one component rather than two separate ones, since the
+// force-once case is just "the same popup, shown automatically the first
+// time, with a stricter dismiss" -- not a different UI.
+interface Props {
+  /** Stable key for this specific piece of content, used to remember
+   * whether a forceOnce popup has already been acknowledged. Must be
+   * unique per distinct explanation, not per screen (e.g.
+   * 'my-aircraft-equipment-disclaimer', not 'my-aircraft-info'). */
+  id: string
+  title: string
+  body: string
+  /** If true, auto-opens once (per device) the first time this component
+   * mounts, and that first showing can only be dismissed via "I
+   * Understand" -- not tap-outside or the X. Every showing after that
+   * (including this same one, once acknowledged) behaves like a normal
+   * tap-to-open/tap-to-close popup. Use for text with real liability
+   * weight; leave false for ordinary explanatory text. */
+  forceOnce?: boolean
+  iconSize?: number
+}
+
+export function InfoPopup({ id, title, body, forceOnce = false, iconSize }: Props) {
+  const { tokens } = useTheme()
+  const fs = useFS()
+  const [visible, setVisible] = useState(false)
+  const [forcing, setForcing] = useState(false)
+
+  useEffect(() => {
+    if (!forceOnce) return
+    let cancelled = false
+    AsyncStorage.getItem(SEEN_KEY_PREFIX + id).then((seen) => {
+      if (!cancelled && !seen) {
+        setForcing(true)
+        setVisible(true)
+      }
+    })
+    return () => { cancelled = true }
+  }, [forceOnce, id])
+
+  const acknowledge = () => {
+    AsyncStorage.setItem(SEEN_KEY_PREFIX + id, '1')
+    setForcing(false)
+    setVisible(false)
+  }
+
+  const close = () => {
+    if (forcing) return // forced first showing only closes via "I Understand"
+    setVisible(false)
+  }
+
+  return (
+    <>
+      <Pressable onPress={() => setVisible(true)} hitSlop={10} style={styles.trigger}>
+        <Icon name="info.circle" size={iconSize ?? fs(18)} color={tokens.t3} />
+      </Pressable>
+      <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
+        <Pressable style={styles.backdrop} onPress={close}>
+          <Pressable style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.headerRow}>
+              <Icon name="info.circle" size={fs(20)} color={tokens.blu} />
+              <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16) }]}>{title}</Text>
+              {!forcing && (
+                <Pressable onPress={close} hitSlop={10}>
+                  <Icon name="xmark" size={fs(18)} color={tokens.t3} />
+                </Pressable>
+              )}
+            </View>
+            <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>{body}</Text>
+            {forcing && (
+              <Pressable style={[styles.understandBtn, { backgroundColor: tokens.blu }]} onPress={acknowledge}>
+                <Text style={[styles.understandText, { fontSize: fs(14.5) }]}>I Understand</Text>
+              </Pressable>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
+  )
+}
+
+const styles = StyleSheet.create({
+  trigger: { padding: 2 },
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 20,
+    gap: 14,
+  },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  title: { fontWeight: '700', flex: 1 },
+  body: { lineHeight: 21 },
+  understandBtn: {
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  understandText: { color: '#fff', fontWeight: '600' },
+})
