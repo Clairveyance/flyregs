@@ -271,7 +271,7 @@ export async function leaveSharedFolder(folderId: string): Promise<void> {
 
 export interface FolderCollaborator {
   userId: string
-  /** The collaborator's chosen handle (Account > User Handle), falling back
+  /** The collaborator's chosen callsign (Account > Callsign), falling back
    * to the local part of their email if they haven't set one -- never the
    * full email/domain, matching get_shared_folder_owners' own fallback. */
   displayLabel: string

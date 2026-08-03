@@ -36,7 +36,7 @@ export default function CommunityScreen() {
   // Same resolution chain Account/Drawer use (avatarOverride takes priority
   // so a freshly picked photo/preset shows here in the same tick, no
   // waiting on a session refresh) -- this card previously hardcoded a bare
-  // "Y" and "You" regardless of the real avatar/handle, so neither ever
+  // "Y" and "You" regardless of the real avatar/callsign, so neither ever
   // updated when either changed.
   const avatarPreset = getAvatarPreset(resolveAvatarPresetId(avatarOverride, session))
   const cachedAvatarUrl = useCachedImage(session?.user?.id ? `avatar_${session.user.id}` : null, getAvatarUrl(session))

@@ -8,7 +8,7 @@ import { addRating, removeRating, RATING_GROUPS, RATING_LABELS, RatingCode } fro
 // Ratings used to be editable from Account AND displayed on Profile, with
 // Profile's "+ Add Rating" doing nothing but router.push('/account') — so
 // tapping it on your own profile threw you out to a settings screen. Ratings
-// are a Community/Profile concept (they show next to your handle to other
+// are a Community/Profile concept (they show next to your callsign to other
 // pilots), so the editor now lives there and only there. This is the shared
 // sheet; Account no longer has a ratings section at all.
 
@@ -58,7 +58,7 @@ export function RatingPicker({
           </Pressable>
         </View>
         <Text style={[styles.help, { color: tokens.t3, fontSize: fs(12) }]}>
-          Self-reported — shown alongside your handle wherever it appears to other pilots.
+          Self-reported — shown alongside your callsign wherever it appears to other pilots.
           Not verified by FlyRegs.
         </Text>
         <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.body}>

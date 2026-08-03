@@ -143,7 +143,7 @@ const FAQ: QA[] = [
     q: 'How does Overall Mastery work, and how do I increase it?',
     category: 'Study Mode, Duels & Coins',
     a: [
-      'An item counts as "mastered" once you\'ve answered it correctly 3 times IN A ROW — missing it resets that item back to zero, so it has to be 3 consecutive correct reviews, not 3 total. The percentage shown is mastered items ÷ the full library (not just what\'s in your current filter), so it grows slowly by design.',
+      'An item counts as "mastered" once you\'ve answered it correctly 2 times IN A ROW — missing it resets that item back to zero, so it has to be 2 consecutive correct reviews, not 2 total. The percentage shown is mastered items ÷ the full library (not just what\'s in your current filter), so it grows slowly by design.',
       'Study Mode uses spaced repetition: once you get an item right, it won\'t come back up for review again for a while, and that gap grows longer each additional time you get it right in a row. So the fastest way to move the number is steady, repeated correct reviews over multiple sessions — not cramming the same session over and over in one sitting.',
     ],
   },

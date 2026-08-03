@@ -78,40 +78,60 @@ export default function AccountScreen() {
   const [leaderboardBusy, setLeaderboardBusy] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  // User Handle -- shown to other people wherever this account appears in a
+  // Callsign -- shown to other people wherever this account appears in a
   // shared context (folder collaborator lists, "Shared by X" attribution,
-  // the branded note-share card) instead of email. Stored in the same
-  // user_metadata.display_name field getDisplayName()/the sharing RPCs
-  // already read -- setting it here is a real, immediate write via
-  // updateUser(), not a separate system, so every one of those call sites
-  // picks it up automatically with no other code change.
-  const existingHandle = (session?.user?.user_metadata as { display_name?: string } | undefined)?.display_name ?? ''
-  const [handleInput, setHandleInput] = useState(existingHandle)
-  const [handleSaving, setHandleSaving] = useState(false)
-  const [handleDirty, setHandleDirty] = useState(false)
+  // the branded note-share card, leaderboards) instead of email. RC: "change
+  // 'handle' to 'Callsign' for the user. that's much more aviation based
+  // and more fun." Still stored in the same user_metadata.display_name
+  // field getDisplayName()/the sharing RPCs/leaderboard RPCs already read,
+  // so every one of those call sites keeps working with no other change --
+  // only the label and the save path change here.
+  //
+  // Saving is now two steps, not one: set_callsign() (a SECURITY DEFINER
+  // RPC backed by public.callsign_registry, see sync/migrations_callsign_
+  // uniqueness.sql) reserves the name first and fails with CALLSIGN_TAKEN
+  // if another user already holds it -- only once that succeeds does the
+  // existing updateUser() call actually set the visible display_name.
+  // Uniqueness can't be enforced with a plain index on auth.users itself
+  // (confirmed live: Supabase's auth schema isn't owned by a role this
+  // project can modify), so callsign_registry is the real gate and
+  // auth.users stays purely the value every read site already trusts.
+  const existingCallsign = (session?.user?.user_metadata as { display_name?: string } | undefined)?.display_name ?? ''
+  const [callsignInput, setCallsignInput] = useState(existingCallsign)
+  const [callsignSaving, setCallsignSaving] = useState(false)
+  const [callsignDirty, setCallsignDirty] = useState(false)
 
   // session loads asynchronously -- on first render it's often still null,
-  // so useState(existingHandle) above captures an empty string that a plain
-  // initializer would never revisit once session actually arrives. Sync
-  // whenever the real value changes, but only while the user isn't mid-edit
-  // (handleDirty) so this can never clobber an unsaved draft.
+  // so useState(existingCallsign) above captures an empty string that a
+  // plain initializer would never revisit once session actually arrives.
+  // Sync whenever the real value changes, but only while the user isn't
+  // mid-edit (callsignDirty) so this can never clobber an unsaved draft.
   useEffect(() => {
-    if (!handleDirty) setHandleInput(existingHandle)
-  }, [existingHandle])
+    if (!callsignDirty) setCallsignInput(existingCallsign)
+  }, [existingCallsign])
 
-  const handleSaveHandle = async () => {
-    const trimmed = handleInput.trim().slice(0, 40)
-    setHandleSaving(true)
+  const handleSaveCallsign = async () => {
+    const trimmed = callsignInput.trim().slice(0, 40)
+    setCallsignSaving(true)
     try {
+      const { error: reserveError } = await supabase.rpc('set_callsign', { p_callsign: trimmed })
+      if (reserveError) {
+        if (reserveError.message === 'CALLSIGN_TAKEN') {
+          Alert.alert('Callsign Taken', 'Someone already flies under that callsign. Try another.')
+          setCallsignSaving(false)
+          return
+        }
+        throw reserveError
+      }
       const { error } = await supabase.auth.updateUser({ data: { display_name: trimmed || null } })
       if (error) throw error
-      setHandleInput(trimmed)
-      setHandleDirty(false)
+      setCallsignInput(trimmed)
+      setCallsignDirty(false)
     } catch (err: any) {
       Sentry.captureException(err)
-      Alert.alert('Error', 'Could not save your handle. Try again in a moment.')
+      Alert.alert('Error', 'Could not save your callsign. Try again in a moment.')
     }
-    setHandleSaving(false)
+    setCallsignSaving(false)
   }
 
   // AC update alerts moved from Premium to Pro in the pricing pivot -- see
@@ -525,36 +545,36 @@ export default function AccountScreen() {
           </View>
         </View>
 
-        {/* Profile group — User Handle */}
+        {/* Profile group — Callsign */}
         <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>PROFILE</Text>
         <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, padding: 14 }]}>
-          <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5), marginBottom: 8 }]}>User Handle</Text>
+          <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5), marginBottom: 8 }]}>Callsign</Text>
           <View style={styles.handleInputRow}>
             <TextInput
               style={[styles.handleInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg, fontSize: fs(14.5) }]}
-              value={handleInput}
-              onChangeText={(v) => { setHandleInput(v); setHandleDirty(true) }}
-              placeholder="e.g. Ryan C."
+              value={callsignInput}
+              onChangeText={(v) => { setCallsignInput(v); setCallsignDirty(true) }}
+              placeholder="e.g. Maverick"
               placeholderTextColor={tokens.t4}
               maxLength={40}
               autoCapitalize="words"
               returnKeyType="done"
-              onSubmitEditing={handleSaveHandle}
+              onSubmitEditing={handleSaveCallsign}
             />
-            {handleSaving ? (
+            {callsignSaving ? (
               <ActivityIndicator size="small" color={tokens.t3} style={styles.handleSaveBtn} />
             ) : (
               <Pressable
-                style={[styles.handleSaveBtn, { backgroundColor: handleDirty ? tokens.blu : tokens.bg4 }]}
-                onPress={handleSaveHandle}
-                disabled={!handleDirty}
+                style={[styles.handleSaveBtn, { backgroundColor: callsignDirty ? tokens.blu : tokens.bg4 }]}
+                onPress={handleSaveCallsign}
+                disabled={!callsignDirty}
               >
                 <Text style={[styles.handleSaveBtnText, { fontSize: fs(13) }]}>Save</Text>
               </Pressable>
             )}
           </View>
           <Text style={[styles.handleHelp, { color: tokens.t3, fontSize: fs(12) }]}>
-            If no User Handle is set, your email prefix will be shown in its place in Premium shared folders and anywhere else this name is relevant to others.
+            Your callsign must be unique — if it's already taken, you'll be asked to pick another. If none is set, your email prefix is shown in its place in Premium shared folders, leaderboards, and anywhere else this name is relevant to others.
           </Text>
 
           {/* Ratings live on Community > Profile, not here. They are a
@@ -682,7 +702,7 @@ export default function AccountScreen() {
 
         {/* Community group — Ready Room leaderboard visibility. Off by
             default, same privacy stance as shared folders/cloud sync
-            elsewhere in this app: opting in surfaces your handle (or email
+            elsewhere in this app: opting in surfaces your callsign (or email
             prefix) and weekly study activity to every other opted-in user. */}
         <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>COMMUNITY</Text>
         <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>

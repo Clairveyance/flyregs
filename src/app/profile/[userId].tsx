@@ -108,8 +108,8 @@ export default function ProfileScreen() {
     setAircraftSaving(false)
   }
 
-  // Real handle (or email prefix fallback), same as Community's identity
-  // card -- previously hardcoded "You" here, so an updated handle in
+  // Real callsign (or email prefix fallback), same as Community's identity
+  // card -- previously hardcoded "You" here, so an updated callsign in
   // Account never showed up on your own profile page.
   const displayLabel = isSelf ? getDisplayName(session) : (label || 'Pilot')
 

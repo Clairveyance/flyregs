@@ -74,7 +74,7 @@ export async function getMasteryLeaderboard(limit = 50): Promise<MasteryLeaderbo
   }))
 }
 
-// Opting in surfaces your User Handle (or email prefix, if no handle is
+// Opting in surfaces your Callsign (or email prefix, if no callsign is
 // set) and weekly study activity to every other opted-in user -- off by
 // default, same privacy stance as shared folders and cloud sync elsewhere
 // in this app. Requires a study_progress/user_streaks row to exist at all
