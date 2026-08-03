@@ -12,11 +12,32 @@ import {
 } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import Reanimated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, withDelay, Easing } from 'react-native-reanimated'
+import { LinearGradient } from 'expo-linear-gradient'
 import { useAuth } from '@/context/auth'
 import { useTheme } from '@/context/theme'
 import { Icon } from '@/components/Icon'
 import { purchaseSubscription, purchaseUnlock, restorePurchases } from '@/lib/revenuecat'
 import { useFS } from '@/context/fontScale'
+
+// Premium's own gold spectrum -- RC: "the Premium paywall, buttons, etc
+// need to look more 'golden' -- like the FlyRegs logo. it's our flagship
+// product... maybe even some subtle 'shimmer'." Deliberately separate from
+// MagicLinkPod.tsx's own GOLD_SPECTRUM_DARK/LIGHT, which is tuned for a thin
+// animated rotating BORDER over a busy background -- these are OPAQUE fill
+// surfaces (CTA button, tier badge) with an icon/label sitting directly on
+// top, so a pale shimmer-stroke color like MagicLinkPod's own #F0D890 would
+// wash out badly here. Real gold is light/mid luminance by nature (high R+G
+// channels), which fights white text -- rather than darkening the fill
+// toward brown to force white-text contrast, both surfaces use dark ink on
+// a bright gold fill instead, like engraving on a gold plaque, which also
+// reads as more convincingly "gold" than a muddy dark-bronze button would.
+// One shared pair (not per-surface) so the CTA and badge read as the same
+// material; light theme goes a shade deeper so it doesn't wash out against
+// a near-white page, same reason lightTokens.gold is deeper than dark's.
+const GOLD_FILL_DARK = ['#F0D890', '#D4AF37', '#B8860B'] as const
+const GOLD_FILL_LIGHT = ['#E8C468', '#C9A227', '#A8790F'] as const
+const GOLD_INK = '#3D2B00'
 
 const WING_ASPECT = 971 / 1071 // flyregs-wing.png width/height
 
@@ -101,7 +122,7 @@ const PRICING = {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function PaywallScreen() {
-  const { tokens } = useTheme()
+  const { tokens, resolved } = useTheme()
   const fs = useFS()
   const { session, isPro, isPremium, isUnlocked, hasPlusAccess, setIsPro, setIsPremium, setIsUnlocked } = useAuth()
   const insets = useSafeAreaInsets()
@@ -272,7 +293,7 @@ export default function PaywallScreen() {
             style={{ width: fs(54), height: fs(54) / WING_ASPECT, marginBottom: 2 }}
             resizeMode="contain"
           />
-          <TierBadge tier={badgeTier} tokens={tokens} fs={fs} />
+          <TierBadge tier={badgeTier} tokens={tokens} fs={fs} isDark={resolved === 'dark'} />
           {premiumRequired ? (
             <>
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>This is a Premium feature</Text>
@@ -419,7 +440,7 @@ export default function PaywallScreen() {
           <Text style={[styles.pickLabel, { color: tokens.t3, fontSize: fs(11) }]}>
             {tier === 'plus' ? 'ONE-TIME PURCHASE' : 'CHOOSE A PLAN'}
           </Text>
-          <TierBadge tier={badgeTier} tokens={tokens} fs={fs} compact />
+          <TierBadge tier={badgeTier} tokens={tokens} fs={fs} isDark={resolved === 'dark'} compact />
         </View>
         {tier === 'plus' ? (
           <Pressable
@@ -458,22 +479,33 @@ export default function PaywallScreen() {
           </View>
         )}
 
-        {/* CTA */}
-        <Pressable
-          style={[
-            styles.cta,
-            { backgroundColor: tier === 'premium' || upgradeMode || premiumRequired ? tokens.gold : tier === 'plus' ? tokens.amb : tokens.blu },
-            (loading || viewingCurrentPlan) && styles.ctaDisabled,
-          ]}
-          onPress={handleSubscribe}
-          disabled={loading || viewingCurrentPlan}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={[styles.ctaText, { fontSize: fs(16) }]}>{ctaLabel}</Text>
-          )}
-        </Pressable>
+        {/* CTA -- Premium gets the golden shimmer treatment (RC: "it's our
+            flagship product... maybe even some subtle shimmer"); Plus/Pro
+            keep the plain flat-color button, unchanged. */}
+        {tier === 'premium' || upgradeMode || premiumRequired ? (
+          <ShimmerGoldCta
+            label={ctaLabel}
+            onPress={handleSubscribe}
+            disabled={loading || viewingCurrentPlan}
+            loading={loading}
+          />
+        ) : (
+          <Pressable
+            style={[
+              styles.cta,
+              { backgroundColor: tier === 'plus' ? tokens.amb : tokens.blu },
+              (loading || viewingCurrentPlan) && styles.ctaDisabled,
+            ]}
+            onPress={handleSubscribe}
+            disabled={loading || viewingCurrentPlan}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={[styles.ctaText, { fontSize: fs(16) }]}>{ctaLabel}</Text>
+            )}
+          </Pressable>
+        )}
 
         {/* Restore */}
         <Pressable style={styles.restoreRow} onPress={async () => {
@@ -511,31 +543,99 @@ export default function PaywallScreen() {
   )
 }
 
+// ─── Shimmer Gold CTA (Premium only) ───────────────────────────────────────────
+// A real gold gradient fill (not a flat color) plus a soft diagonal highlight
+// band that sweeps across the button on a loop, pausing between passes so it
+// reads as a subtle glint, not a distracting constant animation. Same
+// Reanimated + expo-linear-gradient technique MagicLinkPod.tsx already uses
+// for its own rotating gold border, just a different specific effect (a
+// linear sweep, not a rotation) suited to a rectangular button.
+
+function ShimmerGoldCta({
+  label, onPress, disabled, loading,
+}: {
+  label: string
+  onPress: () => void
+  disabled: boolean
+  loading: boolean
+}) {
+  const fs = useFS()
+  const { resolved } = useTheme()
+  const sweep = useSharedValue(-1)
+
+  useEffect(() => {
+    // withTiming animates from whatever the shared value already is -- once
+    // the first pass reaches 1, a bare withRepeat(withTiming(1,...)) has
+    // nothing left to animate (1 -> 1) and freezes there forever. Each
+    // repeat must explicitly snap back to -1 first (duration: 0) before
+    // sweeping to 1 again. Caught by reading the live DOM transform twice a
+    // beat apart, not by eyeballing screenshots -- it was frozen mid-sweep
+    // in a way that looked plausible as a paused animation at a glance.
+    sweep.value = withRepeat(
+      withSequence(
+        withTiming(-1, { duration: 0 }),
+        withDelay(900, withTiming(1, { duration: 1300, easing: Easing.inOut(Easing.ease) })),
+      ),
+      -1,
+      false,
+    )
+  }, [])
+
+  const sweepStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: sweep.value * 280 }, { rotate: '18deg' }],
+  }))
+
+  return (
+    <Pressable
+      style={[styles.cta, styles.ctaGoldWrap, disabled && styles.ctaDisabled]}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <LinearGradient
+        colors={resolved === 'dark' ? GOLD_FILL_DARK : GOLD_FILL_LIGHT}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <Reanimated.View style={[styles.ctaShimmerBand, sweepStyle]} pointerEvents="none">
+        <LinearGradient
+          colors={['transparent', 'rgba(255,255,255,0.7)', 'transparent']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Reanimated.View>
+      {loading ? (
+        <ActivityIndicator color={GOLD_INK} />
+      ) : (
+        <Text style={[styles.ctaText, { color: GOLD_INK, fontSize: fs(16) }]}>{label}</Text>
+      )}
+    </Pressable>
+  )
+}
+
 // ─── Tier Badge ───────────────────────────────────────────────────────────────
 // Eye-catching pill naming the exact plan on offer — shown once up top by the
 // headline and again just above the pricing cards, so it's never ambiguous
 // which plan a user is about to buy.
 
 function TierBadge({
-  tier, tokens, fs, compact,
+  tier, tokens, fs, compact, isDark,
 }: {
   tier: Tier
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
   compact?: boolean
+  isDark: boolean
 }) {
   const isPremium = tier === 'premium'
   const isPlus = tier === 'plus'
-  const accentColor = isPremium ? tokens.gold : isPlus ? tokens.amb : tokens.blu
-  const bg = isPremium ? tokens.goldlt : isPlus ? tokens.amb + '20' : tokens.bdim
+  const accentColor = isPremium ? GOLD_INK : isPlus ? tokens.amb : tokens.blu
+  const bg = isPlus ? tokens.amb + '20' : tokens.bdim
   const bdr = isPremium ? tokens.goldbdr : isPlus ? tokens.amb + '48' : tokens.bbdr
 
-  return (
-    <View style={[
-      styles.tierBadge,
-      compact && styles.tierBadgeCompact,
-      { backgroundColor: bg, borderColor: bdr },
-    ]}>
+  const content = (
+    <>
       <Icon name={isPremium ? 'crown.fill' : isPlus ? 'plus.circle.fill' : 'star.fill'} size={compact ? 11 : 13} color={accentColor} />
       <Text style={[
         styles.tierBadgeText,
@@ -544,6 +644,34 @@ function TierBadge({
       ]}>
         {tier === 'plus' ? 'PLUS' : tier === 'pro' ? 'PRO' : 'PREMIUM'}
       </Text>
+    </>
+  )
+
+  // Premium's badge gets the same gold gradient fill as ShimmerGoldCta,
+  // instead of a flat tint -- RC: "the Premium paywall, buttons, etc need to
+  // look more 'golden' -- like the FlyRegs logo. it's our flagship product."
+  // One shared gold material (GOLD_FILL_*/GOLD_INK) across badge and button
+  // so Premium reads as one consistent "gold tier," not two different golds.
+  if (isPremium) {
+    return (
+      <LinearGradient
+        colors={isDark ? GOLD_FILL_DARK : GOLD_FILL_LIGHT}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.tierBadge, compact && styles.tierBadgeCompact, { borderColor: bdr }]}
+      >
+        {content}
+      </LinearGradient>
+    )
+  }
+
+  return (
+    <View style={[
+      styles.tierBadge,
+      compact && styles.tierBadgeCompact,
+      { backgroundColor: bg, borderColor: bdr },
+    ]}>
+      {content}
     </View>
   )
 }
@@ -704,6 +832,12 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.6 },
   ctaText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  ctaGoldWrap: { overflow: 'hidden' },
+  // Narrow, tall, rotated band swept horizontally across the button by
+  // ShimmerGoldCta -- oversized top/bottom so the rotated rectangle still
+  // fully covers the button's height at its 18deg tilt, clipped by the
+  // wrapper's own overflow:hidden.
+  ctaShimmerBand: { position: 'absolute', top: -30, bottom: -30, left: -20, width: 50 },
 
   restoreRow: { alignItems: 'center', paddingVertical: 4 },
   restoreText: { fontSize: 13 },
