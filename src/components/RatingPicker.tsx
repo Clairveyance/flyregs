@@ -58,7 +58,7 @@ export function RatingPicker({
           </Pressable>
         </View>
         <Text style={[styles.help, { color: tokens.t3, fontSize: fs(12) }]}>
-          Self-reported — shown alongside your callsign wherever it appears to other pilots.
+          Self-reported — shown alongside your callsign wherever it appears to other players.
           Not verified by FlyRegs.
         </Text>
         <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.body}>

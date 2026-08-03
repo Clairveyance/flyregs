@@ -110,7 +110,7 @@ const PRO_ADDITIONS = [
 const PREMIUM_ADDITIONS = [
   { icon: 'person.2.fill',     label: 'Shared, collaborative folders for CFIs, schools, and shops' },
   { icon: 'arrow.down.circle', label: 'Offline downloads — no internet required' },
-  { icon: 'bolt.fill',         label: 'Duels — challenge other pilots to a reg quiz' },
+  { icon: 'bolt.fill',         label: 'Duels — challenge other players to a reg quiz' },
   { icon: 'airplane',          label: 'Unlimited saved aircraft (up from 1 on Pro)' },
 ]
 

@@ -60,7 +60,7 @@ export default function ReadyRoomScreen() {
           <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Ready Room is a Pro feature</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-            See how your weekly practice stacks up against other pilots training toward the same ratings.
+            See how your weekly practice stacks up against other players training toward the same ratings and certifications.
           </Text>
         </View>
       </View>
@@ -83,7 +83,7 @@ export default function ReadyRoomScreen() {
     },
     duels: {
       icon: 'bolt.fill', title: 'No duels yet',
-      sub: 'Turn on "Show me on the Ready Room leaderboard" in Account > Community, then challenge another pilot to be the first name on the board.',
+      sub: 'Turn on "Show me on the Ready Room leaderboard" in Account > Community, then challenge another player to be the first name on the board.',
     },
     mastery: {
       icon: 'rectangle.stack', title: 'No mastered terms yet',

@@ -100,7 +100,7 @@ export default function CommunityScreen() {
               Community is a paid feature
             </Text>
             <Text style={[styles.lockedBody, { color: tokens.t3, fontSize: fs(13.5) }]}>
-              Study Mode flashcards, Duels against other pilots, RefPacks for your
+              Study Mode flashcards, Duels against other players, RefPacks for your
               certificate, Challenge Coins and the Ready Room leaderboard all live here
               — and much more.
             </Text>

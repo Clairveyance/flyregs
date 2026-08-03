@@ -153,7 +153,7 @@ export default function ProfileScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.editTitle, { color: tokens.t1, fontSize: fs(14) }]}>Show my stats</Text>
                     <Text style={[styles.editSub, { color: tokens.t3, fontSize: fs(11.5) }]}>
-                      Lets other pilots see your ratings, coin count, and current aircraft.
+                      Lets other players see your ratings, coin count, and current aircraft.
                     </Text>
                   </View>
                   {statsVisibleBusy ? (
@@ -224,7 +224,7 @@ export default function ProfileScreen() {
               <View style={[styles.privateCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                 <Icon name="eye.slash" size={fs(22)} color={tokens.t4} />
                 <Text style={[styles.privateText, { color: tokens.t3, fontSize: fs(13) }]}>
-                  {displayLabel} hasn't made ratings, badges, or aircraft visible to other pilots yet.
+                  {displayLabel} hasn't made ratings, badges, or aircraft visible to other players yet.
                 </Text>
               </View>
             ) : (
