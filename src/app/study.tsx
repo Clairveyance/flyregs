@@ -676,21 +676,29 @@ export default function StudyScreen() {
               onPress={() => handleAnswer(false)}
             >
               <Icon name="xmark" size={fs(16)} color={tokens.t3} />
-              <Text style={[styles.answerText, { color: tokens.t2, fontSize: fs(13.5) }]}>Missed it</Text>
+              <Text style={[styles.answerText, { color: tokens.t2, fontSize: fs(13.5) }]} numberOfLines={1}>Missed it</Text>
             </Pressable>
+            {/* Icon-only and NOT flex:1, unlike the two answer buttons either
+                side of it -- RC, real device, annotated screenshot: "these
+                buttons are looking crammed to the edges on my phone... that
+                'reveal' button can be smaller, even just a 'flip' icon, to
+                save space." A 3-way equal flex split left Missed it/Knew it
+                noticeably narrower than before this button existed; giving
+                Reveal a small fixed width instead gives the other two back
+                most of that room. */}
             <Pressable
-              style={[styles.answerBtn, { borderColor: tokens.bbdr, backgroundColor: tokens.bdim, opacity: flipped ? 0 : 1, pointerEvents: flipped ? 'none' : 'auto' }]}
+              style={[styles.revealBtn, { borderColor: tokens.bbdr, backgroundColor: tokens.bdim, opacity: flipped ? 0 : 1, pointerEvents: flipped ? 'none' : 'auto' }]}
               onPress={() => setFlipped((f) => !f)}
+              hitSlop={8}
             >
-              <Icon name="arrow.triangle.2.circlepath" size={fs(15)} color={tokens.blu} />
-              <Text style={[styles.answerText, { color: tokens.blu, fontSize: fs(13.5) }]}>Reveal</Text>
+              <Icon name="arrow.triangle.2.circlepath" size={fs(17)} color={tokens.blu} />
             </Pressable>
             <Pressable
               style={[styles.answerBtn, styles.answerBtnGood, { borderColor: tokens.goldbdr, backgroundColor: tokens.goldlt, opacity: flipped ? 1 : 0, pointerEvents: flipped ? 'auto' : 'none' }]}
               onPress={() => handleAnswer(true)}
             >
               <Icon name="checkmark" size={fs(16)} color={tokens.gold} />
-              <Text style={[styles.answerText, { color: tokens.gold, fontSize: fs(13.5) }]}>Knew it</Text>
+              <Text style={[styles.answerText, { color: tokens.gold, fontSize: fs(13.5) }]} numberOfLines={1}>Knew it</Text>
             </Pressable>
           </View>
         </View>
@@ -1031,11 +1039,19 @@ const styles = StyleSheet.create({
   cardTerm: { fontWeight: '700', textAlign: 'center', width: '100%' },
   cardDef: { textAlign: 'center', lineHeight: 22, width: '100%' },
   cardHint: { position: 'absolute', bottom: 14 },
-  answerRow: { flexDirection: 'row', gap: 12, marginTop: 20, width: '100%' },
+  answerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 20, width: '100%' },
   answerBtn: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
-    borderRadius: 14, borderWidth: 1, paddingVertical: 13,
+    flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderRadius: 14, borderWidth: 1, paddingVertical: 13, paddingHorizontal: 4,
   },
   answerBtnGood: {},
+  // Fixed square icon button, not flex:1 -- see the JSX comment above. Same
+  // height as answerBtn's own (13 vertical padding either side of a fs(17)
+  // icon lands close enough to answerBtn's real rendered height that the
+  // row reads as one aligned set, without needing to hardcode a match).
+  revealBtn: {
+    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
+    borderRadius: 14, borderWidth: 1,
+  },
   answerText: { fontWeight: '600' },
 })
