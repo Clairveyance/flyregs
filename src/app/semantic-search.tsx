@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { View, Text, TextInput, ScrollView, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TextInput, ScrollView, Pressable, StyleSheet, ActivityIndicator, Keyboard } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -60,6 +60,13 @@ export default function SemanticSearchScreen() {
   const runSearch = (q: string) => {
     const trimmed = q.trim()
     if (trimmed.length < 3) return
+    // RC, real device: "when hitting the blue 'send' icon, that should be a
+    // cue for the k/b [to] auto hide. then, if user taps the text box again
+    // to type, the k/b returns." Dismissing here (not just at the button's
+    // own onPress) covers every path that fires a search -- the send
+    // button, the keyboard's own return/search key, and tapping an example
+    // prompt -- with one change instead of three.
+    Keyboard.dismiss()
     const mySeq = ++seq.current
     setSearching(true)
     setError(null)
