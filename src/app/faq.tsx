@@ -64,14 +64,23 @@ const FAQ: QA[] = [
     q: 'What does FlyRegs cover?',
     category: 'Getting Started',
     a: [
-      'Five FAA source libraries in one app: the Federal Aviation Regulations (FAR), the Aeronautical Information Manual (AIM), the Pilot/Controller Glossary (P/CG), Advisory Circulars (ACs), and Airworthiness Directives (ADs) — all kept current from the FAA\'s own published text.',
-      'Every one of them is cross-referenced together (see "What is MagicLink?" below), so a regulation, its related AIM guidance, its glossary terms, and any AC or AD that touches it are all reachable from wherever you\'re reading.',
+      'Six FAA source libraries in one app: the Federal Aviation Regulations (FAR), the Aeronautical Information Manual (AIM), the Pilot/Controller Glossary (P/CG), Advisory Circulars (ACs), Airworthiness Directives (ADs), and Legal Interpretations (LOIs) — all kept current from the FAA\'s own published text.',
+      'Every one of them is cross-referenced together (see "What is MagicLink?" below), so a regulation, its related AIM guidance, its glossary terms, and any AC, AD, or LOI that touches it are all reachable from wherever you\'re reading.',
+      'On top of the source libraries, FlyRegs also has a 10,000+ term Aviation Dictionary and a curated collection of aviation mnemonics — see "What is the Aviation Dictionary?" below.',
     ],
   },
   {
     q: 'What is an Advisory Circular?',
     category: 'Getting Started',
     a: ['Advisory Circulars (ACs) are documents the FAA publishes to provide guidance and accepted means of compliance with the federal aviation regulations. They are not regulations themselves, but they explain how to meet them.'],
+  },
+  {
+    q: 'What are Legal Interpretations (LOIs)?',
+    category: 'Getting Started',
+    a: [
+      'Letters the FAA\'s Office of the Chief Counsel sends in response to a specific question about how a regulation applies in practice — real answers to real edge cases, not general guidance like an AC. Each one is named after whoever requested it, not the topic, so full-text search is the fastest way to find one on a subject rather than browsing.',
+      'Browse by year from the LOI tab, or find one connected to whatever you\'re reading via MagicLink.',
+    ],
   },
   {
     q: 'Are the documents official?',
@@ -86,9 +95,10 @@ const FAQ: QA[] = [
     category: 'Getting Started',
     a: [
       'No — browsing the entire library and searching to find an AC are both free, with no account needed, and no limit on how many you can look up. Every AC\'s detail page shows its full Table of Contents plus the beginning of its text for free.',
-      { tier: 'pro', text: 'The complete text of every AC, in-document search, bookmarks, notes, and folders.' },
-      { tier: 'premium', text: 'Everything in Pro, plus cloud sync, sharing, offline downloads, and update alerts.' },
-      'An account is only required when you start a subscription — creating one is free and doesn\'t unlock anything by itself.',
+      { tier: 'plus', text: 'The complete text of every AC and LOI, in-document search, bookmarks, notes, highlighting, and folders (up to 3) — a one-time purchase, not a subscription.' },
+      { tier: 'pro', text: 'Cross-device sync, AD and AC update alerts, opening a linked item from MagicLink, Study Mode and Community, Ask FlyRegs, and 1 saved aircraft.' },
+      { tier: 'premium', text: 'Offline downloads, shared folders, unlimited folders, and unlimited saved aircraft with equipment tags and reminders.' },
+      'An account is only required when you start a subscription (Pro or Premium) or make the one-time Plus purchase — creating an account by itself is free and doesn\'t unlock anything.',
     ],
   },
   {
@@ -110,6 +120,15 @@ const FAQ: QA[] = [
     ],
   },
   {
+    q: 'What is the Aviation Dictionary?',
+    category: 'The Content Library',
+    a: [
+      'A 10,000+ term reference covering FAA contractions (radio/ATC shorthand like IMAIR or ALARM), handbook glossary terms, and informal terms pilots and mechanics actually use — separate from the official Pilot/Controller Glossary (P/CG), which only covers the FAA\'s own formal definitions.',
+      'It also includes a curated collection of aviation mnemonics (ARROW, GUMPS, the 5 Cs, and more), each one linked back to the regulation or concept it\'s actually grounded in.',
+      { tier: 'plus', text: 'Full access to browse and search the Dictionary.' },
+    ],
+  },
+  {
     q: 'How does search work?',
     category: 'Search',
     a: ['Search runs across FAR, AIM, P/CG, AC, and AD numbers, titles, and document text. Type a number like "91-74" or "91.155", or a topic like "icing" or "fatigue" — results rank by relevance.'],
@@ -126,9 +145,17 @@ const FAQ: QA[] = [
     q: 'What is MagicLink?',
     category: 'Search',
     a: [
-      'An automatic cross-reference panel that appears on FAR, AIM, P/CG, AC, and AD pages, surfacing the related terms, regulations, citations, and Letters of Interpretation (LOIs) connected to whatever you\'re reading — so you don\'t have to go search for them yourself.',
+      'An automatic cross-reference panel that appears on FAR, AIM, P/CG, AC, AD, and LOI pages, surfacing the related terms, regulations, citations, and Letters of Interpretation connected to whatever you\'re reading — so you don\'t have to go search for them yourself.',
       'Tap the MagicLink pod to expand its categories. Counts are visible to everyone.',
-      { tier: 'plus', text: 'Actually opening a linked item from the pod requires this — the entry-level tier, not a full subscription.' },
+      { tier: 'pro', text: 'Actually opening a linked item from the pod requires this.' },
+    ],
+  },
+  {
+    q: 'What is Ask FlyRegs?',
+    category: 'Search',
+    a: [
+      { tier: 'pro', text: 'A natural-language question box, separate from the regular search bar — ask something the way you\'d actually phrase it ("do I need a transponder above 10,000 feet?") instead of guessing the exact regulatory wording, and it finds the passages that actually answer it, across the whole library.' },
+      'Find it from the search icon in the tab bar. Unlike SmartSearch (which expands your everyday-language search into FAA terms), Ask FlyRegs is built for full questions, not just keywords.',
     ],
   },
   {
@@ -178,7 +205,8 @@ const FAQ: QA[] = [
     q: 'Can I search for a specific part — an engine, prop, or avionics box?',
     category: 'My Aircraft & RefPacks',
     a: [
-      { tier: 'pro', text: 'Parts Lookup searches a catalog of parts actually named in real AD applicability text, independent of any aircraft you\'ve saved. If a search for a common shop term comes back empty (the catalog is bounded to what\'s genuinely named in an AD, not a universal parts database), it falls back to showing the closest matching category instead of a dead end.' },
+      'Parts Lookup searches a catalog of parts actually named in real AD applicability text, independent of any aircraft you\'ve saved — free, with the first 5 results shown to anyone. If a search for a common shop term comes back empty (the catalog is bounded to what\'s genuinely named in an AD, not a universal parts database), it falls back to showing the closest matching category instead of a dead end.',
+      { tier: 'plus', text: 'The full result list beyond the first 5.' },
       { tier: 'premium', text: 'Tagging a specific part to one of your saved aircraft (so AD alerts catch part-keyed ADs too, not just airframe ones) — see My Aircraft above.' },
     ],
   },
@@ -194,21 +222,23 @@ const FAQ: QA[] = [
   {
     q: 'How do notes and auto-linking work?',
     category: 'Notes, Folders & Highlights',
-    a: ['Open the Notes tab and tap + New. When you type an AC number like "61-65" or "91-74B" in a note, it is detected automatically and turned into a tappable chip that opens the current version of that AC. No suffix required.'],
+    a: [
+      { tier: 'plus', text: 'Open the Notes tab and tap + New. When you type an AC number like "61-65" or "91-74B" in a note, it is detected automatically and turned into a tappable chip that opens the current version of that AC. No suffix required.' },
+    ],
   },
   {
     q: 'What are folders, and how does sharing work?',
     category: 'Notes, Folders & Highlights',
     a: [
-      { tier: 'pro', text: 'Folders let you organize bookmarks into your own custom collections instead of one flat Saved list — a folder per course, per aircraft, per certificate you\'re working on.' },
-      { tier: 'premium', text: 'Sharing a folder gives everyone with access the same folder, kept in sync — useful for a flight school, maintenance shop, or study group working from the same set of references. Recipients see a read-only copy that updates as the owner adds or removes items.' },
+      { tier: 'plus', text: 'Folders let you organize bookmarks into your own custom collections instead of one flat Saved list — a folder per course, per aircraft, per certificate you\'re working on. Up to 3 folders.' },
+      { tier: 'premium', text: 'Unlimited folders, plus sharing — giving everyone with access the same folder, kept in sync. Useful for a flight school, maintenance shop, or study group working from the same set of references. Recipients see a read-only copy that updates as the owner adds or removes items.' },
     ],
   },
   {
     q: 'How does highlighting work?',
     category: 'Notes, Folders & Highlights',
     a: [
-      { tier: 'pro', text: 'Long-press any paragraph or section to highlight it in yellow — it\'s saved instantly to your Saved list, no extra confirmation needed. Long-press the same spot again to remove it.' },
+      { tier: 'plus', text: 'Long-press any paragraph or section to highlight it in yellow — it\'s saved instantly to your Saved list, no extra confirmation needed. Long-press the same spot again to remove it.' },
       'Tap a highlight from Saved and the AC opens scrolled straight to that spot instead of the top of the document.',
     ],
   },
@@ -224,8 +254,9 @@ const FAQ: QA[] = [
     q: 'What does a subscription unlock?',
     category: 'Subscriptions & Sync',
     a: [
-      { tier: 'pro', text: 'Everything in Plus (full text access, highlighting, Parts Lookup, MagicLink navigation, RefPacks), plus cross-device sync, AD alerts, AC update alerts, 1 saved aircraft, and Community (Study Mode, Duels, Challenge Coins).' },
-      { tier: 'premium', text: 'Everything in Pro, plus cloud backup and sync across devices, shared folders for teams, flight schools, and maintenance shops, offline downloads, unlimited saved aircraft with equipment tags and reminders, and update alerts.' },
+      'Plus is a one-time purchase, not a subscription — see "Do I need an account?" above for what it unlocks on its own. Pro and Premium below both build on top of it.',
+      { tier: 'pro', text: 'Everything in Plus, plus cross-device sync, AD and AC update alerts, opening linked items from MagicLink, Ask FlyRegs, Community (Study Mode, Duels, Challenge Coins), and 1 saved aircraft.' },
+      { tier: 'premium', text: 'Everything in Pro, plus offline downloads, shared folders, unlimited folders, and unlimited saved aircraft with equipment tags and reminders.' },
     ],
   },
   {
