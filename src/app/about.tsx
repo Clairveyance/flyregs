@@ -104,9 +104,9 @@ function LinkRow({
       style={[styles.linkRow, !last && { borderBottomWidth: 1, borderBottomColor: tokens.bdr }]}
       onPress={onPress}
     >
-      <Icon name={icon} size={17} color={tokens.t2} />
+      <Icon name={icon} size={fs(17)} color={tokens.t2} />
       <Text style={[styles.linkLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>{label}</Text>
-      <Icon name="arrow.up.right.square" size={15} color={tokens.t4} />
+      <Icon name="arrow.up.right.square" size={fs(15)} color={tokens.t4} />
     </Pressable>
   )
 }

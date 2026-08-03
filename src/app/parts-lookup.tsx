@@ -93,7 +93,7 @@ export default function PartsLookupScreen() {
       <OverlayHeader title="Parts Lookup" onBack={() => router.back()} />
       <TabletContainer>
         <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
-          <Icon name="magnifyingglass" size={16} color={tokens.t3} />
+          <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
           <TextInput
             style={[styles.searchInput, { color: tokens.t1, fontSize: fs(14) }]}
             placeholder="Engine, propeller, avionics part…"
@@ -106,14 +106,14 @@ export default function PartsLookupScreen() {
           />
           {query.length > 0 && (
             <Pressable onPress={() => { setQuery(''); setResults([]) }} hitSlop={8}>
-              <Icon name="xmark.circle" size={16} color={tokens.t4} />
+              <Icon name="xmark.circle" size={fs(16)} color={tokens.t4} />
             </Pressable>
           )}
         </View>
 
         {query.trim().length < 2 ? (
           <View style={styles.center}>
-            <Icon name="wrench" size={34} color={tokens.t4} />
+            <Icon name="wrench" size={fs(34)} color={tokens.t4} />
             <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Search by part or component</Text>
             <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
               Some ADs apply to a specific part — a muffler, an engine model, an avionics box — regardless of what
@@ -141,14 +141,14 @@ export default function PartsLookupScreen() {
             ListHeaderComponent={
               partialMatch ? (
                 <View style={[styles.relatedNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-                  <Icon name="info.circle" size={14} color={tokens.t3} />
+                  <Icon name="info.circle" size={fs(14)} color={tokens.t3} />
                   <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5) }]}>
                     No direct match for "{partialMatch.droppedWords.join(' ')}" — showing results for "{partialMatch.usedWords.join(' ')}" instead. Double-check the model number?
                   </Text>
                 </View>
               ) : relatedTo ? (
                 <View style={[styles.relatedNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-                  <Icon name="info.circle" size={14} color={tokens.t3} />
+                  <Icon name="info.circle" size={fs(14)} color={tokens.t3} />
                   <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5) }]}>
                     No exact match for "{query.trim()}" — showing {TYPE_LABELS[relatedTo]} parts, the closest category.
                   </Text>
@@ -161,7 +161,7 @@ export default function PartsLookupScreen() {
                   style={[styles.moreRow, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
                   onPress={() => router.push('/paywall?tier=plus')}
                 >
-                  <Icon name="lock.fill" size={14} color={tokens.gold} />
+                  <Icon name="lock.fill" size={fs(14)} color={tokens.gold} />
                   <Text style={[styles.moreText, { color: tokens.t2, fontSize: fs(13) }]}>
                     {results.length - FREE_RESULT_CAP} more {results.length - FREE_RESULT_CAP === 1 ? 'part' : 'parts'} match — unlock Plus to see them all
                   </Text>
@@ -189,7 +189,7 @@ export default function PartsLookupScreen() {
                         {item.manufacturer ? ` · ${item.manufacturer}` : ''}
                       </Text>
                     </View>
-                    <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={14} color={tokens.t4} />
+                    <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={fs(14)} color={tokens.t4} />
                   </Pressable>
                   {expanded && (
                     <View style={[styles.adList, { borderColor: tokens.bdr }]}>

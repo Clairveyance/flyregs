@@ -75,7 +75,7 @@ export function DetailActionRow({
     <View style={styles.actionRow}>
       {onOpenPdf ? (
         <Pressable style={[styles.pdfBtn, { backgroundColor: tokens.blu, flex: 1 }]} onPress={onOpenPdf}>
-          <Icon name="doc.text" size={17} color="#fff" />
+          <Icon name="doc.text" size={fs(17)} color="#fff" />
           <Text style={[styles.pdfBtnText, { color: '#fff', fontSize: fs(15) }]}>Open PDF</Text>
         </Pressable>
       ) : null}
@@ -96,7 +96,7 @@ export function DetailActionRow({
         {downloadBusy ? (
           <ActivityIndicator size="small" color={tokens.t2} />
         ) : (
-          <Icon name={downloaded ? 'checkmark.circle' : 'arrow.down.circle'} size={15} color={downloaded ? tokens.grn : tokens.t2} />
+          <Icon name={downloaded ? 'checkmark.circle' : 'arrow.down.circle'} size={fs(15)} color={downloaded ? tokens.grn : tokens.t2} />
         )}
         <Text style={[styles.downloadBtnText, { color: downloaded ? tokens.grn : tokens.t1, fontSize: fs(13) }]}>
           {downloadBusy ? 'Saving…' : downloaded ? 'Saved offline' : 'Download'}

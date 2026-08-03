@@ -88,7 +88,7 @@ export default function FarPartScreen() {
                   <Text style={[styles.secTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
                     {(s.title ?? '').replace(/^§\s*[\d.]+\s*/, '')}
                   </Text>
-                  <Icon name="chevron.right" size={13} color={tokens.t4} />
+                  <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
                 </Pressable>
               ))}
             </View>

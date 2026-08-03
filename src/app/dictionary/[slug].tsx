@@ -12,6 +12,7 @@ import { FolderPicker } from '@/components/FolderPicker'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { addRecent } from '@/lib/recents'
 import { linkifyText } from '@/lib/crossRefLinks'
+import { splitIntoParagraphs } from '@/lib/regTextFormat'
 import { PrevNextFooter } from '@/components/DocNavBar'
 import { DictionarySearchBar } from '@/components/DictionarySearchBar'
 import { buildRegShareLink } from '@/lib/regShare'
@@ -73,7 +74,7 @@ const USAGE_LABELS: Record<string, string> = {
 // verbatim-FAA citations like ULTRALIGHT's "A vehicle as defined by 14
 // CFR 103.1." sitting as dead text even though FlyRegs already has that
 // section's full body available to link to.
-function LinkedText({ text, style, linkColor }: { text: string; style: object; linkColor: string }) {
+function LinkedParagraph({ text, style, linkColor }: { text: string; style: object; linkColor: string }) {
   const segments = linkifyText(text)
   if (segments.length === 1 && segments[0].route === null) {
     return <Text style={style}>{text}</Text>
@@ -90,6 +91,34 @@ function LinkedText({ text, style, linkColor }: { text: string; style: object; l
         ),
       )}
     </Text>
+  )
+}
+
+// Some definitions (handbook/glossary sources especially) arrive as one
+// flat run with no paragraph breaks at all, even when they plainly contain
+// an enumerated list -- RC, real device: "everything needs to be broken up
+// and presented in easily readable formats. this exists many places
+// corpus wide." splitIntoParagraphs decides WHERE to break without
+// changing a single word of the actual FAA/NOAA/etc source text (see its
+// own comment in regTextFormat.ts); each resulting paragraph still runs
+// through the same per-segment citation linkification as before, just one
+// paragraph at a time instead of the whole definition as one giant Text.
+function LinkedText({ text, style, linkColor }: { text: string; style: object; linkColor: string }) {
+  const paragraphs = splitIntoParagraphs(text)
+  if (paragraphs.length <= 1) {
+    return <LinkedParagraph text={text} style={style} linkColor={linkColor} />
+  }
+  return (
+    <View>
+      {paragraphs.map((p, i) => (
+        <LinkedParagraph
+          key={i}
+          text={p}
+          style={i < paragraphs.length - 1 ? [style, styles.paraSpacing] : style}
+          linkColor={linkColor}
+        />
+      ))}
+    </View>
   )
 }
 
@@ -272,15 +301,15 @@ export default function DictionaryTermScreen() {
   const headerRight = entry ? (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
       <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="square.and.arrow.up" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="square.and.arrow.up" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="folder.badge.plus" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="folder.badge.plus" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
         <Icon
           name={bookmarked ? 'bookmark.fill' : 'bookmark'}
-          size={21}
+          size={fs(21)}
           color={bookmarked ? tokens.blu : tokens.t2}
         />
       </Pressable>
@@ -353,11 +382,11 @@ export default function DictionaryTermScreen() {
                 style={[styles.pcgLinkCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
                 onPress={() => router.push(`/dictionary/${entry.see_also_slug}` as any)}
               >
-                <Icon name="arrow.turn.down.right" size={16} color={tokens.blu} />
+                <Icon name="arrow.turn.down.right" size={fs(16)} color={tokens.blu} />
                 <Text style={[styles.pcgLinkText, { color: tokens.blu, fontSize: fs(13.5) }]}>
                   See {seeAlsoTerm}
                 </Text>
-                <Icon name="chevron.right" size={14} color={tokens.t4} />
+                <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
             )}
 
@@ -372,11 +401,11 @@ export default function DictionaryTermScreen() {
                 style={[styles.pcgLinkCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
                 onPress={() => router.push(`/pcg/${entry.pcg_terms!.slug}` as any)}
               >
-                <Icon name="headset" size={16} color={tokens.blu} />
+                <Icon name="headset" size={fs(16)} color={tokens.blu} />
                 <Text style={[styles.pcgLinkText, { color: tokens.blu, fontSize: fs(13.5) }]}>
                   Also in the Pilot/Controller Glossary
                 </Text>
-                <Icon name="chevron.right" size={14} color={tokens.t4} />
+                <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
             )}
 
@@ -411,6 +440,7 @@ const styles = StyleSheet.create({
   senseCard: { borderRadius: 14, borderWidth: 1, padding: 16, marginBottom: 10, gap: 8 },
   senseNum: { fontWeight: '700', letterSpacing: 0.6 },
   definition: { lineHeight: 23 },
+  paraSpacing: { marginBottom: 12 },
   breakdownList: { gap: 12, marginTop: 4 },
   breakdownRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   breakdownLetter: { fontWeight: '800', width: 26 },

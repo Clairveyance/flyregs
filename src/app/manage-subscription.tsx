@@ -113,7 +113,7 @@ export default function ManageSubscriptionScreen() {
         {/* Current plan card */}
         <View style={[styles.planCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <View style={styles.planCardTop}>
-            <Icon name={tier === 'premium' ? 'crown.fill' : tier === 'pro' ? 'star.fill' : 'star'} size={20} color={tierColor} />
+            <Icon name={tier === 'premium' ? 'crown.fill' : tier === 'pro' ? 'star.fill' : 'star'} size={fs(20)} color={tierColor} />
             <Text style={[styles.planName, { color: tokens.t1, fontSize: fs(18) }]}>FlyRegs {tierLabel}</Text>
           </View>
           {details === null ? (
@@ -150,7 +150,7 @@ export default function ManageSubscriptionScreen() {
             style={[styles.upgradeBtn, { backgroundColor: tokens.gold }]}
             onPress={() => router.push('/paywall?tier=premium')}
           >
-            <Icon name="crown.fill" size={15} color="#fff" />
+            <Icon name="crown.fill" size={fs(15)} color="#fff" />
             <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Upgrade to Premium</Text>
           </Pressable>
         )}
@@ -219,10 +219,10 @@ function Row({
   return (
     <Pressable style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]} onPress={onPress}>
       <View style={styles.rowIcon}>
-        <Icon name={icon} size={17} color={tokens.t2} />
+        <Icon name={icon} size={fs(17)} color={tokens.t2} />
       </View>
       <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>{label}</Text>
-      {trailing ?? <Icon name="chevron.right" size={13} color={tokens.t4} />}
+      {trailing ?? <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />}
     </Pressable>
   )
 }

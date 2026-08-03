@@ -65,9 +65,9 @@ export function AvatarEditModal({
               ) : avatarUrl ? (
                 <Image source={{ uri: avatarUrl }} style={styles.photo} />
               ) : preset ? (
-                <Icon name={preset.icon} size={84} color="#fff" />
+                <Icon name={preset.icon} size={fs(84)} color="#fff" />
               ) : (
-                <Text style={styles.photoInitial}>{initial}</Text>
+                <Text style={[styles.photoInitial, { fontSize: fs(72) }]}>{initial}</Text>
               )}
             </View>
           </View>
@@ -79,7 +79,7 @@ export function AvatarEditModal({
                 onPress={onTakePhoto}
                 disabled={busy}
               >
-                <Icon name="camera.fill" size={16} color={busy ? tokens.t4 : tokens.t1} />
+                <Icon name="camera.fill" size={fs(16)} color={busy ? tokens.t4 : tokens.t1} />
                 <Text style={[styles.actionText, { color: busy ? tokens.t4 : tokens.t1, fontSize: fs(14.5) }]}>
                   Take Photo
                 </Text>
@@ -90,7 +90,7 @@ export function AvatarEditModal({
               onPress={onChooseLibrary}
               disabled={busy}
             >
-              <Icon name="photo.fill" size={16} color={busy ? tokens.t4 : tokens.t1} />
+              <Icon name="photo.fill" size={fs(16)} color={busy ? tokens.t4 : tokens.t1} />
               <Text style={[styles.actionText, { color: busy ? tokens.t4 : tokens.t1, fontSize: fs(14.5) }]}>
                 Choose from Library
               </Text>
@@ -101,7 +101,7 @@ export function AvatarEditModal({
                 onPress={onRemovePhoto}
                 disabled={busy}
               >
-                <Icon name="trash" size={16} color={busy ? tokens.t4 : tokens.red} />
+                <Icon name="trash" size={fs(16)} color={busy ? tokens.t4 : tokens.red} />
                 <Text style={[styles.actionText, { color: busy ? tokens.t4 : tokens.red, fontSize: fs(14.5) }]}>
                   Remove Photo
                 </Text>
@@ -125,7 +125,7 @@ export function AvatarEditModal({
                       selected && { borderWidth: 2, borderColor: tokens.t1 },
                     ]}
                   >
-                    <Icon name={p.icon} size={18} color="#fff" />
+                    <Icon name={p.icon} size={fs(18)} color="#fff" />
                   </Pressable>
                 )
               })}

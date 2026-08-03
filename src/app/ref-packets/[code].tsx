@@ -62,7 +62,7 @@ export default function RefPacketDetailScreen() {
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>
         <OverlayHeader title="RefPack" onBack={() => router.back()} />
         <View style={styles.center}>
-          <Icon name="lock.fill" size={36} color={tokens.blu} />
+          <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>RefPacks are a Plus feature</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             Certificate and rating study guides, built from the FAA's own ACS/PTS standards — every reference
@@ -98,7 +98,7 @@ export default function RefPacketDetailScreen() {
                 style={[styles.studyBtn, { backgroundColor: tokens.blu }]}
                 onPress={() => router.push(`/study?level=${studyLevel}` as any)}
               >
-                <Icon name="rectangle.stack.fill" size={15} color="#fff" />
+                <Icon name="rectangle.stack.fill" size={fs(15)} color="#fff" />
                 <Text style={[styles.studyBtnText, { fontSize: fs(13.5) }]}>Study This Rating</Text>
               </Pressable>
             )}
@@ -147,7 +147,7 @@ export default function RefPacketDetailScreen() {
                       {area.title}
                     </Text>
                     <Text style={[styles.taskCount, { color: tokens.t4, fontSize: fs(11.5) }]}>{area.tasks.length}</Text>
-                    <Icon name={isOpen ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+                    <Icon name={isOpen ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
                   </Pressable>
                   {isOpen && (
                     <View style={styles.taskList}>
@@ -161,7 +161,7 @@ export default function RefPacketDetailScreen() {
                           <Text style={[styles.taskTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={2}>
                             {task.title}
                           </Text>
-                          <Icon name="chevron.right" size={12} color={tokens.t4} />
+                          <Icon name="chevron.right" size={fs(12)} color={tokens.t4} />
                         </Pressable>
                       ))}
                     </View>

@@ -34,7 +34,7 @@ export function ScreenHeader({ showWordmark, title, right }: ScreenHeaderProps) 
     >
       <View style={styles.row}>
         <Pressable onPress={open} style={styles.iconBtn} hitSlop={8}>
-          <Icon name="line.3.horizontal" size={22} color={tokens.t2} />
+          <Icon name="line.3.horizontal" size={fs(22)} color={tokens.t2} />
         </Pressable>
 
         <View style={styles.center}>
@@ -82,7 +82,7 @@ export function OverlayHeader({ title, onBack, right }: OverlayHeaderProps) {
     >
       <View style={styles.overlayRow}>
         <Pressable onPress={onBack} style={styles.iconBtn} hitSlop={8}>
-          <Icon name="chevron.left" size={22} color={tokens.blu} />
+          <Icon name="chevron.left" size={fs(22)} color={tokens.blu} />
         </Pressable>
 
         <View style={styles.center}>
@@ -97,7 +97,7 @@ export function OverlayHeader({ title, onBack, right }: OverlayHeaderProps) {
           <View style={styles.overlayRight}>{right}</View>
         ) : (
           <Pressable onPress={open} style={styles.iconBtn} hitSlop={8}>
-            <Icon name="line.3.horizontal" size={22} color={tokens.t2} />
+            <Icon name="line.3.horizontal" size={fs(22)} color={tokens.t2} />
           </Pressable>
         )}
       </View>

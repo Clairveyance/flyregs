@@ -111,5 +111,55 @@ export function normalizeRegBody(raw: string | null | undefined): string {
     // Collapse runs of spaces LAST, after joins have introduced their own —
     // but never inside tabular paragraphs, whose alignment is meaningful.
     .map((p) => (isTabular(p) ? p : p.replace(/ {2,}/g, ' ')))
+    .flatMap((p) => (isTabular(p) ? [p] : splitIntoParagraphs(p)))
     .join('\n\n')
+}
+
+/** Matches the boundary right after a sentence ends and right before an
+ * inline enumerated sub-item begins. Two distinct marker styles seen in the
+ * corpus, both handled:
+ *  - "...several causes. (1) Constructive interference." -- parenthesized,
+ *    space after. Deliberately narrower than STRUCTURAL_START (which only
+ *    ever looks at true line starts): here there may be no line to start
+ *    from, so this only fires directly after terminal punctuation, never
+ *    on parentheses used for a citation or an aside ("(or as amended)")
+ *    that merely happens to contain a short token.
+ *  - "...to an AD. b.This AC includes..." -- bare letter+period, AND (the
+ *    load-bearing part) glued directly to the next word with no space at
+ *    all. That "glued" shape is what makes this safe to detect: "e.g."/
+ *    "i.e." are always followed by a space before the next word, so they
+ *    never match, but a scraped list letter that lost its following space
+ *    always does.
+ * Lookahead only (no lookbehind) -- keeps this safe on every JS engine
+ * this app ships on, native Hermes included. */
+const INLINE_ENUM_BREAK = /([.!?])\s+(?=\((?:[0-9]{1,2}|[a-z])\)\s|[a-z]\.(?=[A-Z]))/g
+
+/**
+ * Some source text -- dictionary/handbook glossary definitions especially,
+ * but also the occasional reg paragraph -- arrives as a single flat run
+ * with NO embedded newlines at all, even when it plainly contains an
+ * enumerated list ("...several possible causes. (1) Constructive
+ * interference. ... (2) Focusing of wave energy. ..."). Confirmed live
+ * (NOAA glossary "Rogue Wave" entry, verbatim in the DB): RC, "everything
+ * needs to be broken up... this exists many places corpus wide."
+ *
+ * Splits such text into real paragraphs without changing a single word --
+ * the FAA/NOAA/etc source stays byte-for-byte intact as the system of
+ * record (same non-negotiable as normalizeRegBody above); this only ever
+ * decides WHERE to break, never what the words say. If real paragraph
+ * breaks already exist, those are respected as-is and the inline heuristic
+ * is skipped entirely, so already-well-formed text is never double-broken.
+ */
+export function splitIntoParagraphs(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  const trimmed = raw.trim()
+  if (!trimmed) return []
+  if (/\n\s*\n/.test(trimmed)) {
+    return trimmed.split(/\n\s*\n+/).map((p) => p.trim()).filter(Boolean)
+  }
+  return trimmed
+    .replace(INLINE_ENUM_BREAK, '$1\n\n')
+    .split(/\n\s*\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
 }

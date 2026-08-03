@@ -281,7 +281,7 @@ export default function PaywallScreen() {
           {premiumRequired || upgradeMode ? 'Upgrade to Premium' : proRequired ? 'Upgrade to Pro' : downgradeMode ? 'Manage Your Plan' : 'Unlock FlyRegs'}
         </Text>
         <Pressable onPress={() => router.dismiss()} hitSlop={8} style={styles.closeBtn}>
-          <Icon name="xmark" size={18} color={tokens.t3} />
+          <Icon name="xmark" size={fs(18)} color={tokens.t3} />
         </Pressable>
       </View>
 
@@ -430,7 +430,7 @@ export default function PaywallScreen() {
             >
               <Icon
                 name={f.icon}
-                size={17}
+                size={fs(17)}
                 color={tier === 'premium' || upgradeMode || premiumRequired ? tokens.gold : tier === 'plus' ? tokens.amb : tokens.blu}
               />
               <Text style={[styles.featureText, { color: tokens.t1, fontSize: fs(14) }]}>{f.label}</Text>
@@ -604,7 +604,7 @@ function TierBadge({
 
   const content = (
     <>
-      <Icon name={isPremium ? 'crown.fill' : isPlus ? 'plus.circle.fill' : 'star.fill'} size={compact ? 11 : 13} color={accentColor} />
+      <Icon name={isPremium ? 'crown.fill' : isPlus ? 'plus.circle.fill' : 'star.fill'} size={fs(compact ? 11 : 13)} color={accentColor} />
       <Text style={[
         styles.tierBadgeText,
         compact && styles.tierBadgeTextCompact,

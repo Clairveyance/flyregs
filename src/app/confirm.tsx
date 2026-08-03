@@ -68,7 +68,7 @@ export default function ConfirmScreen() {
   if (state === 'signedIn') {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg, paddingTop: insets.top + 40 }]}>
-        <Icon name="checkmark.seal.fill" size={44} color={tokens.gold} />
+        <Icon name="checkmark.seal.fill" size={fs(44)} color={tokens.gold} />
         <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Welcome to FlyRegs</Text>
       </View>
     )
@@ -76,7 +76,7 @@ export default function ConfirmScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg, paddingTop: insets.top + 40 }]}>
-      <Icon name="checkmark.seal.fill" size={44} color={tokens.gold} />
+      <Icon name="checkmark.seal.fill" size={fs(44)} color={tokens.gold} />
       <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Email confirmed</Text>
       <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
         Your email is verified. Sign in to start using FlyRegs.

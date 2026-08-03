@@ -50,7 +50,7 @@ export function CoinRevealModal({ coin, onClose }: { coin: CoinDef | null; onClo
         <Text style={[styles.name, { color: '#fff', fontSize: fs(21) }]}>{coin.name}</Text>
         <Text style={[styles.desc, { color: 'rgba(255,255,255,0.7)', fontSize: fs(14) }]}>{coin.description}</Text>
         <Pressable style={[styles.btn, { backgroundColor: tokens.gold }]} onPress={onClose}>
-          <Text style={styles.btnText}>Nice!</Text>
+          <Text style={[styles.btnText, { fontSize: fs(15) }]}>Nice!</Text>
         </Pressable>
       </View>
     </Modal>

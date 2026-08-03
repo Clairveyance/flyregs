@@ -224,7 +224,7 @@ export default function ChallengeGameScreen() {
         // declined), so "Duel declined" would misattribute that to the
         // viewer. See sync/migrations_duels_2.sql.
         <View style={styles.center}>
-          <Icon name="xmark.circle" size={36} color={tokens.t4} />
+          <Icon name="xmark.circle" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>
             {challenge?.myStatus === 'declined' ? 'You declined this duel' : 'Duel cancelled'}
           </Text>
@@ -238,7 +238,7 @@ export default function ChallengeGameScreen() {
         </View>
       ) : phase === 'pending_response' ? (
         <View style={styles.center}>
-          <Icon name="bolt.fill" size={36} color={tokens.gold} />
+          <Icon name="bolt.fill" size={fs(36)} color={tokens.gold} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>
             {otherCount === 1 ? `${challenge?.others[0].label} wants to duel you` : `You've been invited to a ${otherCount + 1}-player duel`}
           </Text>
@@ -256,7 +256,7 @@ export default function ChallengeGameScreen() {
         // hadn't even accepted yet -- a real state now that a duel no longer
         // completes out from under a pending invitee (migrations_duels.sql).
         <View style={styles.center}>
-          <Icon name="hourglass" size={36} color={tokens.t4} />
+          <Icon name="hourglass" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>You've answered every question</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>{waitingCopy}</Text>
         </View>
@@ -270,7 +270,7 @@ export default function ChallengeGameScreen() {
             The clock starts the instant you hit GO. One shot at each answer.
           </Text>
           <Pressable style={[styles.goBtnSmall, { backgroundColor: tokens.gold }]} onPress={handleGo}>
-            <Text style={styles.goBtnSmallText}>GO</Text>
+            <Text style={[styles.goBtnSmallText, { fontSize: fs(14) }]}>GO</Text>
           </Pressable>
         </View>
       ) : phase === 'playing' ? (
@@ -309,7 +309,7 @@ export default function ChallengeGameScreen() {
         <View style={styles.center}>
           <Icon
             name={result?.isCorrect ? 'checkmark.circle' : 'xmark.circle'}
-            size={40}
+            size={fs(40)}
             color={result?.isCorrect ? tokens.grn : tokens.red}
           />
           <Text style={[styles.readyTitle, { color: tokens.t1, fontSize: fs(17) }]}>
@@ -326,7 +326,7 @@ export default function ChallengeGameScreen() {
               : `${result?.othersAnsweredCount ?? 0} of ${result?.othersTotalCount} other${result?.othersTotalCount === 1 ? '' : 's'} answered this one so far`}
           </Text>
           <Pressable style={[styles.goBtnSmall, { backgroundColor: tokens.gold }]} onPress={handleNext}>
-            <Text style={styles.goBtnSmallText}>{result?.challengeCompleted ? 'SEE FULL RESULTS' : 'NEXT QUESTION'}</Text>
+            <Text style={[styles.goBtnSmallText, { fontSize: fs(14) }]}>{result?.challengeCompleted ? 'SEE FULL RESULTS' : 'NEXT QUESTION'}</Text>
           </Pressable>
         </View>
       ) : phase === 'results' ? (
@@ -379,7 +379,7 @@ function ResultsView({
     <View style={styles.resultsWrap}>
       {outcome === 'won' && <ConfettiBurst />}
       <View style={styles.resultsSummary}>
-        <Icon name={outcome === 'won' ? 'rosette' : 'bolt.fill'} size={32} color={tokens.gold} />
+        <Icon name={outcome === 'won' ? 'rosette' : 'bolt.fill'} size={fs(32)} color={tokens.gold} />
         <Text style={[styles.readyTitle, { color: tokens.t1, fontSize: fs(18) }]}>
           {outcome === 'won' ? 'You won!' : outcome === 'tied' ? "It's a tie for first!" : `${winner?.label ?? 'Someone'} won this one`}
         </Text>
@@ -427,7 +427,7 @@ function ResultsView({
               <Text style={[styles.typeBadgeText, { color: tokens.gold, fontSize: fs(9.5) }]}>{TYPE_LABEL[r.itemType]}</Text>
             </View>
             <Text style={[styles.resultTerm, { color: tokens.t1, fontSize: fs(13.5) }]}>{r.term}</Text>
-            <Icon name="chevron.right" size={12} color={tokens.t4} />
+            <Icon name="chevron.right" size={fs(12)} color={tokens.t4} />
           </View>
           {!!r.definition && (
             <Text style={[styles.resultPrompt, { color: tokens.t3, fontSize: fs(12.5) }]} numberOfLines={3}>

@@ -141,15 +141,15 @@ export function RegPreviewPane({ route, onClose }: { route: string | null; onClo
           {data && (
             <View style={styles.headerActions}>
               <Pressable onPress={handleOpenFolderPicker} hitSlop={10} style={{ padding: 4 }}>
-                <Icon name="folder.badge.plus" size={18} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+                <Icon name="folder.badge.plus" size={fs(18)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
               </Pressable>
               <Pressable onPress={handleToggleBookmark} hitSlop={10} style={{ padding: 4 }}>
-                <Icon name={bookmarked ? 'bookmark.fill' : 'bookmark'} size={18} color={bookmarked ? tokens.gold : tokens.t2} />
+                <Icon name={bookmarked ? 'bookmark.fill' : 'bookmark'} size={fs(18)} color={bookmarked ? tokens.gold : tokens.t2} />
               </Pressable>
             </View>
           )}
           <Pressable onPress={onClose} hitSlop={10} style={{ padding: 4 }}>
-            <Icon name="xmark" size={18} color={tokens.t3} />
+            <Icon name="xmark" size={fs(18)} color={tokens.t3} />
           </Pressable>
         </View>
         {loading ? (
@@ -198,7 +198,7 @@ export function RegPreviewPane({ route, onClose }: { route: string | null; onClo
               }}
             >
               <Text style={[styles.openBtnText, { color: tokens.blu, fontSize: fs(13.5) }]}>Open full page</Text>
-              <Icon name="arrow.up.right.square" size={14} color={tokens.blu} />
+              <Icon name="arrow.up.right.square" size={fs(14)} color={tokens.blu} />
             </Pressable>
           </ScrollView>
         ) : null}

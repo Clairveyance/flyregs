@@ -56,7 +56,7 @@ export default function JoinFolder() {
       )}
       {state === 'done' && (
         <>
-          <Icon name="checkmark.seal.fill" size={44} color={tokens.gold} />
+          <Icon name="checkmark.seal.fill" size={fs(44)} color={tokens.gold} />
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>You've joined "{folderName}"</Text>
           <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
             You have view-only access to what's in this folder. You'll still need your own Pro or Premium
@@ -72,7 +72,7 @@ export default function JoinFolder() {
       )}
       {state === 'error' && (
         <>
-          <Icon name="xmark.circle" size={44} color={tokens.red} />
+          <Icon name="xmark.circle" size={fs(44)} color={tokens.red} />
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(18) }]}>Couldn't join</Text>
           <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>{errorMsg}</Text>
           <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.replace('/')}>

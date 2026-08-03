@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Alert } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
@@ -24,6 +24,7 @@ import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch, InDocSearchTarget } from '@/lib/useInDocSearch'
 import { searchPhrase, countOcc, highlightSpans } from '@/lib/searchHighlight'
 import { buildRegShareLink } from '@/lib/regShare'
+import { splitIntoParagraphs } from '@/lib/regTextFormat'
 
 interface PcgTerm {
   slug: string
@@ -223,14 +224,39 @@ export default function PcgTermScreen() {
   const prevTerm = siblingIdx > 0 ? siblingTerms[siblingIdx - 1] : null
   const nextTerm = siblingIdx >= 0 && siblingIdx < siblingTerms.length - 1 ? siblingTerms[siblingIdx + 1] : null
 
-  // No PlainTextBody here (a P/CG definition is one short block, rendered
-  // inline), so match counting is computed directly rather than via that
-  // component's own onMatchCount callback.
+  // No PlainTextBody here (P/CG doesn't need its scroll/paragraph-ref
+  // machinery -- a definition is always short enough to be on screen
+  // without scrolling), so match counting is computed directly rather than
+  // via that component's own onMatchCount callback. The definition text
+  // ITSELF, though, is not always one short sentence -- it's scraped with
+  // whitespace fully flattened (sync/pcg_scraper.py) and can run to
+  // several sentences plus an inline enumerated list, same underlying
+  // shape as the dictionary "wall of text" bug -- see splitIntoParagraphs.
   const hq = inDocSearch.debounced && inDocSearch.debounced.length >= 2 ? inDocSearch.debounced : null
   useEffect(() => {
     if (!hq || !term?.definition) { inDocSearch.setMatchCount(0); return }
     inDocSearch.setMatchCount(countOcc(term.definition, searchPhrase(hq)))
   }, [hq, term?.definition])
+
+  // Split for DISPLAY only -- match counting above still runs over the
+  // raw, unsplit string, so it's unaffected by where these breaks land.
+  // defParaBase mirrors PlainTextBody's own paraBase: a running count of
+  // matches in EARLIER paragraphs, so highlightSpans's `active` index
+  // (a single number across the whole definition) lands on the right
+  // occurrence inside the right paragraph instead of always assuming
+  // paragraph 0.
+  const defParagraphs = useMemo(() => splitIntoParagraphs(term?.definition), [term?.definition])
+  const defParaBase = useMemo(() => {
+    if (!hq) return []
+    const phrase = searchPhrase(hq)
+    const bases: number[] = []
+    let running = 0
+    for (const para of defParagraphs) {
+      bases.push(running)
+      running += countOcc(para, phrase)
+    }
+    return bases
+  }, [defParagraphs, hq])
 
   const acRefs = related.filter((r) => r.cited_type === 'ac')
   const farRefs = related.filter((r) => r.cited_type === 'far' || r.cited_type === 'far_part')
@@ -332,22 +358,22 @@ export default function PcgTermScreen() {
           hitSlop={12}
           style={{ padding: 4 }}
         >
-          <Icon name="arrow.up.circle" size={21} color={tokens.t3} />
+          <Icon name="arrow.up.circle" size={fs(21)} color={tokens.t3} />
         </Pressable>
       )}
       <Pressable onPress={handlePrint} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="printer" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="printer" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="square.and.arrow.up" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="square.and.arrow.up" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="folder.badge.plus" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="folder.badge.plus" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
         <Icon
           name={bookmarked ? 'bookmark.fill' : 'bookmark'}
-          size={21}
+          size={fs(21)}
           color={bookmarked ? tokens.blu : tokens.t2}
         />
       </Pressable>
@@ -391,33 +417,46 @@ export default function PcgTermScreen() {
             </View>
           )}
 
-          <Text style={[styles.def, { color: tokens.t2, fontSize: fs(15) }]}>
-            {hq && term.definition ? (
-              // Same simplification PlainTextBody/ACBody make while
-              // actively searching: plain highlighted text, hyperlinks
-              // suppressed for the duration of the search.
-              highlightSpans(term.definition, hq, { base: 0, active: inDocSearch.matchIdx })
-            ) : term.definition ? (
-              linkifyText(term.definition).map((seg, i) =>
-                seg.route ? (
-                  <Text
-                    key={i}
-                    onPress={() => {
-                      setPendingBreadcrumb(term.term)
-                      router.push(seg.route as any)
-                    }}
-                    style={{ color: tokens.blu, fontWeight: '600' }}
-                  >
-                    {seg.text}
-                  </Text>
+          {term.definition && defParagraphs.length > 0 ? (
+            defParagraphs.map((para, i) => (
+              <Text
+                key={i}
+                style={[
+                  styles.def,
+                  { color: tokens.t2, fontSize: fs(15) },
+                  i < defParagraphs.length - 1 && styles.defParaSpacing,
+                ]}
+              >
+                {hq ? (
+                  // Same simplification PlainTextBody/ACBody make while
+                  // actively searching: plain highlighted text, hyperlinks
+                  // suppressed for the duration of the search.
+                  highlightSpans(para, hq, { base: defParaBase[i] ?? 0, active: inDocSearch.matchIdx })
                 ) : (
-                  <Text key={i}>{seg.text}</Text>
-                ),
-              )
-            ) : (
-              'See related term below — no standalone definition.'
-            )}
-          </Text>
+                  linkifyText(para).map((seg, si) =>
+                    seg.route ? (
+                      <Text
+                        key={si}
+                        onPress={() => {
+                          setPendingBreadcrumb(term.term)
+                          router.push(seg.route as any)
+                        }}
+                        style={{ color: tokens.blu, fontWeight: '600' }}
+                      >
+                        {seg.text}
+                      </Text>
+                    ) : (
+                      <Text key={si}>{seg.text}</Text>
+                    ),
+                  )
+                )}
+              </Text>
+            ))
+          ) : (
+            <Text style={[styles.def, { color: tokens.t2, fontSize: fs(15) }]}>
+              See related term below — no standalone definition.
+            </Text>
+          )}
 
           {/* Download only -- the P/CG is scraped from FAA HTML and has no
               PDF of its own to open. */}
@@ -454,7 +493,7 @@ export default function PcgTermScreen() {
                   onPress={() => router.push(`/pcg/${slugifyPcgTerm(ref)}`)}
                 >
                   <Text style={[styles.seeText, { color: tokens.blu, fontSize: fs(13.5) }]}>{ref}</Text>
-                  <Icon name="chevron.right" size={13} color={tokens.t4} />
+                  <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
                 </Pressable>
               ))}
             </View>
@@ -509,6 +548,7 @@ const styles = StyleSheet.create({
   freqPill: { alignSelf: 'flex-start', borderRadius: 6, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 14 },
   freqText: { fontSize: 11, fontWeight: '600' },
   def: { fontSize: 15, lineHeight: 22 },
+  defParaSpacing: { marginBottom: 12 },
   // Breathing room around the action/MagicLink stack. These bars used to
   // butt straight up against the Download button above and the body text
   // below, so the whole block read as one cramped slab.

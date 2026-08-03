@@ -2,6 +2,7 @@ import { View, Pressable, StyleSheet } from 'react-native'
 import { usePathname, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
+import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 
 // `search` route/path kept as-is (renaming would mean touching every
@@ -59,13 +60,19 @@ export function PersistentTabBar() {
   const pathname = usePathname()
   const router = useRouter()
   const activeTab = activeTabForPath(pathname)
+  const fs = useFS()
+  const iconSize = fs(22)
+  // Grows with the icon so a large text-size setting doesn't clip it against
+  // the bar's edge -- at the default 1x scale this is exactly 44, matching
+  // the previous fixed height with no visible change.
+  const barHeight = Math.max(44, iconSize + 22)
 
   return (
     <View
       style={[
         styles.container,
         {
-          height: 44 + insets.bottom,
+          height: barHeight + insets.bottom,
           paddingBottom: insets.bottom,
           backgroundColor: tokens.bg,
           borderTopColor: tokens.bdr,
@@ -77,13 +84,13 @@ export function PersistentTabBar() {
         return (
           <Pressable
             key={tab.name}
-            style={styles.tab}
+            style={[styles.tab, { height: barHeight }]}
             onPress={() => router.navigate(tab.path as never)}
             hitSlop={4}
           >
             <Icon
               name={tab.icon}
-              size={22}
+              size={iconSize}
               color={isActive ? tokens.blu : tokens.t3}
               weight={isActive ? 'semibold' : 'regular'}
             />

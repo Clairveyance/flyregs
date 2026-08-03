@@ -525,7 +525,7 @@ export default function SavedScreen() {
           onPress={() => (hasPlusAccess ? setNewFolderVisible(true) : router.push('/paywall'))}
           style={[styles.addBtn, { backgroundColor: tokens.blu }]}
         >
-          <Icon name="plus" size={13} color="#fff" />
+          <Icon name="plus" size={fs(13)} color="#fff" />
           <Text style={[styles.addBtnText, { fontSize: fs(12.5) }]}>New</Text>
         </Pressable>
       )}
@@ -693,7 +693,7 @@ export default function SavedScreen() {
           {sharedSubTab === 'withMe' ? (
             collaborations.length === 0 ? (
               <View style={styles.center}>
-                <Icon name="person.2.fill" size={40} color={tokens.t4} />
+                <Icon name="person.2.fill" size={fs(40)} color={tokens.t4} />
                 <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Nothing shared with you yet</Text>
                 <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
                   When someone invites you to a folder, it'll show up here.
@@ -730,14 +730,14 @@ export default function SavedScreen() {
                         </Text>
                       )}
                     </View>
-                    <Icon name="chevron.right" size={14} color={tokens.t4} />
+                    <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
                   </Pressable>
                 )}
               />
             )
           ) : sharedByMe.length === 0 ? (
             <View style={styles.center}>
-              <Icon name="person.2.fill" size={40} color={tokens.t4} />
+              <Icon name="person.2.fill" size={fs(40)} color={tokens.t4} />
               <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>You haven't shared anything yet</Text>
               <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
                 Open a folder in the Folders tab and tap the people icon to invite someone.
@@ -753,7 +753,7 @@ export default function SavedScreen() {
                   style={[styles.sharedRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
                   onPress={() => router.push(`/folder/${item.folder_id}`)}
                 >
-                  <Icon name="folder" size={18} color={tokens.t2} />
+                  <Icon name="folder" size={fs(18)} color={tokens.t2} />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.sharedRowText, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
                       {item.folder_name}
@@ -763,7 +763,7 @@ export default function SavedScreen() {
                     </Text>
                   </View>
                   <Pressable onPress={() => handleUnshare(item)} hitSlop={10} style={{ padding: 4 }}>
-                    <Icon name="xmark.circle" size={20} color={tokens.t4} />
+                    <Icon name="xmark.circle" size={fs(20)} color={tokens.t4} />
                   </Pressable>
                 </Pressable>
               )}
@@ -911,7 +911,7 @@ function FolderEditor({
     >
       <View style={[styles.editorHeader, { backgroundColor: tokens.bg2, borderBottomColor: tokens.bdr, paddingTop: insets.top + 14 }]}>
         <Pressable onPress={onClose} style={styles.editorBack} hitSlop={8}>
-          <Icon name="chevron.left" size={17} color={tokens.blu} />
+          <Icon name="chevron.left" size={fs(17)} color={tokens.blu} />
           <Text style={[styles.editorBackText, { color: tokens.blu, fontSize: fs(14) }]}>Saved</Text>
         </Pressable>
         <Text style={[styles.editorHeadTitle, { color: tokens.t1, fontSize: fs(14) }]}>New folder</Text>
@@ -1033,7 +1033,7 @@ function BookmarkRow({
                     ? { backgroundColor: tokens.blu, borderColor: tokens.blu }
                     : { borderColor: tokens.t3 },
                 ]}>
-                  {selected && <Icon name="checkmark" size={11} color="#fff" />}
+                  {selected && <Icon name="checkmark" size={fs(11)} color="#fff" />}
                 </View>
               )}
               <View style={styles.rowBody}>
@@ -1067,7 +1067,7 @@ function BookmarkRow({
                     </View>
                     {stale && (
                       <View style={styles.staleTag}>
-                        <Icon name="exclamationmark.triangle" size={11} color="#b45309" />
+                        <Icon name="exclamationmark.triangle" size={fs(11)} color="#b45309" />
                         <Text style={{ color: '#b45309', fontSize: fs(10.5), fontWeight: '600' }}>
                           Section changed — won't jump to this spot anymore
                         </Text>
@@ -1076,7 +1076,7 @@ function BookmarkRow({
                   </>
                 ) : hasHighlight ? (
                   <View style={[styles.highlightTag, { backgroundColor: 'rgba(255, 213, 0, 0.12)', borderColor: 'rgba(255, 213, 0, 0.4)' }]}>
-                    <Icon name="highlighter" size={11} color="#8a6d00" />
+                    <Icon name="highlighter" size={fs(11)} color="#8a6d00" />
                     <Text style={{ color: '#8a6d00', fontWeight: '700', fontSize: fs(10.5), marginLeft: 4 }}>
                       Tap to view highlighted section
                     </Text>
@@ -1148,7 +1148,7 @@ function OfflineListView({
   if (downloads.length === 0) {
     return (
       <View style={styles.center}>
-        <Icon name="arrow.down.circle" size={40} color={tokens.t4} />
+        <Icon name="arrow.down.circle" size={fs(40)} color={tokens.t4} />
         <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No downloads yet</Text>
         <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
           Open any AC, FAR, AIM, P/CG, AD, or LOI and tap "Download" to save it here for reading with no connection.
@@ -1265,7 +1265,7 @@ function OfflineRow({
             onPress={handlePress}
           >
             <View style={[styles.offlineIcon, { backgroundColor: tokens.bdim }]}>
-              <Icon name={REG_TYPE[downloadItemType(item) as RegType].icon} size={18} color={tokens.blu} />
+              <Icon name={REG_TYPE[downloadItemType(item) as RegType].icon} size={fs(18)} color={tokens.blu} />
             </View>
             <View style={styles.rowBody}>
               <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
@@ -1283,10 +1283,10 @@ function OfflineRow({
             </View>
             <View style={styles.rowActions}>
               <Pressable onPress={onFolder} hitSlop={8} style={styles.actionBtn}>
-                <Icon name="folder.badge.plus" size={22} color={tokens.t3} />
+                <Icon name="folder.badge.plus" size={fs(22)} color={tokens.t3} />
               </Pressable>
               <Pressable onPress={onShare} hitSlop={8} style={styles.actionBtn}>
-                <Icon name="square.and.arrow.up" size={19} color={tokens.t3} />
+                <Icon name="square.and.arrow.up" size={fs(19)} color={tokens.t3} />
               </Pressable>
             </View>
           </Pressable>
@@ -1327,7 +1327,7 @@ function OwnerAvatar({
     <Image source={{ uri: cachedUrl }} style={styles.ownerAvatarImg} />
   ) : preset ? (
     <View style={[styles.ownerAvatarFallback, { backgroundColor: preset.color }]}>
-      <Icon name={preset.icon} size={16} color="#fff" />
+      <Icon name={preset.icon} size={fs(16)} color="#fff" />
     </View>
   ) : (
     <View style={[styles.ownerAvatarFallback, { backgroundColor: tokens.blu }]}>
@@ -1345,7 +1345,7 @@ function ProWall({ tokens, label }: { tokens: ReturnType<typeof useTheme>['token
   const fs = useFS()
   return (
     <View style={styles.center}>
-      <Icon name="lock.fill" size={36} color={tokens.blu} />
+      <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
       <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>{label} is a Plus feature</Text>
       <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
         Unlock Plus to use {label.toLowerCase()}.
@@ -1370,7 +1370,7 @@ function EmptyState({
   const fs = useFS()
   return (
     <View style={styles.center}>
-      <Icon name="bookmark" size={40} color={tokens.t4} />
+      <Icon name="bookmark" size={fs(40)} color={tokens.t4} />
       <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No saved ACs yet</Text>
       <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
         Tap the bookmark icon on any Advisory Circular to save it here.

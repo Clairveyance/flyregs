@@ -66,10 +66,10 @@ export function FormulaRefViewer({
             style={styles.closeBtn}
             accessibilityLabel="Rotate image"
           >
-            <Icon name="arrow.clockwise" size={20} color="#fff" />
+            <Icon name="arrow.clockwise" size={fs(20)} color="#fff" />
           </Pressable>
           <Pressable onPress={onClose} hitSlop={14} style={styles.closeBtn}>
-            <Icon name="xmark" size={20} color="#fff" />
+            <Icon name="xmark" size={fs(20)} color="#fff" />
           </Pressable>
         </View>
         {formulaRef?.note && (

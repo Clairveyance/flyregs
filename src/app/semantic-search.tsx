@@ -82,7 +82,7 @@ export default function SemanticSearchScreen() {
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>
         <OverlayHeader title="Ask FlyRegs" onBack={() => router.back()} />
         <View style={styles.center}>
-          <Icon name="text.bubble.fill" size={32} color={tokens.grn} />
+          <Icon name="text.bubble.fill" size={fs(32)} color={tokens.grn} />
           <Text style={[styles.upsellTitle, { color: tokens.t1, fontSize: fs(17) }]}>
             Ask FlyRegs a real question
           </Text>
@@ -94,7 +94,7 @@ export default function SemanticSearchScreen() {
             style={[styles.upsellBtn, { backgroundColor: tokens.blu }]}
             onPress={() => router.push('/paywall?tier=pro')}
           >
-            <Text style={styles.upsellBtnText}>Unlock with Pro</Text>
+            <Text style={[styles.upsellBtnText, { fontSize: fs(14.5) }]}>Unlock with Pro</Text>
           </Pressable>
         </View>
       </View>
@@ -122,7 +122,7 @@ export default function SemanticSearchScreen() {
               onPress={() => runSearch(query)}
               disabled={query.trim().length < 3 || searching}
             >
-              {searching ? <ActivityIndicator size="small" color="#fff" /> : <Icon name="paperplane.fill" size={15} color="#fff" />}
+              {searching ? <ActivityIndicator size="small" color="#fff" /> : <Icon name="paperplane.fill" size={fs(15)} color="#fff" />}
             </Pressable>
           </View>
 
@@ -131,7 +131,7 @@ export default function SemanticSearchScreen() {
               <Text style={[styles.examplesLabel, { color: tokens.t3, fontSize: fs(11) }]}>TRY ASKING</Text>
               {EXAMPLE_PROMPTS.map((p) => (
                 <Pressable key={p} style={[styles.exampleRow, { borderColor: tokens.bdr }]} onPress={() => { setQuery(p); runSearch(p) }}>
-                  <Icon name="text.bubble.fill" size={13} color={tokens.t3} />
+                  <Icon name="text.bubble.fill" size={fs(13)} color={tokens.t3} />
                   <Text style={[styles.exampleText, { color: tokens.t2, fontSize: fs(13.5) }]}>{p}</Text>
                 </Pressable>
               ))}
@@ -165,7 +165,7 @@ export default function SemanticSearchScreen() {
                     onPress={() => router.push(routeForCitedItem(r.sourceType, r.sourceId) as any)}
                   >
                     <View style={styles.resultHeader}>
-                      <Icon name={meta.icon} size={13} color={tokens.blu} />
+                      <Icon name={meta.icon} size={fs(13)} color={tokens.blu} />
                       <Text style={[styles.resultBadge, { color: tokens.blu, fontSize: fs(11.5) }]}>
                         {meta.label}{formatSourceLabel(r.sourceType, r.sourceId) ? ` ${formatSourceLabel(r.sourceType, r.sourceId)}` : ''}
                       </Text>

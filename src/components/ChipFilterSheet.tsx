@@ -48,7 +48,7 @@ export function ChipFilterSheet({
           <View style={styles.header}>
             <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16) }]}>{title}</Text>
             <Pressable onPress={onClose} hitSlop={10}>
-              <Icon name="xmark" size={18} color={tokens.t3} />
+              <Icon name="xmark" size={fs(18)} color={tokens.t3} />
             </Pressable>
           </View>
           {subtitle ? (

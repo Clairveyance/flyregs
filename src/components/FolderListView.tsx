@@ -103,7 +103,7 @@ export function FolderListView({
     return (
       <View style={styles.empty}>
         {listHeader}
-        <Icon name="folder" size={40} color={tokens.t4} />
+        <Icon name="folder" size={fs(40)} color={tokens.t4} />
         <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No folders yet</Text>
         <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
           Folders let you organize saved regulations and notes together — great for training syllabi, study sets, and reference packs.
@@ -112,7 +112,7 @@ export function FolderListView({
           style={[styles.createCta, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr, borderWidth: 1 }]}
           onPress={() => guardPro(onCreateFolder)}
         >
-          <Icon name="folder.badge.plus" size={16} color={tokens.blu} />
+          <Icon name="folder.badge.plus" size={fs(16)} color={tokens.blu} />
           <Text style={[styles.createCtaText, { color: tokens.blu, fontSize: fs(14) }]}>New Folder</Text>
         </Pressable>
       </View>
@@ -147,7 +147,7 @@ export function FolderListView({
           if (isEditing) {
             return (
               <View style={[styles.folderCard, { backgroundColor: tokens.bg2, borderColor: tokens.blu }]}>
-                <Icon name="folder.fill" size={20} color={tokens.blu} />
+                <Icon name="folder.fill" size={fs(20)} color={tokens.blu} />
                 <TextInput
                   style={[styles.nameInput, { color: tokens.t1, flex: 1, fontSize: fs(14.5) }]}
                   value={editName}
@@ -158,10 +158,10 @@ export function FolderListView({
                   maxLength={60}
                 />
                 <Pressable onPress={handleRename} hitSlop={8}>
-                  <Icon name="checkmark.circle.fill" size={22} color={tokens.blu} />
+                  <Icon name="checkmark.circle.fill" size={fs(22)} color={tokens.blu} />
                 </Pressable>
                 <Pressable onPress={() => setEditName('')} hitSlop={8}>
-                  <Icon name="xmark.circle.fill" size={22} color={tokens.t3} />
+                  <Icon name="xmark.circle.fill" size={fs(22)} color={tokens.t3} />
                 </Pressable>
               </View>
             )
@@ -260,10 +260,10 @@ function SwipeableFolderRow({
                   ? { backgroundColor: tokens.blu, borderColor: tokens.blu }
                   : { borderColor: tokens.t3 },
               ]}>
-                {selected && <Icon name="checkmark" size={11} color="#fff" />}
+                {selected && <Icon name="checkmark" size={fs(11)} color="#fff" />}
               </View>
             )}
-            <Icon name="folder.fill" size={20} color={tokens.blu} />
+            <Icon name="folder.fill" size={fs(20)} color={tokens.blu} />
             <View style={styles.folderCardBody}>
               <Text style={[styles.folderName, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
                 {folder.name}

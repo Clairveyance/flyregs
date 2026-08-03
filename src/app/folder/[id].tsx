@@ -374,10 +374,10 @@ export default function FolderDetail() {
               placeholderTextColor={tokens.t3}
             />
             <Pressable onPress={handleRename} hitSlop={8}>
-              <Icon name="checkmark.circle.fill" size={22} color={tokens.blu} />
+              <Icon name="checkmark.circle.fill" size={fs(22)} color={tokens.blu} />
             </Pressable>
             <Pressable onPress={() => setRenameText('')} hitSlop={8}>
-              <Icon name="xmark.circle.fill" size={22} color={tokens.t3} />
+              <Icon name="xmark.circle.fill" size={fs(22)} color={tokens.t3} />
             </Pressable>
           </View>
         )}
@@ -391,13 +391,13 @@ export default function FolderDetail() {
       {folder?.shared && (
         <View style={[styles.collabSection, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}>
           <Pressable style={styles.collabHeader} onPress={() => setCollabExpanded((v) => !v)}>
-            <Icon name="person.2.fill" size={15} color={tokens.t2} />
+            <Icon name="person.2.fill" size={fs(15)} color={tokens.t2} />
             <Text style={[styles.collabHeaderText, { color: tokens.t2, fontSize: fs(13) }]}>
               {activeCollaborators.length === 0
                 ? 'No one has joined yet'
                 : `${activeCollaborators.length} ${activeCollaborators.length === 1 ? 'person has' : 'people have'} joined`}
             </Text>
-            <Icon name={collabExpanded ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+            <Icon name={collabExpanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
           </Pressable>
           {collabExpanded && (
             <>
@@ -414,14 +414,14 @@ export default function FolderDetail() {
                       so that state isn't something the app can know. */}
                   <Icon
                     name={c.lastViewedAt ? 'eye.fill' : 'eye.slash'}
-                    size={13}
+                    size={fs(13)}
                     color={c.lastViewedAt ? tokens.grn : tokens.t4}
                   />
                   <Text style={[styles.collabEmail, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
                     {c.displayLabel}
                   </Text>
                   <Pressable onPress={() => handleRemoveCollaborator(c)} hitSlop={8}>
-                    <Icon name="xmark.circle" size={18} color={tokens.t4} />
+                    <Icon name="xmark.circle" size={fs(18)} color={tokens.t4} />
                   </Pressable>
                 </View>
               ))}
@@ -436,7 +436,7 @@ export default function FolderDetail() {
                         {c.displayLabel}
                       </Text>
                       <Pressable onPress={() => handleRemoveCollaborator(c)} hitSlop={8}>
-                        <Icon name="xmark.circle" size={18} color={tokens.red} />
+                        <Icon name="xmark.circle" size={fs(18)} color={tokens.red} />
                       </Pressable>
                     </View>
                   ))}
@@ -449,7 +449,7 @@ export default function FolderDetail() {
 
       {totalCount === 0 ? (
         <View style={styles.empty}>
-          <Icon name="folder" size={40} color={tokens.t4} />
+          <Icon name="folder" size={fs(40)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Folder is empty</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             Add bookmarks from the Saved tab or notes from the Notes tab using the folder icon on each card.
@@ -704,7 +704,7 @@ function SwipeableNoteRow({
               <Text style={[styles.rowMeta, { color: tokens.t4, fontSize: fs(11) }]}>{timeAgo(note.updated_at)}</Text>
               {note.linked_ac && (
                 <View style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
-                  <Icon name="link" size={9} color={tokens.blu} />
+                  <Icon name="link" size={fs(9)} color={tokens.blu} />
                   <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>AC {note.linked_ac}</Text>
                 </View>
               )}

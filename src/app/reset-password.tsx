@@ -77,7 +77,7 @@ export default function ResetPasswordScreen() {
   if (state === 'invalid') {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg, paddingTop: insets.top + 40 }]}>
-        <Icon name="xmark.circle" size={44} color={tokens.red} />
+        <Icon name="xmark.circle" size={fs(44)} color={tokens.red} />
         <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Link expired</Text>
         <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
           This reset link is invalid or has expired. Request a new one from the sign-in screen.
@@ -92,7 +92,7 @@ export default function ResetPasswordScreen() {
   if (state === 'done') {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg, paddingTop: insets.top + 40 }]}>
-        <Icon name="checkmark.seal.fill" size={44} color={tokens.gold} />
+        <Icon name="checkmark.seal.fill" size={fs(44)} color={tokens.gold} />
         <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Password updated</Text>
       </View>
     )
@@ -100,11 +100,11 @@ export default function ResetPasswordScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg, paddingTop: insets.top + 40 }]}>
-      <Icon name="lock" size={40} color={tokens.blu} />
+      <Icon name="lock" size={fs(40)} color={tokens.blu} />
       <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Set a new password</Text>
 
       <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
-        <Icon name="lock" size={16} color={tokens.t3} />
+        <Icon name="lock" size={fs(16)} color={tokens.t3} />
         <TextInput
           style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
           placeholder="New password"
@@ -116,12 +116,12 @@ export default function ResetPasswordScreen() {
           autoComplete="new-password"
         />
         <Pressable onPress={() => setShowPassword((v) => !v)} hitSlop={8}>
-          <Icon name={showPassword ? 'eye.slash' : 'eye'} size={18} color={tokens.t3} />
+          <Icon name={showPassword ? 'eye.slash' : 'eye'} size={fs(18)} color={tokens.t3} />
         </Pressable>
       </View>
 
       <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
-        <Icon name="lock" size={16} color={tokens.t3} />
+        <Icon name="lock" size={fs(16)} color={tokens.t3} />
         <TextInput
           style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
           placeholder="Confirm password"

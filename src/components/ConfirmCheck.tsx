@@ -10,6 +10,7 @@ import Reanimated, {
 } from 'react-native-reanimated'
 import { Icon } from '@/components/Icon'
 import { useTheme } from '@/context/theme'
+import { useFS } from '@/context/fontScale'
 
 // Brief centered confirmation — pops in, holds, fades out. Used after a bulk
 // action (e.g. "Add N items to Folder") completes, so there's a visible cue
@@ -19,6 +20,7 @@ import { useTheme } from '@/context/theme'
 // checkmark, so the user can actually confirm where things landed.
 export function ConfirmCheck({ trigger, label }: { trigger: number; label?: string }) {
   const { tokens } = useTheme()
+  const fs = useFS()
   const scale = useSharedValue(0)
   const opacity = useSharedValue(0)
 
@@ -48,8 +50,8 @@ export function ConfirmCheck({ trigger, label }: { trigger: number; label?: stri
     return (
       <View style={styles.wrap} pointerEvents="none">
         <Reanimated.View style={[styles.pill, { backgroundColor: tokens.blu }, animStyle]}>
-          <Icon name="checkmark" size={20} color="#fff" />
-          <Text style={styles.pillText} numberOfLines={2}>{label}</Text>
+          <Icon name="checkmark" size={fs(20)} color="#fff" />
+          <Text style={[styles.pillText, { fontSize: fs(16) }]} numberOfLines={2}>{label}</Text>
         </Reanimated.View>
       </View>
     )
@@ -58,7 +60,7 @@ export function ConfirmCheck({ trigger, label }: { trigger: number; label?: stri
   return (
     <View style={styles.wrap} pointerEvents="none">
       <Reanimated.View style={[styles.badge, { backgroundColor: tokens.blu }, animStyle]}>
-        <Icon name="checkmark" size={32} color="#fff" />
+        <Icon name="checkmark" size={fs(32)} color="#fff" />
       </Reanimated.View>
     </View>
   )

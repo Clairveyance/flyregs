@@ -186,8 +186,8 @@ export function MagicLinkPod({
           style={[styles.brandRow, podExpanded && { borderBottomColor: tokens.bdr, borderBottomWidth: StyleSheet.hairlineWidth }]}
           onPress={() => setPodExpanded((e) => !e)}
         >
-          <Icon name="sparkles" size={11} color={tokens.gold} />
-          <Text style={styles.brandText}>
+          <Icon name="sparkles" size={fs(13)} color={tokens.gold} />
+          <Text style={[styles.brandText, { fontSize: fs(13) }]}>
             {MAGICLINK_LETTERS.map((ch, i) => (
               <Text
                 key={i}
@@ -200,7 +200,7 @@ export function MagicLinkPod({
                 // rendering is used.
                 style={{
                   color: sampleGoldSpectrum((i / (MAGICLINK_LETTERS.length - 1) + shimmerPhase) % 1, spectrum),
-                  fontSize: ch === 'M' || ch === 'L' ? 13 : 11,
+                  fontSize: ch === 'M' || ch === 'L' ? fs(15) : fs(13),
                 }}
               >
                 {ch}
@@ -208,10 +208,10 @@ export function MagicLinkPod({
             ))}
           </Text>
           <View style={{ flex: 1 }} />
-          <Text style={[styles.brandCount, { color: anyItems ? tokens.gold : tokens.t3, fontSize: fs(11.5) }]}>
+          <Text style={[styles.brandCount, { color: anyItems ? tokens.gold : tokens.t3, fontSize: fs(13) }]}>
             {totalCount}
           </Text>
-          <Icon name={podExpanded ? 'chevron.up' : 'chevron.down'} size={11} color={tokens.t4} />
+          <Icon name={podExpanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t4} />
         </Pressable>
         {podExpanded &&
           bars.map((bar, i) => (
@@ -346,14 +346,14 @@ function PodRow({
         style={[styles.row, !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
         onPress={handlePressBar}
       >
-        <Icon name={bar.icon} size={15} color={hasItems ? tokens.gold : tokens.t3} />
+        <Icon name={bar.icon} size={fs(15)} color={hasItems ? tokens.gold : tokens.t3} />
         <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(13) }]}>{bar.label}</Text>
         <View style={{ flex: 1 }} />
         <Text style={[styles.rowCount, { color: hasItems ? tokens.gold : tokens.t3, fontSize: fs(12.5) }]}>{count}</Text>
         {hasItems && !hasProAccess ? (
-          <Icon name="lock.fill" size={11} color={tokens.t4} />
+          <Icon name="lock.fill" size={fs(11)} color={tokens.t4} />
         ) : hasItems ? (
-          <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={12} color={tokens.t4} />
+          <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={fs(12)} color={tokens.t4} />
         ) : null}
       </Pressable>
 
@@ -382,7 +382,7 @@ function PodRow({
                   </Text>
                 )}
               </View>
-              <Icon name="chevron.right" size={12} color={tokens.t4} />
+              <Icon name="chevron.right" size={fs(12)} color={tokens.t4} />
             </Pressable>
           ))}
         </View>
@@ -470,10 +470,10 @@ const styles = StyleSheet.create({
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingTop: 9,
-    paddingBottom: 7,
+    gap: 6,
+    paddingHorizontal: 13,
+    paddingTop: 12,
+    paddingBottom: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   brandText: {

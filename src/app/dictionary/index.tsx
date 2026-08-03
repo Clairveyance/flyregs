@@ -9,6 +9,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getWordOfTheDay, WordOfTheDay } from '@/lib/notifications'
+import { splitIntoParagraphs } from '@/lib/regTextFormat'
 
 interface TermHit {
   slug: string
@@ -115,7 +116,7 @@ export default function DictionaryIndexScreen() {
       ) : (
         <TabletContainer>
           <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
-            <Icon name="magnifyingglass" size={16} color={tokens.t3} />
+            <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
             <TextInput
               style={[styles.searchInput, { color: tokens.t1, fontSize: fs(14) }]}
               placeholder="Find a term or acronym…"
@@ -128,7 +129,7 @@ export default function DictionaryIndexScreen() {
             />
             {query.length > 0 && (
               <Pressable onPress={() => { setQuery(''); setTermHits([]) }} hitSlop={8}>
-                <Icon name="xmark.circle" size={16} color={tokens.t4} />
+                <Icon name="xmark.circle" size={fs(16)} color={tokens.t4} />
               </Pressable>
             )}
           </View>
@@ -168,7 +169,7 @@ export default function DictionaryIndexScreen() {
                         <Text style={[styles.defText, { color: tokens.t3, fontSize: fs(12.5) }]}>{item.definition}</Text>
                       )}
                     </View>
-                    <Icon name="chevron.right" size={14} color={tokens.t4} />
+                    <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
                   </Pressable>
                 )}
               />
@@ -204,7 +205,7 @@ export default function DictionaryIndexScreen() {
                   <View style={[styles.countPill, { backgroundColor: tokens.bg3 }]}>
                     <Text style={[styles.countText, { color: tokens.t3, fontSize: fs(11.5) }]}>{counts[letter]}</Text>
                   </View>
-                  <Icon name="chevron.right" size={14} color={tokens.t4} />
+                  <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
                 </Pressable>
               )}
             />
@@ -249,7 +250,7 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
       >
         <View style={styles.wordCardRow}>
           <View style={[styles.wordCardIcon, { backgroundColor: tokens.goldlt }]}>
-            <Icon name="lock.fill" size={13} color={tokens.gold} />
+            <Icon name="lock.fill" size={fs(13)} color={tokens.gold} />
           </View>
           <View style={{ flex: 1 }}>
             <DailyWordLabel color={tokens.t3} fs={fs} />
@@ -257,7 +258,7 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
               A fun new term every day — unlock with Plus
             </Text>
           </View>
-          <Icon name="chevron.right" size={13} color={tokens.t4} />
+          <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
         </View>
       </Pressable>
     )
@@ -269,7 +270,7 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
     >
       <View style={styles.wordCardRow}>
         <View style={[styles.wordCardIcon, { backgroundColor: tokens.goldlt }]}>
-          <Icon name="star.fill" size={14} color={tokens.gold} />
+          <Icon name="star.fill" size={fs(14)} color={tokens.gold} />
         </View>
         <View style={{ flex: 1 }}>
           <DailyWordLabel color={tokens.t3} fs={fs} />
@@ -277,17 +278,28 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
             {wordOfDay.term}
           </Text>
         </View>
-        <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t4} />
+        <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t4} />
       </View>
       {expanded && (
         <>
-          <Text style={[styles.wordCardDef, { color: tokens.t2, fontSize: fs(13.5) }]}>{wordOfDay.definition}</Text>
+          {splitIntoParagraphs(wordOfDay.definition).map((para, i, arr) => (
+            <Text
+              key={i}
+              style={[
+                styles.wordCardDef,
+                { color: tokens.t2, fontSize: fs(13.5) },
+                i < arr.length - 1 && { marginBottom: 8 },
+              ]}
+            >
+              {para}
+            </Text>
+          ))}
           <Pressable
             style={[styles.wordCardJump, { borderColor: tokens.bdr }]}
             onPress={() => router.push(`/dictionary/${wordOfDay.slug}` as any)}
           >
             <Text style={[styles.wordCardJumpText, { color: tokens.blu, fontSize: fs(13) }]}>Open full entry</Text>
-            <Icon name="chevron.right" size={12} color={tokens.blu} />
+            <Icon name="chevron.right" size={fs(12)} color={tokens.blu} />
           </Pressable>
         </>
       )}
@@ -345,7 +357,7 @@ function MnemonicsCard({ mnemonics, tokens, fs }: { mnemonics: MnemonicHit[]; to
         <Text style={[styles.wordCardLabel, { color: tokens.blu, fontSize: fs(10.5), fontWeight: '900' }]}>
           MNEMONICS · {mnemonics.length}
         </Text>
-        <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.blu} />
+        <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.blu} />
       </Pressable>
       {expanded && groups.map((group, gi) => (
         <View key={group}>
@@ -359,7 +371,7 @@ function MnemonicsCard({ mnemonics, tokens, fs }: { mnemonics: MnemonicHit[]; to
               onPress={() => router.push(`/dictionary/${m.slug}` as any)}
             >
               <Text style={[styles.mnemonicTerm, { color: tokens.gold, fontSize: fs(14) }]}>{m.term}</Text>
-              <Icon name="chevron.right" size={13} color={tokens.t4} />
+              <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
             </Pressable>
           ))}
         </View>

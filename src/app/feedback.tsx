@@ -137,7 +137,7 @@ export default function FeedbackScreen() {
                 ]}
                 onPress={() => setCategory(c.key)}
               >
-                <Icon name={c.icon} size={18} color={active ? tokens.blu : tokens.t2} />
+                <Icon name={c.icon} size={fs(18)} color={active ? tokens.blu : tokens.t2} />
                 <Text style={[styles.catLabel, { color: active ? tokens.blu : tokens.t1, fontSize: fs(13) }]}>
                   {c.label}
                 </Text>
@@ -166,7 +166,7 @@ export default function FeedbackScreen() {
         />
 
         <Pressable style={[styles.submit, { backgroundColor: tokens.blu }]} onPress={submit}>
-          <Icon name="paperplane.fill" size={16} color="#fff" />
+          <Icon name="paperplane.fill" size={fs(16)} color="#fff" />
           <Text style={[styles.submitText, { fontSize: fs(15.5) }]}>Send</Text>
         </Pressable>
 
@@ -183,7 +183,7 @@ export default function FeedbackScreen() {
             { backgroundColor: tokens.bg2, borderColor: tokens.bdr, opacity: toastOpacity, bottom: insets.bottom + 24 },
           ]}
         >
-          <Icon name="checkmark.circle.fill" size={18} color={tokens.grn} />
+          <Icon name="checkmark.circle.fill" size={fs(18)} color={tokens.grn} />
           <Text style={[styles.toastText, { color: tokens.t1, fontSize: fs(14.5) }]}>Sent!</Text>
         </Animated.View>
       )}

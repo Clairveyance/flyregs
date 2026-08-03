@@ -476,7 +476,7 @@ export default function AccountScreen() {
         <OverlayHeader title="Account" onBack={backToMenu} />
         <View style={styles.signedOut}>
           <View style={[styles.avatar, { backgroundColor: tokens.bg4 }]}>
-            <Icon name="person.crop.circle" size={34} color={tokens.t2} />
+            <Icon name="person.crop.circle" size={fs(34)} color={tokens.t2} />
           </View>
           <Text style={[styles.signedOutTitle, { color: tokens.t1, fontSize: fs(18) }]}>You're not signed in</Text>
           <Text style={[styles.signedOutSub, { color: tokens.t3, fontSize: fs(14) }]}>
@@ -510,12 +510,12 @@ export default function AccountScreen() {
             ) : avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
             ) : avatarPreset ? (
-              <Icon name={avatarPreset.icon} size={26} color="#fff" />
+              <Icon name={avatarPreset.icon} size={fs(26)} color="#fff" />
             ) : (
               <Text style={[styles.avatarText, { fontSize: fs(22) }]}>{initial}</Text>
             )}
             <View style={[styles.avatarEditBadge, { backgroundColor: tokens.bg2, borderColor: tokens.bg }]}>
-              <Icon name="camera.fill" size={10} color={tokens.t2} />
+              <Icon name="camera.fill" size={fs(10)} color={tokens.t2} />
             </View>
           </Pressable>
           <View style={{ flex: 1, marginLeft: 14 }}>
@@ -525,17 +525,17 @@ export default function AccountScreen() {
             <View style={styles.tierRow}>
               {isPremium ? (
                 <>
-                  <Icon name="checkmark.seal.fill" size={14} color={tokens.gold} />
+                  <Icon name="checkmark.seal.fill" size={fs(14)} color={tokens.gold} />
                   <Text style={[styles.tierText, { color: tokens.gold, fontSize: fs(13) }]}>FlyRegs Premium</Text>
                 </>
               ) : isPro ? (
                 <>
-                  <Icon name="checkmark.seal.fill" size={14} color={tokens.gold} />
+                  <Icon name="checkmark.seal.fill" size={fs(14)} color={tokens.gold} />
                   <Text style={[styles.tierText, { color: tokens.gold, fontSize: fs(13) }]}>FlyRegs Pro</Text>
                 </>
               ) : isUnlocked ? (
                 <>
-                  <Icon name="checkmark.seal.fill" size={14} color={tokens.amb} />
+                  <Icon name="checkmark.seal.fill" size={fs(14)} color={tokens.amb} />
                   <Text style={[styles.tierText, { color: tokens.amb, fontSize: fs(13) }]}>FlyRegs Plus</Text>
                 </>
               ) : (
@@ -634,7 +634,7 @@ export default function AccountScreen() {
         <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <View style={styles.row}>
             <View style={styles.rowIcon}>
-              <Icon name="bell" size={17} color={tokens.t2} />
+              <Icon name="bell" size={fs(17)} color={tokens.t2} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>AC Update Alerts</Text>
@@ -656,7 +656,7 @@ export default function AccountScreen() {
           </View>
           <View style={styles.row}>
             <View style={styles.rowIcon}>
-              <Icon name="star.fill" size={17} color={tokens.t2} />
+              <Icon name="star.fill" size={fs(17)} color={tokens.t2} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>DailyReg</Text>
@@ -678,7 +678,7 @@ export default function AccountScreen() {
           </View>
           <View style={[styles.row, { borderBottomWidth: 0 }]}>
             <View style={styles.rowIcon}>
-              <Icon name="bolt.fill" size={17} color={tokens.t2} />
+              <Icon name="bolt.fill" size={fs(17)} color={tokens.t2} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>Duel Alerts</Text>
@@ -708,7 +708,7 @@ export default function AccountScreen() {
         <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <View style={[styles.row, { borderBottomWidth: 0 }]}>
             <View style={styles.rowIcon}>
-              <Icon name="person.2.fill" size={17} color={tokens.t2} />
+              <Icon name="person.2.fill" size={fs(17)} color={tokens.t2} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>Show me on the Ready Room leaderboard</Text>
@@ -791,10 +791,10 @@ function Row({
       onPress={onPress}
     >
       <View style={styles.rowIcon}>
-        <Icon name={icon} size={17} color={tint ?? tokens.t2} />
+        <Icon name={icon} size={fs(17)} color={tint ?? tokens.t2} />
       </View>
       <Text style={[styles.rowLabel, { color: tint ?? tokens.t1, fontSize: fs(14.5) }]}>{label}</Text>
-      {trailing ?? <Icon name="chevron.right" size={13} color={tokens.t4} />}
+      {trailing ?? <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />}
     </Pressable>
   )
 }

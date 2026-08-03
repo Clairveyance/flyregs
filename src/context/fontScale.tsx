@@ -3,8 +3,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 
 const SCALE_KEY = '@flyregs/font-scale'
 
-export const FONT_SCALE_MIN = 0.85
-export const FONT_SCALE_MAX = 1.4
+// RC, real device: "it gets too small and not big enough" -- widened both
+// ends. Floor raised slightly (0.85 -> 0.9) since the old minimum read as
+// uncomfortably tiny rather than usefully compact; ceiling raised more
+// (1.4 -> 1.75) since "not big enough" was specifically about the top end
+// not giving real accessibility-scale headroom.
+export const FONT_SCALE_MIN = 0.9
+export const FONT_SCALE_MAX = 1.75
 
 interface FontScaleContextType {
   fontScale: number

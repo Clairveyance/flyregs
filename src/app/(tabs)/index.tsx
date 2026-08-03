@@ -30,6 +30,7 @@ import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { getBadgeKind, getBadgeStyle, BadgeKind } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { getRegOfTheDay, regOfTheDayRoute, type RegOfTheDay } from '@/lib/notifications'
+import { splitIntoParagraphs } from '@/lib/regTextFormat'
 import { consumeJustConfirmed } from '@/lib/justConfirmed'
 import { FigureViewer } from '@/components/FigureViewer'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -794,7 +795,7 @@ export default function HomeScreen() {
           pointerEvents="none"
           style={[styles.welcomeToast, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, opacity: welcomeOpacity }]}
         >
-          <Icon name="checkmark.circle.fill" size={18} color={tokens.grn} />
+          <Icon name="checkmark.circle.fill" size={fs(18)} color={tokens.grn} />
           <Text style={[styles.welcomeToastText, { color: tokens.t1, fontSize: fs(14.5) }]}>Welcome to FlyRegs!</Text>
         </Animated.View>
       )}
@@ -811,7 +812,7 @@ export default function HomeScreen() {
             },
           ]}
         >
-          <Icon name="magnifyingglass" size={17} color={searchActive ? tokens.blu : tokens.t3} />
+          <Icon name="magnifyingglass" size={fs(17)} color={searchActive ? tokens.blu : tokens.t3} />
           <TextInput
             ref={searchInputRef}
             style={[styles.searchInput, { color: tokens.t1, fontSize: fs(13.5) }]}
@@ -838,7 +839,7 @@ export default function HomeScreen() {
               }}
               hitSlop={8}
             >
-              <Icon name="xmark.circle" size={17} color={tokens.t4} />
+              <Icon name="xmark.circle" size={fs(17)} color={tokens.t4} />
             </Pressable>
           )}
         </View>
@@ -848,10 +849,10 @@ export default function HomeScreen() {
             style={[styles.filterBtn, { backgroundColor: tokens.inp, borderColor: activeFilterCount > 0 ? tokens.blu : tokens.bdr }]}
             hitSlop={4}
           >
-            <Icon name="slider.horizontal.3" size={16} color={activeFilterCount > 0 ? tokens.blu : tokens.t3} />
+            <Icon name="slider.horizontal.3" size={fs(16)} color={activeFilterCount > 0 ? tokens.blu : tokens.t3} />
             {activeFilterCount > 0 && (
               <View style={[styles.filterBadge, { backgroundColor: tokens.blu }]}>
-                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                <Text style={[styles.filterBadgeText, { fontSize: fs(9.5) }]}>{activeFilterCount}</Text>
               </View>
             )}
           </Pressable>
@@ -1028,7 +1029,7 @@ export default function HomeScreen() {
               <Text style={[styles.filterCitesChipText, { color: tokens.gold, fontSize: fs(12.5) }]} numberOfLines={1}>
                 {filterCitesDoc.label}
               </Text>
-              <Icon name="xmark" size={12} color={tokens.gold} />
+              <Icon name="xmark" size={fs(12)} color={tokens.gold} />
             </Pressable>
           ) : (
             <>
@@ -1091,7 +1092,7 @@ export default function HomeScreen() {
               but that only has empty space to tap when the dropdown doesn't
               fill it; this is a guaranteed target regardless of layout. */}
           <Pressable onPress={() => Keyboard.dismiss()} style={[styles.dropHideKb, { borderBottomColor: tokens.bdr }]}>
-            <Icon name="chevron.down" size={13} color={tokens.t3} />
+            <Icon name="chevron.down" size={fs(13)} color={tokens.t3} />
             <Text style={[styles.dropHideKbText, { color: tokens.t3, fontSize: fs(11.5) }]}>Hide keyboard</Text>
           </Pressable>
 
@@ -1143,7 +1144,7 @@ export default function HomeScreen() {
                   style={[styles.dropSeeAll, { borderTopColor: tokens.bdr }]}
                   onPress={() => { dismissSearch(); router.push('/paywall?tier=plus') }}
                 >
-                  <Icon name="lock.fill" size={13} color={tokens.amb} />
+                  <Icon name="lock.fill" size={fs(13)} color={tokens.amb} />
                   <Text style={[styles.dropSeeAllText, { color: tokens.blu, fontSize: fs(13) }]}>
                     Unlock Plus for all {combinedResults.length} results
                   </Text>
@@ -1220,7 +1221,7 @@ export default function HomeScreen() {
                   ]}
                   onPress={() => selectRecentSearch(q)}
                 >
-                  <Icon name="clock" size={14} color={tokens.t3} />
+                  <Icon name="clock" size={fs(14)} color={tokens.t3} />
                   <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5), marginLeft: 10 }]} numberOfLines={1}>
                     {q}
                   </Text>
@@ -1230,7 +1231,7 @@ export default function HomeScreen() {
                   hitSlop={10}
                   style={({ pressed }) => [{ paddingHorizontal: 14, paddingVertical: 10 }, pressed && { opacity: 0.5 }]}
                 >
-                  <Icon name="xmark" size={13} color={tokens.t4} />
+                  <Icon name="xmark" size={fs(13)} color={tokens.t4} />
                 </Pressable>
               </View>
             ))}
@@ -1291,7 +1292,7 @@ function HomeHeader({
           style={[styles.wnLockedCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
           onPress={() => router.push('/paywall?tier=plus')}
         >
-          <Icon name="lock.fill" size={18} color={tokens.amb} />
+          <Icon name="lock.fill" size={fs(18)} color={tokens.amb} />
           <View style={{ flex: 1 }}>
             <Text style={[styles.wnLockedTitle, { color: tokens.t1, fontSize: fs(13.5) }]}>
               See what's new and changed
@@ -1300,7 +1301,7 @@ function HomeHeader({
               Unlock Plus to track new and updated ACs, with real diffs of exactly what changed.
             </Text>
           </View>
-          <Icon name="chevron.right" size={14} color={tokens.t4} />
+          <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
         </Pressable>
         <DailyRegCard regOfDay={regOfDay} tokens={tokens} />
       </>
@@ -1398,7 +1399,7 @@ function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; toke
       >
         <View style={styles.dailyRegRow}>
           <View style={[styles.dailyRegIcon, { backgroundColor: tokens.goldlt }]}>
-            <Icon name="lock.fill" size={13} color={tokens.gold} />
+            <Icon name="lock.fill" size={fs(13)} color={tokens.gold} />
           </View>
           <View style={{ flex: 1 }}>
             <DailyRegLabel color={tokens.t3} fs={fs} />
@@ -1406,7 +1407,7 @@ function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; toke
               A hand-picked reg every day — unlock with Plus
             </Text>
           </View>
-          <Icon name="chevron.right" size={13} color={tokens.t4} />
+          <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
         </View>
       </Pressable>
     )
@@ -1418,7 +1419,7 @@ function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; toke
     >
       <View style={styles.dailyRegRow}>
         <View style={[styles.dailyRegIcon, { backgroundColor: tokens.goldlt }]}>
-          <Icon name="star.fill" size={14} color={tokens.gold} />
+          <Icon name="star.fill" size={fs(14)} color={tokens.gold} />
         </View>
         <View style={{ flex: 1 }}>
           <DailyRegLabel color={tokens.t3} fs={fs} suffix={regOfDay.sourceType.toUpperCase()} />
@@ -1426,17 +1427,28 @@ function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; toke
             {regOfDay.term}
           </Text>
         </View>
-        <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t4} />
+        <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t4} />
       </View>
       {expanded && (
         <>
-          <Text style={[styles.dailyRegDef, { color: tokens.t2, fontSize: fs(13.5) }]}>{regOfDay.definition}</Text>
+          {splitIntoParagraphs(regOfDay.definition).map((para, i, arr) => (
+            <Text
+              key={i}
+              style={[
+                styles.dailyRegDef,
+                { color: tokens.t2, fontSize: fs(13.5) },
+                i < arr.length - 1 && { marginBottom: 8 },
+              ]}
+            >
+              {para}
+            </Text>
+          ))}
           <Pressable
             style={[styles.dailyRegJump, { borderColor: tokens.bdr }]}
             onPress={() => router.push(regOfTheDayRoute(regOfDay) as any)}
           >
             <Text style={[styles.dailyRegJumpText, { color: tokens.blu, fontSize: fs(13) }]}>Open full entry</Text>
-            <Icon name="chevron.right" size={12} color={tokens.blu} />
+            <Icon name="chevron.right" size={fs(12)} color={tokens.blu} />
           </Pressable>
         </>
       )}
@@ -1477,7 +1489,7 @@ function RegBodyCard({
       onPress={() => (item.onCustomPress ? item.onCustomPress() : router.push(item.route as any))}
     >
       <View style={[styles.regAbbrBadge, { backgroundColor: tokens.bdim }]}>
-        <Icon name={REG_TYPE[item.key as keyof typeof REG_TYPE].icon} size={15} color={tokens.blu} />
+        <Icon name={REG_TYPE[item.key as keyof typeof REG_TYPE].icon} size={fs(15)} color={tokens.blu} />
         <Text style={[styles.regAbbrText, { color: tokens.blu, fontSize: fs(11) }]}>{item.abbr}</Text>
       </View>
       <View style={{ flex: 1 }}>
@@ -1486,7 +1498,7 @@ function RegBodyCard({
           {item.count !== null ? `${item.count.toLocaleString()} ${item.unit}` : '…'}
         </Text>
       </View>
-      <Icon name="chevron.right" size={14} color={tokens.t4} />
+      <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
     </Pressable>
   )
 }
@@ -1508,7 +1520,7 @@ function FilterResultRowView({
       onPress={() => router.push(routeForFilterResult(item) as any)}
     >
       <View style={styles.filterRowTop}>
-        <Icon name={meta.icon} size={11} color={tokens.blu} />
+        <Icon name={meta.icon} size={fs(11)} color={tokens.blu} />
         <View style={[styles.filterTypeTag, { backgroundColor: tokens.bdim }]}>
           <Text style={[styles.filterTypeTagText, { color: tokens.blu, fontSize: fs(9) }]}>{meta.label}</Text>
         </View>
@@ -1553,7 +1565,7 @@ function WhatsNewCard({
         <Text style={[styles.wnDate, { color: tokens.t3, fontSize: fs(10.5) }]}>{dateStr}</Text>
       </View>
       <View style={styles.wnIdentRow}>
-        <Icon name={REG_TYPE.ac.icon} size={11} color={tokens.blu} />
+        <Icon name={REG_TYPE.ac.icon} size={fs(11)} color={tokens.blu} />
         <View style={[styles.wnTypeTag, { backgroundColor: tokens.bdim }]}>
           <Text style={[styles.wnTypeTagText, { color: tokens.blu, fontSize: fs(9) }]}>{REG_TYPE.ac.label}</Text>
         </View>
@@ -1595,7 +1607,7 @@ function OtherWhatsNewCard({
         <Text style={[styles.wnDate, { color: tokens.t3, fontSize: fs(10.5) }]}>{dateStr}</Text>
       </View>
       <View style={styles.wnIdentRow}>
-        <Icon name={meta.icon} size={11} color={tokens.blu} />
+        <Icon name={meta.icon} size={fs(11)} color={tokens.blu} />
         <View style={[styles.wnTypeTag, { backgroundColor: tokens.bdim }]}>
           <Text style={[styles.wnTypeTagText, { color: tokens.blu, fontSize: fs(9) }]}>{meta.label}</Text>
         </View>

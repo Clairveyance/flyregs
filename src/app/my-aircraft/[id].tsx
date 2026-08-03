@@ -259,7 +259,7 @@ export default function AircraftDetailScreen() {
           )}
 
           <View style={styles.disclaimerCard}>
-            <Icon name="info.circle" size={14} color={tokens.t3} />
+            <Icon name="info.circle" size={fs(14)} color={tokens.t3} />
             <Text style={[styles.disclaimerText, { color: tokens.t3, fontSize: fs(11.5) }]}>
               Equipment tags and reminders are based only on what you enter here — FlyRegs doesn't verify serial
               numbers or maintenance records. ADs shown may apply; always confirm against your aircraft's official
@@ -279,19 +279,19 @@ export default function AircraftDetailScreen() {
               action. */}
           <View style={styles.sectionHeader}>
             <Pressable style={styles.sectionTitleRow} onPress={() => setAdsCollapsed((v) => !v)} hitSlop={6}>
-              <Icon name={adsCollapsed ? 'chevron.right' : 'chevron.down'} size={13} color={tokens.t3} />
+              <Icon name={adsCollapsed ? 'chevron.right' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
               <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>APPLICABLE ADs</Text>
               {visibleAdNotifications.length > 0 && (
                 <Text style={[styles.sectionCount, { color: tokens.t4, fontSize: fs(11) }]}>{visibleAdNotifications.length}</Text>
               )}
               {unreadAdCount > 0 && (
                 <View style={[styles.unreadCountBadge, { backgroundColor: tokens.blu }]}>
-                  <Text style={styles.unreadCountText}>{unreadAdCount}</Text>
+                  <Text style={[styles.unreadCountText, { fontSize: fs(11) }]}>{unreadAdCount}</Text>
                 </View>
               )}
             </Pressable>
             <Pressable onPress={handleBackfillAds} hitSlop={10} disabled={backfilling}>
-              {backfilling ? <ActivityIndicator size="small" color={tokens.blu} /> : <Icon name="arrow.clockwise" size={18} color={tokens.blu} />}
+              {backfilling ? <ActivityIndicator size="small" color={tokens.blu} /> : <Icon name="arrow.clockwise" size={fs(18)} color={tokens.blu} />}
             </Pressable>
           </View>
           {!adsCollapsed && (
@@ -311,7 +311,7 @@ export default function AircraftDetailScreen() {
                 style={[styles.widenSearchCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
                 onPress={() => router.push(`/ad?q=${encodeURIComponent(aircraft.make)}` as any)}
               >
-                <Icon name="info.circle" size={13} color={tokens.t3} />
+                <Icon name="info.circle" size={fs(13)} color={tokens.t3} />
                 <Text style={[styles.widenSearchText, { color: tokens.t3, fontSize: fs(11.5) }]}>
                   Only shows ADs that specifically name this model or type — an unusually worded AD could be missed.{' '}
                   <Text style={{ color: tokens.blu, fontWeight: '600' }}>Browse all {aircraft.make} ADs →</Text>
@@ -354,7 +354,7 @@ export default function AircraftDetailScreen() {
                       onPress={() => handleOpenAd(n)}
                     >
                       {!n.readAt && <View style={[styles.unreadDot, { backgroundColor: tokens.blu }]} />}
-                      <Icon name={n.matchedVia === 'equipment' ? 'wrench' : 'airplane'} size={15} color={tokens.t3} />
+                      <Icon name={n.matchedVia === 'equipment' ? 'wrench' : 'airplane'} size={fs(15)} color={tokens.t3} />
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.rowTitle, { color: tokens.blu, fontSize: fs(14) }]}>AD {n.adNumber}</Text>
                         <Text style={[styles.rowSub, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={2}>{n.subjectHeading}</Text>
@@ -364,9 +364,9 @@ export default function AircraftDetailScreen() {
                         </Text>
                       </View>
                       <Pressable onPress={() => handleDismissAd(n)} hitSlop={10}>
-                        <Icon name="trash" size={16} color={tokens.t3} />
+                        <Icon name="trash" size={fs(16)} color={tokens.t3} />
                       </Pressable>
-                      <Icon name="chevron.right" size={14} color={tokens.t4} />
+                      <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
                     </Pressable>
                   ))}
                 </View>
@@ -376,14 +376,14 @@ export default function AircraftDetailScreen() {
 
           <View style={[styles.sectionHeader, { marginTop: 20 }]}>
             <Pressable style={styles.sectionTitleRow} onPress={() => setEquipmentCollapsed((v) => !v)} hitSlop={6}>
-              <Icon name={equipmentCollapsed ? 'chevron.right' : 'chevron.down'} size={13} color={tokens.t3} />
+              <Icon name={equipmentCollapsed ? 'chevron.right' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
               <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>EQUIPMENT</Text>
               {equipment.length > 0 && (
                 <Text style={[styles.sectionCount, { color: tokens.t4, fontSize: fs(11) }]}>{equipment.length}</Text>
               )}
             </Pressable>
             <Pressable onPress={openAddEquipment} hitSlop={10}>
-              <Icon name="plus.circle.fill" size={20} color={tokens.blu} />
+              <Icon name="plus.circle.fill" size={fs(20)} color={tokens.blu} />
             </Pressable>
           </View>
           {!equipmentCollapsed && (
@@ -396,13 +396,13 @@ export default function AircraftDetailScreen() {
               <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                 {equipment.map((e, i) => (
                   <View key={e.id} style={[styles.row, i < equipment.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}>
-                    <Icon name="wrench" size={15} color={tokens.blu} />
+                    <Icon name="wrench" size={fs(15)} color={tokens.blu} />
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{e.part.name}</Text>
                       {e.part.manufacturer && <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]}>{e.part.manufacturer}</Text>}
                     </View>
                     <Pressable onPress={() => handleRemoveEquipment(e.id)} hitSlop={10}>
-                      <Icon name="trash" size={16} color={tokens.t3} />
+                      <Icon name="trash" size={fs(16)} color={tokens.t3} />
                     </Pressable>
                   </View>
                 ))}
@@ -412,14 +412,14 @@ export default function AircraftDetailScreen() {
 
           <View style={[styles.sectionHeader, { marginTop: 20 }]}>
             <Pressable style={styles.sectionTitleRow} onPress={() => setRemindersCollapsed((v) => !v)} hitSlop={6}>
-              <Icon name={remindersCollapsed ? 'chevron.right' : 'chevron.down'} size={13} color={tokens.t3} />
+              <Icon name={remindersCollapsed ? 'chevron.right' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
               <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>REMINDERS</Text>
               {reminders.length > 0 && (
                 <Text style={[styles.sectionCount, { color: tokens.t4, fontSize: fs(11) }]}>{reminders.length}</Text>
               )}
             </Pressable>
             <Pressable onPress={openAddReminder} hitSlop={10}>
-              <Icon name="plus.circle.fill" size={20} color={tokens.blu} />
+              <Icon name="plus.circle.fill" size={fs(20)} color={tokens.blu} />
             </Pressable>
           </View>
           {!remindersCollapsed && (
@@ -440,7 +440,7 @@ export default function AircraftDetailScreen() {
                       style={[styles.row, i < reminders.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
                       onPress={() => openEditReminder(r)}
                     >
-                      <Icon name="hourglass" size={15} color={overdue ? tokens.amb : soon ? tokens.gold : tokens.t3} />
+                      <Icon name="hourglass" size={fs(15)} color={overdue ? tokens.amb : soon ? tokens.gold : tokens.t3} />
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{r.title}</Text>
                         <Text style={[styles.rowSub, { color: overdue ? tokens.amb : tokens.t3, fontSize: fs(12) }]}>
@@ -449,7 +449,7 @@ export default function AircraftDetailScreen() {
                         </Text>
                       </View>
                       <Pressable onPress={() => handleRemoveReminder(r.id)} hitSlop={10}>
-                        <Icon name="trash" size={16} color={tokens.t3} />
+                        <Icon name="trash" size={fs(16)} color={tokens.t3} />
                       </Pressable>
                     </Pressable>
                   )
@@ -527,7 +527,7 @@ function PartPickerModal({ visible, onClose, onPicked }: { visible: boolean; onC
       <View style={[styles.modalRoot, { backgroundColor: tokens.bg }]}>
         <OverlayHeader title="Add Equipment" onBack={onClose} />
         <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
-          <Icon name="magnifyingglass" size={16} color={tokens.t3} />
+          <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
           <TextInput
             style={[styles.searchInput, { color: tokens.t1, fontSize: fs(14) }]}
             placeholder="Engine, propeller, avionics part…"
@@ -541,10 +541,10 @@ function PartPickerModal({ visible, onClose, onPicked }: { visible: boolean; onC
         {searching ? (
           <ActivityIndicator color={tokens.blu} style={{ marginTop: 20 }} />
         ) : (
-          <ScrollView contentContainerStyle={{ padding: 12 }}>
+          <ScrollView contentContainerStyle={{ padding: 12 }} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled">
             {relatedTo && results.length > 0 && (
               <View style={[styles.relatedNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-                <Icon name="info.circle" size={14} color={tokens.t3} />
+                <Icon name="info.circle" size={fs(14)} color={tokens.t3} />
                 <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5) }]}>
                   No exact match for "{query.trim()}" — showing {PART_TYPE_LABELS[relatedTo]} parts, the closest category.
                 </Text>
@@ -560,7 +560,7 @@ function PartPickerModal({ visible, onClose, onPicked }: { visible: boolean; onC
                   <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{p.name}</Text>
                   {p.manufacturer && <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]}>{p.manufacturer}</Text>}
                 </View>
-                <Icon name="plus.circle.fill" size={20} color={tokens.blu} />
+                <Icon name="plus.circle.fill" size={fs(20)} color={tokens.blu} />
               </Pressable>
             ))}
             {query.trim().length >= 2 && !searching && results.length === 0 && (
@@ -603,6 +603,24 @@ function ReminderFormModal({
   const [adPickerVisible, setAdPickerVisible] = useState(false)
 
   useEffect(() => {
+    // RC, real device: tapping a reminder to edit it sometimes did nothing,
+    // and the screen eventually stopped responding entirely. Root cause:
+    // this form has two of its OWN nested Modals (date picker, AD picker).
+    // Their `visible` state lived only in this component and was never
+    // reset when the PARENT modal closed -- so dismissing the form via the
+    // native swipe-down/back gesture (which fires onRequestClose, not the
+    // React state setters a button tap would use) could leave a child
+    // Modal's `visible` still `true` while its parent had already closed.
+    // Two real native `<Modal>` presentations disagreeing about which of
+    // them is "current" is exactly the kind of state iOS's modal host can
+    // get stuck on -- the next open (a different reminder's tap) calls
+    // setReminderFormVisible(true), which is already true if the close
+    // never truly registered, so React sees no change and never re-presents
+    // anything ("nothing pops up"). Resetting both on EVERY visibility
+    // change (open AND close, not just open) guarantees neither sub-modal
+    // can ever outlive its parent.
+    setDatePickerVisible(false)
+    setAdPickerVisible(false)
     if (!visible) return
     setTypeKey(null)
     setTitle(editing?.title ?? '')
@@ -633,7 +651,7 @@ function ReminderFormModal({
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>{editing ? 'Edit Reminder' : 'New Reminder'}</Text>
               <Pressable onPress={onClose} hitSlop={10}>
-                <Icon name="xmark" size={18} color={tokens.t3} />
+                <Icon name="xmark" size={fs(18)} color={tokens.t3} />
               </Pressable>
             </View>
 
@@ -652,7 +670,7 @@ function ReminderFormModal({
                         ]}
                         onPress={() => selectType(t.key)}
                       >
-                        <Icon name={t.icon} size={15} color={active ? tokens.blu : tokens.t2} />
+                        <Icon name={t.icon} size={fs(15)} color={active ? tokens.blu : tokens.t2} />
                         <Text style={[styles.typeChipText, { color: active ? tokens.blu : tokens.t1, fontSize: fs(12.5) }]}>{t.label}</Text>
                       </Pressable>
                     )
@@ -671,7 +689,7 @@ function ReminderFormModal({
 
             <Pressable style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr }]} onPress={() => setDatePickerVisible(true)}>
               <Text style={{ color: dueDate ? tokens.t1 : tokens.t3, fontSize: fs(14.5) }}>{dueDate || 'Due date'}</Text>
-              <Icon name="chevron.down" size={14} color={tokens.t4} />
+              <Icon name="chevron.down" size={fs(14)} color={tokens.t4} />
             </Pressable>
 
             {(typeKey === 'ad' || (editing && linkedAdNumber)) && (
@@ -679,7 +697,7 @@ function ReminderFormModal({
                 <Text style={{ color: linkedAdNumber ? tokens.t1 : tokens.t3, fontSize: fs(14.5) }} numberOfLines={1}>
                   {linkedAdNumber ? `AD ${linkedAdNumber}` : 'Link an Applicable AD (optional)'}
                 </Text>
-                <Icon name="chevron.down" size={14} color={tokens.t4} />
+                <Icon name="chevron.down" size={fs(14)} color={tokens.t4} />
               </Pressable>
             )}
 
@@ -692,7 +710,7 @@ function ReminderFormModal({
             />
 
             <Pressable style={[styles.addButton, { backgroundColor: tokens.blu }]} onPress={handleSave}>
-              <Text style={styles.addButtonText}>{editing ? 'Save Changes' : 'Save Reminder'}</Text>
+              <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>{editing ? 'Save Changes' : 'Save Reminder'}</Text>
             </Pressable>
           </View>
         </View>
@@ -713,7 +731,7 @@ function ReminderFormModal({
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Link an AD</Text>
               <Pressable onPress={() => setAdPickerVisible(false)} hitSlop={10}>
-                <Icon name="xmark" size={18} color={tokens.t3} />
+                <Icon name="xmark" size={fs(18)} color={tokens.t3} />
               </Pressable>
             </View>
             {applicableAds.length === 0 ? (

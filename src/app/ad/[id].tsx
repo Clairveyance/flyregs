@@ -24,6 +24,7 @@ import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
 import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
 import { condenseAdSummary, adSummaryWasCondensed, stripAdArtifacts } from '@/lib/adSummary'
+import { splitIntoParagraphs } from '@/lib/regTextFormat'
 import type { AcFigure } from '@/types'
 
 interface AdFigureRow {
@@ -344,22 +345,22 @@ export default function AdScreen() {
           hitSlop={12}
           style={{ padding: 4 }}
         >
-          <Icon name="arrow.up.circle" size={21} color={tokens.t3} />
+          <Icon name="arrow.up.circle" size={fs(21)} color={tokens.t3} />
         </Pressable>
       )}
       <Pressable onPress={handlePrint} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="printer" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="printer" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="square.and.arrow.up" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="square.and.arrow.up" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="folder.badge.plus" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="folder.badge.plus" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
         <Icon
           name={bookmarked ? 'bookmark.fill' : 'bookmark'}
-          size={21}
+          size={fs(21)}
           color={bookmarked ? tokens.blu : tokens.t2}
         />
       </Pressable>
@@ -452,9 +453,22 @@ export default function AdScreen() {
                   (median 691 chars across the corpus, up to 2,243), so it is
                   condensed to the actionable sentence. The full text is never
                   discarded -- it is one tap away. */}
-              <Text style={[styles.summary, { color: tokens.t2, fontSize: fs(14.5) }]}>
-                {summaryExpanded ? stripAdArtifacts(ad.summary) : condenseAdSummary(ad.summary)}
-              </Text>
+              {/* condenseAdSummary's clip is already one short sentence
+                  (splitIntoParagraphs is a no-op on it); the expanded full
+                  preamble is the flat, whitespace-collapsed case this
+                  actually matters for. */}
+              {splitIntoParagraphs(summaryExpanded ? stripAdArtifacts(ad.summary) : condenseAdSummary(ad.summary)).map((para, i, arr) => (
+                <Text
+                  key={i}
+                  style={[
+                    styles.summary,
+                    { color: tokens.t2, fontSize: fs(14.5) },
+                    i < arr.length - 1 && { marginBottom: 10 },
+                  ]}
+                >
+                  {para}
+                </Text>
+              ))}
               {adSummaryWasCondensed(ad.summary) && (
                 <Pressable onPress={() => setSummaryExpanded((v) => !v)} hitSlop={8}>
                   <Text style={[styles.summaryToggle, { color: tokens.blu, fontSize: fs(13) }]}>
@@ -487,14 +501,14 @@ export default function AdScreen() {
               onPress={() => setFiguresExpanded((e) => !e)}
               disabled={figures.length === 0}
             >
-              <Icon name="photo" size={15} color={tokens.t3} />
+              <Icon name="photo" size={fs(15)} color={tokens.t3} />
               <Text style={[styles.tablesBarLabel, { color: tokens.t1, fontSize: fs(13) }]}>
                 {figures.length === 1 ? 'Table/Figure' : 'Tables & Figures'}
               </Text>
               <View style={{ flex: 1 }} />
               <Text style={[styles.tablesBarCount, { color: tokens.t3, fontSize: fs(12.5) }]}>{figures.length}</Text>
               {figures.length > 0 && (
-                <Icon name={figuresExpanded ? 'chevron.up' : 'chevron.down'} size={11} color={tokens.t4} />
+                <Icon name={figuresExpanded ? 'chevron.up' : 'chevron.down'} size={fs(11)} color={tokens.t4} />
               )}
             </Pressable>
             {figuresExpanded && figures.length > 0 && (

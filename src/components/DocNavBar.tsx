@@ -19,7 +19,7 @@ export function BackToBreadcrumb({ label, onPress }: { label: string; onPress: (
       style={[styles.wrap, { backgroundColor: tokens.bg2, borderBottomColor: tokens.bdr }]}
       onPress={onPress}
     >
-      <Icon name="arrow.uturn.left" size={12} color={tokens.blu} />
+      <Icon name="arrow.uturn.left" size={fs(12)} color={tokens.blu} />
       <Text style={[styles.text, { color: tokens.blu, fontSize: fs(12.5) }]} numberOfLines={1}>
         Back to {label}
       </Text>
@@ -52,7 +52,7 @@ export function PrevNextFooter({
         onPress={onPrev}
         disabled={!prevLabel}
       >
-        <Icon name="chevron.left" size={14} color={prevLabel ? tokens.blu : tokens.t4} />
+        <Icon name="chevron.left" size={fs(14)} color={prevLabel ? tokens.blu : tokens.t4} />
         <Text style={[styles.footerText, { color: prevLabel ? tokens.t1 : tokens.t4, fontSize: fs(12.5) }]} numberOfLines={1}>
           {prevLabel ?? 'Start'}
         </Text>
@@ -66,7 +66,7 @@ export function PrevNextFooter({
         <Text style={[styles.footerText, { color: nextLabel ? tokens.t1 : tokens.t4, fontSize: fs(12.5) }]} numberOfLines={1}>
           {nextLabel ?? 'End'}
         </Text>
-        <Icon name="chevron.right" size={14} color={nextLabel ? tokens.blu : tokens.t4} />
+        <Icon name="chevron.right" size={fs(14)} color={nextLabel ? tokens.blu : tokens.t4} />
       </Pressable>
     </View>
   )

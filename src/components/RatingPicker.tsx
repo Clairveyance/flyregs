@@ -54,7 +54,7 @@ export function RatingPicker({
         <View style={[styles.header, { borderBottomColor: tokens.bdr }]}>
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(15.5) }]}>Ratings</Text>
           <Pressable onPress={onClose} hitSlop={12}>
-            <Icon name="xmark" size={18} color={tokens.t3} />
+            <Icon name="xmark" size={fs(18)} color={tokens.t3} />
           </Pressable>
         </View>
         <Text style={[styles.help, { color: tokens.t3, fontSize: fs(12) }]}>
@@ -82,7 +82,7 @@ export function RatingPicker({
                     {busy === code ? (
                       <ActivityIndicator size="small" color={tokens.t3} />
                     ) : active ? (
-                      <Icon name="checkmark.circle.fill" size={20} color={tokens.gold} />
+                      <Icon name="checkmark.circle.fill" size={fs(20)} color={tokens.gold} />
                     ) : (
                       <View style={[styles.checkEmpty, { borderColor: tokens.bdr }]} />
                     )}

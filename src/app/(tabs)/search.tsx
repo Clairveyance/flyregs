@@ -95,7 +95,7 @@ export default function CommunityScreen() {
         <ScreenHeader title="Community" />
         <TabletContainer>
           <View style={styles.lockedWrap}>
-            <Icon name="person.2.fill" size={38} color={tokens.blu} />
+            <Icon name="person.2.fill" size={fs(38)} color={tokens.blu} />
             <Text style={[styles.lockedTitle, { color: tokens.t1, fontSize: fs(17) }]}>
               Community is a paid feature
             </Text>
@@ -108,7 +108,7 @@ export default function CommunityScreen() {
               style={[styles.lockedBtn, { backgroundColor: tokens.blu }]}
               onPress={() => router.push('/paywall')}
             >
-              <Text style={styles.lockedBtnText}>See what's included</Text>
+              <Text style={[styles.lockedBtnText, { fontSize: fs(15) }]}>See what's included</Text>
             </Pressable>
           </View>
         </TabletContainer>
@@ -136,7 +136,7 @@ export default function CommunityScreen() {
                 {avatarUrl ? (
                   <Image source={{ uri: avatarUrl }} style={styles.identityAvatarImage} />
                 ) : avatarPreset ? (
-                  <Icon name={avatarPreset.icon} size={19} color="#fff" />
+                  <Icon name={avatarPreset.icon} size={fs(19)} color="#fff" />
                 ) : (
                   <Text style={[styles.identityAvatarText, { color: tokens.gold, fontSize: fs(18) }]}>
                     {displayName.charAt(0).toUpperCase()}
@@ -158,14 +158,14 @@ export default function CommunityScreen() {
                 )}
                 <NameTag ratings={ratings} coins={coins} />
               </View>
-              <Icon name="chevron.right" size={14} color={tokens.t4} />
+              <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
             </Pressable>
           ) : (
             <Pressable
               style={[styles.signInCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
               onPress={() => router.push('/auth')}
             >
-              <Icon name="person.crop.circle" size={22} color={tokens.blu} />
+              <Icon name="person.crop.circle" size={fs(22)} color={tokens.blu} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.signInTitle, { color: tokens.t1, fontSize: fs(14) }]}>
                   Sign in to track your progress
@@ -174,7 +174,7 @@ export default function CommunityScreen() {
                   Study mastery, your Duel record, and Challenge Coins all live on your account.
                 </Text>
               </View>
-              <Icon name="chevron.right" size={14} color={tokens.t4} />
+              <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
             </Pressable>
           )}
 
@@ -191,7 +191,7 @@ export default function CommunityScreen() {
             onPress={() => router.push('/semantic-search')}
           >
             <View style={[styles.hubIconWrap, { backgroundColor: tokens.gdim }]}>
-              <Icon name="text.bubble.fill" size={19} color={tokens.grn} />
+              <Icon name="text.bubble.fill" size={fs(19)} color={tokens.grn} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Ask FlyRegs</Text>
@@ -207,7 +207,7 @@ export default function CommunityScreen() {
             onPress={openStudy}
           >
             <View style={[styles.hubIconWrap, { backgroundColor: tokens.bdim }]}>
-              <Icon name="rectangle.stack" size={19} color={tokens.blu} />
+              <Icon name="rectangle.stack" size={fs(19)} color={tokens.blu} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Study Mode</Text>
@@ -217,7 +217,7 @@ export default function CommunityScreen() {
                   : 'Spaced-repetition flashcards across FAR, AIM, P/CG, and ACs'}
               </Text>
             </View>
-            {!isPro && <Icon name="lock.fill" size={13} color={tokens.t4} />}
+            {!isPro && <Icon name="lock.fill" size={fs(13)} color={tokens.t4} />}
           </Pressable>
 
           <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 18 }]}>DUELS</Text>
@@ -226,7 +226,7 @@ export default function CommunityScreen() {
             onPress={openDuels}
           >
             <View style={[styles.hubIconWrap, { backgroundColor: tokens.goldlt }]}>
-              <Icon name="bolt.fill" size={19} color={tokens.gold} />
+              <Icon name="bolt.fill" size={fs(19)} color={tokens.gold} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Challenge a friend</Text>
@@ -236,7 +236,7 @@ export default function CommunityScreen() {
                   : 'Multiple-choice quiz across FAR, AIM, P/CG, AC — most correct wins, time breaks ties'}
               </Text>
             </View>
-            {!isPro && <Icon name="lock.fill" size={13} color={tokens.t4} />}
+            {!isPro && <Icon name="lock.fill" size={fs(13)} color={tokens.t4} />}
           </Pressable>
 
           {refPackets.length > 0 && (
@@ -291,7 +291,7 @@ function IdentityStats({
     <View style={styles.identityStatsRow}>
       {chips.map((c, i) => (
         <View key={i} style={styles.identityStatChip}>
-          <Icon name={c.icon} size={11} color={c.color} />
+          <Icon name={c.icon} size={fs(11)} color={c.color} />
           <Text style={[styles.identityStatText, { color: tokens.t3, fontSize: fs(11.5) }]}>{c.value}</Text>
         </View>
       ))}
@@ -362,7 +362,7 @@ function RefPacketGrid({
             <Text key={i} style={{ fontSize: fs(i === 0 || i === 3 ? 13 : 11) }}>{ch}</Text>
           ))}
         </Text>
-        {!hasPlusAccess && <Icon name="lock.fill" size={11} color={tokens.t4} />}
+        {!hasPlusAccess && <Icon name="lock.fill" size={fs(11)} color={tokens.t4} />}
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.packetCatRow}>
         {PACKET_CATS.map((c) => {
@@ -393,7 +393,7 @@ function RefPacketGrid({
               style={[styles.packetCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
               onPress={() => openPacket(primary)}
             >
-              <Icon name="rosette" size={18} color={tokens.gold} />
+              <Icon name="rosette" size={fs(18)} color={tokens.gold} />
               {multi && (
                 <View style={[styles.packetSuffixBadge, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
                   <Text style={[styles.packetSuffixText, { color: tokens.gold, fontSize: fs(10) }]} numberOfLines={1}>

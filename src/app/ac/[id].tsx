@@ -42,6 +42,7 @@ import { buildACShareLink, highlightSnippet } from '@/lib/acShare'
 import { FolderPicker } from '@/components/FolderPicker'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { consumePendingBreadcrumb, setPendingBreadcrumb } from '@/lib/navBreadcrumb'
+import { splitIntoParagraphs } from '@/lib/regTextFormat'
 import type { AdvisoryCircular, AcFigure, FormulaRef } from '@/types'
 
 // Maps a block to the fields a highlight bookmark needs — chapter headings
@@ -752,22 +753,22 @@ export default function ACDetailScreen() {
           hitSlop={12}
           style={{ padding: 4 }}
         >
-          <Icon name="arrow.up.circle" size={21} color={tokens.t3} />
+          <Icon name="arrow.up.circle" size={fs(21)} color={tokens.t3} />
         </Pressable>
       )}
       <Pressable onPress={handlePrint} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="printer" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="printer" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="square.and.arrow.up" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="square.and.arrow.up" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="folder.badge.plus" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="folder.badge.plus" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
         <Icon
           name={bookmarked ? 'bookmark.fill' : 'bookmark'}
-          size={21}
+          size={fs(21)}
           color={bookmarked ? tokens.blu : tokens.t2}
         />
       </Pressable>
@@ -796,7 +797,7 @@ export default function ACDetailScreen() {
             ]}
           >
             <View style={styles.acSearchRow}>
-              <Icon name="magnifyingglass" size={15} color={tokens.t3} />
+              <Icon name="magnifyingglass" size={fs(15)} color={tokens.t3} />
               <View style={[styles.acSearchScope, { backgroundColor: tokens.bdim }]}>
                 <Text style={[styles.acSearchScopeText, { color: tokens.blu, fontSize: fs(9) }]}>IN DOC</Text>
               </View>
@@ -817,7 +818,7 @@ export default function ACDetailScreen() {
               />
               {acSearch.length > 0 && (
                 <Pressable hitSlop={10} onPress={clearSearch} style={{ padding: 6 }}>
-                  <Icon name="xmark" size={14} color={tokens.t3} />
+                  <Icon name="xmark" size={fs(14)} color={tokens.t3} />
                 </Pressable>
               )}
             </View>
@@ -830,10 +831,10 @@ export default function ACDetailScreen() {
                     </Text>
                     <View style={styles.acSearchNav}>
                       <Pressable hitSlop={14} onPress={goToPrev} style={{ padding: 8 }}>
-                        <Icon name="chevron.up" size={18} color={tokens.t2} />
+                        <Icon name="chevron.up" size={fs(18)} color={tokens.t2} />
                       </Pressable>
                       <Pressable hitSlop={14} onPress={goToNext} style={{ padding: 8 }}>
-                        <Icon name="chevron.down" size={18} color={tokens.t2} />
+                        <Icon name="chevron.down" size={fs(18)} color={tokens.t2} />
                       </Pressable>
                     </View>
                   </>
@@ -905,7 +906,7 @@ export default function ACDetailScreen() {
           {changedList.length > 0 && (
             <View style={[styles.updateBanner, { backgroundColor: tokens.bdim, borderColor: tokens.blu }]}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                <Icon name="bell.badge" size={14} color={tokens.blu} style={{ marginTop: 2 }} />
+                <Icon name="bell.badge" size={fs(14)} color={tokens.blu} style={{ marginTop: 2 }} />
                 <Text style={[styles.updateBannerText, { color: tokens.t1, fontSize: fs(12.5) }]}>
                   This AC was updated — {changedList.length} section{changedList.length === 1 ? '' : 's'} changed
                   {changedLabels.length > 0 ? ` (${changedLabels.join(', ')})` : ''}.
@@ -917,10 +918,10 @@ export default function ACDetailScreen() {
                     {changedIdx + 1}/{changedList.length}
                   </Text>
                   <Pressable onPress={goToPrevChanged} hitSlop={10} style={{ padding: 4 }}>
-                    <Icon name="chevron.up" size={16} color={tokens.blu} />
+                    <Icon name="chevron.up" size={fs(16)} color={tokens.blu} />
                   </Pressable>
                   <Pressable onPress={goToNextChanged} hitSlop={10} style={{ padding: 4 }}>
-                    <Icon name="chevron.down" size={16} color={tokens.blu} />
+                    <Icon name="chevron.down" size={fs(16)} color={tokens.blu} />
                   </Pressable>
                 </View>
               )}
@@ -945,7 +946,7 @@ export default function ACDetailScreen() {
               from ACs that had formula refs. */}
           {(isOcrScanned(ac.document_number) || (formulaRefs && formulaRefs.length > 0)) && (
             <View style={[styles.scanBanner, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-              <Icon name="doc.text" size={14} color={tokens.t3} style={{ marginTop: 2 }} />
+              <Icon name="doc.text" size={fs(14)} color={tokens.t3} style={{ marginTop: 2 }} />
               <View style={{ flex: 1 }}>
                 {isOcrScanned(ac.document_number) && (
                   <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
@@ -977,7 +978,23 @@ export default function ACDetailScreen() {
           {/* Description */}
           {ac.description ? (
             <Section title="Description" tokens={tokens}>
-              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(16), lineHeight: fs(16) * 1.44 }]}>{ac.description}</Text>
+              {/* Scraped with whitespace fully flattened (faa_scraper.py's
+                  _extract_description, get_text(separator=" ")) -- can run
+                  to ~3000 chars with an inline enumerated list and zero
+                  paragraph structure. splitIntoParagraphs decides WHERE to
+                  break without changing the source text itself. */}
+              {splitIntoParagraphs(ac.description).map((para, i, arr) => (
+                <Text
+                  key={i}
+                  style={[
+                    styles.body,
+                    { color: tokens.t2, fontSize: fs(16), lineHeight: fs(16) * 1.44 },
+                    i < arr.length - 1 && { marginBottom: 12 },
+                  ]}
+                >
+                  {para}
+                </Text>
+              ))}
             </Section>
           ) : null}
 
@@ -998,7 +1015,7 @@ export default function ACDetailScreen() {
               style={[styles.pdfBtn, { backgroundColor: tokens.blu, flex: 1 }]}
               onPress={openPDF}
             >
-              <Icon name="doc.text" size={17} color="#fff" />
+              <Icon name="doc.text" size={fs(17)} color="#fff" />
               <Text style={[styles.pdfBtnText, { color: '#fff', fontSize: fs(15) }]}>Open PDF</Text>
             </Pressable>
 
@@ -1017,7 +1034,7 @@ export default function ACDetailScreen() {
               ) : (
                 <Icon
                   name={downloaded ? 'checkmark.circle' : 'arrow.down.circle'}
-                  size={17}
+                  size={fs(17)}
                   color={downloaded ? tokens.grn : tokens.t2}
                 />
               )}
@@ -1080,7 +1097,7 @@ export default function ACDetailScreen() {
                   style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
                   onPress={() => router.push('/paywall')}
                 >
-                  <Icon name="lock.fill" size={20} color={tokens.blu} />
+                  <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
                   <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Continue reading with Plus</Text>
                   <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
                     You're reading a preview. Unlock Plus for the complete text, with full search and navigation.

@@ -311,7 +311,7 @@ export default function FAQScreen() {
                         <Text style={[styles.q, { color: tokens.t1, fontSize: fs(14.5) }]}>{item.q}</Text>
                         <Icon
                           name={expanded ? 'chevron.up' : 'chevron.down'}
-                          size={15}
+                          size={fs(15)}
                           color={tokens.t3}
                         />
                       </Pressable>
@@ -372,7 +372,7 @@ export default function FAQScreen() {
             Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`${APP_NAME} Support`)}`)
           }
         >
-          <Icon name="envelope" size={17} color={tokens.blu} />
+          <Icon name="envelope" size={fs(17)} color={tokens.blu} />
           <Text style={[styles.contactText, { color: tokens.blu, fontSize: fs(14.5) }]}>Email support</Text>
         </Pressable>
       </ScrollView>

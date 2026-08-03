@@ -769,10 +769,10 @@ export const ACBody = React.forwardRef<
       {toc.length >= 3 && scrollRef && !searching && (
         <View style={[styles.tocCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <Pressable style={styles.tocHead} onPress={() => setShowToc((s) => !s)}>
-            <Icon name="list.bullet" size={14} color={tokens.blu} />
+            <Icon name="list.bullet" size={fs(14)} color={tokens.blu} />
             <Text style={[styles.tocHeadText, { color: tokens.t1, fontSize: fs(13.5) }]}>Contents</Text>
             <Text style={[styles.tocCount, { color: tokens.t3, fontSize: fs(14) }]}>{toc.length}</Text>
-            <Icon name={showToc ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+            <Icon name={showToc ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
           </Pressable>
           {showToc && (
             <View style={[styles.tocList, { borderTopColor: tokens.bdr }]}>
@@ -822,11 +822,11 @@ export const ACBody = React.forwardRef<
                 style={styles.tocHead}
                 onPress={figures.length > 0 ? () => setShowFigures((s) => !s) : undefined}
               >
-                <Icon name="photo" size={14} color={tokens.blu} />
+                <Icon name="photo" size={fs(14)} color={tokens.blu} />
                 <Text style={[styles.tocHeadText, { color: tokens.t1, fontSize: fs(13.5) }]}>Figures & Tables</Text>
                 <Text style={[styles.tocCount, { color: tokens.t3, fontSize: fs(14) }]}>{figures.length}</Text>
                 {figures.length > 0 && (
-                  <Icon name={showFigures ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+                  <Icon name={showFigures ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
                 )}
               </Pressable>
               {showFigures && (
@@ -862,10 +862,10 @@ export const ACBody = React.forwardRef<
                 style={[styles.tocHead, figures && { borderTopWidth: 1, borderTopColor: tokens.bdr }]}
                 onPress={() => setShowFormulaRefs((s) => !s)}
               >
-                <Icon name="exclamationmark.triangle" size={14} color={tokens.blu} />
+                <Icon name="exclamationmark.triangle" size={fs(14)} color={tokens.blu} />
                 <Text style={[styles.tocHeadText, { color: tokens.t1, fontSize: fs(13.5) }]}>Formulas to Verify</Text>
                 <Text style={[styles.tocCount, { color: tokens.t3, fontSize: fs(14) }]}>{formulaRefs.length}</Text>
-                <Icon name={showFormulaRefs ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+                <Icon name={showFormulaRefs ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
               </Pressable>
               {showFormulaRefs && (
                 <View style={[styles.tocList, { borderTopColor: tokens.bdr }]}>
@@ -891,14 +891,14 @@ export const ACBody = React.forwardRef<
           ? { borderLeftWidth: 3, borderLeftColor: tokens.blu, paddingLeft: 8 }
           : null
         const UpdatedTag = isChanged ? (
-          <Text style={[styles.updatedTag, { color: tokens.blu, backgroundColor: tokens.bdim }]}> UPDATED </Text>
+          <Text style={[styles.updatedTag, { color: tokens.blu, backgroundColor: tokens.bdim, fontSize: fs(10.5) }]}> UPDATED </Text>
         ) : null
         const isHighlighted = !!highlightedBlockTexts?.has(blockText(b))
         const highlightStyle = isHighlighted
           ? { backgroundColor: 'rgba(255, 213, 0, 0.10)', borderLeftWidth: 3, borderLeftColor: '#FFD500', paddingLeft: 8 }
           : null
         const HighlightTag = isHighlighted ? (
-          <Text style={[styles.updatedTag, { color: '#8a6d00', backgroundColor: 'rgba(255, 213, 0, 0.35)' }]}> HIGHLIGHTED </Text>
+          <Text style={[styles.updatedTag, { color: '#8a6d00', backgroundColor: 'rgba(255, 213, 0, 0.35)', fontSize: fs(10.5) }]}> HIGHLIGHTED </Text>
         ) : null
         const longPress = onToggleHighlight ? () => onToggleHighlight(b, i) : undefined
         // Highlight every phrase occurrence; the one whose global ordinal ==

@@ -290,7 +290,7 @@ export default function NotesScreen() {
       </Pressable>
       {!selectMode && (
         <Pressable onPress={openNew} style={[styles.addBtn, { backgroundColor: tokens.blu }]}>
-          <Icon name="plus" size={13} color="#fff" />
+          <Icon name="plus" size={fs(13)} color="#fff" />
           <Text style={[styles.addBtnText, { fontSize: fs(12.5) }]}>New</Text>
         </Pressable>
       )}
@@ -304,7 +304,7 @@ export default function NotesScreen() {
 
       {!hasPlusAccess ? (
         <View style={[styles.empty, { padding: 32 }]}>
-          <Icon name="lock.fill" size={36} color={tokens.blu} />
+          <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Notes is a Plus feature</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             Unlock Plus to create personal notes and link them directly to any AC.
@@ -356,7 +356,7 @@ export default function NotesScreen() {
           {/* Notes list */}
           {notes.length === 0 ? (
             <View style={styles.empty}>
-              <Icon name="square.and.pencil" size={36} color={tokens.t4} />
+              <Icon name="square.and.pencil" size={fs(36)} color={tokens.t4} />
               <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No notes yet</Text>
               <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
                 Tap + New to start. Mention an AC like "61-65K" and it auto-links.
@@ -569,7 +569,7 @@ function NoteCard({
             ? { backgroundColor: tokens.blu, borderColor: tokens.blu }
             : { borderColor: tokens.t3 },
         ]}>
-          {selected && <Icon name="checkmark" size={11} color="#fff" />}
+          {selected && <Icon name="checkmark" size={fs(11)} color="#fff" />}
         </View>
       )}
       <View style={[styles.cardBody, selectMode && styles.cardBodyIndented]}>
@@ -583,7 +583,7 @@ function NoteCard({
           <Text style={[styles.cardTime, { color: tokens.t3, fontSize: fs(11) }]}>{timeAgo(note.updated_at)}</Text>
           {note.linked_ac && (
             <View style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
-              <Icon name="link" size={10} color={tokens.blu} />
+              <Icon name="link" size={fs(10)} color={tokens.blu} />
               <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(11) }]}>AC {note.linked_ac}</Text>
             </View>
           )}
@@ -781,7 +781,7 @@ function NoteEditor({
       {/* Header */}
       <View style={[styles.editorHeader, { backgroundColor: tokens.bg2, borderBottomColor: tokens.bdr, paddingTop: insets.top + 14 }]}>
         <Pressable onPress={onClose} style={styles.editorBack} hitSlop={8}>
-          <Icon name="chevron.left" size={17} color={tokens.blu} />
+          <Icon name="chevron.left" size={fs(17)} color={tokens.blu} />
           <Text style={[styles.editorBackText, { color: tokens.blu, fontSize: fs(14) }]}>Notes</Text>
         </Pressable>
         <Text style={[styles.editorHeadTitle, { color: tokens.t1, fontSize: fs(14) }]}>
@@ -848,7 +848,7 @@ function NoteEditor({
                   style={[styles.detectedChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
                   onPress={() => openAcPane(ac)}
                 >
-                  <Icon name="link" size={11} color={tokens.blu} />
+                  <Icon name="link" size={fs(11)} color={tokens.blu} />
                   <Text style={[styles.detectedChipText, { color: tokens.blu, fontSize: fs(12.5) }]}>AC {ac}</Text>
                 </Pressable>
               ))}
@@ -869,7 +869,7 @@ function NoteEditor({
                   style={[styles.detectedChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
                   onPress={() => setPreviewRoute(`/far/${f}`)}
                 >
-                  <Icon name="link" size={11} color={tokens.blu} />
+                  <Icon name="link" size={fs(11)} color={tokens.blu} />
                   <Text style={[styles.detectedChipText, { color: tokens.blu, fontSize: fs(12.5) }]}>§ {f}</Text>
                 </Pressable>
               ))}
@@ -886,7 +886,7 @@ function NoteEditor({
                   style={[styles.detectedChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
                   onPress={() => setPreviewRoute(`/aim/${a}`)}
                 >
-                  <Icon name="link" size={11} color={tokens.blu} />
+                  <Icon name="link" size={fs(11)} color={tokens.blu} />
                   <Text style={[styles.detectedChipText, { color: tokens.blu, fontSize: fs(12.5) }]}>¶ {a}</Text>
                 </Pressable>
               ))}
@@ -903,7 +903,7 @@ function NoteEditor({
                   style={[styles.detectedChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
                   onPress={() => setPreviewRoute(`/ad/${a}`)}
                 >
-                  <Icon name="link" size={11} color={tokens.blu} />
+                  <Icon name="link" size={fs(11)} color={tokens.blu} />
                   <Text style={[styles.detectedChipText, { color: tokens.blu, fontSize: fs(12.5) }]}>AD {a}</Text>
                 </Pressable>
               ))}
@@ -920,7 +920,7 @@ function NoteEditor({
                   style={[styles.detectedChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
                   onPress={() => setPreviewRoute(`/pcg/${p.slug}`)}
                 >
-                  <Icon name="link" size={11} color={tokens.blu} />
+                  <Icon name="link" size={fs(11)} color={tokens.blu} />
                   <Text style={[styles.detectedChipText, { color: tokens.blu, fontSize: fs(12.5) }]}>{p.term}</Text>
                 </Pressable>
               ))}
@@ -971,7 +971,7 @@ function NoteEditor({
               )
             })()}
             <Pressable onPress={closeAcPane} hitSlop={8}>
-              <Icon name="xmark" size={16} color={tokens.t3} />
+              <Icon name="xmark" size={fs(16)} color={tokens.t3} />
             </Pressable>
           </View>
 
@@ -996,16 +996,16 @@ function NoteEditor({
                   style={[styles.paneOpenBtn, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
                   onPress={openFullAC}
                 >
-                  <Icon name="doc.text" size={15} color={tokens.blu} />
+                  <Icon name="doc.text" size={fs(15)} color={tokens.blu} />
                   <Text style={[styles.paneOpenText, { color: tokens.blu, fontSize: fs(13) }]}>
                     Open full Advisory Circular
                   </Text>
-                  <Icon name="chevron.right" size={13} color={tokens.blu} />
+                  <Icon name="chevron.right" size={fs(13)} color={tokens.blu} />
                 </Pressable>
 
                 {paneData.pdf_blocks && paneData.pdf_blocks.length > 0 ? (
                   <>
-                    <Text style={[styles.paneFullLabel, { color: tokens.t3 }]}>FULL TEXT</Text>
+                    <Text style={[styles.paneFullLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>FULL TEXT</Text>
                     <ACBody
                       blocks={paneData.pdf_blocks}
                       scrollRef={paneScrollRef}

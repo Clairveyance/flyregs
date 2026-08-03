@@ -93,7 +93,7 @@ export default function AimChapterScreen() {
                   <Text style={[styles.paraTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
                     {p.title ?? ''}
                   </Text>
-                  <Icon name="chevron.right" size={13} color={tokens.t4} />
+                  <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
                 </Pressable>
               ))}
             </View>

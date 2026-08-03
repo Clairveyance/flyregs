@@ -1,6 +1,7 @@
 import { View, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Icon } from '@/components/Icon'
+import { useFS } from '@/context/fontScale'
 import type { CoinTier } from '@/lib/coins'
 
 // A flat single-color circle read as a plain icon badge, not a coin --
@@ -54,13 +55,19 @@ export function CoinMedal({
   tier,
   icon,
   earned,
-  size = 46,
+  size: baseSize = 46,
 }: {
   tier: CoinTier
   icon: string
   earned: boolean
   size?: number
 }) {
+  // Every caller passes a design-time base size (e.g. 22 in a name tag, 96
+  // in the earned-coin reveal) -- scaling it here once, rather than at each
+  // call site, means the text-size setting reaches every coin automatically
+  // as new call sites get added, instead of relying on each one to remember.
+  const fs = useFS()
+  const size = fs(baseSize)
   const colors = earned ? TIER_GRADIENTS[tier] : LOCKED_GRADIENT
   const faceSize = size * 0.78
   const bevelSize = size * 0.9

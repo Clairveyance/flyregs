@@ -62,7 +62,7 @@ export function DictionarySearchBar() {
   return (
     <View style={styles.wrap}>
       <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
-        <Icon name="magnifyingglass" size={16} color={tokens.t3} />
+        <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
         <TextInput
           style={[styles.searchInput, { color: tokens.t1, fontSize: fs(14) }]}
           placeholder="Find a term or acronym…"
@@ -75,7 +75,7 @@ export function DictionarySearchBar() {
         />
         {query.length > 0 && (
           <Pressable onPress={handleClear} hitSlop={8}>
-            <Icon name="xmark.circle" size={16} color={tokens.t4} />
+            <Icon name="xmark.circle" size={fs(16)} color={tokens.t4} />
           </Pressable>
         )}
       </View>
@@ -109,7 +109,7 @@ export function DictionarySearchBar() {
                       </Text>
                     )}
                   </View>
-                  <Icon name="chevron.right" size={13} color={tokens.t4} />
+                  <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
                 </Pressable>
               )}
             />

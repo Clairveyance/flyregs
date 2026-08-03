@@ -51,7 +51,7 @@ export default function WhatsChangedScreen() {
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>
         <OverlayHeader title="What's Changed" onBack={() => router.back()} />
         <View style={styles.center}>
-          <Icon name="lock.fill" size={36} color={tokens.blu} />
+          <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>What's Changed is a Plus feature</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             A real, browsable history of exactly what changed in every revision — not just a "this was updated" badge.
@@ -75,7 +75,7 @@ export default function WhatsChangedScreen() {
         </View>
       ) : revisions.length === 0 ? (
         <View style={styles.center}>
-          <Icon name="doc.badge.clock" size={36} color={tokens.t4} />
+          <Icon name="doc.badge.clock" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No revisions logged yet</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             Real content changes will show up here as they're published.
@@ -138,7 +138,7 @@ function RevisionRow({
             {added.length === 0 && removed.length === 0 && 'Revised'}
           </Text>
         </View>
-        <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+        <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
       </Pressable>
 
       {expanded && (
@@ -160,7 +160,7 @@ function RevisionRow({
             onPress={() => router.push(routeForRevision(item) as any)}
           >
             <Text style={[styles.openBtnText, { color: tokens.blu, fontSize: fs(13) }]}>Open full document</Text>
-            <Icon name="chevron.right" size={12} color={tokens.blu} />
+            <Icon name="chevron.right" size={fs(12)} color={tokens.blu} />
           </Pressable>
         </View>
       )}

@@ -218,12 +218,12 @@ export default function MyAircraftScreen() {
                     )}
                   </View>
                   <Pressable onPress={(e) => { e.stopPropagation(); setEditingAircraft(a) }} hitSlop={10} style={{ marginRight: 14 }}>
-                    <Icon name="pencil" size={17} color={tokens.t3} />
+                    <Icon name="pencil" size={fs(17)} color={tokens.t3} />
                   </Pressable>
                   <Pressable onPress={(e) => { e.stopPropagation(); handleRemove(a.id) }} hitSlop={10} style={{ marginRight: 4 }}>
-                    <Icon name="trash" size={17} color={tokens.t3} />
+                    <Icon name="trash" size={fs(17)} color={tokens.t3} />
                   </Pressable>
-                  <Icon name="chevron.right" size={14} color={tokens.t4} />
+                  <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
                 </Pressable>
               ))}
             </View>
@@ -270,7 +270,7 @@ export default function MyAircraftScreen() {
               {saving ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Text style={styles.addButtonText}>Add Aircraft</Text>
+                <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Add Aircraft</Text>
               )}
             </Pressable>
           </View>
@@ -372,7 +372,7 @@ function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: UserAircr
           <View style={styles.modalHeader}>
             <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Edit Aircraft</Text>
             <Pressable onPress={onClose} hitSlop={10}>
-              <Icon name="xmark" size={18} color={tokens.t3} />
+              <Icon name="xmark" size={fs(18)} color={tokens.t3} />
             </Pressable>
           </View>
           <MakeField value={make} onChangeText={setMake} tokens={tokens} fs={fs} style={{ marginTop: 12 }} />
@@ -405,7 +405,7 @@ function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: UserAircr
             style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr, marginTop: 10 }]}
           />
           <Pressable style={[styles.addButton, { backgroundColor: tokens.blu, marginTop: 14 }]} onPress={handleSave} disabled={saving}>
-            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.addButtonText}>Save Changes</Text>}
+            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Save Changes</Text>}
           </Pressable>
         </View>
       </View>
@@ -632,7 +632,7 @@ function YearField({
       <Text style={{ color: value ? tokens.t1 : tokens.t3, fontSize: fs(14.5) }}>
         {value ?? 'Year (optional)'}
       </Text>
-      <Icon name="chevron.down" size={14} color={tokens.t4} />
+      <Icon name="chevron.down" size={fs(14)} color={tokens.t4} />
     </Pressable>
   )
 }

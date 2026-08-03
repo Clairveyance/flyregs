@@ -134,7 +134,7 @@ export default function ChallengesScreen() {
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>
         <OverlayHeader title="Duels" onBack={() => router.back()} />
         <View style={styles.center}>
-          <Icon name="lock.fill" size={36} color={tokens.blu} />
+          <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Duels are a Premium feature</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             Challenge 1-7 other pilots to a free-for-all multiple-choice quiz across FAR, AIM, P/CG, and ACs — most correct answers wins, with time as the tiebreaker.
@@ -157,13 +157,13 @@ export default function ChallengesScreen() {
         onBack={() => router.back()}
         right={
           <Pressable onPress={openPicker} hitSlop={12} style={{ padding: 4 }}>
-            <Icon name="plus" size={22} color={tokens.gold} />
+            <Icon name="plus" size={fs(22)} color={tokens.gold} />
           </Pressable>
         }
       />
       {myStats && (myStats.wins > 0 || myStats.losses > 0 || myStats.ties > 0) && (
         <View style={[styles.myStatsBar, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}>
-          <Icon name="rosette" size={16} color={tokens.gold} />
+          <Icon name="rosette" size={fs(16)} color={tokens.gold} />
           <Text style={[styles.myStatsText, { color: tokens.t1, fontSize: fs(13.5) }]}>
             <Text style={{ color: tokens.gold, fontWeight: '700' }}>{myStats.wins}</Text> wins ·{' '}
             <Text style={{ color: tokens.t2 }}>{myStats.losses}</Text> losses
@@ -177,7 +177,7 @@ export default function ChallengesScreen() {
         </View>
       ) : challenges.length === 0 ? (
         <View style={styles.center}>
-          <Icon name="bolt.fill" size={36} color={tokens.t4} />
+          <Icon name="bolt.fill" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No duels yet</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             Tap + to challenge one or more pilots from Ready Room.
@@ -200,7 +200,7 @@ export default function ChallengesScreen() {
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>New Duel</Text>
               <Pressable onPress={() => setPickerVisible(false)} hitSlop={10}>
-                <Icon name="xmark" size={18} color={tokens.t3} />
+                <Icon name="xmark" size={fs(18)} color={tokens.t3} />
               </Pressable>
             </View>
 
@@ -338,7 +338,7 @@ export default function ChallengesScreen() {
                     onPress={() => toggleOpponent(o.userId)}
                   >
                     <View style={[styles.checkbox, { borderColor: selected ? tokens.gold : tokens.bdr, backgroundColor: selected ? tokens.goldlt : 'transparent' }]}>
-                      {selected && <Icon name="checkmark" size={12} color={tokens.gold} />}
+                      {selected && <Icon name="checkmark" size={fs(12)} color={tokens.gold} />}
                     </View>
                     <Text style={[styles.opponentText, { color: tokens.t1, fontSize: fs(14) }]}>{o.displayLabel}</Text>
                   </Pressable>
@@ -348,7 +348,7 @@ export default function ChallengesScreen() {
 
             {createError && (
               <View style={[styles.createError, { backgroundColor: tokens.bg2, borderColor: tokens.red }]}>
-                <Icon name="exclamationmark.triangle" size={14} color={tokens.red} />
+                <Icon name="exclamationmark.triangle" size={fs(14)} color={tokens.red} />
                 <Text style={[styles.createErrorText, { color: tokens.t2, fontSize: fs(12.5) }]}>{createError}</Text>
               </View>
             )}
@@ -360,7 +360,7 @@ export default function ChallengesScreen() {
                 disabled={creating}
               >
                 {creating ? <ActivityIndicator size="small" color="#000" /> : (
-                  <Text style={styles.startBtnText}>
+                  <Text style={[styles.startBtnText, { fontSize: fs(13.5) }]}>
                     START DUEL ({selectedOpponents.length + 1} PLAYER{selectedOpponents.length + 1 === 1 ? '' : 'S'})
                   </Text>
                 )}
@@ -413,7 +413,7 @@ function ChallengeRow({
         }}
         hitSlop={6}
       >
-        <Icon name="bolt.fill" size={14} color={tokens.gold} />
+        <Icon name="bolt.fill" size={fs(14)} color={tokens.gold} />
       </Pressable>
       <View style={{ flex: 1 }}>
         <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>{othersLabel}</Text>
@@ -422,14 +422,14 @@ function ChallengeRow({
       {isPendingForMe ? (
         <View style={styles.respondRow}>
           <Pressable style={[styles.respondBtn, { borderColor: tokens.bdr }]} onPress={() => onRespond(item, false)}>
-            <Icon name="xmark" size={14} color={tokens.t3} />
+            <Icon name="xmark" size={fs(14)} color={tokens.t3} />
           </Pressable>
           <Pressable style={[styles.respondBtn, styles.respondBtnAccept, { borderColor: tokens.goldbdr, backgroundColor: tokens.goldlt }]} onPress={() => onRespond(item, true)}>
-            <Icon name="checkmark" size={14} color={tokens.gold} />
+            <Icon name="checkmark" size={fs(14)} color={tokens.gold} />
           </Pressable>
         </View>
       ) : (
-        <Icon name="chevron.right" size={14} color={tokens.t4} />
+        <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
       )}
     </Pressable>
   )

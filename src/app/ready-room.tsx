@@ -57,7 +57,7 @@ export default function ReadyRoomScreen() {
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>
         <OverlayHeader title="Ready Room" onBack={() => router.back()} />
         <View style={styles.center}>
-          <Icon name="lock.fill" size={36} color={tokens.blu} />
+          <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Ready Room is a Pro feature</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             See how your weekly practice stacks up against other pilots training toward the same ratings.
@@ -69,7 +69,7 @@ export default function ReadyRoomScreen() {
 
   const headerRight = (
     <Pressable onPress={() => router.push('/challenges' as any)} hitSlop={12} style={{ padding: 4 }}>
-      <Icon name="bolt.fill" size={20} color={tokens.gold} />
+      <Icon name="bolt.fill" size={fs(20)} color={tokens.gold} />
     </Pressable>
   )
 
@@ -115,7 +115,7 @@ export default function ReadyRoomScreen() {
         </View>
       ) : rowCount === 0 ? (
         <View style={styles.center}>
-          <Icon name={empty.icon} size={36} color={tokens.t4} />
+          <Icon name={empty.icon} size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>{empty.title}</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>{empty.sub}</Text>
         </View>
@@ -141,7 +141,7 @@ export default function ReadyRoomScreen() {
                 <Text style={[styles.name, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
                   {item.isMe ? 'You' : item.displayLabel}
                 </Text>
-                {item.currentStreak > 0 && <Icon name="bolt.fill" size={12} color={tokens.gold} />}
+                {item.currentStreak > 0 && <Icon name="bolt.fill" size={fs(12)} color={tokens.gold} />}
                 <Text style={[styles.score, { color: tokens.t3, fontSize: fs(12.5) }]}>{item.weeklyReviews}</Text>
               </Pressable>
             )}

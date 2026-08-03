@@ -37,7 +37,7 @@ export default function PDFViewerScreen() {
           {title || 'Original PDF'}
         </Text>
         <Pressable onPress={() => router.dismiss()} hitSlop={10} style={styles.closeBtn}>
-          <Icon name="xmark" size={18} color={tokens.t3} />
+          <Icon name="xmark" size={fs(18)} color={tokens.t3} />
         </Pressable>
       </View>
 

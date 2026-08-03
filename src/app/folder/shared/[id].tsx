@@ -247,7 +247,7 @@ export default function SharedFolderDetail() {
         }
       />
       <View style={[styles.badgeRow, { borderBottomColor: tokens.bdr }]}>
-        <Icon name="person.2.fill" size={13} color={tokens.t3} />
+        <Icon name="person.2.fill" size={fs(13)} color={tokens.t3} />
         <Text style={[styles.badgeText, { color: tokens.t3, fontSize: fs(12) }]}>
           {ownerName ? `Shared by ${ownerName} — view only` : 'Shared with you — view only'}
         </Text>
@@ -259,7 +259,7 @@ export default function SharedFolderDetail() {
         </View>
       ) : removed ? (
         <View style={styles.center}>
-          <Icon name="folder" size={36} color={tokens.t4} />
+          <Icon name="folder" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(15) }]}>
             This folder is no longer shared
           </Text>
@@ -269,7 +269,7 @@ export default function SharedFolderDetail() {
         </View>
       ) : acs.length === 0 && notes.length === 0 && regs.length === 0 ? (
         <View style={styles.center}>
-          <Icon name="folder" size={36} color={tokens.t4} />
+          <Icon name="folder" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(15) }]}>Nothing here yet</Text>
         </View>
       ) : (
@@ -297,7 +297,7 @@ export default function SharedFolderDetail() {
                     </Text>
                   )}
                 </View>
-                <Icon name="chevron.right" size={14} color={tokens.t4} />
+                <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
             ) : 'document_number' in item ? (
               <Pressable
@@ -322,7 +322,7 @@ export default function SharedFolderDetail() {
                     {stripFarPrefix(item.title)}
                   </Text>
                 </View>
-                <Icon name="chevron.right" size={14} color={tokens.t4} />
+                <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
             ) : (
               <Pressable
@@ -343,13 +343,13 @@ export default function SharedFolderDetail() {
                     <Text style={[styles.rowMeta, { color: tokens.t4, fontSize: fs(11) }]}>{timeAgo(item.updated_at)}</Text>
                     {item.linked_ac && (
                       <View style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
-                        <Icon name="link" size={9} color={tokens.blu} />
+                        <Icon name="link" size={fs(9)} color={tokens.blu} />
                         <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>AC {item.linked_ac}</Text>
                       </View>
                     )}
                   </View>
                 </View>
-                <Icon name="chevron.right" size={14} color={tokens.t4} />
+                <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
             )
           }
@@ -365,7 +365,7 @@ export default function SharedFolderDetail() {
                 <Text style={[styles.typeBadgeText, { color: tokens.grn, fontSize: fs(9.5) }]}>NOTE</Text>
               </View>
               <Pressable onPress={() => setOpenNote(null)} hitSlop={10}>
-                <Icon name="xmark" size={18} color={tokens.t3} />
+                <Icon name="xmark" size={fs(18)} color={tokens.t3} />
               </Pressable>
             </View>
             <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingBottom: 20 }}>
@@ -397,7 +397,7 @@ export default function SharedFolderDetail() {
                               router.push(`/ac/${entry.id}`)
                             }}
                           >
-                            <Icon name="link" size={9} color={tokens.blu} />
+                            <Icon name="link" size={fs(9)} color={tokens.blu} />
                             <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>AC {doc}</Text>
                           </Pressable>
                         )
@@ -420,7 +420,7 @@ export default function SharedFolderDetail() {
                           style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
                           onPress={() => { setOpenNote(null); router.push(`/far/${f}`) }}
                         >
-                          <Icon name="link" size={9} color={tokens.blu} />
+                          <Icon name="link" size={fs(9)} color={tokens.blu} />
                           <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>FAR {f}</Text>
                         </Pressable>
                       ))}
@@ -442,7 +442,7 @@ export default function SharedFolderDetail() {
                           style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
                           onPress={() => { setOpenNote(null); router.push(`/aim/${a}`) }}
                         >
-                          <Icon name="link" size={9} color={tokens.blu} />
+                          <Icon name="link" size={fs(9)} color={tokens.blu} />
                           <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>AIM {a}</Text>
                         </Pressable>
                       ))}
@@ -464,7 +464,7 @@ export default function SharedFolderDetail() {
                           style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
                           onPress={() => { setOpenNote(null); router.push(`/ad/${a}`) }}
                         >
-                          <Icon name="link" size={9} color={tokens.blu} />
+                          <Icon name="link" size={fs(9)} color={tokens.blu} />
                           <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>AD {a}</Text>
                         </Pressable>
                       ))}
@@ -486,7 +486,7 @@ export default function SharedFolderDetail() {
                           style={[styles.acChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
                           onPress={() => { setOpenNote(null); router.push(`/pcg/${p.slug}`) }}
                         >
-                          <Icon name="link" size={9} color={tokens.blu} />
+                          <Icon name="link" size={fs(9)} color={tokens.blu} />
                           <Text style={[styles.acChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>{p.term}</Text>
                         </Pressable>
                       ))}

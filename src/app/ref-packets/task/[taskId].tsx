@@ -97,11 +97,11 @@ export default function RefPacketTaskScreen() {
               <Pressable onPress={() => router.push(`/ref-packets/${task.docCode}` as any)}>
                 <Text style={[styles.breadcrumbText, { color: tokens.t3, fontSize: fs(11.5) }]} numberOfLines={1}>{task.docTitle}</Text>
               </Pressable>
-              <Icon name="chevron.right" size={9} color={tokens.t4} />
+              <Icon name="chevron.right" size={fs(9)} color={tokens.t4} />
               <Text style={[styles.breadcrumbText, { color: tokens.t3, fontSize: fs(11.5) }]} numberOfLines={1}>
                 Area {task.areaNumber}{task.areaTitle ? `: ${task.areaTitle}` : ''}
               </Text>
-              <Icon name="chevron.right" size={9} color={tokens.t4} />
+              <Icon name="chevron.right" size={fs(9)} color={tokens.t4} />
               <Text style={[styles.breadcrumbText, { color: tokens.t2, fontSize: fs(11.5), fontWeight: '700' }]} numberOfLines={1}>
                 Task {task.taskLetter}
               </Text>
@@ -121,7 +121,7 @@ export default function RefPacketTaskScreen() {
             >
               <Text style={[styles.sectionLabel, { color: tokens.t3, fontSize: fs(11) }]}>RELATED REGULATIONS</Text>
               <View style={[styles.searchBar, { backgroundColor: tokens.inp, borderColor: tokens.bdr }]}>
-                <Icon name="magnifyingglass" size={15} color={tokens.t3} />
+                <Icon name="magnifyingglass" size={fs(15)} color={tokens.t3} />
                 <TextInput
                   style={[styles.searchInput, { color: tokens.t1, fontSize: fs(13.5) }]}
                   value={query}
@@ -144,7 +144,7 @@ export default function RefPacketTaskScreen() {
               {groups.map((g) => (
                 <View key={g.type} style={styles.regGroup}>
                   <View style={styles.regGroupHeader}>
-                    <Icon name={REG_TYPE[g.type].icon} size={12} color={tokens.blu} />
+                    <Icon name={REG_TYPE[g.type].icon} size={fs(12)} color={tokens.blu} />
                     <Text style={[styles.regGroupLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>{REG_TYPE[g.type].label}</Text>
                   </View>
                   {g.results.map((r) => {
@@ -276,7 +276,7 @@ function ElementGroup({
                 ),
               )}
             </Text>
-            <Icon name="magnifyingglass" size={13} color={tokens.t4} />
+            <Icon name="magnifyingglass" size={fs(13)} color={tokens.t4} />
           </Pressable>
         ))}
       </View>

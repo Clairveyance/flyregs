@@ -168,7 +168,7 @@ function DrawerContent({
     >
       {/* Close */}
       <Pressable onPress={onClose} style={styles.closeBtn} hitSlop={8}>
-        <Icon name="xmark" size={17} color={tokens.t3} />
+        <Icon name="xmark" size={fs(17)} color={tokens.t3} />
       </Pressable>
 
       {/* Profile */}
@@ -180,7 +180,7 @@ function DrawerContent({
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
           ) : avatarPreset ? (
-            <Icon name={avatarPreset.icon} size={20} color="#fff" />
+            <Icon name={avatarPreset.icon} size={fs(20)} color="#fff" />
           ) : (
             <Text style={[styles.avatarText, { fontSize: fs(17) }]}>{initials}</Text>
           )}
@@ -196,7 +196,7 @@ function DrawerContent({
             {email}
           </Text>
         </View>
-        <Icon name="chevron.right" size={13} color={tokens.t3} />
+        <Icon name="chevron.right" size={fs(13)} color={tokens.t3} />
       </Pressable>
 
       {/* Account group -- subscription management now lives entirely in
@@ -223,7 +223,7 @@ function DrawerContent({
       {/* Appearance — Phase 2: wired */}
       <View style={styles.appearanceRow}>
         <View style={styles.rowIcon}>
-          <Icon name="moon.stars" size={17} color={tokens.t2} />
+          <Icon name="moon.stars" size={fs(17)} color={tokens.t2} />
         </View>
         <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14) }]}>Appearance</Text>
       </View>
@@ -249,7 +249,7 @@ function DrawerContent({
       {/* Text Size — inline picker */}
       <View style={styles.appearanceRow}>
         <View style={styles.rowIcon}>
-          <Icon name="textformat.size" size={17} color={tokens.t2} />
+          <Icon name="textformat.size" size={fs(17)} color={tokens.t2} />
         </View>
         <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14) }]}>Text Size</Text>
       </View>
@@ -288,6 +288,7 @@ function AppearancePicker({
   setMode: (m: ThemeMode) => void
   tokens: ThemeTokens
 }) {
+  const fs = useFS()
   return (
     <View style={[styles.segWrap, { backgroundColor: tokens.bg3 }]}>
       {MODES.map((m) => {
@@ -304,7 +305,7 @@ function AppearancePicker({
             <Text
               style={[
                 styles.segLabel,
-                { color: active ? tokens.t1 : tokens.t2 },
+                { color: active ? tokens.t1 : tokens.t2, fontSize: fs(12.5) },
               ]}
             >
               {m.label}
@@ -333,6 +334,7 @@ function BadgeLifespanPicker({
   setDays: (d: number) => void
   tokens: ThemeTokens
 }) {
+  const fs = useFS()
   return (
     <View style={[styles.segWrap, { backgroundColor: tokens.bg3 }]}>
       {LIFESPAN_OPTIONS.map((opt) => {
@@ -343,7 +345,7 @@ function BadgeLifespanPicker({
             style={[styles.segBtn, active && { backgroundColor: tokens.bg2 }]}
             onPress={() => setDays(opt.value)}
           >
-            <Text style={[styles.segLabel, { color: active ? tokens.t1 : tokens.t2 }]}>
+            <Text style={[styles.segLabel, { color: active ? tokens.t1 : tokens.t2, fontSize: fs(12.5) }]}>
               {opt.label}
             </Text>
           </Pressable>
@@ -453,11 +455,11 @@ function DrawerRow({
   return (
     <Pressable style={styles.row} onPress={onPress}>
       <View style={styles.rowIcon}>
-        <Icon name={icon} size={17} color={tokens.t2} />
+        <Icon name={icon} size={fs(17)} color={tokens.t2} />
       </View>
       <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14) }]}>{label}</Text>
       {value ? <Text style={[styles.rowValue, { color: tokens.t3, fontSize: fs(12.5) }]}>{value}</Text> : null}
-      <Icon name="chevron.right" size={12} color={tokens.t4} />
+      <Icon name="chevron.right" size={fs(12)} color={tokens.t4} />
     </Pressable>
   )
 }

@@ -199,7 +199,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
                   >
                     <Icon
                       name={isMember ? 'folder.fill' : 'folder'}
-                      size={19}
+                      size={fs(19)}
                       color={isMember ? tokens.blu : tokens.t3}
                     />
                     <View style={styles.folderNameRow}>
@@ -213,7 +213,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
                       )}
                     </View>
                     {isMember && (
-                      <Icon name="checkmark" size={14} color={tokens.blu} />
+                      <Icon name="checkmark" size={fs(14)} color={tokens.blu} />
                     )}
                   </Pressable>
                 )
@@ -242,7 +242,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
                 <Text style={[styles.createBtnText, { fontSize: fs(13) }]}>Create</Text>
               </Pressable>
               <Pressable onPress={cancelCreate} hitSlop={8}>
-                <Icon name="xmark" size={15} color={tokens.t3} />
+                <Icon name="xmark" size={fs(15)} color={tokens.t3} />
               </Pressable>
             </View>
           ) : (
@@ -253,7 +253,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
                 setCreating(true)
               }}
             >
-              <Icon name="folder.badge.plus" size={19} color={tokens.blu} />
+              <Icon name="folder.badge.plus" size={fs(19)} color={tokens.blu} />
               <Text style={[styles.newFolderText, { color: tokens.blu, fontSize: fs(14.5) }]}>New Folder</Text>
             </Pressable>
           )}

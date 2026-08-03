@@ -322,7 +322,7 @@ export default function StudyScreen() {
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>
         <OverlayHeader title="Study Mode" onBack={() => router.back()} />
         <View style={styles.center}>
-          <Icon name="lock.fill" size={36} color={tokens.blu} />
+          <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Study Mode is a Pro feature</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             Flashcards, mastery tracking, and daily practice — join Pro to start building real recall, not just lookups.
@@ -337,7 +337,7 @@ export default function StudyScreen() {
 
   const headerRight = (
     <Pressable onPress={() => router.push('/ready-room')} hitSlop={12} style={{ padding: 4 }}>
-      <Icon name="person.2.fill" size={20} color={tokens.gold} />
+      <Icon name="person.2.fill" size={fs(20)} color={tokens.gold} />
     </Pressable>
   )
 
@@ -355,7 +355,7 @@ export default function StudyScreen() {
             active-filter tint. */}
         <Icon
           name="slider.horizontal.3"
-          size={15}
+          size={fs(15)}
           color={activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0 ? tokens.blu : tokens.t3}
         />
         <Text style={[styles.filtersHeaderText, { color: tokens.t2, fontSize: fs(12.5) }]}>Filters</Text>
@@ -367,7 +367,7 @@ export default function StudyScreen() {
             `${sessionSize} cards`,
           ].filter(Boolean).join(' · ')}
         </Text>
-        <Icon name={filtersExpanded ? 'chevron.up' : 'chevron.down'} size={13} color={tokens.t3} />
+        <Icon name={filtersExpanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
       </Pressable>
       {filtersExpanded && (
       <>
@@ -492,7 +492,7 @@ export default function StudyScreen() {
       )}
 
       <Pressable style={styles.revealRow} onPress={toggleRevealDirection}>
-        <Icon name="arrow.uturn.left" size={12} color={tokens.t3} />
+        <Icon name="arrow.uturn.left" size={fs(12)} color={tokens.t3} />
         <Text style={[styles.revealRowText, { color: tokens.t3, fontSize: fs(11.5) }]}>
           {revealDirection === 'defFirst'
             ? 'Showing definition first — tap to flip'
@@ -548,7 +548,7 @@ export default function StudyScreen() {
       {!loading && currency && currency.currentStreak > 0 && (
         <View style={styles.currencyBadge}>
           <View style={[styles.currencyIcon, { borderColor: tokens.gold }]}>
-            <Icon name="bolt.fill" size={14} color={tokens.gold} />
+            <Icon name="bolt.fill" size={fs(14)} color={tokens.gold} />
           </View>
           <View>
             <Text style={[styles.currencyTitle, { color: tokens.t1, fontSize: fs(13) }]}>
@@ -563,7 +563,7 @@ export default function StudyScreen() {
 
       {!loading && sessionDone && (
         <View style={styles.center}>
-          <Icon name="checkmark.circle" size={40} color={tokens.gold} />
+          <Icon name="checkmark.circle" size={fs(40)} color={tokens.gold} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>
             {deck.length === 0 ? 'Nothing due right now' : 'Session complete'}
           </Text>
@@ -596,7 +596,7 @@ export default function StudyScreen() {
               {index + 1} / {deck.length}{current.is_new ? ' · new' : ''}
             </Text>
             <Pressable onPress={handleToggleBookmark} hitSlop={10} style={styles.bookmarkBtn}>
-              <Icon name={currentBookmarked ? 'bookmark.fill' : 'bookmark'} size={16} color={currentBookmarked ? tokens.gold : tokens.t3} />
+              <Icon name={currentBookmarked ? 'bookmark.fill' : 'bookmark'} size={fs(16)} color={currentBookmarked ? tokens.gold : tokens.t3} />
             </Pressable>
           </View>
           {poolCount != null && (
@@ -640,14 +640,14 @@ export default function StudyScreen() {
                 style={[styles.answerBtn, { borderColor: tokens.bdr }]}
                 onPress={() => handleAnswer(false)}
               >
-                <Icon name="xmark" size={16} color={tokens.t3} />
+                <Icon name="xmark" size={fs(16)} color={tokens.t3} />
                 <Text style={[styles.answerText, { color: tokens.t2, fontSize: fs(13.5) }]}>Missed it</Text>
               </Pressable>
               <Pressable
                 style={[styles.answerBtn, styles.answerBtnGood, { borderColor: tokens.goldbdr, backgroundColor: tokens.goldlt }]}
                 onPress={() => handleAnswer(true)}
               >
-                <Icon name="checkmark" size={16} color={tokens.gold} />
+                <Icon name="checkmark" size={fs(16)} color={tokens.gold} />
                 <Text style={[styles.answerText, { color: tokens.gold, fontSize: fs(13.5) }]}>Knew it</Text>
               </Pressable>
             </View>

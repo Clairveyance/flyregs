@@ -84,7 +84,7 @@ export default function PcgIndexScreen() {
 
   const headerRight = (
     <Pressable onPress={() => router.push('/study')} hitSlop={12} style={{ padding: 4 }}>
-      <Icon name="flame.fill" size={21} color={tokens.gold} />
+      <Icon name="flame.fill" size={fs(21)} color={tokens.gold} />
     </Pressable>
   )
 
@@ -98,7 +98,7 @@ export default function PcgIndexScreen() {
       ) : (
         <TabletContainer>
         <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
-          <Icon name="magnifyingglass" size={16} color={tokens.t3} />
+          <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
           <TextInput
             style={[styles.searchInput, { color: tokens.t1, fontSize: fs(14) }]}
             placeholder="Find a term…"
@@ -111,7 +111,7 @@ export default function PcgIndexScreen() {
           />
           {query.length > 0 && (
             <Pressable onPress={() => { setQuery(''); setTermHits([]) }} hitSlop={8}>
-              <Icon name="xmark.circle" size={16} color={tokens.t4} />
+              <Icon name="xmark.circle" size={fs(16)} color={tokens.t4} />
             </Pressable>
           )}
         </View>
@@ -162,7 +162,7 @@ export default function PcgIndexScreen() {
                   <Text style={[styles.termText, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
                     {item.term}
                   </Text>
-                  <Icon name="chevron.right" size={14} color={tokens.t4} />
+                  <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
                 </Pressable>
               )}
             />
@@ -188,7 +188,7 @@ export default function PcgIndexScreen() {
                 <View style={[styles.countPill, { backgroundColor: tokens.bg3 }]}>
                   <Text style={[styles.countText, { color: tokens.t3, fontSize: fs(11.5) }]}>{counts[letter]}</Text>
                 </View>
-                <Icon name="chevron.right" size={14} color={tokens.t4} />
+                <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
             )}
           />

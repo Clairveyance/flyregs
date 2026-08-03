@@ -68,7 +68,7 @@ export default function AcLibraryScreen() {
                 <View style={[styles.countPill, { backgroundColor: tokens.bg3 }]}>
                   <Text style={[styles.countText, { color: tokens.t3, fontSize: fs(11.5) }]}>{item.ac_count}</Text>
                 </View>
-                <Icon name="chevron.right" size={14} color={tokens.t4} />
+                <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
             )
           }}

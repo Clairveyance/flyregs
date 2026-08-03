@@ -153,7 +153,7 @@ export default function AdIndexScreen() {
       <TabletContainer>
         <ScrollView contentContainerStyle={styles.content}>
           <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
-            <Icon name="magnifyingglass" size={16} color={tokens.t3} />
+            <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
             <TextInput
               style={[styles.searchInput, { color: tokens.t1, fontSize: fs(14) }]}
               placeholder="AD number or subject…"
@@ -167,7 +167,7 @@ export default function AdIndexScreen() {
             />
             {query.length > 0 && (
               <Pressable onPress={() => { setQuery(''); setHits([]) }} hitSlop={8}>
-                <Icon name="xmark.circle" size={16} color={tokens.t4} />
+                <Icon name="xmark.circle" size={fs(16)} color={tokens.t4} />
               </Pressable>
             )}
           </View>
@@ -177,7 +177,7 @@ export default function AdIndexScreen() {
               style={[styles.jumpRow, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
               onPress={() => router.push(`/ad/${adJump}` as any)}
             >
-              <Icon name="arrow.up.right.square" size={15} color={tokens.blu} />
+              <Icon name="arrow.up.right.square" size={fs(15)} color={tokens.blu} />
               <Text style={[styles.jumpText, { color: tokens.blu, fontSize: fs(14) }]}>Go to AD {adJump}</Text>
             </Pressable>
           )}
@@ -192,7 +192,7 @@ export default function AdIndexScreen() {
                   this (earliest citation_publish_date = 2000-01-12, zero
                   rows before 2000) rather than assume a round number. */}
               <View style={[styles.coverageNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-                <Icon name="info.circle" size={13} color={tokens.t3} />
+                <Icon name="info.circle" size={fs(13)} color={tokens.t3} />
                 <Text style={[styles.coverageNoteText, { color: tokens.t3, fontSize: fs(11.5) }]}>
                   FlyRegs' Airworthiness Directives cover from the year 2000 to the present. We may extend coverage further back over time.
                 </Text>
@@ -202,7 +202,7 @@ export default function AdIndexScreen() {
                 onPress={() => router.push('/parts-lookup' as any)}
               >
                 <View style={[styles.hubIconWrap, { backgroundColor: tokens.bdim }]}>
-                  <Icon name="wrench" size={19} color={tokens.blu} />
+                  <Icon name="wrench" size={fs(19)} color={tokens.blu} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Search by Part</Text>
@@ -210,14 +210,14 @@ export default function AdIndexScreen() {
                     Find ADs by named engine, propeller, or avionics part — not just aircraft model
                   </Text>
                 </View>
-                <Icon name="chevron.right" size={14} color={tokens.t4} />
+                <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
               <Pressable
                 style={[styles.hubCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, marginTop: 8 }]}
                 onPress={() => router.push('/my-aircraft' as any)}
               >
                 <View style={[styles.hubIconWrap, { backgroundColor: tokens.bdim }]}>
-                  <Icon name="doc.plaintext" size={19} color={tokens.blu} />
+                  <Icon name="doc.plaintext" size={fs(19)} color={tokens.blu} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>My Aircraft</Text>
@@ -225,7 +225,7 @@ export default function AdIndexScreen() {
                     Save an aircraft to get alerted when a new or updated AD applies to it
                   </Text>
                 </View>
-                <Icon name="chevron.right" size={14} color={tokens.t4} />
+                <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
 
               {recentAd.length > 0 && (
@@ -265,7 +265,7 @@ export default function AdIndexScreen() {
                           {item.subject_heading}
                         </Text>
                       </View>
-                      <Icon name="chevron.right" size={14} color={tokens.t4} />
+                      <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
                     </Pressable>
                   ))}
                 </View>
@@ -305,7 +305,7 @@ export default function AdIndexScreen() {
                                 {item.subject_heading}
                               </Text>
                             </View>
-                            <Icon name="chevron.right" size={14} color={tokens.t4} />
+                            <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
                           </Pressable>
                         ))}
                       </View>
@@ -324,7 +324,7 @@ export default function AdIndexScreen() {
                           {item.subject_heading}
                         </Text>
                       </View>
-                      <Icon name="chevron.right" size={14} color={tokens.t4} />
+                      <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
                     </Pressable>
                   ))
                 )}

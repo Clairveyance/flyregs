@@ -318,7 +318,7 @@ export default function RecentsScreen() {
         </View>
       ) : groups.length === 0 ? (
         <View style={styles.center}>
-          <Icon name="clock" size={40} color={tokens.t4} />
+          <Icon name="clock" size={fs(40)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No history yet</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             Anything you open will appear here so you can jump back quickly
@@ -513,7 +513,7 @@ function SwipeableRecentRow({
                     ? { backgroundColor: tokens.blu, borderColor: tokens.blu }
                     : { borderColor: tokens.t3 },
                 ]}>
-                  {selected && <Icon name="checkmark" size={11} color="#fff" />}
+                  {selected && <Icon name="checkmark" size={fs(11)} color="#fff" />}
                 </View>
               )}
               <View style={styles.rowBody}>

@@ -36,7 +36,7 @@ export function InDocSearchBar({
         ]}
       >
         <View style={styles.row}>
-          <Icon name="magnifyingglass" size={15} color={tokens.t3} />
+          <Icon name="magnifyingglass" size={fs(15)} color={tokens.t3} />
           <View style={[styles.scope, { backgroundColor: tokens.bdim }]}>
             <Text style={[styles.scopeText, { color: tokens.blu, fontSize: fs(9) }]}>IN DOC</Text>
           </View>
@@ -57,7 +57,7 @@ export function InDocSearchBar({
           />
           {query.length > 0 && (
             <Pressable hitSlop={10} onPress={onClear} style={{ padding: 6 }}>
-              <Icon name="xmark" size={14} color={tokens.t3} />
+              <Icon name="xmark" size={fs(14)} color={tokens.t3} />
             </Pressable>
           )}
         </View>
@@ -70,10 +70,10 @@ export function InDocSearchBar({
                 </Text>
                 <View style={styles.nav}>
                   <Pressable hitSlop={14} onPress={onPrev} style={{ padding: 8 }}>
-                    <Icon name="chevron.up" size={18} color={tokens.t2} />
+                    <Icon name="chevron.up" size={fs(18)} color={tokens.t2} />
                   </Pressable>
                   <Pressable hitSlop={14} onPress={onNext} style={{ padding: 8 }}>
-                    <Icon name="chevron.down" size={18} color={tokens.t2} />
+                    <Icon name="chevron.down" size={fs(18)} color={tokens.t2} />
                   </Pressable>
                 </View>
               </>

@@ -126,7 +126,7 @@ export default function ProfileScreen() {
                 {isSelf && selfAvatarUrl ? (
                   <Image source={{ uri: selfAvatarUrl }} style={styles.avatarImage} />
                 ) : isSelf && selfAvatarPreset ? (
-                  <Icon name={selfAvatarPreset.icon} size={26} color="#fff" />
+                  <Icon name={selfAvatarPreset.icon} size={fs(26)} color="#fff" />
                 ) : (
                   <Text style={[styles.avatarText, { color: tokens.gold, fontSize: fs(24) }]}>
                     {displayLabel.charAt(0).toUpperCase()}
@@ -191,7 +191,7 @@ export default function ProfileScreen() {
 
             {duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0) && (
               <View style={[styles.duelCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}>
-                <Icon name="bolt.fill" size={18} color={tokens.gold} />
+                <Icon name="bolt.fill" size={fs(18)} color={tokens.gold} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.duelRecord, { color: tokens.t1, fontSize: fs(17) }]}>
                     {duelStats.wins}W · {duelStats.losses}L{duelStats.ties > 0 ? ` · ${duelStats.ties}T` : ''}
@@ -210,7 +210,7 @@ export default function ProfileScreen() {
                 personal detail. */}
             {mastery && mastery.mastered > 0 && (
               <View style={[styles.duelCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}>
-                <Icon name="rectangle.stack" size={18} color={tokens.gold} />
+                <Icon name="rectangle.stack" size={fs(18)} color={tokens.gold} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.duelRecord, { color: tokens.t1, fontSize: fs(17) }]}>{mastery.pct}%</Text>
                   <Text style={[styles.duelSub, { color: tokens.t3, fontSize: fs(11.5) }]}>
@@ -222,7 +222,7 @@ export default function ProfileScreen() {
 
             {!visible ? (
               <View style={[styles.privateCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-                <Icon name="eye.slash" size={22} color={tokens.t4} />
+                <Icon name="eye.slash" size={fs(22)} color={tokens.t4} />
                 <Text style={[styles.privateText, { color: tokens.t3, fontSize: fs(13) }]}>
                   {displayLabel} hasn't made ratings, badges, or aircraft visible to other pilots yet.
                 </Text>
@@ -243,7 +243,7 @@ export default function ProfileScreen() {
                           style={[styles.ratingChip, styles.addRatingChip, { borderColor: tokens.bdr }]}
                           onPress={() => setRatingPickerOpen(true)}
                         >
-                          <Icon name="plus" size={11} color={tokens.t2} />
+                          <Icon name="plus" size={fs(11)} color={tokens.t2} />
                           <Text style={[styles.ratingChipText, { color: tokens.t2, fontSize: fs(12) }]}>Add Rating</Text>
                         </Pressable>
                       )}

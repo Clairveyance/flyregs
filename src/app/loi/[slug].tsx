@@ -22,6 +22,7 @@ import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
 import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
+import { splitIntoParagraphs } from '@/lib/regTextFormat'
 
 // LOI detail screen. Per the expansion plan's explicit priority reframe:
 // citation-driven discovery from a FAR page (the Related LOIs MagicLink
@@ -255,20 +256,20 @@ export default function LoiDetailScreen() {
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
       {scrollY > 200 && (
         <Pressable onPress={() => scrollRef.current?.scrollTo({ y: 0, animated: true })} hitSlop={12} style={{ padding: 4 }}>
-          <Icon name="arrow.up.circle" size={21} color={tokens.t3} />
+          <Icon name="arrow.up.circle" size={fs(21)} color={tokens.t3} />
         </Pressable>
       )}
       <Pressable onPress={handlePrint} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="printer" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="printer" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="square.and.arrow.up" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="square.and.arrow.up" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="folder.badge.plus" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="folder.badge.plus" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name={bookmarked ? 'bookmark.fill' : 'bookmark'} size={21} color={bookmarked ? tokens.blu : tokens.t2} />
+        <Icon name={bookmarked ? 'bookmark.fill' : 'bookmark'} size={fs(21)} color={bookmarked ? tokens.blu : tokens.t2} />
       </Pressable>
     </View>
   )
@@ -324,7 +325,18 @@ export default function LoiDetailScreen() {
 
           {loi.summary && (
             <DetailSection title="Summary" tokens={tokens}>
-              <Text style={[styles.summary, { color: tokens.t2, fontSize: fs(14.5) }]}>{loi.summary}</Text>
+              {splitIntoParagraphs(loi.summary).map((para, i, arr) => (
+                <Text
+                  key={i}
+                  style={[
+                    styles.summary,
+                    { color: tokens.t2, fontSize: fs(14.5) },
+                    i < arr.length - 1 && { marginBottom: 10 },
+                  ]}
+                >
+                  {para}
+                </Text>
+              ))}
             </DetailSection>
           )}
 

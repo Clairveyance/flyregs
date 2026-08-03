@@ -190,7 +190,7 @@ function ACRow({
           <View style={{ flex: 1 }} />
           {!!figureCount && (
             <View style={styles.tidbit}>
-              <Icon name="photo" size={13} color={tokens.t3} />
+              <Icon name="photo" size={fs(13)} color={tokens.t3} />
               <Text style={[styles.tidbitText, { color: tokens.t3, fontSize: fs(12.5) }]}>{figureCount}</Text>
             </View>
           )}

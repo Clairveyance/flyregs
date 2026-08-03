@@ -345,22 +345,22 @@ export default function AimParagraphScreen() {
           hitSlop={12}
           style={{ padding: 4 }}
         >
-          <Icon name="arrow.up.circle" size={21} color={tokens.t3} />
+          <Icon name="arrow.up.circle" size={fs(21)} color={tokens.t3} />
         </Pressable>
       )}
       <Pressable onPress={handlePrint} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="printer" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="printer" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="square.and.arrow.up" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="square.and.arrow.up" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
-        <Icon name="folder.badge.plus" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+        <Icon name="folder.badge.plus" size={fs(21)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
         <Icon
           name={bookmarked ? 'bookmark.fill' : 'bookmark'}
-          size={21}
+          size={fs(21)}
           color={bookmarked ? tokens.blu : tokens.t2}
         />
       </Pressable>
@@ -439,13 +439,13 @@ export default function AimParagraphScreen() {
               disabled={figures.length === 0}
             >
               <View style={styles.barLeft}>
-                <Icon name="photo" size={15} color={tokens.t3} />
+                <Icon name="photo" size={fs(15)} color={tokens.t3} />
                 <Text style={[styles.barLabel, { color: tokens.t1, fontSize: fs(13) }]}>Figures & Tables</Text>
               </View>
               <View style={{ flex: 1 }} />
               <Text style={[styles.barCount, { color: tokens.t3, fontSize: fs(12.5) }]}>{figures.length}</Text>
               {figures.length > 0 && (
-                <Icon name={figuresExpanded ? 'chevron.up' : 'chevron.down'} size={11} color={tokens.t4} />
+                <Icon name={figuresExpanded ? 'chevron.up' : 'chevron.down'} size={fs(11)} color={tokens.t4} />
               )}
             </Pressable>
             <MagicLinkPod
@@ -489,15 +489,15 @@ export default function AimParagraphScreen() {
 
             {changedIdx.length > 0 && (
               <View style={[styles.changedBanner, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
-                <Icon name="sparkles" size={13} color={tokens.blu} />
+                <Icon name="sparkles" size={fs(13)} color={tokens.blu} />
                 <Text style={[styles.changedBannerText, { color: tokens.blu, fontSize: fs(12.5) }]}>
                   Updated — {changedIdx.length} paragraph{changedIdx.length === 1 ? '' : 's'} changed
                 </Text>
                 <Pressable onPress={() => jumpToChanged(-1)} hitSlop={8}>
-                  <Icon name="chevron.up" size={14} color={tokens.blu} />
+                  <Icon name="chevron.up" size={fs(14)} color={tokens.blu} />
                 </Pressable>
                 <Pressable onPress={() => jumpToChanged(1)} hitSlop={8}>
-                  <Icon name="chevron.down" size={14} color={tokens.blu} />
+                  <Icon name="chevron.down" size={fs(14)} color={tokens.blu} />
                 </Pressable>
               </View>
             )}

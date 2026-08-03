@@ -79,7 +79,7 @@ export default function LoiIndexScreen() {
       <OverlayHeader title="Legal Interpretations" onBack={() => router.back()} />
       <TabletContainer>
         <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
-          <Icon name="magnifyingglass" size={16} color={tokens.t3} />
+          <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
           <TextInput
             style={[styles.searchInput, { color: tokens.t1, fontSize: fs(14) }]}
             placeholder="Search interpretations (e.g. 'wet lease', 'BasicMed')…"
@@ -92,7 +92,7 @@ export default function LoiIndexScreen() {
           />
           {query.length > 0 && (
             <Pressable onPress={() => { setQuery(''); setHits([]) }} hitSlop={8}>
-              <Icon name="xmark.circle" size={16} color={tokens.t4} />
+              <Icon name="xmark.circle" size={fs(16)} color={tokens.t4} />
             </Pressable>
           )}
         </View>
@@ -114,7 +114,7 @@ export default function LoiIndexScreen() {
                     {r.title}
                   </Text>
                 </View>
-                <Icon name="chevron.right" size={14} color={tokens.t4} />
+                <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
             ))}
           </View>
@@ -159,14 +159,14 @@ export default function LoiIndexScreen() {
                       <Text style={[styles.rowCfr, { color: tokens.blu, fontSize: fs(11) }]}>{item.cfr_part_reference}</Text>
                     ) : null}
                   </View>
-                  <Icon name="chevron.right" size={14} color={tokens.t4} />
+                  <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
                 </Pressable>
               )}
             />
           )
         ) : (
           <View style={styles.center}>
-            <Icon name="magnifyingglass" size={28} color={tokens.t4} />
+            <Icon name="magnifyingglass" size={fs(28)} color={tokens.t4} />
             <Text style={[styles.hintTitle, { color: tokens.t2, fontSize: fs(15) }]}>Search FAA Legal Interpretations</Text>
             <Text style={[styles.hintSub, { color: tokens.t3, fontSize: fs(13) }]}>
               Search by topic or keyword — interpretation letters are named after the requester,

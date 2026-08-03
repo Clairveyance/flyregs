@@ -192,7 +192,7 @@ export default function AuthScreen() {
             : 'Check Your Email'}
         </Text>
         <Pressable onPress={() => router.dismiss()} hitSlop={8} style={styles.closeBtn}>
-          <Icon name="xmark" size={18} color={tokens.t3} />
+          <Icon name="xmark" size={fs(18)} color={tokens.t3} />
         </Pressable>
       </View>
 
@@ -210,7 +210,7 @@ export default function AuthScreen() {
 
         {mode === 'check-email' ? (
           <>
-            <Icon name="envelope" size={40} color={tokens.blu} style={{ alignSelf: 'center', marginBottom: 8 }} />
+            <Icon name="envelope" size={fs(40)} color={tokens.blu} style={{ alignSelf: 'center', marginBottom: 8 }} />
             <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(22) }]}>Check your email</Text>
             <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
               We sent a confirmation link to {email.trim()}. Tap it, then come back and sign in.
@@ -240,14 +240,14 @@ export default function AuthScreen() {
           </>
         ) : mode === 'forgot' ? (
           <>
-            <Icon name="lock" size={40} color={tokens.blu} style={{ alignSelf: 'center', marginBottom: 8 }} />
+            <Icon name="lock" size={fs(40)} color={tokens.blu} style={{ alignSelf: 'center', marginBottom: 8 }} />
             <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(22) }]}>Reset your password</Text>
             <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
               Enter your account email and we'll send you a link to set a new password.
             </Text>
 
             <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: emailError ? tokens.red : tokens.bdr2 }]}>
-              <Icon name="envelope" size={16} color={tokens.t3} />
+              <Icon name="envelope" size={fs(16)} color={tokens.t3} />
               <TextInput
                 style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
                 placeholder="Email address"
@@ -285,7 +285,7 @@ export default function AuthScreen() {
           </>
         ) : mode === 'forgot-sent' ? (
           <>
-            <Icon name="envelope" size={40} color={tokens.blu} style={{ alignSelf: 'center', marginBottom: 8 }} />
+            <Icon name="envelope" size={fs(40)} color={tokens.blu} style={{ alignSelf: 'center', marginBottom: 8 }} />
             <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(22) }]}>Check your email</Text>
             <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
               If an account exists for {email.trim()}, we've sent a link to reset your password.
@@ -326,7 +326,7 @@ export default function AuthScreen() {
 
             {/* Email */}
             <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: emailError ? tokens.red : tokens.bdr2 }]}>
-              <Icon name="envelope" size={16} color={tokens.t3} />
+              <Icon name="envelope" size={fs(16)} color={tokens.t3} />
               <TextInput
                 style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
                 placeholder="Email address"
@@ -345,7 +345,7 @@ export default function AuthScreen() {
 
             {/* Password */}
             <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: passwordError ? tokens.red : tokens.bdr2 }]}>
-              <Icon name="lock" size={16} color={tokens.t3} />
+              <Icon name="lock" size={fs(16)} color={tokens.t3} />
               <TextInput
                 style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
                 placeholder="Password"
@@ -357,7 +357,7 @@ export default function AuthScreen() {
                 autoComplete={mode === 'signin' ? 'password' : 'new-password'}
               />
               <Pressable onPress={() => setShowPassword((v) => !v)} hitSlop={8}>
-                <Icon name={showPassword ? 'eye.slash' : 'eye'} size={18} color={tokens.t3} />
+                <Icon name={showPassword ? 'eye.slash' : 'eye'} size={fs(18)} color={tokens.t3} />
               </Pressable>
             </View>
             {passwordError?.trim() ? (

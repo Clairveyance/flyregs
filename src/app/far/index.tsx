@@ -81,7 +81,7 @@ export default function FarIndexScreen() {
       ) : (
         <TabletContainer>
         <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
-          <Icon name="magnifyingglass" size={16} color={tokens.t3} />
+          <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
           <TextInput
             style={[styles.searchInput, { color: tokens.t1, fontSize: fs(14) }]}
             placeholder="Part number, title, or § section…"
@@ -95,7 +95,7 @@ export default function FarIndexScreen() {
           />
           {query.length > 0 && (
             <Pressable onPress={() => setQuery('')} hitSlop={8}>
-              <Icon name="xmark.circle" size={16} color={tokens.t4} />
+              <Icon name="xmark.circle" size={fs(16)} color={tokens.t4} />
             </Pressable>
           )}
         </View>
@@ -105,7 +105,7 @@ export default function FarIndexScreen() {
             style={[styles.jumpRow, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
             onPress={() => router.push(`/far/${sectionJump}` as any)}
           >
-            <Icon name="arrow.up.right.square" size={15} color={tokens.blu} />
+            <Icon name="arrow.up.right.square" size={fs(15)} color={tokens.blu} />
             <Text style={[styles.jumpText, { color: tokens.blu, fontSize: fs(14) }]}>Go to § {sectionJump}</Text>
           </Pressable>
         )}
@@ -154,7 +154,7 @@ export default function FarIndexScreen() {
               <View style={[styles.countPill, { backgroundColor: tokens.bg3 }]}>
                 <Text style={[styles.countText, { color: tokens.t3, fontSize: fs(11.5) }]}>{counts[item.part] ?? 0}</Text>
               </View>
-              <Icon name="chevron.right" size={14} color={tokens.t4} />
+              <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
             </Pressable>
           )}
         />
