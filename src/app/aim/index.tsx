@@ -124,6 +124,7 @@ export default function AimIndexScreen() {
         )}
 
         <FlatList
+          keyboardDismissMode="interactive"
           style={styles.flatList}
           data={filteredChapters}
           keyExtractor={(item) => item.chapter}

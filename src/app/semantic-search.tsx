@@ -155,7 +155,7 @@ export default function SemanticSearchScreen() {
           )}
 
           {!searching && results.length > 0 && (
-            <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
+            <ScrollView contentContainerStyle={{ paddingBottom: 24 }} keyboardDismissMode="interactive">
               {results.map((r, i) => {
                 const meta = REG_TYPE[r.sourceType]
                 return (

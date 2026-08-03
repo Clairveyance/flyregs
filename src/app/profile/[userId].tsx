@@ -120,7 +120,7 @@ export default function ProfileScreen() {
         <View style={styles.center}><ActivityIndicator color={tokens.blu} /></View>
       ) : (
         <TabletContainer>
-          <ScrollView contentContainerStyle={styles.content}>
+          <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="interactive">
             <View style={styles.headerRow}>
               <View style={[styles.avatar, { backgroundColor: (isSelf && selfAvatarPreset?.color) || tokens.goldlt, borderColor: tokens.goldbdr }]}>
                 {isSelf && selfAvatarUrl ? (

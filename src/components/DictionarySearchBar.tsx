@@ -90,6 +90,7 @@ export function DictionarySearchBar() {
               data={hits}
               keyExtractor={(item) => item.slug}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
               style={styles.dropdownList}
               ListEmptyComponent={
                 <Text style={[styles.emptyText, { color: tokens.t3, fontSize: fs(13) }]}>

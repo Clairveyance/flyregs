@@ -191,7 +191,7 @@ export default function MyAircraftScreen() {
         </View>
       ) : (
         <TabletContainer>
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="interactive">
           <Text style={[styles.intro, { color: tokens.t3, fontSize: fs(13) }]}>
             Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive
             applies to them, instead of scanning the full AD list yourself.
@@ -770,7 +770,11 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
   suggestBox: { borderWidth: 1, borderRadius: 8, marginTop: 4, overflow: 'hidden' },
   suggestRow: { paddingHorizontal: 12, paddingVertical: 9 },
-  typeHint: { lineHeight: 15, marginTop: -4 },
+  // RC, real device (annotated screenshot): this hint text visually
+  // crowded into the Type Designator field right above it. Root cause was
+  // a literal negative marginTop pulling it up -- the exact opposite of
+  // the breathing room this dense a screen needs.
+  typeHint: { marginTop: 8, marginBottom: 2 },
   addButton: { borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   addButtonText: { color: '#fff', fontWeight: '600', fontSize: 14.5 },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },

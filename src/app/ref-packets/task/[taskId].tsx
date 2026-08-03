@@ -92,7 +92,7 @@ export default function RefPacketTaskScreen() {
         </View>
       ) : (
         <TabletContainer>
-          <ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
+          <ScrollView ref={scrollRef} contentContainerStyle={styles.content} keyboardDismissMode="interactive">
             <View style={styles.breadcrumbRow}>
               <Pressable onPress={() => router.push(`/ref-packets/${task.docCode}` as any)}>
                 <Text style={[styles.breadcrumbText, { color: tokens.t3, fontSize: fs(11.5) }]} numberOfLines={1}>{task.docTitle}</Text>

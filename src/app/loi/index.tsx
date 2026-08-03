@@ -127,6 +127,7 @@ export default function LoiIndexScreen() {
             </View>
           ) : (
             <FlatList
+              keyboardDismissMode="interactive"
               style={styles.flatList}
               data={hits}
               keyExtractor={(item) => item.slug}

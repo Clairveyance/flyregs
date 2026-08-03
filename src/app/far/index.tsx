@@ -131,6 +131,7 @@ export default function FarIndexScreen() {
         )}
 
         <FlatList
+          keyboardDismissMode="interactive"
           style={styles.flatList}
           data={filteredParts}
           keyExtractor={(item) => item.part}

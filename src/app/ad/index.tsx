@@ -151,7 +151,7 @@ export default function AdIndexScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title="Airworthiness Directives" onBack={() => router.back()} />
       <TabletContainer>
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="interactive">
           <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
             <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
             <TextInput

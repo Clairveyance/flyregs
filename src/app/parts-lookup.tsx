@@ -134,6 +134,7 @@ export default function PartsLookupScreen() {
           </View>
         ) : (
           <FlatList
+            keyboardDismissMode="interactive"
             style={styles.flatList}
             data={hasPlusAccess ? results : results.slice(0, FREE_RESULT_CAP)}
             keyExtractor={(p) => p.id}

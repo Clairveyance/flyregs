@@ -145,6 +145,7 @@ export default function DictionaryIndexScreen() {
                 data={termHits}
                 keyExtractor={(item) => item.slug}
                 contentContainerStyle={styles.list}
+                keyboardDismissMode="interactive"
                 ListHeaderComponent={
                   <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
                     {termHits.length} MATCHING TERM{termHits.length === 1 ? '' : 'S'}
@@ -180,6 +181,7 @@ export default function DictionaryIndexScreen() {
               data={letters}
               keyExtractor={(l) => l}
               contentContainerStyle={styles.list}
+              keyboardDismissMode="interactive"
               ListHeaderComponent={
                 <>
                   {/* DailyWordCard/MnemonicsCard used to render as fixed
