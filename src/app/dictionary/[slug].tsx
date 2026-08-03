@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
@@ -14,6 +14,7 @@ import { addRecent } from '@/lib/recents'
 import { linkifyText } from '@/lib/crossRefLinks'
 import { PrevNextFooter } from '@/components/DocNavBar'
 import { DictionarySearchBar } from '@/components/DictionarySearchBar'
+import { buildRegShareLink } from '@/lib/regShare'
 import { MNEMONIC_GROUP_ORDER, MNEMONIC_UNGROUPED } from './index'
 
 interface BreakdownItem {
@@ -248,8 +249,31 @@ export default function DictionaryTermScreen() {
     setFolderPickerVisible(true)
   }
 
+  // The Aviation Dictionary was the ONE detail screen with no Share button --
+  // it had bookmark and folder like every other type, so a term could be
+  // saved and foldered but not sent, and the only way to share one was to
+  // open Saved and share it from there. Same Plus gate and same
+  // buildRegShareLink path the other five non-AC types use (see
+  // loi/[slug].tsx's identical handler); flyregs.com/reg/ now accepts
+  // type=dictionary, so the recipient actually lands in the app.
+  const handleShare = async () => {
+    if (!hasPlusAccess) { router.push('/paywall' as any); return }
+    if (!entry || typeof slug !== 'string') return
+    try {
+      await Share.share({
+        title: entry.term,
+        message: buildRegShareLink('dictionary', slug, entry.term, entry.senses[0]?.definition ?? undefined),
+      })
+    } catch {
+      // User cancelled or share unavailable
+    }
+  }
+
   const headerRight = entry ? (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+      <Pressable onPress={handleShare} hitSlop={12} style={{ padding: 4 }}>
+        <Icon name="square.and.arrow.up" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
+      </Pressable>
       <Pressable onPress={handleOpenFolderPicker} hitSlop={12} style={{ padding: 4 }}>
         <Icon name="folder.badge.plus" size={21} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
       </Pressable>
