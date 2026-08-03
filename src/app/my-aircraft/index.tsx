@@ -6,6 +6,7 @@ import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
 import {
@@ -192,10 +193,16 @@ export default function MyAircraftScreen() {
       ) : (
         <TabletContainer>
         <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="interactive">
-          <Text style={[styles.intro, { color: tokens.t3, fontSize: fs(13) }]}>
-            Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive
-            applies to them, instead of scanning the full AD list yourself.
-          </Text>
+          <View style={styles.introRow}>
+            <Text style={[styles.intro, { color: tokens.t3, fontSize: fs(13) }]}>How this works</Text>
+            <InfoPopup
+              id="my-aircraft-intro"
+              title="My Aircraft"
+              body="Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive applies to them, instead of scanning the full AD list yourself."
+              forceOnce
+              iconSize={fs(15)}
+            />
+          </View>
 
           {aircraft.length === 0 ? (
             <Text style={[styles.empty, { color: tokens.t3, fontSize: fs(14) }]}>No aircraft saved yet.</Text>
@@ -759,7 +766,8 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   content: { padding: 16, paddingBottom: 40 },
-  intro: { lineHeight: 18, marginBottom: 16 },
+  introRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 },
+  intro: { lineHeight: 18 },
   empty: { textAlign: 'center', paddingVertical: 20 },
   list: { borderRadius: 12, borderWidth: 1, marginBottom: 20, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', padding: 14 },

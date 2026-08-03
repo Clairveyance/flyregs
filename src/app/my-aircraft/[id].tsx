@@ -318,16 +318,26 @@ export default function AircraftDetailScreen() {
                   AD search pre-filled on this aircraft's make so a user
                   who wants to double-check can do it in one tap, not a
                   cold search. */}
-              <Pressable
-                style={[styles.widenSearchCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => router.push(`/ad?q=${encodeURIComponent(aircraft.make)}` as any)}
-              >
-                <Icon name="info.circle" size={fs(13)} color={tokens.t3} />
-                <Text style={[styles.widenSearchText, { color: tokens.t3, fontSize: fs(11.5) }]}>
-                  Only shows ADs that specifically name this model or type — an unusually worded AD could be missed.{' '}
-                  <Text style={{ color: tokens.blu, fontWeight: '600' }}>Browse all {aircraft.make} ADs →</Text>
-                </Text>
-              </Pressable>
+              {/* RC, real device: "what's happening here? theres an info
+                  icon, but it doesnt do anything. does this text block
+                  collapse?" -- the whole card used to be one Pressable, so
+                  the info icon looked inert (tapping it just silently
+                  navigated away) instead of opening something. Split into a
+                  real tap-to-reveal icon for the caveat and a separately
+                  visible, unambiguous link for the actual navigation. */}
+              <View style={styles.widenSearchCard}>
+                <InfoPopup
+                  id="my-aircraft-ad-search-scope"
+                  title="Applicable ADs"
+                  body="Only shows ADs that specifically name this model or type — an unusually worded AD could be missed."
+                  iconSize={fs(15)}
+                />
+                <Pressable onPress={() => router.push(`/ad?q=${encodeURIComponent(aircraft.make)}` as any)}>
+                  <Text style={[styles.widenSearchText, { color: tokens.blu, fontWeight: '600', fontSize: fs(12.5) }]}>
+                    Browse all {aircraft.make} ADs →
+                  </Text>
+                </Pressable>
+              </View>
               {adNotifications.length > 3 && (
                 <View style={styles.rangeRow}>
                   {(Object.keys(AD_RANGE_LABELS) as AdRangeFilter[]).map((r) => (
@@ -934,10 +944,9 @@ const styles = StyleSheet.create({
   unreadCountBadge: { minHeight: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   unreadCountText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   widenSearchCard: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 7,
-    borderRadius: 10, borderWidth: 1, padding: 10, marginBottom: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10,
   },
-  widenSearchText: { flex: 1, lineHeight: 16 },
+  widenSearchText: { lineHeight: 16 },
   rangeRow: { flexDirection: 'row', gap: 6, marginBottom: 10 },
   rangePill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1 },
   rangePillText: { fontWeight: '600' },
