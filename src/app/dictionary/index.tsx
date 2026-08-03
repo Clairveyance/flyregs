@@ -162,12 +162,19 @@ export default function DictionaryIndexScreen() {
                     onPress={() => router.push(`/dictionary/${item.slug}` as any)}
                   >
                     <View style={{ flex: 1 }}>
-                      {/* No numberOfLines cap -- a truncated row gives no way
-                          to tell if it's worth tapping. Standing habit going
-                          forward for any result-list row, not just this one. */}
                       <Text style={[styles.termText, { color: tokens.t1, fontSize: fs(14.5) }]}>{item.term}</Text>
+                      {/* RC, real device, on a batch of long weather-glossary
+                          definitions filling the whole results list: "can we
+                          figure out how to break these chunks up as well?
+                          need to be easier to read and digest." A search
+                          results list is a scanning context (comparing many
+                          candidates), not a reading one -- 3 lines is still
+                          enough to judge relevance without a 200-word
+                          definition dominating the row. This narrows the
+                          older "no numberOfLines cap" rule to just this
+                          screen; the term detail page still shows full text. */}
                       {item.definition && (
-                        <Text style={[styles.defText, { color: tokens.t3, fontSize: fs(12.5) }]}>{item.definition}</Text>
+                        <Text style={[styles.defText, { color: tokens.t3, fontSize: fs(12.5) }]} numberOfLines={3}>{item.definition}</Text>
                       )}
                     </View>
                     <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
