@@ -39,7 +39,7 @@ import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { getBookmarks, routeForBookmark, bookmarkItemType, BookmarkAC } from '@/lib/bookmarks'
 import { useShareActions, ShareableAC } from '@/lib/share'
-import { RegShareType } from '@/lib/regShare'
+import { toRegShareType } from '@/lib/regShare'
 import { REG_TYPE, RegType } from '@/lib/regTypes'
 import { highlightSnippet } from '@/lib/acShare'
 import { getOrCreateShareLink, getFolderCollaborators, removeCollaborator, FolderCollaborator } from '@/lib/sharedFolders'
@@ -304,7 +304,8 @@ export default function FolderDetail() {
     // Saved/Recents' own fix -- was a silent no-op before (see saved.tsx's
     // handleShare comment for the #154 process-flow audit finding).
     if (type !== 'ac') {
-      shareReg({ type: type as RegShareType, id: item.id, label: item.document_number, title: item.title })
+      const regType = toRegShareType(type)
+      if (regType) shareReg({ type: regType, id: item.id, label: item.document_number, title: item.title })
       return
     }
     const shareable: ShareableAC = {

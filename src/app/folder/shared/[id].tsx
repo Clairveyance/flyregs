@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import {
   getSharedFolderACItems, getSharedFolderNoteItems, leaveSharedFolder, markSharedFolderViewed,
   getSharedFolderFARItems, getSharedFolderAIMItems, getSharedFolderPCGItems, getSharedFolderADItems, getSharedFolderLOIItems,
+  getSharedFolderDictionaryItems,
 } from '@/lib/sharedFolders'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
@@ -45,7 +46,7 @@ interface NoteRow {
 // the detail screen).
 interface RegRow {
   id: string
-  regType: 'far' | 'aim' | 'pcg' | 'ad' | 'loi'
+  regType: 'far' | 'aim' | 'pcg' | 'ad' | 'loi' | 'dictionary'
   label: string
   title: string
   route: string
@@ -57,6 +58,7 @@ const REG_SECTION_TITLE: Record<RegRow['regType'], string> = {
   pcg: 'PILOT/CONTROLLER GLOSSARY',
   ad: 'AIRWORTHINESS DIRECTIVES',
   loi: 'LEGAL INTERPRETATIONS',
+  dictionary: 'AVIATION DICTIONARY',
 }
 
 function timeAgo(iso: string): string {
@@ -107,7 +109,7 @@ export default function SharedFolderDetail() {
   const load = useCallback(async () => {
     if (typeof id !== 'string') return
     setLoading(true)
-    const [{ data: folder }, acItems, noteItems, farItems, aimItems, pcgItems, adItems, loiItems] = await Promise.all([
+    const [{ data: folder }, acItems, noteItems, farItems, aimItems, pcgItems, adItems, loiItems, dictItems] = await Promise.all([
       supabase.from('synced_folders').select('name').eq('id', id).eq('deleted', false).maybeSingle(),
       getSharedFolderACItems(id),
       getSharedFolderNoteItems(id),
@@ -116,6 +118,7 @@ export default function SharedFolderDetail() {
       getSharedFolderPCGItems(id),
       getSharedFolderADItems(id),
       getSharedFolderLOIItems(id),
+      getSharedFolderDictionaryItems(id),
     ])
     if (!folder) {
       setRemoved(true)
@@ -165,7 +168,8 @@ export default function SharedFolderDetail() {
     const pcgIds = pcgItems.map((i) => i.item_id)
     const adIds = adItems.map((i) => i.item_id)
     const loiIds = loiItems.map((i) => i.item_id)
-    const [farRows, aimRows, pcgRows, adRows, loiRows] = await Promise.all([
+    const dictIds = dictItems.map((i) => i.item_id)
+    const [farRows, aimRows, pcgRows, adRows, loiRows, dictRows] = await Promise.all([
       farIds.length
         ? supabase.from('far_sections').select('section_number, title').in('section_number', farIds)
         : Promise.resolve({ data: [] }),
@@ -181,6 +185,11 @@ export default function SharedFolderDetail() {
       loiIds.length
         ? supabase.from('legal_interpretations').select('slug, title').in('slug', loiIds)
         : Promise.resolve({ data: [] }),
+      // dictionary_terms keys on slug, same as pcg/loi -- matches what
+      // dictionary/[slug].tsx passes to FolderPicker as itemId.
+      dictIds.length
+        ? supabase.from('dictionary_terms').select('slug, term').in('slug', dictIds)
+        : Promise.resolve({ data: [] }),
     ])
     setRegs([
       ...(farRows.data ?? []).map((r: any): RegRow => ({ id: r.section_number, regType: 'far', label: `§ ${r.section_number}`, title: r.title, route: `/far/${r.section_number}` })),
@@ -188,6 +197,7 @@ export default function SharedFolderDetail() {
       ...(pcgRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, regType: 'pcg', label: r.term, title: r.term, route: `/pcg/${r.slug}` })),
       ...(adRows.data ?? []).map((r: any): RegRow => ({ id: r.ad_number, regType: 'ad', label: r.ad_number, title: r.title, route: `/ad/${r.ad_number}` })),
       ...(loiRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, regType: 'loi', label: r.slug, title: r.title, route: `/loi/${r.slug}` })),
+      ...(dictRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, regType: 'dictionary', label: r.term, title: r.term, route: `/dictionary/${r.slug}` })),
     ])
 
     setLoading(false)
@@ -219,7 +229,7 @@ export default function SharedFolderDetail() {
 
   const sections: { title: string; data: (ACRow | NoteRow | RegRow)[] }[] = [
     ...(acs.length ? [{ title: 'ADVISORY CIRCULARS', data: acs as (ACRow | NoteRow | RegRow)[] }] : []),
-    ...(['far', 'aim', 'pcg', 'ad', 'loi'] as const)
+    ...(['far', 'aim', 'pcg', 'ad', 'loi', 'dictionary'] as const)
       .map((regType) => ({ title: REG_SECTION_TITLE[regType], data: regs.filter((r) => r.regType === regType) as (ACRow | NoteRow | RegRow)[] }))
       .filter((s) => s.data.length > 0),
     ...(notes.length ? [{ title: 'NOTES', data: notes as (ACRow | NoteRow | RegRow)[] }] : []),

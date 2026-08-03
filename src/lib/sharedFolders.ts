@@ -224,6 +224,14 @@ export const getSharedFolderAIMItems = (folderId: string) => getSharedFolderItem
 export const getSharedFolderPCGItems = (folderId: string) => getSharedFolderItemsByType(folderId, 'pcg')
 export const getSharedFolderADItems = (folderId: string) => getSharedFolderItemsByType(folderId, 'ad')
 export const getSharedFolderLOIItems = (folderId: string) => getSharedFolderItemsByType(folderId, 'loi')
+// Aviation Dictionary terms (incl. mnemonics) shipped as a folderable type
+// AFTER the #154 fix above, and reintroduced the exact bug that comment
+// describes: synced_folder_items' CHECK constraint accepts 'dictionary'
+// (verified live -- there are already real dictionary rows in the table),
+// RLS lets a collaborator read them, but folder/shared/[id].tsx fetched
+// every type EXCEPT this one, so a shared folder's dictionary entries were
+// invisible to everyone but the owner.
+export const getSharedFolderDictionaryItems = (folderId: string) => getSharedFolderItemsByType(folderId, 'dictionary')
 
 export interface SharedFolderNoteItem {
   item_id: string

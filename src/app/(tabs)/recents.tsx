@@ -28,7 +28,7 @@ import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions, ShareableReg } from '@/lib/share'
-import { RegShareType } from '@/lib/regShare'
+import { toRegShareType } from '@/lib/regShare'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { stripFarPrefix, rowTitle } from '@/lib/titleFormat'
 
@@ -250,18 +250,20 @@ export default function RecentsScreen() {
     )
   }
 
-  const toShareableReg = (item: RecentAC): ShareableReg => ({
-    type: recentItemType(item) as RegShareType,
-    id: item.id,
-    label: item.document_number,
-    title: item.title,
-  })
+  // See toRegShareType -- null means "shares by a different route", not
+  // "unshareable", so callers skip rather than force a bad type through.
+  const toShareableReg = (item: RecentAC): ShareableReg | null => {
+    const type = toRegShareType(recentItemType(item))
+    if (!type) return null
+    return { type, id: item.id, label: item.document_number, title: item.title }
+  }
 
   const handleShare = (item: RecentAC) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     const type = recentItemType(item)
     if (type === 'ac') { shareAC(item); return }
-    shareReg(toShareableReg(item))
+    const reg = toShareableReg(item)
+    if (reg) shareReg(reg)
   }
 
   // Recents is the one list that shows the folder icon to free users without
@@ -284,7 +286,7 @@ export default function RecentsScreen() {
     const acs = selectedItems.filter((r) => recentItemType(r) === 'ac')
     const regs = selectedItems.filter((r) => recentItemType(r) !== 'ac')
     if (acs.length === 0 && regs.length === 0) return
-    shareMany(acs, [], regs.map(toShareableReg))
+    shareMany(acs, [], regs.map(toShareableReg).filter((r): r is ShareableReg => r !== null))
     setSelected(new Set())
     setSelectMode(false)
   }

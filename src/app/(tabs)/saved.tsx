@@ -50,7 +50,7 @@ import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions, ShareableAC, ShareableNote, ShareableReg } from '@/lib/share'
-import { RegShareType } from '@/lib/regShare'
+import { toRegShareType } from '@/lib/regShare'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { stripFarPrefix, rowTitle } from '@/lib/titleFormat'
 import { useCachedImage } from '@/lib/imageCache'
@@ -358,12 +358,13 @@ export default function SavedScreen() {
     highlightSnippet: item.blockText ? highlightSnippet(item.blockText) : undefined,
   })
 
-  const toShareableReg = (item: { id: string; document_number: string; title: string; itemType?: BookmarkAC['itemType'] }): ShareableReg => ({
-    type: bookmarkItemType(item) as RegShareType,
-    id: item.id,
-    label: item.document_number,
-    title: item.title,
-  })
+  // Returns null for the types that don't share through the generic reg/
+  // page (see toRegShareType) rather than casting them into one that does.
+  const toShareableReg = (item: { id: string; document_number: string; title: string; itemType?: BookmarkAC['itemType'] }): ShareableReg | null => {
+    const type = toRegShareType(bookmarkItemType(item))
+    if (!type) return null
+    return { type, id: item.id, label: item.document_number, title: item.title }
+  }
 
   // Shared between AC bookmark rows and OfflineListView's DownloadedAC rows
   // (offline downloads are AC-only, so they never carry itemType at all --
@@ -378,7 +379,8 @@ export default function SavedScreen() {
     // instead of silently no-op'ing (confirmed live: tapping Share on a
     // FAR/AIM/P-CG/AD bookmark here did nothing at all).
     if (type === 'ac') { shareAC(toShareableAC(item)); return }
-    shareReg(toShareableReg(item))
+    const reg = toShareableReg(item)
+    if (reg) shareReg(reg)
   }
 
   const handleBulkShare = () => {
@@ -387,7 +389,7 @@ export default function SavedScreen() {
     const acs = selectedItems.filter((b) => bookmarkItemType(b) === 'ac')
     const regs = selectedItems.filter((b) => bookmarkItemType(b) !== 'ac')
     if (acs.length === 0 && regs.length === 0) return
-    shareMany(acs.map(toShareableAC), [], regs.map(toShareableReg))
+    shareMany(acs.map(toShareableAC), [], regs.map(toShareableReg).filter((r): r is ShareableReg => r !== null))
     setSelected(new Set())
     setSelectMode(false)
   }
