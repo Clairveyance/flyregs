@@ -1,16 +1,71 @@
--- SUPERSEDED 2026-08-04 -- the function bodies below have drifted from
--- what's actually live (aim_knowledge_levels gained a 2nd parameter,
--- far/ac_knowledge_levels' ELSE branch changed NULL -> ARRAY[]::text[],
--- and AIM/AC's own category/class calls have since moved off
--- category_classes_from_text onto their own aim_category_classes/
--- ac_category_classes -- this file's own "AC/AIM/P-CG call sites are
--- asserted untouched" claim is no longer accurate for AIM/AC). Kept as-is
--- for history -- for the CURRENT state of every classification function,
--- see migrations_classification_current.sql, not this file.
+-- ============================================================================
+-- Category/Class filter: classify AC content by SUBJECT SERIES, not just title
+--                                                            2026-08-04
 --
--- Regenerated FAR category call sites -> far_category_classes(part, title).
--- Produced mechanically from the live definitions so no call site is missed;
--- AC/AIM/P-CG call sites are asserted untouched. See migrations_far_category.sql.
+-- Same gap as AIM (migrations_aim_category.sql) and the original FAR fix
+-- (migrations_far_category.sql): category_classes_from_text() only ever
+-- saw the AC title, and matched ZERO of 755 active ACs for ASEL, ASES,
+-- AMEL, AMES, or GYRO. Verified live before building the fix: AC subject
+-- series numbers directly parallel FAR part numbers for the same
+-- category-specific airworthiness standards --
+--
+--   Series 23  Airworthiness Standards: Normal Category AIRPLANES
+--                titles literally say "Part 23 Airplanes" repeatedly
+--                -> ASEL, ASES, AMEL, AMES   (same as FAR Part 23)
+--   Series 25  Airworthiness Standards: Transport Category AIRPLANES
+--                -> AMEL, AMES               (same as FAR Part 25)
+--   Series 27  Airworthiness Standards: Normal Category ROTORCRAFT
+--                confirmed live: AC 27-1B "Certification of Normal
+--                Category Rotorcraft"
+--   Series 29  Airworthiness Standards: Transport Category ROTORCRAFT
+--                confirmed live: AC 29-2C "Certification of Transport
+--                Category Rotorcraft"
+--                -> HELI, GYRO   (same as FAR Part 27/29)
+--   Series 31  Airworthiness Standards: Manned Free BALLOONS
+--                -> BALLOON   (same as FAR Part 31; no active AC currently
+--                exists in this series, so this branch is inert today but
+--                correct if/when one is added)
+--
+-- Same exclusion logic already applied to FAR: this only touches ACs whose
+-- SERIES is unambiguously single-category. Title matching is still unioned
+-- in, so a helicopter-titled AC outside these series keeps its HELI tag.
+--
+-- Verified live: ASEL/ASES 0->24, AMEL/AMES 0->110, GYRO 0->2, HELI 7->9,
+-- BALLOON 1->1 (no active series-31 AC exists yet).
+-- ============================================================================
+
+create or replace function public.ac_category_classes(p_series text, p_title text)
+returns text[]
+language sql
+immutable
+as $function$
+  select nullif(
+    array(
+      select distinct cc from unnest(
+        coalesce(category_classes_from_text(p_title), array[]::text[])
+        || case p_series
+             when '23' then array['ASEL','ASES','AMEL','AMES']
+             when '25' then array['AMEL','AMES']
+             when '27' then array['HELI','GYRO']
+             when '29' then array['HELI','GYRO']
+             when '31' then array['BALLOON']
+             else array[]::text[]
+           end
+      ) as cc
+      order by cc
+    ),
+    array[]::text[]
+  );
+$function$;
+
+-- Callers: get_study_pool_count, get_study_queue (both `due` and
+-- fresh_ac), and create_challenge's AC pool-selection branch. Full current
+-- live bodies below (pulled via pg_get_functiondef immediately before this
+-- migration, not hand-retyped) -- see migrations_aim_category.sql's own
+-- header for why this project treats the live DB, not older committed
+-- files, as the source of truth to sync FROM. Only the AC category/class
+-- clause changes in each, from category_classes_from_text(title) to
+-- ac_category_classes(subject_series, title).
 
 CREATE OR REPLACE FUNCTION public.get_study_pool_count(p_item_types text[] DEFAULT NULL::text[], p_levels text[] DEFAULT NULL::text[], p_category_classes text[] DEFAULT NULL::text[])
  RETURNS integer
@@ -21,27 +76,26 @@ AS $function$
     (SELECT count(*) FROM pcg_terms p
        WHERE (p_item_types IS NULL OR 'pcg' = ANY(p_item_types))
          AND (p_levels IS NULL OR pcg_knowledge_levels(p.slug) && p_levels)
-      AND (p_levels IS NULL OR pcg_knowledge_levels(p.slug) && p_levels)
          AND p.definition IS NOT NULL AND p.definition <> ''
          AND (p_category_classes IS NULL OR category_classes_from_text(p.term) IS NULL OR category_classes_from_text(p.term) && p_category_classes))
   + (SELECT count(*) FROM far_sections f
        WHERE (p_item_types IS NULL OR 'far' = ANY(p_item_types))
          AND f.body_text IS NOT NULL AND f.body_text <> ''
          AND f.title IS NOT NULL AND f.title <> ''
+         AND f.section_number IN (SELECT section_number FROM study_far_sections)
          AND (p_levels IS NULL OR far_knowledge_levels(f.part, f.subpart_letter) IS NULL OR far_knowledge_levels(f.part, f.subpart_letter) && p_levels)
          AND (p_category_classes IS NULL OR far_category_classes(f.part, f.title) IS NULL OR far_category_classes(f.part, f.title) && p_category_classes))
   + (SELECT count(*) FROM aim_paragraphs a
        WHERE (p_item_types IS NULL OR 'aim' = ANY(p_item_types))
-         AND (p_levels IS NULL OR aim_knowledge_levels(a.chapter) && p_levels)
-      AND (p_levels IS NULL OR aim_knowledge_levels(a.chapter) && p_levels)
+         AND (p_levels IS NULL OR aim_knowledge_levels(a.chapter, a.paragraph_number) && p_levels)
          AND a.body_text IS NOT NULL AND a.body_text <> ''
-         AND (p_category_classes IS NULL OR category_classes_from_text(COALESCE(a.title, '')) IS NULL OR category_classes_from_text(COALESCE(a.title, '')) && p_category_classes))
+         AND (p_category_classes IS NULL OR aim_category_classes(a.chapter, COALESCE(a.title, '')) IS NULL OR aim_category_classes(a.chapter, COALESCE(a.title, '')) && p_category_classes))
   + (SELECT count(*) FROM advisory_circulars c
        WHERE (p_item_types IS NULL OR 'ac' = ANY(p_item_types))
          AND c.status = 'active' AND c.description IS NOT NULL AND c.description <> ''
          AND c.title IS NOT NULL AND c.title <> ''
          AND (p_levels IS NULL OR ac_knowledge_levels(c.subject_series) IS NULL OR ac_knowledge_levels(c.subject_series) && p_levels)
-         AND (p_category_classes IS NULL OR category_classes_from_text(c.title) IS NULL OR category_classes_from_text(c.title) && p_category_classes));
+         AND (p_category_classes IS NULL OR ac_category_classes(c.subject_series, c.title) IS NULL OR ac_category_classes(c.subject_series, c.title) && p_category_classes));
 $function$;
 
 CREATE OR REPLACE FUNCTION public.get_study_queue(p_limit integer DEFAULT 20, p_item_types text[] DEFAULT NULL::text[], p_levels text[] DEFAULT NULL::text[], p_category_classes text[] DEFAULT NULL::text[])
@@ -61,13 +115,6 @@ AS $function$
         WHEN 'pcg' THEN (SELECT p.definition FROM pcg_terms p WHERE p.slug = sp.item_id)
         WHEN 'far' THEN (SELECT f.body_text FROM far_sections f WHERE f.section_number = sp.item_id)
         WHEN 'aim' THEN (SELECT a.body_text FROM aim_paragraphs a WHERE a.paragraph_number = sp.item_id)
-        -- AC "question" is the title, not the longer description -- matches
-        -- the user's own explicit game-show-style example (Q: the AC's
-        -- title, A: the document number) and Duels' get_next_challenge_
-        -- question, which already used title for AC prompts. description
-        -- was 5x longer on average and got truncated mid-sentence by
-        -- shortenQuestion() in study.tsx, losing the actual answer-bearing
-        -- part of the text.
         WHEN 'ac' THEN (SELECT c.title FROM advisory_circulars c WHERE c.document_number = sp.item_id)
       END AS definition,
       false AS is_new, extract(epoch FROM sp.next_review_at) AS sort_key
@@ -76,7 +123,7 @@ AS $function$
       AND (p_item_types IS NULL OR sp.item_type = ANY(p_item_types))
       AND (
         p_levels IS NULL
-        OR (sp.item_type = 'aim' AND EXISTS (SELECT 1 FROM aim_paragraphs a4 WHERE a4.paragraph_number = sp.item_id AND aim_knowledge_levels(a4.chapter) && p_levels))
+        OR (sp.item_type = 'aim' AND EXISTS (SELECT 1 FROM aim_paragraphs a4 WHERE a4.paragraph_number = sp.item_id AND aim_knowledge_levels(a4.chapter, a4.paragraph_number) && p_levels))
         OR (sp.item_type = 'pcg' AND pcg_knowledge_levels(sp.item_id) && p_levels)
         OR (sp.item_type = 'far' AND EXISTS (
               SELECT 1 FROM far_sections f3 WHERE f3.section_number = sp.item_id
@@ -99,11 +146,11 @@ AS $function$
             ))
         OR (sp.item_type = 'aim' AND EXISTS (
               SELECT 1 FROM aim_paragraphs a4 WHERE a4.paragraph_number = sp.item_id
-                AND (category_classes_from_text(COALESCE(a4.title, '')) IS NULL OR category_classes_from_text(COALESCE(a4.title, '')) && p_category_classes)
+                AND (aim_category_classes(a4.chapter, COALESCE(a4.title, '')) IS NULL OR aim_category_classes(a4.chapter, COALESCE(a4.title, '')) && p_category_classes)
             ))
         OR (sp.item_type = 'ac' AND EXISTS (
               SELECT 1 FROM advisory_circulars c4 WHERE c4.document_number = sp.item_id
-                AND (category_classes_from_text(c4.title) IS NULL OR category_classes_from_text(c4.title) && p_category_classes)
+                AND (ac_category_classes(c4.subject_series, c4.title) IS NULL OR ac_category_classes(c4.subject_series, c4.title) && p_category_classes)
             ))
       )
   ),
@@ -126,6 +173,7 @@ AS $function$
     WHERE (p_item_types IS NULL OR 'far' = ANY(p_item_types))
       AND f.body_text IS NOT NULL AND f.body_text <> ''
       AND f.title IS NOT NULL AND f.title <> ''
+      AND f.section_number IN (SELECT section_number FROM study_far_sections)
       AND f.section_number NOT IN (SELECT item_id FROM study_progress WHERE user_id = auth.uid() AND item_type = 'far')
       AND (p_levels IS NULL OR far_knowledge_levels(f.part, f.subpart_letter) IS NULL OR far_knowledge_levels(f.part, f.subpart_letter) && p_levels)
       AND (p_category_classes IS NULL OR far_category_classes(f.part, f.title) IS NULL OR far_category_classes(f.part, f.title) && p_category_classes)
@@ -138,10 +186,10 @@ AS $function$
       a.body_text AS definition, true AS is_new
     FROM aim_paragraphs a
     WHERE (p_item_types IS NULL OR 'aim' = ANY(p_item_types))
-      AND (p_levels IS NULL OR aim_knowledge_levels(a.chapter) && p_levels)
+      AND (p_levels IS NULL OR aim_knowledge_levels(a.chapter, a.paragraph_number) && p_levels)
       AND a.body_text IS NOT NULL AND a.body_text <> ''
       AND a.paragraph_number NOT IN (SELECT item_id FROM study_progress WHERE user_id = auth.uid() AND item_type = 'aim')
-      AND (p_category_classes IS NULL OR category_classes_from_text(COALESCE(a.title, '')) IS NULL OR category_classes_from_text(COALESCE(a.title, '')) && p_category_classes)
+      AND (p_category_classes IS NULL OR aim_category_classes(a.chapter, COALESCE(a.title, '')) IS NULL OR aim_category_classes(a.chapter, COALESCE(a.title, '')) && p_category_classes)
     ORDER BY random()
     LIMIT p_limit
   ),
@@ -155,7 +203,7 @@ AS $function$
       AND c.title IS NOT NULL AND c.title <> ''
       AND c.document_number NOT IN (SELECT item_id FROM study_progress WHERE user_id = auth.uid() AND item_type = 'ac')
       AND (p_levels IS NULL OR ac_knowledge_levels(c.subject_series) IS NULL OR ac_knowledge_levels(c.subject_series) && p_levels)
-      AND (p_category_classes IS NULL OR category_classes_from_text(c.title) IS NULL OR category_classes_from_text(c.title) && p_category_classes)
+      AND (p_category_classes IS NULL OR ac_category_classes(c.subject_series, c.title) IS NULL OR ac_category_classes(c.subject_series, c.title) && p_category_classes)
     ORDER BY random()
     LIMIT p_limit
   ),
@@ -167,6 +215,7 @@ AS $function$
   ),
   combined AS (
     SELECT item_id, item_type, term, definition, is_new, 0 AS prio, sort_key FROM due
+    WHERE term IS NOT NULL AND btrim(term) <> '' AND definition IS NOT NULL AND btrim(definition) <> ''
     UNION ALL
     SELECT item_id, item_type, term, definition, is_new, 1 AS prio, random() AS sort_key FROM fresh
   )
@@ -211,7 +260,10 @@ begin
   end loop;
 
   -- D7: every branch draws from quizzable_*, so the prompt always has
-  -- exactly one correct answer.
+  -- exactly one correct answer. PCG/FAR/AIM draw a 3x candidate slice vs.
+  -- AC's 1x (see header) -- the final `order by random() limit
+  -- p_question_count` below picks proportionally from whatever's in the
+  -- combined pool, so a bigger slice means a bigger share of real duels.
   for v_item in
     select * from (
       select item_type, item_id from (
@@ -219,7 +271,7 @@ begin
         from quizzable_pcg_terms
         where (p_levels is null or pcg_knowledge_levels(slug) && p_levels)
           and (p_category_classes is null or category_classes_from_text(term) is null or category_classes_from_text(term) && p_category_classes)
-        order by random() limit p_question_count
+        order by random() limit p_question_count * 3
       ) x
       where p_item_types is null or 'pcg' = any(p_item_types)
       union all
@@ -228,16 +280,16 @@ begin
         from quizzable_far_sections f2
         where (p_levels is null or far_knowledge_levels(f2.part, f2.subpart_letter) is null or far_knowledge_levels(f2.part, f2.subpart_letter) && p_levels)
           and (p_category_classes is null or far_category_classes(f2.part, f2.title) is null or far_category_classes(f2.part, f2.title) && p_category_classes)
-        order by random() limit p_question_count
+        order by random() limit p_question_count * 3
       ) x
       where p_item_types is null or 'far' = any(p_item_types)
       union all
       select item_type, item_id from (
         select 'aim' as item_type, paragraph_number as item_id
         from quizzable_aim_paragraphs
-        where (p_levels is null or aim_knowledge_levels(chapter) && p_levels)
-          and (p_category_classes is null or category_classes_from_text(coalesce(title, '')) is null or category_classes_from_text(coalesce(title, '')) && p_category_classes)
-        order by random() limit p_question_count
+        where (p_levels is null or aim_knowledge_levels(chapter, paragraph_number) && p_levels)
+          and (p_category_classes is null or aim_category_classes(chapter, coalesce(title, '')) is null or aim_category_classes(chapter, coalesce(title, '')) && p_category_classes)
+        order by random() limit p_question_count * 3
       ) x
       where p_item_types is null or 'aim' = any(p_item_types)
       union all
@@ -245,7 +297,7 @@ begin
         select 'ac' as item_type, document_number as item_id
         from quizzable_advisory_circulars c2
         where (p_levels is null or ac_knowledge_levels(c2.subject_series) is null or ac_knowledge_levels(c2.subject_series) && p_levels)
-          and (p_category_classes is null or category_classes_from_text(c2.title) is null or category_classes_from_text(c2.title) && p_category_classes)
+          and (p_category_classes is null or ac_category_classes(c2.subject_series, c2.title) is null or ac_category_classes(c2.subject_series, c2.title) && p_category_classes)
         order by random() limit p_question_count
       ) x
       where p_item_types is null or 'ac' = any(p_item_types)
@@ -270,7 +322,7 @@ begin
       when 'aim' then
         select array_cat(array[v_item.item_id], coalesce(array_agg(t.paragraph_number), array[]::text[]))
         into v_choices
-        from (select paragraph_number from aim_paragraphs where title is not null and title <> '' and (p_levels is null or aim_knowledge_levels(chapter) && p_levels) and paragraph_number <> v_item.item_id order by random() limit 5) t;
+        from (select paragraph_number from aim_paragraphs where title is not null and title <> '' and (p_levels is null or aim_knowledge_levels(chapter, paragraph_number) && p_levels) and paragraph_number <> v_item.item_id order by random() limit 5) t;
       when 'ac' then
         select array_cat(array[v_item.item_id], coalesce(array_agg(t.document_number), array[]::text[]))
         into v_choices

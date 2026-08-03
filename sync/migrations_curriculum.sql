@@ -1,3 +1,11 @@
+-- SUPERSEDED 2026-08-04 -- the function bodies below have drifted from
+-- what's actually live (aim_knowledge_levels gained a 2nd parameter,
+-- far/ac_knowledge_levels' ELSE branch changed NULL -> ARRAY[]::text[],
+-- get_study_pool_count/get_study_queue gained a study_far_sections join,
+-- none of it reflected here). Kept as-is for history, per this project's
+-- own convention -- but for the CURRENT state of every classification
+-- function, see migrations_classification_current.sql, not this file.
+--
 -- Real knowledge-level curriculum for Study Mode / Duels.
 --
 -- THE BUG: far_knowledge_levels() classified only Part 61 subparts, 121/135/117
