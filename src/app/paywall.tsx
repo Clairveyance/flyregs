@@ -46,8 +46,16 @@ import { useFS } from '@/context/fontScale'
 // near-white page, same reason lightTokens.gold is deeper than dark's.
 const BADGE_GOLD_DARK = ['#F0D890', '#D4AF37', '#B8860B'] as const
 const BADGE_GOLD_LIGHT = ['#E8C468', '#C9A227', '#A8790F'] as const
-const CTA_GOLD_DARK = ['#FFE9A8', '#FFC93C', '#E8A317'] as const
-const CTA_GOLD_LIGHT = ['#F5D06B', '#E0A526', '#C27D0E'] as const
+// RC, after seeing the first version: "it's the contrast of the lighter
+// side that still looks dull. the top badge looks good, bright. the
+// lower button looks dull." The amber end was fine; the light end
+// (#FFE9A8) was the problem -- pale enough (~34% saturation) to read as
+// washed-out cream rather than bright gold, especially spread across a
+// surface this much bigger than the badge's own small pill. Two stops,
+// not three -- the previous middle stop sat close enough to the light
+// end that it wasn't adding a visible transition, just extra code.
+const CTA_GOLD_DARK = ['#FFD966', '#E8A317'] as const
+const CTA_GOLD_LIGHT = ['#F0C240', '#C27D0E'] as const
 const GOLD_INK = '#3D2B00'
 
 const WING_ASPECT = 971 / 1071 // flyregs-wing.png width/height
