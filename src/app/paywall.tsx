@@ -19,43 +19,27 @@ import { Icon } from '@/components/Icon'
 import { purchaseSubscription, purchaseUnlock, restorePurchases } from '@/lib/revenuecat'
 import { useFS } from '@/context/fontScale'
 
-// Premium's own gold spectrum -- RC: "the Premium paywall, buttons, etc
-// need to look more 'golden' -- like the FlyRegs logo. it's our flagship
-// product." Deliberately separate from MagicLinkPod.tsx's own
+// TierBadge's own gold gradient fill -- RC: "the Premium paywall, buttons,
+// etc need to look more 'golden' -- like the FlyRegs logo. it's our
+// flagship product." Deliberately separate from MagicLinkPod.tsx's own
 // GOLD_SPECTRUM_DARK/LIGHT, which is tuned for a thin animated rotating
-// BORDER over a busy background -- these are OPAQUE fill surfaces (CTA
-// button, tier badge) with an icon/label sitting directly on top, so a
-// pale shimmer-stroke color like MagicLinkPod's own #F0D890 would wash
-// out badly here. Real gold is light/mid luminance by nature (high R+G
-// channels), which fights white text -- rather than darkening the fill
-// toward brown to force white-text contrast, both surfaces use dark ink on
-// a bright gold fill instead, like engraving on a gold plaque, which also
-// reads as more convincingly "gold" than a muddy dark-bronze button would.
+// BORDER over a busy background -- this is an OPAQUE fill surface with an
+// icon/label sitting directly on top, so a pale shimmer-stroke color like
+// MagicLinkPod's own #F0D890 would wash out badly here. Real gold is
+// light/mid luminance by nature (high R+G channels), which fights white
+// text -- rather than darkening the fill toward brown to force
+// white-text contrast, the badge uses dark ink (GOLD_INK) on a bright
+// gold fill instead, like engraving on a gold plaque.
 //
-// TWO separate gradient pairs, not one shared pair -- the same 3-stop
-// diagonal that reads as a clean, punchy gold on a small dense pill (the
-// badge) visibly spreads its darker end across much more surface area on
-// a wide 54pt-tall button, reading as duller overall even though the
-// colors are identical. RC, after seeing this in practice: "it still
-// looks dull. it needs to be brighter with more contrast like the other
-// two [badges]." Rather than brighten the shared constant (which would
-// also shift the badges RC already approved of), the CTA gets its own
-// more saturated, wider-contrast ramp tuned for its larger size; the
-// badge keeps its original values unchanged. Light theme stays a shade
-// deeper than dark in both pairs so neither washes out against a
-// near-white page, same reason lightTokens.gold is deeper than dark's.
+// The CTA button went through several rounds of its own bespoke gold
+// treatment (an animated shimmer, then a couple of gradient tunings) that
+// all landed short of what RC wanted -- see git history if curious. RC's
+// actual final call: "just make the bottom button look like this one,"
+// pointing at the tier-picker's own selected-tab fill, which is nothing
+// but tokens.gold underneath white text (see GoldCta below). No custom
+// gradient for the CTA at all in the end -- only the badge still uses one.
 const BADGE_GOLD_DARK = ['#F0D890', '#D4AF37', '#B8860B'] as const
 const BADGE_GOLD_LIGHT = ['#E8C468', '#C9A227', '#A8790F'] as const
-// RC, after seeing the first version: "it's the contrast of the lighter
-// side that still looks dull. the top badge looks good, bright. the
-// lower button looks dull." The amber end was fine; the light end
-// (#FFE9A8) was the problem -- pale enough (~34% saturation) to read as
-// washed-out cream rather than bright gold, especially spread across a
-// surface this much bigger than the badge's own small pill. Two stops,
-// not three -- the previous middle stop sat close enough to the light
-// end that it wasn't adding a visible transition, just extra code.
-const CTA_GOLD_DARK = ['#FFD966', '#E8A317'] as const
-const CTA_GOLD_LIGHT = ['#F0C240', '#C27D0E'] as const
 const GOLD_INK = '#3D2B00'
 
 const WING_ASPECT = 971 / 1071 // flyregs-wing.png width/height
@@ -563,14 +547,14 @@ export default function PaywallScreen() {
 }
 
 // ─── Gold CTA (Premium only) ────────────────────────────────────────────────
-// Plain gold gradient fill, no animation. RC tried an animated shimmer
-// first (sweep, then a slower/rarer randomized version after "looks
-// cheesy... not premium looking"), then dropped the idea entirely: "forget
-// the shimmer, just make the button look gold, like this [TierBadge]" --
-// pointing at the compact PREMIUM pill above the pricing cards. Own
-// CTA_GOLD_*/GOLD_INK material, not the badge's -- see the comment on
-// those constants for why a shared gradient still read "dull" here even
-// though the colors were identical.
+// Three tries at a bespoke gold treatment (animated shimmer, then a plain
+// gradient, then a brighter gradient) all landed short of what RC wanted.
+// RC's actual final call: "just make the bottom button look like this
+// one" -- pointing at the tier-picker's own selected "Premium" tab, which
+// is nothing but a flat tokens.gold fill with white text (see the tier
+// picker's own tierBtn a few dozen lines up). No gradient, no custom
+// color constants -- this is that exact same treatment, just applied to
+// the CTA's shape.
 
 function GoldCta({
   label, onPress, disabled, loading,
@@ -581,24 +565,18 @@ function GoldCta({
   loading: boolean
 }) {
   const fs = useFS()
-  const { resolved } = useTheme()
+  const { tokens } = useTheme()
 
   return (
     <Pressable
-      style={[styles.cta, styles.ctaGoldWrap, disabled && styles.ctaDisabled]}
+      style={[styles.cta, { backgroundColor: tokens.gold }, disabled && styles.ctaDisabled]}
       onPress={onPress}
       disabled={disabled}
     >
-      <LinearGradient
-        colors={resolved === 'dark' ? CTA_GOLD_DARK : CTA_GOLD_LIGHT}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
       {loading ? (
-        <ActivityIndicator color={GOLD_INK} />
+        <ActivityIndicator color="#fff" />
       ) : (
-        <Text style={[styles.ctaText, { color: GOLD_INK, fontSize: fs(16) }]}>{label}</Text>
+        <Text style={[styles.ctaText, { fontSize: fs(16) }]}>{label}</Text>
       )}
     </Pressable>
   )
@@ -823,9 +801,6 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.6 },
   ctaText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  // overflow:hidden so the gradient fill respects the button's own
-  // borderRadius instead of squaring off its corners.
-  ctaGoldWrap: { overflow: 'hidden' },
 
   restoreRow: { alignItems: 'center', paddingVertical: 4 },
   restoreText: { fontSize: 13 },
