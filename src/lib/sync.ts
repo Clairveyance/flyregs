@@ -30,6 +30,62 @@ const FOLDERS_KEY = '@flyregs/folders'
 const FOLDER_ITEMS_KEY = '@flyregs/folder_items'
 const BOOKMARKS_KEY = '@flyregs/bookmarks'
 
+// Which account this device's local data was last backed up under.
+//
+// Every local store (@flyregs/bookmarks, /folders, /folder_items, /notes) is
+// GLOBAL -- no per-user namespacing -- and signOut deliberately leaves them in
+// place so bookmarks keep working without an account or sync. On its own
+// that's fine. The problem was what happened next: applyRemoteSyncPreference
+// runs on every sign-in, and for a Premium account whose stored preference is
+// sync_enabled=true it called enableSync(), which bulk-pushes EVERY local
+// bookmark, folder and note to whoever just signed in. So on a shared device
+// (flight school, family iPad, a beta tester handing their phone over), user
+// A's saved items -- including their own authored notes -- were silently
+// uploaded into user B's cloud account with no prompt and no action beyond
+// signing in.
+//
+// This tag is the guard: the bulk push only runs when the local data already
+// belongs to the account turning sync on. Any mismatch is pull-only, so B
+// still gets their own cloud data down onto the device, but nothing of A's
+// ever goes up. Deliberately NOT a "wipe local data on sign-out" fix, which
+// would break local-first bookmarks, and not per-user namespacing, which
+// would be a much larger change.
+const SYNC_OWNER_KEY = '@flyregs/sync-owner'
+
+async function getSyncOwner(): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(SYNC_OWNER_KEY)
+  } catch {
+    return null
+  }
+}
+
+async function setSyncOwner(userId: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(SYNC_OWNER_KEY, userId)
+  } catch {
+    // Non-fatal: a failed write just means the next enableSync is treated as
+    // a first-time/unknown owner, which is the conservative direction.
+  }
+}
+
+// Called from signOut. Stamps the departing user as the owner of whatever is
+// left on this device, which closes the case the enableSync guard alone
+// can't see: a user who was signed in but never turned sync on has no owner
+// tag, so the next account to sign in would read null ("nobody has claimed
+// this, must be mine") and upload their items. Recording it on the way out
+// means the next user reads a real, different owner and gets pull-only.
+//
+// Still deliberately open: someone who has NEVER signed in on this device
+// leaves no tag at all, so their local items would upload to the first
+// account that signs in and enables sync. That case is indistinguishable
+// from the genuinely common and desirable one -- browse anonymously, like
+// the app, create an account, and expect your saved work to come with you --
+// so it is left to upload on purpose rather than silently dropped.
+export async function claimLocalDataForSignedOutUser(userId: string): Promise<void> {
+  await setSyncOwner(userId)
+}
+
 // ── Pull + merge (called when sync is turned on, and on app launch) ──────────
 // Last-write-wins by updated_at. A remote row newer than the local copy (or
 // with no local copy at all) wins; a local row with no remote copy yet gets
@@ -179,19 +235,37 @@ async function mergeNotes(userId: string) {
 export async function enableSync(userId: string): Promise<void> {
   await AsyncStorage.setItem(SYNC_ENABLED_KEY, 'true')
   try {
-    const [bookmarks, folders, folderItems, notes] = await Promise.all([
-      getBookmarks(),
-      getFolders(),
-      getFolderItems(),
-      getNotes(),
-    ])
-    await Promise.all([
-      ...bookmarks.map((b) => syncPushBookmark(b)),
-      ...folders.map((f) => syncPushFolder(f)),
-      syncPushFolderItems(folderItems),
-      ...notes.filter((n) => !isSeedNote(n.id)).map((n) => syncPushNote(n)),
-    ])
+    // Only upload what already belongs to this account. A null owner means
+    // this device has never backed up before, so the local data is this
+    // user's own first backup and SHOULD go up -- that's the normal path and
+    // is unchanged. A DIFFERENT owner means someone else's items are sitting
+    // in the global local store (see SYNC_OWNER_KEY), and pushing them would
+    // put their bookmarks and authored notes into this account. Skip the
+    // push in that case and pull only.
+    const owner = await getSyncOwner()
+    const localBelongsToThisUser = owner === null || owner === userId
+
+    if (localBelongsToThisUser) {
+      const [bookmarks, folders, folderItems, notes] = await Promise.all([
+        getBookmarks(),
+        getFolders(),
+        getFolderItems(),
+        getNotes(),
+      ])
+      await Promise.all([
+        ...bookmarks.map((b) => syncPushBookmark(b)),
+        ...folders.map((f) => syncPushFolder(f)),
+        syncPushFolderItems(folderItems),
+        ...notes.filter((n) => !isSeedNote(n.id)).map((n) => syncPushNote(n)),
+      ])
+    }
+    // Always pull, both paths: this account's own cloud data belongs on this
+    // device either way, and on the mismatch path it's the whole point --
+    // the new user still gets everything of theirs without giving anything up.
     await pullAndMergeAll(userId)
+    // Claim ownership only after a clean push+pull, so a failure can't leave
+    // the tag pointing at an account whose data never actually landed.
+    await setSyncOwner(userId)
   } catch (e) {
     // Roll the flag back so it can't disagree with the caller's own reverted
     // UI state (saved.tsx/notes.tsx both flip their Switch back off on a

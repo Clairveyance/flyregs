@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { initRevenueCat, getSubscriptionStatus, logOutRevenueCat } from '@/lib/revenuecat'
-import { applyRemoteSyncPreference } from '@/lib/sync'
+import { applyRemoteSyncPreference, claimLocalDataForSignedOutUser } from '@/lib/sync'
 import { getDeviceId } from '@/lib/deviceId'
 import type { AvatarOverride } from '@/lib/avatar'
 
@@ -151,6 +151,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signOut = async () => {
+    // Stamp this device's local data as belonging to the user who is leaving,
+    // BEFORE the session goes away (we need their id). Local bookmarks/folders/
+    // notes deliberately survive sign-out, so without this the next account to
+    // sign in would find an unclaimed local store and back it up as its own --
+    // see SYNC_OWNER_KEY in lib/sync.ts.
+    const departingUserId = session?.user?.id
+    if (departingUserId) {
+      await claimLocalDataForSignedOutUser(departingUserId).catch(() => {})
+    }
     const { error } = await supabase.auth.signOut()
     if (error) throw error
     // Paid tiers require an account as part of the plan — signing out means
