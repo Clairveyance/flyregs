@@ -586,6 +586,7 @@ export default function AircraftDetailScreen() {
               {adNotifications.length > 3 && (
                 <Pressable
                   style={[styles.rangePill, styles.rangeDropdown, { borderColor: tokens.bdr }]}
+                  hitSlop={10}
                   onPress={() => {
                     const ranges = Object.keys(AD_RANGE_LABELS) as AdRangeFilter[]
                     Alert.alert(
