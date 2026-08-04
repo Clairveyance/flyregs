@@ -801,20 +801,6 @@ export default function HomeScreen() {
         </Animated.View>
       )}
 
-      {/* RC: "let's put that name in the search boxes now." A TextInput
-          placeholder can't carry per-letter styling, so the brand mark
-          lives in its own thin kicker row directly above the bar instead
-          of inside it -- mirrors MagicLinkPod's own brand text sitting in
-          its pod's dedicated header row rather than crammed alongside
-          other controls. Sits OUTSIDE searchZone, not inside it, so
-          onSearchZoneLayout's own y/height measurement (used to position
-          the results dropdown right below the bar) still reflects only
-          the bar itself and shifts down automatically to account for
-          this row. */}
-      <View style={styles.smartSearchKicker}>
-        <SmartSearchLabel fontSize={11.5} />
-      </View>
-
       {/* Fixed search zone — sits above the list, never scrolls away */}
       <View style={styles.searchZone} onLayout={onSearchZoneLayout}>
         <View
@@ -828,23 +814,43 @@ export default function HomeScreen() {
           ]}
         >
           <Icon name="magnifyingglass" size={fs(17)} color={searchActive ? tokens.blu : tokens.t3} />
-          <TextInput
-            ref={searchInputRef}
-            style={[styles.searchInput, { color: tokens.t1, fontSize: fs(13.5) }]}
-            placeholder='Reg number, keyword, or "phrase"…'
-            placeholderTextColor={tokens.t3}
-            value={searchQuery}
-            onChangeText={handleQueryChange}
-            onFocus={() => {
-              setSearchActive(true)
-              getRecentSearches().then(setRecentSearches)
-            }}
-            autoCapitalize="none"
-            autoCorrect={false}
-            spellCheck
-            returnKeyType="search"
-            onSubmitEditing={submitSearch}
-          />
+          <View style={{ flex: 1 }}>
+            <TextInput
+              ref={searchInputRef}
+              style={[styles.searchInput, { color: tokens.t1, fontSize: fs(13.5) }]}
+              placeholder=""
+              accessibilityLabel="Search: SmartSearch — Reg, word, or phrase"
+              value={searchQuery}
+              onChangeText={handleQueryChange}
+              onFocus={() => {
+                setSearchActive(true)
+                getRecentSearches().then(setRecentSearches)
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck
+              returnKeyType="search"
+              onSubmitEditing={submitSearch}
+            />
+            {/* RC: "SS needs to shimmer much slower and more subtly. It
+                can go inside the search bar." A real TextInput placeholder
+                can't carry per-letter styling, so this is a custom
+                overlay standing in for it -- pointerEvents="none" so taps
+                still reach the real input underneath, and it only shows
+                while the field is genuinely empty, same as a real
+                placeholder disappearing the moment you type. */}
+            {searchQuery.length === 0 && (
+              <View pointerEvents="none" style={styles.customPlaceholder}>
+                <SmartSearchLabel fontSize={12.5} />
+                <Text
+                  style={[styles.placeholderRest, { color: tokens.t3, fontSize: fs(13) }]}
+                  numberOfLines={1}
+                >
+                  · Reg, word, or phrase…
+                </Text>
+              </View>
+            )}
+          </View>
           {searchQuery.length > 0 && (
             <Pressable
               onPress={() => {
@@ -1713,16 +1719,11 @@ const styles = StyleSheet.create({
   regCount: { marginTop: 2 },
 
   // Fixed search zone above the FlatList
-  smartSearchKicker: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    zIndex: 20,
-  },
   searchZone: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop: 2,
+    paddingTop: 10,
     paddingBottom: 8,
     gap: 10,
     zIndex: 20,
@@ -1745,6 +1746,15 @@ const styles = StyleSheet.create({
     // is the correct escape hatch here, not a stronger type.
     outlineStyle: 'none',
   } as any,
+  // Custom rich placeholder -- overlays the empty TextInput exactly (same
+  // box, absolutely positioned) since a real `placeholder` string can't
+  // carry SmartSearchLabel's per-letter styling. pointerEvents="none" on
+  // the parent lets taps fall through to the real input underneath.
+  customPlaceholder: {
+    position: 'absolute', top: 0, bottom: 0, left: 0, right: 0,
+    flexDirection: 'row', alignItems: 'center', overflow: 'hidden',
+  },
+  placeholderRest: { flexShrink: 1, marginLeft: 4 },
   cancelWrap: { paddingRight: 2 },
   cancelText: { fontSize: 14, fontWeight: '500' },
 
