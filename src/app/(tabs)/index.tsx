@@ -1418,7 +1418,7 @@ function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; toke
   if (!isPro) {
     return (
       <Pressable
-        style={[styles.dailyRegCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+        style={[styles.dailyRegCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
         onPress={() => router.push('/paywall?tier=pro')}
       >
         <View style={styles.dailyRegRow}>
@@ -1438,7 +1438,7 @@ function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; toke
   }
   return (
     <Pressable
-      style={[styles.dailyRegCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+      style={[styles.dailyRegCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
       onPress={() => setExpanded((e) => !e)}
     >
       <View style={styles.dailyRegRow}>
