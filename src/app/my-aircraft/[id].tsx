@@ -103,6 +103,13 @@ export default function AircraftDetailScreen() {
   const [reminders, setReminders] = useState<AircraftReminder[]>([])
   const [loading, setLoading] = useState(true)
   const [partPickerVisible, setPartPickerVisible] = useState(false)
+  // RC: "the equipment section doesn't seem to be editable" -- real gap,
+  // not a misread: the row had swipe-to-delete but no onPress at all,
+  // unlike Reminders' own tap-to-edit. An equipment tag has no separate
+  // fields to edit beyond "which part" (added_at aside), so "edit" here
+  // means re-opening the same part picker and swapping the tag rather than
+  // a pre-filled form the way ReminderFormModal works for reminders.
+  const [editingEquipment, setEditingEquipment] = useState<AircraftEquipment | null>(null)
   const [reminderFormVisible, setReminderFormVisible] = useState(false)
   const [editingReminder, setEditingReminder] = useState<AircraftReminder | null>(null)
   // Per-section collapse -- RC, live, on the Applicable ADs list routinely
@@ -370,6 +377,13 @@ export default function AircraftDetailScreen() {
 
   const openAddEquipment = () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    setEditingEquipment(null)
+    setPartPickerVisible(true)
+  }
+
+  const openEditEquipment = (e: AircraftEquipment) => {
+    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    setEditingEquipment(e)
     setPartPickerVisible(true)
   }
 
@@ -694,7 +708,11 @@ export default function AircraftDetailScreen() {
               <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                 {equipment.map((e, i) => (
                   <View key={e.id} style={i < equipment.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}>
-                    <SwipeToDelete onDelete={() => handleRemoveEquipment(e)} disabled={!canEdit}>
+                    <SwipeToDelete
+                      onDelete={() => handleRemoveEquipment(e)}
+                      onPress={canEdit ? () => openEditEquipment(e) : undefined}
+                      disabled={!canEdit}
+                    >
                       <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
                         <Icon name="wrench" size={fs(15)} color={tokens.blu} />
                         <View style={{ flex: 1 }}>
@@ -735,6 +753,14 @@ export default function AircraftDetailScreen() {
                   const days = daysUntil(r.dueDate)
                   const overdue = days < 0
                   const soon = days >= 0 && days <= 30
+                  // RC: "it's nice for these to be color coded as well.
+                  // green when good, amber when w/n a certain number of
+                  // days from due (maybe 30 days), and red when overdue."
+                  // Same 3-color severity vocabulary as the Fleet ring
+                  // above (not a 4th color like the gold this replaced),
+                  // so a glance here reads the same way a glance at the
+                  // ring does.
+                  const color = overdue ? tokens.red : soon ? tokens.amb : tokens.grn
                   return (
                     <View key={r.id} style={i < reminders.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}>
                       <SwipeToDelete
@@ -743,11 +769,11 @@ export default function AircraftDetailScreen() {
                         disabled={!canEdit}
                       >
                         <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
-                          <Icon name="hourglass" size={fs(15)} color={overdue ? tokens.amb : soon ? tokens.gold : tokens.t3} />
+                          <Icon name="hourglass" size={fs(15)} color={color} />
                           <View style={{ flex: 1 }}>
                             <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{r.title}</Text>
-                            <Text style={[styles.rowSub, { color: overdue ? tokens.amb : tokens.t3, fontSize: fs(12) }]}>
-                              {overdue ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due today' : `Due in ${days}d`} · {r.dueDate}
+                            <Text style={[styles.rowSub, { color, fontSize: fs(12) }]}>
+                              {overdue ? `${Math.abs(days)}d` : `${days}d`} · {r.dueDate}
                               {r.linkedAdNumber ? ` · AD ${r.linkedAdNumber}` : ''}
                             </Text>
                           </View>
@@ -764,11 +790,18 @@ export default function AircraftDetailScreen() {
 
       <PartPickerModal
         visible={partPickerVisible}
-        onClose={() => setPartPickerVisible(false)}
+        editing={!!editingEquipment}
+        onClose={() => { setPartPickerVisible(false); setEditingEquipment(null) }}
         onPicked={async (part) => {
           if (!aircraft) return
+          // Editing = swap which part this tag points to. No update-in-
+          // place function exists for a part reference (nothing else on
+          // the row is editable), so this is remove-old-tag then add-new,
+          // same net effect, using the two functions that already exist.
+          if (editingEquipment) await removeAircraftEquipment(editingEquipment.id)
           await addAircraftEquipment(aircraft.id, part.id)
           setPartPickerVisible(false)
+          setEditingEquipment(null)
           load()
           // A newly-tagged part can have real historical ADs of its own --
           // the equipment-keyed match is independent of airframe, so this
@@ -808,7 +841,7 @@ export default function AircraftDetailScreen() {
   )
 }
 
-function PartPickerModal({ visible, onClose, onPicked }: { visible: boolean; onClose: () => void; onPicked: (p: AdPart) => void }) {
+function PartPickerModal({ visible, editing, onClose, onPicked }: { visible: boolean; editing?: boolean; onClose: () => void; onPicked: (p: AdPart) => void }) {
   const { tokens } = useTheme()
   const fs = useFS()
   const [query, setQuery] = useState('')
@@ -832,7 +865,7 @@ function PartPickerModal({ visible, onClose, onPicked }: { visible: boolean; onC
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={[styles.modalRoot, { backgroundColor: tokens.bg }]}>
-        <OverlayHeader title="Add Equipment" onBack={onClose} />
+        <OverlayHeader title={editing ? 'Change Equipment' : 'Add Equipment'} onBack={onClose} />
         <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
           <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
           <TextInput
