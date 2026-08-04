@@ -7,7 +7,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import {
   getMyChallenges, respondToChallenge, getNextChallengeQuestion, submitChallengeAnswer,
-  getChallengeResults, getChallengeStandings, getDuelStats, sendDuelPush,
+  getChallengeResults, getChallengeStandings, getDuelStats, sendDuelPush, createChallenge,
   MyChallenge, NextQuestion, AnswerResult, ChallengeResultRow, StandingRow, DuelStats, DuelItemType,
   KNOWLEDGE_LEVEL_LABELS,
 } from '@/lib/challenges'
@@ -75,6 +75,7 @@ export default function ChallengeGameScreen() {
   const [myStats, setMyStats] = useState<DuelStats | null>(null)
   const [revealCoin, setRevealCoin] = useState<CoinDef | null>(null)
   const [liveMs, setLiveMs] = useState(0)
+  const [rematching, setRematching] = useState(false)
   const startedAt = useRef(0)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -179,6 +180,35 @@ export default function ChallengeGameScreen() {
     setResult(null)
     setMyTimeMs(0)
     loadState()
+  }
+
+  // RC: "rematch is good. though one player taps it, the other still has
+  // to accept the rematch, just like a new invite - only that they can do
+  // it right there." No new backend needed -- create_challenge is already
+  // generic, so a rematch is just re-inviting the SAME opponent(s) with
+  // the SAME filters this duel was played under. The opponent sees it land
+  // in their own Duels list and accepts it exactly like any other invite;
+  // "right there" just means the challenger gets an immediate new-duel
+  // screen instead of having to rebuild the same picker from scratch.
+  const handleRematch = async () => {
+    if (!challenge || rematching) return
+    const opponentIds = challenge.others.map((o) => o.userId)
+    if (opponentIds.length === 0) return
+    setRematching(true)
+    try {
+      const newId = await createChallenge(
+        opponentIds,
+        challenge.questionCount,
+        challenge.itemTypes ?? undefined,
+        challenge.levels ?? undefined,
+        challenge.categoryClasses ?? undefined
+      )
+      sendDuelPush(newId, 'invited')
+      router.replace(`/challenges/${newId}` as any)
+    } catch (err: any) {
+      Alert.alert('Could not start rematch', err?.message ?? 'Unknown error')
+      setRematching(false)
+    }
   }
 
   const otherCount = challenge?.others.length ?? 0
@@ -330,7 +360,15 @@ export default function ChallengeGameScreen() {
           </Pressable>
         </View>
       ) : phase === 'results' ? (
-        <ResultsView results={results} standings={standings} tokens={tokens} fs={fs} />
+        <ResultsView
+          results={results}
+          standings={standings}
+          tokens={tokens}
+          fs={fs}
+          canRematch={otherCount > 0}
+          rematching={rematching}
+          onRematch={handleRematch}
+        />
       ) : null}
       <CoinRevealModal coin={revealCoin} onClose={() => setRevealCoin(null)} />
     </View>
@@ -364,12 +402,15 @@ function openResultItem(r: ChallengeResultRow) {
 }
 
 function ResultsView({
-  results, standings, tokens, fs,
+  results, standings, tokens, fs, canRematch, rematching, onRematch,
 }: {
   results: ChallengeResultRow[]
   standings: StandingRow[]
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
+  canRematch: boolean
+  rematching: boolean
+  onRematch: () => void
 }) {
   const me = standings.find((s) => s.isMe)
   const winner = standings.find((s) => s.finalRank === 1)
@@ -384,6 +425,23 @@ function ResultsView({
           {outcome === 'won' ? 'You won!' : outcome === 'tied' ? "It's a tie for first!" : `${winner?.label ?? 'Someone'} won this one`}
         </Text>
       </View>
+
+      {canRematch && (
+        <Pressable
+          style={[styles.rematchButton, { backgroundColor: tokens.gold, opacity: rematching ? 0.6 : 1 }]}
+          onPress={onRematch}
+          disabled={rematching}
+        >
+          {rematching ? (
+            <ActivityIndicator color="#000" size="small" />
+          ) : (
+            <>
+              <Icon name="arrow.triangle.2.circlepath" size={fs(15)} color="#000" />
+              <Text style={styles.rematchButtonText}>Rematch</Text>
+            </>
+          )}
+        </Pressable>
+      )}
 
       <View style={styles.standingsList}>
         {standings.map((s) => (
@@ -497,6 +555,11 @@ const styles = StyleSheet.create({
 
   resultsWrap: { flex: 1, padding: 16, gap: 10 },
   resultsSummary: { alignItems: 'center', gap: 6, paddingVertical: 16 },
+  rematchButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
+    borderRadius: 20, paddingVertical: 12, marginBottom: 4,
+  },
+  rematchButtonText: { color: '#000', fontWeight: '800', fontSize: 14.5, letterSpacing: 0.4 },
 
   standingsList: { gap: 6, marginBottom: 6 },
   standingRow: {
