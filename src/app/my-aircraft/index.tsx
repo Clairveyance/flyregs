@@ -9,14 +9,14 @@ import { Icon } from '@/components/Icon'
 import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
-import {
-  suggestTypeDesignator, searchTypeDesignators, searchManufacturers, searchMarketingNames,
-  type TypeDesignatorSuggestion,
-} from '@/lib/aircraftModels'
+import { suggestTypeDesignator } from '@/lib/aircraftModels'
 import { backfillAircraftAds, getAircraftAdNotifications, markAdNotificationRead, type AircraftAdNotification } from '@/lib/adNotifications'
 import { getAircraftReminders, type AircraftReminder } from '@/lib/adParts'
-import { getFleetSummary, joinSharedAircraft, type FleetAircraftSummary } from '@/lib/aircraftSharing'
+import { getFleetSummary, type FleetAircraftSummary } from '@/lib/aircraftSharing'
 import { SwipeToDelete } from '@/components/SwipeToDelete'
+import {
+  MakeField, ModelField, TypeDesignatorField, YearField, YearPickerModal, type UserAircraft,
+} from '@/components/AircraftFormFields'
 
 // The actual payoff of the AD expansion, per explicit direction: a pilot/
 // owner/mechanic only cares about the ~15-20 ADs issued per week that touch
@@ -31,15 +31,6 @@ import { SwipeToDelete } from '@/components/SwipeToDelete'
 // Decision -- have somewhere to live per-aircraft, matching this app's
 // existing list/detail pattern everywhere else (folders, Ref Packets,
 // etc.) rather than cramming both into this list screen.
-interface UserAircraft {
-  id: string
-  make: string
-  model: string
-  nickname: string | null
-  type_designator: string | null
-  year: number | null
-}
-
 // Matches my-aircraft/[id].tsx's own daysUntil exactly.
 function daysUntil(dateStr: string): number {
   const due = new Date(dateStr + 'T00:00:00')
@@ -72,9 +63,6 @@ export default function MyAircraftScreen() {
   const [yearPickerOpen, setYearPickerOpen] = useState(false)
   const typeDesignatorEdited = useRef(false)
   const [saving, setSaving] = useState(false)
-  const [editingAircraft, setEditingAircraft] = useState<UserAircraft | null>(null)
-  const [joinCode, setJoinCode] = useState('')
-  const [joining, setJoining] = useState(false)
   // Accordion, not multi-expand -- RC: "i like the inline expand for the
   // a/c's in Fleet... tap to expand is the top part and we put a small
   // button... at the bottom which takes you into that full a/c page."
@@ -123,41 +111,6 @@ export default function MyAircraftScreen() {
   useEffect(() => {
     load()
   }, [session])
-
-  const handleJoin = async () => {
-    if (!session) {
-      router.push('/auth')
-      return
-    }
-    // Sharing is Premium-only for EVERY participant, not just the owner --
-    // RC: "anyone who is going to be receiving and viewing Fleet data has
-    // to, themselves, have a Prem account." This is a client-side gate,
-    // same pattern as every other tier check in this app (the join RPC
-    // itself has no subscription check of its own).
-    if (!isPremium) {
-      Alert.alert(
-        'Premium required',
-        'Viewing or editing a shared aircraft requires your own Premium subscription.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Upgrade to Premium', onPress: () => router.push('/paywall?tier=premium') },
-        ]
-      )
-      return
-    }
-    const code = joinCode.trim()
-    if (!code) return
-    setJoining(true)
-    try {
-      const joined = await joinSharedAircraft(code)
-      setJoinCode('')
-      load()
-      Alert.alert('Joined', `${joined.nickname || `${joined.make} ${joined.model}`} now appears in your Fleet as ${joined.role}.`)
-    } catch (e: any) {
-      Alert.alert('Could not join', e?.message ?? 'Unknown error')
-    }
-    setJoining(false)
-  }
 
   const handleAdd = async () => {
     if (!session) {
@@ -392,21 +345,11 @@ export default function MyAircraftScreen() {
                           </View>
                         )}
                       </View>
-                      {canEdit && (
-                        <Pressable
-                          onPress={(e) => {
-                            e.stopPropagation()
-                            setEditingAircraft({
-                              id: a.aircraftId, make: a.make, model: a.model,
-                              nickname: a.nickname, type_designator: a.typeDesignator, year: a.year,
-                            })
-                          }}
-                          hitSlop={10}
-                          style={{ marginRight: 14 }}
-                        >
-                          <Icon name="pencil" size={fs(17)} color={tokens.t3} />
-                        </Pressable>
-                      )}
+                      {/* No edit pencil here -- best part is no part. RC:
+                          "we don't need this edit button here. the
+                          editing takes place once inside the a/c page."
+                          EditAircraftModal now lives only in
+                          my-aircraft/[id].tsx. */}
                       <Icon name={isExpanded ? 'chevron.down' : 'chevron.right'} size={fs(14)} color={tokens.t4} />
                     </View>
                     </SwipeToDelete>
@@ -493,32 +436,10 @@ export default function MyAircraftScreen() {
             </>
           )}
 
-          {isPremium && (
-            <>
-              <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: aircraft.length === 0 ? 0 : 20 }]}>
-                JOIN SHARED AIRCRAFT
-              </Text>
-              <View style={[styles.formCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, flexDirection: 'row', gap: 8 }]}>
-                <TextInput
-                  value={joinCode}
-                  onChangeText={setJoinCode}
-                  placeholder="Enter invite code"
-                  placeholderTextColor={tokens.t3}
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  style={[styles.input, { flex: 1, color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }]}
-                />
-                <Pressable
-                  style={[styles.addButton, { backgroundColor: tokens.blu, marginTop: 0, paddingHorizontal: 18 }]}
-                  onPress={handleJoin}
-                  disabled={joining || !joinCode.trim()}
-                >
-                  {joining ? <ActivityIndicator color="#fff" size="small" /> : <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Join</Text>}
-                </Pressable>
-              </View>
-            </>
-          )}
-
+          {/* No manual "enter invite code" UI -- best part is no part.
+              Joining a shared aircraft happens entirely by tapping the
+              link an owner shares (join/[token].tsx), same as folders;
+              there's nothing left for the receiver to do on this screen. */}
           <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 20 }]}>
             ADD AIRCRAFT{!isPremium ? ` (${aircraft.length}/${PRO_AIRCRAFT_CAP} — Premium for unlimited)` : ''}
           </Text>
@@ -568,11 +489,6 @@ export default function MyAircraftScreen() {
         </TabletContainer>
       )}
 
-      <EditAircraftModal
-        aircraft={editingAircraft}
-        onClose={() => setEditingAircraft(null)}
-        onSaved={() => { setEditingAircraft(null); load() }}
-      />
       <YearPickerModal
         visible={yearPickerOpen}
         initialYear={year}
@@ -582,466 +498,6 @@ export default function MyAircraftScreen() {
         fs={fs}
       />
     </View>
-  )
-}
-
-function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: UserAircraft | null; onClose: () => void; onSaved: () => void }) {
-  const { tokens } = useTheme()
-  const fs = useFS()
-  const [make, setMake] = useState('')
-  const [model, setModel] = useState('')
-  const [typeDesignator, setTypeDesignator] = useState('')
-  const [nickname, setNickname] = useState('')
-  const [year, setYear] = useState<number | null>(null)
-  const [yearPickerOpen, setYearPickerOpen] = useState(false)
-  const typeDesignatorEdited = useRef(false)
-  const [saving, setSaving] = useState(false)
-
-  // Re-seed the form every time a different aircraft is opened for edit --
-  // the modal component itself stays mounted (visible toggles), so state
-  // wouldn't otherwise reset between edits of two different aircraft.
-  useEffect(() => {
-    if (!aircraft) return
-    setMake(aircraft.make)
-    setModel(aircraft.model)
-    // Aircraft saved before this field existed have no stored
-    // type_designator -- suggest one now from the bridge instead of
-    // showing a blank field the user has to know to re-type the model
-    // into (confirmed live: editing an existing "Lake buccaneer" left the
-    // field empty rather than surfacing the LA-4 suggestion it should).
-    setTypeDesignator(aircraft.type_designator ?? suggestTypeDesignator(aircraft.model) ?? '')
-    setNickname(aircraft.nickname ?? '')
-    setYear(aircraft.year ?? null)
-    typeDesignatorEdited.current = !!aircraft.type_designator
-  }, [aircraft])
-
-  const handleModelChange = (text: string) => {
-    setModel(text)
-    if (!typeDesignatorEdited.current) setTypeDesignator(suggestTypeDesignator(text) ?? '')
-  }
-
-  const handleTypeDesignatorChange = (text: string) => {
-    typeDesignatorEdited.current = true
-    setTypeDesignator(text)
-  }
-
-  const handleSave = async () => {
-    if (!aircraft) return
-    const trimmedMake = make.trim()
-    const trimmedType = typeDesignator.trim()
-    const trimmedModel = model.trim() || trimmedType
-    if (!trimmedMake || !trimmedModel) {
-      Alert.alert('Make and model required', 'Enter both the aircraft make and model.')
-      return
-    }
-    if (!trimmedType) {
-      Alert.alert('Type designator required', 'Enter the FAA type designator (e.g. PA-28-181, 172S) so we can match Airworthiness Directives correctly.')
-      return
-    }
-    setSaving(true)
-    const { error } = await supabase
-      .from('user_aircraft')
-      .update({
-        make: trimmedMake, model: trimmedModel,
-        type_designator: trimmedType, nickname: nickname.trim() || null,
-        year,
-      })
-      .eq('id', aircraft.id)
-    setSaving(false)
-    if (error) {
-      Alert.alert('Could not save changes', error.message)
-      return
-    }
-    onSaved()
-  }
-
-  return (
-    <Modal visible={!!aircraft} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
-          <View style={styles.modalHeader}>
-            <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Edit Aircraft</Text>
-            <Pressable onPress={onClose} hitSlop={10}>
-              <Icon name="xmark" size={fs(18)} color={tokens.t3} />
-            </Pressable>
-          </View>
-          <MakeField value={make} onChangeText={setMake} tokens={tokens} fs={fs} style={{ marginTop: 12 }} />
-          <ModelField
-            value={model}
-            onChangeText={handleModelChange}
-            onSelectDesignator={(d) => { if (!typeDesignatorEdited.current) setTypeDesignator(d) }}
-            tokens={tokens}
-            fs={fs}
-            style={{ marginTop: 10 }}
-          />
-          <TypeDesignatorField
-            value={typeDesignator}
-            onChangeText={handleTypeDesignatorChange}
-            onSelectManufacturer={(mfr) => { if (!make.trim()) setMake(mfr) }}
-            tokens={tokens}
-            fs={fs}
-            style={{ marginTop: 10 }}
-          />
-          <Text style={[styles.typeHint, { color: tokens.t3, fontSize: fs(11.5), marginTop: 6 }]}>
-            Model is the marketing name (Skyhawk, Warrior) — Type designator is the FAA code (172S, PA-28-181) ADs
-            are filed under. No marketing name? Enter the type in both fields.
-          </Text>
-          <YearField value={year} onPress={() => setYearPickerOpen(true)} tokens={tokens} fs={fs} style={{ marginTop: 10 }} />
-          <TextInput
-            value={nickname}
-            onChangeText={setNickname}
-            placeholder="Nickname (optional, e.g. N12345)"
-            placeholderTextColor={tokens.t3}
-            style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr, marginTop: 10 }]}
-          />
-          <Pressable style={[styles.addButton, { backgroundColor: tokens.blu, marginTop: 14 }]} onPress={handleSave} disabled={saving}>
-            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Save Changes</Text>}
-          </Pressable>
-        </View>
-      </View>
-      <YearPickerModal
-        visible={yearPickerOpen}
-        initialYear={year}
-        onClose={() => setYearPickerOpen(false)}
-        onSelect={setYear}
-        tokens={tokens}
-        fs={fs}
-      />
-    </Modal>
-  )
-}
-
-// Typeahead against the real FAA registry catalog (task #12, backed by
-// #11's aircraft_type_designators table -- 9,229 real Type-Certificated
-// designators, not a guess). Debounced so every keystroke doesn't fire a
-// query; shows up to 8 "MANUFACTURER — DESIGNATOR" matches, tapping one
-// fills the designator field and, if make is still blank, the manufacturer
-// too. Shared between the inline Add form and EditAircraftModal below --
-// same field, same behavior, no reason to diverge.
-function TypeDesignatorField({
-  value, onChangeText, onSelectManufacturer, tokens, fs, style,
-}: {
-  value: string
-  onChangeText: (text: string) => void
-  onSelectManufacturer?: (mfr: string) => void
-  tokens: ReturnType<typeof useTheme>['tokens']
-  fs: (n: number) => number
-  style?: object
-}) {
-  const [suggestions, setSuggestions] = useState<TypeDesignatorSuggestion[]>([])
-  const [focused, setFocused] = useState(false)
-
-  useEffect(() => {
-    if (!focused || value.trim().length < 2) { setSuggestions([]); return }
-    let live = true
-    const t = setTimeout(() => {
-      searchTypeDesignators(value).then((rows) => { if (live) setSuggestions(rows) })
-    }, 250)
-    return () => { live = false; clearTimeout(t) }
-  }, [value, focused])
-
-  const handleSelect = (s: TypeDesignatorSuggestion) => {
-    onChangeText(s.type_designator)
-    onSelectManufacturer?.(s.manufacturer)
-    setSuggestions([])
-    setFocused(false)
-  }
-
-  return (
-    <View>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        onFocus={() => setFocused(true)}
-        // Deferred so a suggestion tap's own touch event lands before the
-        // list unmounts -- an immediate onBlur hide would swallow the tap.
-        onBlur={() => setTimeout(() => setFocused(false), 150)}
-        placeholder="Type designator (required, e.g. PA-28-181)"
-        placeholderTextColor={tokens.t3}
-        autoCapitalize="characters"
-        style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }, style]}
-      />
-      {focused && suggestions.length > 0 && (
-        <View style={[styles.suggestBox, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
-          {suggestions.map((s, i) => (
-            <Pressable
-              key={`${s.manufacturer}-${s.type_designator}`}
-              style={[styles.suggestRow, i < suggestions.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
-              onPress={() => handleSelect(s)}
-            >
-              <Text style={{ color: tokens.t1, fontSize: fs(13.5) }}>
-                <Text style={{ fontWeight: '600' }}>{s.type_designator}</Text>
-                <Text style={{ color: tokens.t3 }}> — {s.manufacturer}</Text>
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-    </View>
-  )
-}
-
-// Make field typeahead ("C" -> Cessna, Cirrus, ...) -- see
-// aircraftModels.ts's searchManufacturers for the subsequence-match +
-// dedup logic. Same debounce/dropdown shape as TypeDesignatorField above,
-// but simple string suggestions rather than a two-part label.
-function MakeField({
-  value, onChangeText, tokens, fs, style,
-}: {
-  value: string
-  onChangeText: (text: string) => void
-  tokens: ReturnType<typeof useTheme>['tokens']
-  fs: (n: number) => number
-  style?: object
-}) {
-  const [suggestions, setSuggestions] = useState<string[]>([])
-  const [focused, setFocused] = useState(false)
-
-  useEffect(() => {
-    if (!focused || value.trim().length < 1) { setSuggestions([]); return }
-    let live = true
-    const t = setTimeout(() => {
-      searchManufacturers(value).then((rows) => { if (live) setSuggestions(rows) })
-    }, 200)
-    return () => { live = false; clearTimeout(t) }
-  }, [value, focused])
-
-  const handleSelect = (name: string) => {
-    onChangeText(name)
-    setSuggestions([])
-    setFocused(false)
-  }
-
-  return (
-    <View>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setTimeout(() => setFocused(false), 150)}
-        placeholder="Make (e.g. Cessna)"
-        placeholderTextColor={tokens.t3}
-        style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }, style]}
-      />
-      {focused && suggestions.length > 0 && (
-        <View style={[styles.suggestBox, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
-          {suggestions.map((name, i) => (
-            <Pressable
-              key={name}
-              style={[styles.suggestRow, i < suggestions.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
-              onPress={() => handleSelect(name)}
-            >
-              <Text style={{ color: tokens.t1, fontSize: fs(13.5) }}>{name}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-    </View>
-  )
-}
-
-// Model field typeahead -- but for MARKETING names, not the technical
-// designator MakeField's sibling above searches ("S" -> Skyhawk, Saratoga,
-// ...). Backed by the small curated AIRCRAFT_MODEL_ALIASES bridge (a
-// synchronous, client-side filter -- there's no DB table of marketing
-// names, see searchMarketingNames's own comment). Selecting a suggestion
-// also offers its known type designator via onSelectDesignator, same
-// auto-suggest behavior typing the full name out would have triggered.
-function ModelField({
-  value, onChangeText, onSelectDesignator, tokens, fs, style,
-}: {
-  value: string
-  onChangeText: (text: string) => void
-  onSelectDesignator?: (designator: string) => void
-  tokens: ReturnType<typeof useTheme>['tokens']
-  fs: (n: number) => number
-  style?: object
-}) {
-  const [suggestions, setSuggestions] = useState<string[]>([])
-  const [focused, setFocused] = useState(false)
-
-  useEffect(() => {
-    if (!focused || value.trim().length < 1) { setSuggestions([]); return }
-    setSuggestions(searchMarketingNames(value))
-  }, [value, focused])
-
-  const handleSelect = (name: string) => {
-    onChangeText(name)
-    const designator = suggestTypeDesignator(name)
-    if (designator) onSelectDesignator?.(designator)
-    setSuggestions([])
-    setFocused(false)
-  }
-
-  return (
-    <View>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setTimeout(() => setFocused(false), 150)}
-        placeholder="Model name (e.g. Skyhawk) — leave blank if none"
-        placeholderTextColor={tokens.t3}
-        style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }, style]}
-      />
-      {focused && suggestions.length > 0 && (
-        <View style={[styles.suggestBox, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
-          {suggestions.map((name, i) => (
-            <Pressable
-              key={name}
-              style={[styles.suggestRow, i < suggestions.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
-              onPress={() => handleSelect(name)}
-            >
-              <Text style={{ color: tokens.t1, fontSize: fs(13.5) }}>{name}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-    </View>
-  )
-}
-
-// A plain pressable field (not a TextInput) that opens YearPickerModal --
-// year is a picked value, never freehand-typed, so this deliberately
-// looks and behaves like every other "opens a picker" row in the app
-// rather than a text field with a fake disabled cursor.
-function YearField({
-  value, onPress, tokens, fs, style,
-}: {
-  value: number | null
-  onPress: () => void
-  tokens: ReturnType<typeof useTheme>['tokens']
-  fs: (n: number) => number
-  style?: object
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderColor: tokens.bdr }, style]}
-    >
-      <Text style={{ color: value ? tokens.t1 : tokens.t3, fontSize: fs(14.5) }}>
-        {value ?? 'Year (optional)'}
-      </Text>
-      <Icon name="chevron.down" size={fs(14)} color={tokens.t4} />
-    </Pressable>
-  )
-}
-
-const YEAR_ROW_HEIGHT = 40
-const YEAR_VISIBLE_ROWS = 5
-const CURRENT_YEAR = new Date().getFullYear()
-// Descending, starting two years ahead of today so a brand-new model-year
-// purchase (aircraft are commonly sold under next year's or the year
-// after's model year late in the current calendar year, same as cars) is
-// reachable without scrolling past "today." CURRENT_YEAR is computed above
-// from the real system clock at module load, so this bound always tracks
-// the actual current year rather than a hardcoded number. 1930 floor
-// comfortably covers any airworthy certificated GA aircraft still flying.
-const YEARS = Array.from({ length: CURRENT_YEAR - 1930 + 3 }, (_, i) => CURRENT_YEAR + 2 - i)
-
-// A real scroll-wheel picker (RC: "maybe we give users a popup scroll
-// wheel to select the year") built from plain ScrollView snap-scrolling --
-// no native picker dependency (none is installed, and adding one needs a
-// new native build this web-preview session can't verify) -- `
-// snapToInterval` + `decelerationRate="fast"` + `onMomentumScrollEnd` is
-// the standard RN pattern for this, and all three work on RN Web too.
-function YearPickerModal({
-  visible, initialYear, onClose, onSelect, tokens, fs,
-}: {
-  visible: boolean
-  initialYear: number | null
-  onClose: () => void
-  onSelect: (year: number) => void
-  tokens: ReturnType<typeof useTheme>['tokens']
-  fs: (n: number) => number
-}) {
-  const scrollRef = useRef<ScrollView>(null)
-  const settleRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [pending, setPending] = useState(initialYear ?? CURRENT_YEAR)
-
-  useEffect(() => {
-    if (!visible) return
-    setPending(initialYear ?? CURRENT_YEAR)
-    const idx = Math.max(0, YEARS.indexOf(initialYear ?? CURRENT_YEAR))
-    // Modal mount + ScrollView layout both need a tick before scrollTo
-    // lands correctly -- confirmed live, an immediate call was a no-op.
-    const t = setTimeout(() => scrollRef.current?.scrollTo({ y: idx * YEAR_ROW_HEIGHT, animated: false }), 50)
-    return () => clearTimeout(t)
-  }, [visible, initialYear])
-
-  const updatePendingFromOffset = (offsetY: number) => {
-    const idx = Math.round(offsetY / YEAR_ROW_HEIGHT)
-    const clamped = Math.max(0, Math.min(YEARS.length - 1, idx))
-    setPending(YEARS[clamped])
-  }
-
-  const handleMomentumEnd = (e: any) => updatePendingFromOffset(e.nativeEvent.contentOffset.y)
-
-  // `onMomentumScrollEnd` only fires after TOUCH-driven momentum, which a
-  // mouse-wheel/trackpad scroll (this app also ships a web build) never
-  // produces -- confirmed live: wheel-scrolling this picker moved the
-  // highlighted row but never updated the actual selection. This is the
-  // web-input fallback: every plain scroll event resets a short "has this
-  // settled" timer, so the same offset->year math runs once scrolling
-  // actually stops, regardless of what produced the scroll.
-  const handleScroll = (e: any) => {
-    const offsetY = e.nativeEvent.contentOffset.y
-    if (settleRef.current) clearTimeout(settleRef.current)
-    settleRef.current = setTimeout(() => updatePendingFromOffset(offsetY), 120)
-  }
-
-  const wheelHeight = YEAR_ROW_HEIGHT * YEAR_VISIBLE_ROWS
-
-  return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
-          <View style={styles.modalHeader}>
-            <Pressable onPress={onClose} hitSlop={10}><Text style={{ color: tokens.t3, fontSize: fs(14.5) }}>Cancel</Text></Pressable>
-            <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Year</Text>
-            <Pressable onPress={() => { onSelect(pending); onClose() }} hitSlop={10}>
-              <Text style={{ color: tokens.blu, fontWeight: '700', fontSize: fs(14.5) }}>Done</Text>
-            </Pressable>
-          </View>
-          <View style={{ height: wheelHeight, marginTop: 4 }}>
-            <View
-              pointerEvents="none"
-              style={{
-                position: 'absolute', left: 0, right: 0,
-                top: YEAR_ROW_HEIGHT * Math.floor(YEAR_VISIBLE_ROWS / 2), height: YEAR_ROW_HEIGHT,
-                borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
-                borderColor: tokens.bdr, backgroundColor: tokens.bdim,
-              }}
-            />
-            <ScrollView
-              ref={scrollRef}
-              showsVerticalScrollIndicator={false}
-              snapToInterval={YEAR_ROW_HEIGHT}
-              decelerationRate="fast"
-              onMomentumScrollEnd={handleMomentumEnd}
-              onScroll={handleScroll}
-              scrollEventThrottle={32}
-              contentContainerStyle={{ paddingVertical: YEAR_ROW_HEIGHT * Math.floor(YEAR_VISIBLE_ROWS / 2) }}
-            >
-              {YEARS.map((y) => (
-                <Pressable
-                  key={y}
-                  style={{ height: YEAR_ROW_HEIGHT, alignItems: 'center', justifyContent: 'center' }}
-                  onPress={() => {
-                    setPending(y)
-                    scrollRef.current?.scrollTo({ y: YEARS.indexOf(y) * YEAR_ROW_HEIGHT, animated: true })
-                  }}
-                >
-                  <Text style={{ color: y === pending ? tokens.t1 : tokens.t3, fontWeight: y === pending ? '700' : '400', fontSize: fs(y === pending ? 17 : 14.5) }}>
-                    {y}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </View>
-    </Modal>
   )
 }
 
