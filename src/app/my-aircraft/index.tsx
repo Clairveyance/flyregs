@@ -10,7 +10,7 @@ import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
 import { suggestTypeDesignator } from '@/lib/aircraftModels'
-import { backfillAircraftAds, getAircraftAdNotifications, markAdNotificationRead, type AircraftAdNotification } from '@/lib/adNotifications'
+import { backfillAircraftAds } from '@/lib/adNotifications'
 import { getAircraftReminders, type AircraftReminder } from '@/lib/adParts'
 import { getFleetSummary, type FleetAircraftSummary } from '@/lib/aircraftSharing'
 import { SwipeToDelete } from '@/components/SwipeToDelete'
@@ -70,15 +70,21 @@ export default function MyAircraftScreen() {
   // details are lazy-fetched on first expand and cached per aircraft so
   // re-collapsing/re-expanding the same row doesn't re-fetch.
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [expandedDetails, setExpandedDetails] = useState<Record<string, { ads: AircraftAdNotification[]; reminders: AircraftReminder[] } | 'loading'>>({})
+  const [expandedDetails, setExpandedDetails] = useState<Record<string, { reminders: AircraftReminder[] } | 'loading'>>({})
 
+  // RC: "we don't need all this extra stuff. keep all things clean." The
+  // row's own "N open ADs" chip (below) already says everything the old
+  // inline AD list said, just with more clutter -- Manage is where you'd
+  // actually go read or act on one. Reminders don't have an equivalent
+  // chip for non-overdue items though, so previewing them here is the
+  // only place to see them without navigating away -- that one stays.
   const toggleExpand = (aircraftId: string) => {
     if (expandedId === aircraftId) { setExpandedId(null); return }
     setExpandedId(aircraftId)
     if (!expandedDetails[aircraftId]) {
       setExpandedDetails((prev) => ({ ...prev, [aircraftId]: 'loading' }))
-      Promise.all([getAircraftAdNotifications(aircraftId), getAircraftReminders(aircraftId)])
-        .then(([ads, reminders]) => setExpandedDetails((prev) => ({ ...prev, [aircraftId]: { ads, reminders } })))
+      getAircraftReminders(aircraftId)
+        .then((reminders) => setExpandedDetails((prev) => ({ ...prev, [aircraftId]: { reminders } })))
         .catch(() => setExpandedDetails((prev) => { const next = { ...prev }; delete next[aircraftId]; return next }))
     }
   }
@@ -360,38 +366,7 @@ export default function MyAircraftScreen() {
                           <ActivityIndicator color={tokens.blu} style={{ marginVertical: 10 }} />
                         ) : (
                           <>
-                            <Text style={[styles.expandGroupLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>APPLICABLE ADs</Text>
-                            {details.ads.length === 0 ? (
-                              <Text style={[styles.expandEmpty, { color: tokens.t3, fontSize: fs(12.5) }]}>No open ADs.</Text>
-                            ) : (
-                              details.ads.slice(0, 4).map((n) => (
-                                <Pressable
-                                  key={n.id}
-                                  style={styles.expandRow}
-                                  onPress={() => {
-                                    if (!n.readAt) {
-                                      const nowIso = new Date().toISOString()
-                                      setExpandedDetails((prev) => {
-                                        const cur = prev[a.aircraftId]
-                                        if (!cur || cur === 'loading') return prev
-                                        return { ...prev, [a.aircraftId]: { ...cur, ads: cur.ads.map((x) => (x.id === n.id ? { ...x, readAt: nowIso } : x)) } }
-                                      })
-                                      markAdNotificationRead(n.id).catch((e) => console.error('Failed to mark AD notification read:', e?.message ?? e))
-                                    }
-                                    router.push(`/ad/${n.adNumber}` as any)
-                                  }}
-                                >
-                                  {!n.readAt && <View style={[styles.unreadDot, { backgroundColor: tokens.blu }]} />}
-                                  <Text style={[styles.expandRowTitle, { color: tokens.blu, fontSize: fs(12.5) }]}>AD {n.adNumber}</Text>
-                                  <Text style={[styles.expandRowSub, { color: tokens.t2, fontSize: fs(12) }]} numberOfLines={1}>{n.subjectHeading}</Text>
-                                </Pressable>
-                              ))
-                            )}
-                            {details.ads.length > 4 && (
-                              <Text style={[styles.expandMore, { color: tokens.t3, fontSize: fs(11.5) }]}>+{details.ads.length - 4} more</Text>
-                            )}
-
-                            <Text style={[styles.expandGroupLabel, { color: tokens.t3, fontSize: fs(10.5), marginTop: 10 }]}>REMINDERS</Text>
+                            <Text style={[styles.expandGroupLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>REMINDERS</Text>
                             {details.reminders.length === 0 ? (
                               <Text style={[styles.expandEmpty, { color: tokens.t3, fontSize: fs(12.5) }]}>None set.</Text>
                             ) : (
@@ -529,7 +504,6 @@ const styles = StyleSheet.create({
   expandRowTitle: { fontWeight: '600' },
   expandRowSub: { flex: 1 },
   expandMore: { marginTop: 2 },
-  unreadDot: { width: 6, height: 6, borderRadius: 3 },
   manageButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     borderWidth: 1, borderRadius: 9, paddingVertical: 9, marginTop: 12,
