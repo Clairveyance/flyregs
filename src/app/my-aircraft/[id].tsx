@@ -560,6 +560,18 @@ export default function AircraftDetailScreen() {
                 iconSize={fs(14)}
               />
             </Pressable>
+            {/* RC: "on screen this looks okay, but on phone this area is
+                still really cluttered. can we find a cleaner way to make
+                use of all this info?" Three full rows of chrome (header,
+                "Browse all", 4 filter pills) before the actual list even
+                started -- each individually justified by an earlier round
+                of feedback, but the sum read as heavy. "Browse all" folds
+                into this header as an icon instead of its own row; the
+                4 range pills become one compact pill below. Nothing here
+                was removed, just given a smaller footprint. */}
+            <Pressable onPress={() => router.push(`/ad?q=${encodeURIComponent(aircraft.make)}` as any)} hitSlop={10}>
+              <Icon name="magnifyingglass" size={fs(17)} color={tokens.blu} />
+            </Pressable>
             {/* Owner-only: editors_manage_shared_ad_notifications only
                 grants UPDATE, not INSERT, so an editor tapping this would
                 just fail RLS -- see migrations_aircraft_sharing.sql. */}
@@ -571,44 +583,23 @@ export default function AircraftDetailScreen() {
           </View>
           {!adsCollapsed && (
             <>
-              {/* RC: "we need to inform users about that, so they can
-                  choose to widen their search criteria in order to not
-                  miss an AD that might still be relevant." This list only
-                  includes an AD when its own text specifically names this
-                  aircraft's model/type (see flyregs_decisions.md's
-                  "AD-to-aircraft matching precision bug fixed" entry) --
-                  a real, known tradeoff of that fix is that an AD written
-                  with unusual wording could be missed. Links to the full
-                  AD search pre-filled on this aircraft's make so a user
-                  who wants to double-check can do it in one tap, not a
-                  cold search.
-                  RC: "'browse all' is packed in there, needs space or
-                  move it" -- now its own row with real padding, not
-                  crammed alongside the info icon (which moved into the
-                  section header above). */}
-              <Pressable style={styles.widenSearchRow} onPress={() => router.push(`/ad?q=${encodeURIComponent(aircraft.make)}` as any)}>
-                <Text style={[styles.widenSearchText, { color: tokens.blu, fontWeight: '600', fontSize: fs(12.5) }]}>
-                  Browse all {aircraft.make} ADs →
-                </Text>
-              </Pressable>
               {adNotifications.length > 3 && (
-                <View style={styles.rangeRow}>
-                  {(Object.keys(AD_RANGE_LABELS) as AdRangeFilter[]).map((r) => (
-                    <Pressable
-                      key={r}
-                      onPress={() => setAdRange(r)}
-                      style={[
-                        styles.rangePill,
-                        { borderColor: tokens.bdr },
-                        adRange === r && { backgroundColor: tokens.blu, borderColor: tokens.blu },
-                      ]}
-                    >
-                      <Text style={[styles.rangePillText, { color: adRange === r ? '#fff' : tokens.t3, fontSize: fs(11.5) }]}>
-                        {AD_RANGE_LABELS[r]}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
+                <Pressable
+                  style={[styles.rangePill, styles.rangeDropdown, { borderColor: tokens.bdr }]}
+                  onPress={() => {
+                    const ranges = Object.keys(AD_RANGE_LABELS) as AdRangeFilter[]
+                    Alert.alert(
+                      'Time range',
+                      undefined,
+                      [...ranges.map((r) => ({ text: AD_RANGE_LABELS[r], onPress: () => setAdRange(r) })), { text: 'Cancel', style: 'cancel' as const }]
+                    )
+                  }}
+                >
+                  <Text style={[styles.rangePillText, { color: tokens.t2, fontSize: fs(11.5) }]}>
+                    {AD_RANGE_LABELS[adRange]}
+                  </Text>
+                  <Icon name="chevron.down" size={fs(10)} color={tokens.t3} />
+                </Pressable>
               )}
               {adNotifications.length === 0 ? (
                 <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13) }]}>
@@ -1259,15 +1250,13 @@ const styles = StyleSheet.create({
   collabRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth },
   collabName: { flex: 1 },
 
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, marginBottom: 8 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14, marginTop: 16, marginBottom: 8 },
   sectionTitleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   groupLabel: { fontWeight: '600', letterSpacing: 0.5 },
   sectionCountBig: { fontWeight: '700' },
   emptyHint: { lineHeight: 18, marginBottom: 4 },
-  widenSearchRow: { paddingVertical: 8, marginBottom: 6 },
-  widenSearchText: { lineHeight: 16 },
-  rangeRow: { flexDirection: 'row', gap: 6, marginBottom: 10 },
   rangePill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1 },
+  rangeDropdown: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginBottom: 10 },
   rangePillText: { fontWeight: '600' },
   unreadDot: { width: 7, height: 7, borderRadius: 3.5 },
 
