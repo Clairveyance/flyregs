@@ -58,6 +58,7 @@ Environment variables required for full/incremental mode:
 from __future__ import annotations
 
 import argparse
+import html
 import logging
 import os
 import re
@@ -95,6 +96,38 @@ AD_HEADER_RE = re.compile(
 # a consistent, legally-mandated structure across every AD checked (small
 # GA airplanes through transport-category jets, different manufacturers).
 PARAGRAPH_RE = re.compile(r"\n\(([a-z])\)\s+([^\n]+)\n\n(.*?)(?=\n\([a-z]\)\s+[^\n]+\n\n|\Z)", re.DOTALL)
+
+# raw_text_url's SGML source renders character entities as bracket-wrapped
+# names ("[eacute]" for what should be "&eacute;") instead of proper
+# &entity; syntax -- confirmed live via a corpus-wide sweep 2026-08-04:
+# "R[eacute]gional" instead of "Régional", affecting make/summary/body_text
+# and every other field derived from this same source text. The bracket
+# tag-strip below never decoded these since it only ever saw literal "["
+# text, not a real SGML entity reference.
+#
+# Distinct from legitimate bracketed Federal Register/CFR markup that must
+# NOT be touched -- "[Amended]", "[Reserved]", "[GRAPHIC]" are real
+# regulatory-drafting conventions (a genuinely reserved CFR section really
+# is printed as "[Reserved]"), not corrupted entities. No separate
+# allowlist is needed to protect them: none of those are real HTML5 entity
+# names, so the html.entities.html5 lookup below leaves them untouched by
+# construction.
+SGML_ENTITY_RE = re.compile(r"\[([a-zA-Z]+)\]")
+# "[[Page 8664]]"-style pagination artifacts from the FR's own PDF-to-text
+# rendering -- not content, safe to drop outright rather than decode.
+PAGE_BREAK_RE = re.compile(r"\[\[Page\s+[\d,]+\]\]\s*", re.IGNORECASE)
+
+
+def decode_sgml_entities(text: str | None) -> str | None:
+    if not text:
+        return text
+    text = PAGE_BREAK_RE.sub("", text)
+
+    def _sub(m: re.Match) -> str:
+        char = html.entities.html5.get(m.group(1).lower() + ";")
+        return char if char else m.group(0)
+
+    return SGML_ENTITY_RE.sub(_sub, text)
 
 
 def fetch_page(url: str, params: dict | None = None) -> dict:
@@ -196,8 +229,11 @@ def parse_ad_text(raw_text: str, document_number: str) -> dict | None:
     None if the text doesn't match the expected AD structure at all (a
     genuine parsing failure worth logging, not silently skipping)."""
     # Strip the FR boilerplate header/footer and the <pre>/<html> wrapper
-    # every raw_text_url response has.
-    text = re.sub(r"<[^>]+>", "", raw_text)
+    # every raw_text_url response has, then decode SGML entities -- done
+    # here, before any field extraction, so every downstream field
+    # (make/summary/body_text/subject_heading/applicability/...) inherits
+    # the fix automatically since they all derive from `text`.
+    text = decode_sgml_entities(re.sub(r"<[^>]+>", "", raw_text))
 
     # A single "\n" mid-text is a PDF line-wrap, not a real paragraph break
     # (those are "\n\n") -- confirmed live as a real bug: a docket number
