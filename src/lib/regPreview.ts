@@ -73,8 +73,14 @@ export async function fetchRegPreview(kind: PreviewKind, id: string): Promise<Re
       return { kind, id: data.slug, label: data.term, title: data.term, body: data.definition ?? '', fullRoute: `/pcg/${data.slug}` }
     }
     case 'ad': {
+      // _gated view redacts body_text server-side for non-Plus tiers -- see
+      // gotcha_tier_gate_client_side_only.md. RegPreviewPane (this
+      // function's only caller) has no hasPlusAccess gate on the body it
+      // renders at all, unlike ad/[id].tsx's own already-correct paywall --
+      // this was a real, unguarded leak of an AD's full text via any
+      // MagicLink hover/long-press preview.
       const { data } = await supabase
-        .from('airworthiness_directives')
+        .from('airworthiness_directives_gated')
         .select('ad_number, subject_heading, summary, body_text')
         .eq('ad_number', id)
         .single()

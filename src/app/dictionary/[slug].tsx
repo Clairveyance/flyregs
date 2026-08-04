@@ -36,7 +36,9 @@ interface Sense {
 
 interface DictTerm {
   term: string
-  senses: Sense[]
+  // null for a mnemonic entry when the _gated view redacts it server-side --
+  // see gotcha_tier_gate_client_side_only.md.
+  senses: Sense[] | null
   source: string
   category: string
   pcg_term_id: string | null
@@ -138,7 +140,9 @@ export default function DictionaryTermScreen() {
 
   useEffect(() => {
     if (!slug) return
-    supabase.from('dictionary_terms').select('term, senses, source, category, pcg_term_id, pcg_terms(slug, term), see_also_slug').eq('slug', slug).single()
+    // _gated view redacts senses server-side for non-Plus tiers on mnemonic
+    // entries only -- see gotcha_tier_gate_client_side_only.md.
+    supabase.from('dictionary_terms_gated').select('term, senses, source, category, pcg_term_id, pcg_terms(slug, term), see_also_slug').eq('slug', slug).single()
       .then(({ data }) => {
         // pcg_terms comes back as a plain object for this to-one relation
         // (dictionary_terms.pcg_term_id -> pcg_terms.id is a single FK), but
@@ -291,7 +295,7 @@ export default function DictionaryTermScreen() {
     try {
       await Share.share({
         title: entry.term,
-        message: buildRegShareLink('dictionary', slug, entry.term, entry.senses[0]?.definition ?? undefined),
+        message: buildRegShareLink('dictionary', slug, entry.term, entry.senses?.[0]?.definition ?? undefined),
       })
     } catch {
       // User cancelled or share unavailable
@@ -343,7 +347,19 @@ export default function DictionaryTermScreen() {
           <ScrollView contentContainerStyle={styles.content}>
             <Text style={[styles.term, { color: tokens.t1, fontSize: fs(24) }]}>{entry.term}</Text>
 
-            {entry.category === 'mnemonic' && !hasPlusAccess ? (
+            {/* Branch on entry.senses itself, not hasPlusAccess -- senses is
+                what the _gated view actually redacts server-side now (see
+                gotcha_tier_gate_client_side_only.md), and it's the only
+                thing this branch can safely call .map() on. hasPlusAccess
+                (client, from RevenueCat SDK state) and the server's own
+                has_plus_access() check are usually in sync but aren't
+                guaranteed to update at the exact same instant -- e.g. right
+                after a downgrade, before the client's local entitlement
+                cache catches up. Branching on the client flag alone crashed
+                this screen with "Cannot read properties of null (reading
+                'map')" whenever the two briefly disagreed; branching on the
+                data itself can't ever disagree with itself. */}
+            {entry.category === 'mnemonic' && !entry.senses ? (
               // RC, 2026-08-03: "remove the Mnemonic look up and gate that
               // at Plus." No partial reveal (unlike AC's 2-section preview)
               // -- a mnemonic's whole value IS its letter-by-letter
@@ -363,9 +379,9 @@ export default function DictionaryTermScreen() {
                   <Text style={[styles.proGateBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
                 </View>
               </Pressable>
-            ) : entry.senses.map((s, i) => (
+            ) : (entry.senses ?? []).map((s, i) => (
               <View key={i} style={[styles.senseCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-                {entry.senses.length > 1 && (
+                {(entry.senses?.length ?? 0) > 1 && (
                   <Text style={[styles.senseNum, { color: tokens.t4, fontSize: fs(11) }]}>SENSE {i + 1}</Text>
                 )}
                 <LinkedText text={s.definition} style={[styles.definition, { color: tokens.t1, fontSize: fs(16) }]} linkColor={tokens.blu} />

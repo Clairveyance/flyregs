@@ -7,11 +7,17 @@ import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { TabletContainer } from '@/components/TabletContainer'
 import { DictionarySearchBar } from '@/components/DictionarySearchBar'
+import { Icon } from '@/components/Icon'
 
 interface DictTermRow {
   term: string
   slug: string
-  senses: { definition: string; usage: string | null }[]
+  category: string
+  // null for a mnemonic entry when the viewer isn't Plus -- the _gated view
+  // redacts senses server-side (see gotcha_tier_gate_client_side_only.md).
+  // This unfiltered browse-by-letter list mixes every category, unlike
+  // dictionary/index.tsx's dedicated (already-safe) mnemonic list.
+  senses: { definition: string; usage: string | null }[] | null
 }
 
 export default function DictionaryLetterScreen() {
@@ -23,7 +29,7 @@ export default function DictionaryLetterScreen() {
 
   useEffect(() => {
     if (!letter) return
-    supabase.from('dictionary_terms').select('term, slug, senses').eq('letter', letter).order('term')
+    supabase.from('dictionary_terms_gated').select('term, slug, category, senses').eq('letter', letter).order('term')
       .then(({ data }) => {
         if (data) setTerms(data as DictTermRow[])
         setLoading(false)
@@ -55,10 +61,21 @@ export default function DictionaryLetterScreen() {
                 onPress={() => router.push(`/dictionary/${item.slug}` as any)}
               >
                 <Text style={[styles.term, { color: tokens.t1, fontSize: fs(14.5) }]}>{item.term}</Text>
-                <Text style={[styles.def, { color: tokens.t3, fontSize: fs(12.5) }]}>
-                  {item.senses[0]?.definition}
-                  {item.senses.length > 1 ? ` (+${item.senses.length - 1} more)` : ''}
-                </Text>
+                {/* senses is null for a mnemonic entry when not Plus -- the
+                    _gated view redacts it server-side. Same lock/gold
+                    "unlock with Plus" treatment as dictionary/index.tsx's
+                    Mnemonics card, sized for a dense list row. */}
+                {item.senses ? (
+                  <Text style={[styles.def, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                    {item.senses[0]?.definition}
+                    {item.senses.length > 1 ? ` (+${item.senses.length - 1} more)` : ''}
+                  </Text>
+                ) : (
+                  <View style={styles.lockedRow}>
+                    <Icon name="lock.fill" size={fs(11)} color={tokens.gold} />
+                    <Text style={[styles.def, { color: tokens.gold, fontSize: fs(12.5) }]}>Mnemonic — unlock with Plus</Text>
+                  </View>
+                )}
               </Pressable>
             )}
           />
@@ -78,4 +95,5 @@ const styles = StyleSheet.create({
   },
   term: { fontWeight: '600' },
   def: { lineHeight: 17 },
+  lockedRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
 })

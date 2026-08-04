@@ -1,6 +1,23 @@
 // RevenueCat webhook receiver — logs subscription lifecycle events for
-// analytics (subscription_events table). Does not gate any app feature;
-// entitlement checks at read time still go straight to RevenueCat.
+// analytics (subscription_events table), AND keeps user_entitlements (the
+// DB-backed tier-of-record behind every *_gated view/RPC — see
+// gotcha_tier_gate_client_side_only.md) current as a passive backstop for
+// changes that happen while the app isn't open: renewals, expirations,
+// billing issues, cancellations. sync-entitlements is the active path
+// (called right after purchase/restore and at session-init); this is what
+// covers everything in between.
+//
+// Deliberately does NOT try to interpret event.type / event.entitlement_ids
+// to decide what changed — RevenueCat's event taxonomy has too many shapes
+// (RENEWAL vs EXPIRATION vs BILLING_ISSUE vs PRODUCT_CHANGE vs TRANSFER all
+// describe "what happened" differently) to reliably derive current state
+// from. Instead the event is only ever used as a pointer ("re-check this
+// user"), then the current truth is re-fetched from RevenueCat's own
+// customer endpoint — identical approach and identical trust model to
+// sync-entitlements (never trust a claim, only a fresh authoritative
+// lookup). If that re-fetch fails, the event is still logged for analytics;
+// only the entitlements upsert is skipped, so a transient RC API hiccup
+// never breaks the original analytics-logging duty of this function.
 //
 // Configure in RevenueCat dashboard: Project Settings > Integrations > Webhooks
 //   URL: https://<project-ref>.supabase.co/functions/v1/revenuecat-webhook
@@ -9,6 +26,65 @@
 // No third-party imports — plain fetch to PostgREST, to avoid remote
 // module resolution at cold-start (esm.sh/jsr imports caused BOOT_ERROR
 // when deployed via the Management API's single-file deploy endpoint).
+
+// Same RevenueCat internal entitlement ids as sync-entitlements — see
+// revenuecat_v2_grant_entitlement.md. Not secrets; RC_SECRET_KEY is.
+const RC_PROJECT_ID = 'proj477ce0a7'
+const ENTITLEMENT_PRO = 'entl7a1e54b564'
+const ENTITLEMENT_PREMIUM = 'entl9a4cd81bee'
+const ENTITLEMENT_UNLOCKED = 'entla6876b7d15'
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+async function syncEntitlements(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  rcSecretKey: string,
+  userId: string
+) {
+  const rcRes = await fetch(
+    `https://api.revenuecat.com/v2/projects/${RC_PROJECT_ID}/customers/${userId}`,
+    { headers: { Authorization: `Bearer ${rcSecretKey}` } }
+  )
+
+  let isPro = false
+  let isPremium = false
+  let isUnlocked = false
+
+  if (rcRes.status === 200) {
+    const customer = await rcRes.json()
+    const activeIds = new Set(
+      (customer?.active_entitlements?.items ?? []).map((e: any) => e.entitlement_id)
+    )
+    isPro = activeIds.has(ENTITLEMENT_PRO)
+    isPremium = activeIds.has(ENTITLEMENT_PREMIUM)
+    isUnlocked = activeIds.has(ENTITLEMENT_UNLOCKED)
+  } else if (rcRes.status !== 404) {
+    console.error('webhook: RevenueCat re-fetch failed', rcRes.status, await rcRes.text())
+    return
+  }
+
+  const res = await fetch(`${supabaseUrl}/rest/v1/user_entitlements`, {
+    method: 'POST',
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify({
+      user_id: userId,
+      is_pro: isPro,
+      is_premium: isPremium,
+      is_unlocked: isUnlocked,
+      updated_at: new Date().toISOString(),
+    }),
+  })
+
+  if (!res.ok) {
+    console.error('webhook: user_entitlements upsert failed', res.status, await res.text())
+  }
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') {
@@ -69,6 +145,18 @@ Deno.serve(async (req: Request) => {
   if (!res.ok) {
     console.error('subscription_events insert failed', res.status, await res.text())
     return new Response('Internal error', { status: 500 })
+  }
+
+  // Backstop entitlements sync — best-effort, never fails the webhook.
+  // event.app_user_id is RC's own field, populated from the trusted webhook
+  // payload (authenticated above via RC_WEBHOOK_SECRET), not client input.
+  const rcSecretKey = Deno.env.get('RC_SECRET_KEY')
+  if (rcSecretKey && event.app_user_id && UUID_RE.test(event.app_user_id)) {
+    try {
+      await syncEntitlements(supabaseUrl, serviceRoleKey, rcSecretKey, event.app_user_id)
+    } catch (err) {
+      console.error('webhook: syncEntitlements threw', err)
+    }
   }
 
   return new Response('OK', { status: 200 })

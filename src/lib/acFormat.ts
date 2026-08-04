@@ -46,6 +46,17 @@ export function cleanGlyphs(s: string): string {
 // changes so a backfill can tell which rows need reprocessing.
 export const AC_FORMAT_VERSION = 34
 
+// Free-tier body preview: just enough to show how the app is organized, not
+// a real read of the content. Was a 20%-floored-at-3 formula (let short ACs
+// show 20-50% of the whole document), then an 8%-scaled, 2-5 range -- RC,
+// 2026-08-03: "free tier can preview 2 sections of an AC, not 5." Flat 2
+// now, no scaling with document length. Shared by every screen that renders
+// an AC's pdf_blocks (ac/[id].tsx, notes.tsx's AC pane) so the free-preview
+// depth can't drift between them.
+export function previewBlockCount(_totalBlocks: number): number {
+  return 2
+}
+
 // Comparable text for a block, regardless of kind — content-based identity used
 // both server-side (scripts/backfill-blocks.mjs's diff computation, which keeps
 // its own copy of this exact logic since it runs outside the RN bundler) and

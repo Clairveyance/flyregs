@@ -30,7 +30,7 @@ import { Icon } from '@/components/Icon'
 import { ACBody } from '@/components/ACBody'
 import { FigureViewer } from '@/components/FigureViewer'
 import { FormulaRefViewer } from '@/components/FormulaRefViewer'
-import { ACBlock } from '@/lib/acFormat'
+import { ACBlock, previewBlockCount } from '@/lib/acFormat'
 import { supabase } from '@/lib/supabase'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
@@ -68,7 +68,11 @@ interface ACPreview {
   description: string | null
   date_issued: string | null
   office: string | null
+  // Truncated to a free-preview slice for non-Plus tiers server-side -- see
+  // gotcha_tier_gate_client_side_only.md. pdf_blocks_total_count is the
+  // TRUE count, unaffected by that truncation.
   pdf_blocks: ACBlock[] | null
+  pdf_blocks_total_count: number
   cancels: string[]
   changed_block_indices: number[] | null
 }
@@ -711,9 +715,14 @@ function NoteEditor({
     setPaneLoading(true)
     snapTo(REST)
 
+    // _gated view returns only the free-preview slice of pdf_blocks for
+    // non-Plus tiers server-side -- see gotcha_tier_gate_client_side_only.md.
+    // Previously fetched the raw table with no tier check at all: this pane
+    // rendered a referenced AC's ENTIRE text under a "FULL TEXT" label to
+    // every tier, unlike ac/[id].tsx's own already-correct preview limit.
     supabase
-      .from('advisory_circulars')
-      .select('id,document_number,title,description,date_issued,office,pdf_blocks,cancels,changed_block_indices')
+      .from('advisory_circulars_gated')
+      .select('id,document_number,title,description,date_issued,office,pdf_blocks,pdf_blocks_total_count,cancels,changed_block_indices')
       .ilike('document_number', `${acNum}%`)
       .order('document_number', { ascending: false })
       .limit(1)
@@ -1005,15 +1014,29 @@ function NoteEditor({
 
                 {paneData.pdf_blocks && paneData.pdf_blocks.length > 0 ? (
                   <>
-                    <Text style={[styles.paneFullLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>FULL TEXT</Text>
+                    {/* Label matches what's actually shown -- pdf_blocks is
+                        already truncated to the free preview for non-Plus,
+                        same as ac/[id].tsx's own "FULL TEXT" vs preview
+                        distinction. */}
+                    <Text style={[styles.paneFullLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>
+                      {hasPlusAccess ? 'FULL TEXT' : 'PREVIEW'}
+                    </Text>
                     <ACBody
                       blocks={paneData.pdf_blocks}
+                      bodyLimit={hasPlusAccess ? undefined : previewBlockCount(paneData.pdf_blocks_total_count)}
                       scrollRef={paneScrollRef}
                       figures={hasPlusAccess ? (paneFigures ?? undefined) : undefined}
                       formulaRefs={hasPlusAccess ? (paneFormulaRefs ?? undefined) : undefined}
                       onOpenFigure={hasPlusAccess ? setViewerFigure : undefined}
                       onOpenFormulaRef={hasPlusAccess ? setViewerFormulaRef : undefined}
                     />
+                    {!hasPlusAccess && paneData.pdf_blocks_total_count > previewBlockCount(paneData.pdf_blocks_total_count) && (
+                      <Pressable onPress={() => { closeAcPane(); router.push('/paywall') }}>
+                        <Text style={[styles.paneOpenText, { color: tokens.gold, fontSize: fs(12.5) }]}>
+                          Unlock the rest with Plus →
+                        </Text>
+                      </Pressable>
+                    )}
                   </>
                 ) : (
                   <Text style={[styles.paneDrag, { color: tokens.t4, fontSize: fs(11) }]}>

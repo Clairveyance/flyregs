@@ -113,8 +113,10 @@ export default function LoiDetailScreen() {
     if (!slug) return
     setLoading(true)
     Promise.all([
+      // _gated view redacts body_text server-side for non-Pro tiers -- see
+      // gotcha_tier_gate_client_side_only.md.
       supabase
-        .from('legal_interpretations')
+        .from('legal_interpretations_gated')
         .select('slug, title, addressee, year, issued_date, source_url, pdf_url_cached, cfr_part_reference, cfr_section_reference, summary, body_text')
         .eq('slug', slug)
         .single(),
@@ -371,18 +373,32 @@ export default function LoiDetailScreen() {
             />
           </View>
 
-          {body && hasProAccess ? (
-            <PlainTextBody
-              ref={bodyRef}
-              text={body}
-              currentLabel={currentLabel}
-              highlightQuery={inDocSearch.debounced}
-              activeMatch={inDocSearch.matchIdx}
-              onMatchCount={inDocSearch.setMatchCount}
-              scrollRef={scrollRef}
-              viewportHeight={scrollViewportHeight}
-            />
-          ) : body && !hasProAccess ? (
+          {/* Branch on hasProAccess FIRST, not on body's truthiness -- same
+              reasoning and same fix as ad/[id].tsx's identical bug: body_text
+              is redacted server-side for non-Pro tiers now (see
+              gotcha_tier_gate_client_side_only.md), so body is ALWAYS falsy
+              for a genuine non-Pro viewer post-fix. The old
+              `body && hasProAccess` / `body && !hasProAccess` pair required
+              body to be truthy for EITHER branch to fire, permanently
+              hiding the pay-gate (every real LOI has body_text at the
+              raw-table level -- confirmed 0/1055 null) behind the generic
+              "No text available" fallback instead. */}
+          {hasProAccess ? (
+            body ? (
+              <PlainTextBody
+                ref={bodyRef}
+                text={body}
+                currentLabel={currentLabel}
+                highlightQuery={inDocSearch.debounced}
+                activeMatch={inDocSearch.matchIdx}
+                onMatchCount={inDocSearch.setMatchCount}
+                scrollRef={scrollRef}
+                viewportHeight={scrollViewportHeight}
+              />
+            ) : (
+              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No text available for this interpretation.</Text>
+            )
+          ) : (
             // No partial preview -- same call as AD's, and for the same
             // reason: RC's "LOIs are a Pro feature" is the same flat,
             // no-preview-length-specified framing as AD's "not a Free
@@ -406,8 +422,6 @@ export default function LoiDetailScreen() {
                 <Text style={[styles.proGateBtnText, { fontSize: fs(15) }]}>Unlock Pro</Text>
               </View>
             </Pressable>
-          ) : (
-            <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No text available for this interpretation.</Text>
           )}
         </ScrollView>
         </TabletContainer>

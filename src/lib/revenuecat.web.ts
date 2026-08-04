@@ -43,6 +43,12 @@ function currentTier(): DevTier {
 
 export function initRevenueCat(_userId?: string) { /* no-op */ }
 
+// No real RevenueCat customer on web (see currentTier's ?tier= override
+// above) -- calling the real Edge Function here would overwrite
+// user_entitlements with this account's TRUE server-side state, silently
+// fighting the whole point of the dev-tier override.
+export async function syncEntitlements() { /* no-op */ }
+
 export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
   // Mirrors the real entitlement hierarchy: the premium products grant BOTH
   // the `pro` and `premium` entitlements in RevenueCat (verified against the

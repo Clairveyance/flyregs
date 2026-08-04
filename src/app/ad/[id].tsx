@@ -154,8 +154,11 @@ export default function AdScreen() {
     if (!id) return
     setLoading(true)
     Promise.all([
+      // _gated view redacts body_text server-side for non-Plus tiers — see
+      // gotcha_tier_gate_client_side_only.md. Every other column passes
+      // through unchanged.
       supabase
-        .from('airworthiness_directives')
+        .from('airworthiness_directives_gated')
         .select(
           'ad_number, document_number, subject_heading, subject, make, model, product_type, product_subtype, status, effective_date, docket_number, amendment_number, superseded_ad, affected_ad, superseded_by, affected_by, summary, applicability, unsafe_condition, body_text, pdf_url',
         )
@@ -548,25 +551,41 @@ export default function AdScreen() {
             />
           </View>
 
-          {body && hasPlusAccess ? (
-            <PlainTextBody
-              ref={bodyRef}
-              text={body}
-              // Always exactly one synthetic entry (never one per real
-              // page) when any figures exist -- see crossRefLinks.ts's own
-              // comment on why: it makes PlainTextBody's normal
-              // figures.length===1 fallback always resolve a tap on
-              // "Table N to Paragraph X" cleanly, without needing an exact
-              // per-mention label match AD doesn't have.
-              figures={figures.length > 0 ? [{ id: figures[0].id, label: '', caption: null, image_url: figures[0].image_url }] : undefined}
-              onOpenFigure={() => figures[0] && setViewerFigure({ id: figures[0].id, label: `Page 1 of ${figures.length}`, caption: null, page: figures[0].page_index, image_url: figures[0].image_url })}
-              highlightQuery={inDocSearch.debounced}
-              activeMatch={inDocSearch.matchIdx}
-              onMatchCount={inDocSearch.setMatchCount}
-              scrollRef={scrollRef}
-              viewportHeight={scrollViewportHeight}
-            />
-          ) : body && !hasPlusAccess ? (
+          {/* Branch on hasPlusAccess FIRST, not on body's truthiness --
+              body_text is redacted server-side for non-Plus tiers now (see
+              gotcha_tier_gate_client_side_only.md), so body is ALWAYS
+              falsy for a genuine free-tier viewer post-fix. The old
+              `body && hasPlusAccess` / `body && !hasPlusAccess` pair
+              required body to be truthy for EITHER branch to fire, which
+              made the pay-gate branch permanently unreachable (every real
+              AD has body_text at the raw-table level -- confirmed 0/5023
+              null -- so this isn't a rare edge case, it was the main path)
+              and silently downgraded every free-tier AD view to the
+              generic "No further text available" message instead of the
+              intended paywall CTA. */}
+          {hasPlusAccess ? (
+            body ? (
+              <PlainTextBody
+                ref={bodyRef}
+                text={body}
+                // Always exactly one synthetic entry (never one per real
+                // page) when any figures exist -- see crossRefLinks.ts's own
+                // comment on why: it makes PlainTextBody's normal
+                // figures.length===1 fallback always resolve a tap on
+                // "Table N to Paragraph X" cleanly, without needing an exact
+                // per-mention label match AD doesn't have.
+                figures={figures.length > 0 ? [{ id: figures[0].id, label: '', caption: null, image_url: figures[0].image_url }] : undefined}
+                onOpenFigure={() => figures[0] && setViewerFigure({ id: figures[0].id, label: `Page 1 of ${figures.length}`, caption: null, page: figures[0].page_index, image_url: figures[0].image_url })}
+                highlightQuery={inDocSearch.debounced}
+                activeMatch={inDocSearch.matchIdx}
+                onMatchCount={inDocSearch.setMatchCount}
+                scrollRef={scrollRef}
+                viewportHeight={scrollViewportHeight}
+              />
+            ) : (
+              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No further text available for this AD.</Text>
+            )
+          ) : (
             // RC, 2026-08-03: "ADs shouldn't come alive until Plus. ADs are
             // not a Free tier, they're mainly for O&Os anyway." A firmer cut
             // than AC's (which still shows a 2-section preview): the AD
@@ -587,8 +606,6 @@ export default function AdScreen() {
                 <Text style={[styles.proGateBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
               </View>
             </Pressable>
-          ) : (
-            <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No further text available for this AD.</Text>
           )}
         </ScrollView>
         </TabletContainer>

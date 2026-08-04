@@ -18,6 +18,12 @@ export interface AdvisoryCircular {
   // Indices into pdf_blocks that changed in the most recent revision (null if
   // no diff is available yet — see migrations/add_changed_block_indices.sql)
   changed_block_indices: number[] | null
+  // True total block count, from advisory_circulars_gated -- pdf_blocks
+  // itself is truncated to the free-preview slice for non-Plus tiers, so
+  // pdf_blocks.length alone can't tell "there's more" from "that's everything".
+  // Optional because plain .from('advisory_circulars') fetches (no tier
+  // concern, e.g. internal staleness checks) don't select it.
+  pdf_blocks_total_count?: number
   // Client-side join only — not a DB column
   related_lois?: LetterOfInterpretation[]
 }

@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { initRevenueCat, getSubscriptionStatus, logOutRevenueCat } from '@/lib/revenuecat'
+import { initRevenueCat, getSubscriptionStatus, logOutRevenueCat, syncEntitlements } from '@/lib/revenuecat'
 import { applyRemoteSyncPreference, claimLocalDataForSignedOutUser } from '@/lib/sync'
 import { getDeviceId } from '@/lib/deviceId'
 import type { AvatarOverride } from '@/lib/avatar'
@@ -76,6 +76,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsPro(status.isPro)
         setIsPremium(status.isPremium)
         setIsUnlocked(status.isUnlocked)
+        // Self-healing catch-up for user_entitlements (the DB-backed
+        // tier-of-record behind every *_gated view/RPC -- see
+        // gotcha_tier_gate_client_side_only.md), in case revenuecat-webhook
+        // ever missed an event while the app was closed. Once per real
+        // session-init only (not on every onAuthStateChange firing below --
+        // that fires on token refreshes too, which don't need a re-sync).
+        syncEntitlements()
         // The sync on/off preference lives on the account (user_metadata),
         // not just this device — reconcile so a device that's never toggled
         // it manually still picks up the same state (and pulls the account's

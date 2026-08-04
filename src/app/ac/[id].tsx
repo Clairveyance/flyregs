@@ -30,7 +30,7 @@ import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHig
 import { getDownloads, isDownloaded, addDownload, removeDownload } from '@/lib/downloads'
 import { getCachedImageUri } from '@/lib/imageCache'
 import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
-import { blockText, ACBlock } from '@/lib/acFormat'
+import { blockText, previewBlockCount, ACBlock } from '@/lib/acFormat'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
@@ -60,15 +60,6 @@ function highlightMeta(b: ACBlock): { kind: 'section' | 'item' | 'para'; label: 
     default:
       return null
   }
-}
-
-// Free-tier body preview: just enough to show how the app is organized, not
-// a real read of the content. Was a 20%-floored-at-3 formula (let short ACs
-// show 20-50% of the whole document), then an 8%-scaled, 2-5 range -- RC,
-// 2026-08-03: "free tier can preview 2 sections of an AC, not 5." Flat 2
-// now, no scaling with document length.
-function previewBlockCount(_totalBlocks: number): number {
-  return 2
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -275,9 +266,14 @@ export default function ACDetailScreen() {
   useEffect(() => {
     setFigures(null)
     setFormulaRefs(null)
+    // _gated view returns only the free-preview slice of pdf_blocks for
+    // non-Plus tiers server-side -- see gotcha_tier_gate_client_side_only.md.
+    // pdf_blocks_total_count is the TRUE count (unaffected by the preview
+    // truncation) -- needed below so the "Continue reading with Plus" gate
+    // can still tell "there's more" from "that's everything".
     supabase
-      .from('advisory_circulars')
-      .select('id,document_number,title,date_issued,office,subject_series,description,pdf_blocks,pdf_url_cached,pdf_url_faa,change_number,status,cancels,document_id,updated_at,changed_block_indices')
+      .from('advisory_circulars_gated')
+      .select('id,document_number,title,date_issued,office,subject_series,description,pdf_blocks,pdf_blocks_total_count,pdf_url_cached,pdf_url_faa,change_number,status,cancels,document_id,updated_at,changed_block_indices')
       .eq('id', id)
       .single()
       .then(async ({ data, error }) => {
@@ -1086,7 +1082,7 @@ export default function ACDetailScreen() {
               <ACBody
                 ref={acBodyRef}
                 blocks={ac.pdf_blocks}
-                bodyLimit={hasPlusAccess ? undefined : previewBlockCount(ac.pdf_blocks.length)}
+                bodyLimit={hasPlusAccess ? undefined : previewBlockCount(ac.pdf_blocks_total_count ?? ac.pdf_blocks.length)}
                 scrollRef={scrollRef}
                 viewportHeight={scrollViewportHeight}
                 outerOffsetYRef={fullTextSectionYRef}
@@ -1102,7 +1098,7 @@ export default function ACDetailScreen() {
                 onOpenFormulaRef={hasPlusAccess ? setViewerFormulaRef : undefined}
                 currentLabel={`AC ${ac.document_number}`}
               />
-              {!hasPlusAccess && ac.pdf_blocks.length > previewBlockCount(ac.pdf_blocks.length) && (
+              {!hasPlusAccess && (ac.pdf_blocks_total_count ?? ac.pdf_blocks.length) > previewBlockCount(ac.pdf_blocks_total_count ?? ac.pdf_blocks.length) && (
                 <Pressable
                   style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
                   onPress={() => router.push('/paywall')}

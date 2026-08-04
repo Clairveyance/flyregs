@@ -1,5 +1,6 @@
 import Purchases, { LOG_LEVEL, PurchasesPackage, CustomerInfo } from 'react-native-purchases'
 import { Platform } from 'react-native'
+import { supabase } from '@/lib/supabase'
 
 export const ENTITLEMENT_PRO = 'pro'
 export const ENTITLEMENT_PREMIUM = 'premium'
@@ -98,6 +99,24 @@ export async function getSubscriptionDetails(): Promise<SubscriptionDetails> {
   }
 }
 
+// Pushes the DB-backed tier-of-record (user_entitlements, behind every
+// *_gated view/RPC -- see gotcha_tier_gate_client_side_only.md) up to date
+// right away, rather than waiting for revenuecat-webhook's passive backstop
+// to eventually catch the same change. Best-effort and silent on failure:
+// the purchase/restore itself already succeeded via RevenueCat's own SDK by
+// the time this runs, so a failed sync here just means the gate lifts a
+// little later (via the webhook) instead of immediately -- never worth
+// surfacing an error for, let alone rolling back a real purchase over.
+// Exported so auth.tsx can also call it once at session-init, self-healing
+// the rare case a webhook was ever missed while the app was closed.
+export async function syncEntitlements() {
+  try {
+    await supabase.functions.invoke('sync-entitlements', { method: 'POST' })
+  } catch (err) {
+    console.warn('[RevenueCat] sync-entitlements failed (webhook will catch up)', err)
+  }
+}
+
 export async function purchaseSubscription(
   tier: SubscriptionTier,
   plan: SubscriptionPlan
@@ -115,6 +134,7 @@ export async function purchaseSubscription(
   if (!pkg) throw new Error(`Package not found: ${productId}`)
 
   const { customerInfo } = await Purchases.purchasePackage(pkg)
+  await syncEntitlements()
   return statusFromCustomerInfo(customerInfo)
 }
 
@@ -131,6 +151,7 @@ export async function purchaseUnlock(): Promise<SubscriptionStatus> {
   if (!pkg) throw new Error(`Package not found: ${PRODUCT_IDS.unlock}`)
 
   const { customerInfo } = await Purchases.purchasePackage(pkg)
+  await syncEntitlements()
   return statusFromCustomerInfo(customerInfo)
 }
 
@@ -153,6 +174,7 @@ export async function logOutRevenueCat() {
 export async function restorePurchases(): Promise<SubscriptionStatus> {
   try {
     const customerInfo = await Purchases.restorePurchases()
+    await syncEntitlements()
     return statusFromCustomerInfo(customerInfo)
   } catch {
     return { isPro: false, isPremium: false, isUnlocked: false }

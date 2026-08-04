@@ -182,7 +182,11 @@ export async function getRegOfTheDay(): Promise<RegOfTheDay | null> {
 export interface WordOfTheDay {
   slug: string
   term: string
-  definition: string
+  // null for non-Plus viewers -- get_word_of_the_day() redacts it server-side
+  // now (see gotcha_tier_gate_client_side_only.md). DailyWordCard already
+  // shows its own locked-teaser UI when !hasPlusAccess, so this should never
+  // actually render null in practice, but the type has to admit reality.
+  definition: string | null
 }
 
 // Mirrors getRegOfTheDay()'s pattern (own get_word_of_the_day() rotation
