@@ -8,6 +8,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
+import { SwipeToDelete } from '@/components/SwipeToDelete'
 import { supabase } from '@/lib/supabase'
 import {
   searchParts, getAircraftEquipment, addAircraftEquipment, removeAircraftEquipment,
@@ -222,14 +223,6 @@ export default function AircraftDetailScreen() {
     () => adNotifications.filter((n) => withinAdRange(n.citationPublishDate, adRange)),
     [adNotifications, adRange]
   )
-  // Scoped to visibleAdNotifications, not the full adNotifications -- RC,
-  // live, pointing at the section count and unread badge staying fixed at
-  // 4/3 while switching the range pill dropped the visible list to 2:
-  // "what are these two numbers doing? they don't change when i change the
-  // displayed years timeline." Both should describe what's actually on
-  // screen right now, not the unfiltered total.
-  const unreadAdCount = useMemo(() => visibleAdNotifications.filter((n) => !n.readAt).length, [visibleAdNotifications])
-
   const handleOpenAd = (n: AircraftAdNotification) => {
     if (!n.readAt) {
       // Optimistic -- the whole point of the unread dot is that it clears
@@ -286,14 +279,36 @@ export default function AircraftDetailScreen() {
     )
   }
 
-  const handleRemoveEquipment = async (equipId: string) => {
-    await removeAircraftEquipment(equipId)
-    setEquipment((prev) => prev.filter((e) => e.id !== equipId))
+  // RC: swipe-to-delete "with two step CTA popup verification explaining
+  // what will be deleted" -- neither of these had any confirm at all
+  // before (a direct trash tap deleted immediately), which is a bigger
+  // gap once the action is swipe-triggered, not a deliberate tap.
+  const handleRemoveEquipment = (e: AircraftEquipment) => {
+    Alert.alert(`Remove ${e.part.name}?`, 'This untags the part from this aircraft -- AD alerts matched only by this equipment will stop appearing.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          await removeAircraftEquipment(e.id)
+          setEquipment((prev) => prev.filter((x) => x.id !== e.id))
+        },
+      },
+    ])
   }
 
-  const handleRemoveReminder = async (remId: string) => {
-    await removeAircraftReminder(remId)
-    setReminders((prev) => prev.filter((r) => r.id !== remId))
+  const handleRemoveReminder = (r: AircraftReminder) => {
+    Alert.alert(`Delete "${r.title}"?`, 'This reminder will be permanently removed.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          await removeAircraftReminder(r.id)
+          setReminders((prev) => prev.filter((x) => x.id !== r.id))
+        },
+      },
+    ])
   }
 
   const openAddEquipment = () => {
@@ -357,7 +372,7 @@ export default function AircraftDetailScreen() {
           </View>
           {aircraft.nickname && <Text style={[styles.acSub, { color: tokens.t3, fontSize: fs(13) }]}>{aircraft.nickname}</Text>}
           {aircraft.type_designator && (
-            <Text style={[styles.acSub, { color: tokens.t3, fontSize: fs(12) }]}>Type {aircraft.type_designator} — used to match AD filings</Text>
+            <Text style={[styles.acSub, { color: tokens.t3, fontSize: fs(12) }]}>Type {aircraft.type_designator}</Text>
           )}
           {!isOwner && (
             <Pressable onPress={handleLeave} hitSlop={8} style={{ alignSelf: 'flex-start', marginTop: 2, marginBottom: 4 }}>
@@ -400,7 +415,7 @@ export default function AircraftDetailScreen() {
 
           <View style={styles.disclaimerCard}>
             <Text style={[styles.disclaimerText, { color: tokens.t3, fontSize: fs(11.5) }]}>
-              Equipment & reminders are self-reported
+              Self-reported
             </Text>
             <InfoPopup
               id="my-aircraft-equipment-disclaimer"
@@ -424,21 +439,25 @@ export default function AircraftDetailScreen() {
             <Pressable style={styles.sectionTitleRow} onPress={() => setAdsCollapsed((v) => !v)} hitSlop={6}>
               <Icon name={adsCollapsed ? 'chevron.right' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
               <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>APPLICABLE ADs</Text>
-              {/* RC, real device: "i'm still not sure what each of these
-                  numbers is referencing or doing." Two adjacent bare
-                  numbers (total, then unread) with no label read as one
-                  ambiguous pair -- spelling out what each one counts, and
-                  sizing both up, per RC's ask. */}
+              {/* RC: "just list the total w/ a number. '4' is fine. don't
+                  need 'new' that is seen w/ the blue dots" -- the separate
+                  unread pill was redundant with the per-row unread dots,
+                  and two adjacent numbers read as clutter on a phone.
+                  Bigger per RC's separate "make count numbers bigger" ask. */}
               {visibleAdNotifications.length > 0 && (
-                <Text style={[styles.sectionCount, { color: tokens.t4, fontSize: fs(13) }]}>
-                  {visibleAdNotifications.length} total
+                <Text style={[styles.sectionCountBig, { color: tokens.t4, fontSize: fs(16) }]}>
+                  {visibleAdNotifications.length}
                 </Text>
               )}
-              {unreadAdCount > 0 && (
-                <View style={[styles.unreadCountBadge, { backgroundColor: tokens.blu }]}>
-                  <Text style={[styles.unreadCountText, { fontSize: fs(12) }]}>{unreadAdCount} new</Text>
-                </View>
-              )}
+              {/* RC: "applicable info icon is in weird place" -- moved here
+                  from its own separate row (see widenSearchRow below),
+                  right next to the count it's actually clarifying. */}
+              <InfoPopup
+                id="my-aircraft-ad-search-scope"
+                title="Applicable ADs"
+                body="Only shows ADs that specifically name this model or type — an unusually worded AD could be missed."
+                iconSize={fs(14)}
+              />
             </Pressable>
             {/* Owner-only: editors_manage_shared_ad_notifications only
                 grants UPDATE, not INSERT, so an editor tapping this would
@@ -461,27 +480,16 @@ export default function AircraftDetailScreen() {
                   with unusual wording could be missed. Links to the full
                   AD search pre-filled on this aircraft's make so a user
                   who wants to double-check can do it in one tap, not a
-                  cold search. */}
-              {/* RC, real device: "what's happening here? theres an info
-                  icon, but it doesnt do anything. does this text block
-                  collapse?" -- the whole card used to be one Pressable, so
-                  the info icon looked inert (tapping it just silently
-                  navigated away) instead of opening something. Split into a
-                  real tap-to-reveal icon for the caveat and a separately
-                  visible, unambiguous link for the actual navigation. */}
-              <View style={styles.widenSearchCard}>
-                <InfoPopup
-                  id="my-aircraft-ad-search-scope"
-                  title="Applicable ADs"
-                  body="Only shows ADs that specifically name this model or type — an unusually worded AD could be missed."
-                  iconSize={fs(15)}
-                />
-                <Pressable onPress={() => router.push(`/ad?q=${encodeURIComponent(aircraft.make)}` as any)}>
-                  <Text style={[styles.widenSearchText, { color: tokens.blu, fontWeight: '600', fontSize: fs(12.5) }]}>
-                    Browse all {aircraft.make} ADs →
-                  </Text>
-                </Pressable>
-              </View>
+                  cold search.
+                  RC: "'browse all' is packed in there, needs space or
+                  move it" -- now its own row with real padding, not
+                  crammed alongside the info icon (which moved into the
+                  section header above). */}
+              <Pressable style={styles.widenSearchRow} onPress={() => router.push(`/ad?q=${encodeURIComponent(aircraft.make)}` as any)}>
+                <Text style={[styles.widenSearchText, { color: tokens.blu, fontWeight: '600', fontSize: fs(12.5) }]}>
+                  Browse all {aircraft.make} ADs →
+                </Text>
+              </Pressable>
               {adNotifications.length > 3 && (
                 <View style={styles.rangeRow}>
                   {(Object.keys(AD_RANGE_LABELS) as AdRangeFilter[]).map((r) => (
@@ -512,29 +520,35 @@ export default function AircraftDetailScreen() {
                 </Text>
               ) : (
                 <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                  {/* RC: "get rid of all trash cans... in favor of swipe to
+                      delete" + "don't need chevron since there's no
+                      dropdown. just tap the bar to enter." handleDismissAd
+                      already pops its own 2-step confirm Alert (unchanged
+                      below), so the swipe reveal just needs to call it. */}
                   {visibleAdNotifications.map((n, i) => (
-                    <Pressable
+                    <View
                       key={n.id}
-                      style={[styles.row, i < visibleAdNotifications.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
-                      onPress={() => handleOpenAd(n)}
+                      style={i < visibleAdNotifications.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}
                     >
-                      {!n.readAt && <View style={[styles.unreadDot, { backgroundColor: tokens.blu }]} />}
-                      <Icon name={n.matchedVia === 'equipment' ? 'wrench' : 'airplane'} size={fs(15)} color={tokens.t3} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.rowTitle, { color: tokens.blu, fontSize: fs(14) }]}>AD {n.adNumber}</Text>
-                        <Text style={[styles.rowSub, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={2}>{n.subjectHeading}</Text>
-                        <Text style={[styles.rowSub, { color: tokens.t4, fontSize: fs(11) }]}>
-                          {n.matchedVia === 'equipment' ? 'Matched by tagged equipment' : 'Matched by airframe'}
-                          {n.citationPublishDate ? ` · ${n.citationPublishDate}` : ''}
-                        </Text>
-                      </View>
-                      {canEdit && (
-                        <Pressable onPress={() => handleDismissAd(n)} hitSlop={10}>
-                          <Icon name="trash" size={fs(16)} color={tokens.t3} />
-                        </Pressable>
-                      )}
-                      <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
-                    </Pressable>
+                      <SwipeToDelete
+                        onDelete={() => handleDismissAd(n)}
+                        onPress={() => handleOpenAd(n)}
+                        disabled={!canEdit}
+                      >
+                        <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
+                          {!n.readAt && <View style={[styles.unreadDot, { backgroundColor: tokens.blu }]} />}
+                          <Icon name={n.matchedVia === 'equipment' ? 'wrench' : 'airplane'} size={fs(15)} color={tokens.t3} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.rowTitle, { color: tokens.blu, fontSize: fs(14) }]}>AD {n.adNumber}</Text>
+                            <Text style={[styles.rowSub, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={2}>{n.subjectHeading}</Text>
+                            <Text style={[styles.rowSub, { color: tokens.t4, fontSize: fs(11) }]}>
+                              {n.matchedVia === 'equipment' ? 'Equip Match' : 'Airframe Match'}
+                              {n.citationPublishDate ? ` · ${n.citationPublishDate}` : ''}
+                            </Text>
+                          </View>
+                        </View>
+                      </SwipeToDelete>
+                    </View>
                   ))}
                 </View>
               )}
@@ -546,7 +560,7 @@ export default function AircraftDetailScreen() {
               <Icon name={equipmentCollapsed ? 'chevron.right' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
               <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>EQUIPMENT</Text>
               {equipment.length > 0 && (
-                <Text style={[styles.sectionCount, { color: tokens.t4, fontSize: fs(11) }]}>{equipment.length}</Text>
+                <Text style={[styles.sectionCountBig, { color: tokens.t4, fontSize: fs(16) }]}>{equipment.length}</Text>
               )}
             </Pressable>
             {canEdit && (
@@ -564,17 +578,16 @@ export default function AircraftDetailScreen() {
             ) : (
               <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                 {equipment.map((e, i) => (
-                  <View key={e.id} style={[styles.row, i < equipment.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}>
-                    <Icon name="wrench" size={fs(15)} color={tokens.blu} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{e.part.name}</Text>
-                      {e.part.manufacturer && <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]}>{e.part.manufacturer}</Text>}
-                    </View>
-                    {canEdit && (
-                      <Pressable onPress={() => handleRemoveEquipment(e.id)} hitSlop={10}>
-                        <Icon name="trash" size={fs(16)} color={tokens.t3} />
-                      </Pressable>
-                    )}
+                  <View key={e.id} style={i < equipment.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}>
+                    <SwipeToDelete onDelete={() => handleRemoveEquipment(e)} disabled={!canEdit}>
+                      <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
+                        <Icon name="wrench" size={fs(15)} color={tokens.blu} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{e.part.name}</Text>
+                          {e.part.manufacturer && <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]}>{e.part.manufacturer}</Text>}
+                        </View>
+                      </View>
+                    </SwipeToDelete>
                   </View>
                 ))}
               </View>
@@ -586,7 +599,7 @@ export default function AircraftDetailScreen() {
               <Icon name={remindersCollapsed ? 'chevron.right' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
               <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>REMINDERS</Text>
               {reminders.length > 0 && (
-                <Text style={[styles.sectionCount, { color: tokens.t4, fontSize: fs(11) }]}>{reminders.length}</Text>
+                <Text style={[styles.sectionCountBig, { color: tokens.t4, fontSize: fs(16) }]}>{reminders.length}</Text>
               )}
             </Pressable>
             {canEdit && (
@@ -608,25 +621,24 @@ export default function AircraftDetailScreen() {
                   const overdue = days < 0
                   const soon = days >= 0 && days <= 30
                   return (
-                    <Pressable
-                      key={r.id}
-                      style={[styles.row, i < reminders.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
-                      onPress={canEdit ? () => openEditReminder(r) : undefined}
-                    >
-                      <Icon name="hourglass" size={fs(15)} color={overdue ? tokens.amb : soon ? tokens.gold : tokens.t3} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{r.title}</Text>
-                        <Text style={[styles.rowSub, { color: overdue ? tokens.amb : tokens.t3, fontSize: fs(12) }]}>
-                          {overdue ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due today' : `Due in ${days}d`} · {r.dueDate}
-                          {r.linkedAdNumber ? ` · AD ${r.linkedAdNumber}` : ''}
-                        </Text>
-                      </View>
-                      {canEdit && (
-                        <Pressable onPress={() => handleRemoveReminder(r.id)} hitSlop={10}>
-                          <Icon name="trash" size={fs(16)} color={tokens.t3} />
-                        </Pressable>
-                      )}
-                    </Pressable>
+                    <View key={r.id} style={i < reminders.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}>
+                      <SwipeToDelete
+                        onDelete={() => handleRemoveReminder(r)}
+                        onPress={canEdit ? () => openEditReminder(r) : undefined}
+                        disabled={!canEdit}
+                      >
+                        <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
+                          <Icon name="hourglass" size={fs(15)} color={overdue ? tokens.amb : soon ? tokens.gold : tokens.t3} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{r.title}</Text>
+                            <Text style={[styles.rowSub, { color: overdue ? tokens.amb : tokens.t3, fontSize: fs(12) }]}>
+                              {overdue ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due today' : `Due in ${days}d`} · {r.dueDate}
+                              {r.linkedAdNumber ? ` · AD ${r.linkedAdNumber}` : ''}
+                            </Text>
+                          </View>
+                        </View>
+                      </SwipeToDelete>
+                    </View>
                   )
                 })}
               </View>
@@ -1102,13 +1114,9 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, marginBottom: 8 },
   sectionTitleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   groupLabel: { fontWeight: '600', letterSpacing: 0.5 },
-  sectionCount: { fontWeight: '600' },
+  sectionCountBig: { fontWeight: '700' },
   emptyHint: { lineHeight: 18, marginBottom: 4 },
-  unreadCountBadge: { minHeight: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
-  unreadCountText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  widenSearchCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10,
-  },
+  widenSearchRow: { paddingVertical: 8, marginBottom: 6 },
   widenSearchText: { lineHeight: 16 },
   rangeRow: { flexDirection: 'row', gap: 6, marginBottom: 10 },
   rangePill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1 },
