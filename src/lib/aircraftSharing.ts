@@ -3,41 +3,57 @@ import { supabase } from '@/lib/supabase'
 // Fleet aircraft sharing -- viewer/editor collaborators. Mirrors
 // sharedFolders.ts's shape closely, but folders are read-only by design,
 // so this adds the role concept folders never needed (RC: "you'll need to
-// build in the 'editor' side of the perms"). v1 uses a short manually-
-// entered code rather than folders' flyregs.com/join/{token} website
-// landing page -- see migrations_aircraft_sharing.sql's own header for why.
+// build in the 'editor' side of the perms").
+//
+// RC, after seeing the manual-code v1: "why do we need that. an invite
+// should be sent via a text link to join (just like folder). receiver
+// taps text icon, CTA pops up, they click Join and that a/c is
+// automatically added to their Fleet profile... that's it." Checked
+// folders' own mechanism before rebuilding this (sharedFolders.ts +
+// join/[token].tsx + the website's /join/{token} page) -- it's a
+// flyregs.com/join/{token} link with a custom-scheme handoff, and
+// app.json already whitelists /join/* as both a custom-scheme AND a real
+// Universal Link intent filter, so this needed neither a new website page
+// nor a new native build -- join/[token].tsx (the SAME route folders
+// already use) now just tries joinSharedFolder first, then
+// joinSharedAircraft, dispatching on whichever the token actually
+// matches. share_code/share_code_role are unchanged as columns; they now
+// hold a real 24-char token (same generator as folders' makeShareToken)
+// instead of an 8-char human-typed code, so there's no manual entry left
+// anywhere in the UI, same as folders.
 
 export type CollaboratorRole = 'viewer' | 'editor'
 
-function makeShareCode(): string {
-  // 8 unambiguous uppercase chars (no 0/O/1/I) -- short enough to read
-  // aloud or retype from a text message, same reasoning as most consumer
-  // app invite codes.
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  return Array.from({ length: 8 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('')
+function makeShareToken(): string {
+  return Array.from({ length: 24 }, () => Math.random().toString(36)[2] ?? '0').join('')
 }
 
-// Returns the aircraft's existing code if it already matches the requested
-// role (so re-opening the share sheet doesn't mint a new code and
-// invalidate the last one), otherwise generates a fresh one for that role.
-// Regenerating changes the role for FUTURE joiners only -- it never
-// touches collaborators who already joined under the previous code.
-export async function getOrCreateShareCode(aircraftId: string, role: CollaboratorRole): Promise<string> {
+export function buildAircraftShareLink(token: string): string {
+  return `https://flyregs.com/join/${token}`
+}
+
+// Returns a link built from the aircraft's existing token if it already
+// matches the requested role (so re-opening the share sheet doesn't mint
+// a new link and invalidate the last one), otherwise generates a fresh
+// token for that role. Regenerating changes the role for FUTURE joiners
+// only -- it never touches collaborators who already joined under the
+// previous link.
+export async function getOrCreateShareLink(aircraftId: string, role: CollaboratorRole): Promise<string> {
   const { data: existing } = await supabase
     .from('user_aircraft')
     .select('share_code, share_code_role')
     .eq('id', aircraftId)
     .maybeSingle()
 
-  if (existing?.share_code && existing.share_code_role === role) return existing.share_code
+  if (existing?.share_code && existing.share_code_role === role) return buildAircraftShareLink(existing.share_code)
 
-  const code = makeShareCode()
+  const token = makeShareToken()
   const { error } = await supabase
     .from('user_aircraft')
-    .update({ share_code: code, share_code_role: role })
+    .update({ share_code: token, share_code_role: role })
     .eq('id', aircraftId)
   if (error) throw error
-  return code
+  return buildAircraftShareLink(token)
 }
 
 export interface JoinedAircraft {
@@ -48,11 +64,14 @@ export interface JoinedAircraft {
   role: CollaboratorRole
 }
 
-export async function joinSharedAircraft(code: string): Promise<JoinedAircraft> {
-  const { data, error } = await supabase.rpc('join_shared_aircraft', { p_code: code.trim().toUpperCase() })
+// No .toUpperCase() -- unlike the old human-typed code, a link token is
+// never re-typed by hand, and folders' own token format (mixed-case
+// base36) would be corrupted by forcing case.
+export async function joinSharedAircraft(token: string): Promise<JoinedAircraft> {
+  const { data, error } = await supabase.rpc('join_shared_aircraft', { p_code: token.trim() })
   if (error) throw error
   const row = data?.[0]
-  if (!row) throw new Error('Invalid or expired invite code')
+  if (!row) throw new Error('Invalid or expired invite link')
   return { aircraftId: row.out_aircraft_id, nickname: row.out_nickname, make: row.out_make, model: row.out_model, role: row.out_role }
 }
 

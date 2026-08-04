@@ -18,14 +18,23 @@ export interface AircraftAdNotification {
   matchedVia: 'airframe' | 'equipment'
   readAt: string | null
   pushStatus: 'sent' | 'error' | null
+  compliedAt: string | null
+  compliedNote: string | null
 }
 
+// dismissed (doesn't apply, remove from view) and complied (applies, done)
+// are deliberately separate, both-optional terminal states -- an AD can be
+// neither, or one, but never both at once in practice. Complied rows stay
+// in this list (not filtered out like dismissed ones) since the whole
+// point is a reviewable record of what's been done, not a todo list that
+// just empties out.
 export async function getAircraftAdNotifications(userAircraftId: string): Promise<AircraftAdNotification[]> {
   const { data, error } = await supabase
     .from('user_ad_notifications')
-    .select('id, ad_number, matched_via, read_at, push_status, airworthiness_directives!inner(subject_heading, citation_publish_date)')
+    .select('id, ad_number, matched_via, read_at, push_status, complied_at, complied_note, airworthiness_directives!inner(subject_heading, citation_publish_date)')
     .eq('user_aircraft_id', userAircraftId)
     .is('dismissed_at', null)
+    .order('complied_at', { ascending: true, nullsFirst: true })
     .order('read_at', { ascending: true, nullsFirst: true })
     .order('id', { ascending: false })
   if (error) throw error
@@ -37,7 +46,33 @@ export async function getAircraftAdNotifications(userAircraftId: string): Promis
     matchedVia: r.matched_via,
     readAt: r.read_at,
     pushStatus: r.push_status,
+    compliedAt: r.complied_at,
+    compliedNote: r.complied_note,
   }))
+}
+
+// RC: "yeah build the Fleet schema. keep it feature rich but avoid any
+// word use they smells of legal or liability on our part. can be handled
+// w/ CTA disclaimer if need be to log that we advised." Self-reported,
+// same register as the equipment/reminders disclaimer already uses --
+// this records what the owner/editor told FlyRegs, not an independent
+// compliance determination. The confirm Alert at the call site IS the
+// "log that we advised" moment; no separate acknowledgment flag needed.
+export async function markAdComplied(id: number, note: string | null): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser()
+  const { error } = await supabase
+    .from('user_ad_notifications')
+    .update({ complied_at: new Date().toISOString(), complied_by: auth.user?.id ?? null, complied_note: note?.trim() || null })
+    .eq('id', id)
+  if (error) throw error
+}
+
+export async function unmarkAdComplied(id: number): Promise<void> {
+  const { error } = await supabase
+    .from('user_ad_notifications')
+    .update({ complied_at: null, complied_by: null, complied_note: null })
+    .eq('id', id)
+  if (error) throw error
 }
 
 export async function markAdNotificationRead(id: number): Promise<void> {

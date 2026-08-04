@@ -7,19 +7,26 @@ import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
 import { joinSharedFolder } from '@/lib/sharedFolders'
+import { joinSharedAircraft, type JoinedAircraft } from '@/lib/aircraftSharing'
 
-// Opened via the flyregs://join/<token> deep link a folder owner shares.
-// Requires being signed in (a collaborator needs their own account to have
-// their own subscription checked against) — if not signed in, sends the
-// user to sign in first and comes back here after.
+// Opened via the flyregs://join/<token> deep link (or the flyregs.com/join/
+// {token} Universal Link, both already whitelisted in app.json) a folder OR
+// aircraft owner shares -- one token space, one route. Tries
+// joinSharedFolder first; a token that doesn't match any folder falls
+// through to joinSharedAircraft rather than needing a second route or a
+// second website page. Requires being signed in (a collaborator needs
+// their own account to have their own subscription checked against) — if
+// not signed in, sends the user to sign in first and comes back here after.
 export default function JoinFolder() {
   const { tokens } = useTheme()
   const fs = useFS()
   const insets = useSafeAreaInsets()
-  const { session, loading } = useAuth()
+  const { session, loading, isPremium } = useAuth()
   const { token } = useLocalSearchParams<{ token: string }>()
-  const [state, setState] = useState<'joining' | 'done' | 'error'>('joining')
+  const [state, setState] = useState<'joining' | 'done' | 'error' | 'needs_premium'>('joining')
+  const [kind, setKind] = useState<'folder' | 'aircraft'>('folder')
   const [folderName, setFolderName] = useState('')
+  const [aircraftJoined, setAircraftJoined] = useState<JoinedAircraft | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
 
   useEffect(() => {
@@ -31,6 +38,7 @@ export default function JoinFolder() {
     }
     joinSharedFolder(token)
       .then((result) => {
+        setKind('folder')
         setFolderName(result.folder_name)
         setState('done')
         // Lands directly on Shared > With Me, where the folder itself now
@@ -40,21 +48,52 @@ export default function JoinFolder() {
         // through before this fires.
         setTimeout(() => router.replace('/saved?tab=shared&sub=withMe'), 1200)
       })
-      .catch((err: any) => {
-        setErrorMsg(err?.message ?? 'This invite link is invalid or has expired.')
-        setState('error')
+      .catch(() => {
+        // Not a folder token -- try aircraft. A real Premium gate, not
+        // just copy in the share message: every collaborator needs their
+        // own subscription (RC: "anyone who is going to be receiving and
+        // viewing Fleet data has to, themselves, have a Prem account"),
+        // so this is checked BEFORE spending the join attempt, with a
+        // distinct state so "you're not Premium" never gets misread as
+        // "this link is broken."
+        if (!isPremium) { setKind('aircraft'); setState('needs_premium'); return }
+        joinSharedAircraft(token)
+          .then((result) => {
+            setKind('aircraft')
+            setAircraftJoined(result)
+            setState('done')
+            setTimeout(() => router.replace('/my-aircraft'), 1200)
+          })
+          .catch((err: any) => {
+            setErrorMsg(err?.message ?? 'This invite link is invalid or has expired.')
+            setState('error')
+          })
       })
-  }, [token, session, loading])
+  }, [token, session, loading, isPremium])
+
+  const aircraftLabel = aircraftJoined ? (aircraftJoined.nickname || `${aircraftJoined.make} ${aircraftJoined.model}`) : ''
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg, paddingTop: insets.top + 40 }]}>
       {state === 'joining' && (
         <>
           <ActivityIndicator size="large" color={tokens.blu} />
-          <Text style={[styles.title, { color: tokens.t1, fontSize: fs(18) }]}>Joining folder…</Text>
+          <Text style={[styles.title, { color: tokens.t1, fontSize: fs(18) }]}>Opening invite…</Text>
         </>
       )}
-      {state === 'done' && (
+      {state === 'needs_premium' && (
+        <>
+          <Icon name="lock.fill" size={fs(44)} color={tokens.blu} />
+          <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Premium required</Text>
+          <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+            Viewing or editing a shared aircraft requires your own Premium subscription.
+          </Text>
+          <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.replace('/paywall?tier=premium')}>
+            <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>Upgrade to Premium</Text>
+          </Pressable>
+        </>
+      )}
+      {state === 'done' && kind === 'folder' && (
         <>
           <Icon name="checkmark.seal.fill" size={fs(44)} color={tokens.gold} />
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>You've joined "{folderName}"</Text>
@@ -67,6 +106,27 @@ export default function JoinFolder() {
             onPress={() => router.replace('/saved?tab=shared&sub=withMe')}
           >
             <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>View in With Me</Text>
+          </Pressable>
+        </>
+      )}
+      {state === 'done' && kind === 'aircraft' && aircraftJoined && (
+        <>
+          <Icon name="checkmark.seal.fill" size={fs(44)} color={tokens.gold} />
+          <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>You've joined "{aircraftLabel}"</Text>
+          {/* RC: "we need a small note informing of read/write access." Same
+              spot folders use for their own access-level sentence -- shown
+              once, right when it's actually decided, not a persistent
+              banner cluttering the aircraft screen afterward. */}
+          <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+            {aircraftJoined.role === 'editor'
+              ? "You have edit access to this aircraft's equipment, reminders, and ADs."
+              : 'You have view-only access to this aircraft.'}
+          </Text>
+          <Pressable
+            style={[styles.btn, { backgroundColor: tokens.blu }]}
+            onPress={() => router.replace('/my-aircraft')}
+          >
+            <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>View in My Fleet</Text>
           </Pressable>
         </>
       )}

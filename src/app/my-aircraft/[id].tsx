@@ -9,15 +9,19 @@ import { Icon } from '@/components/Icon'
 import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
 import { SwipeToDelete } from '@/components/SwipeToDelete'
+import { EditAircraftModal, type UserAircraft } from '@/components/AircraftFormFields'
 import { supabase } from '@/lib/supabase'
 import {
   searchParts, getAircraftEquipment, addAircraftEquipment, removeAircraftEquipment,
   getAircraftReminders, addAircraftReminder, updateAircraftReminder, removeAircraftReminder, PART_TYPE_LABELS,
   type AdPart, type AircraftEquipment, type AircraftReminder, type PartComponentType,
 } from '@/lib/adParts'
-import { getAircraftAdNotifications, markAdNotificationRead, dismissAdNotification, backfillAircraftAds, type AircraftAdNotification } from '@/lib/adNotifications'
 import {
-  getMyAircraftRole, getOrCreateShareCode, getAircraftCollaborators, removeCollaborator, leaveSharedAircraft,
+  getAircraftAdNotifications, markAdNotificationRead, dismissAdNotification, backfillAircraftAds,
+  markAdComplied, unmarkAdComplied, type AircraftAdNotification,
+} from '@/lib/adNotifications'
+import {
+  getMyAircraftRole, getOrCreateShareLink, getAircraftCollaborators, removeCollaborator, leaveSharedAircraft,
   type CollaboratorRole, type AircraftCollaborator, type FleetRole,
 } from '@/lib/aircraftSharing'
 
@@ -28,14 +32,6 @@ import {
 // user themselves entered -- the app verifies none of it independently,
 // which is what keeps this low-liability regardless of depth. "May
 // apply" / "reminder", never "applies" / "is due" as a fact.
-
-interface UserAircraft {
-  id: string
-  make: string
-  model: string
-  nickname: string | null
-  type_designator: string | null
-}
 
 function daysUntil(dateStr: string): number {
   const due = new Date(dateStr + 'T00:00:00')
@@ -126,12 +122,16 @@ export default function AircraftDetailScreen() {
   const [role, setRole] = useState<FleetRole | null>(null)
   const [collaborators, setCollaborators] = useState<AircraftCollaborator[]>([])
   const [sharingBusy, setSharingBusy] = useState(false)
+  // RC: "the editing takes place once inside the a/c page. Make sure
+  // editing IS available inside for all things." Owner+editor can both
+  // update user_aircraft per the live RLS (editors_update_shared_aircraft).
+  const [editingAircraft, setEditingAircraft] = useState<UserAircraft | null>(null)
 
   const load = useCallback(() => {
     if (!id) return
     setLoading(true)
     Promise.all([
-      supabase.from('user_aircraft').select('id, make, model, nickname, type_designator').eq('id', id).single(),
+      supabase.from('user_aircraft').select('id, make, model, nickname, type_designator, year').eq('id', id).single(),
       getAircraftAdNotifications(id),
       getAircraftEquipment(id),
       getAircraftReminders(id),
@@ -172,15 +172,18 @@ export default function AircraftDetailScreen() {
     )
   }
 
+  // RC: "an invite should be sent via a text link to join (just like
+  // folder). receiver taps text icon, CTA pops up, they click Join and
+  // that a/c is automatically added to their Fleet profile... that's it."
+  // Just the link -- same reasoning as folders' own handleInvite: the
+  // join page itself explains what it is and what access was granted, no
+  // need to repeat that as a wall of text in the message body too.
   const shareAs = async (shareRole: CollaboratorRole) => {
     if (!aircraft) return
     setSharingBusy(true)
     try {
-      const code = await getOrCreateShareCode(aircraft.id, shareRole)
-      const label = aircraft.nickname || `${aircraft.make} ${aircraft.model}`
-      await Share.share({
-        message: `Join "${label}" on FlyRegs — open My Fleet, tap Join Shared Aircraft, and enter code ${code}. Requires your own Premium subscription.`,
-      })
+      const link = await getOrCreateShareLink(aircraft.id, shareRole)
+      await Share.share({ message: link })
       getAircraftCollaborators(aircraft.id).then(setCollaborators).catch(() => {})
     } catch (e: any) {
       Alert.alert('Could not create invite', e?.message ?? 'Unknown error')
@@ -223,6 +226,11 @@ export default function AircraftDetailScreen() {
     () => adNotifications.filter((n) => withinAdRange(n.citationPublishDate, adRange)),
     [adNotifications, adRange]
   )
+  // Complied ADs stay IN the list (a reviewable record, not a todo list
+  // that empties out) but shouldn't count toward "needs attention" in the
+  // header -- same "open" meaning get_fleet_summary() and the Fleet list
+  // chips already use.
+  const openAdCount = useMemo(() => visibleAdNotifications.filter((n) => !n.compliedAt).length, [visibleAdNotifications])
   const handleOpenAd = (n: AircraftAdNotification) => {
     if (!n.readAt) {
       // Optimistic -- the whole point of the unread dot is that it clears
@@ -277,6 +285,49 @@ export default function AircraftDetailScreen() {
         },
       ]
     )
+  }
+
+  // RC: "yeah build the Fleet schema. keep it feature rich but avoid any
+  // word use that smells of legal or liability on our part. can be
+  // handled w/ CTA disclaimer if need be to log that we advised." The
+  // confirm text itself IS that disclaimer -- no separate acknowledgment
+  // flag, matching every other confirm on this screen.
+  const handleMarkComplied = (n: AircraftAdNotification) => {
+    Alert.alert(
+      `Mark AD ${n.adNumber} complied?`,
+      "This records that you've completed what this AD requires. FlyRegs doesn't independently verify compliance -- always keep your own maintenance records as the official source.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark Complied',
+          onPress: async () => {
+            try {
+              await markAdComplied(n.id, null)
+              load()
+            } catch (e: any) {
+              Alert.alert('Could not mark complied', e?.message ?? 'Unknown error')
+            }
+          },
+        },
+      ]
+    )
+  }
+
+  const handleUnmarkComplied = (n: AircraftAdNotification) => {
+    Alert.alert(`Un-mark AD ${n.adNumber}?`, 'This moves it back to open.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Un-mark',
+        onPress: async () => {
+          try {
+            await unmarkAdComplied(n.id)
+            load()
+          } catch (e: any) {
+            Alert.alert('Could not update', e?.message ?? 'Unknown error')
+          }
+        },
+      },
+    ])
   }
 
   // RC: swipe-to-delete "with two step CTA popup verification explaining
@@ -347,18 +398,30 @@ export default function AircraftDetailScreen() {
     )
   }
 
-  const shareHeaderAction = isOwner ? (
-    <Pressable onPress={handleShare} hitSlop={10} disabled={sharingBusy} style={{ padding: 6 }}>
-      <Icon name="person.2.fill" size={fs(21)} color={tokens.t2} />
-    </Pressable>
-  ) : undefined
+  // Combined into one header row rather than a separate edit affordance
+  // elsewhere on the page -- same reasoning as folders' own header, which
+  // already puts rename/share/delete together in one place.
+  const headerActions = (
+    <View style={styles.headerActions}>
+      {canEdit && (
+        <Pressable onPress={() => setEditingAircraft(aircraft)} hitSlop={10} style={{ padding: 6 }}>
+          <Icon name="pencil" size={fs(20)} color={tokens.t2} />
+        </Pressable>
+      )}
+      {isOwner && (
+        <Pressable onPress={handleShare} hitSlop={10} disabled={sharingBusy} style={{ padding: 6 }}>
+          <Icon name="person.2.fill" size={fs(21)} color={tokens.t2} />
+        </Pressable>
+      )}
+    </View>
+  )
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader
         title={aircraft.nickname || `${aircraft.make} ${aircraft.model}`}
         onBack={() => router.back()}
-        right={shareHeaderAction}
+        right={headerActions}
       />
       <TabletContainer>
         <ScrollView contentContainerStyle={styles.content}>
@@ -369,6 +432,36 @@ export default function AircraftDetailScreen() {
                 <Text style={[styles.roleBadgeText, { color: tokens.t3, fontSize: fs(10) }]}>{role.toUpperCase()}</Text>
               </View>
             )}
+            {/* RC: "we need a small note informing of read/write access...
+                this can come up once, then should be hidden, with an info
+                icon." The join screen already explains this once, right
+                when the role is decided -- this is just the icon for
+                anyone who wants the reminder later, tacked onto the badge
+                that's already there rather than a whole separate note. */}
+            {!isOwner && role && (
+              <InfoPopup
+                id="my-aircraft-role-access"
+                title={role === 'editor' ? 'Editor access' : 'Viewer access'}
+                body={
+                  role === 'editor'
+                    ? "You can add, edit, and remove this aircraft's equipment, reminders, and ADs. You can't remove the aircraft itself or manage who else has access."
+                    : "You can view this aircraft's equipment, reminders, and ADs, but can't make changes. Ask the owner for editor access if you need to."
+                }
+                iconSize={fs(14)}
+              />
+            )}
+            {/* RC: "this is just taking up too much real estate for a tiny
+                info icon" -- was its own full-width disclaimer card;
+                that's just this one icon now, tucked into the title row
+                the same way the role-access icon above is. Full
+                explanation still lives in the popup, unchanged. */}
+            <InfoPopup
+              id="my-aircraft-equipment-disclaimer"
+              title="Equipment & Reminders"
+              body="Equipment tags and reminders are based only on what you enter here — FlyRegs doesn't verify serial numbers or maintenance records. ADs shown may apply; always confirm against your aircraft's official records."
+              forceOnce
+              iconSize={fs(14)}
+            />
           </View>
           {aircraft.nickname && <Text style={[styles.acSub, { color: tokens.t3, fontSize: fs(13) }]}>{aircraft.nickname}</Text>}
           {aircraft.type_designator && (
@@ -413,18 +506,6 @@ export default function AircraftDetailScreen() {
             </View>
           )}
 
-          <View style={styles.disclaimerCard}>
-            <Text style={[styles.disclaimerText, { color: tokens.t3, fontSize: fs(11.5) }]}>
-              Self-reported
-            </Text>
-            <InfoPopup
-              id="my-aircraft-equipment-disclaimer"
-              title="Equipment & Reminders"
-              body="Equipment tags and reminders are based only on what you enter here — FlyRegs doesn't verify serial numbers or maintenance records. ADs shown may apply; always confirm against your aircraft's official records."
-              forceOnce
-            />
-          </View>
-
           {/* Applicable ADs -- the actual payoff of saving an aircraft at
               all, per explicit direction: this is what the whole feature
               is judged on, so it leads the screen, not Equipment/Reminders.
@@ -444,9 +525,9 @@ export default function AircraftDetailScreen() {
                   unread pill was redundant with the per-row unread dots,
                   and two adjacent numbers read as clutter on a phone.
                   Bigger per RC's separate "make count numbers bigger" ask. */}
-              {visibleAdNotifications.length > 0 && (
+              {openAdCount > 0 && (
                 <Text style={[styles.sectionCountBig, { color: tokens.t4, fontSize: fs(16) }]}>
-                  {visibleAdNotifications.length}
+                  {openAdCount}
                 </Text>
               )}
               {/* RC: "applicable info icon is in weird place" -- moved here
@@ -537,14 +618,42 @@ export default function AircraftDetailScreen() {
                       >
                         <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
                           {!n.readAt && <View style={[styles.unreadDot, { backgroundColor: tokens.blu }]} />}
-                          <Icon name={n.matchedVia === 'equipment' ? 'wrench' : 'airplane'} size={fs(15)} color={tokens.t3} />
+                          {/* Self-reported compliance record -- tap to
+                              toggle. A checkmark isn't FlyRegs asserting
+                              compliance, it's what the owner/editor told
+                              it; handleMarkComplied's own confirm carries
+                              that disclaimer every time. */}
+                          <Pressable
+                            onPress={(e) => {
+                              e.stopPropagation()
+                              if (!canEdit) return
+                              if (n.compliedAt) handleUnmarkComplied(n)
+                              else handleMarkComplied(n)
+                            }}
+                            hitSlop={8}
+                            disabled={!canEdit}
+                          >
+                            <Icon
+                              name={n.compliedAt ? 'checkmark.circle.fill' : n.matchedVia === 'equipment' ? 'wrench' : 'airplane'}
+                              size={fs(n.compliedAt ? 17 : 15)}
+                              color={n.compliedAt ? tokens.grn : tokens.t3}
+                            />
+                          </Pressable>
                           <View style={{ flex: 1 }}>
-                            <Text style={[styles.rowTitle, { color: tokens.blu, fontSize: fs(14) }]}>AD {n.adNumber}</Text>
-                            <Text style={[styles.rowSub, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={2}>{n.subjectHeading}</Text>
-                            <Text style={[styles.rowSub, { color: tokens.t4, fontSize: fs(11) }]}>
-                              {n.matchedVia === 'equipment' ? 'Equip Match' : 'Airframe Match'}
-                              {n.citationPublishDate ? ` · ${n.citationPublishDate}` : ''}
+                            <Text style={[styles.rowTitle, { color: n.compliedAt ? tokens.t3 : tokens.blu, fontSize: fs(14) }]}>
+                              AD {n.adNumber}
                             </Text>
+                            <Text style={[styles.rowSub, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={2}>{n.subjectHeading}</Text>
+                            {n.compliedAt ? (
+                              <Text style={[styles.rowSub, { color: tokens.grn, fontSize: fs(11) }]}>
+                                Complied {n.compliedAt.slice(0, 10)}
+                              </Text>
+                            ) : (
+                              <Text style={[styles.rowSub, { color: tokens.t4, fontSize: fs(11) }]}>
+                                {n.matchedVia === 'equipment' ? 'Equip Match' : 'Airframe Match'}
+                                {n.citationPublishDate ? ` · ${n.citationPublishDate}` : ''}
+                              </Text>
+                            )}
                           </View>
                         </View>
                       </SwipeToDelete>
@@ -683,6 +792,11 @@ export default function AircraftDetailScreen() {
             Alert.alert('Could not save reminder', e?.message ?? 'Unknown error')
           }
         }}
+      />
+      <EditAircraftModal
+        aircraft={editingAircraft}
+        onClose={() => setEditingAircraft(null)}
+        onSaved={() => { setEditingAircraft(null); load() }}
       />
     </View>
   )
@@ -1093,6 +1207,7 @@ const styles = StyleSheet.create({
     borderRadius: 10, borderWidth: 1, padding: 10, marginBottom: 10,
   },
   relatedNoteText: { flex: 1, lineHeight: 17 },
+  headerActions: { flexDirection: 'row', alignItems: 'center' },
   acLineRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   acLine: { fontWeight: '700' },
   acSub: { marginTop: 2, marginBottom: 4 },
@@ -1104,12 +1219,6 @@ const styles = StyleSheet.create({
   collabHeaderText: { flex: 1, fontWeight: '600' },
   collabRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth },
   collabName: { flex: 1 },
-
-  disclaimerCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, marginBottom: 4,
-    padding: 10, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.03)',
-  },
-  disclaimerText: { flex: 1, lineHeight: 16 },
 
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, marginBottom: 8 },
   sectionTitleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },

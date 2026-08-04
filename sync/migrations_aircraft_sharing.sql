@@ -251,3 +251,53 @@ as $function$
   from my_aircraft ma
   order by ma.make, ma.model;
 $function$;
+
+-- ============================================================================
+-- Fleet AD compliance tracking                                       2026-08-04
+-- ============================================================================
+-- RC: "yeah build the Fleet schema. keep it feature rich but avoid any word
+-- use they smells of legal or liability on our part. can be handled w/ CTA
+-- disclaimer if need be to log that we advised."
+--
+-- dismissed_at already meant "doesn't apply, remove it" -- there was no way
+-- to record "applies AND we've done it," a genuinely separate terminal
+-- state (an AD is either N/A, or applicable-and-handled, but never both).
+-- complied_at/complied_by/complied_note are deliberately self-reported,
+-- same register as the existing equipment/reminders disclaimer -- FlyRegs
+-- records what the owner/editor told it, not an independent compliance
+-- determination. No new RLS needed: the existing UPDATE policies on
+-- user_ad_notifications (owner's original policy + editors_manage_shared_
+-- ad_notifications) already cover writing these columns, since marking
+-- complied is just another UPDATE to a row those policies already govern.
+alter table public.user_ad_notifications
+  add column if not exists complied_at timestamptz,
+  add column if not exists complied_by uuid,
+  add column if not exists complied_note text;
+
+-- "Open AD" now means neither dismissed NOR complied -- a complied AD
+-- stops counting as needing attention on the Fleet list chips and the
+-- Account status wheel, with zero other code changes required since both
+-- already just read this one function's output.
+create or replace function public.get_fleet_summary()
+returns table(
+  out_aircraft_id uuid, out_make text, out_model text, out_nickname text,
+  out_type_designator text, out_year integer, out_role text,
+  out_open_ad_count integer, out_overdue_reminder_count integer
+)
+language sql
+stable
+as $function$
+  with my_aircraft as (
+    select ua.id, ua.make, ua.model, ua.nickname, ua.type_designator, ua.year,
+      case when ua.user_id = auth.uid() then 'owner' else ac.role end as role
+    from user_aircraft ua
+    left join aircraft_collaborators ac on ac.aircraft_id = ua.id and ac.user_id = auth.uid() and ac.left_at is null
+    where ua.user_id = auth.uid() or ac.user_id = auth.uid()
+  )
+  select
+    ma.id, ma.make, ma.model, ma.nickname, ma.type_designator, ma.year, ma.role,
+    coalesce((select count(*)::int from user_ad_notifications n where n.user_aircraft_id = ma.id and n.dismissed_at is null and n.complied_at is null), 0),
+    coalesce((select count(*)::int from user_aircraft_reminders r where r.user_aircraft_id = ma.id and r.due_date < current_date), 0)
+  from my_aircraft ma
+  order by ma.make, ma.model;
+$function$;
