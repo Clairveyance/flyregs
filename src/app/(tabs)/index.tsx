@@ -34,6 +34,7 @@ import { splitIntoParagraphs } from '@/lib/regTextFormat'
 import { consumeJustConfirmed } from '@/lib/justConfirmed'
 import { FigureViewer } from '@/components/FigureViewer'
 import { TabletContainer } from '@/components/TabletContainer'
+import { SmartSearchLabel } from '@/components/SmartSearchLabel'
 import type { AcFigure } from '@/types'
 import { getRecentSearches, addRecentSearch, removeRecentSearch, clearRecentSearches } from '@/lib/recentSearches'
 import { ChipFilterSheet, ChipFilterSection } from '@/components/ChipFilterSheet'
@@ -799,6 +800,20 @@ export default function HomeScreen() {
           <Text style={[styles.welcomeToastText, { color: tokens.t1, fontSize: fs(14.5) }]}>Welcome to FlyRegs!</Text>
         </Animated.View>
       )}
+
+      {/* RC: "let's put that name in the search boxes now." A TextInput
+          placeholder can't carry per-letter styling, so the brand mark
+          lives in its own thin kicker row directly above the bar instead
+          of inside it -- mirrors MagicLinkPod's own brand text sitting in
+          its pod's dedicated header row rather than crammed alongside
+          other controls. Sits OUTSIDE searchZone, not inside it, so
+          onSearchZoneLayout's own y/height measurement (used to position
+          the results dropdown right below the bar) still reflects only
+          the bar itself and shifts down automatically to account for
+          this row. */}
+      <View style={styles.smartSearchKicker}>
+        <SmartSearchLabel fontSize={11.5} />
+      </View>
 
       {/* Fixed search zone — sits above the list, never scrolls away */}
       <View style={styles.searchZone} onLayout={onSearchZoneLayout}>
@@ -1698,11 +1713,16 @@ const styles = StyleSheet.create({
   regCount: { marginTop: 2 },
 
   // Fixed search zone above the FlatList
+  smartSearchKicker: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    zIndex: 20,
+  },
   searchZone: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingTop: 2,
     paddingBottom: 8,
     gap: 10,
     zIndex: 20,
