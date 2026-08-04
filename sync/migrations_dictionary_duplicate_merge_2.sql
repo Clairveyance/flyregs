@@ -1,0 +1,50 @@
+-- ============================================================================
+-- Merge case/hyphen-variant duplicate dictionary_terms -- 2026-08-04
+--
+-- Follow-up to migrations_dictionary_duplicate_merge.sql, which only ever
+-- matched exact-string headwords. Normalizing case and hyphens (e.g. "VFR
+-- on top" vs "VFR-on-top", "Leading edge flap" vs "Leading-edge flap")
+-- turned up 17 more groups the first pass couldn't see.
+--
+-- Of those 17, only 14 were real duplicate loads (same real concept from
+-- 2+ FAA handbooks, category='handbook' on both sides) and got merged
+-- here. The other 3 -- NATS, FLAPS, CARE -- were deliberately left alone:
+-- each is a category='mnemonic' row (an in-house GA training mnemonic)
+-- paired against a category='handbook'/'contraction' row that defines a
+-- COMPLETELY DIFFERENT thing under the same coincidental acronym (e.g.
+-- mnemonic "FLAPS" = night-VFR-equipment checklist vs handbook "Flaps" =
+-- the actual flight control surface). Merging those would have presented
+-- unrelated content as if it were the same term defined two ways.
+--
+-- Confirmed zero risk before merging: no rows in synced_folder_items
+-- (item_type='dictionary') or document_citations (cited_id/citing_id,
+-- any type) reference any of the 14 deleted ids, and no dictionary_terms
+-- row's see_also_slug points at a deleted slug.
+--
+-- Applied via scratchpad/merge_dictionary_dupes2.py (Python + Supabase
+-- REST, service key) -- same senses-concatenation / "; "-joined-source /
+-- alphabetically-first-slug-as-primary approach as the first pass.
+--
+-- Result: 9,812 -> 9,798 rows. Verified live: renormalizing every
+-- dictionary_terms.term afterward finds exactly 3 remaining "duplicate"
+-- groups (nats/flaps/care), all confirmed intentional non-merges above.
+--
+-- Merged pairs (primary <- deleted):
+--   afh_glossary-center-of-gravity-limits <- phak_real_glossary-center-of-gravity-limits
+--   afh_glossary-center-of-gravity-range <- phak_real_glossary-center-of-gravity-range
+--   afh_glossary-leading-edge-flap <- phak_real_glossary-leading-edge-flap
+--   afh_glossary-ground-power-unit-gpu <- hb-ground-power-unit-gpu
+--   afh_glossary-constant-speed-propeller <- phak_real_glossary-constant-speed-propeller
+--   afh_glossary-internal-combustion-engine <- hb-internal-combustion-engine
+--   hb-single-pilot-resource-management-srm <- phak_real_glossary-single-pilot-resource-management-srm
+--   aih_glossary-aeronautical-decision-making-adm <- hb-aeronautical-decision-making-adm
+--   afh_glossary-axial-flow-compressor <- hb-axial-flow-compressor
+--   afh_glossary-standard-rate-turn <- ifh_glossary-standard-rate-turn
+--   hb-pressure-demand-oxygen-system <- phak_real_glossary-pressure-demand-oxygen-system
+--   ifh_glossary-vfr-on-top <- phak_real_glossary-vfr-on-top
+--   ifh_glossary-vfr-over-the-top <- phak_real_glossary-vfr-over-the-top
+--   ifh_glossary-ultra-high-frequency-uhf <- wx-ultra-high-frequency-uhf
+--
+-- No SQL to re-run here -- this file documents an already-applied,
+-- already-verified one-time cleanup, not a repeatable migration.
+-- ============================================================================
