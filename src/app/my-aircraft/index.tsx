@@ -1,6 +1,6 @@
-import { useEffect, useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Alert, Modal } from 'react-native'
-import { router } from 'expo-router'
+import { router, useFocusEffect } from 'expo-router'
 import { useTheme, type ThemeTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
@@ -130,16 +130,35 @@ function StatBox({ value, label, color, tokens, fs }: { value: string | number; 
 // no natural count to show (an aircraft doesn't have "0 compliant items"
 // the way it has "2 open ADs"), so that one gets a checkmark instead of a
 // number rather than displaying a bare, slightly odd-looking "0".
-function RowStatusBadge({ overdueCount, openCount, tokens, fs }: { overdueCount: number; openCount: number; tokens: ThemeTokens; fs: (n: number) => number }) {
-  const color = overdueCount > 0 ? tokens.red : openCount > 0 ? tokens.amb : tokens.grn
+// RC, live, on a screenshot showing a green check on a row that actually
+// had an amber (due-soon) reminder hiding inside: "this ring color does
+// NOT seem to associate with anything happening w/ the a/c... these things
+// need to be in sync and properly associative." The old version cascaded
+// ONE number through two different meanings (overdue-reminder-count, THEN
+// open-AD-count, whichever was nonzero) and coincidentally left the ring
+// green whenever neither was nonzero -- which is exactly how a due-soon
+// (not yet overdue) reminder went invisible. Confirmed split instead: the
+// ring is always reminder urgency (the thing with real due dates that can
+// creep from fine to urgent), the number is always open-AD count (a flatter
+// yes/no-attention signal) -- two independent, single-purpose glyphs that
+// can never visually contradict each other. See my-aircraft-intro's own
+// InfoPopup body for the user-facing explanation of this split.
+function RowStatusBadge({
+  openAdCount, reminderUrgency, tokens, fs,
+}: {
+  openAdCount: number
+  reminderUrgency: 'overdue' | 'soon' | 'clear'
+  tokens: ThemeTokens
+  fs: (n: number) => number
+}) {
+  const ringColor = reminderUrgency === 'overdue' ? tokens.red : reminderUrgency === 'soon' ? tokens.amb : tokens.grn
+  const numColor = openAdCount > 0 ? tokens.amb : tokens.grn
   return (
-    <View style={[styles.rowStatusRing, { borderColor: color }]}>
-      {overdueCount > 0 ? (
-        <Text style={[styles.rowStatusNum, { color, fontSize: fs(15) }]}>{overdueCount}</Text>
-      ) : openCount > 0 ? (
-        <Text style={[styles.rowStatusNum, { color, fontSize: fs(15) }]}>{openCount}</Text>
+    <View style={[styles.rowStatusRing, { borderColor: ringColor }]}>
+      {openAdCount > 0 ? (
+        <Text style={[styles.rowStatusNum, { color: numColor, fontSize: fs(15) }]}>{openAdCount}</Text>
       ) : (
-        <Icon name="checkmark" size={fs(15)} color={color} />
+        <Icon name="checkmark" size={fs(15)} color={numColor} />
       )}
     </View>
   )
@@ -159,6 +178,11 @@ export default function MyAircraftScreen() {
   // the exact same getAircraftReminders already used elsewhere on this
   // screen instead of trusting a new cross-aircraft RLS assumption.
   const [nextDueDays, setNextDueDays] = useState<number | null>(null)
+  // Per-aircraft worst reminder status, keyed by aircraftId -- computed
+  // from the same reminders fetch as nextDueDays above (see RowStatusBadge
+  // for why this needs to be a real 3-state value, not just the RPC's
+  // overdueReminderCount, to catch "due soon" too).
+  const [reminderUrgency, setReminderUrgency] = useState<Record<string, 'overdue' | 'soon' | 'clear'>>({})
   const [make, setMake] = useState('')
   const [model, setModel] = useState('')
   const [nickname, setNickname] = useState('')
@@ -210,7 +234,7 @@ export default function MyAircraftScreen() {
     setTypeDesignator(text)
   }
 
-  const load = () => {
+  const load = useCallback(() => {
     if (!session) {
       setLoading(false)
       return
@@ -225,23 +249,35 @@ export default function MyAircraftScreen() {
         Promise.all(rows.map((a) => getAircraftReminders(a.aircraftId).catch(() => [] as AircraftReminder[])))
           .then((lists) => {
             let soonest: number | null = null
-            for (const list of lists) {
+            const urgency: Record<string, 'overdue' | 'soon' | 'clear'> = {}
+            lists.forEach((list, i) => {
+              let worst: 'overdue' | 'soon' | 'clear' = 'clear'
               for (const r of list) {
                 const days = daysUntil(r.dueDate)
                 if (days >= 0 && (soonest === null || days < soonest)) soonest = days
+                if (days < 0) worst = 'overdue'
+                else if (days <= 30 && worst !== 'overdue') worst = 'soon'
               }
-            }
+              urgency[rows[i].aircraftId] = worst
+            })
             setNextDueDays(soonest)
+            setReminderUrgency(urgency)
           })
-          .catch(() => setNextDueDays(null))
+          .catch(() => { setNextDueDays(null); setReminderUrgency({}) })
       })
       .catch((e) => console.error('Failed to load fleet summary:', e?.message ?? e))
       .finally(() => setLoading(false))
-  }
-
-  useEffect(() => {
-    load()
   }, [session])
+
+  // useFocusEffect, not a plain mount-only useEffect: this screen stays
+  // mounted in the background while you're on an aircraft's detail screen,
+  // so a bare useEffect would only ever fetch once and go stale the moment
+  // you mark an AD complied or edit a reminder and come back -- the ring,
+  // legend, stat boxes, and per-row badges would all keep showing pre-edit
+  // numbers until a full app relaunch. RC: "make sure that status ring is
+  // smart - and adjusts live to the number (%) of Compliant, Open, and
+  // Overdue items across the fleet."
+  useFocusEffect(useCallback(() => { load() }, [load]))
 
   const handleAdd = async () => {
     if (!session) {
@@ -397,7 +433,7 @@ export default function MyAircraftScreen() {
             <InfoPopup
               id="my-aircraft-intro"
               title={screenTitle}
-              body="Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive applies to them, instead of scanning the full AD list yourself. Premium can also share an aircraft with other Premium accounts as a viewer or editor. The list below is always sorted by urgency — overdue first, then open items, then compliant."
+              body="Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive applies to them, instead of scanning the full AD list yourself. Premium can also share an aircraft with other Premium accounts as a viewer or editor. The list below is always sorted by urgency — overdue first, then open items, then compliant. Each aircraft's ring shows its most urgent reminder (green = on track, amber = due soon, red = overdue); the number inside is its count of open ADs."
               forceOnce
               iconSize={fs(15)}
             />
@@ -482,7 +518,7 @@ export default function MyAircraftScreen() {
                         </View>
                         <Text style={[styles.rowNickname, { color: tokens.t3, fontSize: fs(12.5) }]}>{secondaryLabel}</Text>
                       </View>
-                      <RowStatusBadge overdueCount={a.overdueReminderCount} openCount={a.openAdCount} tokens={tokens} fs={fs} />
+                      <RowStatusBadge openAdCount={a.openAdCount} reminderUrgency={reminderUrgency[a.aircraftId] ?? 'clear'} tokens={tokens} fs={fs} />
                       {/* No edit pencil here -- best part is no part. RC:
                           "we don't need this edit button here. the
                           editing takes place once inside the a/c page."
