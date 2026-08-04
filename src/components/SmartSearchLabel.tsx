@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Text, StyleSheet, TextStyle } from 'react-native'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -50,12 +50,20 @@ export function SmartSearchLabel({ fontSize = 12, style }: { fontSize?: number; 
   const fs = useFS()
   const spectrum = blueSpectrumFor(resolved === 'dark')
   const [shimmerPhase, setShimmerPhase] = useState(0)
+  // RC: "make sure that SS shimmer has a randomizer on it so it's not
+  // always the same pattern." Starting every mount at t=0 meant every
+  // screen load began at the identical point in the wave -- same visual
+  // sequence every time, even though the wave itself never repeats
+  // predictably once running. A random start offset (fixed per mount via
+  // useRef, not re-rolled on re-render) puts each load somewhere different
+  // in that same long cycle instead.
+  const startOffsetRef = useRef(Math.random() * 1000)
 
   useEffect(() => {
     const start = Date.now()
     let timer: ReturnType<typeof setTimeout>
     const tick = () => {
-      const t = (Date.now() - start) / 1000
+      const t = (Date.now() - start) / 1000 + startOffsetRef.current
       // ~4x slower than the first pass (0.6/0.37 -> 0.15/0.09) -- still
       // never repeats predictably, just takes much longer to.
       const wave = (Math.sin(t * 0.15) + Math.sin(t * 0.09 + 1.7) * 0.6) / 1.6 // ~[-1, 1]
