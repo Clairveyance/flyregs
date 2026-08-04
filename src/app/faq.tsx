@@ -64,7 +64,13 @@ const FAQ: QA[] = [
     q: 'What does FlyRegs cover?',
     category: 'Getting Started',
     a: [
-      'Six FAA source libraries in one app: the Federal Aviation Regulations (FAR), the Aeronautical Information Manual (AIM), the Pilot/Controller Glossary (P/CG), Advisory Circulars (ACs), Airworthiness Directives (ADs), and Legal Interpretations (LOIs) — all kept current from the FAA\'s own published text.',
+      'Six FAA source libraries in one app, all kept current from the FAA\'s own published text:',
+      '• Federal Aviation Regulations (FAR)',
+      '• Aeronautical Information Manual (AIM)',
+      '• Pilot/Controller Glossary (P/CG)',
+      '• Advisory Circulars (ACs)',
+      '• Airworthiness Directives (ADs)',
+      '• Legal Interpretations (LOIs)',
       'Every one of them is cross-referenced together (see "What is MagicLink?" below), so a regulation, its related AIM guidance, its glossary terms, and any AC, AD, or LOI that touches it are all reachable from wherever you\'re reading.',
       'On top of the source libraries, FlyRegs also has a 10,000+ term Aviation Dictionary and a curated collection of aviation mnemonics — see "What is the Aviation Dictionary?" below.',
     ],
@@ -302,7 +308,11 @@ export default function FAQScreen() {
   const insets = useSafeAreaInsets()
   const backToMenu = useReturnToMenu()
   const fs = useFS()
-  const [open, setOpen] = useState<number | null>(0)
+  // RC: "leave everything closed by default. let the user open things."
+  // This defaulted to index 0 (the first Getting Started question) open,
+  // which meant a long answer was always the first thing on screen
+  // whether the user asked for it or not.
+  const [open, setOpen] = useState<number | null>(null)
 
   const toggle = (i: number) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut)
@@ -373,6 +383,26 @@ export default function FAQScreen() {
                                 </View>
                               )
                             }
+                            // RC: "this still isn't bullet listed like i
+                            // asked for." The interface comment above has
+                            // promised "prefixed with '• ', its own bullet
+                            // line" since this file was written, but
+                            // nothing ever actually rendered that
+                            // differently from a plain paragraph -- this is
+                            // the first real implementation of it. Hanging
+                            // indent (bullet in its own fixed-width column)
+                            // so wrapped lines align under the text, not
+                            // under the bullet glyph.
+                            if (para.startsWith('• ')) {
+                              return (
+                                <View key={pi} style={[styles.bulletLine, spacing]}>
+                                  <Text style={[styles.bulletDot, { color: tokens.t2, fontSize: fs(14) }]}>•</Text>
+                                  <Text style={[styles.a, { flex: 1, color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>
+                                    {para.slice(2)}
+                                  </Text>
+                                </View>
+                              )
+                            }
                             return (
                               <Text
                                 key={pi}
@@ -430,6 +460,8 @@ const styles = StyleSheet.create({
   aWrap: { paddingBottom: 14, paddingRight: 8 },
   a: { fontSize: 14, lineHeight: 21 },
   aSpacing: { marginBottom: 10 },
+  bulletLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  bulletDot: { width: 10, lineHeight: 21 },
   badgeLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   badgePill: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 2, marginTop: 1 },
   badgePillText: { fontWeight: '700', letterSpacing: 0.3 },
