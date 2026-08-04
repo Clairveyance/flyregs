@@ -45,6 +45,7 @@ import {
 } from '@/lib/notifications'
 import { getMyRatings, addRating, removeRating, RATING_CODES, RATING_LABELS, RATING_SHORT_LABELS, RATING_GROUPS, RatingCode } from '@/lib/profileRatings'
 import { getLeaderboardOptIn, setLeaderboardOptIn } from '@/lib/leaderboard'
+import { getFleetSummary } from '@/lib/aircraftSharing'
 
 export default function AccountScreen() {
   const { tokens } = useTheme()
@@ -156,6 +157,26 @@ export default function AccountScreen() {
       setDuelNotifEnabled(false)
     }
   }, [session?.user?.id, isPro])
+
+  // RC: "let's put a small version of the color wheel on the actual
+  // Account bar for them. this will let them see at a glance if they have
+  // any approaching or overdue (orange or red) ADs even before having to
+  // open the section." Premium/Fleet only, matching the feature's own
+  // gate -- Pro's single aircraft doesn't get the "fleet" framing.
+  const [fleetStatus, setFleetStatus] = useState<'clear' | 'attention' | 'overdue' | null>(null)
+  useEffect(() => {
+    if (!session?.user?.id || !isPremium) { setFleetStatus(null); return }
+    let live = true
+    getFleetSummary()
+      .then((rows) => {
+        if (!live || rows.length === 0) { setFleetStatus(null); return }
+        const openAds = rows.reduce((sum, a) => sum + a.openAdCount, 0)
+        const overdue = rows.reduce((sum, a) => sum + a.overdueReminderCount, 0)
+        setFleetStatus(overdue > 0 ? 'overdue' : openAds > 0 ? 'attention' : 'clear')
+      })
+      .catch(() => setFleetStatus(null))
+    return () => { live = false }
+  }, [session?.user?.id, isPremium])
 
   // Ratings are visible to anyone (public SELECT policy) but only load/edit
   // them for the signed-in owner here -- not gated on isPro for *reading*
@@ -637,7 +658,25 @@ export default function AccountScreen() {
             icon="doc.plaintext"
             label={isPremium ? 'My Fleet' : 'My Aircraft'}
             tokens={tokens}
-            onPress={() => router.push('/my-aircraft' as any)}
+            onPress={() => {
+              // RC: "Free and Plus don't have a My Aircraft bar. it can
+              // show, but needs a lock on it with paywall." Pro/Premium go
+              // straight into the real screen; Free/Plus go straight to
+              // the paywall instead of into a screen that would only
+              // block them once they try to add an aircraft.
+              if (!isPro) { router.push('/paywall'); return }
+              router.push('/my-aircraft' as any)
+            }}
+            trailing={
+              !isPro ? (
+                <Icon name="lock.fill" size={fs(14)} color={tokens.t4} />
+              ) : fleetStatus ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <FleetStatusWheel status={fleetStatus} tokens={tokens} />
+                  <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
+                </View>
+              ) : undefined
+            }
             last
           />
         </View>
@@ -782,6 +821,16 @@ export default function AccountScreen() {
       />
     </View>
   )
+}
+
+// A small ring, not a filled dot -- RC: "a small version of the color
+// wheel." A true proportional multi-segment wheel (like the Fleet mockup's
+// own ring) isn't legible at this size, so this reads the same "wheel"
+// shape while only carrying the one signal RC actually asked for here:
+// worst-severity color, visible before ever opening the section.
+function FleetStatusWheel({ status, tokens }: { status: 'clear' | 'attention' | 'overdue'; tokens: ThemeTokens }) {
+  const color = status === 'overdue' ? tokens.red : status === 'attention' ? tokens.amb : tokens.grn
+  return <View style={{ width: 14, height: 14, borderRadius: 7, borderWidth: 2.5, borderColor: color }} />
 }
 
 function Row({
