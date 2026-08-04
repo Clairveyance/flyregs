@@ -159,8 +159,14 @@ export default function AircraftDetailScreen() {
   const isOwner = role === 'owner'
   const canEdit = role === 'owner' || role === 'editor'
 
+  // RC: "make sure to fix the owner sharing perms for Fleet - Prem only,
+  // both ends." The joiner side was already gated on isPremium
+  // (join/[token].tsx) but this owner side wasn't -- a plain Pro owner
+  // could tap Share and mint a real invite link before this, same gate
+  // folder/[id].tsx already has for its own owner-side Share.
   const handleShare = () => {
     if (!aircraft) return
+    if (!isPremium) { router.push('/paywall?tier=premium'); return }
     Alert.alert(
       'Share this aircraft',
       "Choose what the person you invite can do. They'll need their own Premium subscription to join.",
