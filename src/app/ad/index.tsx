@@ -10,6 +10,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { getRecents, recentItemType, type RecentAC } from '@/lib/recents'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { buildAdSearchPlan } from '@/lib/aircraftSearch'
+import { stripAdSubjectPrefix } from '@/lib/titleFormat'
 
 interface AdHit {
   ad_number: string
@@ -262,7 +263,7 @@ export default function AdIndexScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.adNum, { color: tokens.blu, fontSize: fs(13) }]}>AD {item.ad_number}</Text>
                         <Text style={[styles.adTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
-                          {item.subject_heading}
+                          {stripAdSubjectPrefix(item.subject_heading)}
                         </Text>
                       </View>
                       <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
@@ -302,7 +303,7 @@ export default function AdIndexScreen() {
                             <View style={{ flex: 1 }}>
                               <Text style={[styles.adNum, { color: tokens.blu, fontSize: fs(13) }]}>AD {item.ad_number}</Text>
                               <Text style={[styles.adTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
-                                {item.subject_heading}
+                                {stripAdSubjectPrefix(item.subject_heading)}
                               </Text>
                             </View>
                             <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
@@ -321,7 +322,7 @@ export default function AdIndexScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.adNum, { color: tokens.blu, fontSize: fs(13) }]}>AD {item.ad_number}</Text>
                         <Text style={[styles.adTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
-                          {item.subject_heading}
+                          {stripAdSubjectPrefix(item.subject_heading)}
                         </Text>
                       </View>
                       <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />

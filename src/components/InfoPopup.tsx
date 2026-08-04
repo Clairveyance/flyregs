@@ -24,7 +24,14 @@ interface Props {
    * 'my-aircraft-equipment-disclaimer', not 'my-aircraft-info'). */
   id: string
   title: string
-  body: string
+  /** A single paragraph, or a list of bullet points for anything with more
+   * than one distinct idea -- a wall of run-on prose is harder to scan in
+   * a small popup than the same content broken into bullets (RC,
+   * 2026-08-05, re: My Fleet's intro popup). A bullet can optionally carry
+   * its own color, for text that's explaining what a color means (e.g.
+   * "green = on track") -- plain string bullets stay the default body
+   * color. */
+  body: string | Array<string | { text: string; color: string }>
   /** If true, auto-opens once (per device) the first time this component
    * mounts, and that first showing can only be dismissed via "I
    * Understand" -- not tap-outside or the X. Every showing after that
@@ -81,7 +88,22 @@ export function InfoPopup({ id, title, body, forceOnce = false, iconSize }: Prop
                 </Pressable>
               )}
             </View>
-            <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>{body}</Text>
+            {Array.isArray(body) ? (
+              <View style={styles.bulletList}>
+                {body.map((line, i) => {
+                  const text = typeof line === 'string' ? line : line.text
+                  const color = typeof line === 'string' ? tokens.t2 : line.color
+                  return (
+                    <View key={i} style={styles.bulletRow}>
+                      <Text style={[styles.bulletDot, { color: tokens.t3, fontSize: fs(14.5) }]}>{'•'}</Text>
+                      <Text style={[styles.body, styles.bulletText, { color, fontSize: fs(14.5) }]}>{text}</Text>
+                    </View>
+                  )
+                })}
+              </View>
+            ) : (
+              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>{body}</Text>
+            )}
             {forcing && (
               <Pressable style={[styles.understandBtn, { backgroundColor: tokens.blu }]} onPress={acknowledge}>
                 <Text style={[styles.understandText, { fontSize: fs(14.5) }]}>I Understand</Text>
@@ -114,6 +136,10 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   title: { fontWeight: '700', flex: 1 },
   body: { lineHeight: 21 },
+  bulletList: { gap: 10 },
+  bulletRow: { flexDirection: 'row', gap: 8 },
+  bulletDot: { lineHeight: 21 },
+  bulletText: { flex: 1 },
   understandBtn: {
     borderRadius: 12,
     paddingVertical: 13,

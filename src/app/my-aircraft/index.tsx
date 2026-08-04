@@ -67,7 +67,7 @@ const PRO_AIRCRAFT_CAP = 1
 // coincides with the ring's center since the wrapper is the same size and
 // position as the ring, so this sweeps the tick to the right spot with no
 // per-tick trigonometry. Standard SVG-free technique for radial layouts.
-const RING_SIZE = 132
+const RING_SIZE = 152
 const RING_TICKS = 32
 
 function FleetRing({
@@ -96,8 +96,8 @@ function FleetRing({
         </View>
       ))}
       <View style={[StyleSheet.absoluteFill, styles.ringCenter]}>
-        <Text style={[styles.ringCenterNum, { color: tokens.t1, fontSize: fs(28) }]}>{total}</Text>
-        <Text style={[styles.ringCenterUnit, { color: tokens.t4, fontSize: fs(10) }]}>AIRCRAFT</Text>
+        <Text style={[styles.ringCenterNum, { color: tokens.t1, fontSize: fs(32) }]}>{total}</Text>
+        <Text style={[styles.ringCenterUnit, { color: tokens.t4, fontSize: fs(11) }]}>AIRCRAFT</Text>
       </View>
     </View>
   )
@@ -158,7 +158,11 @@ function RowStatusBadge({
       {openAdCount > 0 ? (
         <Text style={[styles.rowStatusNum, { color: numColor, fontSize: fs(15) }]}>{openAdCount}</Text>
       ) : (
-        <Icon name="checkmark" size={fs(15)} color={numColor} />
+        // RC, light mode: a plain-weight green checkmark on a bright
+        // background reads weak -- bigger + bold (weight only takes effect
+        // on native SF Symbols; Ionicons' web fallback has no bold axis, so
+        // size is what actually helps there).
+        <Icon name="checkmark" size={fs(17)} color={numColor} weight="bold" />
       )}
     </View>
   )
@@ -433,7 +437,15 @@ export default function MyAircraftScreen() {
             <InfoPopup
               id="my-aircraft-intro"
               title={screenTitle}
-              body="Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive applies to them, instead of scanning the full AD list yourself. Premium can also share an aircraft with other Premium accounts as a viewer or editor. The list below is always sorted by urgency — overdue first, then open items, then compliant. Each aircraft's ring shows its most urgent reminder (green = on track, amber = due soon, red = overdue); the number inside is its count of open ADs."
+              body={[
+                'Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive applies to them, instead of scanning the full AD list yourself.',
+                'Premium can share an aircraft with other Premium accounts as a viewer or editor.',
+                'Sorted by urgency — overdue first, then open items, then compliant.',
+                'Each ring shows the aircraft\'s most urgent status — the number is its count of open ADs.',
+                { text: 'Green — on track', color: tokens.grn },
+                { text: 'Amber — due soon', color: tokens.amb },
+                { text: 'Red — overdue', color: tokens.red },
+              ]}
               forceOnce
               iconSize={fs(15)}
             />
@@ -727,9 +739,9 @@ const styles = StyleSheet.create({
   rowStatusNum: { fontWeight: '700' },
   // Fleet compliance card -- ring + legend on top, three stat boxes below.
   fleetCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 16, gap: 14 },
-  fleetCardTop: { flexDirection: 'row', alignItems: 'center', gap: 20 },
+  fleetCardTop: { flexDirection: 'row', alignItems: 'center', gap: 20, paddingLeft: 6 },
   ringTickWrap: { alignItems: 'center' },
-  ringTick: { width: 5, height: 15, borderRadius: 2.5, marginTop: 4 },
+  ringTick: { width: 6, height: 17, borderRadius: 3, marginTop: 4 },
   ringCenter: { alignItems: 'center', justifyContent: 'center' },
   ringCenterNum: { fontWeight: '700' },
   ringCenterUnit: { letterSpacing: 0.8, marginTop: -2, fontWeight: '600' },

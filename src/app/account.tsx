@@ -671,7 +671,7 @@ export default function AccountScreen() {
               !isPro ? (
                 <Icon name="lock.fill" size={fs(14)} color={tokens.t4} />
               ) : fleetStatus ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
                   <FleetStatusWheel status={fleetStatus} tokens={tokens} />
                   <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
                 </View>
@@ -830,7 +830,7 @@ export default function AccountScreen() {
 // worst-severity color, visible before ever opening the section.
 function FleetStatusWheel({ status, tokens }: { status: 'clear' | 'attention' | 'overdue'; tokens: ThemeTokens }) {
   const color = status === 'overdue' ? tokens.red : status === 'attention' ? tokens.amb : tokens.grn
-  return <View style={{ width: 14, height: 14, borderRadius: 7, borderWidth: 2.5, borderColor: color }} />
+  return <View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 3, borderColor: color }} />
 }
 
 function Row({

@@ -10,6 +10,7 @@ import { Icon } from '@/components/Icon'
 import { routeForCitedItem } from '@/lib/citedItems'
 import { setPendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { supabase } from '@/lib/supabase'
+import { stripAdSubjectPrefix } from '@/lib/titleFormat'
 
 interface RelatedItem {
   cited_type: string
@@ -328,7 +329,8 @@ function PodRow({
 
   const titleFor = (item: RelatedItem): string | null => {
     if (item.cited_type === 'pcg') return item.cited_id.replace(/_/g, ' ')
-    return titles[`${item.cited_type}-${item.cited_id}`] ?? null
+    const title = titles[`${item.cited_type}-${item.cited_id}`] ?? null
+    return title && item.cited_type === 'ad' ? stripAdSubjectPrefix(title) : title
   }
 
   const primaryFor = (item: RelatedItem): string =>

@@ -38,6 +38,7 @@ import { SmartSearchLabel } from '@/components/SmartSearchLabel'
 import type { AcFigure } from '@/types'
 import { getRecentSearches, addRecentSearch, removeRecentSearch, clearRecentSearches } from '@/lib/recentSearches'
 import { ChipFilterSheet, ChipFilterSection } from '@/components/ChipFilterSheet'
+import { stripAdSubjectPrefix } from '@/lib/titleFormat'
 import {
   filterDocuments, filterResultCount, routeForFilterResult, searchCitableDocuments,
   getFarPartOptions, getAcSeriesOptions, AUDIENCE_OPTIONS,
@@ -60,6 +61,12 @@ function acResultPrimary(num: string): string {
 }
 
 const HOME_CACHE_KEY = '@flyregs/home-cache'
+// Separate from HOME_CACHE_KEY -- regOfDay refetches on every focus (see its
+// own useFocusEffect below), not just cutoff/badgeDays changes like load()'s
+// cache. Same reason for existing: show the last-known pick instantly instead
+// of the card popping in a beat after the RPC resolves (RC, 2026-08-05: "the
+// DR bar always takes a second to load on screen when you go to Home").
+const REG_OF_DAY_CACHE_KEY = '@flyregs/home-regofday-cache'
 
 // IA redesign (2026-07-28): search now lives entirely on Home -- there is no
 // more standalone Search tab/screen to hand off to, so this dropdown IS the
@@ -405,7 +412,13 @@ export default function HomeScreen() {
   // on every focus is safe -- same-day refocuses just get the same row back.
   useFocusEffect(
     useCallback(() => {
-      getRegOfTheDay().then(setRegOfDay).catch(() => {})
+      AsyncStorage.getItem(REG_OF_DAY_CACHE_KEY)
+        .then((cached) => { if (cached) setRegOfDay(JSON.parse(cached)) })
+        .catch(() => {})
+      getRegOfTheDay().then((fresh) => {
+        setRegOfDay(fresh)
+        AsyncStorage.setItem(REG_OF_DAY_CACHE_KEY, JSON.stringify(fresh)).catch(() => {})
+      }).catch(() => {})
     }, [])
   )
 
@@ -1155,7 +1168,11 @@ export default function HomeScreen() {
                         needed. Uniform row height is worth less than being
                         able to read the result. */}
                     <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={3}>
-                      {item.ac ? item.ac.title : item.other!.secondary}
+                      {item.ac
+                        ? item.ac.title
+                        : item.other!.type === 'ad'
+                          ? stripAdSubjectPrefix(item.other!.secondary)
+                          : item.other!.secondary}
                     </Text>
                   </View>
                 </Pressable>
@@ -1640,7 +1657,7 @@ function OtherWhatsNewCard({
         </Text>
       </View>
       <Text style={[styles.wnTitle, { color: tokens.t2, fontSize: fs(11.5) }]} numberOfLines={2}>
-        {item.title}
+        {item.type === 'ad' ? stripAdSubjectPrefix(item.title) : item.title}
       </Text>
     </Pressable>
   )
