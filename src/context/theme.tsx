@@ -52,7 +52,14 @@ export const darkTokens: ThemeTokens = {
   amb: '#F59E0B',
   adim: 'rgba(245,158,11,0.12)',
   abdr: 'rgba(245,158,11,0.28)',
-  red: '#F87171',
+  // RC: "the red and orange are a bit too close in color/hue/contrast...
+  // let's find a diff shade for the red to help it stand out better." The
+  // old #F87171 (a light, fairly desaturated coral, L~71%) sat close in
+  // visual weight to amb's punchier L~50% -- same lightness band as amber
+  // now (a true, more saturated red instead of pastel coral), so hue does
+  // the distinguishing instead of leaning on a lightness gap that shrank
+  // at small sizes (the row status rings, badge text).
+  red: '#EF4444',
   gold: '#C6A224',
   goldlt: 'rgba(198,162,36,0.12)',
   goldbdr: 'rgba(198,162,36,0.30)',
@@ -80,7 +87,7 @@ export const lightTokens: ThemeTokens = {
   amb: '#F59E0B',
   adim: 'rgba(180,110,0,0.12)',
   abdr: 'rgba(180,110,0,0.32)',
-  red: '#F87171',
+  red: '#EF4444',
   gold: '#A87C00',
   goldlt: 'rgba(168,124,0,0.12)',
   goldbdr: 'rgba(168,124,0,0.32)',
