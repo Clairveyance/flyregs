@@ -16,6 +16,7 @@ import {
 import { backfillAircraftAds, getAircraftAdNotifications, markAdNotificationRead, type AircraftAdNotification } from '@/lib/adNotifications'
 import { getAircraftReminders, type AircraftReminder } from '@/lib/adParts'
 import { getFleetSummary, joinSharedAircraft, type FleetAircraftSummary } from '@/lib/aircraftSharing'
+import { SwipeToDelete } from '@/components/SwipeToDelete'
 
 // The actual payoff of the AD expansion, per explicit direction: a pilot/
 // owner/mechanic only cares about the ~15-20 ADs issued per week that touch
@@ -248,9 +249,28 @@ export default function MyAircraftScreen() {
     }
   }
 
-  const handleRemove = async (id: string) => {
-    await supabase.from('user_aircraft').delete().eq('id', id)
-    setAircraft((prev) => prev.filter((a) => a.aircraftId !== id))
+  // RC: swipe-to-delete "with two step CTA popup verification explaining
+  // what will be deleted" -- this previously had NO confirm at all before
+  // deleting a whole aircraft record (the riskiest delete on this screen),
+  // which matters even more now that a swipe, not just a deliberate trash
+  // tap, can trigger it.
+  const handleRemove = (a: FleetAircraftSummary) => {
+    const label = a.nickname || `${a.make} ${a.model}`
+    Alert.alert(
+      `Delete ${label}?`,
+      'This permanently removes the aircraft and its equipment, reminders, and AD history. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await supabase.from('user_aircraft').delete().eq('id', a.aircraftId)
+            setAircraft((prev) => prev.filter((x) => x.aircraftId !== a.aircraftId))
+          },
+        },
+      ]
+    )
   }
 
   // Premium sees "My Fleet" (unlimited, sharing-capable) -- Free/Plus/Pro
@@ -327,10 +347,12 @@ export default function MyAircraftScreen() {
                     key={a.aircraftId}
                     style={i < aircraft.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}
                   >
-                    <Pressable
-                      style={styles.row}
+                    <SwipeToDelete
+                      onDelete={() => handleRemove(a)}
                       onPress={() => toggleExpand(a.aircraftId)}
+                      disabled={a.role !== 'owner'}
                     >
+                    <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
                       <View style={{ flex: 1 }}>
                         <View style={styles.rowMakeLine}>
                           <Text style={[styles.rowMake, { color: tokens.t1, fontSize: fs(14.5) }]}>
@@ -385,13 +407,9 @@ export default function MyAircraftScreen() {
                           <Icon name="pencil" size={fs(17)} color={tokens.t3} />
                         </Pressable>
                       )}
-                      {a.role === 'owner' && (
-                        <Pressable onPress={(e) => { e.stopPropagation(); handleRemove(a.aircraftId) }} hitSlop={10} style={{ marginRight: 4 }}>
-                          <Icon name="trash" size={fs(17)} color={tokens.t3} />
-                        </Pressable>
-                      )}
                       <Icon name={isExpanded ? 'chevron.down' : 'chevron.right'} size={fs(14)} color={tokens.t4} />
-                    </Pressable>
+                    </View>
+                    </SwipeToDelete>
 
                     {isExpanded && (
                       <View style={[styles.expandPanel, { borderTopColor: tokens.bdr }]}>
