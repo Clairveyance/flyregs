@@ -44,6 +44,7 @@ import { useShareActions } from '@/lib/share'
 import { getNotes, saveNotes, makeNoteId, type Note } from '@/lib/notes'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
 import { syncPushNote, syncPushNoteDeletes } from '@/lib/syncPush'
+import { updateSharedNote } from '@/lib/sharedFolders'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
@@ -169,7 +170,16 @@ export default function NotesScreen() {
     const now = new Date().toISOString()
     const saved: Note = note.id ? { ...note, updated_at: now } : { ...note, id: makeNoteId(), updated_at: now }
     persist(note.id ? notes.map((n) => (n.id === note.id ? saved : n)) : [saved, ...notes])
-    syncPushNote(saved)
+    // A note pulled in because a collaborator placed it in one of MY folders
+    // (see mergeNotes' authorId tag) isn't mine to upsert -- syncPushNote's
+    // upsert keys on (user_id, id) and would create a duplicate row under my
+    // own id rather than update the original. Plain update-by-id instead,
+    // authorized by owners_manage_shared_notes.
+    if (saved.authorId) {
+      updateSharedNote(saved.id, { title: saved.title, body: saved.body })
+    } else {
+      syncPushNote(saved)
+    }
     setEditorNote(null)
   }
 

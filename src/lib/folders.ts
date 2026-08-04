@@ -49,6 +49,15 @@ export interface FolderItem {
   item_type: FolderItemType
   item_id: string
   added_at: string
+  /** Set only when this row was pulled down from a collaborator on a shared
+   * folder THIS account owns (see sync.ts's mergeFolderItems) -- absent for
+   * every item this account authored itself, local or synced. Load-bearing
+   * for one thing only: every push path (syncPushFolderItems' bulk re-push
+   * in particular) must skip rows with this set, never re-upload them under
+   * this account's own user_id. That upsert's conflict key is (user_id, id),
+   * not id alone, so re-pushing a foreign row creates a second, duplicate
+   * row server-side instead of updating the original. */
+  authorId?: string
 }
 
 function makeId() {

@@ -139,10 +139,18 @@ export async function syncPushFolderItems(items: FolderItem[], force = false) {
 export async function syncPushFolderItemDeletes(ids: string[], force = false) {
   const userId = await currentUserId(force)
   if (!userId || !ids.length) return
+  // No .eq('user_id', ...) filter -- RLS is the real authority here, and it
+  // now correctly allows more than "delete my own rows": a folder owner can
+  // remove an item a collaborator added, and an editor-collaborator on a
+  // read_write folder can remove anyone's item, not just their own (see
+  // sync/migrations_folder_readwrite_sharing.sql's owners_manage_own_/
+  // editors_manage_shared_folder_items policies). Filtering by user_id here
+  // would silently no-op exactly those cases -- the local removal would
+  // still go through, but the remote row would never actually get marked
+  // deleted and would reappear on the next pull.
   const { error } = await supabase
     .from('synced_folder_items')
     .update({ deleted: true, updated_at: new Date().toISOString() })
-    .eq('user_id', userId)
     .in('id', ids)
   reportSyncError('folder item delete', error)
 }
@@ -160,10 +168,13 @@ export async function syncPushNote(n: Note, force = false) {
 export async function syncPushNoteDeletes(ids: string[]) {
   const userId = await currentUserId()
   if (!userId || !ids.length) return
+  // No .eq('user_id', ...) filter -- same reasoning as
+  // syncPushFolderItemDeletes above: RLS now correctly allows a folder
+  // owner to delete a collaborator's note (owners_manage_shared_notes), and
+  // filtering by user_id here would silently no-op that case.
   const { error } = await supabase
     .from('synced_notes')
     .update({ deleted: true, updated_at: new Date().toISOString() })
-    .eq('user_id', userId)
     .in('id', ids)
   reportSyncError('note delete', error)
 }

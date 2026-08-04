@@ -1,13 +1,18 @@
 import { supabase } from '@/lib/supabase'
 import { syncPushFolder, syncPushFolderItems, syncPushNote } from '@/lib/syncPush'
-import { getFolders, getItemsInFolder, markFolderShared } from '@/lib/folders'
+import { getFolders, getItemsInFolder, markFolderShared, FolderItem } from '@/lib/folders'
 import { getNotes } from '@/lib/notes'
+import type { BookmarkAC } from '@/lib/bookmarks'
 
 // Real folder sharing: an owner generates an invite link, anyone who redeems
-// it gets read-only access to that folder's AC bookmarks (not notes -- see
-// the migration's comment for why) across their own devices. Collaborators
-// still need their own Pro/Premium subscription to see full AC text -- this
-// only shares which ACs to look at, never bypasses the paywall.
+// it gets access to that folder's bookmarks and notes across their own
+// devices -- read-only by default, or read/write if the owner sets this
+// folder's collab_mode to read_write (see setFolderCollabMode below; it's a
+// flag on the folder, not the person, so the same collaborator can be a
+// viewer on one shared folder and an editor on another). Collaborators
+// still need their own Pro/Premium subscription to see full AC/FAR/AIM/etc.
+// text -- this only shares which items to look at, never bypasses the
+// paywall.
 
 export interface SharedFolderSummary {
   folder_id: string
@@ -61,10 +66,17 @@ export async function getOrCreateShareLink(folderId: string): Promise<string> {
   if (!folder) throw new Error('Folder not found')
 
   await syncPushFolder(folder, true)
-  if (items.length) await syncPushFolderItems(items, true)
+  // Excludes authorId-tagged items (a past collaborator's items already
+  // pulled into this folder's local cache) -- see FolderItem.authorId.
+  const ownItems = items.filter((i) => !i.authorId)
+  if (ownItems.length) await syncPushFolderItems(ownItems, true)
   const noteMap = new Map(notes.map((n) => [n.id, n]))
-  const noteItems = items.filter((i) => i.item_type === 'note').map((i) => noteMap.get(i.item_id))
-  await Promise.all(noteItems.filter((n): n is NonNullable<typeof n> => !!n).map((n) => syncPushNote(n, true)))
+  const noteItems = ownItems.filter((i) => i.item_type === 'note').map((i) => noteMap.get(i.item_id))
+  await Promise.all(
+    noteItems
+      .filter((n): n is NonNullable<typeof n> => !!n && !n.authorId)
+      .map((n) => syncPushNote(n, true))
+  )
   await markFolderShared(folderId)
 
   const token = makeShareToken()
@@ -189,13 +201,17 @@ export async function getMySharedFolders(): Promise<SharedByMeFolder[]> {
 }
 
 export interface SharedFolderACItem {
+  /** The synced_folder_items row's own id -- distinct from item_id (the AC's
+   * id). Needed by removeSharedFolderItem, which targets this row, not the
+   * content it points at. */
+  id: string
   item_id: string
 }
 
 export async function getSharedFolderACItems(folderId: string): Promise<SharedFolderACItem[]> {
   const { data } = await supabase
     .from('synced_folder_items')
-    .select('item_id')
+    .select('id, item_id')
     .eq('folder_id', folderId)
     .eq('item_type', 'ac')
     .eq('deleted', false)
@@ -209,10 +225,10 @@ export async function getSharedFolderACItems(folderId: string): Promise<SharedFo
 // 'ac' and 'note'). Confirmed live via the #154 process-flow audit: a
 // FAR/AIM/AD/PCG/LOI item added to a shared folder synced to the cloud
 // correctly but was completely invisible to collaborators.
-async function getSharedFolderItemsByType(folderId: string, itemType: string): Promise<{ item_id: string }[]> {
+async function getSharedFolderItemsByType(folderId: string, itemType: string): Promise<{ id: string; item_id: string }[]> {
   const { data } = await supabase
     .from('synced_folder_items')
-    .select('item_id')
+    .select('id, item_id')
     .eq('folder_id', folderId)
     .eq('item_type', itemType)
     .eq('deleted', false)
@@ -234,6 +250,7 @@ export const getSharedFolderLOIItems = (folderId: string) => getSharedFolderItem
 export const getSharedFolderDictionaryItems = (folderId: string) => getSharedFolderItemsByType(folderId, 'dictionary')
 
 export interface SharedFolderNoteItem {
+  id: string
   item_id: string
 }
 
@@ -248,7 +265,7 @@ export interface SharedFolderNoteItem {
 export async function getSharedFolderNoteItems(folderId: string): Promise<SharedFolderNoteItem[]> {
   const { data } = await supabase
     .from('synced_folder_items')
-    .select('item_id')
+    .select('id, item_id')
     .eq('folder_id', folderId)
     .eq('item_type', 'note')
     .eq('deleted', false)
@@ -312,4 +329,173 @@ export async function removeCollaborator(folderId: string, userId: string): Prom
     .eq('folder_id', folderId)
     .eq('user_id', userId)
   if (error) throw error
+}
+
+export type FolderCollabMode = 'read_only' | 'read_write'
+
+// Per-folder, not per-person -- the same person can be a plain viewer on one
+// shared folder and a full editor on another, since this is a flag on
+// synced_folders itself, not a role on folder_collaborators (which has no
+// role column, unlike aircraft_collaborators). Owner-only in practice: RLS's
+// users_manage_own_synced_folders already restricts the underlying UPDATE to
+// auth.uid() = user_id, this just gives it a name.
+export async function setFolderCollabMode(folderId: string, mode: FolderCollabMode): Promise<void> {
+  const { error } = await supabase.from('synced_folders').update({ collab_mode: mode }).eq('id', folderId)
+  if (error) throw error
+}
+
+export async function getFolderCollabMode(folderId: string): Promise<FolderCollabMode> {
+  const { data } = await supabase.from('synced_folders').select('collab_mode').eq('id', folderId).maybeSingle()
+  return (data?.collab_mode as FolderCollabMode) ?? 'read_only'
+}
+
+// ── Direct cross-account writes ─────────────────────────────────────────────
+// Everything below writes straight to Supabase with no local-storage
+// involvement, unlike the owner-side helpers in folders.ts. Two distinct
+// reasons converge on the same shape:
+//
+//  1. The collaborator's shared/[id].tsx screen never had a local mirror of
+//     someone else's folder to begin with -- it has always been a pure
+//     remote read (see getSharedFolderACItems etc. above), so a
+//     collaborator's own writes have nowhere local to go through either.
+//  2. Editing a row this account doesn't own (an owner editing a
+//     collaborator's note, or an editor-collaborator editing someone else's
+//     item) can't go through the normal syncPush* upsert path -- those all
+//     upsert onConflict (user_id, id) under the CALLING account's own
+//     user_id, which would create a duplicate row rather than update the
+//     original when the row's real user_id differs. A plain update-by-id
+//     has no such conflict key to get wrong; RLS alone decides whether it's
+//     allowed (owners_manage_own_/editors_manage_shared_folder_items,
+//     owners_manage_shared_notes/editors_manage_shared_notes).
+
+export async function removeSharedFolderItem(itemRowId: string): Promise<void> {
+  const { error } = await supabase
+    .from('synced_folder_items')
+    .update({ deleted: true, updated_at: new Date().toISOString() })
+    .eq('id', itemRowId)
+  if (error) throw error
+}
+
+// Adds a brand-new note directly into a shared folder -- always inserted
+// under the CALLER's own user_id (an insert, unlike the update helpers
+// above, so the normal RLS insert path applies: users_manage_own_synced_
+// notes for the note itself, editors_manage_shared_folder_items for the
+// pointer). Two inserts, not one -- mirrors addManyToFolder's own note-
+// linking shape in folders.ts exactly, just without any local-storage step.
+export async function addSharedFolderNote(folderId: string, title: string, body: string): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not signed in')
+  const noteId = `note-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
+  const now = new Date().toISOString()
+  const { error: noteError } = await supabase.from('synced_notes').insert({
+    id: noteId, user_id: user.id, title, body, linked_ac: null, updated_at: now, deleted: false,
+  })
+  if (noteError) throw noteError
+  const itemId = `item-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
+  const { error: itemError } = await supabase.from('synced_folder_items').insert({
+    id: itemId, user_id: user.id, folder_id: folderId, item_type: 'note', item_id: noteId,
+    added_at: now, updated_at: now, deleted: false,
+  })
+  if (itemError) throw itemError
+}
+
+// Plain update-by-id -- see the section comment above for why this can't be
+// the normal syncPushNote upsert. Used for editing a note in a shared
+// folder regardless of who authored it (the owner editing a collaborator's
+// note, an editor-collaborator editing anyone's), and reused by notes.tsx
+// for the owner's own local Notes tab when the open note is authorId-tagged.
+export async function updateSharedNote(noteId: string, updates: { title?: string; body?: string }): Promise<void> {
+  const { error } = await supabase
+    .from('synced_notes')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', noteId)
+  if (error) throw error
+}
+
+// Resolves collaborator-authored (FolderItem.authorId-tagged) non-note items
+// into the same BookmarkAC shape the owner's own bookmarks use, so
+// folder/[id].tsx can render them through its existing SwipeableACRow with
+// no special-cased UI -- a collaborator's FAR addition should look exactly
+// like the owner's own would. These were never in the owner's OWN
+// bookmarks (expected, not a gap -- the collaborator never touched the
+// owner's personal bookmark list), so they can't resolve through the normal
+// bookmarkMap path; each type is looked up directly against its own content
+// table instead, the same per-type queries folder/shared/[id].tsx's
+// read-only collaborator view already runs.
+export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<BookmarkAC[]> {
+  const byType = new Map<string, FolderItem[]>()
+  for (const i of items) {
+    if (i.item_type === 'note') continue
+    if (!byType.has(i.item_type)) byType.set(i.item_type, [])
+    byType.get(i.item_type)!.push(i)
+  }
+  if (!byType.size) return []
+
+  const results: BookmarkAC[] = []
+  const savedAtFor = (list: FolderItem[], itemId: string) => list.find((i) => i.item_id === itemId)?.added_at ?? new Date().toISOString()
+
+  const acItems = byType.get('ac') ?? []
+  if (acItems.length) {
+    const { data } = await supabase
+      .from('advisory_circulars')
+      .select('id, document_number, title, date_issued, office, subject_series')
+      .in('id', acItems.map((i) => i.item_id))
+    for (const r of data ?? []) {
+      results.push({
+        id: r.id, itemType: 'ac', document_number: r.document_number, title: r.title,
+        date_issued: r.date_issued, office: r.office, subject_series: r.subject_series,
+        savedAt: savedAtFor(acItems, r.id),
+      })
+    }
+  }
+
+  const farItems = byType.get('far') ?? []
+  if (farItems.length) {
+    const { data } = await supabase.from('far_sections').select('section_number, title').in('section_number', farItems.map((i) => i.item_id))
+    for (const r of data ?? []) {
+      results.push({ id: r.section_number, itemType: 'far', document_number: r.section_number, title: r.title, date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(farItems, r.section_number) })
+    }
+  }
+
+  const aimItems = byType.get('aim') ?? []
+  if (aimItems.length) {
+    const { data } = await supabase.from('aim_paragraphs').select('paragraph_number, title').in('paragraph_number', aimItems.map((i) => i.item_id))
+    for (const r of data ?? []) {
+      results.push({ id: r.paragraph_number, itemType: 'aim', document_number: r.paragraph_number, title: r.title ?? '', date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(aimItems, r.paragraph_number) })
+    }
+  }
+
+  const pcgItems = byType.get('pcg') ?? []
+  if (pcgItems.length) {
+    const { data } = await supabase.from('pcg_terms').select('slug, term').in('slug', pcgItems.map((i) => i.item_id))
+    for (const r of data ?? []) {
+      results.push({ id: r.slug, itemType: 'pcg', document_number: r.term, title: r.term, date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(pcgItems, r.slug) })
+    }
+  }
+
+  const adItems = byType.get('ad') ?? []
+  if (adItems.length) {
+    const { data } = await supabase.from('airworthiness_directives').select('ad_number, title').in('ad_number', adItems.map((i) => i.item_id))
+    for (const r of data ?? []) {
+      results.push({ id: r.ad_number, itemType: 'ad', document_number: r.ad_number, title: r.title, date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(adItems, r.ad_number) })
+    }
+  }
+
+  const loiItems = byType.get('loi') ?? []
+  if (loiItems.length) {
+    const { data } = await supabase.from('legal_interpretations').select('slug, title').in('slug', loiItems.map((i) => i.item_id))
+    for (const r of data ?? []) {
+      results.push({ id: r.slug, itemType: 'loi', document_number: r.slug, title: r.title, date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(loiItems, r.slug) })
+    }
+  }
+
+  const dictItems = byType.get('dictionary') ?? []
+  if (dictItems.length) {
+    const { data } = await supabase.from('dictionary_terms').select('slug, term').in('slug', dictItems.map((i) => i.item_id))
+    for (const r of data ?? []) {
+      results.push({ id: r.slug, itemType: 'dictionary', document_number: r.term, title: r.term, date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(dictItems, r.slug) })
+    }
+  }
+
+  return results
 }

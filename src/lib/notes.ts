@@ -8,6 +8,15 @@ export interface Note {
   body: string
   linked_ac: string | null
   updated_at: string
+  /** Set only when this note was pulled down because a collaborator placed
+   * it in a folder THIS account owns (see sync.ts's mergeNotes) -- absent
+   * for every note this account authored itself. Mirrors FolderItem.
+   * authorId exactly, and for the same reason: notes.tsx's save path must
+   * route an edit to a tagged note through updateSharedNote (plain
+   * update-by-id) instead of the normal syncPushNote upsert, which keys on
+   * (user_id, id) and would create a duplicate row under this account's own
+   * id rather than updating the original. */
+  authorId?: string
 }
 
 const SEED_NOTES: Note[] = [

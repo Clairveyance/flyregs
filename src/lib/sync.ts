@@ -185,37 +185,86 @@ async function mergeFolders(userId: string) {
 }
 
 async function mergeFolderItems(userId: string) {
-  const [{ data: remote }, local] = await Promise.all([
-    supabase.from('synced_folder_items').select('*').eq('user_id', userId),
+  // Was .eq('user_id', userId) -- only ever pulled items THIS account
+  // authored, so a collaborator's item in a folder this account owns was
+  // never even fetched, regardless of what RLS allows. Fetch everything RLS
+  // grants (own-folder items of any author + joined-folder items of any
+  // author), then scope client-side to just this account's OWN local
+  // folders -- a folder merely joined as a collaborator is intentionally
+  // left out of the local cache entirely; that experience is served purely
+  // remotely by sharedFolders.ts's getSharedFolder*Items, unchanged by this.
+  // .range() defensively raises the row cap well past any realistic near-
+  // term usage (see gotcha_postgrest_1000_row_cap in memory).
+  const [ownFolders, { data: remote }, local] = await Promise.all([
+    getFolders(),
+    supabase.from('synced_folder_items').select('*').range(0, 1999),
     getFolderItems(),
   ])
+  const ownFolderIds = new Set(ownFolders.map((f) => f.id))
+  const relevantRemote = (remote ?? []).filter((r) => ownFolderIds.has(r.folder_id))
+
   const localById = new Map(local.map((i) => [i.id, i]))
   const merged = new Map(localById)
 
-  for (const r of remote ?? []) {
+  for (const r of relevantRemote) {
     if (r.deleted) {
       merged.delete(r.id)
       continue
     }
     if (!localById.has(r.id)) {
-      merged.set(r.id, { id: r.id, folder_id: r.folder_id, item_type: r.item_type, item_id: r.item_id, added_at: r.added_at })
+      merged.set(r.id, {
+        id: r.id,
+        folder_id: r.folder_id,
+        item_type: r.item_type,
+        item_id: r.item_id,
+        added_at: r.added_at,
+        // Tags rows this account didn't author -- see FolderItem.authorId.
+        // Own-authored rows (r.user_id === userId) stay untagged so they
+        // still push up normally if this device somehow lost them locally.
+        ...(r.user_id !== userId ? { authorId: r.user_id } : {}),
+      })
     }
   }
-  const toPushUp = local.filter((loc) => !(remote ?? []).some((r) => r.id === loc.id))
+  // Never push up a row that isn't this account's own -- see
+  // FolderItem.authorId's comment for why that would duplicate it remotely.
+  const toPushUp = local.filter((loc) => !loc.authorId && !relevantRemote.some((r) => r.id === loc.id))
 
   await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify([...merged.values()]))
   await syncPushFolderItems(toPushUp)
 }
 
 async function mergeNotes(userId: string) {
-  const [{ data: remote }, local] = await Promise.all([
+  const [{ data: ownRemote }, local, ownFolders] = await Promise.all([
     supabase.from('synced_notes').select('*').eq('user_id', userId),
     getNotes(),
+    getFolders(),
   ])
+
+  // Same gap as mergeFolderItems: a collaborator's OWN note, placed into a
+  // folder THIS account owns, is authored under the collaborator's user_id
+  // -- the plain .eq('user_id', userId) fetch above would never see it. Find
+  // it via the folder_items pointer instead (item_type='note' in one of
+  // this account's own folders), same join folder/shared/[id].tsx already
+  // uses for the read-only collaborator view, then fetch those specific
+  // notes regardless of who authored them -- owners_manage_shared_notes now
+  // allows exactly this read.
+  const ownFolderIds = ownFolders.map((f) => f.id)
+  const { data: noteItemRows } = ownFolderIds.length
+    ? await supabase.from('synced_folder_items').select('item_id').eq('item_type', 'note').in('folder_id', ownFolderIds).eq('deleted', false)
+    : { data: [] as { item_id: string }[] }
+  const foreignNoteIds = [...new Set((noteItemRows ?? []).map((r) => r.item_id))]
+    .filter((id) => !(ownRemote ?? []).some((n) => n.id === id))
+  const { data: foreignRemote } = foreignNoteIds.length
+    ? await supabase.from('synced_notes').select('*').in('id', foreignNoteIds)
+    : { data: [] as any[] }
+
+  const remote = [...(ownRemote ?? []), ...(foreignRemote ?? [])]
+  const foreignIds = new Set((foreignRemote ?? []).map((n) => n.id))
+
   const localById = new Map(local.map((n) => [n.id, n]))
   const merged = new Map(localById)
 
-  for (const r of remote ?? []) {
+  for (const r of remote) {
     const loc = localById.get(r.id)
     const remoteNewer = !loc || new Date(r.updated_at) > new Date(loc.updated_at)
     if (r.deleted) {
@@ -223,17 +272,102 @@ async function mergeNotes(userId: string) {
       continue
     }
     if (remoteNewer) {
-      merged.set(r.id, { id: r.id, title: r.title, body: r.body, linked_ac: r.linked_ac, updated_at: r.updated_at })
+      merged.set(r.id, {
+        id: r.id,
+        title: r.title,
+        body: r.body,
+        linked_ac: r.linked_ac,
+        updated_at: r.updated_at,
+        // See Note.authorId -- tags a collaborator's note so notes.tsx
+        // routes edits through updateSharedNote instead of syncPushNote.
+        ...(foreignIds.has(r.id) ? { authorId: r.user_id } : {}),
+      })
     }
   }
+  // Foreign-authored notes are never pushed up under this account's own
+  // user_id (see notes.tsx's handleSave, which routes edits to those through
+  // updateSharedNote instead) -- excluding them here too, defensively, in
+  // case a future caller ever re-pushes the full local list the way
+  // enableSync does for folder items.
   const toPushUp = local.filter((loc) => {
-    if (isSeedNote(loc.id)) return false
-    const r = (remote ?? []).find((x) => x.id === loc.id)
+    if (isSeedNote(loc.id) || foreignIds.has(loc.id)) return false
+    const r = remote.find((x) => x.id === loc.id)
     return !r || new Date(loc.updated_at) > new Date(r.updated_at)
   })
 
   await saveNotes([...merged.values()])
   for (const n of toPushUp) await syncPushNote(n)
+}
+
+// A lighter, single-folder version of mergeFolderItems/mergeNotes above --
+// safe to call far more often (every time folder/[id].tsx focuses), unlike
+// pullAndMergeAll which touches every bookmark, folder, and note the account
+// has. Exists so a collaborator's write shows up for the owner the moment
+// they open that one folder, not only after the next full sync (app
+// launch, or toggling Back-up & Sync off/on). Deliberately not merged into
+// mergeFolderItems itself -- that one intentionally scans every owned
+// folder at once; this one is scoped to exactly the folder screen asking.
+export async function syncFolderFromCloud(folderId: string, userId: string): Promise<void> {
+  const [{ data: remote }, local] = await Promise.all([
+    supabase.from('synced_folder_items').select('*').eq('folder_id', folderId),
+    getFolderItems(),
+  ])
+  const byId = new Map(local.map((i) => [i.id, i]))
+  let itemsChanged = false
+  for (const r of remote ?? []) {
+    if (r.deleted) {
+      if (byId.delete(r.id)) itemsChanged = true
+      continue
+    }
+    if (!byId.has(r.id)) {
+      byId.set(r.id, {
+        id: r.id,
+        folder_id: r.folder_id,
+        item_type: r.item_type,
+        item_id: r.item_id,
+        added_at: r.added_at,
+        ...(r.user_id !== userId ? { authorId: r.user_id } : {}),
+      })
+      itemsChanged = true
+    }
+  }
+  const merged = [...byId.values()]
+  if (itemsChanged) {
+    // Splice just this folder's rows back into the full local list -- other
+    // folders' items aren't part of `local` restricted here, they came
+    // straight from the unfiltered getFolderItems() above.
+    await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(merged))
+  }
+
+  const noteIds = merged.filter((i) => i.folder_id === folderId && i.item_type === 'note').map((i) => i.item_id)
+  if (!noteIds.length) return
+
+  const [{ data: remoteNotes }, localNotes] = await Promise.all([
+    supabase.from('synced_notes').select('*').in('id', noteIds),
+    getNotes(),
+  ])
+  const noteById = new Map(localNotes.map((n) => [n.id, n]))
+  let notesChanged = false
+  for (const r of remoteNotes ?? []) {
+    const loc = noteById.get(r.id)
+    const remoteNewer = !loc || new Date(r.updated_at) > new Date(loc.updated_at)
+    if (r.deleted) {
+      if (loc && remoteNewer && noteById.delete(r.id)) notesChanged = true
+      continue
+    }
+    if (remoteNewer) {
+      noteById.set(r.id, {
+        id: r.id,
+        title: r.title,
+        body: r.body,
+        linked_ac: r.linked_ac,
+        updated_at: r.updated_at,
+        ...(r.user_id !== userId ? { authorId: r.user_id } : {}),
+      })
+      notesChanged = true
+    }
+  }
+  if (notesChanged) await saveNotes([...noteById.values()])
 }
 
 // ── Turning sync on/off ────────────────────────────────────────────────────────
@@ -264,11 +398,17 @@ export async function enableSync(userId: string): Promise<void> {
         getFolderItems(),
         getNotes(),
       ])
+      // Excludes anything tagged authorId -- a collaborator's item/note
+      // merged into this account's local cache (see mergeFolderItems/
+      // mergeNotes above). Re-pushing those here would upsert under this
+      // account's own user_id on a (user_id, id) conflict key that doesn't
+      // match the original row, creating a duplicate server-side instead of
+      // updating it. See FolderItem.authorId / Note.authorId.
       await Promise.all([
         ...bookmarks.map((b) => syncPushBookmark(b)),
         ...folders.map((f) => syncPushFolder(f)),
-        syncPushFolderItems(folderItems),
-        ...notes.filter((n) => !isSeedNote(n.id)).map((n) => syncPushNote(n)),
+        syncPushFolderItems(folderItems.filter((i) => !i.authorId)),
+        ...notes.filter((n) => !isSeedNote(n.id) && !n.authorId).map((n) => syncPushNote(n)),
       ])
     }
     // Always pull, both paths: this account's own cloud data belongs on this

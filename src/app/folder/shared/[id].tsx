@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, SectionList, Pressable, ActivityIndicator, Alert, StyleSheet, Modal, ScrollView } from 'react-native'
+import { View, Text, SectionList, Pressable, ActivityIndicator, Alert, StyleSheet, Modal, ScrollView, TextInput } from 'react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -10,7 +10,7 @@ import { supabase } from '@/lib/supabase'
 import {
   getSharedFolderACItems, getSharedFolderNoteItems, leaveSharedFolder, markSharedFolderViewed,
   getSharedFolderFARItems, getSharedFolderAIMItems, getSharedFolderPCGItems, getSharedFolderADItems, getSharedFolderLOIItems,
-  getSharedFolderDictionaryItems,
+  getSharedFolderDictionaryItems, FolderCollabMode, removeSharedFolderItem, addSharedFolderNote, updateSharedNote,
 } from '@/lib/sharedFolders'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
@@ -22,6 +22,9 @@ import { getFarIndex, getAimIndex, getAdIndex, getPcgIndex, detectFARs, detectAI
 
 interface ACRow {
   id: string
+  /** The synced_folder_items row's own id -- distinct from `id` (the AC's
+   * own id). Removal targets this row, never the AC itself. */
+  itemRowId: string
   document_number: string
   title: string
   cancels: string[]
@@ -31,6 +34,7 @@ interface ACRow {
 
 interface NoteRow {
   id: string
+  itemRowId: string
   title: string
   body: string
   linked_ac: string | null
@@ -46,6 +50,7 @@ interface NoteRow {
 // the detail screen).
 interface RegRow {
   id: string
+  itemRowId: string
   regType: 'far' | 'aim' | 'pcg' | 'ad' | 'loi' | 'dictionary'
   label: string
   title: string
@@ -82,12 +87,21 @@ export default function SharedFolderDetail() {
   const { badgeDays } = useBadgeLifespan()
   const [folderName, setFolderName] = useState('')
   const [ownerName, setOwnerName] = useState<string | null>(null)
+  const [collabMode, setCollabMode] = useState<FolderCollabMode>('read_only')
   const [acs, setAcs] = useState<ACRow[]>([])
   const [regs, setRegs] = useState<RegRow[]>([])
   const [notes, setNotes] = useState<NoteRow[]>([])
   const [loading, setLoading] = useState(true)
   const [removed, setRemoved] = useState(false)
   const [openNote, setOpenNote] = useState<NoteRow | null>(null)
+  const [noteEditing, setNoteEditing] = useState(false)
+  const [noteEditTitle, setNoteEditTitle] = useState('')
+  const [noteEditBody, setNoteEditBody] = useState('')
+  const [addNoteVisible, setAddNoteVisible] = useState(false)
+  const [newNoteTitle, setNewNoteTitle] = useState('')
+  const [newNoteBody, setNewNoteBody] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
+  const canWrite = collabMode === 'read_write'
   const [acIndex, setAcIndex] = useState<ACIndexEntry[]>([])
   const [farIndex, setFarIndex] = useState<string[]>([])
   const [aimIndex, setAimIndex] = useState<string[]>([])
@@ -110,7 +124,7 @@ export default function SharedFolderDetail() {
     if (typeof id !== 'string') return
     setLoading(true)
     const [{ data: folder }, acItems, noteItems, farItems, aimItems, pcgItems, adItems, loiItems, dictItems] = await Promise.all([
-      supabase.from('synced_folders').select('name').eq('id', id).eq('deleted', false).maybeSingle(),
+      supabase.from('synced_folders').select('name, collab_mode').eq('id', id).eq('deleted', false).maybeSingle(),
       getSharedFolderACItems(id),
       getSharedFolderNoteItems(id),
       getSharedFolderFARItems(id),
@@ -126,6 +140,7 @@ export default function SharedFolderDetail() {
       return
     }
     setFolderName(folder.name)
+    setCollabMode((folder.collab_mode as FolderCollabMode) ?? 'read_only')
 
     // Best-effort -- owner name is a nice-to-have, not load-bearing.
     try {
@@ -141,7 +156,7 @@ export default function SharedFolderDetail() {
         .from('advisory_circulars')
         .select('id, document_number, title, cancels, changed_block_indices, date_issued')
         .in('id', acIds)
-      setAcs(acRows ?? [])
+      setAcs((acRows ?? []).map((r) => ({ ...r, itemRowId: acItems.find((i) => i.item_id === r.id)?.id ?? '' })))
     } else {
       setAcs([])
     }
@@ -153,7 +168,7 @@ export default function SharedFolderDetail() {
         .select('id, title, body, linked_ac, updated_at')
         .in('id', noteIds)
         .eq('deleted', false)
-      setNotes(noteRows ?? [])
+      setNotes((noteRows ?? []).map((r) => ({ ...r, itemRowId: noteItems.find((i) => i.item_id === r.id)?.id ?? '' })))
     } else {
       setNotes([])
     }
@@ -191,13 +206,14 @@ export default function SharedFolderDetail() {
         ? supabase.from('dictionary_terms').select('slug, term').in('slug', dictIds)
         : Promise.resolve({ data: [] }),
     ])
+    const rowIdFor = (list: { id: string; item_id: string }[], itemId: string) => list.find((i) => i.item_id === itemId)?.id ?? ''
     setRegs([
-      ...(farRows.data ?? []).map((r: any): RegRow => ({ id: r.section_number, regType: 'far', label: `§ ${r.section_number}`, title: r.title, route: `/far/${r.section_number}` })),
-      ...(aimRows.data ?? []).map((r: any): RegRow => ({ id: r.paragraph_number, regType: 'aim', label: r.paragraph_number, title: r.title ?? '', route: `/aim/${r.paragraph_number}` })),
-      ...(pcgRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, regType: 'pcg', label: r.term, title: r.term, route: `/pcg/${r.slug}` })),
-      ...(adRows.data ?? []).map((r: any): RegRow => ({ id: r.ad_number, regType: 'ad', label: r.ad_number, title: r.title, route: `/ad/${r.ad_number}` })),
-      ...(loiRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, regType: 'loi', label: r.slug, title: r.title, route: `/loi/${r.slug}` })),
-      ...(dictRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, regType: 'dictionary', label: r.term, title: r.term, route: `/dictionary/${r.slug}` })),
+      ...(farRows.data ?? []).map((r: any): RegRow => ({ id: r.section_number, itemRowId: rowIdFor(farItems, r.section_number), regType: 'far', label: `§ ${r.section_number}`, title: r.title, route: `/far/${r.section_number}` })),
+      ...(aimRows.data ?? []).map((r: any): RegRow => ({ id: r.paragraph_number, itemRowId: rowIdFor(aimItems, r.paragraph_number), regType: 'aim', label: r.paragraph_number, title: r.title ?? '', route: `/aim/${r.paragraph_number}` })),
+      ...(pcgRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, itemRowId: rowIdFor(pcgItems, r.slug), regType: 'pcg', label: r.term, title: r.term, route: `/pcg/${r.slug}` })),
+      ...(adRows.data ?? []).map((r: any): RegRow => ({ id: r.ad_number, itemRowId: rowIdFor(adItems, r.ad_number), regType: 'ad', label: r.ad_number, title: r.title, route: `/ad/${r.ad_number}` })),
+      ...(loiRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, itemRowId: rowIdFor(loiItems, r.slug), regType: 'loi', label: r.slug, title: r.title, route: `/loi/${r.slug}` })),
+      ...(dictRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, itemRowId: rowIdFor(dictItems, r.slug), regType: 'dictionary', label: r.term, title: r.term, route: `/dictionary/${r.slug}` })),
     ])
 
     setLoading(false)
@@ -227,6 +243,65 @@ export default function SharedFolderDetail() {
     ])
   }
 
+  // Deleted rather than removed from just this device -- there's no local
+  // copy of someone else's folder to remove FROM, this is the real row.
+  // RLS (editors_manage_shared_folder_items) allows this for any active
+  // collaborator on a read_write folder, not only the person who added it.
+  const handleRemoveItem = (itemRowId: string, label: string) => {
+    Alert.alert('Remove Item', `Remove ${label} from this folder?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await removeSharedFolderItem(itemRowId)
+            setAcs((prev) => prev.filter((r) => r.itemRowId !== itemRowId))
+            setRegs((prev) => prev.filter((r) => r.itemRowId !== itemRowId))
+            setNotes((prev) => prev.filter((r) => r.itemRowId !== itemRowId))
+          } catch {
+            Alert.alert('Error', 'Could not remove that item. Try again in a moment.')
+          }
+        },
+      },
+    ])
+  }
+
+  const handleOpenNote = (note: NoteRow) => {
+    setOpenNote(note)
+    setNoteEditing(false)
+    setNoteEditTitle(note.title)
+    setNoteEditBody(note.body)
+  }
+
+  const handleSaveNoteEdit = async () => {
+    if (!openNote) return
+    try {
+      await updateSharedNote(openNote.id, { title: noteEditTitle.trim() || 'Untitled', body: noteEditBody })
+      const updated = { ...openNote, title: noteEditTitle.trim() || 'Untitled', body: noteEditBody, updated_at: new Date().toISOString() }
+      setNotes((prev) => prev.map((n) => (n.id === openNote.id ? updated : n)))
+      setOpenNote(updated)
+      setNoteEditing(false)
+    } catch {
+      Alert.alert('Error', 'Could not save. Try again in a moment.')
+    }
+  }
+
+  const handleAddNote = async () => {
+    if (typeof id !== 'string' || !newNoteTitle.trim()) return
+    setSavingNote(true)
+    try {
+      await addSharedFolderNote(id, newNoteTitle.trim(), newNoteBody)
+      setAddNoteVisible(false)
+      setNewNoteTitle('')
+      setNewNoteBody('')
+      load()
+    } catch {
+      Alert.alert('Error', 'Could not add the note. Try again in a moment.')
+    }
+    setSavingNote(false)
+  }
+
   const sections: { title: string; data: (ACRow | NoteRow | RegRow)[] }[] = [
     ...(acs.length ? [{ title: 'ADVISORY CIRCULARS', data: acs as (ACRow | NoteRow | RegRow)[] }] : []),
     ...(['far', 'aim', 'pcg', 'ad', 'loi', 'dictionary'] as const)
@@ -249,8 +324,14 @@ export default function SharedFolderDetail() {
       <View style={[styles.badgeRow, { borderBottomColor: tokens.bdr }]}>
         <Icon name="person.2.fill" size={fs(13)} color={tokens.t3} />
         <Text style={[styles.badgeText, { color: tokens.t3, fontSize: fs(12) }]}>
-          {ownerName ? `Shared by ${ownerName} — view only` : 'Shared with you — view only'}
+          {ownerName ? `Shared by ${ownerName}` : 'Shared with you'} — {canWrite ? 'you can edit' : 'view only'}
         </Text>
+        {canWrite && (
+          <Pressable onPress={() => setAddNoteVisible(true)} hitSlop={8} style={styles.addNoteBtn}>
+            <Icon name="plus" size={fs(13)} color={tokens.blu} />
+            <Text style={[styles.addNoteBtnText, { color: tokens.blu, fontSize: fs(12) }]}>Note</Text>
+          </Pressable>
+        )}
       </View>
 
       {loading ? (
@@ -297,6 +378,11 @@ export default function SharedFolderDetail() {
                     </Text>
                   )}
                 </View>
+                {canWrite && (
+                  <Pressable onPress={() => handleRemoveItem(item.itemRowId, item.label)} hitSlop={8} style={styles.removeBtn}>
+                    <Icon name="trash" size={fs(15)} color={tokens.t4} />
+                  </Pressable>
+                )}
                 <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
             ) : 'document_number' in item ? (
@@ -322,12 +408,17 @@ export default function SharedFolderDetail() {
                     {stripFarPrefix(item.title)}
                   </Text>
                 </View>
+                {canWrite && (
+                  <Pressable onPress={() => handleRemoveItem(item.itemRowId, item.document_number)} hitSlop={8} style={styles.removeBtn}>
+                    <Icon name="trash" size={fs(15)} color={tokens.t4} />
+                  </Pressable>
+                )}
                 <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
             ) : (
               <Pressable
                 style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => setOpenNote(item)}
+                onPress={() => handleOpenNote(item)}
               >
                 <View style={[styles.typeBadge, { backgroundColor: tokens.gdim, borderColor: tokens.gbdr }]}>
                   <Text style={[styles.typeBadgeText, { color: tokens.grn, fontSize: fs(9.5) }]}>NOTE</Text>
@@ -349,6 +440,11 @@ export default function SharedFolderDetail() {
                     )}
                   </View>
                 </View>
+                {canWrite && (
+                  <Pressable onPress={() => handleRemoveItem(item.itemRowId, item.title || 'this note')} hitSlop={8} style={styles.removeBtn}>
+                    <Icon name="trash" size={fs(15)} color={tokens.t4} />
+                  </Pressable>
+                )}
                 <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
             )
@@ -364,15 +460,42 @@ export default function SharedFolderDetail() {
               <View style={[styles.typeBadge, { backgroundColor: tokens.gdim, borderColor: tokens.gbdr }]}>
                 <Text style={[styles.typeBadgeText, { color: tokens.grn, fontSize: fs(9.5) }]}>NOTE</Text>
               </View>
+              {canWrite && (
+                <Pressable onPress={() => (noteEditing ? handleSaveNoteEdit() : setNoteEditing(true))} hitSlop={10} style={styles.modalEditBtn}>
+                  <Icon name={noteEditing ? 'checkmark' : 'pencil'} size={fs(17)} color={tokens.blu} />
+                </Pressable>
+              )}
               <Pressable onPress={() => setOpenNote(null)} hitSlop={10}>
                 <Icon name="xmark" size={fs(18)} color={tokens.t3} />
               </Pressable>
             </View>
             <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingBottom: 20 }}>
-              <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(18) }]}>
-                {openNote?.title || 'Untitled'}
-              </Text>
-              <Text style={[styles.modalBody, { color: tokens.t2, fontSize: fs(14.5) }]}>{openNote?.body}</Text>
+              {noteEditing ? (
+                <>
+                  <TextInput
+                    style={[styles.modalTitleInput, { color: tokens.t1, fontSize: fs(18), borderColor: tokens.bdr2 }]}
+                    value={noteEditTitle}
+                    onChangeText={setNoteEditTitle}
+                    placeholder="Title"
+                    placeholderTextColor={tokens.t3}
+                  />
+                  <TextInput
+                    style={[styles.modalBodyInput, { color: tokens.t2, fontSize: fs(14.5), borderColor: tokens.bdr2 }]}
+                    value={noteEditBody}
+                    onChangeText={setNoteEditBody}
+                    placeholder="Note"
+                    placeholderTextColor={tokens.t3}
+                    multiline
+                  />
+                </>
+              ) : (
+                <>
+                  <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(18) }]}>
+                    {openNote?.title || 'Untitled'}
+                  </Text>
+                  <Text style={[styles.modalBody, { color: tokens.t2, fontSize: fs(14.5) }]}>{openNote?.body}</Text>
+                </>
+              )}
 
               {/* Every AC mentioned in the body, auto-linked exactly like the
                   owner's own Notes tab — not just the single linked_ac field,
@@ -498,6 +621,42 @@ export default function SharedFolderDetail() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={addNoteVisible} transparent animationType="fade" onRequestClose={() => setAddNoteVisible(false)}>
+        <View style={[styles.modalBackdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.headerTitle, { color: tokens.t1, fontSize: fs(16) }]}>New Note</Text>
+              <Pressable onPress={() => setAddNoteVisible(false)} hitSlop={10}>
+                <Icon name="xmark" size={fs(18)} color={tokens.t3} />
+              </Pressable>
+            </View>
+            <TextInput
+              style={[styles.modalTitleInput, { color: tokens.t1, fontSize: fs(18), borderColor: tokens.bdr2 }]}
+              value={newNoteTitle}
+              onChangeText={setNewNoteTitle}
+              placeholder="Title"
+              placeholderTextColor={tokens.t3}
+              autoFocus
+            />
+            <TextInput
+              style={[styles.modalBodyInput, { color: tokens.t2, fontSize: fs(14.5), borderColor: tokens.bdr2 }]}
+              value={newNoteBody}
+              onChangeText={setNewNoteBody}
+              placeholder="Note"
+              placeholderTextColor={tokens.t3}
+              multiline
+            />
+            <Pressable
+              style={[styles.saveNoteBtn, { backgroundColor: tokens.blu, opacity: newNoteTitle.trim() && !savingNote ? 1 : 0.5 }]}
+              onPress={handleAddNote}
+              disabled={!newNoteTitle.trim() || savingNote}
+            >
+              <Text style={[styles.saveNoteBtnText, { fontSize: fs(14) }]}>{savingNote ? 'Adding…' : 'Add Note'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -567,4 +726,13 @@ const styles = StyleSheet.create({
   modalChipSection: { marginTop: 16 },
   detectedLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 8 },
   detectedChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  addNoteBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 'auto', paddingVertical: 3, paddingHorizontal: 6 },
+  addNoteBtnText: { fontWeight: '600' },
+  removeBtn: { padding: 4 },
+  modalEditBtn: { marginLeft: 'auto', marginRight: 12, padding: 2 },
+  headerTitle: { flex: 1, fontWeight: '700' },
+  modalTitleInput: { fontWeight: '700', marginBottom: 10, borderWidth: 1, borderRadius: 8, padding: 8 },
+  modalBodyInput: { lineHeight: 21, borderWidth: 1, borderRadius: 8, padding: 8, minHeight: 100, textAlignVertical: 'top' },
+  saveNoteBtn: { borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
+  saveNoteBtnText: { color: '#fff', fontWeight: '600' },
 })

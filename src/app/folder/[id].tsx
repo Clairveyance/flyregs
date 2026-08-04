@@ -42,7 +42,11 @@ import { useShareActions, ShareableAC } from '@/lib/share'
 import { toRegShareType } from '@/lib/regShare'
 import { REG_TYPE, RegType } from '@/lib/regTypes'
 import { highlightSnippet } from '@/lib/acShare'
-import { getOrCreateShareLink, getFolderCollaborators, removeCollaborator, FolderCollaborator } from '@/lib/sharedFolders'
+import {
+  getOrCreateShareLink, getFolderCollaborators, removeCollaborator, FolderCollaborator,
+  getFolderCollabMode, setFolderCollabMode, FolderCollabMode, resolveForeignFolderEntries,
+} from '@/lib/sharedFolders'
+import { syncFolderFromCloud } from '@/lib/sync'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { stripFarPrefix, rowTitle } from '@/lib/titleFormat'
 
@@ -87,8 +91,18 @@ export default function FolderDetail() {
   const [dismissTop, setDismissTop] = useState(0)
   const [collaborators, setCollaborators] = useState<FolderCollaborator[]>([])
   const [collabExpanded, setCollabExpanded] = useState(false)
+  const [collabMode, setCollabMode] = useState<FolderCollabMode>('read_only')
 
   const load = useCallback(async () => {
+    // Pulls in anything a collaborator wrote since the last full sync,
+    // before the local reads below -- getItemsInFolder/getNotes are pure
+    // local-first, so without this a collaborator's write would only ever
+    // show up here after the next app launch or Back-up & Sync toggle.
+    if (typeof id === 'string') {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) await syncFolderFromCloud(id, user.id).catch(() => {})
+    }
+
     const [folders, items, bookmarks, notesRaw] = await Promise.all([
       getFolders(),
       getItemsInFolder(id),
@@ -106,6 +120,7 @@ export default function FolderDetail() {
     const acs: ACEntry[] = []
     const notesList: NoteEntry[] = []
     const orphaned: FolderItem[] = []
+    const foreign: FolderItem[] = []
 
     for (const item of items) {
       // Every non-'note' item_type (ac/far/aim/pcg/ad) resolves through the
@@ -118,15 +133,21 @@ export default function FolderDetail() {
       if (item.item_type === 'note') {
         const note = noteMap.get(item.item_id)
         if (note) notesList.push({ kind: 'note', data: note, folderItem: item })
-        else orphaned.push(item)
+        else if (!item.authorId) orphaned.push(item)
+        // A foreign note not yet locally cached is a transient sync lag,
+        // not orphaned -- silently skip rather than self-heal-delete it.
       } else {
         const bm = bookmarkMap.get(item.item_id)
         if (bm) acs.push({ kind: 'ac', data: bm, folderItem: item })
+        // A collaborator's item was never in MY bookmarks -- expected, not
+        // a sign it's gone. Resolve those separately below instead of
+        // treating "not in bookmarkMap" as orphaned, which would otherwise
+        // self-heal-delete every collaborator addition on the next load.
+        else if (item.authorId) foreign.push(item)
         else orphaned.push(item)
       }
     }
 
-    setAcEntries(acs)
     setNoteEntries(notesList)
 
     // Self-heal: a folder_item pointing at an AC/note that was unbookmarked or
@@ -138,11 +159,27 @@ export default function FolderDetail() {
       removeManyFromFolder(id, orphaned.map((o) => ({ itemType: o.item_type, itemId: o.item_id }))).catch(() => {})
     }
 
+    if (foreign.length) {
+      resolveForeignFolderEntries(foreign).then((resolved) => {
+        const byId = new Map(resolved.map((r) => [r.id, r]))
+        const foreignEntries: ACEntry[] = foreign
+          .map((item) => {
+            const data = byId.get(item.item_id)
+            return data ? { kind: 'ac' as const, data, folderItem: item } : null
+          })
+          .filter((e): e is ACEntry => e !== null)
+        setAcEntries([...acs, ...foreignEntries])
+      }).catch(() => setAcEntries(acs))
+    } else {
+      setAcEntries(acs)
+    }
+
     // Only owned, previously-shared folders have collaborators to show — a
     // folder that's never been shared has no share_token and this RPC just
     // returns an empty list, so it's safe to always attempt.
     if (typeof id === 'string') {
       getFolderCollaborators(id).then(setCollaborators).catch(() => setCollaborators([]))
+      getFolderCollabMode(id).then(setCollabMode).catch(() => {})
     }
   }, [id])
 
@@ -275,6 +312,17 @@ export default function FolderDetail() {
     setInvitingBusy(false)
   }
 
+  const handleSetCollabMode = async (mode: FolderCollabMode) => {
+    if (!folder || mode === collabMode) return
+    setCollabMode(mode) // optimistic -- matches this screen's other toggles
+    try {
+      await setFolderCollabMode(folder.id, mode)
+    } catch {
+      setCollabMode((prev) => (prev === mode ? collabMode : prev)) // revert on failure
+      Alert.alert('Error', 'Could not update access. Try again in a moment.')
+    }
+  }
+
   const handleRemoveCollaborator = (c: FolderCollaborator) => {
     if (!folder) return
     // Same invite link works for anyone who has it, indefinitely (there's
@@ -399,6 +447,30 @@ export default function FolderDetail() {
             </Text>
             <Icon name={collabExpanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
           </Pressable>
+
+          {/* Per-folder, not per-person -- always visible (not gated behind
+              expand) since this is the actual "set access" step, and the
+              owner should be able to check or flip it without opening the
+              collaborator list. Everyone who currently has the link gets
+              whichever mode this folder is set to; revoking read/write here
+              takes effect immediately, no new link needed. */}
+          <View style={[styles.modeRow, { borderTopColor: tokens.bdr }]}>
+            <Pressable
+              style={[styles.modeBtn, { backgroundColor: collabMode === 'read_only' ? tokens.bdim : 'transparent', borderColor: tokens.bbdr }]}
+              onPress={() => handleSetCollabMode('read_only')}
+            >
+              <Icon name="eye" size={fs(13)} color={collabMode === 'read_only' ? tokens.blu : tokens.t3} />
+              <Text style={[styles.modeBtnText, { color: collabMode === 'read_only' ? tokens.blu : tokens.t3, fontSize: fs(12.5) }]}>Read Only</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.modeBtn, { backgroundColor: collabMode === 'read_write' ? tokens.bdim : 'transparent', borderColor: tokens.bbdr }]}
+              onPress={() => handleSetCollabMode('read_write')}
+            >
+              <Icon name="pencil" size={fs(13)} color={collabMode === 'read_write' ? tokens.blu : tokens.t3} />
+              <Text style={[styles.modeBtnText, { color: collabMode === 'read_write' ? tokens.blu : tokens.t3, fontSize: fs(12.5) }]}>Read & Write</Text>
+            </Pressable>
+          </View>
+
           {collabExpanded && (
             <>
               {activeCollaborators.map((c) => (
@@ -733,6 +805,9 @@ const styles = StyleSheet.create({
   collabSection: { marginHorizontal: 16, marginTop: 12, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
   collabHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12 },
   collabHeaderText: { flex: 1, fontWeight: '600' },
+  modeRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 12, paddingTop: 4, borderTopWidth: StyleSheet.hairlineWidth },
+  modeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 10, borderWidth: 1, paddingVertical: 8 },
+  modeBtnText: { fontWeight: '600' },
   collabRow: {
     flexDirection: 'row',
     alignItems: 'center',
