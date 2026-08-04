@@ -39,7 +39,13 @@ interface QA {
    * used everywhere else in the app (Drawer's account pill, the paywall)
    * instead of spelling the tier name out as plain text -- confirmed live,
    * RC: "when we mention any tier in the FAQ, let's use the actual colored
-   * chips for those tiers to help them stand out." */
+   * chips for those tiers to help them stand out." When `text` itself
+   * contains embedded "\n• " lines, each one renders as its own indented
+   * sub-bullet under the chip's lead line instead of raw \n-joined text --
+   * 2026-08-03 readability pass: the old rendering put a bullet glyph in
+   * front of a wrapped multi-line string with no hanging indent, so a
+   * wrapped line landed flush left under the bullet instead of under the
+   * text above it. */
   a: (string | { badge: BadgeKind; text: string } | { tier: Tier; text: string })[]
 }
 
@@ -72,7 +78,7 @@ const FAQ: QA[] = [
       '• Airworthiness Directives (ADs)',
       '• Legal Interpretations (LOIs)',
       'Every one of them is cross-referenced together (see "What is MagicLink?" below), so a regulation, its related AIM guidance, its glossary terms, and any AC, AD, or LOI that touches it are all reachable from wherever you\'re reading.',
-      'On top of the source libraries, FlyRegs also has a 10,000+ term Aviation Dictionary and a curated collection of aviation mnemonics — see "What is the Aviation Dictionary?" below.',
+      'On top of the source libraries, FlyRegs also has a 9,800+ term Aviation Dictionary and a curated collection of aviation mnemonics — see "What is the Aviation Dictionary?" below.',
     ],
   },
   {
@@ -86,6 +92,7 @@ const FAQ: QA[] = [
     a: [
       'Letters the FAA\'s Office of the Chief Counsel sends in response to a specific question about how a regulation applies in practice — real answers to real edge cases, not general guidance like an AC. Each one is named after whoever requested it, not the topic, so full-text search is the fastest way to find one on a subject rather than browsing.',
       'Browse by year from the LOI tab, or find one connected to whatever you\'re reading via MagicLink.',
+      { tier: 'pro', text: 'Opening the full text of a letter. Anyone can find an LOI and see its citation for free — reading it requires this.' },
     ],
   },
   {
@@ -101,9 +108,9 @@ const FAQ: QA[] = [
     category: 'Getting Started',
     a: [
       'No — browsing the entire library and searching to find an AC are both free, with no account needed, and no limit on how many you can look up. Every AC\'s detail page shows its full Table of Contents plus the beginning of its text for free.',
-      { tier: 'plus', text: 'A one-time purchase, not a subscription:\n• Complete text of every AC and LOI\n• In-document search\n• Bookmarks, notes, highlighting\n• Folders (up to 3)' },
-      { tier: 'pro', text: 'Everything in Plus, plus:\n• Cross-device sync\n• AD and AC update alerts\n• Study Mode and Community, Ask FlyRegs\n• 1 saved aircraft' },
-      { tier: 'premium', text: 'Everything in Pro, plus:\n• Offline downloads\n• Shared folders, unlimited\n• Unlimited saved aircraft, with equipment tags and reminders' },
+      { tier: 'plus', text: 'A one-time purchase, not a subscription:\n• Complete text of every AC and AD\n• In-document search, notes, highlights & bookmarks\n• Folders (up to 3)\n• Mnemonics, RefPacks & What\'s Changed' },
+      { tier: 'pro', text: 'Everything in Plus, plus:\n• Cross-device sync\n• AD and AC update alerts, DailyReg\n• MagicLink, Ask FlyRegs & full Legal Interpretations\n• Study Mode, Challenge Coins & Ready Room\n• 1 saved aircraft' },
+      { tier: 'premium', text: 'Everything in Pro, plus:\n• Offline downloads\n• Shared folders, unlimited\n• Duels\n• Unlimited saved aircraft, with equipment tags, reminders & sharing' },
       'An account is only required when you start a subscription (Pro or Premium, either of which already includes everything Plus does) or make the one-time Plus purchase — creating an account by itself is free and doesn\'t unlock anything.',
     ],
   },
@@ -126,25 +133,36 @@ const FAQ: QA[] = [
     ],
   },
   {
+    q: 'What is What\'s Changed?',
+    category: 'The Content Library',
+    a: [
+      { tier: 'plus', text: 'A real, browsable history of exactly what changed in every revision across the library, grouped by date — not just a badge telling you something was updated.' },
+      'Find it from the "See changes ›" link above the Home screen\'s What\'s New strip.',
+    ],
+  },
+  {
     q: 'What is the Aviation Dictionary?',
     category: 'The Content Library',
     a: [
-      'A 10,000+ term reference covering FAA contractions (radio/ATC shorthand like IMAIR or ALARM), handbook glossary terms, and informal terms pilots and mechanics actually use — separate from the official Pilot/Controller Glossary (P/CG), which only covers the FAA\'s own formal definitions.',
-      'It also includes a curated collection of aviation mnemonics (ARROW, GUMPS, the 5 Cs, and more), each one linked back to the regulation or concept it\'s actually grounded in.',
-      { tier: 'plus', text: 'Full access to browse and search the Dictionary.' },
+      'A 9,800+ term reference covering FAA contractions (radio/ATC shorthand like IMAIR or ALARM), handbook glossary terms, and informal terms pilots and mechanics actually use — separate from the official Pilot/Controller Glossary (P/CG), which only covers the FAA\'s own formal definitions.',
+      'Browsing and searching the Dictionary is free for everyone, no account needed.',
+      { tier: 'plus', text: 'The curated collection of aviation mnemonics inside the Dictionary (ARROW, GUMPS, the 5 Cs, and more), each one linked back to the regulation or concept it\'s actually grounded in.' },
     ],
   },
   {
     q: 'How does search work?',
     category: 'Search',
-    a: ['Search runs across FAR, AIM, P/CG, AC, and AD numbers, titles, and document text. Type a number like "91-74" or "91.155", or a topic like "icing" or "fatigue" — results rank by relevance.'],
+    a: [
+      'Search runs across FAR, AIM, P/CG, AC, and AD numbers, titles, and document text. Type a number like "91-74" or "91.155", or a topic like "icing" or "fatigue" — results rank by relevance.',
+      { tier: 'plus', text: 'Free shows the first 10 results from the Home search bar; this unlocks the full list.' },
+    ],
   },
   {
     q: 'What is SmartSearch?',
     category: 'Search',
     a: [
       'Everyday-language search expansion: FAA text uses precise regulatory wording ("fuel," "parachute operations") that rarely matches how you\'d actually phrase a search ("gas," "skydiving"). SmartSearch bridges common words to the FAA terms that actually appear in the corpus, then pulls in related regulatory terms found in similar contexts, automatically.',
-      'You don\'t turn it on — it runs on every search. If a query looks expanded, results may include near-miss matches on top of exact ones.',
+      'You don\'t turn it on — it runs on every search, free for everyone. If a query looks expanded, results may include near-miss matches on top of exact ones.',
     ],
   },
   {
@@ -168,7 +186,7 @@ const FAQ: QA[] = [
     q: 'What is Study Mode?',
     category: 'Study Mode, Duels & Coins',
     a: [
-      'Flashcard practice pulled from P/CG terms, FAR sections, AIM (real content questions, not paragraph-number trivia), and AC descriptions. Filter by content type, knowledge level (student through CFI/mechanic), and category/class, and set how many cards a session pulls.',
+      { tier: 'pro', text: 'Flashcard practice pulled from P/CG terms, FAR sections, AIM (real content questions, not paragraph-number trivia), and AC descriptions. Filter by content type, knowledge level (student through CFI/mechanic), and category/class, and set how many cards a session pulls.' },
       'Each session draws a fresh random batch, so starting a new session doesn\'t just replay the same cards in the same order.',
     ],
   },
@@ -185,6 +203,7 @@ const FAQ: QA[] = [
     category: 'Study Mode, Duels & Coins',
     a: [
       'App-verified achievement badges for real study activity — study streaks, P/CG mastery milestones, and Duel wins. Unlike your self-reported ratings, coins are only ever awarded automatically off data FlyRegs already tracks.',
+      'Each coin needs whatever tier its underlying activity needs — a Study Mode streak coin needs Pro, a Duel-win coin needs Premium.',
       'Tap any coin (My Account → Challenge Coins) to see exactly what unlocks it, whether you\'ve earned it yet or not. Coins get more ornamented the higher the tier — bronze, silver, and gold versions of the same coin are visually distinct, not just recolored.',
     ],
   },
@@ -192,35 +211,43 @@ const FAQ: QA[] = [
     q: 'What are Duels?',
     category: 'Study Mode, Duels & Coins',
     a: [
-      'A head-to-head multiple-choice quiz against another FlyRegs user, drawing questions from FAR, AIM, P/CG, and AC content. Challenge someone from Community, and you\'ll each get notified when it\'s your turn to answer.',
-      'Wins build toward Duel-specific Challenge Coins, and the Ready Room shows a leaderboard of top Duel performance.',
+      { tier: 'premium', text: 'A head-to-head multiple-choice quiz against another FlyRegs user, drawing questions from FAR, AIM, P/CG, and AC content. Challenge someone from Community, and you\'ll each get notified when it\'s your turn to answer.' },
+      'Wins build toward Duel-specific Challenge Coins, and the Ready Room shows a leaderboard of top Duel performance (Ready Room itself just needs Pro to view).',
     ],
   },
   {
     q: 'What is My Aircraft, and how do AD reminders work?',
     category: 'My Aircraft & RefPacks',
     a: [
-      'My Aircraft (My Account → Airworthiness Directives) lets you save the aircraft you fly by make and model, so FlyRegs can match new and revised Airworthiness Directives (ADs) against just the ones that actually apply to you — not the full corpus of thousands.',
-      'AD applicability text is written against the FAA\'s official type designator (e.g. "PA-28-181"), not always the marketing name you\'d know your plane by (e.g. "Warrior") — there\'s an optional Type Designator field on each saved aircraft for this, auto-suggested for common models, so matching stays accurate either way.',
-      { tier: 'premium', text: 'Adds equipment tags for specific parts, engines, or avionics installed on your aircraft (more precise AD matching than make/model alone), plus reminders you set yourself for recurring compliance items — an inspection interval, a life-limited part — that alert you when one comes due.' },
-      { tier: 'pro', text: '1 saved aircraft.' },
-      { tier: 'premium', text: 'Unlimited aircraft, plus equipment tags and reminders.' },
+      { tier: 'pro', text: 'Save the aircraft you fly by make and model (My Account → My Aircraft), so FlyRegs matches new and revised Airworthiness Directives (ADs) against just the ones that actually apply to you — not the full corpus of thousands. 1 saved aircraft.' },
+      'AD applicability text is written against the FAA\'s official type designator (e.g. "PA-28-181"), not always the marketing name you\'d know your plane by (e.g. "Warrior") — there\'s an optional Type Designator field for this, auto-suggested for common models, so matching stays accurate either way.',
+      'Tap the icon on any Applicable AD to mark it complied, with an optional note — it stays visible with a green check and date instead of disappearing, so you keep a real record instead of a todo list that just empties out. (FlyRegs doesn\'t independently verify compliance — always keep your own maintenance records as the official source.)',
+      { tier: 'premium', text: 'Unlimited saved aircraft (shown as My Fleet instead of My Aircraft). Adds equipment tags for specific parts, engines, or avionics — more precise AD matching than make/model alone — reminders you set yourself for recurring items, and sharing — see the next question.' },
+    ],
+  },
+  {
+    q: 'Can I share an aircraft with someone else?',
+    category: 'My Aircraft & RefPacks',
+    a: [
+      { tier: 'premium', text: 'Share an aircraft from its detail screen — pick Viewer (sees everything) or Editor (can also add equipment and reminders, and mark ADs complied) access, then send the real invite link that opens. Whoever taps it needs their own Premium account to actually join.' },
+      'Collaborators show up on the aircraft with their role, so you always know who has access — useful for a flight school, maintenance shop, or any aircraft with more than one person tracking its compliance.',
     ],
   },
   {
     q: 'Can I search for a specific part — an engine, prop, or avionics box?',
     category: 'My Aircraft & RefPacks',
     a: [
-      'Parts Lookup searches a catalog of parts actually named in real AD applicability text, independent of any aircraft you\'ve saved — free, with the first 5 results shown to anyone. If a search for a common shop term comes back empty (the catalog is bounded to what\'s genuinely named in an AD, not a universal parts database), it falls back to showing the closest matching category instead of a dead end.',
+      'Parts Lookup searches a catalog of parts actually named in real AD applicability text, independent of any aircraft you\'ve saved — free, with the first 5 results shown to anyone.',
+      'If a search for a common shop term comes back empty, that\'s because the catalog is bounded to what\'s genuinely named in an AD, not a universal parts database — it falls back to showing the closest matching category instead of a dead end.',
       { tier: 'plus', text: 'The full result list beyond the first 5.' },
-      { tier: 'premium', text: 'Tagging a specific part to one of your saved aircraft (so AD alerts catch part-keyed ADs too, not just airframe ones) — see My Aircraft above.' },
+      { tier: 'premium', text: 'Tagging a specific part to one of your saved aircraft, so AD alerts catch part-keyed ADs too, not just airframe ones — see My Aircraft above.' },
     ],
   },
   {
     q: 'What are RefPacks?',
     category: 'My Aircraft & RefPacks',
     a: [
-      'RefPacks are certificate and rating study guides built directly from the FAA\'s own Airman Certification Standards (ACS) and Practical Test Standards (PTS) — the same documents your practical test is actually based on — broken into Areas of Operation, Tasks, and each Task\'s Knowledge, Risk Management, and Skill elements.',
+      { tier: 'plus', text: 'Certificate and rating study guides built directly from the FAA\'s own Airman Certification Standards (ACS) and Practical Test Standards (PTS) — the same documents your practical test is actually based on — broken into Areas of Operation, Tasks, and each Task\'s Knowledge, Risk Management, and Skill elements.' },
       'Every element is tappable: it runs a search across FAR, AIM, P/CG, and AC for that specific topic and shows the real regulatory text, instead of leaving you to go find it yourself. A Task\'s "Related Regulations" box also auto-searches on the Task\'s own title the moment you open it.',
       'Find RefPacks under Community → RefPacks, organized by aircraft category (Airplane, Rotorcraft, Powered-Lift) and, within each, by rating/certificate — Private, Commercial, ATP, Flight Instructor, Aviation Mechanic, and more.',
     ],
@@ -260,9 +287,8 @@ const FAQ: QA[] = [
     q: 'What does a subscription unlock?',
     category: 'Subscriptions & Sync',
     a: [
-      'Plus is a one-time purchase — see "Do I need an account?" above for what it unlocks on its own. You don\'t have to buy it first: Pro and Premium each already include everything Plus does, so you can subscribe straight to either one and skip Plus entirely.',
-      { tier: 'pro', text: 'Everything in Plus, plus:\n• Cross-device sync\n• AD and AC update alerts\n• Opening linked items from MagicLink\n• Ask FlyRegs\n• Community (Study Mode, Duels, Challenge Coins)\n• 1 saved aircraft' },
-      { tier: 'premium', text: 'Everything in Pro, plus:\n• Offline downloads\n• Shared folders, unlimited\n• Unlimited saved aircraft, with equipment tags and reminders' },
+      'Plus is a one-time purchase, Pro and Premium are subscriptions — each one already includes everything the tier below it does, so you can subscribe straight to Pro or Premium and skip buying Plus first. See "Do I need an account?" above for exactly what each tier includes.',
+      'The difference between Pro and Premium comes down to depth: Pro adds the tools for actively using the library day to day (sync, alerts, MagicLink, Ask FlyRegs, Study Mode). Premium adds the tools for managing more than yourself — offline access, unlimited shared folders, Duels, and a full Fleet of aircraft instead of just one.',
     ],
   },
   {
@@ -374,12 +400,36 @@ export default function FAQScreen() {
                               )
                             }
                             if (typeof para === 'object' && 'tier' in para) {
+                              // Split "lead line\n• bullet\n• bullet" so
+                              // each bullet gets its own hanging-indent row
+                              // (matching top-level bullets below) instead
+                              // of one Text block with raw \n characters --
+                              // a wrapped bullet line used to fall flush
+                              // left under the bullet glyph instead of
+                              // lining up under the text above it.
+                              const lines = para.text.split('\n')
+                              const lead = lines[0]
+                              const bullets = lines.slice(1).filter((l) => l.startsWith('• '))
                               return (
-                                <View key={pi} style={[styles.badgeLine, spacing]}>
-                                  <TierChip tier={para.tier} />
-                                  <Text style={[styles.a, { flex: 1, color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>
-                                    {para.text}
-                                  </Text>
+                                <View key={pi} style={spacing}>
+                                  <View style={styles.badgeLine}>
+                                    <TierChip tier={para.tier} />
+                                    <Text style={[styles.a, { flex: 1, color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>
+                                      {lead}
+                                    </Text>
+                                  </View>
+                                  {bullets.length > 0 && (
+                                    <View style={styles.tierBulletList}>
+                                      {bullets.map((b, bi) => (
+                                        <View key={bi} style={styles.bulletLine}>
+                                          <Text style={[styles.bulletDot, { color: tokens.t2, fontSize: fs(14) }]}>•</Text>
+                                          <Text style={[styles.a, { flex: 1, color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>
+                                            {b.slice(2)}
+                                          </Text>
+                                        </View>
+                                      ))}
+                                    </View>
+                                  )}
                                 </View>
                               )
                             }
@@ -462,6 +512,7 @@ const styles = StyleSheet.create({
   aSpacing: { marginBottom: 10 },
   bulletLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   bulletDot: { width: 10, lineHeight: 21 },
+  tierBulletList: { marginTop: 6, marginLeft: 10, gap: 5 },
   badgeLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   badgePill: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 2, marginTop: 1 },
   badgePillText: { fontWeight: '700', letterSpacing: 0.3 },
