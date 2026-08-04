@@ -13,7 +13,8 @@ import {
   suggestTypeDesignator, searchTypeDesignators, searchManufacturers, searchMarketingNames,
   type TypeDesignatorSuggestion,
 } from '@/lib/aircraftModels'
-import { backfillAircraftAds } from '@/lib/adNotifications'
+import { backfillAircraftAds, getAircraftAdNotifications, markAdNotificationRead, type AircraftAdNotification } from '@/lib/adNotifications'
+import { getAircraftReminders, type AircraftReminder } from '@/lib/adParts'
 import { getFleetSummary, joinSharedAircraft, type FleetAircraftSummary } from '@/lib/aircraftSharing'
 
 // The actual payoff of the AD expansion, per explicit direction: a pilot/
@@ -36,6 +37,14 @@ interface UserAircraft {
   nickname: string | null
   type_designator: string | null
   year: number | null
+}
+
+// Matches my-aircraft/[id].tsx's own daysUntil exactly.
+function daysUntil(dateStr: string): number {
+  const due = new Date(dateStr + 'T00:00:00')
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  return Math.round((due.getTime() - now.getTime()) / 86400000)
 }
 
 // Pro: 1 saved aircraft (most owners have exactly one). Premium: unlimited --
@@ -65,6 +74,25 @@ export default function MyAircraftScreen() {
   const [editingAircraft, setEditingAircraft] = useState<UserAircraft | null>(null)
   const [joinCode, setJoinCode] = useState('')
   const [joining, setJoining] = useState(false)
+  // Accordion, not multi-expand -- RC: "i like the inline expand for the
+  // a/c's in Fleet... tap to expand is the top part and we put a small
+  // button... at the bottom which takes you into that full a/c page."
+  // One aircraft expanded at a time keeps a long fleet list scannable;
+  // details are lazy-fetched on first expand and cached per aircraft so
+  // re-collapsing/re-expanding the same row doesn't re-fetch.
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [expandedDetails, setExpandedDetails] = useState<Record<string, { ads: AircraftAdNotification[]; reminders: AircraftReminder[] } | 'loading'>>({})
+
+  const toggleExpand = (aircraftId: string) => {
+    if (expandedId === aircraftId) { setExpandedId(null); return }
+    setExpandedId(aircraftId)
+    if (!expandedDetails[aircraftId]) {
+      setExpandedDetails((prev) => ({ ...prev, [aircraftId]: 'loading' }))
+      Promise.all([getAircraftAdNotifications(aircraftId), getAircraftReminders(aircraftId)])
+        .then(([ads, reminders]) => setExpandedDetails((prev) => ({ ...prev, [aircraftId]: { ads, reminders } })))
+        .catch(() => setExpandedDetails((prev) => { const next = { ...prev }; delete next[aircraftId]; return next }))
+    }
+  }
 
   const handleModelChange = (text: string) => {
     setModel(text)
@@ -291,11 +319,17 @@ export default function MyAircraftScreen() {
               <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                 {aircraft.map((a, i) => {
                   const canEdit = a.role === 'owner' || a.role === 'editor'
+                  const isExpanded = expandedId === a.aircraftId
+                  const details = expandedDetails[a.aircraftId]
+                  const acLabel = a.nickname || `${a.make} ${a.model}`
                   return (
+                  <View
+                    key={a.aircraftId}
+                    style={i < aircraft.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}
+                  >
                     <Pressable
-                      key={a.aircraftId}
-                      style={[styles.row, i < aircraft.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
-                      onPress={() => router.push(`/my-aircraft/${a.aircraftId}` as any)}
+                      style={styles.row}
+                      onPress={() => toggleExpand(a.aircraftId)}
                     >
                       <View style={{ flex: 1 }}>
                         <View style={styles.rowMakeLine}>
@@ -356,8 +390,85 @@ export default function MyAircraftScreen() {
                           <Icon name="trash" size={fs(17)} color={tokens.t3} />
                         </Pressable>
                       )}
-                      <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
+                      <Icon name={isExpanded ? 'chevron.down' : 'chevron.right'} size={fs(14)} color={tokens.t4} />
                     </Pressable>
+
+                    {isExpanded && (
+                      <View style={[styles.expandPanel, { borderTopColor: tokens.bdr }]}>
+                        {!details || details === 'loading' ? (
+                          <ActivityIndicator color={tokens.blu} style={{ marginVertical: 10 }} />
+                        ) : (
+                          <>
+                            <Text style={[styles.expandGroupLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>APPLICABLE ADs</Text>
+                            {details.ads.length === 0 ? (
+                              <Text style={[styles.expandEmpty, { color: tokens.t3, fontSize: fs(12.5) }]}>No open ADs.</Text>
+                            ) : (
+                              details.ads.slice(0, 4).map((n) => (
+                                <Pressable
+                                  key={n.id}
+                                  style={styles.expandRow}
+                                  onPress={() => {
+                                    if (!n.readAt) {
+                                      const nowIso = new Date().toISOString()
+                                      setExpandedDetails((prev) => {
+                                        const cur = prev[a.aircraftId]
+                                        if (!cur || cur === 'loading') return prev
+                                        return { ...prev, [a.aircraftId]: { ...cur, ads: cur.ads.map((x) => (x.id === n.id ? { ...x, readAt: nowIso } : x)) } }
+                                      })
+                                      markAdNotificationRead(n.id).catch((e) => console.error('Failed to mark AD notification read:', e?.message ?? e))
+                                    }
+                                    router.push(`/ad/${n.adNumber}` as any)
+                                  }}
+                                >
+                                  {!n.readAt && <View style={[styles.unreadDot, { backgroundColor: tokens.blu }]} />}
+                                  <Text style={[styles.expandRowTitle, { color: tokens.blu, fontSize: fs(12.5) }]}>AD {n.adNumber}</Text>
+                                  <Text style={[styles.expandRowSub, { color: tokens.t2, fontSize: fs(12) }]} numberOfLines={1}>{n.subjectHeading}</Text>
+                                </Pressable>
+                              ))
+                            )}
+                            {details.ads.length > 4 && (
+                              <Text style={[styles.expandMore, { color: tokens.t3, fontSize: fs(11.5) }]}>+{details.ads.length - 4} more</Text>
+                            )}
+
+                            <Text style={[styles.expandGroupLabel, { color: tokens.t3, fontSize: fs(10.5), marginTop: 10 }]}>REMINDERS</Text>
+                            {details.reminders.length === 0 ? (
+                              <Text style={[styles.expandEmpty, { color: tokens.t3, fontSize: fs(12.5) }]}>None set.</Text>
+                            ) : (
+                              [...details.reminders]
+                                .sort((x, y) => daysUntil(x.dueDate) - daysUntil(y.dueDate))
+                                .slice(0, 4)
+                                .map((r) => {
+                                  const days = daysUntil(r.dueDate)
+                                  const overdue = days < 0
+                                  return (
+                                    <View key={r.id} style={styles.expandRow}>
+                                      <Icon name="hourglass" size={fs(12)} color={overdue ? tokens.amb : tokens.t3} />
+                                      <Text style={[styles.expandRowTitle, { color: tokens.t1, fontSize: fs(12.5) }]}>{r.title}</Text>
+                                      <Text style={[styles.expandRowSub, { color: overdue ? tokens.amb : tokens.t3, fontSize: fs(12) }]}>
+                                        {overdue ? `${Math.abs(days)}d overdue` : `${days}d`}
+                                      </Text>
+                                    </View>
+                                  )
+                                })
+                            )}
+                            {details.reminders.length > 4 && (
+                              <Text style={[styles.expandMore, { color: tokens.t3, fontSize: fs(11.5) }]}>+{details.reminders.length - 4} more</Text>
+                            )}
+
+                            <Pressable
+                              style={[styles.manageButton, { borderColor: tokens.bdr }]}
+                              onPress={() => router.push(`/my-aircraft/${a.aircraftId}` as any)}
+                            >
+                              <Text style={[styles.manageButtonText, { color: tokens.blu, fontSize: fs(13) }]}>
+                                {canEdit ? `Manage ${acLabel}` : `Open ${acLabel}`}
+                              </Text>
+                              <Icon name="arrow.up.right" size={fs(12)} color={tokens.blu} />
+                            </Pressable>
+                          </>
+                        )}
+                      </View>
+                    )}
+                  </View>
                   )
                 })}
               </View>
@@ -937,6 +1048,19 @@ const styles = StyleSheet.create({
   summaryTotal: { fontWeight: '600' },
   summaryChip: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 12, borderWidth: 1, paddingHorizontal: 9, paddingVertical: 4 },
   summaryChipText: { fontWeight: '600' },
+  expandPanel: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 10 },
+  expandGroupLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 4 },
+  expandEmpty: { marginBottom: 2 },
+  expandRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 },
+  expandRowTitle: { fontWeight: '600' },
+  expandRowSub: { flex: 1 },
+  expandMore: { marginTop: 2 },
+  unreadDot: { width: 6, height: 6, borderRadius: 3 },
+  manageButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderWidth: 1, borderRadius: 9, paddingVertical: 9, marginTop: 12,
+  },
+  manageButtonText: { fontWeight: '600' },
   groupLabel: { fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 },
   formCard: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 10 },
   input: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
