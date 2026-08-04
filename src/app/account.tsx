@@ -635,7 +635,7 @@ export default function AccountScreen() {
         <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <Row
             icon="doc.plaintext"
-            label="My Aircraft"
+            label={isPremium ? 'My Fleet' : 'My Aircraft'}
             tokens={tokens}
             onPress={() => router.push('/my-aircraft' as any)}
             last

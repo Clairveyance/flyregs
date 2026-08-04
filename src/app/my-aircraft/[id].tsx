@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Alert, Modal } from 'react-native'
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Alert, Modal, Share } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -15,6 +15,10 @@ import {
   type AdPart, type AircraftEquipment, type AircraftReminder, type PartComponentType,
 } from '@/lib/adParts'
 import { getAircraftAdNotifications, markAdNotificationRead, dismissAdNotification, backfillAircraftAds, type AircraftAdNotification } from '@/lib/adNotifications'
+import {
+  getMyAircraftRole, getOrCreateShareCode, getAircraftCollaborators, removeCollaborator, leaveSharedAircraft,
+  type CollaboratorRole, type AircraftCollaborator, type FleetRole,
+} from '@/lib/aircraftSharing'
 
 // Equipment tags + reminders are both Premium (personalized-tracking
 // depth on top of the free/Pro basics) -- see flyregs_decisions.md's AD
@@ -114,6 +118,13 @@ export default function AircraftDetailScreen() {
   const [adsCollapsed, setAdsCollapsed] = useState(false)
   const [equipmentCollapsed, setEquipmentCollapsed] = useState(false)
   const [remindersCollapsed, setRemindersCollapsed] = useState(false)
+  // 'owner' isn't a real aircraft_collaborators row -- it's what
+  // getMyAircraftRole resolving to null means, given RLS already
+  // guarantees only the owner or an active collaborator can ever reach
+  // this screen at all (see aircraftSharing.ts's own comment).
+  const [role, setRole] = useState<FleetRole | null>(null)
+  const [collaborators, setCollaborators] = useState<AircraftCollaborator[]>([])
+  const [sharingBusy, setSharingBusy] = useState(false)
 
   const load = useCallback(() => {
     if (!id) return
@@ -123,16 +134,89 @@ export default function AircraftDetailScreen() {
       getAircraftAdNotifications(id),
       getAircraftEquipment(id),
       getAircraftReminders(id),
-    ]).then(([acRes, ads, equip, rem]) => {
+      getMyAircraftRole(id).catch(() => null),
+    ]).then(([acRes, ads, equip, rem, myRole]) => {
       if (acRes.data) setAircraft(acRes.data as UserAircraft)
       setAdNotifications(ads)
       setEquipment(equip)
       setReminders(rem)
+      const resolvedRole: FleetRole = myRole ?? 'owner'
+      setRole(resolvedRole)
       setLoading(false)
+      // Collaborator roster management is owner-only -- get_aircraft_
+      // collaborators raises for anyone else, matching join_shared_
+      // folder's existing precedent of scoping the roster call itself,
+      // not just hiding the UI for it.
+      if (resolvedRole === 'owner') {
+        getAircraftCollaborators(id).then(setCollaborators).catch(() => setCollaborators([]))
+      }
     })
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  const isOwner = role === 'owner'
+  const canEdit = role === 'owner' || role === 'editor'
+
+  const handleShare = () => {
+    if (!aircraft) return
+    Alert.alert(
+      'Share this aircraft',
+      "Choose what the person you invite can do. They'll need their own Premium subscription to join.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Invite as Viewer', onPress: () => shareAs('viewer') },
+        { text: 'Invite as Editor', onPress: () => shareAs('editor') },
+      ]
+    )
+  }
+
+  const shareAs = async (shareRole: CollaboratorRole) => {
+    if (!aircraft) return
+    setSharingBusy(true)
+    try {
+      const code = await getOrCreateShareCode(aircraft.id, shareRole)
+      const label = aircraft.nickname || `${aircraft.make} ${aircraft.model}`
+      await Share.share({
+        message: `Join "${label}" on FlyRegs — open My Fleet, tap Join Shared Aircraft, and enter code ${code}. Requires your own Premium subscription.`,
+      })
+      getAircraftCollaborators(aircraft.id).then(setCollaborators).catch(() => {})
+    } catch (e: any) {
+      Alert.alert('Could not create invite', e?.message ?? 'Unknown error')
+    }
+    setSharingBusy(false)
+  }
+
+  const handleRemoveCollaborator = (c: AircraftCollaborator) => {
+    if (!aircraft) return
+    Alert.alert('Remove Access', `Remove ${c.displayLabel} from this aircraft?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          await removeCollaborator(aircraft.id, c.userId)
+          setCollaborators((prev) => prev.filter((x) => x.userId !== c.userId))
+        },
+      },
+    ])
+  }
+
+  const handleLeave = () => {
+    if (!aircraft) return
+    const label = aircraft.nickname || `${aircraft.make} ${aircraft.model}`
+    Alert.alert('Leave Shared Aircraft', `You'll lose access to ${label} until invited again.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Leave',
+        style: 'destructive',
+        onPress: async () => {
+          await leaveSharedAircraft(aircraft.id)
+          router.back()
+        },
+      },
+    ])
+  }
 
   const visibleAdNotifications = useMemo(
     () => adNotifications.filter((n) => withinAdRange(n.citationPublishDate, adRange)),
@@ -248,15 +332,70 @@ export default function AircraftDetailScreen() {
     )
   }
 
+  const shareHeaderAction = isOwner ? (
+    <Pressable onPress={handleShare} hitSlop={10} disabled={sharingBusy} style={{ padding: 6 }}>
+      <Icon name="person.2.fill" size={fs(21)} color={tokens.t2} />
+    </Pressable>
+  ) : undefined
+
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title={aircraft.nickname || `${aircraft.make} ${aircraft.model}`} onBack={() => router.back()} />
+      <OverlayHeader
+        title={aircraft.nickname || `${aircraft.make} ${aircraft.model}`}
+        onBack={() => router.back()}
+        right={shareHeaderAction}
+      />
       <TabletContainer>
         <ScrollView contentContainerStyle={styles.content}>
-          <Text style={[styles.acLine, { color: tokens.t1, fontSize: fs(17) }]}>{aircraft.make} {aircraft.model}</Text>
+          <View style={styles.acLineRow}>
+            <Text style={[styles.acLine, { color: tokens.t1, fontSize: fs(17) }]}>{aircraft.make} {aircraft.model}</Text>
+            {!isOwner && role && (
+              <View style={[styles.roleBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
+                <Text style={[styles.roleBadgeText, { color: tokens.t3, fontSize: fs(10) }]}>{role.toUpperCase()}</Text>
+              </View>
+            )}
+          </View>
           {aircraft.nickname && <Text style={[styles.acSub, { color: tokens.t3, fontSize: fs(13) }]}>{aircraft.nickname}</Text>}
           {aircraft.type_designator && (
             <Text style={[styles.acSub, { color: tokens.t3, fontSize: fs(12) }]}>Type {aircraft.type_designator} — used to match AD filings</Text>
+          )}
+          {!isOwner && (
+            <Pressable onPress={handleLeave} hitSlop={8} style={{ alignSelf: 'flex-start', marginTop: 2, marginBottom: 4 }}>
+              <Text style={[styles.leaveText, { color: tokens.red, fontSize: fs(12.5) }]}>Leave shared aircraft</Text>
+            </Pressable>
+          )}
+
+          {/* Collaborator roster -- owner-only (get_aircraft_collaborators
+              itself raises for anyone else), same reasoning as folder/
+              [id].tsx's collabSection: review who has access and revoke it,
+              right on the screen the access actually applies to. */}
+          {isOwner && collaborators.length > 0 && (
+            <View style={[styles.collabSection, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+              <View style={styles.collabHeader}>
+                <Icon name="person.2.fill" size={fs(15)} color={tokens.t2} />
+                <Text style={[styles.collabHeaderText, { color: tokens.t2, fontSize: fs(13) }]}>
+                  {collaborators.length} {collaborators.length === 1 ? 'person has' : 'people have'} access
+                </Text>
+              </View>
+              {collaborators.map((c) => (
+                <View key={c.userId} style={[styles.collabRow, { borderTopColor: tokens.bdr }]}>
+                  <Icon
+                    name={c.lastViewedAt ? 'eye.fill' : 'eye.slash'}
+                    size={fs(13)}
+                    color={c.lastViewedAt ? tokens.grn : tokens.t4}
+                  />
+                  <Text style={[styles.collabName, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
+                    {c.displayLabel}
+                  </Text>
+                  <View style={[styles.roleBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
+                    <Text style={[styles.roleBadgeText, { color: tokens.t3, fontSize: fs(10) }]}>{c.role.toUpperCase()}</Text>
+                  </View>
+                  <Pressable onPress={() => handleRemoveCollaborator(c)} hitSlop={8}>
+                    <Icon name="xmark.circle" size={fs(18)} color={tokens.t4} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
           )}
 
           <View style={styles.disclaimerCard}>
@@ -301,9 +440,14 @@ export default function AircraftDetailScreen() {
                 </View>
               )}
             </Pressable>
-            <Pressable onPress={handleBackfillAds} hitSlop={10} disabled={backfilling}>
-              {backfilling ? <ActivityIndicator size="small" color={tokens.blu} /> : <Icon name="arrow.clockwise" size={fs(18)} color={tokens.blu} />}
-            </Pressable>
+            {/* Owner-only: editors_manage_shared_ad_notifications only
+                grants UPDATE, not INSERT, so an editor tapping this would
+                just fail RLS -- see migrations_aircraft_sharing.sql. */}
+            {isOwner && (
+              <Pressable onPress={handleBackfillAds} hitSlop={10} disabled={backfilling}>
+                {backfilling ? <ActivityIndicator size="small" color={tokens.blu} /> : <Icon name="arrow.clockwise" size={fs(18)} color={tokens.blu} />}
+              </Pressable>
+            )}
           </View>
           {!adsCollapsed && (
             <>
@@ -384,9 +528,11 @@ export default function AircraftDetailScreen() {
                           {n.citationPublishDate ? ` · ${n.citationPublishDate}` : ''}
                         </Text>
                       </View>
-                      <Pressable onPress={() => handleDismissAd(n)} hitSlop={10}>
-                        <Icon name="trash" size={fs(16)} color={tokens.t3} />
-                      </Pressable>
+                      {canEdit && (
+                        <Pressable onPress={() => handleDismissAd(n)} hitSlop={10}>
+                          <Icon name="trash" size={fs(16)} color={tokens.t3} />
+                        </Pressable>
+                      )}
                       <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
                     </Pressable>
                   ))}
@@ -403,9 +549,11 @@ export default function AircraftDetailScreen() {
                 <Text style={[styles.sectionCount, { color: tokens.t4, fontSize: fs(11) }]}>{equipment.length}</Text>
               )}
             </Pressable>
-            <Pressable onPress={openAddEquipment} hitSlop={10}>
-              <Icon name="plus.circle.fill" size={fs(20)} color={tokens.blu} />
-            </Pressable>
+            {canEdit && (
+              <Pressable onPress={openAddEquipment} hitSlop={10}>
+                <Icon name="plus.circle.fill" size={fs(20)} color={tokens.blu} />
+              </Pressable>
+            )}
           </View>
           {!equipmentCollapsed && (
             equipment.length === 0 ? (
@@ -422,9 +570,11 @@ export default function AircraftDetailScreen() {
                       <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{e.part.name}</Text>
                       {e.part.manufacturer && <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]}>{e.part.manufacturer}</Text>}
                     </View>
-                    <Pressable onPress={() => handleRemoveEquipment(e.id)} hitSlop={10}>
-                      <Icon name="trash" size={fs(16)} color={tokens.t3} />
-                    </Pressable>
+                    {canEdit && (
+                      <Pressable onPress={() => handleRemoveEquipment(e.id)} hitSlop={10}>
+                        <Icon name="trash" size={fs(16)} color={tokens.t3} />
+                      </Pressable>
+                    )}
                   </View>
                 ))}
               </View>
@@ -439,9 +589,11 @@ export default function AircraftDetailScreen() {
                 <Text style={[styles.sectionCount, { color: tokens.t4, fontSize: fs(11) }]}>{reminders.length}</Text>
               )}
             </Pressable>
-            <Pressable onPress={openAddReminder} hitSlop={10}>
-              <Icon name="plus.circle.fill" size={fs(20)} color={tokens.blu} />
-            </Pressable>
+            {canEdit && (
+              <Pressable onPress={openAddReminder} hitSlop={10}>
+                <Icon name="plus.circle.fill" size={fs(20)} color={tokens.blu} />
+              </Pressable>
+            )}
           </View>
           {!remindersCollapsed && (
             reminders.length === 0 ? (
@@ -459,7 +611,7 @@ export default function AircraftDetailScreen() {
                     <Pressable
                       key={r.id}
                       style={[styles.row, i < reminders.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
-                      onPress={() => openEditReminder(r)}
+                      onPress={canEdit ? () => openEditReminder(r) : undefined}
                     >
                       <Icon name="hourglass" size={fs(15)} color={overdue ? tokens.amb : soon ? tokens.gold : tokens.t3} />
                       <View style={{ flex: 1 }}>
@@ -469,9 +621,11 @@ export default function AircraftDetailScreen() {
                           {r.linkedAdNumber ? ` · AD ${r.linkedAdNumber}` : ''}
                         </Text>
                       </View>
-                      <Pressable onPress={() => handleRemoveReminder(r.id)} hitSlop={10}>
-                        <Icon name="trash" size={fs(16)} color={tokens.t3} />
-                      </Pressable>
+                      {canEdit && (
+                        <Pressable onPress={() => handleRemoveReminder(r.id)} hitSlop={10}>
+                          <Icon name="trash" size={fs(16)} color={tokens.t3} />
+                        </Pressable>
+                      )}
                     </Pressable>
                   )
                 })}
@@ -927,8 +1081,17 @@ const styles = StyleSheet.create({
     borderRadius: 10, borderWidth: 1, padding: 10, marginBottom: 10,
   },
   relatedNoteText: { flex: 1, lineHeight: 17 },
+  acLineRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   acLine: { fontWeight: '700' },
   acSub: { marginTop: 2, marginBottom: 4 },
+  leaveText: { fontWeight: '600' },
+  roleBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
+  roleBadgeText: { fontWeight: '700', letterSpacing: 0.4 },
+  collabSection: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', marginTop: 10, marginBottom: 4 },
+  collabHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12 },
+  collabHeaderText: { flex: 1, fontWeight: '600' },
+  collabRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth },
+  collabName: { flex: 1 },
 
   disclaimerCard: {
     flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, marginBottom: 4,

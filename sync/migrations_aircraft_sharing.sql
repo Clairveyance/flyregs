@@ -172,3 +172,82 @@ begin
   return query select v_aircraft.id, v_aircraft.nickname, v_aircraft.make, v_aircraft.model, v_aircraft.share_code_role;
 end;
 $function$;
+create or replace function public.get_aircraft_collaborators(p_aircraft_id uuid)
+returns table(out_user_id uuid, out_display_label text, out_role text, out_joined_at timestamptz, out_last_viewed_at timestamptz)
+language plpgsql
+security definer
+set search_path = public
+as $function$
+begin
+  if not exists (select 1 from user_aircraft where id = p_aircraft_id and user_id = auth.uid()) then
+    raise exception 'Not authorized';
+  end if;
+
+  return query
+    select ac.user_id, coalesce(u.raw_user_meta_data->>'display_name', split_part(u.email, '@', 1))::text,
+      ac.role, ac.joined_at, ac.last_viewed_at
+    from aircraft_collaborators ac
+    join auth.users u on u.id = ac.user_id
+    where ac.aircraft_id = p_aircraft_id and ac.left_at is null;
+end;
+$function$;
+
+-- Aircraft shared WITH the current user (not owned) -- mirrors folders'
+-- getMyCollaborations shape, needed so My Fleet can show owned + shared
+-- aircraft in one list, and so the detail screen knows the viewer's own
+-- role (to hide edit controls for a 'viewer').
+create or replace function public.get_my_shared_aircraft()
+returns table(out_aircraft_id uuid, out_make text, out_model text, out_nickname text, out_type_designator text, out_year integer, out_role text, out_owner_label text)
+language plpgsql
+security definer
+set search_path = public
+as $function$
+begin
+  return query
+    select ua.id, ua.make, ua.model, ua.nickname, ua.type_designator, ua.year, ac.role,
+      coalesce(u.raw_user_meta_data->>'display_name', split_part(u.email, '@', 1))::text
+    from aircraft_collaborators ac
+    join user_aircraft ua on ua.id = ac.aircraft_id
+    join auth.users u on u.id = ac.owner_id
+    where ac.user_id = auth.uid() and ac.left_at is null;
+end;
+$function$;
+-- Real per-aircraft compliance summary for My Fleet's ring + list chips.
+-- Deliberately does NOT invent an "AD due date" -- user_ad_notifications
+-- has no due-date column at all (an AD is either applicable or it isn't;
+-- FlyRegs doesn't model FAA compliance-by dates per aircraft). The only
+-- REAL "overdue" concept in this data model is a Reminder whose due_date
+-- has passed -- so the status chip RC asked to de-confuse is built from
+-- two genuinely separate, real facts: how many Applicable ADs are open
+-- (undismissed), and how many Reminders are overdue -- never conflated
+-- into one misleading number the way the mockup's illustrative sample
+-- data did.
+--
+-- No SECURITY DEFINER -- runs as the caller, so the existing RLS policies
+-- on user_aircraft/user_ad_notifications/user_aircraft_reminders already
+-- correctly scope this to exactly the aircraft the caller owns or has
+-- collaborator access to; this function is just the aggregation, not a
+-- new access decision.
+create or replace function public.get_fleet_summary()
+returns table(
+  out_aircraft_id uuid, out_make text, out_model text, out_nickname text,
+  out_type_designator text, out_year integer, out_role text,
+  out_open_ad_count integer, out_overdue_reminder_count integer
+)
+language sql
+stable
+as $function$
+  with my_aircraft as (
+    select ua.id, ua.make, ua.model, ua.nickname, ua.type_designator, ua.year,
+      case when ua.user_id = auth.uid() then 'owner' else ac.role end as role
+    from user_aircraft ua
+    left join aircraft_collaborators ac on ac.aircraft_id = ua.id and ac.user_id = auth.uid() and ac.left_at is null
+    where ua.user_id = auth.uid() or ac.user_id = auth.uid()
+  )
+  select
+    ma.id, ma.make, ma.model, ma.nickname, ma.type_designator, ma.year, ma.role,
+    coalesce((select count(*)::int from user_ad_notifications n where n.user_aircraft_id = ma.id and n.dismissed_at is null), 0),
+    coalesce((select count(*)::int from user_aircraft_reminders r where r.user_aircraft_id = ma.id and r.due_date < current_date), 0)
+  from my_aircraft ma
+  order by ma.make, ma.model;
+$function$;

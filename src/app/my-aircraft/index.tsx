@@ -14,6 +14,7 @@ import {
   type TypeDesignatorSuggestion,
 } from '@/lib/aircraftModels'
 import { backfillAircraftAds } from '@/lib/adNotifications'
+import { getFleetSummary, joinSharedAircraft, type FleetAircraftSummary } from '@/lib/aircraftSharing'
 
 // The actual payoff of the AD expansion, per explicit direction: a pilot/
 // owner/mechanic only cares about the ~15-20 ADs issued per week that touch
@@ -39,14 +40,19 @@ interface UserAircraft {
 
 // Pro: 1 saved aircraft (most owners have exactly one). Premium: unlimited --
 // a natural upsell for shops/mechanics tracking a fleet. See the pricing
-// pivot's aircraft-cap decision in flyregs_decisions.md.
+// pivot's aircraft-cap decision in flyregs_decisions.md. Sharing (viewing or
+// editing someone else's aircraft) has no separate cap of its own -- RC:
+// "My Fleet is a Prem only feature, so there is no a/c cap" -- but every
+// collaborator, not just the owner, needs their own Premium subscription
+// (enforced in handleJoin below), the same client-side pattern used
+// everywhere else in this app (folders, equipment, reminders).
 const PRO_AIRCRAFT_CAP = 1
 
 export default function MyAircraftScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
   const { session, isPro, isPremium } = useAuth()
-  const [aircraft, setAircraft] = useState<UserAircraft[]>([])
+  const [aircraft, setAircraft] = useState<FleetAircraftSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [make, setMake] = useState('')
   const [model, setModel] = useState('')
@@ -57,6 +63,8 @@ export default function MyAircraftScreen() {
   const typeDesignatorEdited = useRef(false)
   const [saving, setSaving] = useState(false)
   const [editingAircraft, setEditingAircraft] = useState<UserAircraft | null>(null)
+  const [joinCode, setJoinCode] = useState('')
+  const [joining, setJoining] = useState(false)
 
   const handleModelChange = (text: string) => {
     setModel(text)
@@ -73,19 +81,54 @@ export default function MyAircraftScreen() {
       setLoading(false)
       return
     }
-    supabase
-      .from('user_aircraft')
-      .select('id, make, model, nickname, type_designator, year')
-      .order('make')
-      .then(({ data, error }) => {
-        if (!error && data) setAircraft(data as UserAircraft[])
-        setLoading(false)
-      })
+    // get_fleet_summary() returns owned AND shared aircraft in one call,
+    // each with its own role and real (not invented) alert counts -- see
+    // aircraftSharing.ts's own comment on why this replaced a plain
+    // user_aircraft select.
+    getFleetSummary()
+      .then((rows) => setAircraft(rows))
+      .catch((e) => console.error('Failed to load fleet summary:', e?.message ?? e))
+      .finally(() => setLoading(false))
   }
 
   useEffect(() => {
     load()
   }, [session])
+
+  const handleJoin = async () => {
+    if (!session) {
+      router.push('/auth')
+      return
+    }
+    // Sharing is Premium-only for EVERY participant, not just the owner --
+    // RC: "anyone who is going to be receiving and viewing Fleet data has
+    // to, themselves, have a Prem account." This is a client-side gate,
+    // same pattern as every other tier check in this app (the join RPC
+    // itself has no subscription check of its own).
+    if (!isPremium) {
+      Alert.alert(
+        'Premium required',
+        'Viewing or editing a shared aircraft requires your own Premium subscription.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Upgrade to Premium', onPress: () => router.push('/paywall?tier=premium') },
+        ]
+      )
+      return
+    }
+    const code = joinCode.trim()
+    if (!code) return
+    setJoining(true)
+    try {
+      const joined = await joinSharedAircraft(code)
+      setJoinCode('')
+      load()
+      Alert.alert('Joined', `${joined.nickname || `${joined.make} ${joined.model}`} now appears in your Fleet as ${joined.role}.`)
+    } catch (e: any) {
+      Alert.alert('Could not join', e?.message ?? 'Unknown error')
+    }
+    setJoining(false)
+  }
 
   const handleAdd = async () => {
     if (!session) {
@@ -179,12 +222,20 @@ export default function MyAircraftScreen() {
 
   const handleRemove = async (id: string) => {
     await supabase.from('user_aircraft').delete().eq('id', id)
-    setAircraft((prev) => prev.filter((a) => a.id !== id))
+    setAircraft((prev) => prev.filter((a) => a.aircraftId !== id))
   }
+
+  // Premium sees "My Fleet" (unlimited, sharing-capable) -- Free/Plus/Pro
+  // still see "My Aircraft" (capped at 1, no sharing) -- same screen, same
+  // Account entry point, RC-confirmed: "so for Prem, does My Aircraft just
+  // become My Fleet? in the same space in Account?"
+  const screenTitle = isPremium ? 'My Fleet' : 'My Aircraft'
+  const totalOpenAds = aircraft.reduce((sum, a) => sum + a.openAdCount, 0)
+  const totalOverdue = aircraft.reduce((sum, a) => sum + a.overdueReminderCount, 0)
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title="My Aircraft" onBack={() => router.back()} />
+      <OverlayHeader title={screenTitle} onBack={() => router.back()} />
 
       {loading ? (
         <View style={styles.center}>
@@ -197,8 +248,8 @@ export default function MyAircraftScreen() {
             <Text style={[styles.intro, { color: tokens.t3, fontSize: fs(13) }]}>How this works</Text>
             <InfoPopup
               id="my-aircraft-intro"
-              title="My Aircraft"
-              body="Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive applies to them, instead of scanning the full AD list yourself."
+              title={screenTitle}
+              body="Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive applies to them, instead of scanning the full AD list yourself. Premium can also share an aircraft with other Premium accounts as a viewer or editor."
               forceOnce
               iconSize={fs(15)}
             />
@@ -207,36 +258,139 @@ export default function MyAircraftScreen() {
           {aircraft.length === 0 ? (
             <Text style={[styles.empty, { color: tokens.t3, fontSize: fs(14) }]}>No aircraft saved yet.</Text>
           ) : (
-            <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-              {aircraft.map((a, i) => (
-                <Pressable
-                  key={a.id}
-                  style={[styles.row, i < aircraft.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
-                  onPress={() => router.push(`/my-aircraft/${a.id}` as any)}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.rowMake, { color: tokens.t1, fontSize: fs(14.5) }]}>
-                      {a.year ? `${a.year} ` : ''}{a.make} {a.model}
+            <>
+              {/* Total aircraft count and alert counts are two DIFFERENT
+                  numbers, shown as visibly separate pieces -- RC, on the
+                  mockup: "now it looks like 2 a/c are overdue, but open and
+                  find that of the two inside, only 1 is overdue. so you
+                  need an a/c total and also a 'status' chip for the
+                  alerts." Built from get_fleet_summary()'s two genuinely
+                  real, separate facts (open AD count, overdue reminder
+                  count) -- never one conflated "overdue" number. */}
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryTotal, { color: tokens.t1, fontSize: fs(13.5) }]}>
+                  {aircraft.length} aircraft
+                </Text>
+                {totalOverdue > 0 && (
+                  <View style={[styles.summaryChip, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
+                    <Icon name="hourglass" size={fs(11)} color={tokens.amb} />
+                    <Text style={[styles.summaryChipText, { color: tokens.amb, fontSize: fs(11.5) }]}>
+                      {totalOverdue} reminder{totalOverdue === 1 ? '' : 's'} overdue
                     </Text>
-                    {(a.nickname || a.type_designator) && (
-                      <Text style={[styles.rowNickname, { color: tokens.t3, fontSize: fs(12.5) }]}>
-                        {[a.nickname, a.type_designator ? `Type ${a.type_designator}` : null].filter(Boolean).join(' · ')}
-                      </Text>
-                    )}
                   </View>
-                  <Pressable onPress={(e) => { e.stopPropagation(); setEditingAircraft(a) }} hitSlop={10} style={{ marginRight: 14 }}>
-                    <Icon name="pencil" size={fs(17)} color={tokens.t3} />
-                  </Pressable>
-                  <Pressable onPress={(e) => { e.stopPropagation(); handleRemove(a.id) }} hitSlop={10} style={{ marginRight: 4 }}>
-                    <Icon name="trash" size={fs(17)} color={tokens.t3} />
-                  </Pressable>
-                  <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
-                </Pressable>
-              ))}
-            </View>
+                )}
+                {totalOpenAds > 0 && (
+                  <View style={[styles.summaryChip, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
+                    <Icon name="wrench" size={fs(11)} color={tokens.t2} />
+                    <Text style={[styles.summaryChipText, { color: tokens.t2, fontSize: fs(11.5) }]}>
+                      {totalOpenAds} open AD{totalOpenAds === 1 ? '' : 's'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                {aircraft.map((a, i) => {
+                  const canEdit = a.role === 'owner' || a.role === 'editor'
+                  return (
+                    <Pressable
+                      key={a.aircraftId}
+                      style={[styles.row, i < aircraft.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
+                      onPress={() => router.push(`/my-aircraft/${a.aircraftId}` as any)}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <View style={styles.rowMakeLine}>
+                          <Text style={[styles.rowMake, { color: tokens.t1, fontSize: fs(14.5) }]}>
+                            {a.year ? `${a.year} ` : ''}{a.make} {a.model}
+                          </Text>
+                          {a.role !== 'owner' && (
+                            <View style={[styles.roleBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
+                              <Text style={[styles.roleBadgeText, { color: tokens.t3, fontSize: fs(10) }]}>
+                                {a.role === 'editor' ? 'EDITOR' : 'VIEWER'}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        {(a.nickname || a.typeDesignator) && (
+                          <Text style={[styles.rowNickname, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                            {[a.nickname, a.typeDesignator ? `Type ${a.typeDesignator}` : null].filter(Boolean).join(' · ')}
+                          </Text>
+                        )}
+                        {(a.openAdCount > 0 || a.overdueReminderCount > 0) && (
+                          <View style={styles.rowChips}>
+                            {a.overdueReminderCount > 0 && (
+                              <View style={[styles.alertChip, { backgroundColor: tokens.bdim }]}>
+                                <Icon name="hourglass" size={fs(10)} color={tokens.amb} />
+                                <Text style={[styles.alertChipText, { color: tokens.amb, fontSize: fs(11) }]}>
+                                  {a.overdueReminderCount} overdue
+                                </Text>
+                              </View>
+                            )}
+                            {a.openAdCount > 0 && (
+                              <View style={[styles.alertChip, { backgroundColor: tokens.bdim }]}>
+                                <Icon name="wrench" size={fs(10)} color={tokens.t3} />
+                                <Text style={[styles.alertChipText, { color: tokens.t3, fontSize: fs(11) }]}>
+                                  {a.openAdCount} open AD{a.openAdCount === 1 ? '' : 's'}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        )}
+                      </View>
+                      {canEdit && (
+                        <Pressable
+                          onPress={(e) => {
+                            e.stopPropagation()
+                            setEditingAircraft({
+                              id: a.aircraftId, make: a.make, model: a.model,
+                              nickname: a.nickname, type_designator: a.typeDesignator, year: a.year,
+                            })
+                          }}
+                          hitSlop={10}
+                          style={{ marginRight: 14 }}
+                        >
+                          <Icon name="pencil" size={fs(17)} color={tokens.t3} />
+                        </Pressable>
+                      )}
+                      {a.role === 'owner' && (
+                        <Pressable onPress={(e) => { e.stopPropagation(); handleRemove(a.aircraftId) }} hitSlop={10} style={{ marginRight: 4 }}>
+                          <Icon name="trash" size={fs(17)} color={tokens.t3} />
+                        </Pressable>
+                      )}
+                      <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
+                    </Pressable>
+                  )
+                })}
+              </View>
+            </>
           )}
 
-          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
+          {isPremium && (
+            <>
+              <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: aircraft.length === 0 ? 0 : 20 }]}>
+                JOIN SHARED AIRCRAFT
+              </Text>
+              <View style={[styles.formCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, flexDirection: 'row', gap: 8 }]}>
+                <TextInput
+                  value={joinCode}
+                  onChangeText={setJoinCode}
+                  placeholder="Enter invite code"
+                  placeholderTextColor={tokens.t3}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  style={[styles.input, { flex: 1, color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }]}
+                />
+                <Pressable
+                  style={[styles.addButton, { backgroundColor: tokens.blu, marginTop: 0, paddingHorizontal: 18 }]}
+                  onPress={handleJoin}
+                  disabled={joining || !joinCode.trim()}
+                >
+                  {joining ? <ActivityIndicator color="#fff" size="small" /> : <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Join</Text>}
+                </Pressable>
+              </View>
+            </>
+          )}
+
+          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 20 }]}>
             ADD AIRCRAFT{!isPremium ? ` (${aircraft.length}/${PRO_AIRCRAFT_CAP} — Premium for unlimited)` : ''}
           </Text>
           <View style={[styles.formCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
@@ -771,8 +925,18 @@ const styles = StyleSheet.create({
   empty: { textAlign: 'center', paddingVertical: 20 },
   list: { borderRadius: 12, borderWidth: 1, marginBottom: 20, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', padding: 14 },
+  rowMakeLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   rowMake: { fontWeight: '600' },
   rowNickname: { marginTop: 2 },
+  rowChips: { flexDirection: 'row', gap: 6, marginTop: 6 },
+  alertChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 3 },
+  alertChipText: { fontWeight: '600' },
+  roleBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
+  roleBadgeText: { fontWeight: '700', letterSpacing: 0.4 },
+  summaryRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  summaryTotal: { fontWeight: '600' },
+  summaryChip: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 12, borderWidth: 1, paddingHorizontal: 9, paddingVertical: 4 },
+  summaryChipText: { fontWeight: '600' },
   groupLabel: { fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 },
   formCard: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 10 },
   input: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
