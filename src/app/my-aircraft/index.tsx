@@ -10,7 +10,7 @@ import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
 import { suggestTypeDesignator } from '@/lib/aircraftModels'
-import { backfillAircraftAds } from '@/lib/adNotifications'
+import { backfillAircraftAds, getAircraftAdNotifications, type AircraftAdNotification } from '@/lib/adNotifications'
 import { getAircraftReminders, type AircraftReminder } from '@/lib/adParts'
 import { getFleetSummary, type FleetAircraftSummary } from '@/lib/aircraftSharing'
 import { SwipeToDelete } from '@/components/SwipeToDelete'
@@ -122,6 +122,29 @@ function StatBox({ value, label, color, tokens, fs }: { value: string | number; 
   )
 }
 
+// RC: "since the top part already tells us what the colors mean, we don't
+// need it to say 'open' or 'overdue' in the a/c box, it can just be a big
+// colored number with the colored circle/ring around it. cleaner." The
+// ring+legend above already teaches green/amber/red -- repeating the word
+// on every row was the redundant part, not the color itself. Compliant has
+// no natural count to show (an aircraft doesn't have "0 compliant items"
+// the way it has "2 open ADs"), so that one gets a checkmark instead of a
+// number rather than displaying a bare, slightly odd-looking "0".
+function RowStatusBadge({ overdueCount, openCount, tokens, fs }: { overdueCount: number; openCount: number; tokens: ThemeTokens; fs: (n: number) => number }) {
+  const color = overdueCount > 0 ? tokens.red : openCount > 0 ? tokens.amb : tokens.grn
+  return (
+    <View style={[styles.rowStatusRing, { borderColor: color }]}>
+      {overdueCount > 0 ? (
+        <Text style={[styles.rowStatusNum, { color, fontSize: fs(15) }]}>{overdueCount}</Text>
+      ) : openCount > 0 ? (
+        <Text style={[styles.rowStatusNum, { color, fontSize: fs(15) }]}>{openCount}</Text>
+      ) : (
+        <Icon name="checkmark" size={fs(15)} color={color} />
+      )}
+    </View>
+  )
+}
+
 export default function MyAircraftScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -144,6 +167,12 @@ export default function MyAircraftScreen() {
   const [yearPickerOpen, setYearPickerOpen] = useState(false)
   const typeDesignatorEdited = useRef(false)
   const [saving, setSaving] = useState(false)
+  // RC: "let's keep this whole 'add a/c' area collapsed. just a small
+  // 'Add Aircraft +' which can expand when needed... this screen will have
+  // status wheel, a/c dropdowns, etc. It's busy enough w/o this Add feature
+  // always open." Collapses back to the compact trigger after a successful
+  // add too (handleAdd), not just on first load.
+  const [addFormOpen, setAddFormOpen] = useState(false)
   // Accordion, not multi-expand -- RC: "i like the inline expand for the
   // a/c's in Fleet... tap to expand is the top part and we put a small
   // button... at the bottom which takes you into that full a/c page."
@@ -151,21 +180,22 @@ export default function MyAircraftScreen() {
   // details are lazy-fetched on first expand and cached per aircraft so
   // re-collapsing/re-expanding the same row doesn't re-fetch.
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [expandedDetails, setExpandedDetails] = useState<Record<string, { reminders: AircraftReminder[] } | 'loading'>>({})
+  const [expandedDetails, setExpandedDetails] = useState<Record<string, { ads: AircraftAdNotification[]; reminders: AircraftReminder[] } | 'loading'>>({})
 
-  // RC: "we don't need all this extra stuff. keep all things clean." The
-  // row's own "N open ADs" chip (below) already says everything the old
-  // inline AD list said, just with more clutter -- Manage is where you'd
-  // actually go read or act on one. Reminders don't have an equivalent
-  // chip for non-overdue items though, so previewing them here is the
-  // only place to see them without navigating away -- that one stays.
+  // RC, on the status pill: "whatever data these are representing, let's
+  // show that in the dropdown when it's tapped on." An earlier pass
+  // dropped the AD list here entirely, reasoning the row's own "N open
+  // ADs" chip already said the count -- true, but it meant tapping to
+  // expand answered "how many" and never "which ones," the one thing the
+  // Overdue pill's Reminders section already did answer. Back, but lighter
+  // than before: just AD number chips, not the full subject-heading rows.
   const toggleExpand = (aircraftId: string) => {
     if (expandedId === aircraftId) { setExpandedId(null); return }
     setExpandedId(aircraftId)
     if (!expandedDetails[aircraftId]) {
       setExpandedDetails((prev) => ({ ...prev, [aircraftId]: 'loading' }))
-      getAircraftReminders(aircraftId)
-        .then((reminders) => setExpandedDetails((prev) => ({ ...prev, [aircraftId]: { reminders } })))
+      Promise.all([getAircraftAdNotifications(aircraftId), getAircraftReminders(aircraftId)])
+        .then(([ads, reminders]) => setExpandedDetails((prev) => ({ ...prev, [aircraftId]: { ads, reminders } })))
         .catch(() => setExpandedDetails((prev) => { const next = { ...prev }; delete next[aircraftId]; return next }))
     }
   }
@@ -279,6 +309,7 @@ export default function MyAircraftScreen() {
     setTypeDesignator('')
     setYear(null)
     typeDesignatorEdited.current = false
+    setAddFormOpen(false)
     load()
     // Backfill against the FULL AD corpus, not just future ones -- a
     // freshly-added aircraft otherwise starts with an empty Applicable ADs
@@ -366,7 +397,7 @@ export default function MyAircraftScreen() {
             <InfoPopup
               id="my-aircraft-intro"
               title={screenTitle}
-              body="Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive applies to them, instead of scanning the full AD list yourself. Premium can also share an aircraft with other Premium accounts as a viewer or editor."
+              body="Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive applies to them, instead of scanning the full AD list yourself. Premium can also share an aircraft with other Premium accounts as a viewer or editor. The list below is always sorted by urgency — overdue first, then open items, then compliant."
               forceOnce
               iconSize={fs(15)}
             />
@@ -408,10 +439,14 @@ export default function MyAircraftScreen() {
                 </View>
               </View>
 
-              <View style={styles.aircraftSectionLabel}>
-                <Text style={[styles.aircraftSectionTitle, { color: tokens.t3, fontSize: fs(11.5) }]}>AIRCRAFT</Text>
-                <Text style={[styles.aircraftSectionSort, { color: tokens.t4, fontSize: fs(11) }]}>Sorted by urgency</Text>
-              </View>
+              {/* RC: "is there another way to sort? if not, we probably
+                  don't need the words. we can always just explain the
+                  sort in the 'how this works' info icon." There's no sort
+                  picker -- urgency-first is the only order -- so the
+                  trailing label was explaining a fact with no alternative
+                  to distinguish it from, moved into the intro popup above
+                  instead of staying permanently on screen. */}
+              <Text style={[styles.aircraftSectionTitle, { color: tokens.t3, fontSize: fs(11.5) }]}>AIRCRAFT</Text>
               <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                 {sortedAircraft.map((a, i) => {
                   const canEdit = a.role === 'owner' || a.role === 'editor'
@@ -420,12 +455,6 @@ export default function MyAircraftScreen() {
                   const acLabel = a.nickname || `${a.make} ${a.model}`
                   const primaryLabel = a.nickname || `${a.make} ${a.model}`
                   const secondaryLabel = [`${a.make} ${a.model}`, a.typeDesignator].filter(Boolean).join(' · ')
-                  const statusColor = a.overdueReminderCount > 0 ? tokens.red : a.openAdCount > 0 ? tokens.amb : tokens.grn
-                  const statusText = a.overdueReminderCount > 0
-                    ? `Overdue · ${a.overdueReminderCount}`
-                    : a.openAdCount > 0
-                    ? `Open · ${a.openAdCount}`
-                    : 'Compliant'
                   return (
                   <View
                     key={a.aircraftId}
@@ -453,9 +482,7 @@ export default function MyAircraftScreen() {
                         </View>
                         <Text style={[styles.rowNickname, { color: tokens.t3, fontSize: fs(12.5) }]}>{secondaryLabel}</Text>
                       </View>
-                      <View style={[styles.statusPill, { backgroundColor: statusColor + '26', borderColor: statusColor + '55' }]}>
-                        <Text style={[styles.statusPillText, { color: statusColor, fontSize: fs(11.5) }]}>{statusText}</Text>
-                      </View>
+                      <RowStatusBadge overdueCount={a.overdueReminderCount} openCount={a.openAdCount} tokens={tokens} fs={fs} />
                       {/* No edit pencil here -- best part is no part. RC:
                           "we don't need this edit button here. the
                           editing takes place once inside the a/c page."
@@ -471,7 +498,36 @@ export default function MyAircraftScreen() {
                           <ActivityIndicator color={tokens.blu} style={{ marginVertical: 10 }} />
                         ) : (
                           <>
-                            <Text style={[styles.expandGroupLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>REMINDERS</Text>
+                            {/* RC: "whatever data these are representing,
+                                let's show that in the dropdown when it's
+                                tapped on" -- the row's own status pill says
+                                a count, this says which ones. Just number
+                                chips, not the full subject-heading rows
+                                that were here before "keep all things
+                                clean" removed them -- complied ADs get a
+                                green check + dimmed text so open vs. done
+                                reads at a glance without a second label. */}
+                            <Text style={[styles.expandGroupLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>APPLICABLE ADs</Text>
+                            {details.ads.length === 0 ? (
+                              <Text style={[styles.expandEmpty, { color: tokens.t3, fontSize: fs(12.5) }]}>None matched.</Text>
+                            ) : (
+                              <View style={styles.adChipWrap}>
+                                {details.ads.map((n) => (
+                                  <Pressable
+                                    key={n.id}
+                                    style={[styles.adChip, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}
+                                    onPress={() => router.push(`/ad/${n.adNumber}` as any)}
+                                  >
+                                    {n.compliedAt && <Icon name="checkmark.circle.fill" size={fs(10)} color={tokens.grn} />}
+                                    <Text style={[styles.adChipText, { color: n.compliedAt ? tokens.t3 : tokens.blu, fontSize: fs(11.5) }]}>
+                                      {n.adNumber}
+                                    </Text>
+                                  </Pressable>
+                                ))}
+                              </View>
+                            )}
+
+                            <Text style={[styles.expandGroupLabel, { color: tokens.t3, fontSize: fs(10.5), marginTop: 10 }]}>REMINDERS</Text>
                             {details.reminders.length === 0 ? (
                               <Text style={[styles.expandEmpty, { color: tokens.t3, fontSize: fs(12.5) }]}>None set.</Text>
                             ) : (
@@ -481,12 +537,21 @@ export default function MyAircraftScreen() {
                                 .map((r) => {
                                   const days = daysUntil(r.dueDate)
                                   const overdue = days < 0
+                                  const soon = days >= 0 && days <= 30
+                                  // RC: "again, we don't need the word here,
+                                  // just use colors for these day counts" --
+                                  // and separately, "green when good, amber
+                                  // when w/n a certain number of days from
+                                  // due... red when overdue," same 3-color
+                                  // scheme as the ring and the detail
+                                  // screen's own reminders list.
+                                  const color = overdue ? tokens.red : soon ? tokens.amb : tokens.grn
                                   return (
                                     <View key={r.id} style={styles.expandRow}>
-                                      <Icon name="hourglass" size={fs(12)} color={overdue ? tokens.amb : tokens.t3} />
+                                      <Icon name="hourglass" size={fs(12)} color={color} />
                                       <Text style={[styles.expandRowTitle, { color: tokens.t1, fontSize: fs(12.5) }]}>{r.title}</Text>
-                                      <Text style={[styles.expandRowSub, { color: overdue ? tokens.amb : tokens.t3, fontSize: fs(12) }]}>
-                                        {overdue ? `${Math.abs(days)}d overdue` : `${days}d`}
+                                      <Text style={[styles.expandRowSub, { color, fontSize: fs(12) }]}>
+                                        {overdue ? `${Math.abs(days)}d` : `${days}d`}
                                       </Text>
                                     </View>
                                   )
@@ -520,51 +585,77 @@ export default function MyAircraftScreen() {
               Joining a shared aircraft happens entirely by tapping the
               link an owner shares (join/[token].tsx), same as folders;
               there's nothing left for the receiver to do on this screen. */}
-          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 20 }]}>
-            ADD AIRCRAFT{!isPremium ? ` (${aircraft.length}/${PRO_AIRCRAFT_CAP} — Premium for unlimited)` : ''}
-          </Text>
-          <View style={[styles.formCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-            <MakeField value={make} onChangeText={setMake} tokens={tokens} fs={fs} />
-            <ModelField
-              value={model}
-              onChangeText={handleModelChange}
-              onSelectDesignator={(d) => { if (!typeDesignatorEdited.current) setTypeDesignator(d) }}
-              tokens={tokens}
-              fs={fs}
-            />
-            <TypeDesignatorField
-              value={typeDesignator}
-              onChangeText={handleTypeDesignatorChange}
-              onSelectManufacturer={(mfr) => { if (!make.trim()) setMake(mfr) }}
-              tokens={tokens}
-              fs={fs}
-            />
-            <Text style={[styles.typeHint, { color: tokens.t3, fontSize: fs(11.5) }]}>
-              Model is the marketing name (Skyhawk, Warrior) if it has one — Type designator is the FAA's technical
-              code (172S, PA-28-181) that Airworthiness Directives are actually filed under. We auto-suggest a type
-              from common model names; some aircraft (e.g. Pilatus PC-12) aren't known by any name besides their
-              type — just enter it in both fields.
-            </Text>
-            <YearField value={year} onPress={() => setYearPickerOpen(true)} tokens={tokens} fs={fs} />
-            <TextInput
-              value={nickname}
-              onChangeText={setNickname}
-              placeholder="Nickname (optional, e.g. N12345)"
-              placeholderTextColor={tokens.t3}
-              style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }]}
-            />
+          {/* RC: "let's keep this whole 'add a/c' area collapsed. just a
+              small 'Add Aircraft +' which can expand when needed... It's
+              busy enough w/o this Add feature always open." */}
+          {addFormOpen ? (
+            <>
+              <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 20 }]}>
+                ADD AIRCRAFT{!isPremium ? ` (${aircraft.length}/${PRO_AIRCRAFT_CAP} — Premium for unlimited)` : ''}
+              </Text>
+              <View style={[styles.formCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                <MakeField value={make} onChangeText={setMake} tokens={tokens} fs={fs} />
+                <ModelField
+                  value={model}
+                  onChangeText={handleModelChange}
+                  onSelectDesignator={(d) => { if (!typeDesignatorEdited.current) setTypeDesignator(d) }}
+                  tokens={tokens}
+                  fs={fs}
+                />
+                <View style={styles.typeDesignatorRow}>
+                  <View style={{ flex: 1 }}>
+                    <TypeDesignatorField
+                      value={typeDesignator}
+                      onChangeText={handleTypeDesignatorChange}
+                      onSelectManufacturer={(mfr) => { if (!make.trim()) setMake(mfr) }}
+                      tokens={tokens}
+                      fs={fs}
+                    />
+                  </View>
+                  {/* RC: "let's turn this text into just an info icon. we
+                      can show once as CTA if nec, but after that, icon
+                      only" -- was an always-visible paragraph explaining
+                      Model vs. Type Designator; same tap-to-reveal pattern
+                      as "How this works" above, just no label text at all
+                      this time, matching "icon only" literally. */}
+                  <InfoPopup
+                    id="my-aircraft-model-type-hint"
+                    title="Model vs. Type Designator"
+                    body="Model is the marketing name (Skyhawk, Warrior) if it has one — Type designator is the FAA's technical code (172S, PA-28-181) that Airworthiness Directives are actually filed under. We auto-suggest a type from common model names; some aircraft (e.g. Pilatus PC-12) aren't known by any name besides their type — just enter it in both fields."
+                    forceOnce
+                    iconSize={fs(17)}
+                  />
+                </View>
+                <YearField value={year} onPress={() => setYearPickerOpen(true)} tokens={tokens} fs={fs} />
+                <TextInput
+                  value={nickname}
+                  onChangeText={setNickname}
+                  placeholder="Nickname (optional, e.g. N12345)"
+                  placeholderTextColor={tokens.t3}
+                  style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }]}
+                />
+                <Pressable
+                  style={[styles.addButton, { backgroundColor: tokens.blu }]}
+                  onPress={handleAdd}
+                  disabled={saving}
+                >
+                  {saving ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Add Aircraft</Text>
+                  )}
+                </Pressable>
+              </View>
+            </>
+          ) : (
             <Pressable
-              style={[styles.addButton, { backgroundColor: tokens.blu }]}
-              onPress={handleAdd}
-              disabled={saving}
+              style={[styles.addTrigger, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, marginTop: 20 }]}
+              onPress={() => setAddFormOpen(true)}
             >
-              {saving ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Add Aircraft</Text>
-              )}
+              <Icon name="plus" size={fs(14)} color={tokens.blu} />
+              <Text style={[styles.addTriggerText, { color: tokens.blu, fontSize: fs(14) }]}>Add Aircraft</Text>
             </Pressable>
-          </View>
+          )}
         </ScrollView>
         </TabletContainer>
       )}
@@ -596,8 +687,8 @@ const styles = StyleSheet.create({
   rowNickname: { marginTop: 2 },
   roleBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
   roleBadgeText: { fontWeight: '700', letterSpacing: 0.4 },
-  statusPill: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 9, paddingVertical: 4 },
-  statusPillText: { fontWeight: '700' },
+  rowStatusRing: { width: 34, height: 34, borderRadius: 17, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  rowStatusNum: { fontWeight: '700' },
   // Fleet compliance card -- ring + legend on top, three stat boxes below.
   fleetCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 16, gap: 14 },
   fleetCardTop: { flexDirection: 'row', alignItems: 'center', gap: 20 },
@@ -615,12 +706,13 @@ const styles = StyleSheet.create({
   statBox: { flex: 1, borderRadius: 12, borderWidth: 1, paddingVertical: 10, alignItems: 'center', gap: 2 },
   statBoxValue: { fontWeight: '700' },
   statBoxLabel: { letterSpacing: 0.4, fontWeight: '600' },
-  aircraftSectionLabel: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 2 },
-  aircraftSectionTitle: { fontWeight: '700', letterSpacing: 0.6 },
-  aircraftSectionSort: { fontWeight: '500' },
+  aircraftSectionTitle: { fontWeight: '700', letterSpacing: 0.6, marginBottom: 8, paddingHorizontal: 2 },
   expandPanel: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 10 },
   expandGroupLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 4 },
   expandEmpty: { marginBottom: 2 },
+  adChipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
+  adChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 8, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 4 },
+  adChipText: { fontWeight: '600' },
   expandRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 },
   expandRowTitle: { fontWeight: '600' },
   expandRowSub: { flex: 1 },
@@ -635,13 +727,11 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
   suggestBox: { borderWidth: 1, borderRadius: 8, marginTop: 4, overflow: 'hidden' },
   suggestRow: { paddingHorizontal: 12, paddingVertical: 9 },
-  // RC, real device (annotated screenshot): this hint text visually
-  // crowded into the Type Designator field right above it. Root cause was
-  // a literal negative marginTop pulling it up -- the exact opposite of
-  // the breathing room this dense a screen needs.
-  typeHint: { marginTop: 8, marginBottom: 2 },
+  typeDesignatorRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   addButton: { borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   addButtonText: { color: '#fff', fontWeight: '600', fontSize: 14.5 },
+  addTrigger: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, borderRadius: 12, borderWidth: 1, paddingVertical: 13 },
+  addTriggerText: { fontWeight: '600' },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
   modalCard: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, padding: 18, gap: 4 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
