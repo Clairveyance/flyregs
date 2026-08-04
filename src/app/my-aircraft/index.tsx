@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Alert, Modal } from 'react-native'
 import { router } from 'expo-router'
-import { useTheme } from '@/context/theme'
+import { useTheme, type ThemeTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
@@ -49,12 +49,93 @@ function daysUntil(dateStr: string): number {
 // everywhere else in this app (folders, equipment, reminders).
 const PRO_AIRCRAFT_CAP = 1
 
+// RC: "the whole colorful design with the wheel. none of it shows up,
+// anywhere" -- the compliance ring from the Fleet mockup was approved but
+// never actually built into this real screen. Then, after a first pass
+// reused the app's existing plain-color-badge pattern (study.tsx's mastery
+// ring): "no, don't try to build using old parts - the Fleet page and
+// wheel look distinctly diff from anything else we have. use this image as
+// ref" -- a real multi-segment proportional donut, not a solid-color badge.
+// react-native-svg isn't in this project (checked node_modules and the
+// lockfile directly, not assumed) -- adding it now would need a fresh
+// native build to actually appear on-device, the exact problem this whole
+// round has been about. So this is built from RING_TICKS discrete radial
+// segments instead of a continuous SVG arc: each tick is a small bar
+// inside its own full-size wrapper View, positioned at that wrapper's own
+// top-center (12 o'clock) via alignItems, then the WRAPPER is rotated by
+// the tick's angle -- rotation pivots around the wrapper's center, which
+// coincides with the ring's center since the wrapper is the same size and
+// position as the ring, so this sweeps the tick to the right spot with no
+// per-tick trigonometry. Standard SVG-free technique for radial layouts.
+const RING_SIZE = 132
+const RING_TICKS = 32
+
+function FleetRing({
+  compliantCount, openCount, overdueCount, total, tokens, fs,
+}: {
+  compliantCount: number; openCount: number; overdueCount: number; total: number
+  tokens: ThemeTokens; fs: (n: number) => number
+}) {
+  const nOverdue = total > 0 ? Math.round((overdueCount / total) * RING_TICKS) : 0
+  const nOpen = total > 0 ? Math.round((openCount / total) * RING_TICKS) : 0
+  const nCompliant = Math.max(0, RING_TICKS - nOverdue - nOpen)
+  const tickColors = [
+    ...Array(nCompliant).fill(tokens.grn),
+    ...Array(nOpen).fill(tokens.amb),
+    ...Array(nOverdue).fill(tokens.red),
+  ]
+  const angleStep = 360 / RING_TICKS
+  return (
+    <View style={{ width: RING_SIZE, height: RING_SIZE }}>
+      {tickColors.map((color, i) => (
+        <View
+          key={i}
+          style={[StyleSheet.absoluteFill, styles.ringTickWrap, { transform: [{ rotate: `${i * angleStep}deg` }] }]}
+        >
+          <View style={[styles.ringTick, { backgroundColor: color }]} />
+        </View>
+      ))}
+      <View style={[StyleSheet.absoluteFill, styles.ringCenter]}>
+        <Text style={[styles.ringCenterNum, { color: tokens.t1, fontSize: fs(28) }]}>{total}</Text>
+        <Text style={[styles.ringCenterUnit, { color: tokens.t4, fontSize: fs(10) }]}>AIRCRAFT</Text>
+      </View>
+    </View>
+  )
+}
+
+function LegendRow({ color, label, count, tokens, fs }: { color: string; label: string; count: number; tokens: ThemeTokens; fs: (n: number) => number }) {
+  return (
+    <View style={styles.legendRow}>
+      <View style={[styles.legendDot, { backgroundColor: color }]} />
+      <Text style={[styles.legendLabel, { color: tokens.t2, fontSize: fs(13) }]}>{label}</Text>
+      <Text style={[styles.legendCount, { color: tokens.t1, fontSize: fs(13.5) }]}>{count}</Text>
+    </View>
+  )
+}
+
+function StatBox({ value, label, color, tokens, fs }: { value: string | number; label: string; color: string; tokens: ThemeTokens; fs: (n: number) => number }) {
+  return (
+    <View style={[styles.statBox, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
+      <Text style={[styles.statBoxValue, { color, fontSize: fs(19) }]}>{value}</Text>
+      <Text style={[styles.statBoxLabel, { color: tokens.t3, fontSize: fs(9.5) }]}>{label}</Text>
+    </View>
+  )
+}
+
 export default function MyAircraftScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
   const { session, isPro, isPremium } = useAuth()
   const [aircraft, setAircraft] = useState<FleetAircraftSummary[]>([])
   const [loading, setLoading] = useState(true)
+  // Soonest upcoming (not overdue) reminder due date across the whole
+  // fleet, for the ring card's "NEXT DUE" stat box. get_fleet_summary()
+  // only returns an overdue COUNT, not individual due dates, so this is a
+  // second, small parallel fetch rather than a new RPC/migration -- fleet
+  // sizes are small, N lightweight per-aircraft queries is fine and reuses
+  // the exact same getAircraftReminders already used elsewhere on this
+  // screen instead of trusting a new cross-aircraft RLS assumption.
+  const [nextDueDays, setNextDueDays] = useState<number | null>(null)
   const [make, setMake] = useState('')
   const [model, setModel] = useState('')
   const [nickname, setNickname] = useState('')
@@ -109,7 +190,21 @@ export default function MyAircraftScreen() {
     // aircraftSharing.ts's own comment on why this replaced a plain
     // user_aircraft select.
     getFleetSummary()
-      .then((rows) => setAircraft(rows))
+      .then((rows) => {
+        setAircraft(rows)
+        Promise.all(rows.map((a) => getAircraftReminders(a.aircraftId).catch(() => [] as AircraftReminder[])))
+          .then((lists) => {
+            let soonest: number | null = null
+            for (const list of lists) {
+              for (const r of list) {
+                const days = daysUntil(r.dueDate)
+                if (days >= 0 && (soonest === null || days < soonest)) soonest = days
+              }
+            }
+            setNextDueDays(soonest)
+          })
+          .catch(() => setNextDueDays(null))
+      })
       .catch((e) => console.error('Failed to load fleet summary:', e?.message ?? e))
       .finally(() => setLoading(false))
   }
@@ -239,6 +334,21 @@ export default function MyAircraftScreen() {
   const screenTitle = isPremium ? 'My Fleet' : 'My Aircraft'
   const totalOpenAds = aircraft.reduce((sum, a) => sum + a.openAdCount, 0)
   const totalOverdue = aircraft.reduce((sum, a) => sum + a.overdueReminderCount, 0)
+  // Ring/legend counts are AIRCRAFT counted in exactly one bucket each (its
+  // worst status) -- e.g. an aircraft with both an overdue reminder and an
+  // open AD counts once, under Overdue, not both -- so the three numbers
+  // always sum to the fleet total. The stat-box numbers above (totalOpenAds/
+  // totalOverdue) are different on purpose: those are ITEM counts, which
+  // can outnumber the aircraft that have them.
+  const overdueCatCount = aircraft.filter((a) => a.overdueReminderCount > 0).length
+  const openCatCount = aircraft.filter((a) => a.overdueReminderCount === 0 && a.openAdCount > 0).length
+  const compliantCount = aircraft.length - overdueCatCount - openCatCount
+  // RC: matches the reference image's own "Sorted by urgency" list order --
+  // overdue first, then open, then compliant; alphabetical by make/model as
+  // the tiebreak within each bucket (get_fleet_summary()'s own default
+  // order, preserved via a stable sort rather than re-sorted).
+  const urgency = (a: FleetAircraftSummary) => (a.overdueReminderCount > 0 ? 0 : a.openAdCount > 0 ? 1 : 2)
+  const sortedAircraft = [...aircraft].sort((a, b) => urgency(a) - urgency(b))
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
@@ -266,45 +376,60 @@ export default function MyAircraftScreen() {
             <Text style={[styles.empty, { color: tokens.t3, fontSize: fs(14) }]}>No aircraft saved yet.</Text>
           ) : (
             <>
-              {/* Total aircraft count and alert counts are two DIFFERENT
-                  numbers, shown as visibly separate pieces -- RC, on the
-                  mockup: "now it looks like 2 a/c are overdue, but open and
-                  find that of the two inside, only 1 is overdue. so you
-                  need an a/c total and also a 'status' chip for the
-                  alerts." Built from get_fleet_summary()'s two genuinely
-                  real, separate facts (open AD count, overdue reminder
-                  count) -- never one conflated "overdue" number. */}
-              <View style={styles.summaryRow}>
-                <Text style={[styles.summaryTotal, { color: tokens.t1, fontSize: fs(13.5) }]}>
-                  {aircraft.length} aircraft
-                </Text>
-                {totalOverdue > 0 && (
-                  <View style={[styles.summaryChip, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
-                    <Icon name="hourglass" size={fs(11)} color={tokens.amb} />
-                    <Text style={[styles.summaryChipText, { color: tokens.amb, fontSize: fs(11.5) }]}>
-                      {totalOverdue} reminder{totalOverdue === 1 ? '' : 's'} overdue
-                    </Text>
+              {/* Fleet compliance card -- RC's reference image, built fresh
+                  rather than reusing the app's existing plain-badge pattern
+                  (see FleetRing's own comment for why this is discrete
+                  ticks, not an SVG arc). Ring + legend are the same three
+                  real, separate aircraft-level buckets (compliant/open/
+                  overdue) that always sum to the fleet total; the stat
+                  boxes below are ITEM-level sums (openAdCount/
+                  overdueReminderCount added across aircraft), which is why
+                  their numbers can differ from the legend's. */}
+              <View style={[styles.fleetCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                <View style={styles.fleetCardTop}>
+                  <FleetRing
+                    compliantCount={compliantCount}
+                    openCount={openCatCount}
+                    overdueCount={overdueCatCount}
+                    total={aircraft.length}
+                    tokens={tokens}
+                    fs={fs}
+                  />
+                  <View style={styles.legend}>
+                    <LegendRow color={tokens.grn} label="Compliant" count={compliantCount} tokens={tokens} fs={fs} />
+                    <LegendRow color={tokens.amb} label="Open AD" count={openCatCount} tokens={tokens} fs={fs} />
+                    <LegendRow color={tokens.red} label="Overdue" count={overdueCatCount} tokens={tokens} fs={fs} />
                   </View>
-                )}
-                {totalOpenAds > 0 && (
-                  <View style={[styles.summaryChip, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
-                    <Icon name="wrench" size={fs(11)} color={tokens.t2} />
-                    <Text style={[styles.summaryChipText, { color: tokens.t2, fontSize: fs(11.5) }]}>
-                      {totalOpenAds} open AD{totalOpenAds === 1 ? '' : 's'}
-                    </Text>
-                  </View>
-                )}
+                </View>
+                <View style={styles.statBoxRow}>
+                  <StatBox value={totalOverdue} label="OVERDUE" color={tokens.red} tokens={tokens} fs={fs} />
+                  <StatBox value={totalOpenAds} label="OPEN ITEMS" color={tokens.amb} tokens={tokens} fs={fs} />
+                  <StatBox value={nextDueDays !== null ? `${nextDueDays}d` : '—'} label="NEXT DUE" color={tokens.grn} tokens={tokens} fs={fs} />
+                </View>
+              </View>
+
+              <View style={styles.aircraftSectionLabel}>
+                <Text style={[styles.aircraftSectionTitle, { color: tokens.t3, fontSize: fs(11.5) }]}>AIRCRAFT</Text>
+                <Text style={[styles.aircraftSectionSort, { color: tokens.t4, fontSize: fs(11) }]}>Sorted by urgency</Text>
               </View>
               <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-                {aircraft.map((a, i) => {
+                {sortedAircraft.map((a, i) => {
                   const canEdit = a.role === 'owner' || a.role === 'editor'
                   const isExpanded = expandedId === a.aircraftId
                   const details = expandedDetails[a.aircraftId]
                   const acLabel = a.nickname || `${a.make} ${a.model}`
+                  const primaryLabel = a.nickname || `${a.make} ${a.model}`
+                  const secondaryLabel = [`${a.make} ${a.model}`, a.typeDesignator].filter(Boolean).join(' · ')
+                  const statusColor = a.overdueReminderCount > 0 ? tokens.red : a.openAdCount > 0 ? tokens.amb : tokens.grn
+                  const statusText = a.overdueReminderCount > 0
+                    ? `Overdue · ${a.overdueReminderCount}`
+                    : a.openAdCount > 0
+                    ? `Open · ${a.openAdCount}`
+                    : 'Compliant'
                   return (
                   <View
                     key={a.aircraftId}
-                    style={i < aircraft.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}
+                    style={i < sortedAircraft.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}
                   >
                     <SwipeToDelete
                       onDelete={() => handleRemove(a)}
@@ -312,11 +437,12 @@ export default function MyAircraftScreen() {
                       disabled={a.role !== 'owner'}
                     >
                     <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
+                      <View style={[styles.rowIconBadge, { backgroundColor: tokens.bdim }]}>
+                        <Icon name="airplane" size={fs(15)} color={tokens.t2} />
+                      </View>
                       <View style={{ flex: 1 }}>
                         <View style={styles.rowMakeLine}>
-                          <Text style={[styles.rowMake, { color: tokens.t1, fontSize: fs(14.5) }]}>
-                            {a.year ? `${a.year} ` : ''}{a.make} {a.model}
-                          </Text>
+                          <Text style={[styles.rowMake, { color: tokens.t1, fontSize: fs(14.5) }]}>{primaryLabel}</Text>
                           {a.role !== 'owner' && (
                             <View style={[styles.roleBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
                               <Text style={[styles.roleBadgeText, { color: tokens.t3, fontSize: fs(10) }]}>
@@ -325,31 +451,10 @@ export default function MyAircraftScreen() {
                             </View>
                           )}
                         </View>
-                        {(a.nickname || a.typeDesignator) && (
-                          <Text style={[styles.rowNickname, { color: tokens.t3, fontSize: fs(12.5) }]}>
-                            {[a.nickname, a.typeDesignator ? `Type ${a.typeDesignator}` : null].filter(Boolean).join(' · ')}
-                          </Text>
-                        )}
-                        {(a.openAdCount > 0 || a.overdueReminderCount > 0) && (
-                          <View style={styles.rowChips}>
-                            {a.overdueReminderCount > 0 && (
-                              <View style={[styles.alertChip, { backgroundColor: tokens.bdim }]}>
-                                <Icon name="hourglass" size={fs(10)} color={tokens.amb} />
-                                <Text style={[styles.alertChipText, { color: tokens.amb, fontSize: fs(11) }]}>
-                                  {a.overdueReminderCount} overdue
-                                </Text>
-                              </View>
-                            )}
-                            {a.openAdCount > 0 && (
-                              <View style={[styles.alertChip, { backgroundColor: tokens.bdim }]}>
-                                <Icon name="wrench" size={fs(10)} color={tokens.t3} />
-                                <Text style={[styles.alertChipText, { color: tokens.t3, fontSize: fs(11) }]}>
-                                  {a.openAdCount} open AD{a.openAdCount === 1 ? '' : 's'}
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                        )}
+                        <Text style={[styles.rowNickname, { color: tokens.t3, fontSize: fs(12.5) }]}>{secondaryLabel}</Text>
+                      </View>
+                      <View style={[styles.statusPill, { backgroundColor: statusColor + '26', borderColor: statusColor + '55' }]}>
+                        <Text style={[styles.statusPillText, { color: statusColor, fontSize: fs(11.5) }]}>{statusText}</Text>
                       </View>
                       {/* No edit pencil here -- best part is no part. RC:
                           "we don't need this edit button here. the
@@ -484,19 +589,35 @@ const styles = StyleSheet.create({
   intro: { lineHeight: 18 },
   empty: { textAlign: 'center', paddingVertical: 20 },
   list: { borderRadius: 12, borderWidth: 1, marginBottom: 20, overflow: 'hidden' },
-  row: { flexDirection: 'row', alignItems: 'center', padding: 14 },
+  row: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 10 },
+  rowIconBadge: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   rowMakeLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   rowMake: { fontWeight: '600' },
   rowNickname: { marginTop: 2 },
-  rowChips: { flexDirection: 'row', gap: 6, marginTop: 6 },
-  alertChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 3 },
-  alertChipText: { fontWeight: '600' },
   roleBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
   roleBadgeText: { fontWeight: '700', letterSpacing: 0.4 },
-  summaryRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
-  summaryTotal: { fontWeight: '600' },
-  summaryChip: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 12, borderWidth: 1, paddingHorizontal: 9, paddingVertical: 4 },
-  summaryChipText: { fontWeight: '600' },
+  statusPill: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 9, paddingVertical: 4 },
+  statusPillText: { fontWeight: '700' },
+  // Fleet compliance card -- ring + legend on top, three stat boxes below.
+  fleetCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 16, gap: 14 },
+  fleetCardTop: { flexDirection: 'row', alignItems: 'center', gap: 20 },
+  ringTickWrap: { alignItems: 'center' },
+  ringTick: { width: 5, height: 15, borderRadius: 2.5, marginTop: 4 },
+  ringCenter: { alignItems: 'center', justifyContent: 'center' },
+  ringCenterNum: { fontWeight: '700' },
+  ringCenterUnit: { letterSpacing: 0.8, marginTop: -2, fontWeight: '600' },
+  legend: { flex: 1, gap: 10 },
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  legendDot: { width: 9, height: 9, borderRadius: 4.5 },
+  legendLabel: { flex: 1 },
+  legendCount: { fontWeight: '700' },
+  statBoxRow: { flexDirection: 'row', gap: 10 },
+  statBox: { flex: 1, borderRadius: 12, borderWidth: 1, paddingVertical: 10, alignItems: 'center', gap: 2 },
+  statBoxValue: { fontWeight: '700' },
+  statBoxLabel: { letterSpacing: 0.4, fontWeight: '600' },
+  aircraftSectionLabel: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 2 },
+  aircraftSectionTitle: { fontWeight: '700', letterSpacing: 0.6 },
+  aircraftSectionSort: { fontWeight: '500' },
   expandPanel: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 10 },
   expandGroupLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 4 },
   expandEmpty: { marginBottom: 2 },
