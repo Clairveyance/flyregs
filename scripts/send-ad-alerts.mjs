@@ -87,12 +87,13 @@ if (!ads || ads.length === 0) {
 // tables (My Aircraft is deliberately lightweight, one row per saved
 // aircraft), so pulling both fully into memory and matching in JS is
 // simpler and plenty fast, rather than a per-AD SQL query in a loop.
-const [{ data: aircraft, error: acErr }, { data: tokens, error: tokErr }, { data: equipMentions, error: mentErr }, { data: equipTags, error: tagErr }, { data: collabs, error: collabErr }] = await Promise.all([
-  sb.from('user_aircraft').select('id, user_id, make, model, type_designator'),
+const [{ data: allAircraft, error: acErr }, { data: tokens, error: tokErr }, { data: equipMentions, error: mentErr }, { data: equipTags, error: tagErr }, { data: collabs, error: collabErr }, { data: entitlements, error: entErr }] = await Promise.all([
+  sb.from('user_aircraft').select('id, user_id, make, model, type_designator, created_at'),
   sb.from('push_tokens').select('user_id, expo_push_token').eq('enabled', true),
   sb.from('ad_part_mentions').select('ad_number, part_id').in('ad_number', touchedAdNumbers),
   sb.from('user_aircraft_equipment').select('user_aircraft_id, part_id'),
   sb.from('aircraft_collaborators').select('aircraft_id, user_id').is('left_at', null),
+  sb.from('user_entitlements').select('user_id, is_premium'),
 ])
 if (acErr) {
   console.error('Failed to fetch user_aircraft:', acErr.message)
@@ -114,8 +115,50 @@ if (collabErr) {
   console.error('Failed to fetch aircraft_collaborators:', collabErr.message)
   process.exit(1)
 }
-if (!aircraft || aircraft.length === 0) {
+if (entErr) {
+  console.error('Failed to fetch user_entitlements:', entErr.message)
+  process.exit(1)
+}
+if (!allAircraft || allAircraft.length === 0) {
   console.log('No user_aircraft rows saved by anyone yet — nothing to notify.')
+  process.exit(0)
+}
+
+// Third layer of the saved-aircraft tier cap, and the one that actually
+// reaches a pocket. RC, 2026-08-05: "a Pro user would never get a note
+// about 'tracking 4 a/c' b/c that's not possible with Pro... we can't
+// have any bleed through" -- and this script was the worst of it, because
+// an account that downgrades Premium -> Pro kept getting real push alerts
+// for every aircraft it had ever saved, forever. Mirrors
+// fleet_visible_cap()/get_fleet_summary() in
+// sync/migrations_tier_cap_enforcement.sql exactly: non-Premium keeps
+// only its oldest PRO_AIRCRAFT_CAP owned aircraft, a MISSING entitlement
+// row means uncapped (never punish a paying customer for a sync hiccup),
+// and nothing is deleted -- these rows still exist and come straight back
+// on re-subscribe.
+const PRO_AIRCRAFT_CAP = 1
+const isPremiumByUser = new Map((entitlements ?? []).map((e) => [e.user_id, e.is_premium === true]))
+const ownedByUser = new Map()
+for (const a of allAircraft) {
+  if (!ownedByUser.has(a.user_id)) ownedByUser.set(a.user_id, [])
+  ownedByUser.get(a.user_id).push(a)
+}
+const cappedOutIds = new Set()
+for (const [userId, owned] of ownedByUser) {
+  // `!isPremiumByUser.has(userId)` -> no row at all -> treat as uncapped.
+  if (!isPremiumByUser.has(userId) || isPremiumByUser.get(userId)) continue
+  owned
+    .slice()
+    .sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)) || String(x.id).localeCompare(String(y.id)))
+    .slice(PRO_AIRCRAFT_CAP)
+    .forEach((a) => cappedOutIds.add(a.id))
+}
+const aircraft = allAircraft.filter((a) => !cappedOutIds.has(a.id))
+if (cappedOutIds.size > 0) {
+  console.log(`${cappedOutIds.size} saved aircraft skipped: over their owner's non-Premium cap (hidden in-app too, not deleted).`)
+}
+if (aircraft.length === 0) {
+  console.log('Every saved aircraft is over its owner\'s tier cap — nothing to notify.')
   process.exit(0)
 }
 
@@ -286,7 +329,15 @@ const logRows = [...matches.values()].map((m) => ({
 // this exact match's own userAircraftId.
 const matchKeysByUser = new Map()
 for (const [key, m] of matches) {
-  const recipients = new Set([m.userId, ...(collaboratorsByAircraftId.get(m.userAircraftId) ?? [])])
+  // Collaborators only -- the owner is always a recipient of their own
+  // aircraft's alerts regardless of tier. Being ON someone's shared
+  // aircraft is itself a Premium capability, so a collaborator who has
+  // since downgraded stops receiving the team push (same fail-open rule
+  // as the cap above: no entitlement row means don't assume the worst).
+  const collaborators = (collaboratorsByAircraftId.get(m.userAircraftId) ?? []).filter(
+    (uid) => !isPremiumByUser.has(uid) || isPremiumByUser.get(uid),
+  )
+  const recipients = new Set([m.userId, ...collaborators])
   for (const recipientId of recipients) {
     if (!tokensByUser.has(recipientId)) continue // no enabled device, nothing to push
     if (!matchKeysByUser.has(recipientId)) matchKeysByUser.set(recipientId, [])

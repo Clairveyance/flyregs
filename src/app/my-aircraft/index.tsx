@@ -12,7 +12,7 @@ import { supabase } from '@/lib/supabase'
 import { suggestTypeDesignator } from '@/lib/aircraftModels'
 import { backfillAircraftAds, getAircraftAdNotifications, type AircraftAdNotification } from '@/lib/adNotifications'
 import { getAircraftReminders, type AircraftReminder } from '@/lib/adParts'
-import { getFleetSummary, type FleetAircraftSummary } from '@/lib/aircraftSharing'
+import { getFleetSummary, getFleetHiddenCount, type FleetAircraftSummary } from '@/lib/aircraftSharing'
 import { SwipeToDelete } from '@/components/SwipeToDelete'
 import {
   MakeField, ModelField, TypeDesignatorField, YearField, YearPickerModal, type UserAircraft,
@@ -290,6 +290,14 @@ export default function MyAircraftScreen() {
   // for why this needs to be a real 3-state value, not just the RPC's
   // overdueReminderCount, to catch "due soon" too).
   const [reminderUrgency, setReminderUrgency] = useState<Record<string, 'overdue' | 'soon' | 'clear'>>({})
+  // Saved-but-hidden aircraft after a Premium -> Pro downgrade. Server-side
+  // truth (get_fleet_hidden_count), so it stays honest even if the client's
+  // own tier read is stale in either direction.
+  const [hiddenCount, setHiddenCount] = useState(0)
+  // Independently tracked because the client re-applies the cap too (see
+  // `load`): if the server ever fails open, this is what still reports the
+  // difference honestly rather than hiding rows with no explanation.
+  const [clientHiddenCount, setClientHiddenCount] = useState(0)
   const [make, setMake] = useState('')
   const [model, setModel] = useState('')
   const [nickname, setNickname] = useState('')
@@ -359,8 +367,19 @@ export default function MyAircraftScreen() {
     // each with its own role and real (not invented) alert counts -- see
     // aircraftSharing.ts's own comment on why this replaced a plain
     // user_aircraft select.
+    getFleetHiddenCount().then(setHiddenCount).catch(() => setHiddenCount(0))
     getFleetSummary()
-      .then((rows) => {
+      .then((all) => {
+        // Second, independent application of the same cap the server just
+        // applied. Not redundant: the server deliberately fails OPEN when
+        // user_entitlements has no row yet (a sync hiccup must never make a
+        // paying customer's fleet look deleted), and this is the check that
+        // covers exactly that window, since RevenueCat's own answer is
+        // already in hand here. Everything downstream -- the hero, the
+        // stat-box totals, the reminder fetch, the cap CTA -- reads from
+        // this capped list, so no path re-widens it.
+        const rows = isPremium ? all : all.slice(0, PRO_AIRCRAFT_CAP)
+        setClientHiddenCount(all.length - rows.length)
         setAircraft(rows)
         Promise.all(rows.map((a) => getAircraftReminders(a.aircraftId).catch(() => [] as AircraftReminder[])))
           .then((lists) => {
@@ -383,7 +402,7 @@ export default function MyAircraftScreen() {
       })
       .catch((e) => console.error('Failed to load fleet summary:', e?.message ?? e))
       .finally(() => setLoading(false))
-  }, [session])
+  }, [session, isPremium])
 
   // useFocusEffect, not a plain mount-only useEffect: this screen stays
   // mounted in the background while you're on an aircraft's detail screen,
@@ -531,7 +550,10 @@ export default function MyAircraftScreen() {
   // capCard below). `>=`, not `===`: an account downgraded from Premium can
   // legitimately be sitting on more saved aircraft than the Pro cap allows.
   const atProCap = !isPremium && aircraft.length >= PRO_AIRCRAFT_CAP
-  const aircraftWord = `${aircraft.length} aircraft`
+  // Server count and client count are the same number in every normal case;
+  // max() is just so neither layer can under-report if the other is the one
+  // that did the hiding. See `load` for why both exist.
+  const hiddenAircraft = Math.max(hiddenCount, clientHiddenCount)
   const totalOpenAds = aircraft.reduce((sum, a) => sum + a.openAdCount, 0)
   const totalOverdue = aircraft.reduce((sum, a) => sum + a.overdueReminderCount, 0)
   // Ring/legend counts are AIRCRAFT counted in exactly one bucket each (its
@@ -797,6 +819,22 @@ export default function MyAircraftScreen() {
                   )
                 })}
               </View>
+              {/* A downgraded account must never just silently come up
+                  short an aircraft -- "where did my other planes go" is a
+                  support ticket and, worse, looks like data loss. Nothing
+                  IS deleted; this says so on the screen where they'd
+                  notice, without needing to tap anything first. */}
+              {hiddenAircraft > 0 && (
+                <Pressable
+                  style={[styles.hiddenNotice, { borderColor: tokens.bdr, backgroundColor: tokens.bdim }]}
+                  onPress={() => router.push('/paywall?tier=premium' as any)}
+                >
+                  <Icon name="eye.slash" size={fs(13)} color={tokens.t3} />
+                  <Text style={[styles.hiddenNoticeText, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                    {hiddenAircraft} more saved {hiddenAircraft === 1 ? 'aircraft is' : 'aircraft are'} hidden on Pro — still saved. Upgrade to see {hiddenAircraft === 1 ? 'it' : 'them'}.
+                  </Text>
+                </Pressable>
+              )}
             </>
           )}
 
@@ -825,7 +863,9 @@ export default function MyAircraftScreen() {
                 One aircraft at a time on Pro
               </Text>
               <Text style={[styles.capBody, { color: tokens.t3, fontSize: fs(13.5) }]}>
-                You're tracking {aircraftWord}. To swap to a different one, delete {aircraft.length === 1 ? 'it' : 'one'} first — swipe left on it in the list above. Premium tracks as many as you want, all at once.
+                {hiddenAircraft > 0
+                  ? `Pro tracks one aircraft at a time, so ${hiddenAircraft} more you've saved ${hiddenAircraft === 1 ? 'is' : 'are'} hidden — still saved, not deleted. Premium brings ${hiddenAircraft === 1 ? 'it' : 'them'} all back at once.`
+                  : "To swap to a different aircraft, delete this one first — swipe left on it in the list above. Premium tracks as many as you want, all at once."}
               </Text>
               <Pressable
                 style={[styles.capBtn, { backgroundColor: tokens.gold }]}
@@ -968,6 +1008,12 @@ const styles = StyleSheet.create({
   // boxes and "OPEN ITEMS" wrapped to two lines inside one. alignSelf
   // 'stretch' opts back out of that, giving each box the card's full width
   // to divide up (no-op for Premium's fleetCard, which never centered).
+  hiddenNotice: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderRadius: 12, borderWidth: 1, paddingVertical: 10, paddingHorizontal: 12, marginTop: 10,
+  },
+  hiddenNoticeText: { flex: 1, lineHeight: 17 },
+
   capCard: {
     borderRadius: 16, borderWidth: 1, padding: 20, marginTop: 20,
     alignItems: 'center', gap: 10,

@@ -167,6 +167,18 @@ export async function getFleetSummary(): Promise<FleetAircraftSummary[]> {
   }))
 }
 
+// How many saved aircraft the caller's tier is currently hiding from them.
+// Non-zero only after a Premium -> Pro downgrade leaves more aircraft saved
+// than Pro allows: get_fleet_summary() stops returning them (server-side, so
+// no client can ask past it) but nothing is ever deleted, and this count is
+// what lets the UI say that out loud instead of the aircraft appearing to
+// have silently vanished. See sync/migrations_tier_cap_enforcement.sql.
+export async function getFleetHiddenCount(): Promise<number> {
+  const { data, error } = await supabase.rpc('get_fleet_hidden_count')
+  if (error) throw error
+  return typeof data === 'number' ? data : 0
+}
+
 // A collaborator's own role on one aircraft, for the detail screen's
 // role-gated controls. Not RPC-backed -- aircraft_collaborators already
 // has a direct "see my own membership row" RLS policy
