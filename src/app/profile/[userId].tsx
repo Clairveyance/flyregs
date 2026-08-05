@@ -308,13 +308,18 @@ export default function ProfileScreen() {
                 onPress={isSelf ? () => router.push('/challenges' as any) : undefined}
               >
                 <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>DUEL RECORD</Text>
+                {/* RC: "we see the 0W 1L 1T count already, so what is the
+                    'plan' with these rings?" -- fair catch, the rings below
+                    already show each of wins/losses/ties as their own
+                    number, so restating the same breakdown here was pure
+                    duplication. This headline now only says what the rings
+                    don't: the total played. */}
                 <Text style={{ color: tokens.t1 }}>
                   <Text style={[styles.statHeadlineNum, { fontSize: fs(23) }]}>
                     {duelStats.wins + duelStats.losses + duelStats.ties}
                   </Text>
                   <Text style={[styles.statHeadlineSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-                    {' '}duel{duelStats.wins + duelStats.losses + duelStats.ties === 1 ? '' : 's'} · {duelStats.wins}W · {duelStats.losses}L
-                    {duelStats.ties > 0 ? ` · ${duelStats.ties}T` : ''}
+                    {' '}duel{duelStats.wins + duelStats.losses + duelStats.ties === 1 ? '' : 's'} played
                   </Text>
                 </Text>
                 <DuelBubbles wins={duelStats.wins} losses={duelStats.losses} ties={duelStats.ties} tokens={tokens} fs={fs} />
@@ -323,7 +328,7 @@ export default function ProfileScreen() {
 
             {mastery && mastery.mastered > 0 && (
               <Pressable
-                style={styles.section}
+                style={[styles.section, styles.sectionDivided, { borderTopColor: tokens.bdr }]}
                 disabled={!isSelf}
                 onPress={isSelf ? () => router.push('/study' as any) : undefined}
               >
@@ -349,7 +354,7 @@ export default function ProfileScreen() {
             ) : (
               <>
                 {(ratings.length > 0 || isSelf) && (
-                  <View style={styles.section}>
+                  <View style={[styles.section, styles.sectionDivided, { borderTopColor: tokens.bdr }]}>
                     <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>RATINGS</Text>
                     <View style={styles.chipWrap}>
                       {ratings.map((code) => (
@@ -370,7 +375,7 @@ export default function ProfileScreen() {
                   </View>
                 )}
 
-                <View style={styles.section}>
+                <View style={[styles.section, styles.sectionDivided, { borderTopColor: tokens.bdr }]}>
                   <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>
                     CHALLENGE COINS{coins.length > 0 ? ` · ${coins.length}` : ''}
                   </Text>
@@ -455,7 +460,14 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  content: { padding: 16, paddingBottom: 40, gap: 18 },
+  // RC: "page still looks cluttered. we need better definition and spacing
+  // between sections." The box-free sections (RC, 3rd pass: "we don't need
+  // the boxes") had nothing but a flat 18px gap between them -- no visual
+  // break at all between e.g. the coin grid ending and Ratings starting.
+  // Widened the base rhythm and gave every section after the first a thin
+  // top rule + extra top padding -- a divider line, not a card, so it reads
+  // as more air/structure without reintroducing the box look.
+  content: { padding: 16, paddingBottom: 40, gap: 26 },
 
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   avatar: { width: 58, height: 58, borderRadius: 29, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
@@ -493,6 +505,7 @@ const styles = StyleSheet.create({
   privateText: { flex: 1, lineHeight: 18 },
 
   section: { gap: 8 },
+  sectionDivided: { paddingTop: 22, borderTopWidth: StyleSheet.hairlineWidth },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   sectionTitle: { fontWeight: '700', letterSpacing: 0.6 },
   emptySub: {},
