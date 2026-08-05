@@ -935,6 +935,17 @@ function FlashCard({
   const frontFs = isLongFace(frontText) ? fs(15) : fs(22)
   const backFs = isLongFace(backText) ? fs(15) : fs(22)
 
+  // RC: "Q/As are better. but for FAR AIM etc, when the worded answer is
+  // revealed, underneath that and smaller it should show the FAR or AIM
+  // section/part that the answer came from (even though it's not part of
+  // our official answer) we still want to show it for ref." `docNumber`
+  // above is already the real source citation (§ section / AIM paragraph /
+  // AC number) -- P/CG excluded since its `term` IS the citation already,
+  // nothing separate to point to. Attached to whichever face is actually
+  // rendering `faces.answer` (front in reversed direction, back normally),
+  // not a fixed side, so it travels with the real answer either way.
+  const showCitation = itemType === 'far' || itemType === 'aim' || itemType === 'ac'
+
   return (
     <Pressable style={styles.cardOuter} onPress={onPress}>
       {/* Invisible sizer, stacked normally (not absolute like the two real
@@ -950,6 +961,10 @@ function FlashCard({
           whichever one that is. */}
       <View style={styles.cardSizer} pointerEvents="none">
         <Text style={[frontStyleText, { fontSize: frontFs, opacity: 0 }]}>{frontText}</Text>
+        {/* Sized in here too, or a citation line pushes the real content
+            past the sizer's own height and has to scroll for the extra
+            ~20px instead of just fitting. */}
+        {showCitation && <Text style={[styles.cardCitation, { fontSize: fs(11), opacity: 0 }]}>{docNumber}</Text>}
         <Text style={[backStyleText, { fontSize: backFs, opacity: 0 }]}>{backText}</Text>
       </View>
       <Reanimated.View
@@ -963,6 +978,9 @@ function FlashCard({
             inside the card instead of growing it further. */}
         <ScrollView style={styles.cardTextScroll} contentContainerStyle={styles.cardTextScrollContent}>
           <Text style={[frontStyleText, { color: frontColor, fontSize: frontFs }]}>{frontText}</Text>
+          {showCitation && frontText === faces.answer && (
+            <Text style={[styles.cardCitation, { color: tokens.t4, fontSize: fs(11) }]}>{docNumber}</Text>
+          )}
         </ScrollView>
         <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>Tap to reveal</Text>
       </Reanimated.View>
@@ -971,6 +989,9 @@ function FlashCard({
       >
         <ScrollView style={styles.cardTextScroll} contentContainerStyle={styles.cardTextScrollContent}>
           <Text style={[backStyleText, { color: backColor, fontSize: backFs }]}>{backText}</Text>
+          {showCitation && backText === faces.answer && (
+            <Text style={[styles.cardCitation, { color: tokens.t4, fontSize: fs(11) }]}>{docNumber}</Text>
+          )}
         </ScrollView>
         <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>Tap to flip back</Text>
       </Reanimated.View>
@@ -1096,6 +1117,7 @@ const styles = StyleSheet.create({
   // and was clipped at BOTH edges rather than wrapping.
   cardTerm: { fontWeight: '700', textAlign: 'center', width: '100%' },
   cardDef: { textAlign: 'center', lineHeight: 22, width: '100%' },
+  cardCitation: { textAlign: 'center', marginTop: 10, fontWeight: '600', letterSpacing: 0.3 },
   cardHint: { position: 'absolute', bottom: 14 },
   answerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 20, width: '100%' },
   answerBtn: {

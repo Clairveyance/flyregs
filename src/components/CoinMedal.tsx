@@ -113,7 +113,15 @@ export function CoinMedal({
     <View
       style={[
         styles.wrap,
-        { width: size * 1.3, height: size * 1.3 },
+        // Silver/gold's glow -- shadowColor/shadowRadius with no offset --
+        // casts its soft halo in the exact shape of THIS view's own box.
+        // `wrap` had no borderRadius, so the glow rendered as a square
+        // around the circular coin instead of a matching circular glow --
+        // confirmed live via DOM inspection (not assumed): the coin itself
+        // is circular border-radius at every layer, only this outer
+        // shadow-casting box wasn't. RC: "can we get rid of the square b/g
+        // box behind all these coins? just have the round coin."
+        { width: size * 1.3, height: size * 1.3, borderRadius: size * 0.65 },
         glow ? { shadowColor: glow, shadowOpacity: 1, shadowRadius: size * 0.22, shadowOffset: { width: 0, height: 0 } } : null,
       ]}
     >

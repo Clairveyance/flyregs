@@ -6,6 +6,7 @@ import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { InfoPopup } from '@/components/InfoPopup'
 import { RatingPicker } from '@/components/RatingPicker'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getDuelStats, type DuelStats } from '@/lib/challenges'
@@ -236,11 +237,17 @@ export default function ProfileScreen() {
               // Community already links here via "View my profile".
               <View style={[styles.editCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                 <View style={styles.editRow}>
-                  <View style={{ flex: 1 }}>
+                  <View style={[{ flex: 1 }, styles.editTitleRow]}>
                     <Text style={[styles.editTitle, { color: tokens.t1, fontSize: fs(14) }]}>Show my stats</Text>
-                    <Text style={[styles.editSub, { color: tokens.t3, fontSize: fs(11.5) }]}>
-                      Lets other players see your ratings, coin count, and current aircraft.
-                    </Text>
+                    {/* RC: "let's get this off page and into an info icon" --
+                        was always-visible body text under the title; now
+                        the same explanation, tap-to-reveal. */}
+                    <InfoPopup
+                      id="profile-show-my-stats"
+                      title="Show my stats"
+                      body="Lets other players see your ratings, coin count, and current aircraft."
+                      iconSize={15}
+                    />
                   </View>
                   {statsVisibleBusy ? (
                     <ActivityIndicator size="small" color={tokens.t3} />
@@ -313,7 +320,10 @@ export default function ProfileScreen() {
                 disabled={!isSelf}
                 onPress={isSelf ? () => router.push('/study' as any) : undefined}
               >
-                <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>OVERALL MASTERY</Text>
+                <View style={styles.sectionTitleRow}>
+                  <Icon name="graduationcap.fill" size={fs(11)} color={tokens.t3} />
+                  <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>OVERALL MASTERY</Text>
+                </View>
                 <Text style={{ color: tokens.t1 }}>
                   <Text style={[styles.statHeadlineNum, { fontSize: fs(23) }]}>{mastery.pct}%</Text>
                   <Text style={[styles.statHeadlineSub, { color: tokens.t3, fontSize: fs(13.5) }]}> · {mastery.mastered} terms mastered</Text>
@@ -449,8 +459,8 @@ const styles = StyleSheet.create({
 
   editCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 12 },
   editRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  editTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   editTitle: { fontWeight: '600' },
-  editSub: { marginTop: 2, lineHeight: 16 },
   aircraftRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   aircraftInput: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   aircraftSaveBtn: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
@@ -476,6 +486,7 @@ const styles = StyleSheet.create({
   privateText: { flex: 1, lineHeight: 18 },
 
   section: { gap: 8 },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   sectionTitle: { fontWeight: '700', letterSpacing: 0.6 },
   emptySub: {},
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

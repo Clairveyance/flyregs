@@ -14,7 +14,7 @@ export const RATING_CODES = [
   // Instrument
   'IR',
   // Instructor
-  'CFI', 'CFII', 'MEI', 'GI',
+  'CFI', 'CFII', 'MEI', 'GI', 'AGI', 'IGI',
   // Maintenance
   'A&P', 'IA',
   // Other
@@ -44,6 +44,8 @@ export const RATING_LABELS: Record<RatingCode, string> = {
   CFII: 'CFII',
   MEI: 'MEI',
   GI: 'Ground Instructor',
+  AGI: 'Advanced Ground Instructor',
+  IGI: 'Instrument Ground Instructor',
   'A&P': 'A&P Mechanic',
   IA: 'Inspection Authorization',
   DPE: 'DPE',
@@ -80,6 +82,8 @@ export const RATING_SHORT_LABELS: Record<RatingCode, string> = {
   CFII: 'CFII',
   MEI: 'MEI',
   GI: 'GI',
+  AGI: 'AGI',
+  IGI: 'IGI',
   'A&P': 'A&P',
   IA: 'IA',
   DPE: 'DPE',
@@ -94,7 +98,7 @@ export const RATING_GROUPS: { label: string; codes: RatingCode[] }[] = [
   { label: 'Certificates', codes: ['STUDENT', 'SPORT', 'REC', 'PPL', 'COMM', 'ATP'] },
   { label: 'Category / Class', codes: ['ASEL', 'ASES', 'AMEL', 'AMES', 'HELI', 'GYRO', 'GLIDER', 'AIRSHIP', 'BALLOON', 'POWLIFT'] },
   { label: 'Instrument', codes: ['IR'] },
-  { label: 'Instructor', codes: ['CFI', 'CFII', 'MEI', 'GI'] },
+  { label: 'Instructor', codes: ['CFI', 'CFII', 'MEI', 'GI', 'AGI', 'IGI'] },
   { label: 'Maintenance', codes: ['A&P', 'IA'] },
   { label: 'Other', codes: ['DPE', 'FE', 'PART107', 'DISPATCHER'] },
 ]

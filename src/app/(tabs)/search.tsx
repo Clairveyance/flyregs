@@ -230,10 +230,12 @@ export default function CommunityScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Challenge a friend</Text>
+              {/* RC: "we don't want the user's score listed in this
+                  descrip" -- the score already shows on the identity card
+                  above (W-L chip) and on Profile's own Duel record section,
+                  so this line stays the plain generic descriptor always. */}
               <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
-                {duelStats && (duelStats.wins > 0 || duelStats.losses > 0)
-                  ? `${duelStats.wins}W · ${duelStats.losses}L${duelStats.ties ? ` · ${duelStats.ties}T` : ''} — head-to-head across FAR, AIM, P/CG, AC`
-                  : 'Multiple-choice quiz across FAR, AIM, P/CG, AC — most correct wins, time breaks ties'}
+                Multiple-choice quiz across FAR, AIM, P/CG, AC — most correct wins, time breaks ties
               </Text>
             </View>
             {!isPro && <Icon name="lock.fill" size={fs(13)} color={tokens.t4} />}
@@ -273,13 +275,22 @@ function IdentityStats({
   // duplicating the tier-broken-out tally NameTag already renders one row
   // below -- confirmed confusing live ("coins earned should be on the row
   // below"). NameTag is now the single place coins show on this card.
+  // RC: "this area looks too congested... let's build/use icons for
+  // Mastery, Streak, and W-L so we can get rid of the words up there."
+  // Streak (flame) and W-L (bolt) already had their own distinct icon;
+  // Mastery's `star.fill` didn't -- star is already doing double duty for
+  // ratings/Premium/DailyReg elsewhere in the app, so it read ambiguous
+  // here. `graduationcap.fill` is unique to Mastery, applied everywhere
+  // Mastery shows as an icon+value chip (also profile/[userId].tsx's
+  // OVERALL MASTERY section) -- Study Mode's own big gauge badge is a
+  // separate bespoke visual, not an icon chip, so it's unaffected.
   const chips = useMemo(() => {
     const out: { icon: string; value: string; color: string }[] = []
     if (mastery && mastery.seen > 0) {
-      out.push({ icon: 'star.fill', value: `${mastery.pct}% mastered`, color: tokens.blu })
+      out.push({ icon: 'graduationcap.fill', value: `${mastery.pct}%`, color: tokens.blu })
     }
     if (currency && currency.currentStreak > 0) {
-      out.push({ icon: 'flame.fill', value: `${currency.currentStreak}d streak`, color: tokens.amb })
+      out.push({ icon: 'flame.fill', value: `${currency.currentStreak}d`, color: tokens.amb })
     }
     if (duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0)) {
       out.push({ icon: 'bolt.fill', value: `${duelStats.wins}-${duelStats.losses}`, color: tokens.grn })
