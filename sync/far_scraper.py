@@ -15,6 +15,18 @@ Source, confirmed live 2026-07-23:
   Full text: GET /api/versioner/v1/full/{date}/title-14.xml?part={N}
              — actual regulation text for one Part, XML.
              DIV6 = SUBPART, DIV8 = SECTION (HEAD = heading, P = paragraphs).
+  Versions:  GET /api/versioner/v1/versions/title-14.json?page={N}
+             — real per-section amendment history. See far_amendment_dates.py.
+
+CORRECTION (2026-08-05): this file used to state that "eCFR always serves the
+current version, no separate 'what changed' tracking [is] needed the way
+faa.gov's per-AC pages require", and so stamped updated_at = now() on every
+row every run with no diff. That was wrong twice over. It meant every FAR row
+shared one updated_at, which made Home's Date Range filter an all-or-nothing
+toggle (0 results or all 4,292) and got the filter hidden for FAR. And eCFR
+does publish change tracking — the /versions/ endpoint above — which now
+populates far_sections.last_amended for 4,290 of 4,292 rows with genuine
+dates spanning 2016-2026.
 
 Unlike faa.gov, api.ecfr.gov (fetched via www.ecfr.gov) does not appear to
 bot-block plain requests — no browser-header workaround needed here, but the
@@ -49,6 +61,7 @@ from lxml import etree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from revision_log import log_revisions  # noqa: E402
+from far_amendment_dates import apply_dates as apply_amendment_dates  # noqa: E402
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Config
@@ -440,16 +453,35 @@ def run_full(session: requests.Session):
             error_details.append({"part": part, "error": str(e)})
         time.sleep(REQUEST_DELAY)
 
+    # Real amendment dates, from eCFR's own version index. This has to run
+    # AFTER the section upserts above, because those unconditionally rewrite
+    # updated_at on every row -- a sync stamp, not a change date. The docstring
+    # at the top of this file used to assert no change-tracking was needed
+    # ("eCFR always serves the current version"); that was wrong, and it left
+    # Home's Date Range filter unable to answer "what changed" for FAR at all.
+    # A failure here is logged, not fatal: stale dates are a degraded filter,
+    # whereas aborting would discard a completed content scrape.
+    amended = 0
+    try:
+        amended = apply_amendment_dates(dry_run=False)
+    except Exception as e:
+        log.error(f"  ✗ amendment-date pass failed: {e}")
+        error_details.append({"part": "amendment_dates", "error": str(e)})
+
     run_record.update({
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "status": "success" if errors == 0 else "partial",
         "far_parts_total": len(parts),
         "far_sections_total": total_sections,
+        "far_sections_dated": amended,
         "far_errors": errors,
         "error_details": error_details,
     })
     log_scraper_run(run_record)
-    log.info(f"\nDone. Parts={len(parts)} Sections={total_sections} Errors={errors}")
+    log.info(
+        f"\nDone. Parts={len(parts)} Sections={total_sections} "
+        f"Dated={amended} Errors={errors}"
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────

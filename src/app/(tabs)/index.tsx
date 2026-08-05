@@ -243,17 +243,20 @@ export default function HomeScreen() {
       if (next.length > 0 && next.every((t) => t === 'pcg')) {
         setFilterHasFigures(null)
       }
-      // Date Range only has real per-document dates for AC (date_issued)
-      // and LOI (issued_date) -- FAR/AIM/P-CG's date_from/date_to filters
-      // against updated_at, which every weekly scraper run unconditionally
-      // stamps to now() on EVERY row regardless of real content change
-      // (see memory/gotcha_far_aim_pcg_date_filter_broken.md). Confirmed
-      // live: filtering FAR to a real historical range like 2020 returns
-      // ZERO of 4272 sections, not "unfiltered" -- actively implying no
-      // FAR content exists from that era, which is false. Same
-      // hide-when-wholly-inapplicable treatment as Has Figures above,
+      // Date Range needs a real per-document date. AC (date_issued), LOI
+      // (issued_date) and -- as of 2026-08-05 -- FAR (last_amended, from
+      // eCFR's own version index, 4,290 of 4,292 sections) all have one.
+      //
+      // AIM and P/CG still don't: their date_from/date_to filter against
+      // updated_at, which every weekly scraper run stamps to now() on EVERY
+      // row regardless of content change, so a historical range returns
+      // either everything or nothing. FAR used to be in that same boat --
+      // see memory/gotcha_far_aim_pcg_date_filter_broken.md for the whole
+      // history, and sync/far_amendment_dates.py for how it got out.
+      //
+      // Same hide-when-wholly-inapplicable treatment as Has Figures above,
       // rather than leaving a control that can silently lie.
-      if (next.length > 0 && next.every((t) => t === 'far' || t === 'aim' || t === 'pcg')) {
+      if (next.length > 0 && next.every((t) => t === 'aim' || t === 'pcg')) {
         setFilterDateFrom(''); setFilterDateTo('')
       }
       return next
@@ -1023,17 +1026,17 @@ export default function HomeScreen() {
             onToggle={() => setFilterHasFigures((prev) => (prev ? null : true))}
           />
         )}
-        {/* Only AC (date_issued) and LOI (issued_date) have a real,
-            per-document date to filter on -- FAR/AIM/P-CG's updated_at is
-            a weekly-sync stamp, not a content date, and filtering by it
-            can return zero results for a range that plainly has content.
+        {/* AC (date_issued), LOI (issued_date) and FAR (last_amended) have
+            a real per-document date to filter on. AIM and P/CG still only
+            have updated_at -- a weekly-sync stamp, not a content date --
+            so filtering by it returns everything or nothing for any range.
             Hidden outright (not just disclosed) when the selection is
-            wholly within the broken types, same treatment as Has Figures
-            above; otherwise shown with an honest scope in the title, same
+            wholly within those two, same treatment as Has Figures above;
+            otherwise shown with an honest scope in the title, same
             convention as Audience's own "(NARROWS ACs ONLY)". */}
-        {(filterContentTypes.length === 0 || filterContentTypes.some((t) => t === 'ac' || t === 'loi')) && (
+        {(filterContentTypes.length === 0 || filterContentTypes.some((t) => t !== 'aim' && t !== 'pcg')) && (
           <View style={{ gap: 8 }}>
-            <Text style={[styles.filterSectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>DATE RANGE (ACs & LOIs ONLY)</Text>
+            <Text style={[styles.filterSectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>DATE RANGE (NOT AIM OR P/CG)</Text>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TextInput
                 style={[styles.filterDateInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg2, fontSize: fs(13) }]}
