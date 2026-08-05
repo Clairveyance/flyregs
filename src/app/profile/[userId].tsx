@@ -87,7 +87,15 @@ const GOLD_PULSE_MS = 5000
 // Bronze has no theme token of its own (gold -> tokens.gold, silver ->
 // tokens.slv, both already red-shift aware). Same warm/dim pairing the
 // MASTERY_TRACK constants above use.
-const BRONZE = '#b3773f'
+//
+// RC, on a light-mode screenshot: "these two color tones need some
+// adjustment - look too similar." Correct, and it's specific to light
+// mode: tokens.gold there is #A87C00, a dark amber-brown that sits right
+// on top of this bronze. Dark mode is fine (gold is #C6A224, clearly
+// brighter). So light mode gets a deeper, redder copper that reads as a
+// different metal rather than a slightly darker gold.
+const BRONZE_DARK = '#b3773f'
+const BRONZE_LIGHT = '#8A4020'
 const BRONZE_REDSHIFT = '#8a5a2e'
 
 function OrbitRing({
@@ -166,7 +174,7 @@ function OrbitRing({
 }
 
 function DuelOrbit({
-  wins, losses, ties, tokens, fs, redShift,
+  wins, losses, ties, tokens, fs, redShift, isLight,
 }: {
   wins: number
   losses: number
@@ -174,12 +182,14 @@ function DuelOrbit({
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
   redShift: boolean
+  isLight: boolean
 }) {
   const reduceMotion = useReducedMotion()
+  const bronze = redShift ? BRONZE_REDSHIFT : isLight ? BRONZE_LIGHT : BRONZE_DARK
   const items = [
     { label: 'Wins', count: wins, color: tokens.gold },
     { label: 'Losses', count: losses, color: tokens.slv },
-    { label: 'Ties', count: ties, color: redShift ? BRONZE_REDSHIFT : BRONZE },
+    { label: 'Ties', count: ties, color: bronze },
   ]
   // Rank decides slot only. Ties broken by the fixed Wins/Losses/Ties order
   // so an all-zero (or all-equal) record still lays out deterministically
@@ -243,7 +253,7 @@ function MasteryBar({ pct, tokens, redShift }: { pct: number; tokens: ReturnType
 
 export default function ProfileScreen() {
   const { userId, label } = useLocalSearchParams<{ userId: string; label?: string }>()
-  const { tokens, redShift } = useTheme()
+  const { tokens, redShift, resolved } = useTheme()
   const fs = useFS()
   const { session, avatarOverride } = useAuth()
   const isSelf = session?.user.id === userId
@@ -448,6 +458,7 @@ export default function ProfileScreen() {
                   tokens={tokens}
                   fs={fs}
                   redShift={redShift}
+                  isLight={resolved === 'light'}
                 />
               </Pressable>
             )}

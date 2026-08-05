@@ -552,6 +552,12 @@ export default function AccountScreen() {
             <Text style={[styles.email, { color: tokens.t1, fontSize: fs(16) }]} numberOfLines={1}>
               {email}
             </Text>
+            {/* RC: "this account designation should be colored to reflect
+                tier: orange, blue, gold." Pro and Premium both rendered gold
+                before, so the badge told you nothing you didn't already
+                know from the word next to it. One colour per tier now, and
+                gold is reserved for the top one -- the same way gold means
+                Premium everywhere else in this app. */}
             <View style={styles.tierRow}>
               {isPremium ? (
                 <>
@@ -560,8 +566,8 @@ export default function AccountScreen() {
                 </>
               ) : isPro ? (
                 <>
-                  <Icon name="checkmark.seal.fill" size={fs(14)} color={tokens.gold} />
-                  <Text style={[styles.tierText, { color: tokens.gold, fontSize: fs(13) }]}>FlyRegs Pro</Text>
+                  <Icon name="checkmark.seal.fill" size={fs(14)} color={tokens.blu} />
+                  <Text style={[styles.tierText, { color: tokens.blu, fontSize: fs(13) }]}>FlyRegs Pro</Text>
                 </>
               ) : isUnlocked ? (
                 <>
@@ -655,7 +661,11 @@ export default function AccountScreen() {
         <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>AIRWORTHINESS DIRECTIVES</Text>
         <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <Row
-            icon="doc.plaintext"
+            // RC: "this should be an aircraft icon" -- it was a generic
+            // document glyph, which reads as "a form" rather than "your
+            // plane," and every other reference to a saved aircraft in this
+            // app already uses `airplane`.
+            icon="airplane"
             label={isPremium ? 'My Fleet' : 'My Aircraft'}
             tokens={tokens}
             onPress={() => {
