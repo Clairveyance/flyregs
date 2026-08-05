@@ -87,11 +87,12 @@ if (!ads || ads.length === 0) {
 // tables (My Aircraft is deliberately lightweight, one row per saved
 // aircraft), so pulling both fully into memory and matching in JS is
 // simpler and plenty fast, rather than a per-AD SQL query in a loop.
-const [{ data: aircraft, error: acErr }, { data: tokens, error: tokErr }, { data: equipMentions, error: mentErr }, { data: equipTags, error: tagErr }] = await Promise.all([
+const [{ data: aircraft, error: acErr }, { data: tokens, error: tokErr }, { data: equipMentions, error: mentErr }, { data: equipTags, error: tagErr }, { data: collabs, error: collabErr }] = await Promise.all([
   sb.from('user_aircraft').select('id, user_id, make, model, type_designator'),
   sb.from('push_tokens').select('user_id, expo_push_token').eq('enabled', true),
   sb.from('ad_part_mentions').select('ad_number, part_id').in('ad_number', touchedAdNumbers),
   sb.from('user_aircraft_equipment').select('user_aircraft_id, part_id'),
+  sb.from('aircraft_collaborators').select('aircraft_id, user_id').is('left_at', null),
 ])
 if (acErr) {
   console.error('Failed to fetch user_aircraft:', acErr.message)
@@ -109,6 +110,10 @@ if (tagErr) {
   console.error('Failed to fetch user_aircraft_equipment:', tagErr.message)
   process.exit(1)
 }
+if (collabErr) {
+  console.error('Failed to fetch aircraft_collaborators:', collabErr.message)
+  process.exit(1)
+}
 if (!aircraft || aircraft.length === 0) {
   console.log('No user_aircraft rows saved by anyone yet — nothing to notify.')
   process.exit(0)
@@ -121,6 +126,18 @@ for (const t of tokens ?? []) {
 }
 
 const aircraftById = new Map((aircraft ?? []).map((a) => [a.id, a]))
+
+// aircraft_id -> [collaborator user_id, ...], active memberships only. An
+// AD alert is a team-maintenance concern, not a solo one -- RC: "the push
+// logic is that this 'group' push only happens if an a/c folder is
+// shared, and has to make sure to fire to all people listed in that, but
+// also ONLY to the people listed in that group." An aircraft with no
+// collaborators here naturally falls back to owner-only, unchanged.
+const collaboratorsByAircraftId = new Map()
+for (const c of collabs ?? []) {
+  if (!collaboratorsByAircraftId.has(c.aircraft_id)) collaboratorsByAircraftId.set(c.aircraft_id, [])
+  collaboratorsByAircraftId.get(c.aircraft_id).push(c.user_id)
+}
 
 // part_id -> [ad_number, ...] for this run's touched ADs
 const adNumbersByPartId = new Map()
@@ -259,15 +276,22 @@ const logRows = [...matches.values()].map((m) => ({
   }
 }
 
-// Group by user for the push step (unchanged bundling logic: one
-// notification per user combining every aircraft/AD match they have this
-// run), but keep the per-match keys so a delivery result can be written
-// back to the specific log rows below.
+// Group by user for the push step (one notification per user combining
+// every aircraft/AD match relevant to them this run), but keep the
+// per-match keys so a delivery result can be written back to the specific
+// log rows below. The recipient set per match is the aircraft's owner
+// PLUS every active collaborator on that specific aircraft -- never
+// collaborators of some OTHER aircraft that happened to match a different
+// AD in this same run, since collaboratorsByAircraftId is looked up by
+// this exact match's own userAircraftId.
 const matchKeysByUser = new Map()
 for (const [key, m] of matches) {
-  if (!tokensByUser.has(m.userId)) continue // no enabled device, nothing to push
-  if (!matchKeysByUser.has(m.userId)) matchKeysByUser.set(m.userId, [])
-  matchKeysByUser.get(m.userId).push(key)
+  const recipients = new Set([m.userId, ...(collaboratorsByAircraftId.get(m.userAircraftId) ?? [])])
+  for (const recipientId of recipients) {
+    if (!tokensByUser.has(recipientId)) continue // no enabled device, nothing to push
+    if (!matchKeysByUser.has(recipientId)) matchKeysByUser.set(recipientId, [])
+    matchKeysByUser.get(recipientId).push(key)
+  }
 }
 
 if (matchKeysByUser.size === 0) {
@@ -344,29 +368,43 @@ for (let i = 0; i < messages.length; i += BATCH) {
   })
 }
 
-// Fold delivery results back into the durable log so "was this user
-// actually notified" has a real answer after the fact, not just a CI log
-// line. Runs even if some rows above failed to write -- an upsert with
-// ignoreDuplicates:false here so an existing row's push fields DO get
-// filled in (unlike the log-write step above, which must NOT clobber an
-// already-read notification's state).
-const updateRows = []
-for (const [userId, keys] of matchKeysByUser) {
-  const result = pushResultByUser.get(userId)
+// Fold delivery results back into the durable log so "was this aircraft's
+// team actually notified" has a real answer after the fact, not just a CI
+// log line. user_ad_notifications is one row per (aircraft, AD) — not one
+// per recipient — so with a shared aircraft now pushing to several people,
+// this first collapses each match key's outcome across every recipient it
+// went to (matching the exact same "upgrade to sent on any ok" shape
+// already used one level up for a single user's several devices), THEN
+// writes exactly one row per key. Writing more than one row per key in the
+// same batch would hit the same (user_aircraft_id, ad_number) conflict
+// target twice and error ("ON CONFLICT DO UPDATE command cannot affect row
+// a second time"). Runs even if some rows above failed to write -- an
+// upsert with ignoreDuplicates:false here so an existing row's push fields
+// DO get filled in (unlike the log-write step above, which must NOT
+// clobber an already-read notification's state).
+const pushResultByMatchKey = new Map()
+for (const [recipientId, keys] of matchKeysByUser) {
+  const result = pushResultByUser.get(recipientId)
   if (!result) continue
   for (const key of keys) {
-    const m = matches.get(key)
-    updateRows.push({
-      user_id: m.userId,
-      user_aircraft_id: m.userAircraftId,
-      ad_number: m.ad.ad_number,
-      matched_via: m.matchedVia,
-      push_status: result.status,
-      push_error: result.error,
-      push_sent_at: new Date().toISOString(),
-    })
+    const prev = pushResultByMatchKey.get(key)
+    if (result.status === 'sent' || !prev || prev.status !== 'sent') {
+      pushResultByMatchKey.set(key, result)
+    }
   }
 }
+const updateRows = [...pushResultByMatchKey].map(([key, result]) => {
+  const m = matches.get(key)
+  return {
+    user_id: m.userId,
+    user_aircraft_id: m.userAircraftId,
+    ad_number: m.ad.ad_number,
+    matched_via: m.matchedVia,
+    push_status: result.status,
+    push_error: result.error,
+    push_sent_at: new Date().toISOString(),
+  }
+})
 {
   const UPD_BATCH = 500
   for (let i = 0; i < updateRows.length; i += UPD_BATCH) {
