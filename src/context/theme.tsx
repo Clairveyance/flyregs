@@ -28,6 +28,15 @@ export interface ThemeTokens {
   gold: string
   goldlt: string
   goldbdr: string
+  /** Brushed-silver accent, used for the DailyReg card's shimmer border and
+   * translucent fill. Same lt/bdr triplet shape as gold above. `slvhi` and
+   * `slvlo` are the two ends of the metallic sweep -- a gradient between
+   * them is what reads as "shimmer" rather than a flat grey outline. */
+  slv: string
+  slvlt: string
+  slvbdr: string
+  slvhi: string
+  slvlo: string
   bdr: string
   bdr2: string
 }
@@ -63,6 +72,15 @@ export const darkTokens: ThemeTokens = {
   gold: '#C6A224',
   goldlt: 'rgba(198,162,36,0.12)',
   goldbdr: 'rgba(198,162,36,0.30)',
+  slv: '#C7D0DC',
+  // RC, 2026-08-05: "the DR box needs a slight translucency fill inside...
+  // VERY subtle, opacity set to, start with 10%." Flat 10% alpha on the
+  // silver base color, no separate lt/dark tuning like the other tokens
+  // have -- deliberately a starting point RC expects to adjust in-app.
+  slvlt: 'rgba(199,208,220,0.10)',
+  slvbdr: 'rgba(199,208,220,0.35)',
+  slvhi: '#F0F4F8',
+  slvlo: '#8B96A6',
   bdr: 'rgba(255,255,255,0.07)',
   bdr2: 'rgba(255,255,255,0.14)',
 }
@@ -91,6 +109,11 @@ export const lightTokens: ThemeTokens = {
   gold: '#A87C00',
   goldlt: 'rgba(168,124,0,0.12)',
   goldbdr: 'rgba(168,124,0,0.32)',
+  slv: '#6B7684',
+  slvlt: 'rgba(107,118,132,0.10)',
+  slvbdr: 'rgba(107,118,132,0.35)',
+  slvhi: '#B8C2CE',
+  slvlo: '#4A5563',
   bdr: 'rgba(0,0,0,0.11)',
   bdr2: 'rgba(0,0,0,0.20)',
 }

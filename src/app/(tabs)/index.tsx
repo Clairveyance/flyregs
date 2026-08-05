@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import {
   Animated,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { LinearGradient } from 'expo-linear-gradient'
+import Reanimated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated'
 import { router, useFocusEffect } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
@@ -1324,7 +1326,7 @@ function HomeHeader({
     return (
       <>
         <View style={[styles.sectionLabel, { justifyContent: 'flex-start', gap: 8 }]}>
-          <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(15) }]}>What's New</Text>
+          <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(16.5) }]}>What's New</Text>
         </View>
         <Pressable
           style={[styles.wnLockedCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
@@ -1358,7 +1360,7 @@ function HomeHeader({
           schema but is confirmed empty for every doc type right now, so
           it isn't a usable source yet either. */}
       <View style={[styles.sectionLabel, { justifyContent: 'flex-start', gap: 8 }]}>
-        <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(15) }]}>What's New</Text>
+        <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(16.5) }]}>What's New</Text>
         <Text style={[styles.sectionSub, { color: tokens.t3, fontSize: fs(11.5) }]}>Last {badgeDays} days</Text>
         <View style={{ flex: 1 }} />
         <Pressable onPress={() => router.push('/whats-changed' as any)} hitSlop={8}>
@@ -1393,7 +1395,7 @@ function HomeHeader({
 
       {/* Regulatory-body cards label */}
       <View style={styles.sectionLabel}>
-        <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(15) }]}>Browse by Regulation</Text>
+        <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(16.5) }]}>Browse by Regulation</Text>
       </View>
     </>
   )
@@ -1432,68 +1434,145 @@ function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; toke
   const { isPro } = useAuth()
   const [expanded, setExpanded] = useState(false)
   if (!regOfDay) return null
+  // Brushed-silver shimmer frame -- RC, 2026-08-05, after seeing a static
+  // diagonal-gradient first pass: "the DR box silver shimmer is just the
+  // edge border - it should be like the ML, but in silver instead, same
+  // effect." See SilverShimmerFrame below for the actual technique (it's
+  // MagicLinkPod's own rotating-ring trick, recolored). The one deliberate
+  // difference from ML: "the DR box needs a slight translucency fill
+  // inside, instead of nothing - to help it stand out, but this is VERY
+  // subtle" -- tokens.slvlt (10% alpha) instead of ML's solid tokens.bg2.
+  // The gold star/lock badge stays gold on purpose -- it's the one accent
+  // inside the frame, not competing with it.
   if (!isPro) {
     return (
-      <Pressable
-        style={[styles.dailyRegCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
-        onPress={() => router.push('/paywall?tier=pro')}
-      >
-        <View style={styles.dailyRegRow}>
-          <View style={[styles.dailyRegIcon, { backgroundColor: tokens.goldlt }]}>
-            <Icon name="lock.fill" size={fs(13)} color={tokens.gold} />
+      <Pressable onPress={() => router.push('/paywall?tier=pro')}>
+        <SilverShimmerFrame tokens={tokens}>
+          <View style={styles.dailyRegRow}>
+            <View style={[styles.dailyRegIcon, { backgroundColor: tokens.goldlt }]}>
+              <Icon name="lock.fill" size={fs(13)} color={tokens.gold} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <DailyRegLabel color={tokens.t3} fs={fs} />
+              <Text style={[styles.dailyRegTerm, { color: tokens.t2, fontSize: fs(13.5) }]} numberOfLines={2}>
+                A hand-picked reg every day — unlock with Pro
+              </Text>
+            </View>
+            <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
           </View>
-          <View style={{ flex: 1 }}>
-            <DailyRegLabel color={tokens.t3} fs={fs} />
-            <Text style={[styles.dailyRegTerm, { color: tokens.t2, fontSize: fs(13.5) }]} numberOfLines={2}>
-              A hand-picked reg every day — unlock with Pro
-            </Text>
-          </View>
-          <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
-        </View>
+        </SilverShimmerFrame>
       </Pressable>
     )
   }
   return (
-    <Pressable
-      style={[styles.dailyRegCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
-      onPress={() => setExpanded((e) => !e)}
-    >
-      <View style={styles.dailyRegRow}>
-        <View style={[styles.dailyRegIcon, { backgroundColor: tokens.goldlt }]}>
-          <Icon name="star.fill" size={fs(14)} color={tokens.gold} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <DailyRegLabel color={tokens.t3} fs={fs} suffix={regOfDay.sourceType.toUpperCase()} />
-          <Text style={[styles.dailyRegTerm, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={expanded ? undefined : 1}>
-            {regOfDay.term}
-          </Text>
-        </View>
-        <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t4} />
-      </View>
-      {expanded && (
-        <>
-          {splitIntoParagraphs(regOfDay.definition).map((para, i, arr) => (
-            <Text
-              key={i}
-              style={[
-                styles.dailyRegDef,
-                { color: tokens.t2, fontSize: fs(13.5) },
-                i < arr.length - 1 && { marginBottom: 8 },
-              ]}
-            >
-              {para}
+    <Pressable onPress={() => setExpanded((e) => !e)}>
+      <SilverShimmerFrame tokens={tokens}>
+        <View style={styles.dailyRegRow}>
+          <View style={[styles.dailyRegIcon, { backgroundColor: tokens.goldlt }]}>
+            <Icon name="star.fill" size={fs(14)} color={tokens.gold} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <DailyRegLabel color={tokens.t3} fs={fs} suffix={regOfDay.sourceType.toUpperCase()} />
+            <Text style={[styles.dailyRegTerm, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={expanded ? undefined : 1}>
+              {regOfDay.term}
             </Text>
-          ))}
-          <Pressable
-            style={[styles.dailyRegJump, { borderColor: tokens.bdr }]}
-            onPress={() => router.push(regOfTheDayRoute(regOfDay) as any)}
-          >
-            <Text style={[styles.dailyRegJumpText, { color: tokens.blu, fontSize: fs(13) }]}>Open full entry</Text>
-            <Icon name="chevron.right" size={fs(12)} color={tokens.blu} />
-          </Pressable>
-        </>
-      )}
+          </View>
+          <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t4} />
+        </View>
+        {expanded && (
+          <>
+            {splitIntoParagraphs(regOfDay.definition).map((para, i, arr) => (
+              <Text
+                key={i}
+                style={[
+                  styles.dailyRegDef,
+                  { color: tokens.t2, fontSize: fs(13.5) },
+                  i < arr.length - 1 && { marginBottom: 8 },
+                ]}
+              >
+                {para}
+              </Text>
+            ))}
+            <Pressable
+              style={[styles.dailyRegJump, { borderColor: tokens.bdr }]}
+              onPress={() => router.push(regOfTheDayRoute(regOfDay) as any)}
+            >
+              <Text style={[styles.dailyRegJumpText, { color: tokens.blu, fontSize: fs(13) }]}>Open full entry</Text>
+              <Icon name="chevron.right" size={fs(12)} color={tokens.blu} />
+            </Pressable>
+          </>
+        )}
+      </SilverShimmerFrame>
     </Pressable>
+  )
+}
+
+// The exact same rotating-gradient-ring trick as MagicLinkPod's gold border
+// (see that file's own long comment for the full "why": an oversized
+// square clipped behind a same-shaped inner panel inset by exactly the
+// border's own width, sized off the box's real diagonal so no rotation
+// angle ever exposes a transparent edge, rotated continuously so it reads
+// as a traveling light rather than a static ring), recolored silver via
+// theme tokens instead of ML's own hardcoded gold hex spectrum -- these
+// tokens are already dark/light-aware (theme.tsx) so no separate palette
+// constant is needed here the way ML keeps one for its brand-fixed gold.
+// Kept local to this file rather than factored out, matching the existing
+// precedent that ML's own version isn't factored out either -- one caller
+// each so far, both self-contained.
+function SilverShimmerFrame({ tokens, children }: { tokens: ReturnType<typeof useTheme>['tokens']; children: ReactNode }) {
+  const rotation = useSharedValue(0)
+  const [boxSize, setBoxSize] = useState({ width: 0, height: 0 })
+
+  useEffect(() => {
+    rotation.value = withRepeat(withTiming(360, { duration: 6000, easing: Easing.linear }), -1, false)
+  }, [])
+
+  const spinStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }))
+
+  // Diagonal-based square, comfortably oversized (×1.5) -- same formula as
+  // MagicLinkPod, see its comment for why a fixed percentage isn't enough
+  // once the box isn't roughly square (DailyReg's collapsed row is short
+  // and wide, same shape that broke the old fixed-percentage approach there).
+  const diag = Math.sqrt(boxSize.width ** 2 + boxSize.height ** 2) * 1.5
+  const spinSizeStyle = boxSize.width > 0 ? {
+    width: diag,
+    height: diag,
+    top: (boxSize.height - diag) / 2,
+    left: (boxSize.width - diag) / 2,
+  } : styles.dailyRegSpinFallback
+
+  return (
+    <View
+      style={[styles.dailyRegShimmerOuter, { borderColor: tokens.slvbdr }]}
+      onLayout={(e) => setBoxSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
+    >
+      <View style={styles.dailyRegGradientClip} pointerEvents="none">
+        <Reanimated.View style={[styles.dailyRegSpinBase, spinSizeStyle, spinStyle]}>
+          <LinearGradient
+            colors={['transparent', tokens.slv, tokens.slvhi, tokens.slv, tokens.slvlo, tokens.slv, 'transparent']}
+            locations={[0, 0.05, 0.28, 0.5, 0.72, 0.95, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </Reanimated.View>
+      </View>
+      {/* Opaque base (tokens.bg2, same as every other Home card), NOT
+          tokens.slvlt directly -- the rotating gradient square underneath
+          extends across the whole inset, not just the visible ring, so a
+          translucent BASE fill let it bleed through the entire card face
+          (confirmed live: the whole card read as a solid light-gray block,
+          not "just the edge border"). The silver tint goes on top of this
+          opaque layer instead, as its own absolutely-filled overlay --
+          that's what makes it read as "instead of nothing, but VERY
+          subtle" rather than a window into the border mechanism. */}
+      <View style={[styles.dailyRegCard, { backgroundColor: tokens.bg2 }]}>
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: tokens.slvlt }]} pointerEvents="none" />
+        {children}
+      </View>
+    </View>
   )
 }
 
@@ -1886,7 +1965,10 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 8,
   },
-  sectionTitle: { fontWeight: '600', fontSize: 15 },
+  // Bumped from 15/600/no-spacing -- RC, 2026-08-05: a slight size/weight
+  // pull on "What's New" and "Browse by Regulation" to draw the eye without
+  // adding more color to the page.
+  sectionTitle: { fontWeight: '700', fontSize: 16.5, letterSpacing: 0.3 },
   sectionSub: { fontSize: 11.5 },
 
   wnScroll: { paddingHorizontal: 16, gap: 10, paddingBottom: 4 },
@@ -1907,9 +1989,31 @@ const styles = StyleSheet.create({
   wnLockedTitle: { fontWeight: '600', marginBottom: 2 },
   wnLockedSub: { lineHeight: 16 },
   wnEmptyText: { lineHeight: 18 },
-  dailyRegCard: {
+  // Same outer/clip/spin/inner shape as MagicLinkPod's own styles (see
+  // SilverShimmerFrame above) -- the 1.5px padding is what reveals the
+  // rotating ring underneath; dailyRegCard has no borderWidth of its own
+  // for the same reason ML's inner panel doesn't (a real border on top
+  // would just cover the gradient back up). Inner radius is outer radius
+  // minus that same padding, so the two stay concentric.
+  dailyRegShimmerOuter: {
     marginHorizontal: 16, marginTop: 10, marginBottom: 4,
-    borderRadius: 12, borderWidth: 1, padding: 12,
+    borderRadius: 13, borderWidth: StyleSheet.hairlineWidth, padding: 1.5,
+    overflow: 'hidden',
+  },
+  dailyRegGradientClip: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+  },
+  dailyRegSpinBase: {
+    position: 'absolute',
+  },
+  // Only used for the one frame before onLayout reports real dimensions --
+  // any oversized square works here since it's replaced immediately.
+  dailyRegSpinFallback: {
+    top: '-75%', left: '-75%', width: '250%', height: '250%',
+  },
+  dailyRegCard: {
+    borderRadius: 11.5, padding: 12, overflow: 'hidden',
   },
   dailyRegRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   dailyRegIcon: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
