@@ -671,7 +671,7 @@ export default function AccountScreen() {
               !isPro ? (
                 <Icon name="lock.fill" size={fs(14)} color={tokens.t4} />
               ) : fleetStatus ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
                   <FleetStatusWheel status={fleetStatus} tokens={tokens} />
                   <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
                 </View>
@@ -828,9 +828,17 @@ export default function AccountScreen() {
 // own ring) isn't legible at this size, so this reads the same "wheel"
 // shape while only carrying the one signal RC actually asked for here:
 // worst-severity color, visible before ever opening the section.
+// Flat single color (the worst status across the fleet), not a proportional
+// multi-segment mimic of the real My Fleet screen's own FleetRing -- RC
+// asked directly whether this should mimic that ring's color %s. Kept flat
+// on purpose: at this row-icon size (~28px) a proportional split would be a
+// handful of illegible slivers, and the per-aircraft RowStatusBadge on the
+// real My Fleet screen ALSO uses one flat status color per ring (never a
+// proportional split) -- proportional aggregation is specifically FleetRing's
+// own job as a dashboard visualization, not a settings-row glance indicator's.
 function FleetStatusWheel({ status, tokens }: { status: 'clear' | 'attention' | 'overdue'; tokens: ThemeTokens }) {
   const color = status === 'overdue' ? tokens.red : status === 'attention' ? tokens.amb : tokens.grn
-  return <View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 3, borderColor: color }} />
+  return <View style={{ width: 26, height: 26, borderRadius: 13, borderWidth: 4, borderColor: color }} />
 }
 
 function Row({

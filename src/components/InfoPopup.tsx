@@ -30,8 +30,11 @@ interface Props {
    * 2026-08-05, re: My Fleet's intro popup). A bullet can optionally carry
    * its own color, for text that's explaining what a color means (e.g.
    * "green = on track") -- plain string bullets stay the default body
-   * color. */
-  body: string | Array<string | { text: string; color: string }>
+   * color. `indent` nests a bullet under the one above it (smaller dash
+   * bullet, extra left padding) -- for a header bullet ("the ring means X")
+   * followed by that thing's own colored values, so the grouping reads
+   * visually instead of just being a flat run of same-weight bullets. */
+  body: string | Array<string | { text: string; color: string; indent?: boolean }>
   /** If true, auto-opens once (per device) the first time this component
    * mounts, and that first showing can only be dismissed via "I
    * Understand" -- not tap-outside or the X. Every showing after that
@@ -93,10 +96,13 @@ export function InfoPopup({ id, title, body, forceOnce = false, iconSize }: Prop
                 {body.map((line, i) => {
                   const text = typeof line === 'string' ? line : line.text
                   const color = typeof line === 'string' ? tokens.t2 : line.color
+                  const indent = typeof line !== 'string' && line.indent
                   return (
-                    <View key={i} style={styles.bulletRow}>
-                      <Text style={[styles.bulletDot, { color: tokens.t3, fontSize: fs(14.5) }]}>{'•'}</Text>
-                      <Text style={[styles.body, styles.bulletText, { color, fontSize: fs(14.5) }]}>{text}</Text>
+                    <View key={i} style={[styles.bulletRow, indent && styles.bulletRowIndent]}>
+                      <Text style={[styles.bulletDot, { color: indent ? color : tokens.t3, fontSize: fs(indent ? 13 : 14.5) }]}>
+                        {indent ? '–' : '•'}
+                      </Text>
+                      <Text style={[styles.body, styles.bulletText, { color, fontSize: fs(indent ? 13.5 : 14.5) }]}>{text}</Text>
                     </View>
                   )
                 })}
@@ -136,8 +142,12 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   title: { fontWeight: '700', flex: 1 },
   body: { lineHeight: 21 },
-  bulletList: { gap: 10 },
-  bulletRow: { flexDirection: 'row', gap: 8 },
+  bulletList: {},
+  bulletRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  // Tighter to the row above (its header bullet) than a fresh top-level
+  // bullet would be, plus left padding so it visually nests underneath --
+  // see the `indent` doc comment on Props.body above.
+  bulletRowIndent: { marginTop: 4, marginLeft: 16 },
   bulletDot: { lineHeight: 21 },
   bulletText: { flex: 1 },
   understandBtn: {

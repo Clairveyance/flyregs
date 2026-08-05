@@ -26,7 +26,14 @@ import { View } from 'react-native'
  */
 export function AviationHeadset({ size = 22, color = '#000' }: { size?: number; color?: string }) {
   const s = size
-  const stroke = Math.max(1.25, s * 0.09)
+  // RC, real device: "headset looks good, try to make it a bit bigger or
+  // 'thicker' so it matches better the other icons" -- the other reg-type
+  // icons are all SF Symbol ".fill" (solid) glyphs, which read heavier at a
+  // given point size than this component's own thin outline stroke did.
+  // Thickened the stroke rather than the overall size, since the shape/
+  // silhouette was already confirmed good -- this is a weight match, not a
+  // redesign.
+  const stroke = Math.max(1.6, s * 0.13)
   const cupW = s * 0.22
   const cupH = s * 0.34
   const bandW = s * 0.72

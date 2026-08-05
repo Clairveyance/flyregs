@@ -441,10 +441,20 @@ export default function MyAircraftScreen() {
                 'Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive applies to them, instead of scanning the full AD list yourself.',
                 'Premium can share an aircraft with other Premium accounts as a viewer or editor.',
                 'Sorted by urgency — overdue first, then open items, then compliant.',
-                'Each ring shows the aircraft\'s most urgent status — the number is its count of open ADs.',
-                { text: 'Green — on track', color: tokens.grn },
-                { text: 'Amber — due soon', color: tokens.amb },
-                { text: 'Red — overdue', color: tokens.red },
+                // RC: "this is misleading. the 'a/c status' could also mean
+                // ADs, which isn't part of the ring. So the ring is really
+                // the Reminders status and should say that." Two separate
+                // header+values groups instead of one ambiguous sentence --
+                // matches RowStatusBadge's own already-correct split
+                // (ring = reminder urgency, number = open-AD count, see its
+                // header comment) that this copy had drifted out of sync with.
+                { text: 'The colored ring shows the urgency status of Reminders:', color: tokens.t2 },
+                { text: 'On track', color: tokens.grn, indent: true },
+                { text: 'Due soon', color: tokens.amb, indent: true },
+                { text: 'Overdue', color: tokens.red, indent: true },
+                { text: 'The colored number shows the count and status of ADs:', color: tokens.t2 },
+                { text: 'Open', color: tokens.amb, indent: true },
+                { text: 'Compliant', color: tokens.grn, indent: true },
               ]}
               forceOnce
               iconSize={fs(15)}
@@ -455,37 +465,52 @@ export default function MyAircraftScreen() {
             <Text style={[styles.empty, { color: tokens.t3, fontSize: fs(14) }]}>No aircraft saved yet.</Text>
           ) : (
             <>
-              {/* Fleet compliance card -- RC's reference image, built fresh
-                  rather than reusing the app's existing plain-badge pattern
-                  (see FleetRing's own comment for why this is discrete
-                  ticks, not an SVG arc). Ring + legend are the same three
-                  real, separate aircraft-level buckets (compliant/open/
-                  overdue) that always sum to the fleet total; the stat
-                  boxes below are ITEM-level sums (openAdCount/
-                  overdueReminderCount added across aircraft), which is why
-                  their numbers can differ from the legend's. */}
-              <View style={[styles.fleetCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-                <View style={styles.fleetCardTop}>
-                  <FleetRing
-                    compliantCount={compliantCount}
-                    openCount={openCatCount}
-                    overdueCount={overdueCatCount}
-                    total={aircraft.length}
-                    tokens={tokens}
-                    fs={fs}
-                  />
-                  <View style={styles.legend}>
-                    <LegendRow color={tokens.grn} label="Compliant" count={compliantCount} tokens={tokens} fs={fs} />
-                    <LegendRow color={tokens.amb} label="Open AD" count={openCatCount} tokens={tokens} fs={fs} />
-                    <LegendRow color={tokens.red} label="Overdue" count={overdueCatCount} tokens={tokens} fs={fs} />
+              {/* Fleet compliance card -- Premium only. RC: "you said you
+                  were going to redesign Pro to have a similar feel as
+                  Fleet, but it didn't get done" -- this aggregate ring/
+                  legend/stat-box card was rendering unconditionally for
+                  Pro too (found live: a Pro account showed the full
+                  multi-aircraft dashboard). Pro is sold as ONE aircraft,
+                  not a fleet, so an aggregate proportional-compliance
+                  summary doesn't apply -- the per-aircraft RowStatusBadge
+                  in the list below already carries the exact same color
+                  language (ring = reminder urgency, number = open-AD
+                  count) at the single-aircraft level, which is all Pro
+                  needs. "Similar feel" means the same colors/ring
+                  vocabulary, not a shrunken copy of the fleet dashboard
+                  itself -- see FleetRing's own comment for why this card
+                  exists in the first place (RC's reference image, built
+                  fresh rather than reusing the app's existing plain-badge
+                  pattern). Ring + legend are the same three real, separate
+                  aircraft-level buckets (compliant/open/overdue) that
+                  always sum to the fleet total; the stat boxes below are
+                  ITEM-level sums (openAdCount/overdueReminderCount added
+                  across aircraft), which is why their numbers can differ
+                  from the legend's. */}
+              {isPremium && (
+                <View style={[styles.fleetCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                  <View style={styles.fleetCardTop}>
+                    <FleetRing
+                      compliantCount={compliantCount}
+                      openCount={openCatCount}
+                      overdueCount={overdueCatCount}
+                      total={aircraft.length}
+                      tokens={tokens}
+                      fs={fs}
+                    />
+                    <View style={styles.legend}>
+                      <LegendRow color={tokens.grn} label="Compliant" count={compliantCount} tokens={tokens} fs={fs} />
+                      <LegendRow color={tokens.amb} label="Open AD" count={openCatCount} tokens={tokens} fs={fs} />
+                      <LegendRow color={tokens.red} label="Overdue" count={overdueCatCount} tokens={tokens} fs={fs} />
+                    </View>
+                  </View>
+                  <View style={styles.statBoxRow}>
+                    <StatBox value={totalOverdue} label="OVERDUE" color={tokens.red} tokens={tokens} fs={fs} />
+                    <StatBox value={totalOpenAds} label="OPEN ITEMS" color={tokens.amb} tokens={tokens} fs={fs} />
+                    <StatBox value={nextDueDays !== null ? `${nextDueDays}d` : '—'} label="NEXT DUE" color={tokens.grn} tokens={tokens} fs={fs} />
                   </View>
                 </View>
-                <View style={styles.statBoxRow}>
-                  <StatBox value={totalOverdue} label="OVERDUE" color={tokens.red} tokens={tokens} fs={fs} />
-                  <StatBox value={totalOpenAds} label="OPEN ITEMS" color={tokens.amb} tokens={tokens} fs={fs} />
-                  <StatBox value={nextDueDays !== null ? `${nextDueDays}d` : '—'} label="NEXT DUE" color={tokens.grn} tokens={tokens} fs={fs} />
-                </View>
-              </View>
+              )}
 
               {/* RC: "is there another way to sort? if not, we probably
                   don't need the words. we can always just explain the

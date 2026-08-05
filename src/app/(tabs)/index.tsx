@@ -1361,10 +1361,15 @@ function HomeHeader({
           it isn't a usable source yet either. */}
       <View style={[styles.sectionLabel, { justifyContent: 'flex-start', gap: 8 }]}>
         <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(16.5) }]}>What's New</Text>
-        <Text style={[styles.sectionSub, { color: tokens.t3, fontSize: fs(11.5) }]}>Last {badgeDays} days</Text>
+        {/* RC: "you had fixed these, then they went back" -- checked git
+            history directly, sectionSub's fontSize was never actually
+            bumped (only sectionTitle was, this same round) -- couldn't find
+            a prior committed larger version to restore, so this is a fresh
+            bump now rather than a revert. */}
+        <Text style={[styles.sectionSub, { color: tokens.t3, fontSize: fs(13) }]}>Last {badgeDays} days</Text>
         <View style={{ flex: 1 }} />
         <Pressable onPress={() => router.push('/whats-changed' as any)} hitSlop={8}>
-          <Text style={[styles.sectionSub, { color: tokens.blu, fontWeight: '600', fontSize: fs(11.5) }]}>
+          <Text style={[styles.sectionSub, { color: tokens.blu, fontWeight: '600', fontSize: fs(13) }]}>
             See changes ›
           </Text>
         </Pressable>
@@ -1969,7 +1974,7 @@ const styles = StyleSheet.create({
   // pull on "What's New" and "Browse by Regulation" to draw the eye without
   // adding more color to the page.
   sectionTitle: { fontWeight: '700', fontSize: 16.5, letterSpacing: 0.3 },
-  sectionSub: { fontSize: 11.5 },
+  sectionSub: { fontSize: 13 },
 
   wnScroll: { paddingHorizontal: 16, gap: 10, paddingBottom: 4 },
   wnEmpty: {
