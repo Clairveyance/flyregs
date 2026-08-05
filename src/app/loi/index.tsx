@@ -67,12 +67,17 @@ export default function LoiIndexScreen() {
     if (trimmed.length < 3) { searchSeq.current++; setHits([]); setSearching(false); return }
     const seq = ++searchSeq.current
     setSearching(true)
+    // search_legal_interpretations(), not a direct .textSearch() on the raw
+    // table. `body_text` is Pro-gated content and its column-level SELECT is
+    // now revoked from anon/authenticated (see
+    // migrations_paid_content_column_privileges.sql) -- Postgres requires
+    // SELECT on any column named in a WHERE clause, so searching it from the
+    // client is no longer possible at all. Finding an LOI by its full text is
+    // deliberately FREE ("find it free, read it on Pro"), so the search moved
+    // server-side into a SECURITY DEFINER function that can read the body but
+    // only ever returns metadata.
     supabase
-      .from('legal_interpretations')
-      .select('slug, title, addressee, year, summary, cfr_part_reference')
-      .textSearch('body_text', trimmed, { type: 'websearch', config: 'english' })
-      .order('year', { ascending: false })
-      .limit(30)
+      .rpc('search_legal_interpretations', { q: trimmed, lim: 30 })
       .then(({ data, error }) => {
         if (seq !== searchSeq.current) return
         if (error) {

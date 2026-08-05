@@ -91,6 +91,44 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Unauthorized' }, 401)
   }
 
+  // Ask FlyRegs is a Pro feature, and until 2026-08-05 that was enforced
+  // ONLY in the client (semantic-search.tsx's hasProAccess check). Having a
+  // session was the whole bar here, so any signed-in FREE account could call
+  // this endpoint directly and get results -- confirmed live against
+  // production during the pre-beta gating audit: 3 results, 2,424 characters
+  // of chunk_text, on a brand-new free account.
+  //
+  // Two separate things were wrong with that: the feature itself is paid,
+  // and `content_chunks` carries the body text of paid AC/AD/LOI documents
+  // (that table is correctly RLS-denied to anon/authenticated -- this
+  // function reads it with the service role, which is exactly why the check
+  // has to happen HERE).
+  //
+  // has_pro_access() is the same DB function the gated views use, so there
+  // is one definition of "Pro" server-side rather than a second copy that
+  // can drift. It fails CLOSED on a missing entitlement row, matching the
+  // content gates.
+  const { id: callerId } = await userRes.json()
+  const tierRes = await fetch(
+    `${supabaseUrl}/rest/v1/rpc/has_pro_access`,
+    {
+      method: 'POST',
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ p_user_id: callerId }),
+    }
+  )
+  if (!tierRes.ok) {
+    console.error('semantic-search: tier check failed', tierRes.status, await tierRes.text())
+    return jsonResponse({ error: 'Search is temporarily unavailable.' }, 500)
+  }
+  if ((await tierRes.json()) !== true) {
+    return jsonResponse({ error: 'Ask FlyRegs requires a Pro subscription.' }, 403)
+  }
+
   let body: { query?: string; contentTypes?: string[]; matchCount?: number }
   try {
     body = await req.json()
