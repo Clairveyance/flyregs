@@ -73,10 +73,16 @@ function DuelBubbles({
     { label: 'Ties', count: ties, color: tokens.t4 },
   ]
   const max = Math.max(wins, losses, ties, 1)
+  // RC, 4th pass: "not sure about these. they don't look 'cool' and if you
+  // use circles, use rings, not solid fills." Same layout/size-by-share
+  // idea as before (still not a shared tick-dial, still not My Aircraft's
+  // ring) -- just a hollow stroked ring instead of a solid disc, colored
+  // stroke + matching colored number instead of a solid fill + white text.
   return (
     <View style={styles.bubbleRow}>
       {items.map((it) => {
         const size = it.count === 0 ? BUBBLE_MIN : BUBBLE_MIN + (BUBBLE_MAX - BUBBLE_MIN) * (it.count / max)
+        const ringColor = it.count > 0 ? it.color : tokens.t4
         return (
           <View key={it.label} style={styles.bubbleCol}>
             <View
@@ -86,11 +92,12 @@ function DuelBubbles({
                   width: size,
                   height: size,
                   borderRadius: size / 2,
-                  backgroundColor: it.count > 0 ? it.color : tokens.bg3,
+                  borderWidth: Math.max(3, size * 0.09),
+                  borderColor: ringColor,
                 },
               ]}
             >
-              <Text style={[styles.bubbleValue, { color: it.count > 0 ? '#fff' : tokens.t4, fontSize: fs(it.count >= 100 ? 13 : 16) }]}>
+              <Text style={[styles.bubbleValue, { color: ringColor, fontSize: fs(it.count >= 100 ? 13 : 16) }]}>
                 {it.count}
               </Text>
             </View>
