@@ -231,6 +231,7 @@ const FAQ: QA[] = [
     a: [
       { tier: 'premium', text: 'Share an aircraft from its detail screen — pick Viewer (sees everything) or Editor (can also add equipment and reminders, and mark ADs complied) access, then send the real invite link that opens. Whoever taps it needs their own Premium account to actually join.' },
       'Collaborators show up on the aircraft with their role, so you always know who has access — useful for a flight school, maintenance shop, or any aircraft with more than one person tracking its compliance.',
+      'AD alerts go to the whole team, not just the owner: when a new or updated AD matches a shared aircraft, everyone with access gets the push notification, the same one the owner would get on their own.',
     ],
   },
   {

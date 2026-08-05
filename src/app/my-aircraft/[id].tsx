@@ -504,6 +504,16 @@ export default function AircraftDetailScreen() {
                 <Text style={[styles.collabHeaderText, { color: tokens.t2, fontSize: fs(13) }]}>
                   {collaborators.length} {collaborators.length === 1 ? 'person has' : 'people have'} access
                 </Text>
+                {/* RC: "we'll need an info icon somewhere explaining this"
+                    -- once AD push alerts started fanning out to the whole
+                    team (send-ad-alerts.mjs), this is the one place an
+                    owner is already looking at exactly who's on that team. */}
+                <InfoPopup
+                  id="my-aircraft-collab-ad-push"
+                  title="AD alerts go to everyone here"
+                  body="When a new or updated AD matches this aircraft, everyone with access gets a push notification for it — not just you."
+                  iconSize={fs(14)}
+                />
               </View>
               {collaborators.map((c) => (
                 <View key={c.userId} style={[styles.collabRow, { borderTopColor: tokens.bdr }]}>
