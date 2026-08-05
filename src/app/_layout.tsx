@@ -23,7 +23,14 @@ import { Drawer } from '@/components/Drawer'
 import { PersistentTabBar } from '@/components/PersistentTabBar'
 import { AnimatedSplash } from '@/components/AnimatedSplash'
 import { ShareCardProvider } from '@/components/ShareCardCapture'
+import { IPadSplitViewExperiment } from '@/components/IPadSplitViewExperiment'
 import { initSentry } from '@/lib/sentry'
+
+// Phase-1 SplitView proof-of-mechanism, dev-only, defaults off -- see
+// flyregs_ipad_plan.md. When on (iOS only; SplitView has no Android/web
+// native backing), this REPLACES the entire real app tree below with an
+// isolated 3-column demo. Never on in a real build unless deliberately set.
+const IPAD_SPLITVIEW_EXPERIMENT = process.env.EXPO_PUBLIC_IPAD_SPLITVIEW_EXPERIMENT === '1'
 
 // Prevent the native splash screen from auto-hiding (no-op on web)
 if (Platform.OS !== 'web') {
@@ -97,6 +104,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
+  if (IPAD_SPLITVIEW_EXPERIMENT && Platform.OS === 'ios') {
+    return <IPadSplitViewExperiment />
+  }
+
   return (
     <ThemeProvider>
       <ResponsiveProvider>
