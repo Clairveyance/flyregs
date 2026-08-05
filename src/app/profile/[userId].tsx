@@ -29,72 +29,87 @@ import { useCachedImage } from '@/lib/imageCache'
 // policies are technically public-readable already (a pre-existing
 // permissiveness this screen doesn't rely on for anyone but the owner).
 
-// RC, 2nd pass on these two cards -- the first redesign (small badge +
-// bar, both in a plain icon-row card) still read as "standard boxes":
-// "something more visual than standard boxes. like two big rings, or
-// concentric circles, or one circle and one bar graph... think of a fun,
-// visually striking way to display this info." Went with "two big rings" --
-// reuses FleetRing's own proven radial-tick donut technique (My Fleet's
-// compliant/open/overdue visualization, already built and already praised)
-// generalized to take arbitrary weighted segments, instead of inventing a
-// new shape from scratch: Duel record's ring is a real W/L/T proportional
-// donut (the same "color IS the data" idea DuelRecordBar had, just as a
-// ring instead of a bar), Mastery's ring is a real filled/unfilled
-// proportional donut instead of a solid-border badge with a lerped color.
-const RING_DULL = '#3A4552'
+// RC, 3rd pass on these two -- the 1st redesign (small badge + bar, both in
+// a plain icon-row card) read as "standard boxes"; the 2nd (StatRing, two
+// big proportional-donut rings reusing FleetRing's radial-tick technique)
+// fixed the "boxes" complaint's visual style but got rejected on two counts
+// at once: "we don't need the boxes" (the bordered card wrapper itself,
+// which the ring redesign kept even though it dropped the small-badge
+// look) and "the ring design can't be the same as the My Aircraft ring.
+// that needs to stay unique to that." So this pass drops the card entirely
+// (bare `styles.section`, same no-box convention already used one screen
+// section down for RATINGS/CHALLENGE COINS) and swaps BOTH rings for a
+// shape that isn't a ring at all: RC's own earlier suggestion "one circle
+// and one bar graph" is the seed. Duel record -- 3 discrete categories
+// (W/L/T) -- gets a bubble cluster: three separately-sized filled circles,
+// diameter scaled to each outcome's own share of the max, so the dominant
+// outcome is visibly biggest -- a genuinely different visual grammar from
+// a single dashed dial (composition via SIZE, not arc angle), directly
+// answering "we need a visual that can show each category... how to rep
+// that graphically." Mastery -- one proportion, not a category breakdown
+// -- gets a plain horizontal fill bar instead, so the two cards read as
+// two different shapes from each other too, not just from My Aircraft.
+const MASTERY_TRACK = '#3A4552'
 // Red Shift: neutral blue-grey isn't red-safe -- same dim warm rust-black
 // used for CoinMedal's locked/dim state, so every "low progress" visual in
 // the app reads consistently under Red Shift.
-const RING_DULL_REDSHIFT = '#4a3530'
-const STAT_RING_SIZE = 104
-const STAT_RING_TICKS = 28
+const MASTERY_TRACK_REDSHIFT = '#4a3530'
+const BUBBLE_MIN = 36
+const BUBBLE_MAX = 72
 
-function StatRing({
-  segments, centerValue, centerLabel, tokens, redShift, fs,
+function DuelBubbles({
+  wins, losses, ties, tokens, fs,
 }: {
-  segments: Array<{ color: string; count: number }>
-  centerValue: string
-  centerLabel: string
+  wins: number
+  losses: number
+  ties: number
   tokens: ReturnType<typeof useTheme>['tokens']
-  redShift: boolean
   fs: (n: number) => number
 }) {
-  const total = segments.reduce((sum, s) => sum + s.count, 0)
-  // Only reached when there's literally nothing to show yet (e.g. 0 duels
-  // played) -- real data always supplies its own "remainder" segment color
-  // as part of `segments` (see the Mastery ring's own dull-gold-remainder
-  // below), so this fallback is StatRing's own concern, not the caller's.
-  const dull = redShift ? RING_DULL_REDSHIFT : RING_DULL
-  let tickColors: string[] = []
-  if (total > 0) {
-    segments.forEach((seg) => {
-      const n = Math.round((seg.count / total) * STAT_RING_TICKS)
-      tickColors.push(...Array(n).fill(seg.color))
-    })
-    // Rounding each segment independently can land one tick short/long of
-    // STAT_RING_TICKS -- pad or trim against the last real segment's color
-    // rather than leaving a gap or overflowing the ring.
-    const fillColor = segments[segments.length - 1]?.color ?? dull
-    while (tickColors.length < STAT_RING_TICKS) tickColors.push(fillColor)
-    tickColors = tickColors.slice(0, STAT_RING_TICKS)
-  } else {
-    tickColors = Array(STAT_RING_TICKS).fill(dull)
-  }
-  const angleStep = 360 / STAT_RING_TICKS
+  const items = [
+    { label: 'Wins', count: wins, color: tokens.grn },
+    { label: 'Losses', count: losses, color: tokens.red },
+    { label: 'Ties', count: ties, color: tokens.t4 },
+  ]
+  const max = Math.max(wins, losses, ties, 1)
   return (
-    <View style={{ width: STAT_RING_SIZE, height: STAT_RING_SIZE }}>
-      {tickColors.map((color, i) => (
-        <View
-          key={i}
-          style={[StyleSheet.absoluteFill, styles.statRingTickWrap, { transform: [{ rotate: `${i * angleStep}deg` }] }]}
-        >
-          <View style={[styles.statRingTick, { backgroundColor: color }]} />
-        </View>
-      ))}
-      <View style={[StyleSheet.absoluteFill, styles.statRingCenter]}>
-        <Text style={[styles.statRingValue, { color: tokens.t1, fontSize: fs(22) }]}>{centerValue}</Text>
-        <Text style={[styles.statRingLabel, { color: tokens.t4, fontSize: fs(9) }]}>{centerLabel}</Text>
-      </View>
+    <View style={styles.bubbleRow}>
+      {items.map((it) => {
+        const size = it.count === 0 ? BUBBLE_MIN : BUBBLE_MIN + (BUBBLE_MAX - BUBBLE_MIN) * (it.count / max)
+        return (
+          <View key={it.label} style={styles.bubbleCol}>
+            <View
+              style={[
+                styles.bubble,
+                {
+                  width: size,
+                  height: size,
+                  borderRadius: size / 2,
+                  backgroundColor: it.count > 0 ? it.color : tokens.bg3,
+                },
+              ]}
+            >
+              <Text style={[styles.bubbleValue, { color: it.count > 0 ? '#fff' : tokens.t4, fontSize: fs(it.count >= 100 ? 13 : 16) }]}>
+                {it.count}
+              </Text>
+            </View>
+            <Text style={[styles.bubbleLabel, { color: tokens.t3, fontSize: fs(11) }]}>{it.label}</Text>
+          </View>
+        )
+      })}
+    </View>
+  )
+}
+
+function MasteryBar({ pct, tokens, redShift }: { pct: number; tokens: ReturnType<typeof useTheme>['tokens']; redShift: boolean }) {
+  const track = redShift ? MASTERY_TRACK_REDSHIFT : MASTERY_TRACK
+  // A real but tiny % (e.g. 1%) would render as an invisible sliver at full
+  // bar width -- floor the visible fill so "some progress" always reads as
+  // some progress, same reasoning as FleetRing's own minimum-arc handling.
+  const fillPct = pct <= 0 ? 0 : Math.max(pct, 3)
+  return (
+    <View style={[styles.masteryTrack, { backgroundColor: track }]}>
+      <View style={[styles.masteryFill, { width: `${fillPct}%`, backgroundColor: tokens.gold }]} />
     </View>
   )
 }
@@ -260,68 +275,52 @@ export default function ProfileScreen() {
               </View>
             )}
 
-            {/* RC, 2nd pass: "something more visual than standard boxes...
-                two big rings... a fun, visually striking way to display
-                this info." Side by side, both real proportional donuts
-                (StatRing, generalized from FleetRing's own radial-tick
-                technique) instead of a small badge/bar in an icon-row card.
-                Duel record's ring is blue-bordered, Mastery's is gold --
-                same distinct-accent-per-card idea the first pass already
-                had, just carried onto a bigger shape. Tappable when
-                viewing your own profile (into Duels/Study), not on someone
-                else's -- there's nothing self-only to navigate to there. */}
-            <View style={styles.statRingRow}>
-              {duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0) && (
-                <Pressable
-                  style={[styles.statRingCard, { backgroundColor: tokens.bg2, borderColor: tokens.bbdr }]}
-                  onPress={isSelf ? () => router.push('/challenges' as any) : undefined}
-                >
-                  <StatRing
-                    segments={[
-                      { color: tokens.grn, count: duelStats.wins },
-                      { color: tokens.red, count: duelStats.losses },
-                      { color: tokens.t4, count: duelStats.ties },
-                    ]}
-                    centerValue={String(duelStats.wins + duelStats.losses + duelStats.ties)}
-                    centerLabel="DUELS"
-                    tokens={tokens}
-                    redShift={redShift}
-                    fs={fs}
-                  />
-                  <Text style={[styles.statRingCardTitle, { color: tokens.t1, fontSize: fs(13.5) }]}>Duel record</Text>
-                  <Text style={[styles.statRingCardSub, { color: tokens.t3, fontSize: fs(11.5) }]}>
-                    {duelStats.wins}W · {duelStats.losses}L{duelStats.ties > 0 ? ` · ${duelStats.ties}T` : ''}
-                  </Text>
-                </Pressable>
-              )}
-
-              {mastery && mastery.mastered > 0 && (
-                <Pressable
-                  style={[styles.statRingCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
-                  onPress={isSelf ? () => router.push('/study' as any) : undefined}
-                >
-                  <StatRing
-                    segments={[
-                      { color: tokens.gold, count: mastery.pct },
-                      { color: redShift ? RING_DULL_REDSHIFT : RING_DULL, count: 100 - mastery.pct },
-                    ]}
-                    centerValue={`${mastery.pct}%`}
-                    centerLabel="MASTERY"
-                    tokens={tokens}
-                    redShift={redShift}
-                    fs={fs}
-                  />
-                  <Text style={[styles.statRingCardTitle, { color: tokens.t1, fontSize: fs(13.5) }]}>Overall Mastery</Text>
-                  <Text style={[styles.statRingCardSub, { color: tokens.t3, fontSize: fs(11.5) }]}>{mastery.mastered} terms</Text>
-                </Pressable>
-              )}
-            </View>
-
-            {/* RC: "your total Overall Mastery %. plus the nametag. all
-                the things to really brag about" -- both cards above stay
+            {/* RC, 3rd pass: "we don't need the boxes" + "the ring design
+                can't be the same as the My Aircraft ring." No card wrapper
+                (bare `section`, matching RATINGS/CHALLENGE COINS below),
+                and neither shape is My Aircraft's dashed dial -- a bubble
+                cluster for Duels' 3-way W/L/T breakdown, a plain fill bar
+                for Mastery's single proportion. Tappable when viewing your
+                own profile (into Duels/Study), not on someone else's --
+                there's nothing self-only to navigate to there. Both stay
                 unconditionally public, same as the rest of this "bragging
                 page," not gated behind the "Show my stats" toggle the way
-                ratings/coins/aircraft are. */}
+                ratings/coins/aircraft are (RC: "your total Overall Mastery
+                %. plus the nametag. all the things to really brag about"). */}
+            {duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0) && (
+              <Pressable
+                style={styles.section}
+                disabled={!isSelf}
+                onPress={isSelf ? () => router.push('/challenges' as any) : undefined}
+              >
+                <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>DUEL RECORD</Text>
+                <Text style={{ color: tokens.t1 }}>
+                  <Text style={[styles.statHeadlineNum, { fontSize: fs(23) }]}>
+                    {duelStats.wins + duelStats.losses + duelStats.ties}
+                  </Text>
+                  <Text style={[styles.statHeadlineSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+                    {' '}duel{duelStats.wins + duelStats.losses + duelStats.ties === 1 ? '' : 's'} · {duelStats.wins}W · {duelStats.losses}L
+                    {duelStats.ties > 0 ? ` · ${duelStats.ties}T` : ''}
+                  </Text>
+                </Text>
+                <DuelBubbles wins={duelStats.wins} losses={duelStats.losses} ties={duelStats.ties} tokens={tokens} fs={fs} />
+              </Pressable>
+            )}
+
+            {mastery && mastery.mastered > 0 && (
+              <Pressable
+                style={styles.section}
+                disabled={!isSelf}
+                onPress={isSelf ? () => router.push('/study' as any) : undefined}
+              >
+                <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>OVERALL MASTERY</Text>
+                <Text style={{ color: tokens.t1 }}>
+                  <Text style={[styles.statHeadlineNum, { fontSize: fs(23) }]}>{mastery.pct}%</Text>
+                  <Text style={[styles.statHeadlineSub, { color: tokens.t3, fontSize: fs(13.5) }]}> · {mastery.mastered} terms mastered</Text>
+                </Text>
+                <MasteryBar pct={mastery.pct} tokens={tokens} redShift={redShift} />
+              </Pressable>
+            )}
 
             {!visible ? (
               <View style={[styles.privateCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
@@ -458,19 +457,17 @@ const styles = StyleSheet.create({
   aircraftSaveBtnText: { color: '#fff', fontWeight: '700' },
   addRatingChip: { flexDirection: 'row', alignItems: 'center', gap: 3 },
 
-  // Two big rings, side by side -- see StatRing's own header comment.
-  statRingRow: { flexDirection: 'row', gap: 12 },
-  statRingCard: {
-    flex: 1, alignItems: 'center', gap: 8,
-    borderRadius: 16, borderWidth: 1, paddingVertical: 18, paddingHorizontal: 10,
-  },
-  statRingCardTitle: { fontWeight: '700', marginTop: 2 },
-  statRingCardSub: { fontVariant: ['tabular-nums'], letterSpacing: 0.2 },
-  statRingTickWrap: { alignItems: 'center' },
-  statRingTick: { width: 5, height: 13, borderRadius: 2.5, marginTop: 3 },
-  statRingCenter: { alignItems: 'center', justifyContent: 'center' },
-  statRingValue: { fontWeight: '800', fontVariant: ['tabular-nums'] },
-  statRingLabel: { letterSpacing: 0.8, marginTop: -2, fontWeight: '600' },
+  // Duel record / Overall Mastery -- see DuelBubbles/MasteryBar's own
+  // header comment for why these dropped the card+ring look entirely.
+  statHeadlineNum: { fontWeight: '800', fontVariant: ['tabular-nums'] },
+  statHeadlineSub: { fontVariant: ['tabular-nums'] },
+  bubbleRow: { flexDirection: 'row', justifyContent: 'center', gap: 22, marginTop: 12 },
+  bubbleCol: { alignItems: 'center', gap: 6, width: BUBBLE_MAX },
+  bubble: { alignItems: 'center', justifyContent: 'center' },
+  bubbleValue: { fontWeight: '800', fontVariant: ['tabular-nums'] },
+  bubbleLabel: { fontWeight: '600' },
+  masteryTrack: { height: 14, borderRadius: 7, overflow: 'hidden', marginTop: 10 },
+  masteryFill: { height: '100%', borderRadius: 7 },
 
   privateCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
