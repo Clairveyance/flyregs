@@ -410,6 +410,25 @@ function RefPacketGrid({
             </Pressable>
           )
         })}
+        {/* Not a real acs_documents row -- Multiengine is Area X *within*
+            both the Private and Commercial Airplane ACS docs above, not its
+            own document, so it can't come from getRefPackets()'s doc-map.
+            Hand-added card routing to its own toggle screen instead. */}
+        {(category === 'All' || category === 'Airplane') && (
+          <Pressable
+            style={[styles.packetCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
+            onPress={() => {
+              if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+              router.push('/ref-packets/multi-engine' as any)
+            }}
+          >
+            <Icon name="rosette" size={fs(18)} color={tokens.gold} />
+            <Text style={[styles.packetTitle, { color: tokens.t1, fontSize: fs(13) }]} numberOfLines={3}>
+              Multiengine Operations
+            </Text>
+            <Text style={[styles.packetMeta, { color: tokens.t4, fontSize: fs(10.5) }]}>Private · Commercial</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   )
