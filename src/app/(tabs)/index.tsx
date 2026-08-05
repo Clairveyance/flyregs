@@ -31,7 +31,7 @@ import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { getBadgeKind, getBadgeStyle, BadgeKind } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
-import { getRegOfTheDay, regOfTheDayRoute, type RegOfTheDay } from '@/lib/notifications'
+import { getDailyReg, dailyRegRoute, dailyRegCitation, type DailyReg } from '@/lib/notifications'
 import { splitIntoParagraphs } from '@/lib/regTextFormat'
 import { consumeJustConfirmed } from '@/lib/justConfirmed'
 import { FigureViewer } from '@/components/FigureViewer'
@@ -63,7 +63,7 @@ function acResultPrimary(num: string): string {
 }
 
 const HOME_CACHE_KEY = '@flyregs/home-cache'
-// Separate from HOME_CACHE_KEY -- regOfDay refetches on every focus (see its
+// Separate from HOME_CACHE_KEY -- dailyReg refetches on every focus (see its
 // own useFocusEffect below), not just cutoff/badgeDays changes like load()'s
 // cache. Same reason for existing: show the last-known pick instantly instead
 // of the card popping in a beat after the RPC resolves (RC, 2026-08-05: "the
@@ -133,7 +133,7 @@ export default function HomeScreen() {
   const [dictCount, setDictCount] = useState<number | null>(null)
   const [whatsNew, setWhatsNew] = useState<WhatsNewAC[]>([])
   const [otherWhatsNew, setOtherWhatsNew] = useState<WhatsNewOther[]>([])
-  const [regOfDay, setRegOfDay] = useState<RegOfTheDay | null>(null)
+  const [dailyReg, setDailyReg] = useState<DailyReg | null>(null)
   const [loading, setLoading] = useState(true)
   const { badgeDays } = useBadgeLifespan()
 
@@ -415,10 +415,10 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       AsyncStorage.getItem(REG_OF_DAY_CACHE_KEY)
-        .then((cached) => { if (cached) setRegOfDay(JSON.parse(cached)) })
+        .then((cached) => { if (cached) setDailyReg(JSON.parse(cached)) })
         .catch(() => {})
-      getRegOfTheDay().then((fresh) => {
-        setRegOfDay(fresh)
+      getDailyReg().then((fresh) => {
+        setDailyReg(fresh)
         AsyncStorage.setItem(REG_OF_DAY_CACHE_KEY, JSON.stringify(fresh)).catch(() => {})
       }).catch(() => {})
     }, [])
@@ -957,7 +957,7 @@ export default function HomeScreen() {
               otherWhatsNew={otherWhatsNew}
               badgeDays={badgeDays}
               hasPlusAccess={hasPlusAccess}
-              regOfDay={regOfDay}
+              dailyReg={dailyReg}
             />
           }
           renderItem={({ item }) => <RegBodyCard item={item} tokens={tokens} />}
@@ -1293,14 +1293,14 @@ function HomeHeader({
   otherWhatsNew,
   badgeDays,
   hasPlusAccess,
-  regOfDay,
+  dailyReg,
 }: {
   tokens: ReturnType<typeof useTheme>['tokens']
   whatsNew: WhatsNewAC[]
   otherWhatsNew: WhatsNewOther[]
   badgeDays: number
   hasPlusAccess: boolean
-  regOfDay: RegOfTheDay | null
+  dailyReg: DailyReg | null
 }) {
   const fs = useFS()
 
@@ -1343,7 +1343,7 @@ function HomeHeader({
           </View>
           <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
         </Pressable>
-        <DailyRegCard regOfDay={regOfDay} tokens={tokens} />
+        <DailyRegCard dailyReg={dailyReg} tokens={tokens} />
       </>
     )
   }
@@ -1396,7 +1396,7 @@ function HomeHeader({
         </View>
       )}
 
-      <DailyRegCard regOfDay={regOfDay} tokens={tokens} />
+      <DailyRegCard dailyReg={dailyReg} tokens={tokens} />
 
       {/* Regulatory-body cards label */}
       <View style={styles.sectionLabel}>
@@ -1434,11 +1434,11 @@ function DailyRegLabel({ color, fs, suffix }: { color: string; fs: (n: number) =
   )
 }
 
-function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; tokens: ReturnType<typeof useTheme>['tokens'] }) {
+function DailyRegCard({ dailyReg, tokens }: { dailyReg: DailyReg | null; tokens: ReturnType<typeof useTheme>['tokens'] }) {
   const fs = useFS()
   const { isPro } = useAuth()
   const [expanded, setExpanded] = useState(false)
-  if (!regOfDay) return null
+  if (!dailyReg) return null
   // Brushed-silver shimmer frame -- RC, 2026-08-05, after seeing a static
   // diagonal-gradient first pass: "the DR box silver shimmer is just the
   // edge border - it should be like the ML, but in silver instead, same
@@ -1477,16 +1477,16 @@ function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; toke
             <Icon name="star.fill" size={fs(14)} color={tokens.gold} />
           </View>
           <View style={{ flex: 1 }}>
-            <DailyRegLabel color={tokens.t3} fs={fs} suffix={regOfDay.sourceType.toUpperCase()} />
+            <DailyRegLabel color={tokens.t3} fs={fs} suffix={dailyReg.sourceType.toUpperCase()} />
             <Text style={[styles.dailyRegTerm, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={expanded ? undefined : 1}>
-              {regOfDay.term}
+              {dailyReg.term}
             </Text>
           </View>
           <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t4} />
         </View>
         {expanded && (
           <>
-            {splitIntoParagraphs(regOfDay.definition).map((para, i, arr) => (
+            {splitIntoParagraphs(dailyReg.definition).map((para, i, arr) => (
               <Text
                 key={i}
                 style={[
@@ -1498,9 +1498,20 @@ function DailyRegCard({ regOfDay, tokens }: { regOfDay: RegOfTheDay | null; toke
                 {para}
               </Text>
             ))}
+            {/* RC: "when the DailyReg is expanded or pushed to devices, it
+                needs to show the reg that it came from at the bottom, so
+                user can see that (just like the fix we did for study
+                cards)." Same reasoning as the Study Mode citation: the
+                answer text alone doesn't tell you WHERE it's from, and
+                that provenance is the whole point of a regulatory
+                reference app. Already in hand from the rotation RPC's own
+                slug -- no backend change. */}
+            <Text style={[styles.dailyRegCitation, { color: tokens.t3, fontSize: fs(12) }]}>
+              {dailyRegCitation(dailyReg)}
+            </Text>
             <Pressable
               style={[styles.dailyRegJump, { borderColor: tokens.bdr }]}
-              onPress={() => router.push(regOfTheDayRoute(regOfDay) as any)}
+              onPress={() => router.push(dailyRegRoute(dailyReg) as any)}
             >
               <Text style={[styles.dailyRegJumpText, { color: tokens.blu, fontSize: fs(13) }]}>Open full entry</Text>
               <Icon name="chevron.right" size={fs(12)} color={tokens.blu} />
@@ -2025,6 +2036,7 @@ const styles = StyleSheet.create({
   dailyRegLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 1 },
   dailyRegTerm: { fontWeight: '700' },
   dailyRegDef: { lineHeight: 19, marginTop: 10 },
+  dailyRegCitation: { marginTop: 10, fontWeight: '600', letterSpacing: 0.3 },
   dailyRegJump: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4,
     marginTop: 10, paddingVertical: 9, borderRadius: 9, borderWidth: 1,

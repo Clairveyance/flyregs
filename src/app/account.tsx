@@ -36,9 +36,9 @@ import {
   isAcUpdateAlertsEnabled,
   enableAcUpdateAlerts,
   disableAcUpdateAlerts,
-  isRegOfTheDayEnabled,
-  enableRegOfTheDay,
-  disableRegOfTheDay,
+  isDailyRegEnabled,
+  enableDailyReg,
+  disableDailyReg,
   isDuelNotificationsEnabled,
   enableDuelNotifications,
   disableDuelNotifications,
@@ -69,8 +69,8 @@ export default function AccountScreen() {
   const avatarUrl = avatarOverride ? avatarOverride.uri : cachedAvatarUrl
   const [alertsEnabled, setAlertsEnabled] = useState(false)
   const [alertsBusy, setAlertsBusy] = useState(false)
-  const [regOfDayEnabled, setRegOfDayEnabled] = useState(false)
-  const [regOfDayBusy, setRegOfDayBusy] = useState(false)
+  const [dailyRegEnabled, setDailyRegEnabled] = useState(false)
+  const [dailyRegBusy, setDailyRegBusy] = useState(false)
   const [duelNotifEnabled, setDuelNotifEnabled] = useState(false)
   const [duelNotifBusy, setDuelNotifBusy] = useState(false)
   const [myRatings, setMyRatings] = useState<RatingCode[]>([])
@@ -149,11 +149,11 @@ export default function AccountScreen() {
   useEffect(() => {
     if (session?.user?.id && isPro) {
       isAcUpdateAlertsEnabled(session.user.id).then(setAlertsEnabled)
-      isRegOfTheDayEnabled(session.user.id).then(setRegOfDayEnabled)
+      isDailyRegEnabled(session.user.id).then(setDailyRegEnabled)
       isDuelNotificationsEnabled(session.user.id).then(setDuelNotifEnabled)
     } else {
       setAlertsEnabled(false)
-      setRegOfDayEnabled(false)
+      setDailyRegEnabled(false)
       setDuelNotifEnabled(false)
     }
   }, [session?.user?.id, isPro])
@@ -253,17 +253,17 @@ export default function AccountScreen() {
     setAlertsBusy(false)
   }
 
-  const handleToggleRegOfDay = async (v: boolean) => {
+  const handleToggleDailyReg = async (v: boolean) => {
     if (!isPro) { router.push('/paywall'); return }
     if (!session?.user?.id) return
-    setRegOfDayBusy(true)
+    setDailyRegBusy(true)
     try {
       if (v) {
-        await enableRegOfTheDay(session.user.id)
-        setRegOfDayEnabled(true)
+        await enableDailyReg(session.user.id)
+        setDailyRegEnabled(true)
       } else {
-        await disableRegOfTheDay(session.user.id)
-        setRegOfDayEnabled(false)
+        await disableDailyReg(session.user.id)
+        setDailyRegEnabled(false)
       }
     } catch (err: any) {
       if (err?.message === 'PERMISSION_DENIED') {
@@ -278,9 +278,9 @@ export default function AccountScreen() {
       } else {
         Alert.alert('Error', err?.message ?? 'Could not update alert preference.')
       }
-      setRegOfDayEnabled(false)
+      setDailyRegEnabled(false)
     }
-    setRegOfDayBusy(false)
+    setDailyRegBusy(false)
   }
 
   const handleToggleDuelNotifications = async (v: boolean) => {
@@ -722,12 +722,12 @@ export default function AccountScreen() {
                 </View>
               )}
             </View>
-            {regOfDayBusy ? (
+            {dailyRegBusy ? (
               <ActivityIndicator size="small" color={tokens.t3} />
             ) : (
               <Switch
-                value={regOfDayEnabled}
-                onValueChange={handleToggleRegOfDay}
+                value={dailyRegEnabled}
+                onValueChange={handleToggleDailyReg}
                 trackColor={{ true: tokens.blu, false: undefined }}
               />
             )}

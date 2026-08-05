@@ -34,6 +34,7 @@
 import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
 import path from 'path'
+import { hiddenAircraftIds } from './lib/tier-cap.mjs'
 
 const envPath = path.resolve(process.cwd(), '.env.scraper')
 if (!fs.existsSync(envPath)) {
@@ -136,23 +137,8 @@ if (!allAircraft || allAircraft.length === 0) {
 // row means uncapped (never punish a paying customer for a sync hiccup),
 // and nothing is deleted -- these rows still exist and come straight back
 // on re-subscribe.
-const PRO_AIRCRAFT_CAP = 1
 const isPremiumByUser = new Map((entitlements ?? []).map((e) => [e.user_id, e.is_premium === true]))
-const ownedByUser = new Map()
-for (const a of allAircraft) {
-  if (!ownedByUser.has(a.user_id)) ownedByUser.set(a.user_id, [])
-  ownedByUser.get(a.user_id).push(a)
-}
-const cappedOutIds = new Set()
-for (const [userId, owned] of ownedByUser) {
-  // `!isPremiumByUser.has(userId)` -> no row at all -> treat as uncapped.
-  if (!isPremiumByUser.has(userId) || isPremiumByUser.get(userId)) continue
-  owned
-    .slice()
-    .sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)) || String(x.id).localeCompare(String(y.id)))
-    .slice(PRO_AIRCRAFT_CAP)
-    .forEach((a) => cappedOutIds.add(a.id))
-}
+const cappedOutIds = hiddenAircraftIds(allAircraft, entitlements)
 const aircraft = allAircraft.filter((a) => !cappedOutIds.has(a.id))
 if (cappedOutIds.size > 0) {
   console.log(`${cappedOutIds.size} saved aircraft skipped: over their owner's non-Premium cap (hidden in-app too, not deleted).`)

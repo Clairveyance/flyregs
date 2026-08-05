@@ -1,4 +1,4 @@
-// Sends the daily "Reg of the Day" push notification (Pro/Premium, opt-in
+// Sends the daily "DailyReg" push notification (Pro/Premium, opt-in
 // toggle separate from AC Update Alerts) -- a rotating P/CG term, same
 // "word of the day" idea as a dictionary app. Meant to run once per day via
 // its own scheduled workflow, NOT as part of the weekly content-sync
@@ -31,12 +31,12 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
 
 const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } })
 
-const { data: regOfDay, error: rodErr } = await sb.rpc('get_reg_of_the_day')
+const { data: dailyReg, error: rodErr } = await sb.rpc('get_reg_of_the_day')
 if (rodErr) {
   console.error('get_reg_of_the_day RPC failed:', rodErr.message)
   process.exit(1)
 }
-const today = regOfDay?.[0]
+const today = dailyReg?.[0]
 if (!today) {
   console.error('get_reg_of_the_day returned no row -- pcg_terms empty?')
   process.exit(1)
@@ -53,7 +53,7 @@ if (tokenErr) {
   process.exit(1)
 }
 if (!tokens || tokens.length === 0) {
-  console.log('No devices opted into Reg of the Day -- nothing to send.')
+  console.log('No devices opted into DailyReg -- nothing to send.')
   process.exit(0)
 }
 
@@ -65,15 +65,27 @@ console.log(`Sending "${today.term}" to ${tokens.length} device(s).`)
 // handler in _layout.tsx).
 const bodyText = today.definition.length > 120 ? `${today.definition.slice(0, 117)}...` : today.definition
 
+// RC: "when the DailyReg is expanded or pushed to devices, it needs to show
+// the reg that it came from at the bottom, so user can see that (just like
+// the fix we did for study cards)." Deliberately duplicated from
+// src/lib/notifications.ts's dailyRegCitation() rather than imported --
+// this is a plain Node script with no bundler/alias resolution, and the
+// shape it formats (get_reg_of_the_day's slug + source_type) is the same
+// contract on both sides. Keep the two in step.
+const citation =
+  today.source_type === 'far' ? `14 CFR § ${today.slug}`
+  : today.source_type === 'aim' ? `AIM ${today.slug}`
+  : `AC ${today.slug}`
+
 // get_reg_of_the_day() rotates FAR/AIM/AC (P/CG deliberately excluded --
-// see notifications.ts's RegOfTheDaySource comment) -- the deep link has
+// see notifications.ts's DailyRegSource comment) -- the deep link has
 // to carry which one so the tap handler routes to /far, /aim, or /ac
 // correctly.
 const messages = tokens.map((t) => ({
   to: t.expo_push_token,
   sound: 'default',
-  title: `Reg of the Day: ${today.term}`,
-  body: bodyText,
+  title: `DailyReg — ${citation}`,
+  body: `${today.term}\n${bodyText}`,
   data: { type: 'reg_of_day', slug: today.slug, sourceType: today.source_type },
 }))
 

@@ -27,7 +27,7 @@ export async function getAlertPermissionState(): Promise<AlertPermissionState> {
 // Expo push token. Throws PERMISSION_DENIED so callers can show the "enable
 // it in Settings" messaging instead of silently leaving their toggle in a
 // state that doesn't actually work. Shared by every push-preference toggle
-// (AC Update Alerts, Reg of the Day, and any future one) -- the OS
+// (AC Update Alerts, DailyReg, and any future one) -- the OS
 // permission and the device's push token are the same thing regardless of
 // which in-app preference the user is turning on.
 async function getOrRequestPushToken(): Promise<string> {
@@ -89,7 +89,7 @@ export async function isAcUpdateAlertsEnabled(userId: string): Promise<boolean> 
   return (data?.length ?? 0) > 0
 }
 
-// ── Reg of the Day (Pro/Premium, opt-in) ────────────────────────────────────
+// ── DailyReg (Pro/Premium, opt-in) ────────────────────────────────────
 // A separate toggle from AC Update Alerts -- both ride the same push_tokens
 // row/device registration, but a user should be able to want one without the
 // other (daily trivia vs. "my saved content changed"). Requires the base
@@ -97,11 +97,11 @@ export async function isAcUpdateAlertsEnabled(userId: string): Promise<boolean> 
 // what actually requests the OS permission and registers the push token);
 // this just flips the extra column on an existing row.
 
-export async function enableRegOfTheDay(userId: string): Promise<void> {
+export async function enableDailyReg(userId: string): Promise<void> {
   const token = await getOrRequestPushToken()
 
   // Preserve whatever the AC Update Alerts `enabled` flag already is on an
-  // existing row (a user turning on Reg of the Day alone shouldn't silently
+  // existing row (a user turning on DailyReg alone shouldn't silently
   // opt them into AC alerts too) -- only default it to false on a brand-new
   // row. upsert() can't express "leave this column alone on conflict, but
   // set it on insert" in one call, so this checks first.
@@ -126,7 +126,7 @@ export async function enableRegOfTheDay(userId: string): Promise<void> {
   if (error) throw error
 }
 
-export async function disableRegOfTheDay(userId: string): Promise<void> {
+export async function disableDailyReg(userId: string): Promise<void> {
   if (Platform.OS === 'web') return
   const { error } = await supabase
     .from('push_tokens')
@@ -135,7 +135,7 @@ export async function disableRegOfTheDay(userId: string): Promise<void> {
   if (error) throw error
 }
 
-export async function isRegOfTheDayEnabled(userId: string): Promise<boolean> {
+export async function isDailyRegEnabled(userId: string): Promise<boolean> {
   if (Platform.OS === 'web') return false
   const { data, error } = await supabase
     .from('push_tokens')
@@ -153,18 +153,37 @@ export async function isRegOfTheDayEnabled(userId: string): Promise<boolean> {
 // originally; broadened to include FAR/AIM/AC without ever actually
 // dropping P/CG, until now.) get_reg_of_the_day() now only pools FAR/AIM
 // (via study_facts) and AC (via advisory_circulars).
-export type RegOfTheDaySource = 'far' | 'aim' | 'ac'
+export type DailyRegSource = 'far' | 'aim' | 'ac'
 
-export interface RegOfTheDay {
+export interface DailyReg {
   slug: string
   term: string
   definition: string
-  sourceType: RegOfTheDaySource
+  sourceType: DailyRegSource
 }
 
-// Maps a RegOfTheDay's sourceType to its real detail-screen route.
-export function regOfTheDayRoute(item: Pick<RegOfTheDay, 'slug' | 'sourceType'>): string {
+// Maps a DailyReg's sourceType to its real detail-screen route.
+export function dailyRegRoute(item: Pick<DailyReg, 'slug' | 'sourceType'>): string {
   return `/${item.sourceType}/${item.slug}`
+}
+
+// The reg this pick actually came from, formatted to stand on its own.
+// RC: "when the DailyReg is expanded or pushed to devices, it needs to show
+// the reg that it came from at the bottom, so user can see that (just like
+// the fix we did for study cards)." No backend work needed --
+// get_reg_of_the_day() already returns the citation as `slug` (study_facts
+// .item_id for FAR/AIM, document_number for AC), it just was never shown.
+//
+// Deliberately fuller than study.tsx's own docNumber (which renders a bare
+// "3-1-4" for AIM): a Study Mode card is already inside a deck whose type
+// you picked, whereas this string has to make sense alone on a lock screen
+// with no surrounding context.
+export function dailyRegCitation(item: Pick<DailyReg, 'slug' | 'sourceType'>): string {
+  switch (item.sourceType) {
+    case 'far': return `14 CFR § ${item.slug}`
+    case 'aim': return `AIM ${item.slug}`
+    case 'ac': return `AC ${item.slug}`
+  }
 }
 
 // The same rotation get_reg_of_the_day() drives for the daily push (see
@@ -172,7 +191,7 @@ export function regOfTheDayRoute(item: Pick<RegOfTheDay, 'slug' | 'sourceType'>)
 // inline regardless of whether the user has the push toggle on. Not gated
 // by tier: the underlying content (P/CG, FAR, AIM) is freely browsable,
 // this is just a discovery surface for something already free to read.
-export async function getRegOfTheDay(): Promise<RegOfTheDay | null> {
+export async function getDailyReg(): Promise<DailyReg | null> {
   const { data, error } = await supabase.rpc('get_reg_of_the_day')
   if (error) throw error
   const row = data?.[0]
@@ -189,14 +208,14 @@ export interface WordOfTheDay {
   definition: string | null
 }
 
-// Mirrors getRegOfTheDay()'s pattern (own get_word_of_the_day() rotation
+// Mirrors getDailyReg()'s pattern (own get_word_of_the_day() rotation
 // function, same deterministic-by-date hash approach) but scoped only to
 // dictionary_terms. Gated Plus+ same as DailyReg -- RC first wanted this
 // free for everyone (2026-08-01), then reconsidered the next day given
 // the app's overall free/paid balance and asked to gate it like DailyReg
 // (2026-08-02); the fetch itself stays ungated here, the UI-level lock is
 // in DailyWordCard (src/app/dictionary/index.tsx). No push-notification
-// toggle exists for this (unlike Reg of the Day) since none was asked for.
+// toggle exists for this (unlike DailyReg) since none was asked for.
 export async function getWordOfTheDay(): Promise<WordOfTheDay | null> {
   const { data, error } = await supabase.rpc('get_word_of_the_day')
   if (error) throw error
@@ -204,7 +223,7 @@ export async function getWordOfTheDay(): Promise<WordOfTheDay | null> {
   return row ? { slug: row.slug, term: row.term, definition: row.definition } : null
 }
 
-// Duel notifications -- mirrors the Reg of the Day toggle exactly (own
+// Duel notifications -- mirrors the DailyReg toggle exactly (own
 // opt-in column on push_tokens, off by default, independent of the base
 // AC Update Alerts `enabled` flag). Fires on: a challenge created against
 // you, your challenge getting accepted, and a duel completing -- see

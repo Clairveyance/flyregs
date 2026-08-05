@@ -18,6 +18,7 @@
 // Reads SUPABASE_URL + SUPABASE_SERVICE_KEY from .env.scraper.
 
 import { createClient } from '@supabase/supabase-js'
+import { fetchHiddenAircraftIds } from './lib/tier-cap.mjs'
 import fs from 'fs'
 import path from 'path'
 
@@ -42,7 +43,7 @@ const windowEnd = new Date()
 windowEnd.setDate(windowEnd.getDate() + WINDOW_DAYS)
 const windowEndStr = windowEnd.toISOString().split('T')[0]
 
-const { data: reminders, error: remErr } = await sb
+const { data: allReminders, error: remErr } = await sb
   .from('user_aircraft_reminders')
   .select('id, user_id, user_aircraft_id, title, due_date, linked_ad_number, user_aircraft:user_aircraft_id(make, model, nickname)')
   .is('notified_at', null)
@@ -52,7 +53,30 @@ if (remErr) {
   console.error('Failed to fetch due reminders:', remErr.message)
   process.exit(1)
 }
-if (!reminders || reminders.length === 0) {
+
+// A reminder on an aircraft the owner's tier no longer shows must not keep
+// pushing. This was a live leak, and the one actually landing on a phone:
+// reminders were fetched with no tier check whatsoever, so an account that
+// downgraded Premium -> Pro kept getting daily reminder pushes for every
+// aircraft it had ever saved -- including the ones My Aircraft correctly
+// stopped listing. Uses the exact same shared rule as the fleet RPC and
+// send-ad-alerts.mjs (scripts/lib/tier-cap.mjs) rather than a fourth
+// hand-rolled copy of it. RC: "we can't have any bleed through."
+let hiddenIds = new Set()
+try {
+  hiddenIds = await fetchHiddenAircraftIds(sb)
+} catch (e) {
+  // Fail OPEN, matching the rest of the cap: a lookup failure must never
+  // silently swallow a paying customer's real maintenance reminders.
+  console.error('Tier-cap lookup failed, sending unfiltered:', e.message)
+}
+const reminders = (allReminders ?? []).filter((r) => !hiddenIds.has(r.user_aircraft_id))
+const skipped = (allReminders?.length ?? 0) - reminders.length
+if (skipped > 0) {
+  console.log(`${skipped} reminder(s) skipped: on aircraft hidden by their owner's tier cap.`)
+}
+
+if (reminders.length === 0) {
   console.log('No reminders entering their notification window — nothing to send.')
   process.exit(0)
 }
