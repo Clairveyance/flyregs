@@ -24,6 +24,7 @@ import { PersistentTabBar } from '@/components/PersistentTabBar'
 import { AnimatedSplash } from '@/components/AnimatedSplash'
 import { ShareCardProvider } from '@/components/ShareCardCapture'
 import { AircraftDowngradeGate } from '@/components/AircraftDowngradeGate'
+import { ConfirmProvider } from '@/components/ConfirmDialog'
 import { IPadSplitViewExperiment } from '@/components/IPadSplitViewExperiment'
 import { initSentry } from '@/lib/sentry'
 
@@ -117,6 +118,7 @@ export default function RootLayout() {
       <AuthProvider>
         <ShareCardProvider>
         <DrawerProvider>
+        <ConfirmProvider>
           <AppShell>
             <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="(tabs)" />
@@ -141,6 +143,7 @@ export default function RootLayout() {
                 for the full reasoning. */}
             <AircraftDowngradeGate />
           </AppShell>
+        </ConfirmProvider>
         </DrawerProvider>
         </ShareCardProvider>
       </AuthProvider>

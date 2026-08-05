@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal } from 'react-native'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal, TextInput } from 'react-native'
 import { router, usePathname } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -35,6 +35,8 @@ export function AircraftDowngradeGate() {
   // The aircraft the user tapped "Keep this" on, awaiting confirmation.
   const [pending, setPending] = useState<{ aircraftId: string; make: string; model: string; nickname: string | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [typed, setTyped] = useState('')
+  const armed = typed.trim().toUpperCase() === 'DELETE'
 
   const check = useCallback(async () => {
     if (!session || isPremium) { setLocked([]); return }
@@ -113,15 +115,38 @@ export function AircraftDowngradeGate() {
               <ActivityIndicator color={tokens.t3} style={{ marginVertical: 12 }} />
             ) : (
               <>
+                {/* Typed confirmation, added after this exact button
+                    permanently deleted three aircraft from a single stray
+                    tap. This gate is a BLOCKING modal that can appear over
+                    any screen at any moment, so a tap already travelling
+                    toward something else lands here -- "modal stole my tap,"
+                    which any real user can hit too. A tap can no longer do
+                    it; only typing can. */}
+                <View style={styles.typedWrap}>
+                  <Text style={[styles.typedHint, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                    Type DELETE to confirm
+                  </Text>
+                  <TextInput
+                    value={typed}
+                    onChangeText={setTyped}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    placeholder="DELETE"
+                    placeholderTextColor={tokens.t4}
+                    style={[styles.typedInput, { color: tokens.t1, borderColor: armed ? tokens.red : tokens.bdr, fontSize: fs(14.5) }]}
+                  />
+                </View>
                 <Pressable
-                  style={[styles.primaryBtn, { backgroundColor: tokens.red }]}
-                  onPress={() => runKeep(pending)}
+                  style={[styles.primaryBtn, { backgroundColor: armed ? tokens.red : tokens.bdim }]}
+                  onPress={() => { if (armed) runKeep(pending) }}
+                  disabled={!armed}
+                  accessibilityState={{ disabled: !armed }}
                 >
-                  <Text style={[styles.destructiveBtnText, { fontSize: fs(14.5) }]}>
+                  <Text style={[styles.destructiveBtnText, { fontSize: fs(14.5), opacity: armed ? 1 : 0.55 }]}>
                     Delete {going.length} and keep {label(pending)}
                   </Text>
                 </Pressable>
-                <Pressable onPress={() => { setPending(null); setError(null) }} hitSlop={8}>
+                <Pressable onPress={() => { setPending(null); setError(null); setTyped('') }} hitSlop={8}>
                   <Text style={[styles.cancelText, { color: tokens.t3, fontSize: fs(13.5) }]}>Cancel</Text>
                 </Pressable>
               </>
@@ -157,7 +182,7 @@ export function AircraftDowngradeGate() {
               <Pressable
                 key={a.aircraftId}
                 style={[styles.row, { borderColor: tokens.bdr }]}
-                onPress={() => setPending(a)}
+                onPress={() => { setTyped(''); setPending(a) }}
               >
                 <Icon name="airplane" size={fs(13)} color={tokens.t3} />
                 <Text style={[styles.rowText, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
@@ -187,6 +212,9 @@ const styles = StyleSheet.create({
   goingText: { flex: 1, fontWeight: '600' },
   destructiveBtnText: { color: '#fff', fontWeight: '700' },
   cancelText: { fontWeight: '600', marginTop: 10 },
+  typedWrap: { alignSelf: 'stretch', gap: 6, marginTop: 4 },
+  typedHint: { textAlign: 'center' },
+  typedInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, textAlign: 'center', fontWeight: '700' },
   errorText: { textAlign: 'center', marginTop: 4 },
   card: {
     width: '100%', maxWidth: 380, borderRadius: 18, borderWidth: 1,

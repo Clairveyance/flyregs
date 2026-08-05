@@ -3,6 +3,7 @@ import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextI
 import { router, useFocusEffect } from 'expo-router'
 import { useTheme, type ThemeTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
@@ -292,6 +293,7 @@ export default function MyAircraftScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
   const { session, isPro, isPremium } = useAuth()
+  const confirm = useConfirm()
   const [aircraft, setAircraft] = useState<FleetAircraftSummary[]>([])
   const [loading, setLoading] = useState(true)
   // Soonest upcoming (not overdue) reminder due date across the whole
@@ -531,21 +533,28 @@ export default function MyAircraftScreen() {
   // tap, can trigger it.
   const handleRemove = (a: FleetAircraftSummary) => {
     const label = a.nickname || `${a.make} ${a.model}`
-    Alert.alert(
-      `Delete ${label}?`,
-      'This permanently removes the aircraft and its equipment, reminders, and AD history. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            await supabase.from('user_aircraft').delete().eq('id', a.aircraftId)
-            setAircraft((prev) => prev.filter((x) => x.aircraftId !== a.aircraftId))
-          },
-        },
-      ]
-    )
+    // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+    // Native Web, so this confirm (and the delete behind it) was untestable
+    // in the Browser pane. See components/ConfirmDialog.tsx.
+    confirm({
+      title: `Delete ${label}?`,
+      message: 'This permanently removes the aircraft and its equipment, reminders, and AD history. This cannot be undone.',
+      confirmLabel: 'Delete',
+      destructive: true,
+      // Same reasoning as the downgrade gate: this wipes an aircraft plus
+      // all of its equipment, reminders and AD history with no undo, and
+      // it's reachable from a swipe on a list row -- so it must not be
+      // possible to complete by tap alone.
+      requireTyped: 'DELETE',
+      onConfirm: async () => {
+        const { error } = await supabase.from('user_aircraft').delete().eq('id', a.aircraftId)
+        // Previously unchecked -- a failed delete silently left the row in
+        // the DB while the list optimistically dropped it, so the aircraft
+        // reappeared on the next refresh with no explanation.
+        if (error) throw error
+        setAircraft((prev) => prev.filter((x) => x.aircraftId !== a.aircraftId))
+      },
+    })
   }
 
   // Premium sees "My Fleet" (unlimited, sharing-capable) -- Free/Plus/Pro
