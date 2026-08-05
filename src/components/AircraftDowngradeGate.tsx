@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Alert, Modal } from 'react-native'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal } from 'react-native'
 import { router, usePathname } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -32,6 +32,9 @@ export function AircraftDowngradeGate() {
   const pathname = usePathname()
   const [locked, setLocked] = useState<{ aircraftId: string; make: string; model: string; nickname: string | null }[]>([])
   const [busy, setBusy] = useState(false)
+  // The aircraft the user tapped "Keep this" on, awaiting confirmation.
+  const [pending, setPending] = useState<{ aircraftId: string; make: string; model: string; nickname: string | null } | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const check = useCallback(async () => {
     if (!session || isPremium) { setLocked([]); return }
@@ -59,37 +62,79 @@ export function AircraftDowngradeGate() {
   const exempt = pathname?.startsWith('/auth') || pathname?.startsWith('/paywall')
   if (locked.length === 0 || exempt) return null
 
-  const confirmKeep = (keep: typeof locked[number]) => {
-    const keepLabel = keep.nickname || `${keep.make} ${keep.model}`
-    const going = locked
-      .filter((a) => a.aircraftId !== keep.aircraftId)
-      .map((a) => a.nickname || `${a.make} ${a.model}`)
-    Alert.alert(
-      `Keep ${keepLabel}?`,
-      `${going.join(', ')} will be permanently deleted, along with their equipment, reminders, and AD history. This cannot be undone.\n\nStaying on Premium keeps all of them.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: `Keep ${keepLabel} only`,
-          style: 'destructive',
-          onPress: async () => {
-            setBusy(true)
-            try {
-              await keepOnlyAircraft([keep.aircraftId])
-              setLocked([])
-            } catch (e: any) {
-              Alert.alert('Could not update', e?.message ?? 'Please try again.')
-            }
-            setBusy(false)
-          },
-        },
-      ]
+  const runKeep = async (keep: typeof locked[number]) => {
+    setBusy(true)
+    try {
+      await keepOnlyAircraft([keep.aircraftId])
+      setLocked([])
+      setPending(null)
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not update. Please try again.')
+    }
+    setBusy(false)
+  }
+
+  const label = (a: typeof locked[number]) => a.nickname || `${a.make} ${a.model}`
+
+  // Confirm step 2, rendered INSIDE this modal rather than via Alert.alert.
+  // Alert.alert is a silent no-op on React Native Web, which is exactly how
+  // "the 'keep this' buttons don't do anything" happened -- the handler ran,
+  // the alert never appeared, and nothing surfaced the failure. An in-app
+  // confirm also just belongs here: this is a permanent, unrecoverable
+  // delete of someone's maintenance history, and it deserves a screen that
+  // names every aircraft going away rather than a two-line OS dialog.
+  if (pending) {
+    const going = locked.filter((a) => a.aircraftId !== pending.aircraftId)
+    return (
+      <Modal visible transparent animationType="fade" onRequestClose={() => setPending(null)}>
+        <View style={styles.scrim}>
+          <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.red }]}>
+            <Icon name="exclamationmark.triangle" size={fs(26)} color={tokens.red} />
+            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>
+              Keep {label(pending)} only?
+            </Text>
+            <Text style={[styles.body, { color: tokens.t3, fontSize: fs(13.5) }]}>
+              {going.length === 1 ? 'This aircraft' : `These ${going.length} aircraft`} will be permanently deleted, with their equipment, reminders, and AD history. This cannot be undone.
+            </Text>
+            <View style={styles.goingList}>
+              {going.map((a) => (
+                <View key={a.aircraftId} style={[styles.goingRow, { borderColor: tokens.bdr }]}>
+                  <Icon name="trash" size={fs(12)} color={tokens.red} />
+                  <Text style={[styles.goingText, { color: tokens.t2, fontSize: fs(13) }]} numberOfLines={1}>
+                    {label(a)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+            {error ? (
+              <Text style={[styles.errorText, { color: tokens.red, fontSize: fs(12.5) }]}>{error}</Text>
+            ) : null}
+            {busy ? (
+              <ActivityIndicator color={tokens.t3} style={{ marginVertical: 12 }} />
+            ) : (
+              <>
+                <Pressable
+                  style={[styles.primaryBtn, { backgroundColor: tokens.red }]}
+                  onPress={() => runKeep(pending)}
+                >
+                  <Text style={[styles.destructiveBtnText, { fontSize: fs(14.5) }]}>
+                    Delete {going.length} and keep {label(pending)}
+                  </Text>
+                </Pressable>
+                <Pressable onPress={() => { setPending(null); setError(null) }} hitSlop={8}>
+                  <Text style={[styles.cancelText, { color: tokens.t3, fontSize: fs(13.5) }]}>Cancel</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     )
   }
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={() => {}}>
-      <View style={[styles.scrim, { backgroundColor: 'rgba(0,0,0,0.72)' }]}>
+      <View style={styles.scrim}>
         <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.gold }]}>
           <Icon name="airplane" size={fs(26)} color={tokens.gold} />
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>
@@ -107,25 +152,21 @@ export function AircraftDowngradeGate() {
             <Text style={[styles.primaryBtnText, { fontSize: fs(14.5) }]}>Stay with Premium</Text>
           </Pressable>
 
-          {busy ? (
-            <ActivityIndicator color={tokens.t3} style={{ marginVertical: 14 }} />
-          ) : (
-            <ScrollView style={styles.list} contentContainerStyle={{ gap: 8 }}>
-              {locked.map((a) => (
-                <Pressable
-                  key={a.aircraftId}
-                  style={[styles.row, { borderColor: tokens.bdr }]}
-                  onPress={() => confirmKeep(a)}
-                >
-                  <Icon name="airplane" size={fs(13)} color={tokens.t3} />
-                  <Text style={[styles.rowText, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
-                    {a.nickname || `${a.make} ${a.model}`}
-                  </Text>
-                  <Text style={[styles.rowAction, { color: tokens.blu, fontSize: fs(12.5) }]}>Keep this</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          )}
+          <ScrollView style={styles.list} contentContainerStyle={{ gap: 8 }}>
+            {locked.map((a) => (
+              <Pressable
+                key={a.aircraftId}
+                style={[styles.row, { borderColor: tokens.bdr }]}
+                onPress={() => setPending(a)}
+              >
+                <Icon name="airplane" size={fs(13)} color={tokens.t3} />
+                <Text style={[styles.rowText, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
+                  {label(a)}
+                </Text>
+                <Text style={[styles.rowAction, { color: tokens.blu, fontSize: fs(12.5) }]}>Keep this</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
 
           <Text style={[styles.footnote, { color: tokens.t4, fontSize: fs(11.5) }]}>
             Nothing is deleted until you choose. Your aircraft stay locked, not lost — resubscribing restores all of them.
@@ -137,7 +178,16 @@ export function AircraftDowngradeGate() {
 }
 
 const styles = StyleSheet.create({
-  scrim: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  scrim: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: 'rgba(0,0,0,0.72)' },
+  goingList: { alignSelf: 'stretch', gap: 6, marginTop: 2 },
+  goingRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderRadius: 10, borderWidth: 1, paddingVertical: 9, paddingHorizontal: 11,
+  },
+  goingText: { flex: 1, fontWeight: '600' },
+  destructiveBtnText: { color: '#fff', fontWeight: '700' },
+  cancelText: { fontWeight: '600', marginTop: 10 },
+  errorText: { textAlign: 'center', marginTop: 4 },
   card: {
     width: '100%', maxWidth: 380, borderRadius: 18, borderWidth: 1,
     padding: 22, alignItems: 'center', gap: 10,

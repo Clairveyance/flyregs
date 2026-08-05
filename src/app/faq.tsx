@@ -137,7 +137,10 @@ const FAQ: QA[] = [
     category: 'The Content Library',
     a: [
       { tier: 'plus', text: 'A real, browsable history of exactly what changed in every revision across the library, grouped by date — not just a badge telling you something was updated.' },
-      'Find it from the "See changes ›" link above the Home screen\'s What\'s New strip.',
+      // Went stale when the Home label was shortened from "See changes" to
+      // "All ›" -- the FAQ was still telling people to look for a link that
+      // no longer says that.
+      'Scroll the Home screen\'s What\'s New strip, or tap "All ›" above it, to see everything.',
     ],
   },
   {
