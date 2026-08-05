@@ -158,6 +158,7 @@ const FAQ: QA[] = [
     a: [
       'Search runs across FAR, AIM, P/CG, AC, and AD numbers, titles, and document text. Type a number like "91-74" or "91.155", or a topic like "icing" or "fatigue" — results rank by relevance.',
       { tier: 'plus', text: 'Free shows the first 10 results from the Home search bar; this unlocks the full list.' },
+      'There are two different search tools, and picking the right one matters:\n• Know the number or the term? Use the search bar. SmartSearch widens it automatically so everyday words still find FAA wording.\n• Have a question instead of a keyword? Use Ask FlyRegs (Pro), which matches on meaning rather than words.\n• Both are explained in their own answers below.',
     ],
   },
   {
@@ -165,7 +166,8 @@ const FAQ: QA[] = [
     category: 'Search',
     a: [
       'Everyday-language search expansion: FAA text uses precise regulatory wording ("fuel," "parachute operations") that rarely matches how you\'d actually phrase a search ("gas," "skydiving"). SmartSearch bridges common words to the FAA terms that actually appear in the corpus, then pulls in related regulatory terms found in similar contexts, automatically.',
-      'You don\'t turn it on — it runs on every search, free for everyone. If a query looks expanded, results may include near-miss matches on top of exact ones.',
+      'It runs on every search, free for everyone — there\'s nothing to turn on.',
+      'It searches by WORD, though, which is worth knowing:\n• Give it keywords, not sentences. "minimum safe altitude congested" lands on § 91.119 immediately.\n• A full question works against you here. Every extra word ("how close to a house can I fly my plane") is one more word to match, and results drift.\n• For questions phrased the way you\'d actually say them, use Ask FlyRegs instead — see below.',
     ],
   },
   {
@@ -181,8 +183,10 @@ const FAQ: QA[] = [
     q: 'What is Ask FlyRegs?',
     category: 'Search',
     a: [
-      { tier: 'pro', text: 'A natural-language question box, separate from the regular search bar — ask something the way you\'d actually phrase it ("do I need a transponder above 10,000 feet?") instead of guessing the exact regulatory wording, and it finds the passages that actually answer it, across the whole library.' },
-      'Find it from the search icon in the tab bar. Unlike SmartSearch (which expands your everyday-language search into FAA terms), Ask FlyRegs is built for full questions, not just keywords.',
+      { tier: 'pro', text: 'A natural-language question box, separate from the regular search bar. Ask the way you\'d actually say it — "how much rest do I need before flying passengers?" — instead of guessing the regulatory wording, and it finds the passages on that subject across the whole library.' },
+      'Find it from the search icon in the tab bar.',
+      'What it does that SmartSearch can\'t:\n• It matches MEANING, not words — so it can find the right passage even when your question shares no words at all with the regulation.\n• Ask "when do I have to file a NASA report" and it lands on the Aviation Safety Reporting Program. The FAA never calls it a "NASA report," so a word-based search structurally cannot find that; this does.\n• Full sentences help it rather than hurt it. Phrasing, context, and intent are all part of what it matches on.',
+      'What it is not:\n• It finds passages — it doesn\'t write you an answer. You still read the reg and decide.\n• It can land in the right neighborhood but the wrong document. Ask about altitude over a house and it may surface drone rules alongside the manned-aircraft ones. Check the source on every result.\n• For a specific section or document number you already know, plain search is faster and exact.',
     ],
   },
   {
