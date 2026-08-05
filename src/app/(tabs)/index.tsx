@@ -941,10 +941,10 @@ export default function HomeScreen() {
           data={[
             { key: 'far', label: 'Federal Aviation Regulations', abbr: 'FAR', count: farCount, unit: 'sections', route: '/far' },
             { key: 'aim', label: 'Aeronautical Information Manual', abbr: 'AIM', count: aimCount, unit: 'paragraphs', route: '/aim' },
+            { key: 'ac', label: 'Advisory Circulars', abbr: 'AC', count: totalCount, unit: 'active', route: '/ac/library' },
             { key: 'pcg', label: 'Pilot/Controller Glossary', abbr: 'P/CG', count: pcgCount, unit: 'terms', route: '/pcg' },
             { key: 'ad', label: 'Airworthiness Directives', abbr: 'AD', count: adCount, unit: 'directives', route: '/ad' },
             { key: 'loi', label: 'Legal Interpretations', abbr: 'LOI', count: loiCount, unit: 'interpretations', route: '/loi' },
-            { key: 'ac', label: 'Advisory Circulars', abbr: 'AC', count: totalCount, unit: 'active', route: '/ac/library' },
             { key: 'dictionary', label: 'Aviation Dictionary', abbr: 'A/D', count: dictCount, unit: 'terms', route: '/dictionary' },
           ]}
           keyExtractor={(item) => item.key}
