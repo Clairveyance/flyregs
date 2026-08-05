@@ -35,6 +35,14 @@ interface Props {
    * followed by that thing's own colored values, so the grouping reads
    * visually instead of just being a flat run of same-weight bullets. */
   body: string | Array<string | { text: string; color: string; indent?: boolean }>
+  /** Rendered below the body text -- for explaining a color/shape convention
+   * with the ACTUAL widget (a real ring, a real bold number) instead of
+   * describing it in words. RC, My Fleet's ring/number legend: "I want the
+   * actual visual 'ring' and the actual big, bold, colored number... the
+   * whole point is that the user sees the actual 'icon' representation of
+   * these inside this info box, in the same way they're presented on
+   * screen." Plain text bullets can't do that; arbitrary content can. */
+  footer?: React.ReactNode
   /** If true, auto-opens once (per device) the first time this component
    * mounts, and that first showing can only be dismissed via "I
    * Understand" -- not tap-outside or the X. Every showing after that
@@ -45,7 +53,7 @@ interface Props {
   iconSize?: number
 }
 
-export function InfoPopup({ id, title, body, forceOnce = false, iconSize }: Props) {
+export function InfoPopup({ id, title, body, footer, forceOnce = false, iconSize }: Props) {
   const { tokens } = useTheme()
   const fs = useFS()
   const [visible, setVisible] = useState(false)
@@ -110,6 +118,7 @@ export function InfoPopup({ id, title, body, forceOnce = false, iconSize }: Prop
             ) : (
               <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>{body}</Text>
             )}
+            {footer}
             {forcing && (
               <Pressable style={[styles.understandBtn, { backgroundColor: tokens.blu }]} onPress={acknowledge}>
                 <Text style={[styles.understandText, { fontSize: fs(14.5) }]}>I Understand</Text>

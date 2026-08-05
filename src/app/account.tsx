@@ -29,7 +29,7 @@ import { useFS } from '@/context/fontScale'
 import { SUPPORT_EMAIL } from '@/lib/appInfo'
 import { supabase } from '@/lib/supabase'
 import { getAvatarUrl, getAvatarPresetId, resolveAvatarUrl, resolveAvatarPresetId, pickAndUploadAvatar, takeAndUploadAvatar, removeAvatar, selectAvatarPreset, getDisplayName } from '@/lib/avatar'
-import { getAvatarPreset } from '@/lib/avatarPresets'
+import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
 import { AvatarEditModal } from '@/components/AvatarEditModal'
 import {
@@ -48,7 +48,7 @@ import { getLeaderboardOptIn, setLeaderboardOptIn } from '@/lib/leaderboard'
 import { getFleetSummary } from '@/lib/aircraftSharing'
 
 export default function AccountScreen() {
-  const { tokens } = useTheme()
+  const { tokens, redShift } = useTheme()
   const fs = useFS()
   const { session, isPro, setIsPro, isPremium, setIsPremium, isUnlocked, setIsUnlocked, signOut, avatarOverride, setAvatarOverride, clearAvatarOverride } = useAuth()
   const insets = useSafeAreaInsets()
@@ -531,7 +531,7 @@ export default function AccountScreen() {
         {/* Profile */}
         <View style={[styles.profileCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <Pressable
-            style={[styles.avatar, { backgroundColor: avatarPreset?.color ?? tokens.blu }]}
+            style={[styles.avatar, { backgroundColor: avatarPreset ? avatarColorFor(avatarPreset, redShift) : tokens.blu }]}
             onPress={handlePickAvatar}
             disabled={avatarBusy}
           >

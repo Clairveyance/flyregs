@@ -85,6 +85,15 @@ function FleetRing({
     ...Array(nOverdue).fill(tokens.red),
   ]
   const angleStep = 360 / RING_TICKS
+  // RC: "okay, then the My Fleet ring should at least be the color of the
+  // most urgent item inside, whatever that is." The proportional dial above
+  // already shows the real split, but reading it takes a second; the center
+  // number carried no status signal at all (plain t1 regardless of urgency)
+  // -- worst-status-wins here gives the ring one instant glanceable color on
+  // top of the richer breakdown, same "worst wins" rule the Account row's
+  // own mini-ring already uses for the same reason at a size too small for
+  // a real proportional dial.
+  const worstColor = overdueCount > 0 ? tokens.red : openCount > 0 ? tokens.amb : tokens.grn
   return (
     <View style={{ width: RING_SIZE, height: RING_SIZE }}>
       {tickColors.map((color, i) => (
@@ -96,7 +105,7 @@ function FleetRing({
         </View>
       ))}
       <View style={[StyleSheet.absoluteFill, styles.ringCenter]}>
-        <Text style={[styles.ringCenterNum, { color: tokens.t1, fontSize: fs(32) }]}>{total}</Text>
+        <Text style={[styles.ringCenterNum, { color: worstColor, fontSize: fs(32) }]}>{total}</Text>
         <Text style={[styles.ringCenterUnit, { color: tokens.t4, fontSize: fs(11) }]}>AIRCRAFT</Text>
       </View>
     </View>
@@ -118,6 +127,49 @@ function StatBox({ value, label, color, tokens, fs }: { value: string | number; 
     <View style={[styles.statBox, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
       <Text style={[styles.statBoxValue, { color, fontSize: fs(19) }]}>{value}</Text>
       <Text style={[styles.statBoxLabel, { color: tokens.t3, fontSize: fs(9.5) }]}>{label}</Text>
+    </View>
+  )
+}
+
+// RC: "you said [Pro] would be a 'pared down' version of the MyFleet page,
+// so i wanted to know what that looks like... since it's just one a/c, we
+// take that a/c's status ring/number and just move it up and make it
+// bigger, so there's still some visual appeal." Pro's own single aircraft
+// already carries real per-aircraft numbers (openAdCount/overdueReminderCount
+// from getFleetSummary(), reminderUrgency from the same fetch Premium's
+// FleetRing uses) -- no new data needed, just a bigger RowStatusBadge as
+// the hero instead of Premium's proportional multi-aircraft FleetRing,
+// plus the same StatBox row Premium uses, fed from this one aircraft's own
+// numbers instead of fleet sums.
+const PRO_HERO_RING_SIZE = 84
+
+function ProHero({
+  aircraft, reminderUrgency, nextDueDays, tokens, fs,
+}: {
+  aircraft: FleetAircraftSummary
+  reminderUrgency: 'overdue' | 'soon' | 'clear'
+  nextDueDays: number | null
+  tokens: ThemeTokens
+  fs: (n: number) => number
+}) {
+  const ringColor = reminderUrgency === 'overdue' ? tokens.red : reminderUrgency === 'soon' ? tokens.amb : tokens.grn
+  const numColor = aircraft.openAdCount > 0 ? tokens.amb : tokens.grn
+  const label = aircraft.nickname || `${aircraft.make} ${aircraft.model}`
+  return (
+    <View style={[styles.proHeroCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+      <View style={[styles.proHeroRing, { borderColor: ringColor }]}>
+        {aircraft.openAdCount > 0 ? (
+          <Text style={[styles.proHeroNum, { color: numColor, fontSize: fs(30) }]}>{aircraft.openAdCount}</Text>
+        ) : (
+          <Icon name="checkmark" size={fs(34)} color={numColor} weight="bold" />
+        )}
+      </View>
+      <Text style={[styles.proHeroLabel, { color: tokens.t1, fontSize: fs(16) }]}>{label}</Text>
+      <View style={styles.statBoxRow}>
+        <StatBox value={aircraft.overdueReminderCount} label="OVERDUE" color={tokens.red} tokens={tokens} fs={fs} />
+        <StatBox value={aircraft.openAdCount} label="OPEN ITEMS" color={tokens.amb} tokens={tokens} fs={fs} />
+        <StatBox value={nextDueDays !== null ? `${nextDueDays}d` : '—'} label="NEXT DUE" color={tokens.grn} tokens={tokens} fs={fs} />
+      </View>
     </View>
   )
 }
@@ -164,6 +216,57 @@ function RowStatusBadge({
         // size is what actually helps there).
         <Icon name="checkmark" size={fs(17)} color={numColor} weight="bold" />
       )}
+    </View>
+  )
+}
+
+// RC: "I want the actual visual 'ring' and the actual big, bold, colored
+// number... the whole point is that the user sees the actual 'icon'
+// representation of these inside this info box, in the same way they're
+// presented on screen" -- rejected the prior text-bullet legend entirely.
+// Miniature of RowStatusBadge's own ring, not a new shape: `ringOnly` swatches
+// (Reminders legend) isolate border color with nothing inside since ring
+// color is the whole point there; number/checkmark swatches (AD-status
+// legend) use a neutral border so the colored content itself reads as the
+// point instead. "Line them up in a row w/ a small tick mark between them."
+// Named Ring*/Popup* specifically (not the more obvious Legend*) -- this
+// file already has its own unrelated LegendRow/legendRow/legendLabel for
+// the FleetRing's compliant/open/overdue dot legend.
+function PopupRingSwatch({
+  color, ringOnly, checkmark, label, tokens, fs,
+}: {
+  color: string
+  ringOnly?: boolean
+  checkmark?: boolean
+  label: string
+  tokens: ThemeTokens
+  fs: (n: number) => number
+}) {
+  return (
+    <View style={styles.ringLegendItem}>
+      <View style={[styles.ringLegendCircle, { borderColor: ringOnly ? color : tokens.bdr2 }]}>
+        {!ringOnly && (
+          checkmark ? (
+            <Icon name="checkmark" size={fs(13)} color={color} weight="bold" />
+          ) : (
+            <Text style={[styles.ringLegendNum, { color, fontSize: fs(12.5) }]}>4</Text>
+          )
+        )}
+      </View>
+      <Text style={[styles.ringLegendItemLabel, { color: tokens.t3, fontSize: fs(10) }]}>{label}</Text>
+    </View>
+  )
+}
+
+function PopupRingSwatchRow({ items, tokens }: { items: React.ReactNode[]; tokens: ThemeTokens }) {
+  return (
+    <View style={styles.ringLegendRow}>
+      {items.map((child, i) => (
+        <View key={i} style={styles.ringLegendRowItem}>
+          {i > 0 && <View style={[styles.ringLegendTick, { backgroundColor: tokens.t4 }]} />}
+          {child}
+        </View>
+      ))}
     </View>
   )
 }
@@ -441,21 +544,28 @@ export default function MyAircraftScreen() {
                 'Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive applies to them, instead of scanning the full AD list yourself.',
                 'Premium can share an aircraft with other Premium accounts as a viewer or editor.',
                 'Sorted by urgency — overdue first, then open items, then compliant.',
-                // RC: "this is misleading. the 'a/c status' could also mean
-                // ADs, which isn't part of the ring. So the ring is really
-                // the Reminders status and should say that." Two separate
-                // header+values groups instead of one ambiguous sentence --
-                // matches RowStatusBadge's own already-correct split
-                // (ring = reminder urgency, number = open-AD count, see its
-                // header comment) that this copy had drifted out of sync with.
-                { text: 'The colored ring shows the urgency status of Reminders:', color: tokens.t2 },
-                { text: 'On track', color: tokens.grn, indent: true },
-                { text: 'Due soon', color: tokens.amb, indent: true },
-                { text: 'Overdue', color: tokens.red, indent: true },
-                { text: 'The colored number shows the count and status of ADs:', color: tokens.t2 },
-                { text: 'Open', color: tokens.amb, indent: true },
-                { text: 'Compliant', color: tokens.grn, indent: true },
               ]}
+              footer={
+                <View style={styles.ringLegendSection}>
+                  <Text style={[styles.ringLegendHeader, { color: tokens.t2, fontSize: fs(13) }]}>The ring shows the urgency status of Reminders:</Text>
+                  <PopupRingSwatchRow
+                    tokens={tokens}
+                    items={[
+                      <PopupRingSwatch key="ontrack" ringOnly color={tokens.grn} label="On track" tokens={tokens} fs={fs} />,
+                      <PopupRingSwatch key="soon" ringOnly color={tokens.amb} label="Due soon" tokens={tokens} fs={fs} />,
+                      <PopupRingSwatch key="overdue" ringOnly color={tokens.red} label="Overdue" tokens={tokens} fs={fs} />,
+                    ]}
+                  />
+                  <Text style={[styles.ringLegendHeader, { color: tokens.t2, fontSize: fs(13), marginTop: 14 }]}>The number shows the count and status of ADs:</Text>
+                  <PopupRingSwatchRow
+                    tokens={tokens}
+                    items={[
+                      <PopupRingSwatch key="open" color={tokens.amb} label="Open" tokens={tokens} fs={fs} />,
+                      <PopupRingSwatch key="compliant" checkmark color={tokens.grn} label="Compliant" tokens={tokens} fs={fs} />,
+                    ]}
+                  />
+                </View>
+              }
               forceOnce
               iconSize={fs(15)}
             />
@@ -487,6 +597,16 @@ export default function MyAircraftScreen() {
                   ITEM-level sums (openAdCount/overdueReminderCount added
                   across aircraft), which is why their numbers can differ
                   from the legend's. */}
+              {isPro && !isPremium && aircraft.length > 0 && (
+                <ProHero
+                  aircraft={aircraft[0]}
+                  reminderUrgency={reminderUrgency[aircraft[0].aircraftId] ?? 'clear'}
+                  nextDueDays={nextDueDays}
+                  tokens={tokens}
+                  fs={fs}
+                />
+              )}
+
               {isPremium && (
                 <View style={[styles.fleetCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                   <View style={styles.fleetCardTop}>
@@ -762,6 +882,16 @@ const styles = StyleSheet.create({
   roleBadgeText: { fontWeight: '700', letterSpacing: 0.4 },
   rowStatusRing: { width: 34, height: 34, borderRadius: 17, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   rowStatusNum: { fontWeight: '700' },
+  // InfoPopup ring/number legend -- real miniature widgets, not text.
+  ringLegendSection: { marginTop: 4 },
+  ringLegendHeader: { fontWeight: '500' },
+  ringLegendRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 10 },
+  ringLegendRowItem: { flexDirection: 'row', alignItems: 'center' },
+  ringLegendTick: { width: 2, height: 28, borderRadius: 1, marginHorizontal: 12 },
+  ringLegendItem: { alignItems: 'center', gap: 4 },
+  ringLegendCircle: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  ringLegendNum: { fontWeight: '700' },
+  ringLegendItemLabel: { fontWeight: '500' },
   // Fleet compliance card -- ring + legend on top, three stat boxes below.
   fleetCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 16, gap: 14 },
   fleetCardTop: { flexDirection: 'row', alignItems: 'center', gap: 20, paddingLeft: 6 },
@@ -779,6 +909,12 @@ const styles = StyleSheet.create({
   statBox: { flex: 1, borderRadius: 12, borderWidth: 1, paddingVertical: 10, alignItems: 'center', gap: 2 },
   statBoxValue: { fontWeight: '700' },
   statBoxLabel: { letterSpacing: 0.4, fontWeight: '600' },
+  // Pro's single-aircraft hero -- same card language as fleetCard above,
+  // one big RowStatusBadge-style ring instead of the proportional FleetRing.
+  proHeroCard: { borderRadius: 16, borderWidth: 1, padding: 20, marginBottom: 16, alignItems: 'center', gap: 14 },
+  proHeroRing: { width: PRO_HERO_RING_SIZE, height: PRO_HERO_RING_SIZE, borderRadius: PRO_HERO_RING_SIZE / 2, borderWidth: 4, alignItems: 'center', justifyContent: 'center' },
+  proHeroNum: { fontWeight: '700' },
+  proHeroLabel: { fontWeight: '700' },
   aircraftSectionTitle: { fontWeight: '700', letterSpacing: 0.6, marginBottom: 8, paddingHorizontal: 2 },
   expandPanel: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 10 },
   expandGroupLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 4 },

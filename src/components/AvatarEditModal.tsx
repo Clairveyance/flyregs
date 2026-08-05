@@ -2,7 +2,7 @@ import { Modal, View, Text, Image, Pressable, ActivityIndicator, StyleSheet, Pla
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
-import { AVATAR_PRESETS, AvatarPreset } from '@/lib/avatarPresets'
+import { AVATAR_PRESETS, AvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 
 // Combines what used to be two separate small controls on the Account
 // avatar (a tiny edit badge that popped a native Alert.alert action sheet,
@@ -40,7 +40,7 @@ export function AvatarEditModal({
   onRemovePhoto,
   onDone,
 }: Props) {
-  const { tokens } = useTheme()
+  const { tokens, redShift } = useTheme()
   const fs = useFS()
   const hasAvatar = !!avatarUrl || !!preset
 
@@ -59,7 +59,7 @@ export function AvatarEditModal({
           </View>
 
           <View style={styles.photoWrap}>
-            <View style={[styles.photoCircle, { backgroundColor: preset?.color ?? tokens.blu }]}>
+            <View style={[styles.photoCircle, { backgroundColor: preset ? avatarColorFor(preset, redShift) : tokens.blu }]}>
               {busy ? (
                 <ActivityIndicator color="#fff" size="large" />
               ) : avatarUrl ? (
@@ -121,7 +121,7 @@ export function AvatarEditModal({
                     disabled={busy}
                     style={[
                       styles.presetSwatch,
-                      { backgroundColor: p.color, opacity: busy ? 0.5 : 1 },
+                      { backgroundColor: avatarColorFor(p, redShift), opacity: busy ? 0.5 : 1 },
                       selected && { borderWidth: 2, borderColor: tokens.t1 },
                     ]}
                   >

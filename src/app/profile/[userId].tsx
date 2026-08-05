@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
 import { View, Text, Image, ScrollView, Pressable, TextInput, Switch, StyleSheet, ActivityIndicator, Modal } from 'react-native'
-import Reanimated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -17,7 +16,7 @@ import { CoinMedal } from '@/components/CoinMedal'
 import { NameTag } from '@/components/NameTag'
 import { getStatsVisible, setStatsVisible, getCurrentAircraft, setCurrentAircraft } from '@/lib/leaderboard'
 import { getAvatarUrl, resolveAvatarPresetId, getDisplayName } from '@/lib/avatar'
-import { getAvatarPreset } from '@/lib/avatarPresets'
+import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
 
 // The Community "bragging page" -- badges, ratings, Duel record, current
@@ -30,79 +29,72 @@ import { useCachedImage } from '@/lib/imageCache'
 // policies are technically public-readable already (a pre-existing
 // permissiveness this screen doesn't rely on for anyone but the owner).
 
-// RC, on the Duel record / Overall Mastery cards: "i think these can look
-// better. more special. let's use other shapes, color... i think the
-// mastery used to be a ring." Study Mode's own mastery display already IS
-// a color-graded circular badge (dull grey -> gold as % rises, plus a
-// pulsing glow -- see that file's own comment for why it's a solid-border
-// badge and not a true partial-fill ring: react-native-svg isn't in this
-// project, and a ring built from rotated View borders only sweeps
-// correctly up to 50%). This screen's own Overall Mastery card had none of
-// that, just a plain icon+text row identical in shape to Duel record right
-// above it -- porting the gauge here (not inventing a new one) is what "it
-// used to be a ring" is actually asking for. lerpColor/MASTERY_RING_DULL
-// duplicated from study.tsx rather than shared, matching this codebase's
-// own existing precedent of small per-screen visual helpers (CoinMedal,
-// MagicLinkPod each have their own bespoke gradient logic too).
-const MASTERY_RING_DULL = '#5a5a62'
+// RC, 2nd pass on these two cards -- the first redesign (small badge +
+// bar, both in a plain icon-row card) still read as "standard boxes":
+// "something more visual than standard boxes. like two big rings, or
+// concentric circles, or one circle and one bar graph... think of a fun,
+// visually striking way to display this info." Went with "two big rings" --
+// reuses FleetRing's own proven radial-tick donut technique (My Fleet's
+// compliant/open/overdue visualization, already built and already praised)
+// generalized to take arbitrary weighted segments, instead of inventing a
+// new shape from scratch: Duel record's ring is a real W/L/T proportional
+// donut (the same "color IS the data" idea DuelRecordBar had, just as a
+// ring instead of a bar), Mastery's ring is a real filled/unfilled
+// proportional donut instead of a solid-border badge with a lerped color.
+const RING_DULL = '#3A4552'
 // Red Shift: neutral blue-grey isn't red-safe -- same dim warm rust-black
 // used for CoinMedal's locked/dim state, so every "low progress" visual in
 // the app reads consistently under Red Shift.
-const MASTERY_RING_DULL_REDSHIFT = '#4a3530'
+const RING_DULL_REDSHIFT = '#4a3530'
+const STAT_RING_SIZE = 104
+const STAT_RING_TICKS = 28
 
-function lerpColor(a: string, b: string, t: number): string {
-  const hexToRgb = (hex: string): [number, number, number] => {
-    const n = parseInt(hex.slice(1), 16)
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+function StatRing({
+  segments, centerValue, centerLabel, tokens, redShift, fs,
+}: {
+  segments: Array<{ color: string; count: number }>
+  centerValue: string
+  centerLabel: string
+  tokens: ReturnType<typeof useTheme>['tokens']
+  redShift: boolean
+  fs: (n: number) => number
+}) {
+  const total = segments.reduce((sum, s) => sum + s.count, 0)
+  // Only reached when there's literally nothing to show yet (e.g. 0 duels
+  // played) -- real data always supplies its own "remainder" segment color
+  // as part of `segments` (see the Mastery ring's own dull-gold-remainder
+  // below), so this fallback is StatRing's own concern, not the caller's.
+  const dull = redShift ? RING_DULL_REDSHIFT : RING_DULL
+  let tickColors: string[] = []
+  if (total > 0) {
+    segments.forEach((seg) => {
+      const n = Math.round((seg.count / total) * STAT_RING_TICKS)
+      tickColors.push(...Array(n).fill(seg.color))
+    })
+    // Rounding each segment independently can land one tick short/long of
+    // STAT_RING_TICKS -- pad or trim against the last real segment's color
+    // rather than leaving a gap or overflowing the ring.
+    const fillColor = segments[segments.length - 1]?.color ?? dull
+    while (tickColors.length < STAT_RING_TICKS) tickColors.push(fillColor)
+    tickColors = tickColors.slice(0, STAT_RING_TICKS)
+  } else {
+    tickColors = Array(STAT_RING_TICKS).fill(dull)
   }
-  const [ar, ag, ab] = hexToRgb(a)
-  const [br, bg, bb] = hexToRgb(b)
-  const r = Math.round(ar + (br - ar) * t)
-  const g = Math.round(ag + (bg - ag) * t)
-  const bch = Math.round(ab + (bb - ab) * t)
-  return `rgb(${r},${g},${bch})`
-}
-
-function MasteryGauge({ pct, tokens, redShift, fs }: { pct: number; tokens: ReturnType<typeof useTheme>['tokens']; redShift: boolean; fs: (n: number) => number }) {
-  const glow = useSharedValue(0)
-  useEffect(() => {
-    if (pct <= 0) { glow.value = 0; return }
-    glow.value = withRepeat(withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.sin) }), -1, true)
-  }, [pct])
-  const glowStyle = useAnimatedStyle(() => ({ shadowOpacity: glow.value * (pct / 100) * 0.75 }))
+  const angleStep = 360 / STAT_RING_TICKS
   return (
-    <Reanimated.View
-      style={[
-        styles.masteryGauge,
-        {
-          backgroundColor: tokens.bg,
-          borderColor: lerpColor(redShift ? MASTERY_RING_DULL_REDSHIFT : MASTERY_RING_DULL, tokens.gold, pct / 100),
-          shadowColor: tokens.gold,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: 0 },
-        },
-        glowStyle,
-      ]}
-    >
-      <Text style={[styles.masteryGaugeNum, { color: tokens.t1, fontSize: fs(16) }]}>{pct}</Text>
-      <Text style={[styles.masteryGaugeUnit, { color: tokens.t4, fontSize: fs(7.5) }]}>PCT</Text>
-    </Reanimated.View>
-  )
-}
-
-// Same "represent real proportions with colored segments" language as
-// FleetRing (My Fleet's compliant/open/overdue donut) and RowStatusBadge,
-// just a horizontal bar instead of a radial ring -- three counts (W/L/T)
-// don't need FleetRing's full ring treatment, but the underlying idea
-// (color IS the data, not just decoration) is the same "port Fleet's color
-// coordination language" RC asked for elsewhere this session too.
-function DuelRecordBar({ wins, losses, ties, tokens }: { wins: number; losses: number; ties: number; tokens: ReturnType<typeof useTheme>['tokens'] }) {
-  const total = Math.max(1, wins + losses + ties)
-  return (
-    <View style={styles.duelBar}>
-      {wins > 0 && <View style={{ flex: wins / total, backgroundColor: tokens.grn }} />}
-      {losses > 0 && <View style={{ flex: losses / total, backgroundColor: tokens.red }} />}
-      {ties > 0 && <View style={{ flex: ties / total, backgroundColor: tokens.t4 }} />}
+    <View style={{ width: STAT_RING_SIZE, height: STAT_RING_SIZE }}>
+      {tickColors.map((color, i) => (
+        <View
+          key={i}
+          style={[StyleSheet.absoluteFill, styles.statRingTickWrap, { transform: [{ rotate: `${i * angleStep}deg` }] }]}
+        >
+          <View style={[styles.statRingTick, { backgroundColor: color }]} />
+        </View>
+      ))}
+      <View style={[StyleSheet.absoluteFill, styles.statRingCenter]}>
+        <Text style={[styles.statRingValue, { color: tokens.t1, fontSize: fs(22) }]}>{centerValue}</Text>
+        <Text style={[styles.statRingLabel, { color: tokens.t4, fontSize: fs(9) }]}>{centerLabel}</Text>
+      </View>
     </View>
   )
 }
@@ -201,7 +193,7 @@ export default function ProfileScreen() {
         <TabletContainer>
           <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="interactive">
             <View style={styles.headerRow}>
-              <View style={[styles.avatar, { backgroundColor: (isSelf && selfAvatarPreset?.color) || tokens.goldlt, borderColor: tokens.goldbdr }]}>
+              <View style={[styles.avatar, { backgroundColor: (isSelf && selfAvatarPreset && avatarColorFor(selfAvatarPreset, redShift)) || tokens.goldlt, borderColor: tokens.goldbdr }]}>
                 {isSelf && selfAvatarUrl ? (
                   <Image source={{ uri: selfAvatarUrl }} style={styles.avatarImage} />
                 ) : isSelf && selfAvatarPreset ? (
@@ -268,57 +260,68 @@ export default function ProfileScreen() {
               </View>
             )}
 
-            {/* RC: "these can look better. more special. let's use other
-                shapes, color... let's make this Stat area cooler, more
-                interactive and visual." Duel record now leads with a
-                proportional W/L/T color bar (DuelRecordBar, same "color IS
-                the data" language as FleetRing) instead of a plain bolt
-                icon, and its border switched from gold to blue -- freeing
-                gold to be Overall Mastery's own distinct signature color
-                instead of both cards sharing one accent. Tappable when
-                viewing your own profile (into Duels), not on someone
+            {/* RC, 2nd pass: "something more visual than standard boxes...
+                two big rings... a fun, visually striking way to display
+                this info." Side by side, both real proportional donuts
+                (StatRing, generalized from FleetRing's own radial-tick
+                technique) instead of a small badge/bar in an icon-row card.
+                Duel record's ring is blue-bordered, Mastery's is gold --
+                same distinct-accent-per-card idea the first pass already
+                had, just carried onto a bigger shape. Tappable when
+                viewing your own profile (into Duels/Study), not on someone
                 else's -- there's nothing self-only to navigate to there. */}
-            {duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0) && (
-              <Pressable
-                style={[styles.duelCard, { backgroundColor: tokens.bg2, borderColor: tokens.bbdr }]}
-                onPress={isSelf ? () => router.push('/challenges' as any) : undefined}
-              >
-                <DuelRecordBar wins={duelStats.wins} losses={duelStats.losses} ties={duelStats.ties} tokens={tokens} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.duelRecord, { color: tokens.t1, fontSize: fs(17) }]}>
+            <View style={styles.statRingRow}>
+              {duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0) && (
+                <Pressable
+                  style={[styles.statRingCard, { backgroundColor: tokens.bg2, borderColor: tokens.bbdr }]}
+                  onPress={isSelf ? () => router.push('/challenges' as any) : undefined}
+                >
+                  <StatRing
+                    segments={[
+                      { color: tokens.grn, count: duelStats.wins },
+                      { color: tokens.red, count: duelStats.losses },
+                      { color: tokens.t4, count: duelStats.ties },
+                    ]}
+                    centerValue={String(duelStats.wins + duelStats.losses + duelStats.ties)}
+                    centerLabel="DUELS"
+                    tokens={tokens}
+                    redShift={redShift}
+                    fs={fs}
+                  />
+                  <Text style={[styles.statRingCardTitle, { color: tokens.t1, fontSize: fs(13.5) }]}>Duel record</Text>
+                  <Text style={[styles.statRingCardSub, { color: tokens.t3, fontSize: fs(11.5) }]}>
                     {duelStats.wins}W · {duelStats.losses}L{duelStats.ties > 0 ? ` · ${duelStats.ties}T` : ''}
                   </Text>
-                  <Text style={[styles.duelSub, { color: tokens.t3, fontSize: fs(11.5) }]}>Duel record</Text>
-                </View>
-                {isSelf && <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />}
-              </Pressable>
-            )}
+                </Pressable>
+              )}
 
-            {/* Overall Mastery -- same "unconditionally public, brag-
-                worthy" treatment as Duel record above (RC: "your total
-                Overall Mastery %. plus the nametag. all the things to
-                really brag about"), not gated behind the "Show my stats"
-                toggle the way ratings/coins/aircraft are -- it's a
-                competitive/comparison stat like the duel record, not a
-                personal detail. Gauge ported from Study Mode's own mastery
-                badge (see MasteryGauge's header comment) -- "i think the
-                mastery used to be a ring" was asking for exactly this,
-                just missing from this screen specifically. */}
-            {mastery && mastery.mastered > 0 && (
-              <Pressable
-                style={[styles.duelCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
-                onPress={isSelf ? () => router.push('/study' as any) : undefined}
-              >
-                <MasteryGauge pct={mastery.pct} tokens={tokens} redShift={redShift} fs={fs} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.duelRecord, { color: tokens.t1, fontSize: fs(17) }]}>{mastery.pct}%</Text>
-                  <Text style={[styles.duelSub, { color: tokens.t3, fontSize: fs(11.5) }]}>
-                    Overall Mastery · {mastery.mastered} terms
-                  </Text>
-                </View>
-                {isSelf && <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />}
-              </Pressable>
-            )}
+              {mastery && mastery.mastered > 0 && (
+                <Pressable
+                  style={[styles.statRingCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
+                  onPress={isSelf ? () => router.push('/study' as any) : undefined}
+                >
+                  <StatRing
+                    segments={[
+                      { color: tokens.gold, count: mastery.pct },
+                      { color: redShift ? RING_DULL_REDSHIFT : RING_DULL, count: 100 - mastery.pct },
+                    ]}
+                    centerValue={`${mastery.pct}%`}
+                    centerLabel="MASTERY"
+                    tokens={tokens}
+                    redShift={redShift}
+                    fs={fs}
+                  />
+                  <Text style={[styles.statRingCardTitle, { color: tokens.t1, fontSize: fs(13.5) }]}>Overall Mastery</Text>
+                  <Text style={[styles.statRingCardSub, { color: tokens.t3, fontSize: fs(11.5) }]}>{mastery.mastered} terms</Text>
+                </Pressable>
+              )}
+            </View>
+
+            {/* RC: "your total Overall Mastery %. plus the nametag. all
+                the things to really brag about" -- both cards above stay
+                unconditionally public, same as the rest of this "bragging
+                page," not gated behind the "Show my stats" toggle the way
+                ratings/coins/aircraft are. */}
 
             {!visible ? (
               <View style={[styles.privateCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
@@ -455,23 +458,19 @@ const styles = StyleSheet.create({
   aircraftSaveBtnText: { color: '#fff', fontWeight: '700' },
   addRatingChip: { flexDirection: 'row', alignItems: 'center', gap: 3 },
 
-  duelCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    borderRadius: 14, borderWidth: 1, padding: 14,
+  // Two big rings, side by side -- see StatRing's own header comment.
+  statRingRow: { flexDirection: 'row', gap: 12 },
+  statRingCard: {
+    flex: 1, alignItems: 'center', gap: 8,
+    borderRadius: 16, borderWidth: 1, paddingVertical: 18, paddingHorizontal: 10,
   },
-  duelRecord: { fontWeight: '800', fontVariant: ['tabular-nums'] },
-  duelSub: { marginTop: 2, letterSpacing: 0.3 },
-  // A rounded bar (not a bare rectangle) so it reads as its own small
-  // shape distinct from the card around it, matching FleetRing/
-  // RowStatusBadge's own "the shape itself carries the color-coded data"
-  // language rather than just tinting a plain icon.
-  duelBar: {
-    width: 44, height: 10, borderRadius: 5, overflow: 'hidden',
-    flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  masteryGauge: { width: 44, height: 44, borderRadius: 22, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  masteryGaugeNum: { fontWeight: '700' },
-  masteryGaugeUnit: { letterSpacing: 0.5, marginTop: -2 },
+  statRingCardTitle: { fontWeight: '700', marginTop: 2 },
+  statRingCardSub: { fontVariant: ['tabular-nums'], letterSpacing: 0.2 },
+  statRingTickWrap: { alignItems: 'center' },
+  statRingTick: { width: 5, height: 13, borderRadius: 2.5, marginTop: 3 },
+  statRingCenter: { alignItems: 'center', justifyContent: 'center' },
+  statRingValue: { fontWeight: '800', fontVariant: ['tabular-nums'] },
+  statRingLabel: { letterSpacing: 0.8, marginTop: -2, fontWeight: '600' },
 
   privateCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,

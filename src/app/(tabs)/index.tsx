@@ -1366,11 +1366,11 @@ function HomeHeader({
             bumped (only sectionTitle was, this same round) -- couldn't find
             a prior committed larger version to restore, so this is a fresh
             bump now rather than a revert. */}
-        <Text style={[styles.sectionSub, { color: tokens.t3, fontSize: fs(13) }]}>Last {badgeDays} days</Text>
+        <Text style={[styles.sectionSub, { color: tokens.t3, fontSize: fs(13) }]}>{badgeDays}d</Text>
         <View style={{ flex: 1 }} />
         <Pressable onPress={() => router.push('/whats-changed' as any)} hitSlop={8}>
           <Text style={[styles.sectionSub, { color: tokens.blu, fontWeight: '600', fontSize: fs(13) }]}>
-            See changes ›
+            All ›
           </Text>
         </Pressable>
       </View>

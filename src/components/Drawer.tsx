@@ -18,7 +18,7 @@ import { APP_VERSION, APP_STORE_URL, PLAY_STORE_URL } from '@/lib/appInfo'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { BADGE_LIFESPAN_OPTIONS } from '@/lib/badgeLifespan'
 import { getAvatarUrl, resolveAvatarPresetId } from '@/lib/avatar'
-import { getAvatarPreset } from '@/lib/avatarPresets'
+import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
 
 const DRAWER_WIDTH = 284
@@ -176,7 +176,7 @@ function DrawerContent({
         style={[styles.profileCard, { borderColor: tokens.bdr }]}
         onPress={() => nav(session ? '/account' : '/auth')}
       >
-        <View style={[styles.avatar, { backgroundColor: avatarPreset?.color ?? (session ? tokens.blu : tokens.bg4) }]}>
+        <View style={[styles.avatar, { backgroundColor: avatarPreset ? avatarColorFor(avatarPreset, redShift) : (session ? tokens.blu : tokens.bg4) }]}>
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
           ) : avatarPreset ? (

@@ -13,7 +13,7 @@ import { getMyCoins, type EarnedCoin } from '@/lib/coins'
 import { getDuelStats, type DuelStats } from '@/lib/challenges'
 import { getMyRatings, type RatingCode } from '@/lib/profileRatings'
 import { getAvatarUrl, resolveAvatarPresetId, getDisplayName } from '@/lib/avatar'
-import { getAvatarPreset } from '@/lib/avatarPresets'
+import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
 import { NameTag } from '@/components/NameTag'
 
@@ -30,7 +30,7 @@ import { NameTag } from '@/components/NameTag'
 // full IA-redesign writeup.
 
 export default function CommunityScreen() {
-  const { tokens } = useTheme()
+  const { tokens, redShift } = useTheme()
   const fs = useFS()
   const { session, isPro, hasPlusAccess, avatarOverride } = useAuth()
   // Same resolution chain Account/Drawer use (avatarOverride takes priority
@@ -132,7 +132,7 @@ export default function CommunityScreen() {
               style={[styles.identityCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
               onPress={() => router.push(`/profile/${session.user.id}` as any)}
             >
-              <View style={[styles.identityAvatar, { backgroundColor: avatarPreset?.color ?? tokens.goldlt, borderColor: tokens.goldbdr }]}>
+              <View style={[styles.identityAvatar, { backgroundColor: avatarPreset ? avatarColorFor(avatarPreset, redShift) : tokens.goldlt, borderColor: tokens.goldbdr }]}>
                 {avatarUrl ? (
                   <Image source={{ uri: avatarUrl }} style={styles.identityAvatarImage} />
                 ) : avatarPreset ? (

@@ -56,7 +56,7 @@ import { toRegShareType } from '@/lib/regShare'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { stripFarPrefix, rowTitle } from '@/lib/titleFormat'
 import { useCachedImage } from '@/lib/imageCache'
-import { getAvatarPreset } from '@/lib/avatarPresets'
+import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 
 type Tab = 'all' | 'folders' | 'shared' | 'offline'
 
@@ -753,6 +753,7 @@ export default function SavedScreen() {
                       presetId={item.ownerAvatarPreset}
                       name={item.ownerDisplayName}
                       tokens={tokens}
+                      redShift={redShift}
                       fs={fs}
                     />
                     <View style={{ flex: 1 }}>
@@ -1347,6 +1348,7 @@ function OwnerAvatar({
   presetId,
   name,
   tokens,
+  redShift,
   fs,
 }: {
   cacheKey: string
@@ -1354,6 +1356,7 @@ function OwnerAvatar({
   presetId?: string | null
   name?: string | null
   tokens: ReturnType<typeof useTheme>['tokens']
+  redShift: boolean
   fs: (n: number) => number
 }) {
   const initial = name ? name.charAt(0).toUpperCase() : '?'
@@ -1366,7 +1369,7 @@ function OwnerAvatar({
   return cachedUrl ? (
     <Image source={{ uri: cachedUrl }} style={styles.ownerAvatarImg} />
   ) : preset ? (
-    <View style={[styles.ownerAvatarFallback, { backgroundColor: preset.color }]}>
+    <View style={[styles.ownerAvatarFallback, { backgroundColor: avatarColorFor(preset, redShift) }]}>
       <Icon name={preset.icon} size={fs(16)} color="#fff" />
     </View>
   ) : (

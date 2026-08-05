@@ -376,11 +376,10 @@ export default function StudyScreen() {
             line lower on this same screen, and the trailing chevron was a
             second "tap to expand" cue doing the same job as the icon itself
             -- "if these are saying basically the same thing, we don't need
-            both... just keep the icon up top, and make it bigger." Checked
-            whether other screens put their filter icon in the header (RC
-            asked to move it there if so) -- Home is the only other one in
-            the app, and it's ALSO inline like this, not in a header, so
-            there's no "upper right" convention to match; left in place. */}
+            both... just keep the icon up top, and make it bigger." Right-
+            aligned (filtersHeader's justifyContent) to match Home's filter
+            button sitting on the right of its own row -- RC flagged the
+            mismatch (left here, right on Home) as an inconsistency. */}
         <Icon
           name="slider.horizontal.3"
           size={fs(24)}
@@ -996,7 +995,7 @@ const styles = StyleSheet.create({
   upgradeBtnText: { color: '#fff', fontWeight: '700' },
 
   filterGroupLabel: { fontWeight: '700', letterSpacing: 0.5, paddingHorizontal: 20, paddingTop: 14 },
-  filtersHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4 },
+  filtersHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4 },
   filtersHeaderText: { fontWeight: '700' },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingTop: 8 },
   levelFilterRow: { marginTop: 10 },

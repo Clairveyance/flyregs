@@ -488,7 +488,7 @@ export default function FarSectionScreen() {
 
             {changedIdx.length > 0 && (
               <View style={[styles.changedBanner, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
-                <Icon name="sparkles" size={fs(13)} color={tokens.blu} />
+                <Icon name="doc.badge.clock" size={fs(13)} color={tokens.blu} />
                 <Text style={[styles.changedBannerText, { color: tokens.blu, fontSize: fs(12.5) }]}>
                   Updated — {changedIdx.length} paragraph{changedIdx.length === 1 ? '' : 's'} changed
                 </Text>
