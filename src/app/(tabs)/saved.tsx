@@ -25,7 +25,6 @@ import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { supabase } from '@/lib/supabase'
-import { blockText } from '@/lib/acFormat'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { TabletContainer } from '@/components/TabletContainer'
 import { Icon } from '@/components/Icon'
@@ -168,21 +167,31 @@ export default function SavedScreen() {
       setStaleHighlightIds(new Set())
       return
     }
-    const acIds = [...new Set(highlights.map((h) => h.acId!))]
+    // TIER LEAK, fixed 2026-08-05 during the pre-beta gating audit: this
+    // used to `.from('advisory_circulars').select('id, pdf_blocks')` on the
+    // RAW table and diff client-side. pdf_blocks is exactly the column
+    // advisory_circulars_gated redacts for non-Plus, so a Free account with
+    // AC highlights was sent the complete text of every one of those ACs.
+    // Nothing rendered it -- it only built a Set to compare against -- which
+    // is why it survived earlier gate audits: the screen looked correct
+    // while the payload crossed the wire anyway.
+    //
+    // Reading the _gated view instead would have traded the leak for a
+    // broken feature (non-Plus sees only blocks 0-1, so every deeper
+    // highlight would report stale). So the comparison moved server-side
+    // and only booleans come back -- see sync/migrations_stale_highlight_rpc.sql.
     supabase
-      .from('advisory_circulars')
-      .select('id, pdf_blocks')
-      .in('id', acIds)
+      .rpc('stale_highlight_ac_ids', {
+        probes: highlights.map((h) => ({ ac_id: h.acId, block_text: h.blockText })),
+      })
       .then(({ data }) => {
         if (!data) return
-        const blockTextSetByAc = new Map<string, Set<string>>()
-        for (const row of data) {
-          blockTextSetByAc.set(row.id, new Set((row.pdf_blocks ?? []).map(blockText)))
-        }
+        const staleByKey = new Set(
+          (data as any[]).filter((r) => r.out_stale).map((r) => `${r.out_ac_id}::${r.out_block_text}`),
+        )
         const stale = new Set<string>()
         for (const h of highlights) {
-          const set = blockTextSetByAc.get(h.acId!)
-          if (!set || !set.has(h.blockText!)) stale.add(h.id)
+          if (staleByKey.has(`${h.acId}::${h.blockText}`)) stale.add(h.id)
         }
         setStaleHighlightIds(stale)
       })

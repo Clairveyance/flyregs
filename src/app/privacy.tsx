@@ -6,7 +6,7 @@ const SECTIONS: ProseSection[] = [
     heading: 'What we collect',
     body: [
       `${APP_NAME} is designed to work without an account. Browsing the Advisory Circular library, searching, and viewing recently opened ACs all happen on your device and require no sign-in.`,
-      'If you create an account, we collect your email address to authenticate you. If you turn on AC Update Alerts (Premium), we store a device push token so we can notify you. If you upload a profile picture, it is stored and may be visible to people you share content with. We never sell your data.',
+      'If you create an account, we collect your email address to authenticate you. If you turn on any push notification (AC Update Alerts, DailyReg, Duel Alerts, or aircraft alerts), we store a device push token so we can notify you. If you upload a profile picture, it is stored and may be visible to people you share content with. We never sell your data.',
     ],
   },
   {

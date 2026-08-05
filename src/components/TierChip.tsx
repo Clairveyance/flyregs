@@ -26,6 +26,35 @@ export function TierChip({ tier }: { tier: Tier }) {
   )
 }
 
+// Inline version, for tier names that appear MID-SENTENCE in prose rather
+// than as a leading badge. RC: "if faq, make sure any mention of a tier,
+// comes w/ the colored chip" -- the block TierChip above only covers
+// answers whose whole point is one tier, but plenty of copy names a tier
+// inside a sentence ("Pro includes one, Premium is unlimited"), and those
+// were rendering as flat body text.
+//
+// Deliberately a nested <Text>, not the <View> pill above: a View can't sit
+// inline inside a Text run in React Native, so a pill would break the line
+// box. Same colour language, just carried by weight + colour instead of a
+// border.
+export function inlineTierText(
+  text: string,
+  tokens: ReturnType<typeof useTheme>['tokens'],
+): (string | React.ReactElement)[] {
+  const colorFor = (word: string) => {
+    const w = word.toLowerCase()
+    return w === 'premium' ? tokens.gold : w === 'pro' ? tokens.blu : tokens.amb
+  }
+  // Word-boundary matched so "Provide"/"Plusses" can never be recoloured,
+  // and possessives/punctuation still work.
+  const parts = text.split(/\b(Premium|Pro|Plus)\b/g)
+  return parts.map((part, i) =>
+    i % 2 === 1
+      ? <Text key={i} style={{ color: colorFor(part), fontWeight: '700' }}>{part}</Text>
+      : part,
+  )
+}
+
 const styles = StyleSheet.create({
   pill: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 4, paddingVertical: 2, alignSelf: 'flex-start' },
   text: { fontWeight: '700', letterSpacing: 0.2 },

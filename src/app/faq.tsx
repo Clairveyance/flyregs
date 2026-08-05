@@ -18,7 +18,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { SUPPORT_EMAIL, APP_NAME } from '@/lib/appInfo'
 import { getBadgeStyle, BadgeKind } from '@/lib/acBadge'
-import { TierChip, type Tier } from '@/components/TierChip'
+import { TierChip, inlineTierText, type Tier } from '@/components/TierChip'
 
 if (
   Platform.OS === 'android' &&
@@ -425,7 +425,7 @@ export default function FAQScreen() {
                                   <View style={styles.badgeLine}>
                                     <TierChip tier={para.tier} />
                                     <Text style={[styles.a, { flex: 1, color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>
-                                      {lead}
+                                      {inlineTierText(lead, tokens)}
                                     </Text>
                                   </View>
                                   {bullets.length > 0 && (
@@ -434,7 +434,7 @@ export default function FAQScreen() {
                                         <View key={bi} style={styles.bulletLine}>
                                           <Text style={[styles.bulletDot, { color: tokens.t2, fontSize: fs(14) }]}>•</Text>
                                           <Text style={[styles.a, { flex: 1, color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>
-                                            {b.slice(2)}
+                                            {inlineTierText(b.slice(2), tokens)}
                                           </Text>
                                         </View>
                                       ))}
@@ -458,7 +458,7 @@ export default function FAQScreen() {
                                 <View key={pi} style={[styles.bulletLine, spacing]}>
                                   <Text style={[styles.bulletDot, { color: tokens.t2, fontSize: fs(14) }]}>•</Text>
                                   <Text style={[styles.a, { flex: 1, color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>
-                                    {para.slice(2)}
+                                    {inlineTierText(para.slice(2), tokens)}
                                   </Text>
                                 </View>
                               )
@@ -472,7 +472,7 @@ export default function FAQScreen() {
                                   { color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 },
                                 ]}
                               >
-                                {para}
+                                {inlineTierText(para, tokens)}
                               </Text>
                             )
                           })}
