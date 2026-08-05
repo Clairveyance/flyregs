@@ -1,4 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
+import Reanimated, {
+  useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, useReducedMotion,
+} from 'react-native-reanimated'
 import { View, Text, Image, ScrollView, Pressable, TextInput, Switch, StyleSheet, ActivityIndicator, Modal } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
@@ -55,56 +58,172 @@ const MASTERY_TRACK = '#3A4552'
 // used for CoinMedal's locked/dim state, so every "low progress" visual in
 // the app reads consistently under Red Shift.
 const MASTERY_TRACK_REDSHIFT = '#4a3530'
-const BUBBLE_MIN = 36
-const BUBBLE_MAX = 72
+// ─── Duel record: medal rings in slow orbit ────────────────────────────────
+//
+// RC signed off on this exact spec after four static passes were rejected
+// ("they don't look 'cool'", "use rings, not solid fills") and two motion
+// concepts were narrowed down. Every number below is his call, not a
+// default -- worth stating because several look arbitrary and aren't:
+//
+//   - Colour is FIXED to the outcome, never to rank: "W is always gold, no
+//     matter where it is. T is Bronze and L is silver." So gold is not
+//     necessarily the outer ring.
+//   - Size and orbit position DO rank by count -- biggest count gets the
+//     largest ring on the outermost orbit -- which is what makes gold
+//     "moving outward" a real signal of a winning record.
+//   - The number stays upright while its ring orbits (counter-rotation),
+//     RC: "try to lock the inside number to vertical."
+//   - 160s for one revolution of the outer ring. RC walked this down twice
+//     ("slow the orbit speed WAY down", then 4x, then 8x) until it reads as
+//     drift rather than spin. It is meant to be almost imperceptible.
+//   - Only the gold ring pulses, "very subtle, slow, and not too frequent."
+const ORBIT_SLOTS = [
+  { inset: 14, ring: 38, font: 16, seconds: 160 },
+  { inset: 40, ring: 30, font: 14, seconds: 112 },
+  { inset: 60, ring: 24, font: 12.5, seconds: 74 },
+]
+const ORBIT_CANVAS = 160
+const GOLD_PULSE_MS = 5000
+// Bronze has no theme token of its own (gold -> tokens.gold, silver ->
+// tokens.slv, both already red-shift aware). Same warm/dim pairing the
+// MASTERY_TRACK constants above use.
+const BRONZE = '#b3773f'
+const BRONZE_REDSHIFT = '#8a5a2e'
 
-function DuelBubbles({
-  wins, losses, ties, tokens, fs,
+function OrbitRing({
+  slot, color, count, fs, reduceMotion, isGold, phaseDeg,
+}: {
+  slot: (typeof ORBIT_SLOTS)[number]
+  color: string
+  count: number
+  fs: (n: number) => number
+  reduceMotion: boolean
+  isGold: boolean
+  phaseDeg: number
+}) {
+  const rot = useSharedValue(phaseDeg)
+  const pulse = useSharedValue(0)
+
+  useEffect(() => {
+    if (reduceMotion) return
+    rot.value = phaseDeg
+    rot.value = withRepeat(
+      withTiming(phaseDeg + 360, { duration: slot.seconds * 1000, easing: Easing.linear }),
+      -1,
+      false,
+    )
+    if (isGold) {
+      pulse.value = withRepeat(withTiming(1, { duration: GOLD_PULSE_MS, easing: Easing.out(Easing.quad) }), -1, false)
+    }
+  }, [reduceMotion, isGold, phaseDeg, slot.seconds, rot, pulse])
+
+  const orbitStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${rot.value}deg` }] }))
+  // Same shared value, negated -- the number can never drift out of sync
+  // with its own ring the way two independent timers eventually would.
+  const uprightStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${-rot.value}deg` }] }))
+  const haloStyle = useAnimatedStyle(() => ({
+    opacity: pulse.value < 0.55 ? 0.85 * (1 - pulse.value / 0.55) : 0,
+    transform: [{ scale: 1 + Math.min(pulse.value / 0.55, 1) * 0.85 }],
+  }))
+
+  const half = slot.ring / 2
+  return (
+    <Reanimated.View
+      pointerEvents="none"
+      style={[
+        { position: 'absolute', top: slot.inset, left: slot.inset, right: slot.inset, bottom: slot.inset },
+        orbitStyle,
+      ]}
+    >
+      <View style={{ position: 'absolute', top: -half, left: '50%', marginLeft: -half, width: slot.ring, height: slot.ring }}>
+        <Reanimated.View style={[{ width: '100%', height: '100%' }, uprightStyle]}>
+          {isGold && (
+            <Reanimated.View
+              style={[
+                {
+                  position: 'absolute', top: -2, left: -2, right: -2, bottom: -2,
+                  borderRadius: half + 2, borderWidth: 2, borderColor: color,
+                },
+                haloStyle,
+              ]}
+            />
+          )}
+          <View
+            style={{
+              width: '100%', height: '100%', borderRadius: half,
+              borderWidth: 2, borderColor: color,
+              alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <Text style={[styles.orbitValue, { color, fontSize: fs(count >= 100 ? slot.font - 3 : slot.font) }]}>
+              {count}
+            </Text>
+          </View>
+        </Reanimated.View>
+      </View>
+    </Reanimated.View>
+  )
+}
+
+function DuelOrbit({
+  wins, losses, ties, tokens, fs, redShift,
 }: {
   wins: number
   losses: number
   ties: number
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
+  redShift: boolean
 }) {
+  const reduceMotion = useReducedMotion()
   const items = [
-    { label: 'Wins', count: wins, color: tokens.grn },
-    { label: 'Losses', count: losses, color: tokens.red },
-    { label: 'Ties', count: ties, color: tokens.t4 },
+    { label: 'Wins', count: wins, color: tokens.gold },
+    { label: 'Losses', count: losses, color: tokens.slv },
+    { label: 'Ties', count: ties, color: redShift ? BRONZE_REDSHIFT : BRONZE },
   ]
-  const max = Math.max(wins, losses, ties, 1)
-  // RC, 4th pass: "not sure about these. they don't look 'cool' and if you
-  // use circles, use rings, not solid fills." Same layout/size-by-share
-  // idea as before (still not a shared tick-dial, still not My Aircraft's
-  // ring) -- just a hollow stroked ring instead of a solid disc, colored
-  // stroke + matching colored number instead of a solid fill + white text.
+  // Rank decides slot only. Ties broken by the fixed Wins/Losses/Ties order
+  // so an all-zero (or all-equal) record still lays out deterministically
+  // instead of shuffling between renders.
+  const ranked = items.map((it, i) => ({ ...it, i })).sort((a, b) => b.count - a.count || a.i - b.i)
+
   return (
-    <View style={styles.bubbleRow}>
-      {items.map((it) => {
-        const size = it.count === 0 ? BUBBLE_MIN : BUBBLE_MIN + (BUBBLE_MAX - BUBBLE_MIN) * (it.count / max)
-        const ringColor = it.count > 0 ? it.color : tokens.t4
-        return (
-          <View key={it.label} style={styles.bubbleCol}>
-            <View
-              style={[
-                styles.bubble,
-                {
-                  width: size,
-                  height: size,
-                  borderRadius: size / 2,
-                  borderWidth: Math.max(3, size * 0.09),
-                  borderColor: ringColor,
-                },
-              ]}
-            >
-              <Text style={[styles.bubbleValue, { color: ringColor, fontSize: fs(it.count >= 100 ? 13 : 16) }]}>
-                {it.count}
-              </Text>
-            </View>
-            <Text style={[styles.bubbleLabel, { color: tokens.t3, fontSize: fs(11) }]}>{it.label}</Text>
+    <View style={styles.orbitRow}>
+      <View style={{ width: ORBIT_CANVAS, height: ORBIT_CANVAS }}>
+        <View style={[styles.orbitCenter, { backgroundColor: tokens.bdr }]} />
+        {ORBIT_SLOTS.map((slot, i) => (
+          <View
+            key={`track-${i}`}
+            style={{
+              position: 'absolute', top: slot.inset, left: slot.inset, right: slot.inset, bottom: slot.inset,
+              borderRadius: (ORBIT_CANVAS - slot.inset * 2) / 2,
+              borderWidth: StyleSheet.hairlineWidth, borderColor: tokens.bdr, borderStyle: 'dashed',
+            }}
+          />
+        ))}
+        {ranked.map((it, i) => (
+          <OrbitRing
+            key={it.label}
+            slot={ORBIT_SLOTS[i]}
+            color={it.color}
+            count={it.count}
+            fs={fs}
+            reduceMotion={reduceMotion}
+            isGold={it.label === 'Wins'}
+            // Staggered starts so the three never line up on one radius --
+            // and when motion is reduced this is the whole layout, since
+            // nothing then moves off its starting angle.
+            phaseDeg={i * 120}
+          />
+        ))}
+      </View>
+      <View style={styles.orbitLegend}>
+        {items.map((it) => (
+          <View key={it.label} style={styles.orbitLegendRow}>
+            <View style={[styles.orbitLegendDot, { borderColor: it.color }]} />
+            <Text style={[styles.orbitLegendText, { color: tokens.t2, fontSize: fs(13) }]}>{it.label}</Text>
           </View>
-        )
-      })}
+        ))}
+      </View>
     </View>
   )
 }
@@ -322,7 +441,14 @@ export default function ProfileScreen() {
                     {' '}duel{duelStats.wins + duelStats.losses + duelStats.ties === 1 ? '' : 's'} played
                   </Text>
                 </Text>
-                <DuelBubbles wins={duelStats.wins} losses={duelStats.losses} ties={duelStats.ties} tokens={tokens} fs={fs} />
+                <DuelOrbit
+                  wins={duelStats.wins}
+                  losses={duelStats.losses}
+                  ties={duelStats.ties}
+                  tokens={tokens}
+                  fs={fs}
+                  redShift={redShift}
+                />
               </Pressable>
             )}
 
@@ -490,11 +616,16 @@ const styles = StyleSheet.create({
   // header comment for why these dropped the card+ring look entirely.
   statHeadlineNum: { fontWeight: '800', fontVariant: ['tabular-nums'] },
   statHeadlineSub: { fontVariant: ['tabular-nums'] },
-  bubbleRow: { flexDirection: 'row', justifyContent: 'center', gap: 22, marginTop: 12 },
-  bubbleCol: { alignItems: 'center', gap: 6, width: BUBBLE_MAX },
-  bubble: { alignItems: 'center', justifyContent: 'center' },
-  bubbleValue: { fontWeight: '800', fontVariant: ['tabular-nums'] },
-  bubbleLabel: { fontWeight: '600' },
+  orbitRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 22, marginTop: 12 },
+  orbitCenter: {
+    position: 'absolute', top: '50%', left: '50%',
+    width: 6, height: 6, marginTop: -3, marginLeft: -3, borderRadius: 3,
+  },
+  orbitValue: { fontWeight: '700', fontVariant: ['tabular-nums'] },
+  orbitLegend: { gap: 11 },
+  orbitLegendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  orbitLegendDot: { width: 11, height: 11, borderRadius: 5.5, borderWidth: 2 },
+  orbitLegendText: { fontWeight: '600' },
   masteryTrack: { height: 14, borderRadius: 7, overflow: 'hidden', marginTop: 10 },
   masteryFill: { height: '100%', borderRadius: 7 },
 
