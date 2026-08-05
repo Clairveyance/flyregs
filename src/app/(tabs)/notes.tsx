@@ -1,22 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import {
-  View,
-  Text,
-  FlatList,
-  Pressable,
-  TextInput,
-  ScrollView,
-  StyleSheet,
-  Alert,
-  KeyboardAvoidingView,
-  Keyboard,
-  Platform,
-  Switch,
-  Animated,
-  PanResponder,
-  Dimensions,
-  ActivityIndicator,
-} from 'react-native'
+import { View, Text, FlatList, Pressable, TextInput, ScrollView, StyleSheet, KeyboardAvoidingView, Keyboard, Platform, Switch, Animated, PanResponder, Dimensions, ActivityIndicator } from 'react-native'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
@@ -49,6 +32,7 @@ import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -99,6 +83,10 @@ function timeAgo(iso: string): string {
 
 export default function NotesScreen() {
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so these confirms (and the deletes behind them) were
+  // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   // Notes creation/editing is Plus-tier now (hasPlusAccess); cloud sync of
   // notes is Pro-tier (isPro) per the pricing pivot -- see flyregs_decisions.md.
@@ -193,28 +181,32 @@ export default function NotesScreen() {
   }
 
   const confirmDelete = (id: string) =>
-    Alert.alert('Delete Note', 'This note will be permanently deleted.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => deleteNote(id) },
-    ])
+    confirm({
+      title: 'Delete Note',
+      message: 'This note will be permanently deleted.',
+      confirmLabel: 'Delete',
+      destructive: true,
+      finalTitle: 'Delete Note — confirm',
+      onConfirm: () => deleteNote(id),
+    })
 
   const confirmDeleteSelected = () => {
     const count = selected.size
-    Alert.alert(`Delete ${count} Note${count > 1 ? 's' : ''}`, "This can't be undone.", [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          const ids = [...selected]
-          persist(notes.filter((n) => !selected.has(n.id)))
-          syncPushNoteDeletes(ids)
-          removeItemsFromAllFolders('note', ids)
-          setSelected(new Set())
-          setSelectMode(false)
-        },
+    confirm({
+      title: `Delete ${count} Note${count > 1 ? 's' : ''}`,
+      message: "This can't be undone.",
+      confirmLabel: 'Delete',
+      destructive: true,
+      finalTitle: `Delete ${count} Note${count > 1 ? 's' : ''} — confirm`,
+      onConfirm: () => {
+        const ids = [...selected]
+        persist(notes.filter((n) => !selected.has(n.id)))
+        syncPushNoteDeletes(ids)
+        removeItemsFromAllFolders('note', ids)
+        setSelected(new Set())
+        setSelectMode(false)
       },
-    ])
+    })
   }
 
   const toggleSelect = () => {
@@ -269,7 +261,8 @@ export default function NotesScreen() {
 
   const toggleSync = async (v: boolean) => {
     // Cross-device sync is a Pro feature — turning it on without Pro opens
-    // the paywall (works on web too, where Alert.alert is a no-op).
+    // the paywall (a real navigation, not a dialog -- it worked on web even
+    // back when every Alert.alert on this screen silently did nothing).
     if (v && !isPro) {
       router.push('/paywall')
       return // leave the switch off
@@ -286,7 +279,7 @@ export default function NotesScreen() {
         // calls), and this screen shares the exact same toggle with saved.tsx.
         // Without this, a throw here left the switch stuck without ever
         // clearing syncBusy or telling the user anything failed.
-        Alert.alert('Error', "Couldn't turn on Back up & sync. Try again in a moment.")
+        confirm({ title: 'Error', message: "Couldn't turn on Back up & sync. Try again in a moment.", cancelLabel: null })
       }
       setSyncBusy(false)
     } else {
@@ -444,10 +437,14 @@ export default function NotesScreen() {
           onDelete={
             editorNote.id
               ? () =>
-                  Alert.alert('Delete Note', "This can't be undone.", [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Delete', style: 'destructive', onPress: () => { deleteNote(editorNote.id); setEditorNote(null) } },
-                  ])
+                  confirm({
+                    title: 'Delete Note',
+                    message: "This can't be undone.",
+                    confirmLabel: 'Delete',
+                    destructive: true,
+                    finalTitle: 'Delete Note — confirm',
+                    onConfirm: () => { deleteNote(editorNote.id); setEditorNote(null) },
+                  })
               : undefined
           }
           onShare={editorNote.id ? () => handleShare(editorNote) : undefined}

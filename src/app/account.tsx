@@ -1,19 +1,5 @@
 import { useState, useEffect } from 'react'
-import {
-  View,
-  Text,
-  TextInput,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  Platform,
-  Linking,
-  Switch,
-  Modal,
-} from 'react-native'
+import { View, Text, TextInput, Image, Pressable, ScrollView, StyleSheet, ActivityIndicator, Platform, Linking, Switch, Modal } from 'react-native'
 import { router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -32,6 +18,7 @@ import { getAvatarUrl, getAvatarPresetId, resolveAvatarUrl, resolveAvatarPresetI
 import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
 import { AvatarEditModal } from '@/components/AvatarEditModal'
+import { useConfirm } from '@/components/ConfirmDialog'
 import {
   isAcUpdateAlertsEnabled,
   enableAcUpdateAlerts,
@@ -49,6 +36,11 @@ import { getFleetSummary } from '@/lib/aircraftSharing'
 
 export default function AccountScreen() {
   const { tokens, redShift } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web: no dialog, no throw, no log. Every error message and every
+  // confirm on this screen (including Delete Account) was invisible during
+  // Browser-pane QA. See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { session, isPro, setIsPro, isPremium, setIsPremium, isUnlocked, setIsUnlocked, signOut, avatarOverride, setAvatarOverride, clearAvatarOverride } = useAuth()
   const insets = useSafeAreaInsets()
@@ -139,7 +131,7 @@ export default function AccountScreen() {
       setCallsignDirty(false)
     } catch (err: any) {
       Sentry.captureException(err)
-      Alert.alert('Error', 'Could not save your callsign. Try again in a moment.')
+      confirm({ title: 'Could not save callsign', message: 'Try again in a moment.', cancelLabel: null })
     }
     setCallsignSaving(false)
   }
@@ -199,7 +191,7 @@ export default function AccountScreen() {
       await setLeaderboardOptIn(session.user.id, v)
       setLeaderboardOptInState(v)
     } catch (err: any) {
-      Alert.alert('Error', err?.message ?? 'Could not update leaderboard visibility.')
+      confirm({ title: 'Error', message: err?.message ?? 'Could not update leaderboard visibility.', cancelLabel: null })
     }
     setLeaderboardBusy(false)
   }
@@ -218,7 +210,7 @@ export default function AccountScreen() {
         setMyRatings((prev) => [...prev, code])
       }
     } catch (err: any) {
-      Alert.alert('Error', err?.message ?? 'Could not update your ratings.')
+      confirm({ title: 'Error', message: err?.message ?? 'Could not update your ratings.', cancelLabel: null })
     }
     setRatingBusy(null)
   }
@@ -237,16 +229,14 @@ export default function AccountScreen() {
       }
     } catch (err: any) {
       if (err?.message === 'PERMISSION_DENIED') {
-        Alert.alert(
-          'Notifications Disabled',
-          'FlyRegs notifications are turned off in your device Settings. Enable them there to receive AC update alerts.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => Linking.openSettings() },
-          ]
-        )
+        confirm({
+          title: 'Notifications Disabled',
+          message: 'FlyRegs notifications are turned off in your device Settings. Enable them there to receive AC update alerts.',
+          confirmLabel: 'Open Settings',
+          onConfirm: () => Linking.openSettings(),
+        })
       } else {
-        Alert.alert('Error', err?.message ?? 'Could not update alert preference.')
+        confirm({ title: 'Error', message: err?.message ?? 'Could not update alert preference.', cancelLabel: null })
       }
       setAlertsEnabled(false)
     }
@@ -267,16 +257,14 @@ export default function AccountScreen() {
       }
     } catch (err: any) {
       if (err?.message === 'PERMISSION_DENIED') {
-        Alert.alert(
-          'Notifications Disabled',
-          'FlyRegs notifications are turned off in your device Settings. Enable them there to receive DailyReg.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => Linking.openSettings() },
-          ]
-        )
+        confirm({
+          title: 'Notifications Disabled',
+          message: 'FlyRegs notifications are turned off in your device Settings. Enable them there to receive DailyReg.',
+          confirmLabel: 'Open Settings',
+          onConfirm: () => Linking.openSettings(),
+        })
       } else {
-        Alert.alert('Error', err?.message ?? 'Could not update alert preference.')
+        confirm({ title: 'Error', message: err?.message ?? 'Could not update alert preference.', cancelLabel: null })
       }
       setDailyRegEnabled(false)
     }
@@ -297,16 +285,14 @@ export default function AccountScreen() {
       }
     } catch (err: any) {
       if (err?.message === 'PERMISSION_DENIED') {
-        Alert.alert(
-          'Notifications Disabled',
-          'FlyRegs notifications are turned off in your device Settings. Enable them there to receive Duel alerts.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => Linking.openSettings() },
-          ]
-        )
+        confirm({
+          title: 'Notifications Disabled',
+          message: 'FlyRegs notifications are turned off in your device Settings. Enable them there to receive Duel alerts.',
+          confirmLabel: 'Open Settings',
+          onConfirm: () => Linking.openSettings(),
+        })
       } else {
-        Alert.alert('Error', err?.message ?? 'Could not update alert preference.')
+        confirm({ title: 'Error', message: err?.message ?? 'Could not update alert preference.', cancelLabel: null })
       }
       setDuelNotifEnabled(false)
     }
@@ -334,17 +320,15 @@ export default function AccountScreen() {
     } catch (err: any) {
       if (optimisticallyShown) clearAvatarOverride()
       if (err?.message === 'PERMISSION_DENIED') {
-        Alert.alert(
-          'Access Disabled',
-          'FlyRegs needs access to your camera or photos to set a profile picture. Enable it in Settings.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => Linking.openSettings() },
-          ]
-        )
+        confirm({
+          title: 'Access Disabled',
+          message: 'FlyRegs needs access to your camera or photos to set a profile picture. Enable it in Settings.',
+          confirmLabel: 'Open Settings',
+          onConfirm: () => Linking.openSettings(),
+        })
       } else if (err?.message !== 'CANCELLED') {
         Sentry.captureException(err)
-        Alert.alert('Error', 'Could not update your profile picture.')
+        confirm({ title: 'Error', message: 'Could not update your profile picture.', cancelLabel: null })
       }
     }
     setAvatarBusy(false)
@@ -357,25 +341,28 @@ export default function AccountScreen() {
 
   const handleRemoveAvatar = () => {
     if (!session?.user?.id || avatarBusy) return
-    Alert.alert('Remove Photo', 'Remove your profile photo?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          setAvatarBusy(true)
-          setAvatarOverride(null, null)
-          try {
-            await removeAvatar(session.user.id)
-          } catch (err: any) {
-            Sentry.captureException(err)
-            Alert.alert('Error', 'Could not remove your profile picture.')
-            clearAvatarOverride()
-          }
+    confirm({
+      title: 'Remove Photo',
+      message: 'Remove your profile photo?',
+      confirmLabel: 'Remove',
+      destructive: true,
+      // Single-step: a profile photo is trivially re-pickable, so this is
+      // the one destructive action here that hasn't earned a second tap.
+      twoStep: false,
+      onConfirm: async () => {
+        setAvatarBusy(true)
+        setAvatarOverride(null, null)
+        try {
+          await removeAvatar(session.user.id)
+        } catch (err: any) {
+          Sentry.captureException(err)
+          clearAvatarOverride()
+          throw err  // surfaced inline by the dialog, not a second dead alert
+        } finally {
           setAvatarBusy(false)
-        },
+        }
       },
-    ])
+    })
   }
 
   const handleSelectPreset = async (presetId: string) => {
@@ -386,7 +373,7 @@ export default function AccountScreen() {
       await selectAvatarPreset(session.user.id, presetId)
     } catch (err: any) {
       Sentry.captureException(err)
-      Alert.alert('Error', 'Could not update your profile picture.')
+      confirm({ title: 'Error', message: 'Could not update your profile picture.', cancelLabel: null })
       clearAvatarOverride()
     }
     setAvatarBusy(false)
@@ -397,7 +384,7 @@ export default function AccountScreen() {
 
   const handleRestore = async () => {
     if (Platform.OS === 'web') {
-      Alert.alert('Available on iOS & Android', 'Restore purchases from the FlyRegs mobile app.')
+      confirm({ title: 'Available on iOS & Android', message: 'Restore purchases from the FlyRegs mobile app.', cancelLabel: null })
       return
     }
     // This screen's own early-return above already blocks the whole
@@ -415,28 +402,30 @@ export default function AccountScreen() {
       setIsPremium(status.isPremium)
       setIsUnlocked(status.isUnlocked)
       const active = status.isPro || status.isPremium || status.isUnlocked
-      Alert.alert(
-        active ? 'Purchases Restored' : 'Nothing to Restore',
-        active ? 'Your FlyRegs purchases are active.' : 'No active purchases were found for this account.'
-      )
+      confirm({
+        title: active ? 'Purchases Restored' : 'Nothing to Restore',
+        message: active ? 'Your FlyRegs purchases are active.' : 'No active purchases were found for this account.',
+        cancelLabel: null,
+      })
     } catch (err: any) {
-      Alert.alert('Restore Failed', err?.message ?? 'Please try again later.')
+      confirm({ title: 'Restore Failed', message: err?.message ?? 'Please try again later.', cancelLabel: null })
     }
     setRestoring(false)
   }
 
   const handleSignOut = () => {
-    Alert.alert('Sign Out', 'Sign out of your account?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out',
-        style: 'destructive',
-        onPress: async () => {
-          await signOut()
-          router.back()
-        },
+    confirm({
+      title: 'Sign Out',
+      message: 'Sign out of your account? Your synced data stays on your account and comes back when you sign in again.',
+      confirmLabel: 'Sign Out',
+      // Not `destructive` -- signing out destroys nothing, and painting it
+      // red next to a real Delete Account button teaches users to ignore
+      // red. It just needs a confirm, not a warning.
+      onConfirm: async () => {
+        await signOut()
+        router.back()
       },
-    ])
+    })
   }
 
   const runAccountDelete = async () => {
@@ -448,20 +437,16 @@ export default function AccountScreen() {
       router.back()
     } catch (err: any) {
       Sentry.captureException(err)
-      Alert.alert(
-        'Couldn’t Delete Account',
-        'Something went wrong. Please try again, or email our support team if this keeps happening.',
-        [
-          { text: 'OK', style: 'cancel' },
-          {
-            text: 'Email Support',
-            onPress: () =>
-              Linking.openURL(
-                `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Delete my account')}`
-              ),
-          },
-        ]
-      )
+      confirm({
+        title: 'Couldn’t Delete Account',
+        message: 'Something went wrong. Please try again, or email our support team if this keeps happening.',
+        confirmLabel: 'Email Support',
+        cancelLabel: 'OK',
+        onConfirm: () =>
+          Linking.openURL(
+            `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Delete my account')}`
+          ),
+      })
     }
     setDeleting(false)
   }
@@ -476,27 +461,22 @@ export default function AccountScreen() {
     const subscriptionWarning = (isPro || isPremium)
       ? ` You have an active ${isPremium ? 'Premium' : 'Pro'} subscription — deleting your account does NOT cancel it. Manage or cancel it first in ${Platform.OS === 'android' ? 'Google Play > Subscriptions' : 'Settings > [Your Name] > Subscriptions'} if you don't want to keep being charged.`
       : ''
-    Alert.alert(
-      'Delete Account',
-      `This permanently deletes your account and all synced data (bookmarks, folders, notes, highlights). This cannot be undone.${subscriptionWarning}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete Everything',
-          style: 'destructive',
-          onPress: () => {
-            Alert.alert(
-              'Are You Sure?',
-              'There is no way to recover your account or data after this.',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Delete Permanently', style: 'destructive', onPress: runAccountDelete },
-              ]
-            )
-          },
-        },
-      ]
-    )
+    confirm({
+      title: 'Delete Account',
+      message: `This permanently deletes your account and all synced data (bookmarks, folders, notes, highlights). This cannot be undone.${subscriptionWarning}`,
+      confirmLabel: 'Delete Permanently',
+      destructive: true,
+      finalTitle: 'There is no way back',
+      // The one place typed confirmation is unambiguously proportionate.
+      // RC's rule is that a deliberate delete earns the moving-button
+      // two-step, not typing -- but that reasoning rests on the damage
+      // being recoverable ("ADs repopulate... only four or five reminders
+      // per Aircraft"). Nothing here is: it's the account itself plus every
+      // bookmark, folder, note and highlight, with no undo and no support
+      // path to restore it. This gets BOTH guards.
+      requireTyped: 'DELETE',
+      onConfirm: runAccountDelete,
+    })
   }
 
   // Not signed in — soft prompt

@@ -1,19 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import {
-  View,
-  Text,
-  Image,
-  FlatList,
-  Pressable,
-  TextInput,
-  StyleSheet,
-  Alert,
-  Switch,
-  KeyboardAvoidingView,
-  Keyboard,
-  Platform,
-  Share,
-} from 'react-native'
+import { View, Text, Image, FlatList, Pressable, TextInput, StyleSheet, Switch, KeyboardAvoidingView, Keyboard, Platform, Share } from 'react-native'
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
@@ -56,6 +42,7 @@ import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { stripFarPrefix, rowTitle } from '@/lib/titleFormat'
 import { useCachedImage } from '@/lib/imageCache'
 import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 type Tab = 'all' | 'folders' | 'shared' | 'offline'
 
@@ -76,6 +63,10 @@ const PLUS_FOLDER_CAP = 3
 
 export default function SavedScreen() {
   const { tokens, redShift } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so these confirms (and the deletes behind them) were
+  // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   // Bookmarks/Folders are Plus-tier (hasPlusAccess); cloud sync is Pro-tier
   // (isPro); shared/collaborative folders and offline stay Premium-only --
@@ -262,7 +253,7 @@ export default function SavedScreen() {
         load()
       } catch {
         setSyncEnabled(false)
-        Alert.alert('Error', "Couldn't turn on Back up & sync. Try again in a moment.")
+        confirm({ title: 'Error', message: "Couldn't turn on Back up & sync. Try again in a moment.", cancelLabel: null })
       }
       setSyncBusy(false)
     } else {
@@ -284,39 +275,39 @@ export default function SavedScreen() {
   }
 
   const handleRemove = (item: BookmarkAC) => {
-    Alert.alert('Remove Bookmark', `Remove AC ${item.document_number} from your saved list?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          setBookmarks((prev) => prev.filter((b) => b.id !== item.id))
-          await removeBookmark(item.id)
-        },
+    confirm({
+      title: 'Remove Bookmark',
+      message: `Remove AC ${item.document_number} from your saved list?`,
+      confirmLabel: 'Remove',
+      destructive: true,
+      // Single-step: a bookmark is one tap to recreate from the document
+      // itself, so a second confirm is friction without a matching risk.
+      twoStep: false,
+      onConfirm: async () => {
+        setBookmarks((prev) => prev.filter((b) => b.id !== item.id))
+        await removeBookmark(item.id)
       },
-    ])
+    })
   }
 
   const handleBulkDelete = () => {
     const count = selected.size
-    Alert.alert(
-      `Remove ${count} Bookmark${count > 1 ? 's' : ''}`,
-      "They'll be removed from Saved but not deleted.",
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            const ids = [...selected]
-            setBookmarks((prev) => prev.filter((b) => !selected.has(b.id)))
-            setSelected(new Set())
-            setSelectMode(false)
-            await removeManyBookmarks(ids)
-          },
-        },
-      ]
-    )
+    confirm({
+      title: `Remove ${count} Bookmark${count > 1 ? 's' : ''}`,
+      message: "They'll be removed from Saved but not deleted.",
+      confirmLabel: 'Remove',
+      destructive: true,
+      // Two-step here but not on the single-bookmark case above: this is a
+      // bulk action on a selection the user may have mis-tapped into.
+      finalTitle: `Remove ${count} Bookmark${count > 1 ? 's' : ''} — confirm`,
+      onConfirm: async () => {
+        const ids = [...selected]
+        setBookmarks((prev) => prev.filter((b) => !selected.has(b.id)))
+        setSelected(new Set())
+        setSelectMode(false)
+        await removeManyBookmarks(ids)
+      },
+    })
   }
 
   // A DownloadedAC names its type `type`, but handleShare (shared with the
@@ -327,17 +318,17 @@ export default function SavedScreen() {
   const shareDownload = (item: DownloadedAC) => handleShare({ ...item, itemType: downloadItemType(item) })
 
   const handleRemoveDownload = (item: DownloadedAC) => {
-    Alert.alert('Remove Download', `Remove the offline copy of ${item.document_number}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          setDownloads((prev) => prev.filter((d) => d.id !== item.id))
-          await removeDownload(item.id)
-        },
+    confirm({
+      title: 'Remove Download',
+      message: `Remove the offline copy of ${item.document_number}? You can download it again any time.`,
+      confirmLabel: 'Remove',
+      destructive: true,
+      twoStep: false,
+      onConfirm: async () => {
+        setDownloads((prev) => prev.filter((d) => d.id !== item.id))
+        await removeDownload(item.id)
       },
-    ])
+    })
   }
 
   const handleBulkAddToFolder = async (folderIds: string[]) => {
@@ -449,21 +440,19 @@ export default function SavedScreen() {
     // Plus is capped at PLUS_FOLDER_CAP folders; Premium is unlimited -- see
     // flyregs_decisions.md's pricing pivot.
     if (!isPremium && folders.length >= PLUS_FOLDER_CAP) {
-      Alert.alert(
-        'Folder limit reached',
-        `Plus includes ${PLUS_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Upgrade to Premium', onPress: () => router.push('/paywall?tier=premium') },
-        ]
-      )
+      confirm({
+        title: 'Folder limit reached',
+        message: `Plus includes ${PLUS_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
+        confirmLabel: 'Upgrade to Premium',
+        onConfirm: () => router.push('/paywall?tier=premium'),
+      })
       return false
     }
     try {
       await createFolder(name)
     } catch (e) {
       if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
-        Alert.alert('Folder Already Exists', `You already have a folder named "${name}". Choose a different name.`)
+        confirm({ title: 'Folder Already Exists', message: `You already have a folder named "${name}". Choose a different name.`, cancelLabel: null })
         return false
       }
       throw e
@@ -474,35 +463,33 @@ export default function SavedScreen() {
   }
 
   const handleUnshare = (item: SharedByMeFolder) => {
-    Alert.alert(
-      'Stop Sharing',
-      `Remove everyone's access to "${item.folder_name}"? The folder itself won't be deleted -- you can share it again later with a new invite link.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Stop Sharing',
-          style: 'destructive',
-          onPress: async () => {
-            await unshareFolder(item.folder_id)
-            setSharedByMe((prev) => prev.filter((f) => f.folder_id !== item.folder_id))
-          },
-        },
-      ]
-    )
+    confirm({
+      title: 'Stop Sharing',
+      message: `Remove everyone's access to "${item.folder_name}"? The folder itself won't be deleted -- you can share it again later with a new invite link.`,
+      confirmLabel: 'Stop Sharing',
+      destructive: true,
+      // Two-step: this revokes OTHER people's access, and they get no
+      // warning at all -- the cost lands on someone who isn't at the screen.
+      finalTitle: `Stop sharing "${item.folder_name}" — confirm`,
+      onConfirm: async () => {
+        await unshareFolder(item.folder_id)
+        setSharedByMe((prev) => prev.filter((f) => f.folder_id !== item.folder_id))
+      },
+    })
   }
 
   const handleDeleteFolder = (folder: Folder) => {
-    Alert.alert('Delete Folder', `Delete "${folder.name}"? The ACs and notes inside will not be deleted.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          await deleteFolder(folder.id)
-          load()
-        },
+    confirm({
+      title: 'Delete Folder',
+      message: `Delete "${folder.name}"? The ACs and notes inside will not be deleted.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+      finalTitle: `Delete "${folder.name}" — confirm`,
+      onConfirm: async () => {
+        await deleteFolder(folder.id)
+        load()
       },
-    ])
+    })
   }
 
   // Real folder sharing -- generates the same persistent join/<token> invite
@@ -522,7 +509,7 @@ export default function SavedScreen() {
       const link = await getOrCreateShareLink(folder.id)
       await Share.share({ message: link })
     } catch {
-      Alert.alert('Error', 'Could not create an invite link. Try again in a moment.')
+      confirm({ title: 'Error', message: 'Could not create an invite link. Try again in a moment.', cancelLabel: null })
     }
   }
 
@@ -533,7 +520,7 @@ export default function SavedScreen() {
       const links = await Promise.all(ids.map((id) => getOrCreateShareLink(id)))
       await Share.share({ message: links.join('\n\n') })
     } catch {
-      Alert.alert('Error', 'Could not create invite links. Try again in a moment.')
+      confirm({ title: 'Error', message: 'Could not create invite links. Try again in a moment.', cancelLabel: null })
     }
     setSelectedFolders(new Set())
     setFolderSelectMode(false)

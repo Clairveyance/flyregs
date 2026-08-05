@@ -1,16 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import {
-  View,
-  Text,
-  SectionList,
-  Pressable,
-  TextInput,
-  Alert,
-  Share,
-  StyleSheet,
-  Animated,
-  PanResponder,
-} from 'react-native'
+import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Animated, PanResponder } from 'react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useTheme } from '@/context/theme'
@@ -49,6 +38,7 @@ import {
 import { syncFolderFromCloud } from '@/lib/sync'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { stripFarPrefix, rowTitle } from '@/lib/titleFormat'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 // ── Local Note type (mirrors notes.tsx — local-first AsyncStorage notes) ──────
 interface Note {
@@ -68,6 +58,10 @@ type Entry = ACEntry | NoteEntry
 
 export default function FolderDetail() {
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so these confirms (and the deletes behind them) were
+  // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { isPremium } = useAuth()
   const { badgeDays } = useBadgeLifespan()
@@ -211,7 +205,7 @@ export default function FolderDetail() {
       await renameFolder(folder.id, renameText.trim())
     } catch (e) {
       if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
-        Alert.alert('Folder Already Exists', `You already have a folder named "${renameText.trim()}". Choose a different name.`)
+        confirm({ title: 'Folder Already Exists', message: `You already have a folder named "${renameText.trim()}". Choose a different name.`, cancelLabel: null })
         return
       }
       throw e
@@ -224,40 +218,38 @@ export default function FolderDetail() {
 
   const handleDeleteFolder = () => {
     if (!folder) return
-    Alert.alert(
-      'Delete Folder',
-      `Delete "${folder.name}"? The ACs and notes inside will not be deleted.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            await deleteFolder(folder.id)
-            router.back()
-          },
-        },
-      ]
-    )
+    confirm({
+      title: 'Delete Folder',
+      message: `Delete "${folder.name}"? The ACs and notes inside will not be deleted.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+      finalTitle: `Delete "${folder.name}" — confirm`,
+      onConfirm: async () => {
+        await deleteFolder(folder.id)
+        router.back()
+      },
+    })
   }
 
   const handleRemove = (item: FolderItem) => {
     const label = item.item_type === 'note' ? 'this note' : 'this item'
-    Alert.alert('Remove from Folder', `Remove ${label} from the folder?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          await removeFromFolder(folder!.id, item.item_type, item.item_id)
-          if (item.item_type === 'note') {
-            setNoteEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
-          } else {
-            setAcEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
-          }
-        },
+    confirm({
+      title: 'Remove from Folder',
+      message: `Remove ${label} from the folder? The item itself isn't deleted.`,
+      confirmLabel: 'Remove',
+      destructive: true,
+      // Single-step: this only unfiles, it doesn't delete -- the note or AC
+      // survives and can be re-added in one tap.
+      twoStep: false,
+      onConfirm: async () => {
+        await removeFromFolder(folder!.id, item.item_type, item.item_id)
+        if (item.item_type === 'note') {
+          setNoteEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
+        } else {
+          setAcEntries((prev) => prev.filter((e) => e.folderItem.id !== item.id))
+        }
       },
-    ])
+    })
   }
 
   const [moveItem, setMoveItem] = useState<FolderItem | null>(null)
@@ -307,7 +299,7 @@ export default function FolderDetail() {
         message: link,
       })
     } catch {
-      Alert.alert('Error', 'Could not create an invite link. Try again in a moment.')
+      confirm({ title: 'Error', message: 'Could not create an invite link. Try again in a moment.', cancelLabel: null })
     }
     setInvitingBusy(false)
   }
@@ -319,7 +311,7 @@ export default function FolderDetail() {
       await setFolderCollabMode(folder.id, mode)
     } catch {
       setCollabMode((prev) => (prev === mode ? collabMode : prev)) // revert on failure
-      Alert.alert('Error', 'Could not update access. Try again in a moment.')
+      confirm({ title: 'Error', message: 'Could not update access. Try again in a moment.', cancelLabel: null })
     }
   }
 
@@ -328,17 +320,19 @@ export default function FolderDetail() {
     // Same invite link works for anyone who has it, indefinitely (there's
     // no per-person one-time token) -- correcting the earlier copy here,
     // which implied a "new" link would be needed to rejoin.
-    Alert.alert('Remove Access', `Remove ${c.displayLabel} from "${folder.name}"? They'll need to use the invite link again to rejoin.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          await removeCollaborator(folder.id, c.userId)
-          setCollaborators((prev) => prev.filter((x) => x.userId !== c.userId))
-        },
+    confirm({
+      title: 'Remove Access',
+      message: `Remove ${c.displayLabel} from "${folder.name}"? They'll need to use the invite link again to rejoin.`,
+      confirmLabel: 'Remove',
+      destructive: true,
+      // Two-step: the cost of a misfire lands on the OTHER person, who gets
+      // no warning and no way to tell it was an accident.
+      finalTitle: `Remove ${c.displayLabel} — confirm`,
+      onConfirm: async () => {
+        await removeCollaborator(folder.id, c.userId)
+        setCollaborators((prev) => prev.filter((x) => x.userId !== c.userId))
       },
-    ])
+    })
   }
 
   // A highlight bookmark's own `id` is synthetic, never a real

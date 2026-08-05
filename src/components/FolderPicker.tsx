@@ -1,16 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import {
-  Modal,
-  View,
-  Text,
-  FlatList,
-  Pressable,
-  TextInput,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
-} from 'react-native'
+import { Modal, View, Text, FlatList, Pressable, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -28,6 +17,7 @@ import {
   DUPLICATE_FOLDER_NAME,
 } from '@/lib/folders'
 import { addManyBookmarks, BookmarkAC } from '@/lib/bookmarks'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 interface Props {
   visible: boolean
@@ -55,6 +45,10 @@ interface Props {
 
 export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMeta }: Props) {
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { hasPlusAccess } = useAuth()
   const [folders, setFolders] = useState<Folder[]>([])
@@ -127,7 +121,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
       folder = await createFolder(name)
     } catch (e) {
       if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
-        Alert.alert('Folder Already Exists', `You already have a folder named "${name}". Choose a different name.`)
+        confirm({ title: 'Folder Already Exists', message: `You already have a folder named "${name}". Choose a different name.`, cancelLabel: null })
         return
       }
       throw e

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Alert } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import { supabase } from '@/lib/supabase'
@@ -25,6 +25,7 @@ import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
 import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
 import { splitIntoParagraphs } from '@/lib/regTextFormat'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 // LOI detail screen. Per the expansion plan's explicit priority reframe:
 // citation-driven discovery from a FAR page (the Related LOIs MagicLink
@@ -69,6 +70,10 @@ function humanizeLoiTitle(t: string): string {
 export default function LoiDetailScreen() {
   const { slug, hl } = useLocalSearchParams<{ slug: string; hl?: string }>()
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { hasProAccess, isPremium } = useAuth()
   const [loi, setLoi] = useState<LegalInterpretation | null>(null)
@@ -261,7 +266,7 @@ export default function LoiDetailScreen() {
       })
       setDownloaded(true)
     } catch (err) {
-      Alert.alert('Error', "Couldn't save this interpretation for offline reading. Try again in a moment.")
+      confirm({ title: 'Error', message: "Couldn't save this interpretation for offline reading. Try again in a moment.", cancelLabel: null })
     }
     setDownloadBusy(false)
   }

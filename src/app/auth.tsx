@@ -1,17 +1,5 @@
 import { useState, useEffect } from 'react'
-import {
-  View,
-  Text,
-  Image,
-  TextInput,
-  Pressable,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-} from 'react-native'
+import { View, Text, Image, TextInput, Pressable, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuth } from '@/context/auth'
@@ -19,6 +7,7 @@ import { useTheme } from '@/context/theme'
 import { Icon } from '@/components/Icon'
 import { useFS } from '@/context/fontScale'
 import { markJustConfirmed } from '@/lib/justConfirmed'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 const WORDMARK_ASPECT = 1915 / 1428 // flyregs-wordmark.png width/height
 
@@ -31,6 +20,10 @@ const RESEND_COOLDOWN_SECONDS = 30
 
 export default function AuthScreen() {
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { signIn, signUp, resendConfirmation, requestPasswordReset } = useAuth()
   const insets = useSafeAreaInsets()
@@ -95,9 +88,9 @@ export default function AuthScreen() {
     try {
       await resendConfirmation(email.trim())
       setResendCooldown(RESEND_COOLDOWN_SECONDS)
-      Alert.alert('Sent', 'Check your email for a new confirmation link.')
+      confirm({ title: 'Sent', message: 'Check your email for a new confirmation link.', cancelLabel: null })
     } catch (err: any) {
-      Alert.alert('Error', err?.message ?? 'Could not resend right now.')
+      confirm({ title: 'Error', message: err?.message ?? 'Could not resend right now.', cancelLabel: null })
     }
     setLoading(false)
   }
@@ -130,9 +123,9 @@ export default function AuthScreen() {
     try {
       await requestPasswordReset(email.trim())
       setResendCooldown(RESEND_COOLDOWN_SECONDS)
-      Alert.alert('Sent', 'Check your email for a new reset link.')
+      confirm({ title: 'Sent', message: 'Check your email for a new reset link.', cancelLabel: null })
     } catch (err: any) {
-      Alert.alert('Error', err?.message ?? 'Could not resend right now.')
+      confirm({ title: 'Error', message: err?.message ?? 'Could not resend right now.', cancelLabel: null })
     }
     setLoading(false)
   }

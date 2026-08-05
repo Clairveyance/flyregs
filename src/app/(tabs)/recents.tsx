@@ -1,13 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import {
-  View,
-  Text,
-  Pressable,
-  SectionList,
-  StyleSheet,
-  ActivityIndicator,
-  Alert,
-} from 'react-native'
+import { View, Text, Pressable, SectionList, StyleSheet, ActivityIndicator } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
@@ -31,6 +23,7 @@ import { useShareActions, ShareableReg } from '@/lib/share'
 import { toRegShareType } from '@/lib/regShare'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { stripFarPrefix, rowTitle } from '@/lib/titleFormat'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 interface Group {
   title: string
@@ -62,6 +55,10 @@ function groupByTime(recents: RecentAC[]): Group[] {
 
 export default function RecentsScreen() {
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so these confirms (and the deletes behind them) were
+  // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   // Bookmarks/Folders are Plus-tier now; sharing stays Premium.
   const { isPremium, hasPlusAccess } = useAuth()
@@ -148,17 +145,17 @@ export default function RecentsScreen() {
   }, [])
 
   const handleClearAll = useCallback(() => {
-    Alert.alert('Clear Recents', 'Remove your entire viewing history? This cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Clear',
-        style: 'destructive',
-        onPress: async () => {
-          setGroups([])
-          await clearRecents()
-        },
+    confirm({
+      title: 'Clear Recents',
+      message: 'Remove your entire viewing history? This cannot be undone.',
+      confirmLabel: 'Clear',
+      destructive: true,
+      finalTitle: 'Clear all Recents — confirm',
+      onConfirm: async () => {
+        setGroups([])
+        await clearRecents()
       },
-    ])
+    })
   }, [])
 
   const toggleSelect = () => {
@@ -225,29 +222,28 @@ export default function RecentsScreen() {
 
   const handleBulkRemove = () => {
     const count = selected.size
-    Alert.alert(
-      `Remove ${count} Item${count > 1 ? 's' : ''}`,
-      'Remove from your viewing history?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            const ids = [...selected]
-            const idSet = new Set(ids)
-            setGroups((prev) =>
-              prev
-                .map((g) => ({ ...g, data: g.data.filter((r) => !idSet.has(r.id)) }))
-                .filter((g) => g.data.length > 0)
-            )
-            setSelected(new Set())
-            setSelectMode(false)
-            await removeManyRecents(ids)
-          },
-        },
-      ]
-    )
+    confirm({
+      title: `Remove ${count} Item${count > 1 ? 's' : ''}`,
+      message: 'Remove from your viewing history?',
+      confirmLabel: 'Remove',
+      destructive: true,
+      // Single-step: recents are a convenience trail, not user-authored
+      // content -- nothing is lost that re-opening the document won't
+      // rebuild. The full Clear Recents above still two-steps.
+      twoStep: false,
+      onConfirm: async () => {
+        const ids = [...selected]
+        const idSet = new Set(ids)
+        setGroups((prev) =>
+          prev
+            .map((g) => ({ ...g, data: g.data.filter((r) => !idSet.has(r.id)) }))
+            .filter((g) => g.data.length > 0)
+        )
+        setSelected(new Set())
+        setSelectMode(false)
+        await removeManyRecents(ids)
+      },
+    })
   }
 
   // See toRegShareType -- null means "shares by a different route", not

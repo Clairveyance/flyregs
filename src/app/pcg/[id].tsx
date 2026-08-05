@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Alert } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import { supabase } from '@/lib/supabase'
@@ -27,6 +27,7 @@ import { useInDocSearch, InDocSearchTarget } from '@/lib/useInDocSearch'
 import { searchPhrase, countOcc, highlightSpans } from '@/lib/searchHighlight'
 import { buildRegShareLink } from '@/lib/regShare'
 import { splitIntoParagraphs } from '@/lib/regTextFormat'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 interface PcgTerm {
   slug: string
@@ -51,6 +52,10 @@ interface RelatedItem {
 export default function PcgTermScreen() {
   const { id, hl } = useLocalSearchParams<{ id: string; hl?: string }>()
   const { tokens, redShift } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
   const [term, setTerm] = useState<PcgTerm | null>(null)
@@ -313,7 +318,7 @@ export default function PcgTermScreen() {
       })
       setDownloaded(true)
     } catch {
-      Alert.alert('Error', "Couldn't save this term for offline reading. Try again in a moment.")
+      confirm({ title: 'Error', message: "Couldn't save this term for offline reading. Try again in a moment.", cancelLabel: null })
     }
     setDownloadBusy(false)
   }

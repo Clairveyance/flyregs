@@ -1,17 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import {
-  View,
-  Text,
-  TextInput,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Linking,
-  Alert,
-  Platform,
-  KeyboardAvoidingView,
-  Animated,
-} from 'react-native'
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Linking, Platform, KeyboardAvoidingView, Animated } from 'react-native'
 import * as MailComposer from 'expo-mail-composer'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
@@ -21,6 +9,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { useFS } from '@/context/fontScale'
 import { SUPPORT_EMAIL, APP_NAME, APP_VERSION } from '@/lib/appInfo'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 const CATEGORIES = [
   { key: 'bug', label: 'Report a bug', icon: 'questionmark.circle' },
@@ -45,6 +34,10 @@ type CatKey = (typeof CATEGORIES)[number]['key'] | typeof AIRCRAFT_PART_CATEGORY
 
 export default function FeedbackScreen() {
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { session, hasProAccess } = useAuth()
   const insets = useSafeAreaInsets()
@@ -67,7 +60,7 @@ export default function FeedbackScreen() {
   const submit = async () => {
     const trimmed = message.trim()
     if (trimmed.length < 4) {
-      Alert.alert('Add a little more', 'Tell us what happened or what you have in mind.')
+      confirm({ title: 'Add a little more', message: 'Tell us what happened or what you have in mind.', cancelLabel: null })
       return
     }
     const catLabel = [...CATEGORIES, AIRCRAFT_PART_CATEGORY].find((c) => c.key === category)?.label ?? 'Feedback'
@@ -85,7 +78,7 @@ export default function FeedbackScreen() {
     if (!available) {
       const url = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
       Linking.openURL(url).catch(() =>
-        Alert.alert('Could not open mail', `Please email us at ${SUPPORT_EMAIL}.`)
+        confirm({ title: 'Could not open mail', message: `Please email us at ${SUPPORT_EMAIL}.`, cancelLabel: null })
       )
       return
     }
@@ -102,7 +95,7 @@ export default function FeedbackScreen() {
       }
       // cancelled/saved: leave the draft text in place so they can try again.
     } catch {
-      Alert.alert('Could not open mail', `Please email us at ${SUPPORT_EMAIL}.`)
+      confirm({ title: 'Could not open mail', message: `Please email us at ${SUPPORT_EMAIL}.`, cancelLabel: null })
     }
   }
 

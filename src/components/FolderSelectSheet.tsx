@@ -1,22 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react'
-import {
-  Modal,
-  View,
-  Text,
-  FlatList,
-  Pressable,
-  TextInput,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
-} from 'react-native'
+import { Modal, View, Text, FlatList, Pressable, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
 import { getFolders, getFolderItemCounts, createFolder, Folder, DUPLICATE_FOLDER_NAME } from '@/lib/folders'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 // Multi-select folder sheet for bulk operations (adding several items at
 // once). Tapping a folder toggles a checkmark WITHOUT closing or writing to
@@ -38,6 +28,10 @@ interface Props {
 
 export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm, onClose, excludeFolderId }: Props) {
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { hasPlusAccess } = useAuth()
   const [folders, setFolders] = useState<Folder[]>([])
@@ -87,7 +81,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
       folder = await createFolder(name)
     } catch (e) {
       if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
-        Alert.alert('Folder Already Exists', `You already have a folder named "${name}". Choose a different name.`)
+        confirm({ title: 'Folder Already Exists', message: `You already have a folder named "${name}". Choose a different name.`, cancelLabel: null })
         return
       }
       throw e

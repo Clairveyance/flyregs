@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState } from 'react'
+import { createContext, useCallback, useContext, useRef, useState } from 'react'
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Modal, TextInput } from 'react-native'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -54,6 +54,17 @@ export interface ConfirmOptions {
    * Aircraft."
    */
   requireTyped?: string
+  /**
+   * A LIST of actions instead of a single confirm -- for the cases
+   * Alert.alert was being used as a cheap action sheet (pick a time range,
+   * invite as Viewer/Editor). Those were the worst web casualties: not just
+   * an invisible confirm but an entire control that did nothing, which is
+   * how the AD time-range "dropdown that won't open" reported itself.
+   *
+   * Mutually exclusive with confirmLabel/onConfirm/twoStep/requireTyped --
+   * a picker has no single primary action to guard.
+   */
+  choices?: { label: string; destructive?: boolean; onPress: () => void | Promise<void> }[]
   /** May be async -- the dialog shows a spinner and stays open until it settles. */
   onConfirm?: () => void | Promise<void>
   onCancel?: () => void
@@ -78,8 +89,16 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   // Brief arming delay on the final step so a fast second tap can't land on
   // the newly-positioned button before the user has seen it move.
   const [stepArmed, setStepArmed] = useState(true)
+  // Bumped on every confirm() so a handler that opens a FOLLOW-UP dialog
+  // isn't immediately closed by the caller's own cleanup. Without this,
+  // `onConfirm: async () => { ...; confirm({ title: 'Failed' }) }` shows
+  // nothing at all: the new dialog mounts, then the awaited close() from
+  // the dialog that launched it wipes it. Account deletion's "Email
+  // Support" follow-up is exactly that shape.
+  const generation = useRef(0)
 
   const confirm = useCallback((o: ConfirmOptions) => {
+    generation.current += 1
     setError(null)
     setBusy(false)
     setTyped('')
@@ -88,7 +107,10 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     setOpts(o)
   }, [])
 
-  const close = () => { setOpts(null); setBusy(false); setError(null); setTyped(''); setStep(1); setStepArmed(true) }
+  const reset = () => { setOpts(null); setBusy(false); setError(null); setTyped(''); setStep(1); setStepArmed(true) }
+  /** Closes only if no newer dialog opened while we were awaiting. */
+  const closeIfCurrent = (gen: number) => { if (generation.current === gen) reset() }
+  const close = () => reset()
 
   const handleConfirm = async () => {
     if (!armed) return
@@ -102,11 +124,12 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       return
     }
     if (!opts?.onConfirm) { close(); return }
+    const gen = generation.current
     setBusy(true)
     setError(null)
     try {
       await opts.onConfirm()
-      close()
+      closeIfCurrent(gen)
     } catch (e: any) {
       // Shown in place. The old pattern was to fire a second Alert.alert on
       // failure, which on web meant the action silently did nothing AND
@@ -116,8 +139,23 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const runChoice = async (c: NonNullable<ConfirmOptions['choices']>[number]) => {
+    const gen = generation.current
+    setBusy(true)
+    setError(null)
+    try {
+      await c.onPress()
+      closeIfCurrent(gen)
+    } catch (e: any) {
+      setError(e?.message ?? 'Something went wrong. Please try again.')
+      setBusy(false)
+    }
+  }
+
   const showCancel = opts?.cancelLabel !== null
-  const wantsTwoStep = opts?.twoStep ?? !!opts?.destructive
+  // A picker never two-steps -- there's no single destructive primary to
+  // guard, and each choice is already a deliberate, distinct tap.
+  const wantsTwoStep = opts?.choices ? false : (opts?.twoStep ?? !!opts?.destructive)
   const onFinalStep = !wantsTwoStep || step === 2
   const typedOk = !opts?.requireTyped || typed.trim().toUpperCase() === opts.requireTyped.toUpperCase()
   const armed = onFinalStep ? typedOk && stepArmed : true
@@ -179,7 +217,18 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               <ActivityIndicator color={tokens.t3} style={{ marginVertical: 14 }} />
             ) : (
               <View style={styles.actions}>
-                {onFinalStep && wantsTwoStep ? null : confirmButton}
+                {opts?.choices
+                  ? opts.choices.map((c) => (
+                      <Pressable
+                        key={c.label}
+                        style={[styles.btn, { backgroundColor: c.destructive ? tokens.red : tokens.blu }]}
+                        onPress={() => runChoice(c)}
+                        accessibilityRole="button"
+                      >
+                        <Text style={[styles.btnText, { fontSize: fs(14.5) }]}>{c.label}</Text>
+                      </Pressable>
+                    ))
+                  : onFinalStep && wantsTwoStep ? null : confirmButton}
                 {showCancel && (
                   <Pressable onPress={() => { opts?.onCancel?.(); close() }} hitSlop={8} accessibilityRole="button">
                     <Text style={[styles.cancel, { color: tokens.t3, fontSize: fs(13.5) }]}>

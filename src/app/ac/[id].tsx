@@ -1,17 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  View,
-  Text,
-  ScrollView,
-  TextInput,
-  Pressable,
-  StyleSheet,
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Share,
-  Keyboard,
-} from 'react-native'
+import { View, Text, ScrollView, TextInput, Pressable, StyleSheet, ActivityIndicator, Platform, Share, Keyboard } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import * as Clipboard from 'expo-clipboard'
 import * as Sentry from '@sentry/react-native'
@@ -44,6 +32,7 @@ import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { consumePendingBreadcrumb, setPendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { splitIntoParagraphs } from '@/lib/regTextFormat'
+import { useConfirm } from '@/components/ConfirmDialog'
 import type { AdvisoryCircular, AcFigure, FormulaRef } from '@/types'
 
 // Maps a block to the fields a highlight bookmark needs — chapter headings
@@ -73,6 +62,10 @@ interface RelatedItem {
 export default function ACDetailScreen() {
   const { id, hlId, hlText } = useLocalSearchParams<{ id: string; hlId?: string; hlText?: string }>()
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
 
   // Inline cross-reference links (LinkedBody, see crossRefLinks.ts) only
   // have the AC's document_number to build a route from — a "AC 90-67B"
@@ -505,7 +498,7 @@ export default function ACDetailScreen() {
       setDownloaded(true)
     } catch (err) {
       Sentry.captureException(err)
-      Alert.alert('Error', "Couldn't save this AC for offline reading. Try again in a moment.")
+      confirm({ title: 'Error', message: "Couldn't save this AC for offline reading. Try again in a moment.", cancelLabel: null })
     }
     setDownloadBusy(false)
   }
@@ -686,15 +679,19 @@ export default function ACDetailScreen() {
     if (!meta) return
     if (!hasPlusAccess) { router.push('/paywall'); return }
     const isHighlighted = highlightedBlockTexts.has(blockText(block))
-    Alert.alert('', undefined, [
-      { text: 'Copy Text', onPress: () => handleCopyBlock(block) },
-      {
-        text: isHighlighted ? 'Remove Highlight' : 'Highlight',
-        onPress: () => handleToggleHighlight(block),
-      },
-      { text: 'Share Passage', onPress: () => handleSharePassage(block) },
-      { text: 'Cancel', style: 'cancel' },
-    ])
+    confirm({
+      title: 'Passage',
+      // A picker, not a confirm -- and one that was completely inert on
+      // web, which meant Copy/Highlight/Share were untestable there.
+      choices: [
+        { label: 'Copy Text', onPress: () => handleCopyBlock(block) },
+        {
+          label: isHighlighted ? 'Remove Highlight' : 'Highlight',
+          onPress: () => handleToggleHighlight(block),
+        },
+        { label: 'Share Passage', onPress: () => handleSharePassage(block) },
+      ],
+    })
   }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, handleSharePassage])
 
   // Jump nav between the blocks the "What's New" diff flagged as changed —

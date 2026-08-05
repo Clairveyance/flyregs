@@ -1,15 +1,5 @@
 import { useEffect, useState } from 'react'
-import {
-  View,
-  Text,
-  Image,
-  Pressable,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  ScrollView,
-  Platform,
-} from 'react-native'
+import { View, Text, Image, Pressable, StyleSheet, ActivityIndicator, ScrollView, Platform } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -18,6 +8,7 @@ import { useTheme } from '@/context/theme'
 import { Icon } from '@/components/Icon'
 import { purchaseSubscription, purchaseUnlock, restorePurchases } from '@/lib/revenuecat'
 import { useFS } from '@/context/fontScale'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 // TierBadge's own gold gradient fill -- RC: "the Premium paywall, buttons,
 // etc need to look more 'golden' -- like the FlyRegs logo. it's our
@@ -157,6 +148,10 @@ const PRICING = {
 
 export default function PaywallScreen() {
   const { tokens, resolved, redShift } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { session, isPro, isPremium, isUnlocked, hasPlusAccess, setIsPro, setIsPremium, setIsUnlocked } = useAuth()
   const insets = useSafeAreaInsets()
@@ -256,26 +251,28 @@ export default function PaywallScreen() {
 
   const handleSubscribe = async () => {
     if (Platform.OS === 'web') {
-      Alert.alert('Available on iOS & Android', 'Download the FlyRegs app to subscribe.')
+      confirm({ title: 'Available on iOS & Android', message: 'Download the FlyRegs app to subscribe.', cancelLabel: null })
       return
     }
     if (!session) {
-      Alert.alert('Sign in first', 'Create a free account to continue.', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Sign In', onPress: () => router.replace('/auth') },
-      ])
+      confirm({
+        title: 'Sign in first',
+        message: 'Create a free account to continue.',
+        confirmLabel: 'Sign In',
+        onConfirm: () => router.replace('/auth'),
+      })
       return
     }
     if (viewingCurrentPlan) return
     if (downgradeMode && tier === 'pro') {
-      Alert.alert(
-        'Downgrade to Pro?',
-        "You'll keep Premium features (shared folders, offline downloads, unlimited aircraft) until your current billing period ends, then move to Pro automatically. No refund for the time remaining.",
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Downgrade', style: 'destructive', onPress: () => void confirmSubscribe() },
-        ]
-      )
+      confirm({
+        title: 'Downgrade to Pro?',
+        message: "You'll keep Premium features (shared folders, offline downloads, unlimited aircraft) until your current billing period ends, then move to Pro automatically. No refund for the time remaining.",
+        confirmLabel: 'Downgrade',
+        destructive: true,
+        finalTitle: 'Downgrade to Pro — confirm',
+        onConfirm: () => confirmSubscribe(),
+      })
       return
     }
     await confirmSubscribe()
@@ -298,7 +295,7 @@ export default function PaywallScreen() {
     } catch (err: any) {
       // User cancelled — no alert needed
       if (!err?.message?.includes('cancel') && !err?.userCancelled) {
-        Alert.alert('Error', err?.message ?? 'Something went wrong.')
+        confirm({ title: 'Error', message: err?.message ?? 'Something went wrong.', cancelLabel: null })
       }
     }
     setLoading(false)
@@ -547,10 +544,12 @@ export default function PaywallScreen() {
           // handleSubscribe above) -- restoring must never hand out
           // entitlements to a signed-out session.
           if (!session) {
-            Alert.alert('Sign in first', 'Create a free account to restore your purchases.', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Sign In', onPress: () => router.replace('/auth') },
-            ])
+            confirm({
+              title: 'Sign in first',
+              message: 'Create a free account to restore your purchases.',
+              confirmLabel: 'Sign In',
+              onConfirm: () => router.replace('/auth'),
+            })
             return
           }
           try {
@@ -559,9 +558,9 @@ export default function PaywallScreen() {
             setIsPremium(status.isPremium)
             setIsUnlocked(status.isUnlocked)
             if (status.isPro || status.isPremium || status.isUnlocked) router.dismiss()
-            else Alert.alert('No purchases found', 'No active purchases found for this Apple ID.')
+            else confirm({ title: 'No purchases found', message: 'No active purchases found for this Apple ID.', cancelLabel: null })
           } catch (err: any) {
-            Alert.alert('Error', err?.message ?? 'Could not restore purchases.')
+            confirm({ title: 'Error', message: err?.message ?? 'Could not restore purchases.', cancelLabel: null })
           }
         }}>
           <Text style={[styles.restoreText, { color: tokens.t4, fontSize: fs(13) }]}>Restore Purchases</Text>

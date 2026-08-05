@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { View, Text, Image, Pressable, StyleSheet, Alert, Platform, Linking, PanResponder, ScrollView, Switch } from 'react-native'
+import { View, Text, Image, Pressable, StyleSheet, Platform, Linking, PanResponder, ScrollView, Switch } from 'react-native'
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -20,6 +20,7 @@ import { BADGE_LIFESPAN_OPTIONS } from '@/lib/badgeLifespan'
 import { getAvatarUrl, resolveAvatarPresetId } from '@/lib/avatar'
 import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 const DRAWER_WIDTH = 284
 
@@ -95,6 +96,10 @@ function DrawerContent({
   const { fontScale, setFontScale } = useFontScale()
   const fs = useFS()
   const { badgeDays, setBadgeDays: updateBadgeDays } = useBadgeLifespan()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const [restoring, setRestoring] = useState(false)
 
   const initials = session?.user?.email
@@ -122,7 +127,7 @@ function DrawerContent({
 
   const handleRestore = async () => {
     if (Platform.OS === 'web') {
-      Alert.alert('Available on iOS & Android', 'Restore purchases from the FlyRegs mobile app.')
+      confirm({ title: 'Available on iOS & Android', message: 'Restore purchases from the FlyRegs mobile app.', cancelLabel: null })
       return
     }
     // Pro/Premium require a FlyRegs account as part of the plan -- without
@@ -143,14 +148,15 @@ function DrawerContent({
       setIsPremium(status.isPremium)
       setIsUnlocked(status.isUnlocked)
       const active = status.isPro || status.isPremium || status.isUnlocked
-      Alert.alert(
-        active ? 'Purchases Restored' : 'Nothing to Restore',
-        active
+      confirm({
+        title: active ? 'Purchases Restored' : 'Nothing to Restore',
+        message: active
           ? `Your FlyRegs ${status.isPremium ? 'Premium' : status.isPro ? 'Pro' : 'Plus'} purchase is active.`
-          : 'No active purchases were found for this account.'
-      )
+          : 'No active purchases were found for this account.',
+        cancelLabel: null,
+      })
     } catch (err: any) {
-      Alert.alert('Restore Failed', err?.message ?? 'Please try again later.')
+      confirm({ title: 'Restore Failed', message: err?.message ?? 'Please try again later.', cancelLabel: null })
     }
     setRestoring(false)
   }

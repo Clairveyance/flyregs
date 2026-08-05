@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Alert } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import { supabase } from '@/lib/supabase'
@@ -28,6 +28,7 @@ import { getLatestRevision, changedParagraphIndices, splitParagraphs, type Conte
 import { stripFarPrefix } from '@/lib/titleFormat'
 import { normalizeRegBody } from '@/lib/regTextFormat'
 import { fetchMnemonicAnchors, MnemonicAnchor } from '@/lib/regMnemonics'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 // Natural-sort section numbers ("91.3" before "91.107") for Prev/Next --
 // same comparator far/part/[part].tsx already uses to browse a Part.
@@ -61,6 +62,10 @@ interface RelatedItem {
 export default function FarSectionScreen() {
   const { id, hl } = useLocalSearchParams<{ id: string; hl?: string }>()
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
   const [section, setSection] = useState<FarSection | null>(null)
@@ -323,7 +328,7 @@ export default function FarSectionScreen() {
       })
       setDownloaded(true)
     } catch {
-      Alert.alert('Error', "Couldn't save this section for offline reading. Try again in a moment.")
+      confirm({ title: 'Error', message: "Couldn't save this section for offline reading. Try again in a moment.", cancelLabel: null })
     }
     setDownloadBusy(false)
   }

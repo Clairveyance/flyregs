@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Alert, Modal } from 'react-native'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Modal } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import { useTheme, type ThemeTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -447,14 +447,12 @@ export default function MyAircraftScreen() {
     // Pro is capped at 1 saved aircraft (most owners have exactly one);
     // Premium is unlimited -- see flyregs_decisions.md's pricing pivot.
     if (!isPremium && aircraft.length >= PRO_AIRCRAFT_CAP) {
-      Alert.alert(
-        'Aircraft limit reached',
-        `Pro includes ${PRO_AIRCRAFT_CAP} saved aircraft. Upgrade to Premium for unlimited.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Upgrade to Premium', onPress: () => router.push('/paywall?tier=premium') },
-        ]
-      )
+      confirm({
+        title: 'Aircraft limit reached',
+        message: `Pro includes ${PRO_AIRCRAFT_CAP} saved aircraft. Upgrade to Premium for unlimited.`,
+        confirmLabel: 'Upgrade to Premium',
+        onConfirm: () => router.push('/paywall?tier=premium'),
+      })
       return
     }
     const trimmedMake = make.trim()
@@ -466,7 +464,7 @@ export default function MyAircraftScreen() {
     // value in that case, fall back to the type designator itself.
     const trimmedModel = model.trim() || trimmedType
     if (!trimmedMake || !trimmedModel) {
-      Alert.alert('Make and model required', 'Enter both the aircraft make and model.')
+      confirm({ title: 'Make and model required', message: 'Enter both the aircraft make and model.', cancelLabel: null })
       return
     }
     // Type designator is what AD applicability is actually matched against
@@ -477,7 +475,7 @@ export default function MyAircraftScreen() {
     // to find the actual a/c since that is the field FR uses to hunt for
     // it."
     if (!trimmedType) {
-      Alert.alert('Type designator required', 'Enter the FAA type designator (e.g. PA-28-181, 172S) so we can match Airworthiness Directives correctly.')
+      confirm({ title: 'Type designator required', message: 'Enter the FAA type designator (e.g. PA-28-181, 172S) so we can match Airworthiness Directives correctly.', cancelLabel: null })
       return
     }
     setSaving(true)
@@ -492,7 +490,7 @@ export default function MyAircraftScreen() {
       .single()
     setSaving(false)
     if (error) {
-      Alert.alert('Could not add aircraft', error.message)
+      confirm({ title: 'Could not add aircraft', message: error.message, cancelLabel: null })
       return
     }
     setMake('')
@@ -512,10 +510,11 @@ export default function MyAircraftScreen() {
       backfillAircraftAds(inserted.id)
         .then((count) => {
           if (count > 0) {
-            Alert.alert(
-              'Aircraft added',
-              `Found ${count} existing Airworthiness Directive${count === 1 ? '' : 's'} that may apply — see its Applicable ADs list.`
-            )
+            confirm({
+              title: 'Aircraft added',
+              message: `Found ${count} existing Airworthiness Directive${count === 1 ? '' : 's'} that may apply — see its Applicable ADs list.`,
+              cancelLabel: null,
+            })
           }
         })
         .catch((e) => {

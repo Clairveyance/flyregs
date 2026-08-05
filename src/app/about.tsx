@@ -1,4 +1,4 @@
-import { View, Text, Image, Pressable, ScrollView, StyleSheet, Linking, Alert } from 'react-native'
+import { View, Text, Image, Pressable, ScrollView, StyleSheet, Linking } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme, ThemeTokens } from '@/context/theme'
 import { useReturnToMenu } from '@/context/drawer'
@@ -6,6 +6,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { useFS } from '@/context/fontScale'
 import { WORDMARK_FONT, wordmarkGoldFor } from '@/lib/brand'
+import { useConfirm } from '@/components/ConfirmDialog'
 import {
   APP_NAME,
   COMPANY,
@@ -17,6 +18,10 @@ import {
 
 export default function AboutScreen() {
   const { tokens, resolved, redShift } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const insets = useSafeAreaInsets()
   const backToMenu = useReturnToMenu()
@@ -56,7 +61,7 @@ export default function AboutScreen() {
             label="Website"
             tokens={tokens}
             onPress={() => Linking.openURL(WEBSITE_URL).catch(() =>
-              Alert.alert('Could not open browser', `Please visit ${WEBSITE_URL} manually.`)
+              confirm({ title: 'Could not open browser', message: `Please visit ${WEBSITE_URL} manually.`, cancelLabel: null })
             )}
           />
           <LinkRow
@@ -64,7 +69,7 @@ export default function AboutScreen() {
             label="Contact"
             tokens={tokens}
             onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`).catch(() =>
-              Alert.alert('Could not open mail', `Please email us at ${SUPPORT_EMAIL}.`)
+              confirm({ title: 'Could not open mail', message: `Please email us at ${SUPPORT_EMAIL}.`, cancelLabel: null })
             )}
             last
           />

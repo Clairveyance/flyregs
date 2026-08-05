@@ -1,15 +1,5 @@
 import React, { useState, useRef, useMemo } from 'react'
-import {
-  View,
-  Text,
-  FlatList,
-  Pressable,
-  TextInput,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
-} from 'react-native'
+import { View, Text, FlatList, Pressable, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native'
 import { router } from 'expo-router'
 import Reanimated, {
   useSharedValue,
@@ -25,6 +15,7 @@ import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
 import { renameFolder, Folder, DUPLICATE_FOLDER_NAME } from '@/lib/folders'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 // Fallback only for the one frame before a row's real height is measured via
 // onLayout -- every row uses that measured height once known, since actual
@@ -73,6 +64,10 @@ export function FolderListView({
   onReorder,
 }: Props) {
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { hasPlusAccess } = useAuth()
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -142,7 +137,7 @@ export function FolderListView({
       await renameFolder(editingId, editName.trim())
     } catch (e) {
       if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
-        Alert.alert('Folder Already Exists', `You already have a folder named "${editName.trim()}". Choose a different name.`)
+        confirm({ title: 'Folder Already Exists', message: `You already have a folder named "${editName.trim()}". Choose a different name.`, cancelLabel: null })
         return
       }
       throw e

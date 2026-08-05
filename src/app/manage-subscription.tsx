@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Linking, Platform, Alert } from 'react-native'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Linking, Platform } from 'react-native'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme, ThemeTokens } from '@/context/theme'
@@ -8,6 +8,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { useFS } from '@/context/fontScale'
 import { getSubscriptionDetails, restorePurchases, SubscriptionDetails } from '@/lib/revenuecat'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 // Apple/Google don't let an app deep-link to a management screen scoped to
 // just its own subscription -- managementURL (when RevenueCat has one) is
@@ -21,6 +22,10 @@ const FALLBACK_MANAGE_URL = Platform.select({
 
 export default function ManageSubscriptionScreen() {
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { session, isPro, isPremium, isUnlocked, setIsPro, setIsPremium } = useAuth()
   const insets = useSafeAreaInsets()
@@ -38,7 +43,7 @@ export default function ManageSubscriptionScreen() {
 
   const handleManage = () => {
     if (Platform.OS === 'web') {
-      Alert.alert('Available on iOS & Android', 'Manage your subscription from the FlyRegs mobile app.')
+      confirm({ title: 'Available on iOS & Android', message: 'Manage your subscription from the FlyRegs mobile app.', cancelLabel: null })
       return
     }
     // Cancelling drops the subscriber to whatever they separately own
@@ -51,15 +56,20 @@ export default function ManageSubscriptionScreen() {
     // as "Get Plus" (a real choice, not a buried escape hatch) and there's a
     // genuine no-op "Not Now" too, so nobody is forced to decide on the spot.
     if (!isUnlocked) {
-      Alert.alert(
-        'Before you go',
-        'Cancelling will remove access to your Highlights, Notes, and AC/LOI library. Keep that permanently for $17.99 instead?',
-        [
-          { text: 'Not Now', style: 'cancel' },
-          { text: 'Continue to Cancel', style: 'destructive', onPress: openManageURL },
-          { text: 'Get Plus', onPress: () => router.push('/paywall?tier=plus') },
-        ]
-      )
+      confirm({
+        title: 'Before you go',
+        message: 'Cancelling will remove access to your Highlights, Notes, and AC/LOI library. Keep that permanently for $17.99 instead?',
+        // Three real options, so `choices` rather than a confirm/cancel pair.
+        // Order matters: "Continue to Cancel" must be as easy to reach as
+        // "Get Plus" -- a genuine choice, not a buried escape hatch -- and
+        // "Not Now" (the plain cancel) is a real no-op so nobody is forced
+        // to decide on the spot.
+        cancelLabel: 'Not Now',
+        choices: [
+          { label: 'Get Plus', onPress: () => router.push('/paywall?tier=plus') },
+          { label: 'Continue to Cancel', destructive: true, onPress: openManageURL },
+        ],
+      })
       return
     }
     openManageURL()
@@ -67,7 +77,7 @@ export default function ManageSubscriptionScreen() {
 
   const handleRestore = async () => {
     if (Platform.OS === 'web') {
-      Alert.alert('Available on iOS & Android', 'Restore purchases from the FlyRegs mobile app.')
+      confirm({ title: 'Available on iOS & Android', message: 'Restore purchases from the FlyRegs mobile app.', cancelLabel: null })
       return
     }
     // This screen is only ever navigated to from Account (which already
@@ -83,15 +93,16 @@ export default function ManageSubscriptionScreen() {
       setIsPro(status.isPro)
       setIsPremium(status.isPremium)
       const active = status.isPro || status.isPremium
-      Alert.alert(
-        active ? 'Purchases Restored' : 'Nothing to Restore',
-        active
+      confirm({
+        title: active ? 'Purchases Restored' : 'Nothing to Restore',
+        message: active
           ? `Your FlyRegs ${status.isPremium ? 'Premium' : 'Pro'} subscription is active.`
-          : 'No active subscription was found for this account.'
-      )
+          : 'No active subscription was found for this account.',
+        cancelLabel: null,
+      })
       getSubscriptionDetails().then(setDetails)
     } catch (err: any) {
-      Alert.alert('Restore Failed', err?.message ?? 'Please try again later.')
+      confirm({ title: 'Restore Failed', message: err?.message ?? 'Please try again later.', cancelLabel: null })
     }
     setRestoring(false)
   }

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, SectionList, Pressable, ActivityIndicator, Alert, StyleSheet, Modal, ScrollView, TextInput } from 'react-native'
+import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, Modal, ScrollView, TextInput } from 'react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -19,6 +19,7 @@ import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { stripFarPrefix } from '@/lib/titleFormat'
 import { getACIndex, detectACs, ACIndexEntry } from '@/lib/acIndex'
 import { getFarIndex, getAimIndex, getAdIndex, getPcgIndex, detectFARs, detectAIMs, detectADs, detectPCGs, PcgIndexEntry } from '@/lib/regIndex'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 interface ACRow {
   id: string
@@ -82,6 +83,10 @@ function timeAgo(iso: string): string {
 // Pro/Premium subscription, being invited here doesn't unlock it).
 export default function SharedFolderDetail() {
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so these confirms (and the deletes behind them) were
+  // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { id } = useLocalSearchParams<{ id: string }>()
   const { badgeDays } = useBadgeLifespan()
@@ -230,17 +235,17 @@ export default function SharedFolderDetail() {
 
   const handleLeave = () => {
     if (typeof id !== 'string') return
-    Alert.alert('Leave Shared Folder', `You'll lose access to "${folderName}". You can rejoin later with a new invite link.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Leave',
-        style: 'destructive',
-        onPress: async () => {
-          await leaveSharedFolder(id)
-          router.back()
-        },
+    confirm({
+      title: 'Leave Shared Folder',
+      message: `You'll lose access to "${folderName}". You can rejoin later with the invite link.`,
+      confirmLabel: 'Leave',
+      destructive: true,
+      finalTitle: `Leave "${folderName}" — confirm`,
+      onConfirm: async () => {
+        await leaveSharedFolder(id)
+        router.back()
       },
-    ])
+    })
   }
 
   // Deleted rather than removed from just this device -- there's no local
@@ -248,23 +253,21 @@ export default function SharedFolderDetail() {
   // RLS (editors_manage_shared_folder_items) allows this for any active
   // collaborator on a read_write folder, not only the person who added it.
   const handleRemoveItem = (itemRowId: string, label: string) => {
-    Alert.alert('Remove Item', `Remove ${label} from this folder?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await removeSharedFolderItem(itemRowId)
-            setAcs((prev) => prev.filter((r) => r.itemRowId !== itemRowId))
-            setRegs((prev) => prev.filter((r) => r.itemRowId !== itemRowId))
-            setNotes((prev) => prev.filter((r) => r.itemRowId !== itemRowId))
-          } catch {
-            Alert.alert('Error', 'Could not remove that item. Try again in a moment.')
-          }
-        },
+    confirm({
+      title: 'Remove Item',
+      message: `Remove ${label} from this folder? Everyone sharing it loses this item.`,
+      confirmLabel: 'Remove',
+      destructive: true,
+      // Two-step: this is a real row delete in a SHARED folder, so it
+      // removes the item for every collaborator, not just this device.
+      finalTitle: `Remove ${label} — confirm`,
+      onConfirm: async () => {
+        await removeSharedFolderItem(itemRowId)
+        setAcs((prev) => prev.filter((r) => r.itemRowId !== itemRowId))
+        setRegs((prev) => prev.filter((r) => r.itemRowId !== itemRowId))
+        setNotes((prev) => prev.filter((r) => r.itemRowId !== itemRowId))
       },
-    ])
+    })
   }
 
   const handleOpenNote = (note: NoteRow) => {
@@ -283,7 +286,7 @@ export default function SharedFolderDetail() {
       setOpenNote(updated)
       setNoteEditing(false)
     } catch {
-      Alert.alert('Error', 'Could not save. Try again in a moment.')
+      confirm({ title: 'Error', message: 'Could not save. Try again in a moment.', cancelLabel: null })
     }
   }
 
@@ -297,7 +300,7 @@ export default function SharedFolderDetail() {
       setNewNoteBody('')
       load()
     } catch {
-      Alert.alert('Error', 'Could not add the note. Try again in a moment.')
+      confirm({ title: 'Error', message: 'Could not add the note. Try again in a moment.', cancelLabel: null })
     }
     setSavingNote(false)
   }

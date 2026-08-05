@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert } from 'react-native'
+import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -16,6 +16,7 @@ import { slugifyPcgTerm } from '@/lib/pcg'
 import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { ConfettiBurst } from '@/components/Confetti'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 type Phase = 'loading' | 'pending_response' | 'ready' | 'playing' | 'revealed' | 'waiting_opponent' | 'results' | 'declined'
 
@@ -68,6 +69,10 @@ function FilterSummary({ challenge, tokens, fs }: { challenge: MyChallenge; toke
 export default function ChallengeGameScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const [phase, setPhase] = useState<Phase>('loading')
   const [challenge, setChallenge] = useState<MyChallenge | null>(null)
@@ -133,7 +138,7 @@ export default function ChallengeGameScreen() {
     } catch (err: any) {
       // The duel can legitimately be over by the time this invite is
       // answered (everyone else finished, or the last invitee declined).
-      Alert.alert('Duel unavailable', err?.message ?? 'That duel is no longer available.')
+      confirm({ title: 'Duel unavailable', message: err?.message ?? 'That duel is no longer available.', cancelLabel: null })
       loadState()
       return
     }
@@ -162,7 +167,7 @@ export default function ChallengeGameScreen() {
       // other player declined and it finalized). Reload rather than
       // stranding the player on a dead question with a spinner.
       setSelectedChoice(null)
-      Alert.alert('Duel unavailable', err?.message ?? 'That duel is no longer available.')
+      confirm({ title: 'Duel unavailable', message: err?.message ?? 'That duel is no longer available.', cancelLabel: null })
       loadState()
       return
     }
@@ -212,7 +217,7 @@ export default function ChallengeGameScreen() {
       sendDuelPush(newId, 'invited')
       router.replace(`/challenges/${newId}` as any)
     } catch (err: any) {
-      Alert.alert('Could not start rematch', err?.message ?? 'Unknown error')
+      confirm({ title: 'Could not start rematch', message: err?.message ?? 'Unknown error', cancelLabel: null })
       setRematching(false)
     }
   }

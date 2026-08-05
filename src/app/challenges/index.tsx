@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, Modal, Alert } from 'react-native'
+import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, Modal } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -11,6 +11,7 @@ import {
   MyChallenge, ChallengeableUser, DuelStats, DuelItemType, KnowledgeLevel, KNOWLEDGE_LEVEL_LABELS,
 } from '@/lib/challenges'
 import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS, StudyRating, STUDY_RATINGS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 const QUESTION_COUNTS = [3, 5, 10]
 const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac']
@@ -22,6 +23,10 @@ const MAX_OPPONENTS = 7
 
 export default function ChallengesScreen() {
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { isPremium } = useAuth()
   const [challenges, setChallenges] = useState<MyChallenge[]>([])
@@ -93,7 +98,7 @@ export default function ChallengesScreen() {
     setSelectedOpponents((prev) => {
       if (prev.includes(userId)) return prev.filter((x) => x !== userId)
       if (prev.length >= MAX_OPPONENTS) {
-        Alert.alert('Duel is full', `Duels support up to ${MAX_OPPONENTS + 1} total participants.`)
+        confirm({ title: 'Duel is full', message: `Duels support up to ${MAX_OPPONENTS + 1} total participants.`, cancelLabel: null })
         return prev
       }
       return [...prev, userId]
@@ -127,7 +132,7 @@ export default function ChallengesScreen() {
     try {
       await respondToChallenge(c.challengeId, accept)
     } catch (err: any) {
-      Alert.alert('Duel unavailable', err?.message ?? 'That duel is no longer available.')
+      confirm({ title: 'Duel unavailable', message: err?.message ?? 'That duel is no longer available.', cancelLabel: null })
       load()
       return
     }

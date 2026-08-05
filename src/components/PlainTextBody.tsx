@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useEffect, useImperativeHandle, RefObject } from 'react'
-import { Text, View, ScrollView, Platform, StyleSheet, Alert, useWindowDimensions } from 'react-native'
+import { Text, View, ScrollView, Platform, StyleSheet, useWindowDimensions } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { normalizeRegBody } from '@/lib/regTextFormat'
@@ -10,6 +10,7 @@ import { softWrapParagraph } from '@/lib/softWrap'
 import { setPendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { searchPhrase, highlightSpans } from '@/lib/searchHighlight'
 import { splitMnemonicSpans, MnemonicAnchor } from '@/lib/regMnemonics'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 // Renders \n\n-delimited body text (FAR/AIM/P-CG's plain-text content, as
 // opposed to the AC pipeline's parsed ACBlock[] structure) as real, visually
@@ -363,6 +364,10 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
   mnemonicAnchors?: MnemonicAnchor[]
 }>(function PlainTextBody({ text, figures, onOpenFigure, resolveFigureGlobally, onNavigate, currentLabel, highlightQuery, activeMatch, onMatchCount, scrollRef, viewportHeight, changedIndices, mnemonicAnchors }, ref) {
   const { tokens, redShift } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   // Same approximation of scrollIntoView({block:'center'}) as ACBody -- see
   // its own viewportHeight comment. Real device, real bug: matches landed
@@ -557,10 +562,11 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
       // no longer exists anywhere in the current edition -- see
       // PROJECT_NOTES). RC, live: "if a fig doesn't exist, we need a
       // disclaimer for it." An honest dead end beats a silent wrong turn.
-      Alert.alert(
-        'Not available per FAA',
-        `${seg.text} isn't available in the FAA's current AIM. This isn't a FlyRegs error — the FAA's own text sometimes references a figure from an earlier revision that's since been removed or renumbered, and every one of these has been individually checked against the official AIM.`
-      )
+      confirm({
+        title: 'Not available per FAA',
+        message: `${seg.text} isn't available in the FAA's current AIM. This isn't a FlyRegs error — the FAA's own text sometimes references a figure from an earlier revision that's since been removed or renumbered, and every one of these has been individually checked against the official AIM.`,
+        cancelLabel: null,
+      })
       return
     }
     if (seg.route) {

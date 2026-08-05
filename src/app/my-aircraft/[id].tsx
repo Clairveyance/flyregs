@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Alert, Modal, Share } from 'react-native'
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Modal, Share } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -9,6 +9,7 @@ import { Icon } from '@/components/Icon'
 import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
 import { SwipeToDelete } from '@/components/SwipeToDelete'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { EditAircraftModal, type UserAircraft } from '@/components/AircraftFormFields'
 import { supabase } from '@/lib/supabase'
 import {
@@ -94,6 +95,11 @@ export default function AircraftDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web (silently, no throw, no log), so every dialog on this
+  // screen was invisible during Browser-pane QA and the actions behind
+  // them untestable. See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const { session, isPremium } = useAuth()
   const [aircraft, setAircraft] = useState<UserAircraft | null>(null)
   const [adNotifications, setAdNotifications] = useState<AircraftAdNotification[]>([])
@@ -174,15 +180,14 @@ export default function AircraftDetailScreen() {
   const handleShare = () => {
     if (!aircraft) return
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
-    Alert.alert(
-      'Share this aircraft',
-      "Choose what the person you invite can do. They'll need their own Premium subscription to join.",
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Invite as Viewer', onPress: () => shareAs('viewer') },
-        { text: 'Invite as Editor', onPress: () => shareAs('editor') },
-      ]
-    )
+    confirm({
+      title: 'Share this aircraft',
+      message: "Choose what the person you invite can do. They'll need their own Premium subscription to join.",
+      choices: [
+        { label: 'Invite as Viewer', onPress: () => shareAs('viewer') },
+        { label: 'Invite as Editor', onPress: () => shareAs('editor') },
+      ],
+    })
   }
 
   // RC: "an invite should be sent via a text link to join (just like
@@ -199,40 +204,40 @@ export default function AircraftDetailScreen() {
       await Share.share({ message: link })
       getAircraftCollaborators(aircraft.id).then(setCollaborators).catch(() => {})
     } catch (e: any) {
-      Alert.alert('Could not create invite', e?.message ?? 'Unknown error')
+      confirm({ title: 'Could not create invite', message: e?.message ?? 'Unknown error', cancelLabel: null })
     }
     setSharingBusy(false)
   }
 
   const handleRemoveCollaborator = (c: AircraftCollaborator) => {
     if (!aircraft) return
-    Alert.alert('Remove Access', `Remove ${c.displayLabel} from this aircraft?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          await removeCollaborator(aircraft.id, c.userId)
-          setCollaborators((prev) => prev.filter((x) => x.userId !== c.userId))
-        },
+    confirm({
+      title: 'Remove Access',
+      message: `Remove ${c.displayLabel} from this aircraft? They'll need a new invite link to get back in.`,
+      confirmLabel: 'Remove',
+      destructive: true,
+      finalTitle: `Remove ${c.displayLabel} — confirm`,
+      onConfirm: async () => {
+        await removeCollaborator(aircraft.id, c.userId)
+        setCollaborators((prev) => prev.filter((x) => x.userId !== c.userId))
       },
-    ])
+    })
   }
 
   const handleLeave = () => {
     if (!aircraft) return
     const label = aircraft.nickname || `${aircraft.make} ${aircraft.model}`
-    Alert.alert('Leave Shared Aircraft', `You'll lose access to ${label} until invited again.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Leave',
-        style: 'destructive',
-        onPress: async () => {
-          await leaveSharedAircraft(aircraft.id)
-          router.back()
-        },
+    confirm({
+      title: 'Leave Shared Aircraft',
+      message: `You'll lose access to ${label} until invited again.`,
+      confirmLabel: 'Leave',
+      destructive: true,
+      finalTitle: `Leave ${label} — confirm`,
+      onConfirm: async () => {
+        await leaveSharedAircraft(aircraft.id)
+        router.back()
       },
-    ])
+    })
   }
 
   const visibleAdNotifications = useMemo(
@@ -261,12 +266,13 @@ export default function AircraftDetailScreen() {
       const count = await backfillAircraftAds(aircraft.id)
       const ads = await getAircraftAdNotifications(aircraft.id)
       setAdNotifications(ads)
-      Alert.alert(
-        count > 0 ? 'Applicable ADs updated' : 'Up to date',
-        count > 0 ? `Found ${count} more Airworthiness Directive${count === 1 ? '' : 's'}.` : 'No additional applicable ADs found.'
-      )
+      confirm({
+        title: count > 0 ? 'Applicable ADs updated' : 'Up to date',
+        message: count > 0 ? `Found ${count} more Airworthiness Directive${count === 1 ? '' : 's'}.` : 'No additional applicable ADs found.',
+        cancelLabel: null,
+      })
     } catch (e: any) {
-      Alert.alert('Could not check for ADs', e?.message ?? 'Unknown error')
+      confirm({ title: 'Could not check for ADs', message: e?.message ?? 'Unknown error', cancelLabel: null })
     }
     setBackfilling(false)
   }
@@ -278,26 +284,25 @@ export default function AircraftDetailScreen() {
   // stays dismissed across future syncs, not just removed from this
   // screen), so it gets the extra guard equipment/reminders don't need.
   const handleDismissAd = (n: AircraftAdNotification) => {
-    Alert.alert(
-      `Remove AD ${n.adNumber}?`,
-      "This removes it from this aircraft's list. It won't come back on future AD syncs unless you add it again yourself.",
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            setAdNotifications((prev) => prev.filter((x) => x.id !== n.id))
-            try {
-              await dismissAdNotification(n.id)
-            } catch (e: any) {
-              setAdNotifications((prev) => [...prev, n]) // roll back on failure
-              Alert.alert('Could not remove AD', e?.message ?? 'Unknown error')
-            }
-          },
-        },
-      ]
-    )
+    confirm({
+      title: `Remove AD ${n.adNumber}?`,
+      message: "This removes it from this aircraft's list. It won't come back on future AD syncs unless you add it again yourself.",
+      confirmLabel: 'Remove',
+      destructive: true,
+      finalTitle: `Remove AD ${n.adNumber} — confirm`,
+      onConfirm: async () => {
+        setAdNotifications((prev) => prev.filter((x) => x.id !== n.id))
+        try {
+          await dismissAdNotification(n.id)
+        } catch (e: any) {
+          setAdNotifications((prev) => [...prev, n]) // roll back on failure
+          // Rethrown, not a second dialog -- the confirm shows it inline.
+          // The old pattern fired a SECOND Alert.alert here, which on web
+          // meant the removal silently failed AND silently said nothing.
+          throw e
+        }
+      },
+    })
   }
 
   // RC: "yeah build the Fleet schema. keep it feature rich but avoid any
@@ -306,41 +311,27 @@ export default function AircraftDetailScreen() {
   // confirm text itself IS that disclaimer -- no separate acknowledgment
   // flag, matching every other confirm on this screen.
   const handleMarkComplied = (n: AircraftAdNotification) => {
-    Alert.alert(
-      `Mark AD ${n.adNumber} complied?`,
-      "This records that you've completed what this AD requires. FlyRegs doesn't independently verify compliance -- always keep your own maintenance records as the official source.",
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Mark Complied',
-          onPress: async () => {
-            try {
-              await markAdComplied(n.id, null)
-              load()
-            } catch (e: any) {
-              Alert.alert('Could not mark complied', e?.message ?? 'Unknown error')
-            }
-          },
-        },
-      ]
-    )
+    confirm({
+      title: `Mark AD ${n.adNumber} complied?`,
+      message: "This records that you've completed what this AD requires. FlyRegs doesn't independently verify compliance -- always keep your own maintenance records as the official source.",
+      confirmLabel: 'Mark Complied',
+      onConfirm: async () => {
+        await markAdComplied(n.id, null)
+        load()
+      },
+    })
   }
 
   const handleUnmarkComplied = (n: AircraftAdNotification) => {
-    Alert.alert(`Un-mark AD ${n.adNumber}?`, 'This moves it back to open.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Un-mark',
-        onPress: async () => {
-          try {
-            await unmarkAdComplied(n.id)
-            load()
-          } catch (e: any) {
-            Alert.alert('Could not update', e?.message ?? 'Unknown error')
-          }
-        },
+    confirm({
+      title: `Un-mark AD ${n.adNumber}?`,
+      message: 'This moves it back to open.',
+      confirmLabel: 'Un-mark',
+      onConfirm: async () => {
+        await unmarkAdComplied(n.id)
+        load()
       },
-    ])
+    })
   }
 
   // RC: swipe-to-delete "with two step CTA popup verification explaining
@@ -348,31 +339,31 @@ export default function AircraftDetailScreen() {
   // before (a direct trash tap deleted immediately), which is a bigger
   // gap once the action is swipe-triggered, not a deliberate tap.
   const handleRemoveEquipment = (e: AircraftEquipment) => {
-    Alert.alert(`Remove ${e.part.name}?`, 'This untags the part from this aircraft -- AD alerts matched only by this equipment will stop appearing.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          await removeAircraftEquipment(e.id)
-          setEquipment((prev) => prev.filter((x) => x.id !== e.id))
-        },
+    confirm({
+      title: `Remove ${e.part.name}?`,
+      message: 'This untags the part from this aircraft -- AD alerts matched only by this equipment will stop appearing.',
+      confirmLabel: 'Remove',
+      destructive: true,
+      finalTitle: `Remove ${e.part.name} — confirm`,
+      onConfirm: async () => {
+        await removeAircraftEquipment(e.id)
+        setEquipment((prev) => prev.filter((x) => x.id !== e.id))
       },
-    ])
+    })
   }
 
   const handleRemoveReminder = (r: AircraftReminder) => {
-    Alert.alert(`Delete "${r.title}"?`, 'This reminder will be permanently removed.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          await removeAircraftReminder(r.id)
-          setReminders((prev) => prev.filter((x) => x.id !== r.id))
-        },
+    confirm({
+      title: `Delete "${r.title}"?`,
+      message: 'This reminder will be permanently removed.',
+      confirmLabel: 'Delete',
+      destructive: true,
+      finalTitle: `Delete "${r.title}" — confirm`,
+      onConfirm: async () => {
+        await removeAircraftReminder(r.id)
+        setReminders((prev) => prev.filter((x) => x.id !== r.id))
       },
-    ])
+    })
   }
 
   const openAddEquipment = () => {
@@ -599,11 +590,10 @@ export default function AircraftDetailScreen() {
                   hitSlop={10}
                   onPress={() => {
                     const ranges = Object.keys(AD_RANGE_LABELS) as AdRangeFilter[]
-                    Alert.alert(
-                      'Time range',
-                      undefined,
-                      [...ranges.map((r) => ({ text: AD_RANGE_LABELS[r], onPress: () => setAdRange(r) })), { text: 'Cancel', style: 'cancel' as const }]
-                    )
+                    confirm({
+                      title: 'Time range',
+                      choices: ranges.map((r) => ({ label: AD_RANGE_LABELS[r], onPress: () => setAdRange(r) })),
+                    })
                   }}
                 >
                   <Text style={[styles.rangePillText, { color: tokens.t2, fontSize: fs(11.5) }]}>
@@ -626,7 +616,7 @@ export default function AircraftDetailScreen() {
                   {/* RC: "get rid of all trash cans... in favor of swipe to
                       delete" + "don't need chevron since there's no
                       dropdown. just tap the bar to enter." handleDismissAd
-                      already pops its own 2-step confirm Alert (unchanged
+                      already pops its own 2-step confirm dialog (unchanged
                       below), so the swipe reveal just needs to call it. */}
                   {visibleAdNotifications.map((n, i) => (
                     <View
@@ -830,7 +820,7 @@ export default function AircraftDetailScreen() {
             setEditingReminder(null)
             load()
           } catch (e: any) {
-            Alert.alert('Could not save reminder', e?.message ?? 'Unknown error')
+            confirm({ title: 'Could not save reminder', message: e?.message ?? 'Unknown error', cancelLabel: null })
           }
         }}
       />
@@ -936,6 +926,7 @@ function ReminderFormModal({
 }) {
   const { tokens } = useTheme()
   const fs = useFS()
+  const confirm = useConfirm()
   const [typeKey, setTypeKey] = useState<ReminderTypeKey | null>(null)
   const [title, setTitle] = useState('')
   const [dueDate, setDueDate] = useState('')
@@ -980,8 +971,8 @@ function ReminderFormModal({
   }
 
   const handleSave = () => {
-    if (!title.trim()) { Alert.alert('Title required', 'Enter what this reminder is for.'); return }
-    if (!DATE_RE.test(dueDate.trim())) { Alert.alert('Pick a due date', 'Use the date picker to set when this is due.'); return }
+    if (!title.trim()) { confirm({ title: 'Title required', message: 'Enter what this reminder is for.', cancelLabel: null }); return }
+    if (!DATE_RE.test(dueDate.trim())) { confirm({ title: 'Pick a due date', message: 'Use the date picker to set when this is due.', cancelLabel: null }); return }
     onSaved({ title: title.trim(), dueDate: dueDate.trim(), notes, linkedAdNumber })
   }
 

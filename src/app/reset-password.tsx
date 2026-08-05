@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { View, Text, TextInput, Pressable, ActivityIndicator, Alert, StyleSheet } from 'react-native'
+import { View, Text, TextInput, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import * as Linking from 'expo-linking'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -7,6 +7,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { supabase } from '@/lib/supabase'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 // Landing screen for flyregs://reset-password -- reached after tapping the
 // "Reset password" email link. Supabase's redirect carries a recovery
@@ -17,6 +18,10 @@ import { supabase } from '@/lib/supabase'
 // updateUser({ password }) is allowed to act on.
 export default function ResetPasswordScreen() {
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const insets = useSafeAreaInsets()
   const { access_token, refresh_token } = useLocalSearchParams<{ access_token?: string; refresh_token?: string }>()
@@ -48,17 +53,17 @@ export default function ResetPasswordScreen() {
 
   const handleSave = async () => {
     if (password.length < 6) {
-      Alert.alert('Password too short', 'Use at least 6 characters.')
+      confirm({ title: 'Password too short', message: 'Use at least 6 characters.', cancelLabel: null })
       return
     }
     if (password !== confirmPassword) {
-      Alert.alert("Passwords don't match", 'Make sure both fields match.')
+      confirm({ title: "Passwords don't match", message: 'Make sure both fields match.', cancelLabel: null })
       return
     }
     setState('saving')
     const { error } = await supabase.auth.updateUser({ password })
     if (error) {
-      Alert.alert('Error', error.message)
+      confirm({ title: 'Error', message: error.message, cancelLabel: null })
       setState('ready')
       return
     }

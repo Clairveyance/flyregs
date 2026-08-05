@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, Image, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Alert } from 'react-native'
+import { View, Text, Image, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import { supabase } from '@/lib/supabase'
@@ -27,6 +27,7 @@ import { buildRegShareLink } from '@/lib/regShare'
 import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
 import { condenseAdSummary, adSummaryWasCondensed, stripAdArtifacts } from '@/lib/adSummary'
 import { splitIntoParagraphs } from '@/lib/regTextFormat'
+import { useConfirm } from '@/components/ConfirmDialog'
 import type { AcFigure } from '@/types'
 
 interface AdFigureRow {
@@ -68,6 +69,10 @@ interface RelatedItem {
 export default function AdScreen() {
   const { id, hl } = useLocalSearchParams<{ id: string; hl?: string }>()
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
   const [ad, setAd] = useState<AirworthinessDirective | null>(null)
@@ -277,7 +282,7 @@ export default function AdScreen() {
       })
       setDownloaded(true)
     } catch (err) {
-      Alert.alert('Error', "Couldn't save this AD for offline reading. Try again in a moment.")
+      confirm({ title: 'Error', message: "Couldn't save this AD for offline reading. Try again in a moment.", cancelLabel: null })
     }
     setDownloadBusy(false)
   }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Image, Share, Alert } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Image, Share } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import { supabase } from '@/lib/supabase'
@@ -27,6 +27,7 @@ import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
 import { getLatestRevision, changedParagraphIndices, splitParagraphs, type ContentRevision } from '@/lib/whatsChanged'
+import { useConfirm } from '@/components/ConfirmDialog'
 import type { AcFigure } from '@/types'
 
 // Natural-sort AIM paragraph numbers ("4-3-2" before "4-10-1") for
@@ -68,6 +69,10 @@ interface RelatedItem {
 export default function AimParagraphScreen() {
   const { id, hl } = useLocalSearchParams<{ id: string; hl?: string }>()
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
   const [para, setPara] = useState<AimParagraph | null>(null)
@@ -301,7 +306,7 @@ export default function AimParagraphScreen() {
       })
       setDownloaded(true)
     } catch {
-      Alert.alert('Error', "Couldn't save this paragraph for offline reading. Try again in a moment.")
+      confirm({ title: 'Error', message: "Couldn't save this paragraph for offline reading. Try again in a moment.", cancelLabel: null })
     }
     setDownloadBusy(false)
   }

@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, ActivityIndicator, Alert, Modal } from 'react-native'
+import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, ActivityIndicator, Modal } from 'react-native'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { InfoPopup } from '@/components/InfoPopup'
 import { supabase } from '@/lib/supabase'
+import { useConfirm } from '@/components/ConfirmDialog'
 import {
   suggestTypeDesignator, searchTypeDesignators, searchManufacturers, searchMarketingNames,
   type TypeDesignatorSuggestion,
@@ -372,6 +373,10 @@ export function YearPickerModal({
 // available inside for all things."
 export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: UserAircraft | null; onClose: () => void; onSaved: () => void }) {
   const { tokens } = useTheme()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so every dialog here was invisible in the Browser pane.
+  // See components/ConfirmDialog.tsx.
+  const confirm = useConfirm()
   const fs = useFS()
   const [make, setMake] = useState('')
   const [model, setModel] = useState('')
@@ -416,11 +421,11 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: Us
     const trimmedType = typeDesignator.trim()
     const trimmedModel = model.trim() || trimmedType
     if (!trimmedMake || !trimmedModel) {
-      Alert.alert('Make and model required', 'Enter both the aircraft make and model.')
+      confirm({ title: 'Make and model required', message: 'Enter both the aircraft make and model.', cancelLabel: null })
       return
     }
     if (!trimmedType) {
-      Alert.alert('Type designator required', 'Enter the FAA type designator (e.g. PA-28-181, 172S) so we can match Airworthiness Directives correctly.')
+      confirm({ title: 'Type designator required', message: 'Enter the FAA type designator (e.g. PA-28-181, 172S) so we can match Airworthiness Directives correctly.', cancelLabel: null })
       return
     }
     setSaving(true)
@@ -434,7 +439,7 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: Us
       .eq('id', aircraft.id)
     setSaving(false)
     if (error) {
-      Alert.alert('Could not save changes', error.message)
+      confirm({ title: 'Could not save changes', message: error.message, cancelLabel: null })
       return
     }
     onSaved()
