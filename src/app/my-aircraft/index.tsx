@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Alert, Modal } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import { useTheme, type ThemeTokens } from '@/context/theme'
@@ -312,6 +312,15 @@ export default function MyAircraftScreen() {
   // re-collapsing/re-expanding the same row doesn't re-fetch.
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedDetails, setExpandedDetails] = useState<Record<string, { ads: AircraftAdNotification[]; reminders: AircraftReminder[] } | 'loading'>>({})
+  // RC: "for Pro, we can probably leave this Aircraft box open by default,
+  // since there's only one." Keyed on the actual reason (exactly one
+  // aircraft, so there's nothing to scan or choose between) rather than on
+  // tier -- a Premium user who happens to own one aircraft is in the
+  // identical situation, and gating it to Pro would make the same screen
+  // behave two different ways for the same content. Ref-guarded so it only
+  // fires on the first load of this mounted screen: collapsing it stays
+  // collapsed instead of springing back open on the next focus refetch.
+  const autoExpandedRef = useRef(false)
 
   // RC, on the status pill: "whatever data these are representing, let's
   // show that in the dropdown when it's tapped on." An earlier pass
@@ -385,6 +394,17 @@ export default function MyAircraftScreen() {
   // smart - and adjusts live to the number (%) of Compliant, Open, and
   // Overdue items across the fleet."
   useFocusEffect(useCallback(() => { load() }, [load]))
+
+  // See autoExpandedRef's declaration for why this is keyed on "exactly one
+  // aircraft" rather than on tier. toggleExpand is deliberately not in the
+  // dep array (it's recreated every render); the ref guard is what makes
+  // this run exactly once, not the deps.
+  useEffect(() => {
+    if (autoExpandedRef.current || aircraft.length !== 1) return
+    autoExpandedRef.current = true
+    toggleExpand(aircraft[0].aircraftId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aircraft])
 
   const handleAdd = async () => {
     if (!session) {
@@ -506,6 +526,12 @@ export default function MyAircraftScreen() {
   // Account entry point, RC-confirmed: "so for Prem, does My Aircraft just
   // become My Fleet? in the same space in Account?"
   const screenTitle = isPremium ? 'My Fleet' : 'My Aircraft'
+  // Same condition handleAdd already enforced at submit time -- hoisted so
+  // the Add trigger can enforce it at the point of entry instead (see the
+  // capCard below). `>=`, not `===`: an account downgraded from Premium can
+  // legitimately be sitting on more saved aircraft than the Pro cap allows.
+  const atProCap = !isPremium && aircraft.length >= PRO_AIRCRAFT_CAP
+  const aircraftWord = `${aircraft.length} aircraft`
   const totalOpenAds = aircraft.reduce((sum, a) => sum + a.openAdCount, 0)
   const totalOverdue = aircraft.reduce((sum, a) => sum + a.overdueReminderCount, 0)
   // Ring/legend counts are AIRCRAFT counted in exactly one bucket each (its
@@ -781,7 +807,37 @@ export default function MyAircraftScreen() {
           {/* RC: "let's keep this whole 'add a/c' area collapsed. just a
               small 'Add Aircraft +' which can expand when needed... It's
               busy enough w/o this Add feature always open." */}
-          {addFormOpen ? (
+          {/* RC: "when i clicked Add Aircraft button, i got this popup, and
+              that's not the right time/place for this note. in Pro, clicking
+              the AA button should show a CTA informing of the 'one a/c at a
+              time' situation. It should NOT present the new a/c form in Pro
+              tier until the previous a/c has been deleted." The form used to
+              open regardless and only rejected the add at submit time
+              (handleAdd's cap Alert) -- so a Pro user already at the cap got
+              the whole form, the Model-vs-Type forceOnce popup firing on
+              top of it, and no hint anything was wrong until after they'd
+              filled it all in. Now the cap is enforced at the point of
+              entry, and the form (with its popup) never mounts at all. */}
+          {addFormOpen && atProCap ? (
+            <View style={[styles.capCard, { backgroundColor: tokens.bg2, borderColor: tokens.gold }]}>
+              <Icon name="airplane" size={fs(24)} color={tokens.gold} />
+              <Text style={[styles.capTitle, { color: tokens.t1, fontSize: fs(15) }]}>
+                One aircraft at a time on Pro
+              </Text>
+              <Text style={[styles.capBody, { color: tokens.t3, fontSize: fs(13.5) }]}>
+                You're tracking {aircraftWord}. To swap to a different one, delete {aircraft.length === 1 ? 'it' : 'one'} first — swipe left on it in the list above. Premium tracks as many as you want, all at once.
+              </Text>
+              <Pressable
+                style={[styles.capBtn, { backgroundColor: tokens.gold }]}
+                onPress={() => router.push('/paywall?tier=premium' as any)}
+              >
+                <Text style={[styles.capBtnText, { fontSize: fs(14) }]}>See Premium</Text>
+              </Pressable>
+              <Pressable onPress={() => setAddFormOpen(false)} hitSlop={8}>
+                <Text style={[styles.capDismiss, { color: tokens.t3, fontSize: fs(13) }]}>Not now</Text>
+              </Pressable>
+            </View>
+          ) : addFormOpen ? (
             <>
               <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 20 }]}>
                 ADD AIRCRAFT{!isPremium ? ` (${aircraft.length}/${PRO_AIRCRAFT_CAP} — Premium for unlimited)` : ''}
@@ -905,8 +961,25 @@ const styles = StyleSheet.create({
   legendDot: { width: 9, height: 9, borderRadius: 4.5 },
   legendLabel: { flex: 1 },
   legendCount: { fontWeight: '700' },
-  statBoxRow: { flexDirection: 'row', gap: 10 },
-  statBox: { flex: 1, borderRadius: 12, borderWidth: 1, paddingVertical: 10, alignItems: 'center', gap: 2 },
+  // RC: "give these some more space, they're cramped and wrapping lines
+  // unnec." Root cause wasn't the padding -- proHeroCard sets alignItems:
+  // 'center', which in flexbox makes a child size to its CONTENT instead of
+  // stretching, so this row was only ever as wide as three shrink-wrapped
+  // boxes and "OPEN ITEMS" wrapped to two lines inside one. alignSelf
+  // 'stretch' opts back out of that, giving each box the card's full width
+  // to divide up (no-op for Premium's fleetCard, which never centered).
+  capCard: {
+    borderRadius: 16, borderWidth: 1, padding: 20, marginTop: 20,
+    alignItems: 'center', gap: 10,
+  },
+  capTitle: { fontWeight: '700', textAlign: 'center' },
+  capBody: { textAlign: 'center', lineHeight: 19 },
+  capBtn: { borderRadius: 12, paddingHorizontal: 22, paddingVertical: 11, marginTop: 4 },
+  capBtnText: { color: '#000', fontWeight: '700' },
+  capDismiss: { fontWeight: '600', marginTop: 2 },
+
+  statBoxRow: { flexDirection: 'row', gap: 8, alignSelf: 'stretch' },
+  statBox: { flex: 1, borderRadius: 12, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 4, alignItems: 'center', gap: 3 },
   statBoxValue: { fontWeight: '700' },
   statBoxLabel: { letterSpacing: 0.4, fontWeight: '600' },
   // Pro's single-aircraft hero -- same card language as fleetCard above,
