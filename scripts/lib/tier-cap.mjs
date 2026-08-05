@@ -15,23 +15,34 @@
 // and pushes are the version of that leak that reaches a pocket, so they
 // matter most.
 
-// Mirrors PRO_AIRCRAFT_CAP in src/app/my-aircraft/index.tsx and the `else 1`
-// branch of fleet_visible_cap(). Keep all three in step.
 export const PRO_AIRCRAFT_CAP = 1
+const UNCAPPED = Number.MAX_SAFE_INTEGER
+
+// The tier ladder, per RC 2026-08-05: "first Plus tier has no a/c... If
+// going Pro>Prem then you take your a/c w/ you and then just add more. if
+// going Prem>Pro, then we can't pay to 'store' anything for Pro users."
+// So Free and Plus get NONE, Pro gets exactly one, Premium is unlimited.
+// Mirrors fleet_visible_cap() in
+// sync/migrations_tier_cap_enforcement.sql and AIRCRAFT_CAP_FOR_TIER in
+// src/app/my-aircraft/index.tsx -- keep all three in step.
+export function aircraftCapFor(entitlement) {
+  if (!entitlement) return UNCAPPED   // no row at all -> fail open, see below
+  if (entitlement.is_premium) return UNCAPPED
+  if (entitlement.is_pro) return PRO_AIRCRAFT_CAP
+  return 0
+}
 
 // Returns the set of user_aircraft ids that are currently HIDDEN by their
 // owner's tier, given every aircraft row and every user_entitlements row.
 //
-// Rules, identical to the SQL:
-//   - Premium: nothing hidden.
-//   - No entitlement row at all: nothing hidden. Deliberate fail-open --
-//     a sync hiccup must never silently cut off a paying customer's alerts.
-//     The client's own RevenueCat check is what covers that window in-app.
-//   - Otherwise: keep the oldest PRO_AIRCRAFT_CAP by created_at, hide the
-//     rest. Oldest (not newest) so a new save can never bump an existing
-//     aircraft out from under its owner.
+// A MISSING entitlement row hides nothing, deliberately -- a sync hiccup
+// must never silently cut off a paying customer's alerts. The client's own
+// RevenueCat check is what covers that window in-app.
+//
+// Within a tier, the kept aircraft are the OLDEST by created_at: stable, so
+// saving a new one can never bump an existing one out from under its owner.
 export function hiddenAircraftIds(allAircraft, entitlements) {
-  const isPremiumByUser = new Map((entitlements ?? []).map((e) => [e.user_id, e.is_premium === true]))
+  const entByUser = new Map((entitlements ?? []).map((e) => [e.user_id, e]))
   const ownedByUser = new Map()
   for (const a of allAircraft ?? []) {
     if (!ownedByUser.has(a.user_id)) ownedByUser.set(a.user_id, [])
@@ -39,22 +50,34 @@ export function hiddenAircraftIds(allAircraft, entitlements) {
   }
   const hidden = new Set()
   for (const [userId, owned] of ownedByUser) {
-    if (!isPremiumByUser.has(userId) || isPremiumByUser.get(userId)) continue
+    const cap = aircraftCapFor(entByUser.get(userId))
+    if (cap >= owned.length) continue
     owned
       .slice()
       .sort((x, y) =>
         String(x.created_at).localeCompare(String(y.created_at)) || String(x.id).localeCompare(String(y.id)))
-      .slice(PRO_AIRCRAFT_CAP)
+      .slice(cap)
       .forEach((a) => hidden.add(a.id))
   }
   return hidden
+}
+
+// Users whose tier includes AD push notifications at all. RC, 2026-08-05:
+// "Pro would have to open the app and check their My Aircraft page to see
+// the status of ADs. Their Reminders can push, b/c that's their own
+// schedule making essentially... AD alerts are only pushed to Prem."
+// Note this is about the PUSH only -- user_ad_notifications rows are still
+// written for Pro, which is what makes the in-app status they check real.
+export function canReceiveAdPush(entitlement) {
+  if (!entitlement) return true   // fail open, same reasoning as the cap
+  return entitlement.is_premium === true
 }
 
 // Convenience for senders that only need the id set: does both fetches.
 export async function fetchHiddenAircraftIds(sb) {
   const [{ data: allAircraft, error: acErr }, { data: entitlements, error: entErr }] = await Promise.all([
     sb.from('user_aircraft').select('id, user_id, created_at'),
-    sb.from('user_entitlements').select('user_id, is_premium'),
+    sb.from('user_entitlements').select('user_id, is_pro, is_premium'),
   ])
   if (acErr) throw new Error(`user_aircraft fetch failed: ${acErr.message}`)
   if (entErr) throw new Error(`user_entitlements fetch failed: ${entErr.message}`)

@@ -173,6 +173,46 @@ export async function getFleetSummary(): Promise<FleetAircraftSummary[]> {
 // no client can ask past it) but nothing is ever deleted, and this count is
 // what lets the UI say that out loud instead of the aircraft appearing to
 // have silently vanished. See sync/migrations_tier_cap_enforcement.sql.
+// The caller's OWNED aircraft, oldest first -- the same order
+// fleet_visible_cap() slices, so index >= cap is exactly the set the server
+// is hiding. get_fleet_summary() can't answer this (it returns only what's
+// visible, by design), and the downgrade picker needs the hidden ones' real
+// names to let the user choose which one they keep. Plain select rather
+// than a new RPC: user_aircraft's own RLS already scopes an owner to their
+// own rows.
+export async function getOwnedAircraftOldestFirst(): Promise<
+  { aircraftId: string; make: string; model: string; nickname: string | null }[]
+> {
+  const { data: auth } = await supabase.auth.getUser()
+  const userId = auth.user?.id
+  if (!userId) return []
+  const { data, error } = await supabase
+    .from('user_aircraft')
+    .select('id, make, model, nickname, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
+  if (error) throw error
+  return (data ?? []).map((r: any) => ({
+    aircraftId: r.id, make: r.make, model: r.model, nickname: r.nickname,
+  }))
+}
+
+// Permanently deletes every owned aircraft EXCEPT the one being kept. RC's
+// downgrade policy: "if going Prem>Pro, then we can't pay to 'store'
+// anything for Pro users. in this case, they'd have to choose 1 a/c to take
+// w/ them down to Pro." Only ever called from an explicit user choice with
+// its own confirm -- nothing here runs on a timer or on downgrade itself.
+export async function keepOnlyAircraft(keepIds: string[]): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser()
+  const userId = auth.user?.id
+  if (!userId) throw new Error('Not signed in')
+  let q = supabase.from('user_aircraft').delete().eq('user_id', userId)
+  if (keepIds.length > 0) q = q.not('id', 'in', `(${keepIds.join(',')})`)
+  const { error } = await q
+  if (error) throw error
+}
+
 export async function getFleetHiddenCount(): Promise<number> {
   const { data, error } = await supabase.rpc('get_fleet_hidden_count')
   if (error) throw error

@@ -34,7 +34,7 @@
 import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
 import path from 'path'
-import { hiddenAircraftIds } from './lib/tier-cap.mjs'
+import { hiddenAircraftIds, canReceiveAdPush } from './lib/tier-cap.mjs'
 
 const envPath = path.resolve(process.cwd(), '.env.scraper')
 if (!fs.existsSync(envPath)) {
@@ -137,7 +137,7 @@ if (!allAircraft || allAircraft.length === 0) {
 // row means uncapped (never punish a paying customer for a sync hiccup),
 // and nothing is deleted -- these rows still exist and come straight back
 // on re-subscribe.
-const isPremiumByUser = new Map((entitlements ?? []).map((e) => [e.user_id, e.is_premium === true]))
+const entByUser = new Map((entitlements ?? []).map((e) => [e.user_id, e]))
 const cappedOutIds = hiddenAircraftIds(allAircraft, entitlements)
 const aircraft = allAircraft.filter((a) => !cappedOutIds.has(a.id))
 if (cappedOutIds.size > 0) {
@@ -313,17 +313,21 @@ const logRows = [...matches.values()].map((m) => ({
 // collaborators of some OTHER aircraft that happened to match a different
 // AD in this same run, since collaboratorsByAircraftId is looked up by
 // this exact match's own userAircraftId.
+// AD PUSH is a Premium-only capability. RC, 2026-08-05: "Pro would have to
+// open the app and check their My Aircraft page to see the status of ADs.
+// Their Reminders can push, b/c that's their own schedule making
+// essentially... AD alerts are only pushed to Prem." Crucially this gates
+// only the push -- every match was already written to
+// user_ad_notifications above, unconditionally, which is exactly what
+// makes the in-app status a Pro user opens the app to check real and
+// current. Sharing is Premium in both directions too, so the same test
+// covers collaborators.
 const matchKeysByUser = new Map()
 for (const [key, m] of matches) {
-  // Collaborators only -- the owner is always a recipient of their own
-  // aircraft's alerts regardless of tier. Being ON someone's shared
-  // aircraft is itself a Premium capability, so a collaborator who has
-  // since downgraded stops receiving the team push (same fail-open rule
-  // as the cap above: no entitlement row means don't assume the worst).
-  const collaborators = (collaboratorsByAircraftId.get(m.userAircraftId) ?? []).filter(
-    (uid) => !isPremiumByUser.has(uid) || isPremiumByUser.get(uid),
+  const collaborators = collaboratorsByAircraftId.get(m.userAircraftId) ?? []
+  const recipients = new Set(
+    [m.userId, ...collaborators].filter((uid) => canReceiveAdPush(entByUser.get(uid))),
   )
-  const recipients = new Set([m.userId, ...collaborators])
   for (const recipientId of recipients) {
     if (!tokensByUser.has(recipientId)) continue // no enabled device, nothing to push
     if (!matchKeysByUser.has(recipientId)) matchKeysByUser.set(recipientId, [])
@@ -332,7 +336,7 @@ for (const [key, m] of matches) {
 }
 
 if (matchKeysByUser.size === 0) {
-  console.log('No matched user has an enabled push token — folder markers written, nothing to push.')
+  console.log('No matched user is Premium with an enabled push token — in-app AD markers written, nothing to push.')
   process.exit(0)
 }
 

@@ -33,17 +33,35 @@
 -- purpose -- a sync hiccup must never make a paying customer's fleet
 -- appear to vanish, and layer 2 above still holds that case.
 
--- Non-Premium ceiling on saved aircraft. Mirrors PRO_AIRCRAFT_CAP in
--- src/app/my-aircraft/index.tsx -- keep the two in step.
+-- Per-tier ceiling on saved aircraft. Mirrors AIRCRAFT_CAP_FOR_TIER in
+-- src/app/my-aircraft/index.tsx and scripts/lib/tier-cap.mjs -- keep all
+-- three in step.
+--
+-- REVISED 2026-08-05 after RC spelled out the actual storage policy:
+-- "first Plus tier has no a/c. Then, if a/c storage is server backed, then
+-- that's our cost and for that, accounts must be on Prem. If going Pro>Prem
+-- then you take your a/c w/ you and then just add more. if going Prem>Pro,
+-- then we can't pay to 'store' anything for Pro users. in this case, they'd
+-- have to choose 1 a/c to take w/ them down to Pro."
+--
+-- So the ladder is 0 / 0 / 1 / unlimited, not the "non-Premium = 1" this
+-- function assumed on its first pass -- Free AND Plus get none at all.
 CREATE OR REPLACE FUNCTION public.fleet_visible_cap()
  RETURNS integer
  LANGUAGE sql
  STABLE
 AS $function$
   select case
-    when coalesce((select e.is_premium from user_entitlements e where e.user_id = auth.uid()), true)
-      then 2147483647   -- Premium (or entitlement not yet synced): uncapped
-    else 1              -- Pro and below: PRO_AIRCRAFT_CAP
+    -- No entitlement row at all -> uncapped, deliberately (see this file's
+    -- header): a sync hiccup must never make a paying customer's fleet
+    -- look deleted. The client's own RevenueCat check covers that window.
+    when not exists (select 1 from user_entitlements e where e.user_id = auth.uid())
+      then 2147483647
+    when coalesce((select e.is_premium from user_entitlements e where e.user_id = auth.uid()), false)
+      then 2147483647   -- Premium: unlimited
+    when coalesce((select e.is_pro from user_entitlements e where e.user_id = auth.uid()), false)
+      then 1            -- Pro: exactly one
+    else 0              -- Free / Plus: My Aircraft isn't part of the tier
   end;
 $function$;
 

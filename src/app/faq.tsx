@@ -223,6 +223,8 @@ const FAQ: QA[] = [
       'AD applicability text is written against the FAA\'s official type designator (e.g. "PA-28-181"), not always the marketing name you\'d know your plane by (e.g. "Warrior") — there\'s an optional Type Designator field for this, auto-suggested for common models, so matching stays accurate either way.',
       'Tap the icon on any Applicable AD to mark it complied, with an optional note — it stays visible with a green check and date instead of disappearing, so you keep a real record instead of a todo list that just empties out. (FlyRegs doesn\'t independently verify compliance — always keep your own maintenance records as the official source.)',
       { tier: 'premium', text: 'Unlimited saved aircraft (shown as My Fleet instead of My Aircraft). Adds equipment tags for specific parts, engines, or avionics — more precise AD matching than make/model alone — reminders you set yourself for recurring items, and sharing — see the next question.' },
+      'Where the alerts go differs by plan. Reminders you set yourself push to your device on Pro and Premium — it\'s your own schedule, so you get told. AD alerts push on Premium; on Pro, new and updated ADs still show up on your My Aircraft page whenever you open it, they just don\'t push to your phone.',
+      'Saved aircraft live on our servers, which is why they come with a paid plan: Free and Plus don\'t include them, Pro includes one, Premium is unlimited. Moving up from Pro to Premium brings your aircraft with you and lets you add more. Moving down from Premium to Pro, you pick which single aircraft comes with you — nothing is deleted until you choose, and the choice is yours to make on the My Aircraft screen.',
     ],
   },
   {
