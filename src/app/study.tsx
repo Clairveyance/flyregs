@@ -16,6 +16,7 @@ import { KnowledgeLevel, KNOWLEDGE_LEVEL_LABELS } from '@/lib/challenges'
 import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS, StudyRating, STUDY_RATINGS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { buildStudyCard, type QuizSourceType } from '@/lib/quizQuestion'
+import { normalizeRegBody } from '@/lib/regTextFormat'
 
 const TYPE_LABEL: Record<StudyItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC' }
 const ALL_TYPES: StudyItemType[] = ['far', 'aim', 'pcg', 'ac']
@@ -280,10 +281,26 @@ export default function StudyScreen() {
     // make every one of them render as "Section changed -- won't jump to
     // this spot anymore".
     //
-    // Snippet comes from the RAW definition, not the displayed question:
+    // Snippet comes from the definition text, not the displayed question:
     // shortenQuestion() may append an ellipsis, which would never match the
     // real body text it has to be found in.
-    const raw = (current.definition ?? '').trim()
+    //
+    // Real bug, confirmed live: a FAR/AIM section's body_text is routinely
+    // several source paragraphs (intro clause, then "(a) Issue—", then
+    // "(1) Original airworthiness...", etc., each separated by a blank line
+    // in the raw scrape). Slicing straight from the RAW multi-paragraph
+    // blob let passageSnippet's window span two or three of those -- e.g.
+    // 183.31 produced "...following:\n\n(a) Issue—\n\n(1) Original
+    // airworthiness" as one snippet. PlainTextBody/ACBody search one
+    // NORMALIZED PARAGRAPH AT A TIME (normalizeRegBody splits on blank
+    // lines), so a query spanning three of them can never match any single
+    // one -- reopening the bookmark populated the search box (the raw hl
+    // param) but highlighted nothing, exactly as reported. Fix: normalize
+    // first, then only ever snippet from the FIRST resulting paragraph, so
+    // the captured span can never cross a boundary the search itself
+    // treats as absolute.
+    const firstPara = normalizeRegBody(current.definition ?? '').split('\n\n')[0] ?? ''
+    const raw = firstPara.trim()
     const snippet = passageSnippet(raw)
     const next = await toggleBookmark({
       id: current.item_id,

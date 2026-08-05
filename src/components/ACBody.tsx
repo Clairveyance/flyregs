@@ -39,7 +39,9 @@ function searchPhrase(query: string): string {
 // Counts non-overlapping occurrences of the phrase in text (for ordinal math).
 function countOcc(text: string, phrase: string): number {
   if (!text || !phrase) return 0
-  const lower = text.toLowerCase()
+  // See highlightSpans' own comment below -- a literal "\n" in `text` is
+  // never equal to the " " searchPhrase collapsed a multi-line query to.
+  const lower = text.toLowerCase().replace(/\n/g, ' ')
   let c = 0
   let pos = 0
   let idx = lower.indexOf(phrase, pos)
@@ -60,7 +62,11 @@ function highlightSpans(
 ): React.ReactNode {
   const phrase = searchPhrase(query)
   if (phrase.length < 2 || !text) return text
-  const lower = text.toLowerCase()
+  // `phrase` collapsed internal whitespace to single spaces (see
+  // searchPhrase above) -- match against the same shape here, but slice/
+  // highlight the ORIGINAL `text` below (indices stay valid since "\n" ->
+  // " " never changes string length).
+  const lower = text.toLowerCase().replace(/\n/g, ' ')
 
   // Collect every occurrence of the full phrase
   const matches: Array<{ start: number; end: number }> = []
@@ -638,7 +644,8 @@ export const ACBody = React.forwardRef<
       const totalLen = segs.reduce((s, seg) => s + seg.length, 0) || 1
       let consumed = 0
       for (const seg of segs) {
-        const lower = seg.toLowerCase()
+        // Same whitespace-collapse reasoning as countOcc/highlightSpans above.
+        const lower = seg.toLowerCase().replace(/\n/g, ' ')
         let pos = 0
         let idx = lower.indexOf(phrase, pos)
         while (idx !== -1) {

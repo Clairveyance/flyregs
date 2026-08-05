@@ -406,7 +406,13 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
     if (!phrase || phrase.length < 2) return []
     const result: { paraIndex: number; fraction: number }[] = []
     paragraphs.forEach((para, i) => {
-      const lower = para.toLowerCase()
+      // `phrase` already collapsed internal whitespace to single spaces (see
+      // searchPhrase in searchHighlight.ts) -- a query spanning a lettered/
+      // numbered sub-item boundary (normalizeRegBody keeps those on their
+      // own line WITHIN a paragraph) would otherwise never match a literal
+      // "\n" here. `.replace` preserves length, so `idx`/`len` math below
+      // still lines up with the real `para`.
+      const lower = para.toLowerCase().replace(/\n/g, ' ')
       const len = para.length || 1
       let pos = 0
       let idx = lower.indexOf(phrase, pos)

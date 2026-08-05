@@ -20,7 +20,14 @@ export function searchPhrase(query: string): string {
 // across multiple paragraphs/blocks in the same document).
 export function countOcc(text: string, phrase: string): number {
   if (!text || !phrase) return 0
-  const lower = text.toLowerCase()
+  // `phrase` already collapsed internal whitespace to single spaces (see
+  // searchPhrase) -- a query spanning a lettered/numbered sub-item boundary
+  // (normalizeRegBody keeps those on their own line WITHIN a paragraph, e.g.
+  // "...following:\n(a) Issue—") would otherwise never match here, since a
+  // literal "\n" in `text` is never equal to the " " the query collapsed to.
+  // Confirmed live: a Study Mode FAR bookmark's own snippet crossed exactly
+  // this boundary and silently matched nothing on reopen.
+  const lower = text.toLowerCase().replace(/\n/g, ' ')
   let c = 0
   let pos = 0
   let idx = lower.indexOf(phrase, pos)
@@ -41,7 +48,10 @@ export function highlightSpans(
 ): React.ReactNode {
   const phrase = searchPhrase(query)
   if (phrase.length < 2 || !text) return text
-  const lower = text.toLowerCase()
+  // Same reasoning as countOcc above -- match against whitespace-collapsed
+  // text, but slice/highlight the ORIGINAL `text` below (indices stay valid
+  // since "\n" -> " " never changes string length).
+  const lower = text.toLowerCase().replace(/\n/g, ' ')
 
   const matches: Array<{ start: number; end: number }> = []
   let scan = 0
