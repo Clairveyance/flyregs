@@ -188,6 +188,23 @@ export default function SavedScreen() {
       })
   }, [bookmarks])
 
+  // The cap has to apply on READ, not just on create. It used to be checked
+  // only inside handleCreateFolder, which meant a Premium account that
+  // downgraded kept every folder it had made -- visible, openable, and
+  // still accepting new items -- because nothing ever re-checked the cap
+  // after the folders already existed. Exactly the shape of the aircraft
+  // cap bug (gotcha_tier_caps_create_time_only.md); this is the other half
+  // of it that was left open.
+  //
+  // Nothing is deleted and nothing is chosen FOR the user: folders already
+  // have a user-controlled drag order, so the ones past the cap are simply
+  // not shown, and reorder mode deliberately shows them all again -- that's
+  // how you pick which three stay live. Same "you choose, we delete
+  // nothing" principle as the aircraft downgrade.
+  const folderCap = isPremium ? Infinity : PLUS_FOLDER_CAP
+  const visibleFolders = folderReorderMode ? folders : folders.slice(0, folderCap)
+  const lockedFolderCount = folders.length - Math.min(folders.length, folderCap)
+
   const load = useCallback(() => {
     getBookmarks().then(setBookmarks)
     getDownloads().then(setDownloads)
@@ -439,7 +456,7 @@ export default function SavedScreen() {
   const handleCreateFolder = async (name: string): Promise<boolean> => {
     // Plus is capped at PLUS_FOLDER_CAP folders; Premium is unlimited -- see
     // flyregs_decisions.md's pricing pivot.
-    if (!isPremium && folders.length >= PLUS_FOLDER_CAP) {
+    if (folders.length >= folderCap) {
       confirm({
         title: 'Folder limit reached',
         message: `Plus includes ${PLUS_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
@@ -691,8 +708,26 @@ export default function SavedScreen() {
         !hasPlusAccess ? (
           <ProWall tokens={tokens} label="Folders" />
         ) : (
+          <>
+          {lockedFolderCount > 0 && !folderReorderMode && (
+            <View style={[styles.folderCapCard, { backgroundColor: tokens.bg2, borderColor: tokens.gold }]}>
+              <Icon name="lock.fill" size={fs(20)} color={tokens.gold} />
+              <Text style={[styles.folderCapTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>
+                {lockedFolderCount} folder{lockedFolderCount === 1 ? '' : 's'} locked
+              </Text>
+              <Text style={[styles.folderCapBody, { color: tokens.t3, fontSize: fs(13) }]}>
+                {`Plus includes ${PLUS_FOLDER_CAP} folders. Nothing has been deleted — use ⋯ › Reorder Folders to drag the ${PLUS_FOLDER_CAP} you want to the top, or go Premium for unlimited.`}
+              </Text>
+              <Pressable
+                style={[styles.folderCapBtn, { backgroundColor: tokens.gold }]}
+                onPress={() => router.push('/paywall?tier=premium' as any)}
+              >
+                <Text style={[styles.folderCapBtnText, { fontSize: fs(13.5) }]}>See Premium</Text>
+              </Pressable>
+            </View>
+          )}
           <FolderListView
-            folders={folders}
+            folders={visibleFolders}
             counts={folderCounts}
             selectMode={folderSelectMode}
             selected={selectedFolders}
@@ -705,6 +740,7 @@ export default function SavedScreen() {
             onReorder={handleFolderReorder}
             onCreateFolder={() => setNewFolderVisible(true)}
           />
+          </>
         )
       ) : tab === 'shared' ? (
         <>
@@ -1430,6 +1466,14 @@ function EmptyState({
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  folderCapCard: {
+    borderRadius: 14, borderWidth: 1, padding: 16, marginHorizontal: 16, marginTop: 12,
+    alignItems: 'center', gap: 8,
+  },
+  folderCapTitle: { fontWeight: '700', textAlign: 'center' },
+  folderCapBody: { textAlign: 'center', lineHeight: 18 },
+  folderCapBtn: { borderRadius: 11, paddingHorizontal: 18, paddingVertical: 9, marginTop: 2 },
+  folderCapBtnText: { color: '#000', fontWeight: '700' },
   root: { flex: 1 },
   sharedList: { padding: 16, gap: 10 },
   sharedRow: {
