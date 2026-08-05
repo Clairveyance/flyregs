@@ -79,17 +79,20 @@ AS $function$
     where ua.user_id = auth.uid() or ac.user_id = auth.uid()
   ),
   visible as (
-    -- Owned aircraft, oldest first, capped. "Oldest" is the one deliberate
-    -- choice here: it's stable (a new save can never bump an existing one
-    -- out of view) and it keeps the aircraft the user has had longest,
-    -- which for the overwhelmingly common case -- one aircraft, always the
-    -- same one -- is simply "theirs."
+    -- ALL-OR-NOTHING, not a slice. RC, 2026-08-05: "the user DOES need to
+    -- choose the a/c to take to Pro, BUT, ALL their Prem a/c are 'locked
+    -- out' until they make this choice, during the d/g process."
+    --
+    -- So being over cap doesn't quietly leave the oldest one working; it
+    -- locks the whole set until the user picks, which is what makes the
+    -- choice actually theirs instead of ours. It's also the better
+    -- behavior for a temporarily lapsed payment: nothing is deleted,
+    -- nothing is silently picked for them, and re-subscribing restores
+    -- everything untouched.
     select m.id, m.make, m.model, m.nickname, m.type_designator, m.year, m.role
-    from (
-      select m2.*, row_number() over (order by m2.created_at asc, m2.id asc) as rn
-      from mine m2 where m2.is_owned
-    ) m
-    where m.rn <= public.fleet_visible_cap()
+    from mine m
+    where m.is_owned
+      and (select count(*) from mine m2 where m2.is_owned) <= public.fleet_visible_cap()
     union all
     -- Shared-in aircraft are a Premium capability in both directions, so
     -- they're all-or-nothing rather than part of the count: a non-Premium

@@ -32,15 +32,19 @@ export function aircraftCapFor(entitlement) {
   return 0
 }
 
-// Returns the set of user_aircraft ids that are currently HIDDEN by their
-// owner's tier, given every aircraft row and every user_entitlements row.
+// Returns the set of user_aircraft ids currently LOCKED by their owner's
+// tier, given every aircraft row and every user_entitlements row.
 //
-// A MISSING entitlement row hides nothing, deliberately -- a sync hiccup
+// ALL-OR-NOTHING, matching get_fleet_summary()'s `visible` CTE. RC,
+// 2026-08-05: "ALL their Prem a/c are 'locked out' until they make this
+// choice, during the d/g process." An account over its cap goes fully
+// quiet -- no pushes for any of its aircraft -- until the user picks which
+// one they're keeping. Half-alerting from an arbitrarily-chosen survivor
+// would be worse than silence: it looks like the others stopped mattering.
+//
+// A MISSING entitlement row locks nothing, deliberately -- a sync hiccup
 // must never silently cut off a paying customer's alerts. The client's own
 // RevenueCat check is what covers that window in-app.
-//
-// Within a tier, the kept aircraft are the OLDEST by created_at: stable, so
-// saving a new one can never bump an existing one out from under its owner.
 export function hiddenAircraftIds(allAircraft, entitlements) {
   const entByUser = new Map((entitlements ?? []).map((e) => [e.user_id, e]))
   const ownedByUser = new Map()
@@ -48,18 +52,12 @@ export function hiddenAircraftIds(allAircraft, entitlements) {
     if (!ownedByUser.has(a.user_id)) ownedByUser.set(a.user_id, [])
     ownedByUser.get(a.user_id).push(a)
   }
-  const hidden = new Set()
+  const locked = new Set()
   for (const [userId, owned] of ownedByUser) {
-    const cap = aircraftCapFor(entByUser.get(userId))
-    if (cap >= owned.length) continue
-    owned
-      .slice()
-      .sort((x, y) =>
-        String(x.created_at).localeCompare(String(y.created_at)) || String(x.id).localeCompare(String(y.id)))
-      .slice(cap)
-      .forEach((a) => hidden.add(a.id))
+    if (owned.length <= aircraftCapFor(entByUser.get(userId))) continue
+    owned.forEach((a) => locked.add(a.id))
   }
-  return hidden
+  return locked
 }
 
 // Users whose tier includes AD push notifications at all. RC, 2026-08-05:

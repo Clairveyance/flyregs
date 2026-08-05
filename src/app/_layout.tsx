@@ -23,6 +23,7 @@ import { Drawer } from '@/components/Drawer'
 import { PersistentTabBar } from '@/components/PersistentTabBar'
 import { AnimatedSplash } from '@/components/AnimatedSplash'
 import { ShareCardProvider } from '@/components/ShareCardCapture'
+import { AircraftDowngradeGate } from '@/components/AircraftDowngradeGate'
 import { IPadSplitViewExperiment } from '@/components/IPadSplitViewExperiment'
 import { initSentry } from '@/lib/sentry'
 
@@ -133,6 +134,12 @@ export default function RootLayout() {
               <Stack.Screen name="privacy" />
               <Stack.Screen name="terms" />
             </Stack>
+            {/* Mounted at the root, not on My Aircraft, deliberately -- a
+                downgrade is processed in Apple's subscription settings,
+                outside this app entirely, so the only chance to catch the
+                user is wherever they happen to be next. See the component
+                for the full reasoning. */}
+            <AircraftDowngradeGate />
           </AppShell>
         </DrawerProvider>
         </ShareCardProvider>

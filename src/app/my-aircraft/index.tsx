@@ -13,7 +13,7 @@ import { suggestTypeDesignator } from '@/lib/aircraftModels'
 import { backfillAircraftAds, getAircraftAdNotifications, type AircraftAdNotification } from '@/lib/adNotifications'
 import { getAircraftReminders, type AircraftReminder } from '@/lib/adParts'
 import {
-  getFleetSummary, getFleetHiddenCount, getOwnedAircraftOldestFirst, keepOnlyAircraft,
+  getFleetSummary,
   type FleetAircraftSummary,
 } from '@/lib/aircraftSharing'
 import { SwipeToDelete } from '@/components/SwipeToDelete'
@@ -307,18 +307,6 @@ export default function MyAircraftScreen() {
   // for why this needs to be a real 3-state value, not just the RPC's
   // overdueReminderCount, to catch "due soon" too).
   const [reminderUrgency, setReminderUrgency] = useState<Record<string, 'overdue' | 'soon' | 'clear'>>({})
-  // Saved-but-hidden aircraft after a Premium -> Pro downgrade. Server-side
-  // truth (get_fleet_hidden_count), so it stays honest even if the client's
-  // own tier read is stale in either direction.
-  const [hiddenCount, setHiddenCount] = useState(0)
-  // Independently tracked because the client re-applies the cap too (see
-  // `load`): if the server ever fails open, this is what still reports the
-  // difference honestly rather than hiding rows with no explanation.
-  const [clientHiddenCount, setClientHiddenCount] = useState(0)
-  // The over-cap aircraft themselves (not just a count) -- a downgraded
-  // user has to pick which one they keep, so the picker needs their names.
-  const [overCapAircraft, setOverCapAircraft] = useState<FleetAircraftSummary[]>([])
-  const [resolvingCap, setResolvingCap] = useState(false)
   const [make, setMake] = useState('')
   const [model, setModel] = useState('')
   const [nickname, setNickname] = useState('')
@@ -389,21 +377,6 @@ export default function MyAircraftScreen() {
     // aircraftSharing.ts's own comment on why this replaced a plain
     // user_aircraft select.
     const aircraftCap = aircraftCapForTier(isPro, isPremium)
-    getFleetHiddenCount().then(setHiddenCount).catch(() => setHiddenCount(0))
-    // Everything past the cap, by the same oldest-first order the server
-    // slices on -- this is what the "choose which one you keep" picker
-    // below offers. Owned only; shared-in aircraft aren't the user's to
-    // keep or delete.
-    getOwnedAircraftOldestFirst()
-      .then((owned) => {
-        setOverCapAircraft(
-          owned.slice(aircraftCap).map((o) => ({
-            aircraftId: o.aircraftId, make: o.make, model: o.model, nickname: o.nickname,
-            typeDesignator: null, year: null, role: 'owner', openAdCount: 0, overdueReminderCount: 0,
-          })) as FleetAircraftSummary[],
-        )
-      })
-      .catch(() => setOverCapAircraft([]))
     getFleetSummary()
       .then((all) => {
         // Second, independent application of the same cap the server just
@@ -415,7 +388,6 @@ export default function MyAircraftScreen() {
         // stat-box totals, the reminder fetch, the cap CTA -- reads from
         // this capped list, so no path re-widens it.
         const rows = all.slice(0, aircraftCap)
-        setClientHiddenCount(all.length - rows.length)
         setAircraft(rows)
         Promise.all(rows.map((a) => getAircraftReminders(a.aircraftId).catch(() => [] as AircraftReminder[])))
           .then((lists) => {
@@ -576,45 +548,6 @@ export default function MyAircraftScreen() {
     )
   }
 
-  // The downgrade resolution. RC: "if going Prem>Pro, then we can't pay to
-  // 'store' anything for Pro users. in this case, they'd have to choose 1
-  // a/c to take w/ them down to Pro." Deliberately the ONLY path that
-  // deletes an over-cap aircraft -- nothing runs automatically, on a timer,
-  // or at the moment of downgrade itself. The user picks, sees exactly what
-  // goes, and confirms; an involuntary downgrade (a card that failed for two
-  // days) can therefore never silently destroy maintenance history.
-  const handleKeepOnly = (keep: FleetAircraftSummary) => {
-    const keepLabel = keep.nickname || `${keep.make} ${keep.model}`
-    const goingLabels = overCapAircraft
-      .concat(aircraft)
-      .filter((a) => a.aircraftId !== keep.aircraftId)
-      .map((a) => a.nickname || `${a.make} ${a.model}`)
-    Alert.alert(
-      `Keep ${keepLabel}?`,
-      `${goingLabels.join(', ')} will be permanently deleted, along with their equipment, reminders, and AD history. This cannot be undone.\n\nUpgrading to Premium instead keeps all of them.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: `Keep ${keepLabel} only`,
-          style: 'destructive',
-          onPress: async () => {
-            setResolvingCap(true)
-            try {
-              await keepOnlyAircraft([keep.aircraftId])
-              setOverCapAircraft([])
-              setHiddenCount(0)
-              setClientHiddenCount(0)
-              load()
-            } catch (e: any) {
-              Alert.alert('Could not update', e?.message ?? 'Please try again.')
-            }
-            setResolvingCap(false)
-          },
-        },
-      ]
-    )
-  }
-
   // Premium sees "My Fleet" (unlimited, sharing-capable) -- Free/Plus/Pro
   // still see "My Aircraft" (capped at 1, no sharing) -- same screen, same
   // Account entry point, RC-confirmed: "so for Prem, does My Aircraft just
@@ -626,10 +559,6 @@ export default function MyAircraftScreen() {
   // legitimately be sitting on more saved aircraft than the Pro cap allows.
   const aircraftCap = aircraftCapForTier(isPro, isPremium)
   const atProCap = aircraft.length >= aircraftCap
-  // Server count and client count are the same number in every normal case;
-  // max() is just so neither layer can under-report if the other is the one
-  // that did the hiding. See `load` for why both exist.
-  const hiddenAircraft = Math.max(hiddenCount, clientHiddenCount)
   const totalOpenAds = aircraft.reduce((sum, a) => sum + a.openAdCount, 0)
   const totalOverdue = aircraft.reduce((sum, a) => sum + a.overdueReminderCount, 0)
   // Ring/legend counts are AIRCRAFT counted in exactly one bucket each (its
@@ -900,45 +829,10 @@ export default function MyAircraftScreen() {
                   support ticket and, worse, looks like data loss. Nothing
                   IS deleted; this says so on the screen where they'd
                   notice, without needing to tap anything first. */}
-              {hiddenAircraft > 0 && (
-                <View style={[styles.capCard, { backgroundColor: tokens.bg2, borderColor: tokens.gold }]}>
-                  <Icon name="airplane" size={fs(22)} color={tokens.gold} />
-                  <Text style={[styles.capTitle, { color: tokens.t1, fontSize: fs(15) }]}>
-                    Choose the aircraft you keep
-                  </Text>
-                  <Text style={[styles.capBody, { color: tokens.t3, fontSize: fs(13.5) }]}>
-                    Saved aircraft are stored on our servers, so they come with Premium. Pro keeps {PRO_AIRCRAFT_CAP === 1 ? 'one' : PRO_AIRCRAFT_CAP} — pick which of your {aircraft.length + overCapAircraft.length} comes with you, or upgrade to keep them all.
-                  </Text>
-                  <Pressable
-                    style={[styles.capBtn, { backgroundColor: tokens.gold }]}
-                    onPress={() => router.push('/paywall?tier=premium' as any)}
-                  >
-                    <Text style={[styles.capBtnText, { fontSize: fs(14) }]}>Keep all with Premium</Text>
-                  </Pressable>
-                  {resolvingCap ? (
-                    <ActivityIndicator color={tokens.t3} style={{ marginTop: 8 }} />
-                  ) : (
-                    <View style={styles.keepList}>
-                      {aircraft.concat(overCapAircraft).map((a) => (
-                        <Pressable
-                          key={a.aircraftId}
-                          style={[styles.keepRow, { borderColor: tokens.bdr }]}
-                          onPress={() => handleKeepOnly(a)}
-                        >
-                          <Icon name="airplane" size={fs(13)} color={tokens.t3} />
-                          <Text style={[styles.keepRowText, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
-                            {a.nickname || `${a.make} ${a.model}`}
-                          </Text>
-                          <Text style={[styles.keepRowAction, { color: tokens.blu, fontSize: fs(12.5) }]}>Keep this</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  )}
-                  <Text style={[styles.capFootnote, { color: tokens.t4, fontSize: fs(11.5) }]}>
-                    Nothing is deleted until you choose.
-                  </Text>
-                </View>
-              )}
+              {/* No inline chooser here any more -- AircraftDowngradeGate
+                  is mounted at the app root and covers this screen along
+                  with every other one, so a second copy would just be the
+                  same modal's content rendered twice underneath it. */}
             </>
           )}
 
@@ -966,10 +860,12 @@ export default function MyAircraftScreen() {
               <Text style={[styles.capTitle, { color: tokens.t1, fontSize: fs(15) }]}>
                 One aircraft at a time on Pro
               </Text>
+              {/* Only ever the at-cap-but-not-OVER-cap case now: being over
+                  cap puts AircraftDowngradeGate's blocking modal on top of
+                  this screen, so the "you have hidden aircraft" variant this
+                  used to carry can't be reached from here any more. */}
               <Text style={[styles.capBody, { color: tokens.t3, fontSize: fs(13.5) }]}>
-                {hiddenAircraft > 0
-                  ? `Pro tracks one aircraft at a time, so ${hiddenAircraft} more you've saved ${hiddenAircraft === 1 ? 'is' : 'are'} hidden — still saved, not deleted. Premium brings ${hiddenAircraft === 1 ? 'it' : 'them'} all back at once.`
-                  : "To swap to a different aircraft, delete this one first — swipe left on it in the list above. Premium tracks as many as you want, all at once."}
+                To swap to a different aircraft, delete this one first — swipe left on it in the list above. Premium tracks as many as you want, all at once.
               </Text>
               <Pressable
                 style={[styles.capBtn, { backgroundColor: tokens.gold }]}
