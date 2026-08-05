@@ -45,6 +45,10 @@ import { useCachedImage } from '@/lib/imageCache'
 // own existing precedent of small per-screen visual helpers (CoinMedal,
 // MagicLinkPod each have their own bespoke gradient logic too).
 const MASTERY_RING_DULL = '#5a5a62'
+// Red Shift: neutral blue-grey isn't red-safe -- same dim warm rust-black
+// used for CoinMedal's locked/dim state, so every "low progress" visual in
+// the app reads consistently under Red Shift.
+const MASTERY_RING_DULL_REDSHIFT = '#4a3530'
 
 function lerpColor(a: string, b: string, t: number): string {
   const hexToRgb = (hex: string): [number, number, number] => {
@@ -59,7 +63,7 @@ function lerpColor(a: string, b: string, t: number): string {
   return `rgb(${r},${g},${bch})`
 }
 
-function MasteryGauge({ pct, tokens, fs }: { pct: number; tokens: ReturnType<typeof useTheme>['tokens']; fs: (n: number) => number }) {
+function MasteryGauge({ pct, tokens, redShift, fs }: { pct: number; tokens: ReturnType<typeof useTheme>['tokens']; redShift: boolean; fs: (n: number) => number }) {
   const glow = useSharedValue(0)
   useEffect(() => {
     if (pct <= 0) { glow.value = 0; return }
@@ -72,7 +76,7 @@ function MasteryGauge({ pct, tokens, fs }: { pct: number; tokens: ReturnType<typ
         styles.masteryGauge,
         {
           backgroundColor: tokens.bg,
-          borderColor: lerpColor(MASTERY_RING_DULL, tokens.gold, pct / 100),
+          borderColor: lerpColor(redShift ? MASTERY_RING_DULL_REDSHIFT : MASTERY_RING_DULL, tokens.gold, pct / 100),
           shadowColor: tokens.gold,
           shadowRadius: 8,
           shadowOffset: { width: 0, height: 0 },
@@ -105,7 +109,7 @@ function DuelRecordBar({ wins, losses, ties, tokens }: { wins: number; losses: n
 
 export default function ProfileScreen() {
   const { userId, label } = useLocalSearchParams<{ userId: string; label?: string }>()
-  const { tokens } = useTheme()
+  const { tokens, redShift } = useTheme()
   const fs = useFS()
   const { session, avatarOverride } = useAuth()
   const isSelf = session?.user.id === userId
@@ -305,7 +309,7 @@ export default function ProfileScreen() {
                 style={[styles.duelCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
                 onPress={isSelf ? () => router.push('/study' as any) : undefined}
               >
-                <MasteryGauge pct={mastery.pct} tokens={tokens} fs={fs} />
+                <MasteryGauge pct={mastery.pct} tokens={tokens} redShift={redShift} fs={fs} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.duelRecord, { color: tokens.t1, fontSize: fs(17) }]}>{mastery.pct}%</Text>
                   <Text style={[styles.duelSub, { color: tokens.t3, fontSize: fs(11.5) }]}>

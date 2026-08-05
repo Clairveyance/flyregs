@@ -21,7 +21,7 @@ export function FormulaRefViewer({
   formulaRef: FormulaRef | null
   onClose: () => void
 }) {
-  const { tokens } = useTheme()
+  const { tokens, redShift } = useTheme()
   const fs = useFS()
   const insets = useSafeAreaInsets()
   // useWindowDimensions (not Dimensions.get, a one-time read) so the image
@@ -69,11 +69,11 @@ export function FormulaRefViewer({
             <Icon name="arrow.clockwise" size={fs(20)} color="#fff" />
           </Pressable>
           <Pressable onPress={onClose} hitSlop={14} style={styles.closeBtn}>
-            <Icon name="xmark" size={fs(20)} color="#fff" />
+            <Icon name="xmark" size={fs(20)} color={redShift ? '#D6553A' : '#fff'} />
           </Pressable>
         </View>
         {formulaRef?.note && (
-          <Text style={[styles.noteText, { fontSize: fs(12.5) }]} numberOfLines={3}>
+          <Text style={[styles.noteText, { fontSize: fs(12.5) }, redShift && { color: '#D6553A' }]} numberOfLines={3}>
             {formulaRef.note}
           </Text>
         )}

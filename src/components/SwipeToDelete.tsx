@@ -3,6 +3,7 @@ import { View, Pressable, Text, StyleSheet } from 'react-native'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import { useFS } from '@/context/fontScale'
+import { useTheme } from '@/context/theme'
 
 // RC: "get rid of all trash cans (on all pages, as able), in favor of
 // swipe to delete (with two step CTA popup verification explaining what
@@ -24,6 +25,7 @@ export function SwipeToDelete({
   children: React.ReactNode
 }) {
   const fs = useFS()
+  const { tokens } = useTheme()
   const translateX = useSharedValue(0)
   const swiped = useRef(false)
 
@@ -68,7 +70,7 @@ export function SwipeToDelete({
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.removeBg}>
+      <View style={[styles.removeBg, { backgroundColor: tokens.red }]}>
         <Pressable style={styles.removeAction} onPress={handleSwipeDelete}>
           <Text style={[styles.removeActionText, { fontSize: fs(12) }]}>Delete</Text>
         </Pressable>
@@ -86,7 +88,7 @@ const styles = StyleSheet.create({
   wrap: { overflow: 'hidden' },
   removeBg: {
     position: 'absolute', top: 0, bottom: 0, right: 0, width: 84,
-    backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center',
+    justifyContent: 'center', alignItems: 'center',
   },
   removeAction: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' },
   removeActionText: { color: '#fff', fontWeight: '700', fontSize: 12 },

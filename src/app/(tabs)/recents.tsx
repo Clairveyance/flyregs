@@ -384,7 +384,7 @@ export default function RecentsScreen() {
               hitSlop={8}
               style={{ opacity: selected.size > 0 ? 1 : 0.4 }}
             >
-              <Icon name="trash" size={fs(23)} color="#ef4444" />
+              <Icon name="trash" size={fs(23)} color={tokens.red} />
             </Pressable>
           </View>
         </View>
@@ -486,7 +486,7 @@ function SwipeableRecentRow({
 
   return (
     <View style={styles.swipeWrap}>
-      <View style={styles.removeBg}>
+      <View style={[styles.removeBg, { backgroundColor: tokens.red }]}>
         <Pressable
           style={styles.removeAction}
           onPress={() => {
@@ -597,7 +597,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0, bottom: 0, right: 0,
     width: 84,
-    backgroundColor: '#ef4444',
     justifyContent: 'center',
     alignItems: 'center',
   },

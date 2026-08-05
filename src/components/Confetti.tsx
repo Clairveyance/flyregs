@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { View, StyleSheet, Dimensions } from 'react-native'
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, withDelay, Easing } from 'react-native-reanimated'
+import { useTheme } from '@/context/theme'
 
 // Expo's managed workflow has no access to UIKit's native confetti/balloon
 // emitter (that's a from-scratch native module, not something Expo exposes)
@@ -10,10 +11,15 @@ import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, withDelay, Ea
 // no interaction, unmounts with the results screen.
 const { width: SCREEN_W } = Dimensions.get('window')
 const COLORS = ['#FFD700', '#FF6B6B', '#4ECDC4', '#95E1D3', '#F38181', '#AA96DA', '#FFA45B']
+// Red Shift: the cyan/mint/lavender stops above are the opposite of
+// night-vision-safe -- reused straight from the app's own redshift tokens
+// (gold, red, blu, t1, blt, blu-deep, amb) so the burst still feels varied
+// without leaving the red/orange band.
+const COLORS_REDSHIFT = ['#FF9A2E', '#FF2D12', '#E0562E', '#FF6A4D', '#FF8F63', '#B8541A', '#F2701A']
 const PIECE_COUNT = 28
 const FALL_DISTANCE = 640
 
-function ConfettiPiece({ index }: { index: number }) {
+function ConfettiPiece({ index, colors }: { index: number; colors: readonly string[] }) {
   // Randomized once per piece on mount, not re-rolled on re-render.
   const { startX, drift, delay, duration, rotateEnd, size } = useMemo(
     () => ({
@@ -26,7 +32,7 @@ function ConfettiPiece({ index }: { index: number }) {
     }),
     []
   )
-  const color = COLORS[index % COLORS.length]
+  const color = colors[index % colors.length]
 
   const progress = useSharedValue(0)
   useEffect(() => {
@@ -50,10 +56,12 @@ function ConfettiPiece({ index }: { index: number }) {
 }
 
 export function ConfettiBurst() {
+  const { redShift } = useTheme()
+  const colors = redShift ? COLORS_REDSHIFT : COLORS
   return (
     <View style={styles.wrap} pointerEvents="none">
       {Array.from({ length: PIECE_COUNT }).map((_, i) => (
-        <ConfettiPiece key={i} index={i} />
+        <ConfettiPiece key={i} index={i} colors={colors} />
       ))}
     </View>
   )

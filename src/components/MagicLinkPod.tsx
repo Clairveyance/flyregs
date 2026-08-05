@@ -32,13 +32,19 @@ interface RelatedItem {
 // same stops.
 const GOLD_SPECTRUM_DARK = ['#C6A224', '#F0D890', '#E8A860', '#D98F5C', '#C6A224'] as const
 const GOLD_SPECTRUM_LIGHT = ['#A87C00', '#C9962E', '#B8601E', '#8F4A1E', '#A87C00'] as const
+// Red Shift: same 5-stop sweep shape (hero -> highlight -> mid -> deep ->
+// back to hero) as the dark/light spectrums above, but every stop kept
+// low-blue/low-green so the shimmer stays night-vision-safe instead of
+// just being a paler gold.
+const GOLD_SPECTRUM_REDSHIFT = ['#FF9A2E', '#FFB864', '#FF7A1E', '#D9481A', '#FF9A2E'] as const
 
-function goldSpectrumFor(isDark: boolean): readonly string[] {
+function goldSpectrumFor(isDark: boolean, redShift: boolean): readonly string[] {
+  if (redShift) return GOLD_SPECTRUM_REDSHIFT
   return isDark ? GOLD_SPECTRUM_DARK : GOLD_SPECTRUM_LIGHT
 }
 
-function borderGradientColorsFor(isDark: boolean): [string, string, ...string[]] {
-  const spectrum = goldSpectrumFor(isDark)
+function borderGradientColorsFor(isDark: boolean, redShift: boolean): [string, string, ...string[]] {
+  const spectrum = goldSpectrumFor(isDark, redShift)
   return ['transparent', spectrum[0], spectrum[1], spectrum[2], spectrum[3], spectrum[4], 'transparent']
 }
 
@@ -96,10 +102,10 @@ export function MagicLinkPod({
   currentLabel?: string
   hasProAccess: boolean
 }) {
-  const { tokens, resolved } = useTheme()
+  const { tokens, resolved, redShift } = useTheme()
   const fs = useFS()
-  const spectrum = goldSpectrumFor(resolved === 'dark')
-  const borderGradientColors = borderGradientColorsFor(resolved === 'dark')
+  const spectrum = goldSpectrumFor(resolved === 'dark', redShift)
+  const borderGradientColors = borderGradientColorsFor(resolved === 'dark', redShift)
   const anyItems = bars.some((b) => b.items.length > 0)
   const totalCount = bars.reduce((sum, b) => sum + b.items.length, 0)
   const rotation = useSharedValue(0)

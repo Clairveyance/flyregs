@@ -15,7 +15,12 @@ export const WORDMARK_FONT = Platform.select({ web: 'Montserrat', default: 'Mont
 // gold-on-white.
 export const WORDMARK_GOLD_DARK = '#E4C775'
 export const WORDMARK_GOLD_LIGHT = '#8F6A2E'
+// Red Shift always normalizes Appearance to Dark, so only one variant is
+// needed here -- matches theme.tsx's redshiftTokens.gold rather than
+// sampling the source artwork (which has real yellow/green content).
+export const WORDMARK_GOLD_REDSHIFT = '#FF9A2E'
 
-export function wordmarkGoldFor(resolved: 'dark' | 'light'): string {
+export function wordmarkGoldFor(resolved: 'dark' | 'light', redShift?: boolean): string {
+  if (redShift) return WORDMARK_GOLD_REDSHIFT
   return resolved === 'dark' ? WORDMARK_GOLD_DARK : WORDMARK_GOLD_LIGHT
 }

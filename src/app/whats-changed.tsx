@@ -34,7 +34,7 @@ function groupByDate(revisions: ContentRevision[]): RevisionSection[] {
 }
 
 export default function WhatsChangedScreen() {
-  const { tokens } = useTheme()
+  const { tokens, redShift } = useTheme()
   const fs = useFS()
   const { hasPlusAccess } = useAuth()
   const [revisions, setRevisions] = useState<ContentRevision[]>([])
@@ -94,6 +94,7 @@ export default function WhatsChangedScreen() {
               <RevisionRow
                 item={item}
                 tokens={tokens}
+                redShift={redShift}
                 fs={fs}
                 expanded={expanded === item.id}
                 onToggle={() => setExpanded((prev) => (prev === item.id ? null : item.id))}
@@ -109,12 +110,14 @@ export default function WhatsChangedScreen() {
 function RevisionRow({
   item,
   tokens,
+  redShift,
   fs,
   expanded,
   onToggle,
 }: {
   item: ContentRevision
   tokens: ReturnType<typeof useTheme>['tokens']
+  redShift: boolean
   fs: (n: number) => number
   expanded: boolean
   onToggle: () => void
@@ -150,7 +153,7 @@ function RevisionRow({
             </View>
           ))}
           {removed.map((p, i) => (
-            <View key={`r${i}`} style={[styles.diffLine, { backgroundColor: 'rgba(220,60,60,0.08)', borderColor: 'rgba(220,60,60,0.3)' }]}>
+            <View key={`r${i}`} style={[styles.diffLine, redShift ? { backgroundColor: 'rgba(255,45,18,0.08)', borderColor: 'rgba(255,45,18,0.3)' } : { backgroundColor: 'rgba(220,60,60,0.08)', borderColor: 'rgba(220,60,60,0.3)' }]}>
               <Text style={[styles.diffMark, { color: tokens.red, fontSize: fs(13) }]}>−</Text>
               <Text style={[styles.diffText, styles.diffTextRemoved, { color: tokens.t3, fontSize: fs(13) }]}>{p}</Text>
             </View>

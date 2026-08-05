@@ -41,6 +41,10 @@ import { useFS } from '@/context/fontScale'
 const BADGE_GOLD_DARK = ['#F0D890', '#D4AF37', '#B8860B'] as const
 const BADGE_GOLD_LIGHT = ['#E8C468', '#C9A227', '#A8790F'] as const
 const GOLD_INK = '#3D2B00'
+// Red Shift: same 3-stop shape, reusing CoinMedal's own gold-rim colors so
+// "Premium/gold" looks identical everywhere it appears under Red Shift.
+const BADGE_GOLD_REDSHIFT = ['#FFC178', '#FF9A2E', '#B8541A'] as const
+const GOLD_INK_REDSHIFT = '#3A1400'
 
 const WING_ASPECT = 971 / 1071 // flyregs-wing.png width/height
 
@@ -152,7 +156,7 @@ const PRICING = {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function PaywallScreen() {
-  const { tokens, resolved } = useTheme()
+  const { tokens, resolved, redShift } = useTheme()
   const fs = useFS()
   const { session, isPro, isPremium, isUnlocked, hasPlusAccess, setIsPro, setIsPremium, setIsUnlocked } = useAuth()
   const insets = useSafeAreaInsets()
@@ -323,7 +327,7 @@ export default function PaywallScreen() {
             style={{ width: fs(54), height: fs(54) / WING_ASPECT, marginBottom: 2 }}
             resizeMode="contain"
           />
-          <TierBadge tier={badgeTier} tokens={tokens} fs={fs} isDark={resolved === 'dark'} />
+          <TierBadge tier={badgeTier} tokens={tokens} fs={fs} isDark={resolved === 'dark'} redShift={redShift} />
           {premiumRequired ? (
             <>
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>This is a Premium feature</Text>
@@ -470,7 +474,7 @@ export default function PaywallScreen() {
           <Text style={[styles.pickLabel, { color: tokens.t3, fontSize: fs(11) }]}>
             {tier === 'plus' ? 'ONE-TIME PURCHASE' : 'CHOOSE A PLAN'}
           </Text>
-          <TierBadge tier={badgeTier} tokens={tokens} fs={fs} isDark={resolved === 'dark'} compact />
+          <TierBadge tier={badgeTier} tokens={tokens} fs={fs} isDark={resolved === 'dark'} redShift={redShift} compact />
         </View>
         {tier === 'plus' ? (
           <Pressable
@@ -615,17 +619,18 @@ function GoldCta({
 // which plan a user is about to buy.
 
 function TierBadge({
-  tier, tokens, fs, compact, isDark,
+  tier, tokens, fs, compact, isDark, redShift,
 }: {
   tier: Tier
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
   compact?: boolean
   isDark: boolean
+  redShift: boolean
 }) {
   const isPremium = tier === 'premium'
   const isPlus = tier === 'plus'
-  const accentColor = isPremium ? GOLD_INK : isPlus ? tokens.amb : tokens.blu
+  const accentColor = isPremium ? (redShift ? GOLD_INK_REDSHIFT : GOLD_INK) : isPlus ? tokens.amb : tokens.blu
   const bg = isPlus ? tokens.amb + '20' : tokens.bdim
   const bdr = isPremium ? tokens.goldbdr : isPlus ? tokens.amb + '48' : tokens.bbdr
 
@@ -651,7 +656,7 @@ function TierBadge({
   if (isPremium) {
     return (
       <LinearGradient
-        colors={isDark ? BADGE_GOLD_DARK : BADGE_GOLD_LIGHT}
+        colors={redShift ? BADGE_GOLD_REDSHIFT : isDark ? BADGE_GOLD_DARK : BADGE_GOLD_LIGHT}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={[styles.tierBadge, compact && styles.tierBadgeCompact, { borderColor: bdr }]}

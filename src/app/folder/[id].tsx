@@ -638,7 +638,7 @@ function SwipeableACRow({
 
   return (
     <View style={styles.swipeWrap}>
-      <View style={styles.removeBg}>
+      <View style={[styles.removeBg, { backgroundColor: tokens.red }]}>
         <Pressable style={styles.removeAction} onPress={() => {
           Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start()
           swiped.current = false
@@ -748,7 +748,7 @@ function SwipeableNoteRow({
 
   return (
     <View style={styles.swipeWrap}>
-      <View style={styles.removeBg}>
+      <View style={[styles.removeBg, { backgroundColor: tokens.red }]}>
         <Pressable style={styles.removeAction} onPress={() => {
           Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start()
           swiped.current = false
@@ -856,7 +856,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0, bottom: 0, right: 0,
     width: 76,
-    backgroundColor: '#F87171',
     justifyContent: 'center',
     alignItems: 'center',
   },

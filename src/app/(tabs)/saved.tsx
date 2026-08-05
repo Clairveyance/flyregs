@@ -60,12 +60,23 @@ import { getAvatarPreset } from '@/lib/avatarPresets'
 
 type Tab = 'all' | 'folders' | 'shared' | 'offline'
 
+// Highlighter yellow is the one accent family in this screen that isn't a
+// theme token -- under Red Shift it's recolored into the same rust-tone
+// language as theme.tsx's redshiftTokens rather than staying a literal
+// yellow (R+G both high, exactly what red-shift needs to avoid).
+const HIGHLIGHT_BG = 'rgba(255, 213, 0, 0.12)'
+const HIGHLIGHT_BDR = 'rgba(255, 213, 0, 0.4)'
+const HIGHLIGHT_TEXT = '#8a6d00'
+const HIGHLIGHT_BG_REDSHIFT = 'rgba(224, 86, 46, 0.16)'
+const HIGHLIGHT_BDR_REDSHIFT = 'rgba(224, 86, 46, 0.45)'
+const HIGHLIGHT_TEXT_REDSHIFT = '#FF9A6B'
+
 // Plus: 3 folders. Premium: unlimited -- a second concrete Plus->Premium
 // upgrade lever alongside the aircraft cap. See flyregs_decisions.md.
 const PLUS_FOLDER_CAP = 3
 
 export default function SavedScreen() {
-  const { tokens } = useTheme()
+  const { tokens, redShift } = useTheme()
   const fs = useFS()
   // Bookmarks/Folders are Plus-tier (hasPlusAccess); cloud sync is Pro-tier
   // (isPro); shared/collaborative folders and offline stay Premium-only --
@@ -662,6 +673,7 @@ export default function SavedScreen() {
                     <BookmarkRow
                       item={item}
                       tokens={tokens}
+                      redShift={redShift}
                       selectMode={selectMode}
                       selected={selected.has(item.id)}
                       stale={staleHighlightIds.has(item.id)}
@@ -973,6 +985,7 @@ function FolderEditor({
 function BookmarkRow({
   item,
   tokens,
+  redShift,
   selectMode,
   selected,
   stale,
@@ -986,6 +999,7 @@ function BookmarkRow({
 }: {
   item: BookmarkAC
   tokens: ReturnType<typeof useTheme>['tokens']
+  redShift: boolean
   selectMode: boolean
   selected: boolean
   stale?: boolean
@@ -1083,8 +1097,8 @@ function BookmarkRow({
                 ) : null}
                 {item.blockText ? (
                   <>
-                    <View style={[styles.highlightTag, { backgroundColor: 'rgba(255, 213, 0, 0.12)', borderColor: 'rgba(255, 213, 0, 0.4)' }]}>
-                      <Text style={{ color: '#8a6d00', fontWeight: '700', fontSize: fs(10.5) }}>
+                    <View style={[styles.highlightTag, { backgroundColor: redShift ? HIGHLIGHT_BG_REDSHIFT : HIGHLIGHT_BG, borderColor: redShift ? HIGHLIGHT_BDR_REDSHIFT : HIGHLIGHT_BDR }]}>
+                      <Text style={{ color: redShift ? HIGHLIGHT_TEXT_REDSHIFT : HIGHLIGHT_TEXT, fontWeight: '700', fontSize: fs(10.5) }}>
                         {item.blockLabel ? `§ ${item.blockLabel} ` : 'HIGHLIGHT '}
                       </Text>
                       <Text numberOfLines={1} style={{ color: tokens.t2, fontSize: fs(11.5), flex: 1 }}>
@@ -1093,17 +1107,17 @@ function BookmarkRow({
                     </View>
                     {stale && (
                       <View style={styles.staleTag}>
-                        <Icon name="exclamationmark.triangle" size={fs(11)} color="#b45309" />
-                        <Text style={{ color: '#b45309', fontSize: fs(10.5), fontWeight: '600' }}>
+                        <Icon name="exclamationmark.triangle" size={fs(11)} color={tokens.amb} />
+                        <Text style={{ color: tokens.amb, fontSize: fs(10.5), fontWeight: '600' }}>
                           Section changed — won't jump to this spot anymore
                         </Text>
                       </View>
                     )}
                   </>
                 ) : hasHighlight ? (
-                  <View style={[styles.highlightTag, { backgroundColor: 'rgba(255, 213, 0, 0.12)', borderColor: 'rgba(255, 213, 0, 0.4)' }]}>
-                    <Icon name="highlighter" size={fs(11)} color="#8a6d00" />
-                    <Text style={{ color: '#8a6d00', fontWeight: '700', fontSize: fs(10.5), marginLeft: 4 }}>
+                  <View style={[styles.highlightTag, { backgroundColor: redShift ? HIGHLIGHT_BG_REDSHIFT : HIGHLIGHT_BG, borderColor: redShift ? HIGHLIGHT_BDR_REDSHIFT : HIGHLIGHT_BDR }]}>
+                    <Icon name="highlighter" size={fs(11)} color={redShift ? HIGHLIGHT_TEXT_REDSHIFT : HIGHLIGHT_TEXT} />
+                    <Text style={{ color: redShift ? HIGHLIGHT_TEXT_REDSHIFT : HIGHLIGHT_TEXT, fontWeight: '700', fontSize: fs(10.5), marginLeft: 4 }}>
                       Tap to view highlighted section
                     </Text>
                   </View>

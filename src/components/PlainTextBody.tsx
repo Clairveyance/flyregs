@@ -362,7 +362,7 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
    * exactly as before. See src/lib/regMnemonics.ts. */
   mnemonicAnchors?: MnemonicAnchor[]
 }>(function PlainTextBody({ text, figures, onOpenFigure, resolveFigureGlobally, onNavigate, currentLabel, highlightQuery, activeMatch, onMatchCount, scrollRef, viewportHeight, changedIndices, mnemonicAnchors }, ref) {
-  const { tokens } = useTheme()
+  const { tokens, redShift } = useTheme()
   const fs = useFS()
   // Same approximation of scrollIntoView({block:'center'}) as ACBody -- see
   // its own viewportHeight comment. Real device, real bug: matches landed
@@ -596,7 +596,7 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
             >
               {withChangedRail(i,
                 <Text style={[styles.para, { color: tokens.t2, fontSize: fs(14.5) }]}>
-                  {highlightSpans(para, hq, { base: paraBase.get(i) ?? 0, active: activeMatch })}
+                  {highlightSpans(para, hq, { base: paraBase.get(i) ?? 0, active: activeMatch, redShift })}
                 </Text>
               )}
             </View>

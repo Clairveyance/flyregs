@@ -14,7 +14,7 @@ import type { CoinDef } from '@/lib/coins'
 // CoinMedal's own tier escalation (bevel ring + glow, see that file) reads
 // as "more ornate = harder-won" -- the reveal now does too.
 export function CoinRevealModal({ coin, onClose }: { coin: CoinDef | null; onClose: () => void }) {
-  const { tokens } = useTheme()
+  const { tokens, redShift } = useTheme()
   const fs = useFS()
   const scale = useSharedValue(0.3)
   const rotate = useSharedValue(-25)
@@ -48,7 +48,7 @@ export function CoinRevealModal({ coin, onClose }: { coin: CoinDef | null; onClo
         </Reanimated.View>
         <Text style={[styles.eyebrow, { color: tokens.gold, fontSize: fs(11.5) }]}>COIN EARNED</Text>
         <Text style={[styles.name, { color: '#fff', fontSize: fs(21) }]}>{coin.name}</Text>
-        <Text style={[styles.desc, { color: 'rgba(255,255,255,0.7)', fontSize: fs(14) }]}>{coin.description}</Text>
+        <Text style={[styles.desc, { color: redShift ? '#D6553A' : 'rgba(255,255,255,0.7)', fontSize: fs(14) }]}>{coin.description}</Text>
         <Pressable style={[styles.btn, { backgroundColor: tokens.gold }]} onPress={onClose}>
           <Text style={[styles.btnText, { fontSize: fs(15) }]}>Nice!</Text>
         </Pressable>

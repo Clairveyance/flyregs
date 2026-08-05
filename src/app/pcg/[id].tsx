@@ -50,7 +50,7 @@ interface RelatedItem {
 // subscribe.
 export default function PcgTermScreen() {
   const { id, hl } = useLocalSearchParams<{ id: string; hl?: string }>()
-  const { tokens } = useTheme()
+  const { tokens, redShift } = useTheme()
   const fs = useFS()
   const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
   const [term, setTerm] = useState<PcgTerm | null>(null)
@@ -436,7 +436,7 @@ export default function PcgTermScreen() {
                   // Same simplification PlainTextBody/ACBody make while
                   // actively searching: plain highlighted text, hyperlinks
                   // suppressed for the duration of the search.
-                  highlightSpans(para, hq, { base: defParaBase[i] ?? 0, active: inDocSearch.matchIdx })
+                  highlightSpans(para, hq, { base: defParaBase[i] ?? 0, active: inDocSearch.matchIdx, redShift })
                 ) : (
                   linkifyText(para).map((seg, si) =>
                     seg.route ? (

@@ -375,7 +375,7 @@ function SwipeableFolderRow({
       style={[styles.swipeWrap, isDragging && styles.swipeWrapDragging]}
       onLayout={(e) => onLayoutHeight?.(e.nativeEvent.layout.height)}
     >
-      <View style={styles.removeBg}>
+      <View style={[styles.removeBg, { backgroundColor: tokens.red }]}>
         <Pressable style={styles.removeAction} onPress={handleSwipeDelete}>
           <Text style={[styles.removeActionText, { fontSize: fs(12) }]}>Delete</Text>
         </Pressable>
@@ -476,7 +476,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0, bottom: 0, right: 0,
     width: 84,
-    backgroundColor: '#ef4444',
     justifyContent: 'center',
     alignItems: 'center',
   },

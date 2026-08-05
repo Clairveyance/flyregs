@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { View, Text, Image, Pressable, StyleSheet, Alert, Platform, Linking, PanResponder, ScrollView } from 'react-native'
+import { View, Text, Image, Pressable, StyleSheet, Alert, Platform, Linking, PanResponder, ScrollView, Switch } from 'react-native'
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -91,7 +91,7 @@ function DrawerContent({
   onClose: () => void
 }) {
   const { session, isPro, isPremium, isUnlocked, setIsPro, setIsPremium, setIsUnlocked, avatarOverride } = useAuth()
-  const { mode, setMode } = useTheme()
+  const { mode, setMode, redShift, setRedShift } = useTheme()
   const { fontScale, setFontScale } = useFontScale()
   const fs = useFS()
   const { badgeDays, setBadgeDays: updateBadgeDays } = useBadgeLifespan()
@@ -228,6 +228,21 @@ function DrawerContent({
         <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14) }]}>Appearance</Text>
       </View>
       <AppearancePicker mode={mode} setMode={setMode} tokens={tokens} />
+
+      {/* Red Shift — manual-only night-vision mode (RC: no auto-switching).
+          Toggling either direction normalizes Appearance to Dark underneath
+          it, so turning Red Shift off always lands somewhere predictable. */}
+      <View style={styles.appearanceRow}>
+        <View style={styles.rowIcon}>
+          <Icon name="eye.fill" size={fs(17)} color={redShift ? tokens.red : tokens.t2} />
+        </View>
+        <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14) }]}>Red Shift</Text>
+        <Switch
+          value={redShift}
+          onValueChange={setRedShift}
+          trackColor={{ true: tokens.red, false: undefined }}
+        />
+      </View>
 
       {/* Badge Duration — inline picker. Row's leading visual is three small
           NEW/UPD/VER-colored dots (matching acBadge.ts's colors exactly)
@@ -479,13 +494,11 @@ function TierPill({
 }) {
   // Plus (isUnlocked) sits below Pro -- Pro/Premium subscribers already have
   // hasPlusAccess included, so this branch only ever fires for someone who
-  // bought Plus without also subscribing. No dedicated amb-dim/amb-border
-  // theme tokens exist yet, so this uses the same inline-rgba pattern the
-  // website's .card-tag.plus CSS class uses for the same amber accent.
+  // bought Plus without also subscribing.
   const tier = isPremium ? 'Premium' : isPro ? 'Pro' : isUnlocked ? 'Plus' : 'Free'
   const color = isPremium ? tokens.gold : isPro ? tokens.blu : isUnlocked ? tokens.amb : tokens.t3
-  const bg = isPremium ? tokens.goldlt : isPro ? tokens.bdim : isUnlocked ? 'rgba(245,158,11,0.12)' : tokens.bg3
-  const bdr = isPremium ? tokens.goldbdr : isPro ? tokens.bbdr : isUnlocked ? 'rgba(245,158,11,0.28)' : tokens.bdr
+  const bg = isPremium ? tokens.goldlt : isPro ? tokens.bdim : isUnlocked ? tokens.adim : tokens.bg3
+  const bdr = isPremium ? tokens.goldbdr : isPro ? tokens.bbdr : isUnlocked ? tokens.abdr : tokens.bdr
   return (
     <View style={[styles.tierPill, { backgroundColor: bg, borderColor: bdr }]}>
       <Text style={[styles.tierPillText, { color, fontSize: fs(8.5) }]} numberOfLines={1}>{tier.toUpperCase()}</Text>

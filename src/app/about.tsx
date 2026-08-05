@@ -16,7 +16,7 @@ import {
 } from '@/lib/appInfo'
 
 export default function AboutScreen() {
-  const { tokens, resolved } = useTheme()
+  const { tokens, resolved, redShift } = useTheme()
   const fs = useFS()
   const insets = useSafeAreaInsets()
   const backToMenu = useReturnToMenu()
@@ -31,7 +31,7 @@ export default function AboutScreen() {
             source={require('@/assets/images/icon.png')}
             style={[styles.logo, { borderColor: tokens.bdr2 }]}
           />
-          <Text style={[styles.appName, { color: wordmarkGoldFor(resolved), fontSize: fs(24), fontFamily: WORDMARK_FONT }]}>{APP_NAME}</Text>
+          <Text style={[styles.appName, { color: wordmarkGoldFor(resolved, redShift), fontSize: fs(24), fontFamily: WORDMARK_FONT }]}>{APP_NAME}</Text>
           <Text style={[styles.tagline, { color: tokens.t3, fontSize: fs(13.5) }]}>
             The complete FAA regulatory reference
           </Text>

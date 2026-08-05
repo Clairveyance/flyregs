@@ -17,8 +17,8 @@ export function TierChip({ tier }: { tier: Tier }) {
   const { tokens } = useTheme()
   const fs = useFS()
   const color = tier === 'premium' ? tokens.gold : tier === 'pro' ? tokens.blu : tokens.amb
-  const bg = tier === 'premium' ? tokens.goldlt : tier === 'pro' ? tokens.bdim : 'rgba(245,158,11,0.12)'
-  const bdr = tier === 'premium' ? tokens.goldbdr : tier === 'pro' ? tokens.bbdr : 'rgba(245,158,11,0.28)'
+  const bg = tier === 'premium' ? tokens.goldlt : tier === 'pro' ? tokens.bdim : tokens.adim
+  const bdr = tier === 'premium' ? tokens.goldbdr : tier === 'pro' ? tokens.bbdr : tokens.abdr
   return (
     <View style={[styles.pill, { backgroundColor: bg, borderColor: bdr }]}>
       <Text style={[styles.text, { color, fontSize: fs(8.5) }]} numberOfLines={1}>{tier.toUpperCase()}</Text>

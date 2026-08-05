@@ -1,5 +1,8 @@
-import React, { createContext, useContext, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState } from 'react'
 import { useColorScheme } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+
+const REDSHIFT_KEY = '@flyregs/redshift'
 
 export type ThemeMode = 'dark' | 'light' | 'auto'
 export type ResolvedTheme = 'dark' | 'light'
@@ -118,11 +121,63 @@ export const lightTokens: ThemeTokens = {
   bdr2: 'rgba(0,0,0,0.20)',
 }
 
+// Real red-shift (night-vision-preserving) lighting: rod cells that drive
+// dark adaptation are insensitive to red but very sensitive to blue/green,
+// so ANY blue/green content in emitted light ruins night vision. Every
+// token here is R-dominant with G/B pushed near zero -- semantic colors
+// that normally differ by HUE (blu/grn/amb/red) are differentiated by
+// luminance and saturation instead, since hue is no longer available.
+// RC-approved direction: real per-component rebuild, not a screen tint --
+// this object is the whole point. First-pass values, expect tuning once
+// RC sees it live, same as every other color choice this session.
+export const redshiftTokens: ThemeTokens = {
+  bg: '#0F0503',
+  bg2: '#190805',
+  bg3: '#241009',
+  bg4: '#31160C',
+  inp: '#140603',
+  t1: '#FF6A4D',
+  t2: '#D6553A',
+  t3: '#A3402A',
+  t4: '#6E2D1D',
+  // Ordered least-to-most "attention" the same way the four semantic
+  // colors are normally read (grn=calm < blu=neutral/interactive <
+  // amb=caution < red=alarm), via brightness/saturation instead of hue.
+  blu: '#E0562E',
+  bdim: 'rgba(224,86,46,0.12)',
+  bbdr: 'rgba(224,86,46,0.30)',
+  blt: '#FF8F63',
+  grn: '#8A4028',
+  gdim: 'rgba(138,64,40,0.10)',
+  gbdr: 'rgba(138,64,40,0.26)',
+  amb: '#F2701A',
+  adim: 'rgba(242,112,26,0.12)',
+  abdr: 'rgba(242,112,26,0.30)',
+  red: '#FF2D12',
+  // Premium accent stays the brightest/most saturated tone overall so
+  // badges still pop; still fully within the red-orange band.
+  gold: '#FF9A2E',
+  goldlt: 'rgba(255,154,46,0.12)',
+  goldbdr: 'rgba(255,154,46,0.32)',
+  // "Silver" is normally neutral grey (R=G=B), which isn't red-safe --
+  // desaturated warm rust reads as "the neutral/metallic one" relative to
+  // the saturated accents without reintroducing green/blue.
+  slv: '#8F6252',
+  slvlt: 'rgba(143,98,82,0.10)',
+  slvbdr: 'rgba(143,98,82,0.35)',
+  slvhi: '#C4906F',
+  slvlo: '#5C3A2E',
+  bdr: 'rgba(255,80,50,0.08)',
+  bdr2: 'rgba(255,80,50,0.16)',
+}
+
 interface ThemeContextValue {
   mode: ThemeMode
   resolved: ResolvedTheme
   tokens: ThemeTokens
   setMode: (m: ThemeMode) => void
+  redShift: boolean
+  setRedShift: (v: boolean) => void
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
@@ -130,14 +185,29 @@ const ThemeContext = createContext<ThemeContextValue | null>(null)
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme() ?? 'dark'
   const [mode, setMode] = useState<ThemeMode>('dark')
+  const [redShift, setRedShiftState] = useState(false)
+
+  useEffect(() => {
+    AsyncStorage.getItem(REDSHIFT_KEY).then((raw) => {
+      if (raw === '1') setRedShiftState(true)
+    })
+  }, [])
 
   const resolved: ResolvedTheme =
     mode === 'auto' ? (systemScheme as ResolvedTheme) : mode
 
-  const tokens = resolved === 'dark' ? darkTokens : lightTokens
+  const tokens = redShift ? redshiftTokens : resolved === 'dark' ? darkTokens : lightTokens
+
+  // RC: "anytime it gets toggled ON/OFF, the default mode w/o it is Dark" --
+  // normalize mode on both transitions, not just when turning on.
+  const setRedShift = (v: boolean) => {
+    setRedShiftState(v)
+    setMode('dark')
+    AsyncStorage.setItem(REDSHIFT_KEY, v ? '1' : '0')
+  }
 
   return (
-    <ThemeContext.Provider value={{ mode, resolved, tokens, setMode }}>
+    <ThemeContext.Provider value={{ mode, resolved, tokens, setMode, redShift, setRedShift }}>
       {children}
     </ThemeContext.Provider>
   )

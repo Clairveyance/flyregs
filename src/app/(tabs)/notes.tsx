@@ -428,7 +428,7 @@ export default function NotesScreen() {
               hitSlop={8}
               style={{ opacity: selected.size > 0 ? 1 : 0.4 }}
             >
-              <Icon name="trash" size={fs(23)} color="#ef4444" />
+              <Icon name="trash" size={fs(23)} color={tokens.red} />
             </Pressable>
           </View>
         </View>
@@ -529,7 +529,7 @@ function SwipeableNoteCard({
   return (
     <View style={styles.swipeWrap}>
       {/* Red delete background */}
-      <View style={styles.deleteBg}>
+      <View style={[styles.deleteBg, { backgroundColor: tokens.red }]}>
         <Pressable style={styles.deleteAction} onPress={() => {
           translateX.value = withSpring(0, { damping: 18, stiffness: 280 })
           swiped.current = false
@@ -819,7 +819,7 @@ function NoteEditor({
           )}
           {onDelete && (
             <Pressable onPress={onDelete} hitSlop={10} style={styles.editorDeleteBtn}>
-              <Icon name="trash" size={fs(21)} color="#ef4444" />
+              <Icon name="trash" size={fs(21)} color={tokens.red} />
             </Pressable>
           )}
           <Pressable onPress={handleDone} style={[styles.doneBtn, { backgroundColor: tokens.blu }]}>
@@ -1103,7 +1103,7 @@ const styles = StyleSheet.create({
   swipeWrap: { marginBottom: 8, borderRadius: 14, overflow: 'hidden' },
   deleteBg: {
     position: 'absolute', top: 0, bottom: 0, right: 0, width: 84,
-    backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center',
+    justifyContent: 'center', alignItems: 'center',
   },
   deleteAction: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' },
   deleteActionText: { color: '#fff', fontWeight: '700', fontSize: 13 },

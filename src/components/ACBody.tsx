@@ -56,7 +56,7 @@ function countOcc(text: string, phrase: string): number {
 function highlightSpans(
   text: string,
   query: string,
-  opts?: { base?: number; active?: number; onOccRef?: (globalOrdinal: number, node: any) => void }
+  opts?: { base?: number; active?: number; redShift?: boolean; onOccRef?: (globalOrdinal: number, node: any) => void }
 ): React.ReactNode {
   const phrase = searchPhrase(query)
   if (phrase.length < 2 || !text) return text
@@ -86,7 +86,7 @@ function highlightSpans(
       <Text
         key={start}
         ref={opts?.onOccRef ? ((node: any) => opts.onOccRef!(globalOrdinal, node)) as any : undefined}
-        style={isActive ? styles.highlightActive : styles.highlight}
+        style={isActive ? (opts?.redShift ? styles.highlightActiveRedshift : styles.highlightActive) : (opts?.redShift ? styles.highlightRedshift : styles.highlight)}
       >
         {text.slice(start, end)}
       </Text>
@@ -455,7 +455,7 @@ export const ACBody = React.forwardRef<
   }
 >(function ACBody({ text, blocks: precomputed, scrollRef, viewportHeight, outerOffsetYRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight, figures, onOpenFigure, formulaRefs, onOpenFormulaRef, currentLabel }, ref) {
   const changedSet = useMemo(() => new Set(changedIndices ?? []), [changedIndices])
-  const { tokens } = useTheme()
+  const { tokens, redShift } = useTheme()
   const fs = useFS()
   // Native has no scrollIntoView({block: 'center'}) like web does -- this
   // approximates it so a jumped-to search/highlight result lands mid-screen
@@ -910,6 +910,7 @@ export const ACBody = React.forwardRef<
         const hOpts = (segBase: number) => ({
           base: segBase,
           active: activeMatch,
+          redShift,
         })
         // Only auto-link body prose (not headings/labels) — a caption never
         // legitimately appears inside a section/item label.
@@ -1108,6 +1109,11 @@ const styles = StyleSheet.create({
   highlight: { backgroundColor: 'rgba(255, 213, 0, 0.45)', borderRadius: 2 },
   // Current match — brighter/solid orange so it stands out from the other matches.
   highlightActive: { backgroundColor: 'rgba(255, 138, 0, 0.95)', color: '#1a1400', borderRadius: 2 },
+  // Red Shift: same two-tier passive/active shape, recolored off yellow and
+  // bright orange (both real night-vision offenders at this size, used on
+  // every doc's in-doc search) into the app's shared redshift language.
+  highlightRedshift: { backgroundColor: 'rgba(224, 86, 46, 0.45)', borderRadius: 2 },
+  highlightActiveRedshift: { backgroundColor: 'rgba(255, 45, 18, 0.95)', color: '#2A0800', borderRadius: 2 },
   updatedTag: {
     alignSelf: 'flex-start',
     fontSize: 10.5,

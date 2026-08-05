@@ -15,8 +15,8 @@ interface ScreenHeaderProps {
 }
 
 export function ScreenHeader({ showWordmark, title, right }: ScreenHeaderProps) {
-  const { tokens, resolved } = useTheme()
-  const wordmarkGold = wordmarkGoldFor(resolved)
+  const { tokens, resolved, redShift } = useTheme()
+  const wordmarkGold = wordmarkGoldFor(resolved, redShift)
   const fs = useFS()
   const { open } = useDrawer()
   const insets = useSafeAreaInsets()

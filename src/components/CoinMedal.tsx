@@ -2,6 +2,7 @@ import { View, StyleSheet } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Icon } from '@/components/Icon'
 import { useFS } from '@/context/fontScale'
+import { useTheme } from '@/context/theme'
 import type { CoinTier } from '@/lib/coins'
 
 // A flat single-color circle read as a plain icon badge, not a coin --
@@ -51,6 +52,30 @@ const TIER_GLOW: Record<CoinTier, string | null> = {
 }
 const LOCKED_GRADIENT: readonly [string, string, string] = ['#4a4a52', '#2a2a30', '#4a4a52']
 
+// Red Shift equivalents. Silver's near-white/grey (R=G=B) and gold's pale
+// yellow (G nearly as high as R) are the two least night-vision-safe things
+// in the app -- recolored using the same rust-tone language as theme.tsx's
+// own `slv`/`gold` tokens so a coin matches the rest of the red-shifted UI
+// instead of being the one thing that's still grey. Bronze is already a
+// red-safe copper hue and only gets a minor low-green nudge.
+const TIER_GRADIENTS_REDSHIFT: Record<CoinTier, readonly [string, string, string]> = {
+  bronze: ['#D97A3A', '#7A3814', '#D97A3A'],
+  silver: ['#C4906F', '#6B4638', '#C4906F'],
+  gold: ['#FFC178', '#B8541A', '#FFC178'],
+}
+const TIER_BEVEL_REDSHIFT: Record<CoinTier, readonly [string, string]> = {
+  bronze: ['#8C5A2B', '#8C5A2B'],
+  silver: ['#E0B896', '#8F6252'],
+  gold: ['#FFDCAE', '#FF9A2E'],
+}
+const TIER_GLOW_REDSHIFT: Record<CoinTier, string | null> = {
+  bronze: null,
+  silver: 'rgba(196,144,111,0.45)',
+  gold: 'rgba(255,154,46,0.6)',
+}
+const LOCKED_GRADIENT_REDSHIFT: readonly [string, string, string] = ['#4a3530', '#2a1e1c', '#4a3530']
+const SHINE_COLOR_REDSHIFT = 'rgba(255,180,140,0.55)'
+
 export function CoinMedal({
   tier,
   icon,
@@ -67,13 +92,22 @@ export function CoinMedal({
   // call site, means the text-size setting reaches every coin automatically
   // as new call sites get added, instead of relying on each one to remember.
   const fs = useFS()
+  const { redShift } = useTheme()
   const size = fs(baseSize)
-  const colors = earned ? TIER_GRADIENTS[tier] : LOCKED_GRADIENT
+  const gradients = redShift ? TIER_GRADIENTS_REDSHIFT : TIER_GRADIENTS
+  const bevels = redShift ? TIER_BEVEL_REDSHIFT : TIER_BEVEL
+  const glows = redShift ? TIER_GLOW_REDSHIFT : TIER_GLOW
+  const locked = redShift ? LOCKED_GRADIENT_REDSHIFT : LOCKED_GRADIENT
+  const faceBg = redShift ? '#1a0e0a' : '#1c1c1f'
+  const lockedFaceBg = redShift ? '#241a16' : '#242429'
+  const lockedIconColor = redShift ? '#8a6858' : '#7a7a82'
+  const shineColor = redShift ? SHINE_COLOR_REDSHIFT : 'rgba(255,255,255,0.55)'
+  const colors = earned ? gradients[tier] : locked
   const faceSize = size * 0.78
   const bevelSize = size * 0.9
   const showBevel = earned && tier !== 'bronze'
   const showShine = earned && tier === 'gold'
-  const glow = earned ? TIER_GLOW[tier] : null
+  const glow = earned ? glows[tier] : null
 
   return (
     <View
@@ -91,7 +125,7 @@ export function CoinMedal({
       >
         {showBevel ? (
           <LinearGradient
-            colors={TIER_BEVEL[tier]}
+            colors={bevels[tier]}
             start={{ x: 0.2, y: 0.2 }}
             end={{ x: 0.85, y: 0.85 }}
             style={[styles.bevel, { width: bevelSize, height: bevelSize, borderRadius: bevelSize / 2 }]}
@@ -99,7 +133,7 @@ export function CoinMedal({
             <View
               style={[
                 styles.face,
-                { width: faceSize, height: faceSize, borderRadius: faceSize / 2, backgroundColor: '#1c1c1f', borderColor: colors[1] },
+                { width: faceSize, height: faceSize, borderRadius: faceSize / 2, backgroundColor: faceBg, borderColor: colors[1] },
               ]}
             >
               <Icon name={icon} size={size * 0.4} color={colors[0]} />
@@ -113,12 +147,12 @@ export function CoinMedal({
                 width: faceSize,
                 height: faceSize,
                 borderRadius: faceSize / 2,
-                backgroundColor: earned ? '#1c1c1f' : '#242429',
+                backgroundColor: earned ? faceBg : lockedFaceBg,
                 borderColor: colors[1],
               },
             ]}
           >
-            <Icon name={earned ? icon : 'lock.fill'} size={size * 0.4} color={earned ? colors[0] : '#7a7a82'} />
+            <Icon name={earned ? icon : 'lock.fill'} size={size * 0.4} color={earned ? colors[0] : lockedIconColor} />
           </View>
         )}
         {/* Diagonal glint, not a decoration bolted onto the coin -- rim has
@@ -130,7 +164,7 @@ export function CoinMedal({
         {showShine && (
           <LinearGradient
             pointerEvents="none"
-            colors={['transparent', 'rgba(255,255,255,0.55)', 'transparent']}
+            colors={['transparent', shineColor, 'transparent']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={{

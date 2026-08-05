@@ -37,7 +37,7 @@ export function countOcc(text: string, phrase: string): number {
 export function highlightSpans(
   text: string,
   query: string,
-  opts?: { base?: number; active?: number; onOccRef?: (globalOrdinal: number, node: any) => void }
+  opts?: { base?: number; active?: number; redShift?: boolean; onOccRef?: (globalOrdinal: number, node: any) => void }
 ): React.ReactNode {
   const phrase = searchPhrase(query)
   if (phrase.length < 2 || !text) return text
@@ -66,7 +66,9 @@ export function highlightSpans(
       React.createElement(Text, {
         key: start,
         ref: opts?.onOccRef ? ((node: any) => opts.onOccRef!(globalOrdinal, node)) : undefined,
-        style: isActive ? searchHighlightStyles.highlightActive : searchHighlightStyles.highlight,
+        style: isActive
+          ? (opts?.redShift ? searchHighlightStyles.highlightActiveRedshift : searchHighlightStyles.highlightActive)
+          : (opts?.redShift ? searchHighlightStyles.highlightRedshift : searchHighlightStyles.highlight),
       }, text.slice(start, end))
     )
     occ++
@@ -79,4 +81,8 @@ export function highlightSpans(
 export const searchHighlightStyles = StyleSheet.create({
   highlight: { backgroundColor: 'rgba(255, 213, 0, 0.45)', borderRadius: 2 },
   highlightActive: { backgroundColor: 'rgba(255, 138, 0, 0.95)', color: '#1a1400', borderRadius: 2 },
+  // Red Shift variants -- same shape as ACBody.tsx's own copy of this
+  // pattern (kept in sync intentionally, see that file's comment).
+  highlightRedshift: { backgroundColor: 'rgba(224, 86, 46, 0.45)', borderRadius: 2 },
+  highlightActiveRedshift: { backgroundColor: 'rgba(255, 45, 18, 0.95)', color: '#2A0800', borderRadius: 2 },
 })

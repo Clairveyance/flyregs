@@ -18,8 +18,13 @@ import { useFS } from '@/context/fontScale'
 // a paled-down copy of dark's, same reasoning as MagicLinkPod's own split.
 const BLUE_SPECTRUM_DARK = ['#3E72DE', '#5C97F2', '#7CB0F5', '#5C97F2', '#3E72DE'] as const
 const BLUE_SPECTRUM_LIGHT = ['#1A50CC', '#2A5BD1', '#3768D6', '#2A5BD1', '#1A50CC'] as const
+// Red Shift: same 5-stop shape, recolored into the app's shared blu-under-
+// redshift language (theme.tsx's own redshiftTokens.blu/blt) instead of
+// a blue that would fight night vision head-on.
+const BLUE_SPECTRUM_REDSHIFT = ['#E0562E', '#FF8F63', '#FFA980', '#FF8F63', '#E0562E'] as const
 
-function blueSpectrumFor(isDark: boolean): readonly string[] {
+function blueSpectrumFor(isDark: boolean, redShift: boolean): readonly string[] {
+  if (redShift) return BLUE_SPECTRUM_REDSHIFT
   return isDark ? BLUE_SPECTRUM_DARK : BLUE_SPECTRUM_LIGHT
 }
 
@@ -46,9 +51,9 @@ function sampleBlueSpectrum(t: number, spectrum: readonly string[]): string {
 const SMARTSEARCH_LETTERS = 'SmartSearch'.split('')
 
 export function SmartSearchLabel({ fontSize = 12, style }: { fontSize?: number; style?: TextStyle }) {
-  const { resolved } = useTheme()
+  const { resolved, redShift } = useTheme()
   const fs = useFS()
-  const spectrum = blueSpectrumFor(resolved === 'dark')
+  const spectrum = blueSpectrumFor(resolved === 'dark', redShift)
   const [shimmerPhase, setShimmerPhase] = useState(0)
   // RC: "make sure that SS shimmer has a randomizer on it so it's not
   // always the same pattern." Starting every mount at t=0 meant every
