@@ -3,6 +3,7 @@ import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, ActivityIndic
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
+import { InfoPopup } from '@/components/InfoPopup'
 import { supabase } from '@/lib/supabase'
 import {
   suggestTypeDesignator, searchTypeDesignators, searchManufacturers, searchMarketingNames,
@@ -32,8 +33,9 @@ export interface UserAircraft {
 // fills the designator field and, if make is still blank, the manufacturer
 // too.
 export function TypeDesignatorField({
-  value, onChangeText, onSelectManufacturer, tokens, fs, style,
+  label, value, onChangeText, onSelectManufacturer, tokens, fs, style,
 }: {
+  label?: string
   value: string
   onChangeText: (text: string) => void
   onSelectManufacturer?: (mfr: string) => void
@@ -61,7 +63,8 @@ export function TypeDesignatorField({
   }
 
   return (
-    <View>
+    <View style={label ? style : undefined}>
+      {label ? <Text style={[styles.fieldLabel, { color: tokens.t3, fontSize: fs(11.5) }]}>{label}</Text> : null}
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -72,7 +75,7 @@ export function TypeDesignatorField({
         placeholder="Type designator (required, e.g. PA-28-181)"
         placeholderTextColor={tokens.t3}
         autoCapitalize="characters"
-        style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }, style]}
+        style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }, label ? undefined : style]}
       />
       {focused && suggestions.length > 0 && (
         <View style={[styles.suggestBox, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
@@ -99,8 +102,9 @@ export function TypeDesignatorField({
 // dedup logic. Same debounce/dropdown shape as TypeDesignatorField above,
 // but simple string suggestions rather than a two-part label.
 export function MakeField({
-  value, onChangeText, tokens, fs, style,
+  label, value, onChangeText, tokens, fs, style,
 }: {
+  label?: string
   value: string
   onChangeText: (text: string) => void
   tokens: ReturnType<typeof useTheme>['tokens']
@@ -126,7 +130,8 @@ export function MakeField({
   }
 
   return (
-    <View>
+    <View style={label ? style : undefined}>
+      {label ? <Text style={[styles.fieldLabel, { color: tokens.t3, fontSize: fs(11.5) }]}>{label}</Text> : null}
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -134,7 +139,7 @@ export function MakeField({
         onBlur={() => setTimeout(() => setFocused(false), 150)}
         placeholder="Make (e.g. Cessna)"
         placeholderTextColor={tokens.t3}
-        style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }, style]}
+        style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }, label ? undefined : style]}
       />
       {focused && suggestions.length > 0 && (
         <View style={[styles.suggestBox, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
@@ -161,8 +166,9 @@ export function MakeField({
 // onSelectDesignator, same auto-suggest behavior typing the full name out
 // would have triggered.
 export function ModelField({
-  value, onChangeText, onSelectDesignator, tokens, fs, style,
+  label, value, onChangeText, onSelectDesignator, tokens, fs, style,
 }: {
+  label?: string
   value: string
   onChangeText: (text: string) => void
   onSelectDesignator?: (designator: string) => void
@@ -187,7 +193,8 @@ export function ModelField({
   }
 
   return (
-    <View>
+    <View style={label ? style : undefined}>
+      {label ? <Text style={[styles.fieldLabel, { color: tokens.t3, fontSize: fs(11.5) }]}>{label}</Text> : null}
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -195,7 +202,7 @@ export function ModelField({
         onBlur={() => setTimeout(() => setFocused(false), 150)}
         placeholder="Model name (e.g. Skyhawk) — leave blank if none"
         placeholderTextColor={tokens.t3}
-        style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }, style]}
+        style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }, label ? undefined : style]}
       />
       {focused && suggestions.length > 0 && (
         <View style={[styles.suggestBox, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
@@ -219,8 +226,9 @@ export function ModelField({
 // looks and behaves like every other "opens a picker" row in the app
 // rather than a text field with a fake disabled cursor.
 export function YearField({
-  value, onPress, tokens, fs, style,
+  label, value, onPress, tokens, fs, style,
 }: {
+  label?: string
   value: number | null
   onPress: () => void
   tokens: ReturnType<typeof useTheme>['tokens']
@@ -228,15 +236,18 @@ export function YearField({
   style?: object
 }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderColor: tokens.bdr }, style]}
-    >
-      <Text style={{ color: value ? tokens.t1 : tokens.t3, fontSize: fs(14.5) }}>
-        {value ?? 'Year (optional)'}
-      </Text>
-      <Icon name="chevron.down" size={fs(14)} color={tokens.t4} />
-    </Pressable>
+    <View style={label ? style : undefined}>
+      {label ? <Text style={[styles.fieldLabel, { color: tokens.t3, fontSize: fs(11.5) }]}>{label}</Text> : null}
+      <Pressable
+        onPress={onPress}
+        style={[styles.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderColor: tokens.bdr }, label ? undefined : style]}
+      >
+        <Text style={{ color: value ? tokens.t1 : tokens.t3, fontSize: fs(14.5) }}>
+          {value ?? 'Year (optional)'}
+        </Text>
+        <Icon name="chevron.down" size={fs(14)} color={tokens.t4} />
+      </Pressable>
+    </View>
   )
 }
 
@@ -439,35 +450,54 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: Us
               <Icon name="xmark" size={fs(18)} color={tokens.t3} />
             </Pressable>
           </View>
-          <MakeField value={make} onChangeText={setMake} tokens={tokens} fs={fs} style={{ marginTop: 12 }} />
+          <MakeField label="MAKE" value={make} onChangeText={setMake} tokens={tokens} fs={fs} style={{ marginTop: 14 }} />
           <ModelField
+            label="MODEL NAME"
             value={model}
             onChangeText={handleModelChange}
             onSelectDesignator={(d) => { if (!typeDesignatorEdited.current) setTypeDesignator(d) }}
             tokens={tokens}
             fs={fs}
-            style={{ marginTop: 10 }}
+            style={{ marginTop: 12 }}
           />
-          <TypeDesignatorField
-            value={typeDesignator}
-            onChangeText={handleTypeDesignatorChange}
-            onSelectManufacturer={(mfr) => { if (!make.trim()) setMake(mfr) }}
-            tokens={tokens}
-            fs={fs}
-            style={{ marginTop: 10 }}
-          />
-          <Text style={[styles.typeHint, { color: tokens.t3, fontSize: fs(11.5), marginTop: 6 }]}>
-            Model is the marketing name (Skyhawk, Warrior) — Type designator is the FAA code (172S, PA-28-181) ADs
-            are filed under. No marketing name? Enter the type in both fields.
-          </Text>
-          <YearField value={year} onPress={() => setYearPickerOpen(true)} tokens={tokens} fs={fs} style={{ marginTop: 10 }} />
-          <TextInput
-            value={nickname}
-            onChangeText={setNickname}
-            placeholder="Nickname (optional, e.g. N12345)"
-            placeholderTextColor={tokens.t3}
-            style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr, marginTop: 10 }]}
-          />
+          <View style={{ marginTop: 12 }}>
+            {/* RC: "the explan. para should come up as CTA once, then reduce
+                to an info icon" -- same tap-to-reveal pattern used elsewhere
+                in the app. forceOnce shows the full explanation the first
+                time someone edits an aircraft, then it collapses to the
+                icon beside the label it actually explains. */}
+            <View style={styles.labelRow}>
+              <Text style={[styles.fieldLabel, { color: tokens.t3, fontSize: fs(11.5), marginBottom: 0 }]}>
+                TYPE DESIGNATOR
+              </Text>
+              <InfoPopup
+                id="aircraft-model-vs-type"
+                title="Model vs. Type Designator"
+                body="Model is the marketing name (Skyhawk, Warrior). Type designator is the FAA code (172S, PA-28-181) that Airworthiness Directives are actually filed under — it's what AD matching uses. No marketing name? Enter the type in both fields."
+                forceOnce
+                iconSize={fs(14)}
+              />
+            </View>
+            <TypeDesignatorField
+              value={typeDesignator}
+              onChangeText={handleTypeDesignatorChange}
+              onSelectManufacturer={(mfr) => { if (!make.trim()) setMake(mfr) }}
+              tokens={tokens}
+              fs={fs}
+              style={{ marginTop: 5 }}
+            />
+          </View>
+          <YearField label="YEAR" value={year} onPress={() => setYearPickerOpen(true)} tokens={tokens} fs={fs} style={{ marginTop: 12 }} />
+          <View style={{ marginTop: 12 }}>
+            <Text style={[styles.fieldLabel, { color: tokens.t3, fontSize: fs(11.5) }]}>NICKNAME</Text>
+            <TextInput
+              value={nickname}
+              onChangeText={setNickname}
+              placeholder="Optional, e.g. N12345"
+              placeholderTextColor={tokens.t3}
+              style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }]}
+            />
+          </View>
           <Pressable style={[styles.addButton, { backgroundColor: tokens.blu, marginTop: 14 }]} onPress={handleSave} disabled={saving}>
             {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Save Changes</Text>}
           </Pressable>
@@ -487,6 +517,13 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: Us
 
 const styles = StyleSheet.create({
   input: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
+  // RC, on the edit sheet: "this a/c edit screen lost the Make Model Type
+  // designations for the bars." These fields only ever carried their name in
+  // the PLACEHOLDER, which is exactly the text that disappears the moment a
+  // value exists -- so editing a saved aircraft showed three unlabeled boxes
+  // reading "Cessna / 172 / 172S" with no way to tell which was which.
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 2 },
+  fieldLabel: { fontWeight: '600', letterSpacing: 0.3, marginBottom: 5, marginLeft: 2 },
   suggestBox: { borderWidth: 1, borderRadius: 8, marginTop: 4, overflow: 'hidden' },
   suggestRow: { paddingHorizontal: 12, paddingVertical: 9 },
   typeHint: { marginTop: 8, marginBottom: 2 },
