@@ -11,7 +11,7 @@ import {
   MyChallenge, NextQuestion, AnswerResult, ChallengeResultRow, StandingRow, DuelStats, DuelItemType,
   KNOWLEDGE_LEVEL_LABELS,
 } from '@/lib/challenges'
-import { RATING_SHORT_LABELS } from '@/lib/profileRatings'
+import { RATING_SHORT_LABELS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
 import { slugifyPcgTerm } from '@/lib/pcg'
 import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
@@ -38,7 +38,7 @@ const QUESTION_LABEL: Record<DuelItemType, string> = {
 // persisted at creation time by create_challenge()), so it's the same for
 // both players rather than something only the Challenger's own client knew.
 function FilterSummary({ challenge, tokens, fs }: { challenge: MyChallenge; tokens: ReturnType<typeof useTheme>['tokens']; fs: (n: number) => number }) {
-  if (!challenge.itemTypes?.length && !challenge.levels?.length && !challenge.categoryClasses?.length) return null
+  if (!challenge.itemTypes?.length && !challenge.levels?.length && !challenge.categoryClasses?.length && !challenge.ratings?.length) return null
   return (
     <View style={styles.filterSummaryRow}>
       {(challenge.itemTypes ?? []).map((t) => (
@@ -54,6 +54,11 @@ function FilterSummary({ challenge, tokens, fs }: { challenge: MyChallenge; toke
       {(challenge.categoryClasses ?? []).map((c) => (
         <View key={c} style={[styles.filterPill, { backgroundColor: tokens.bdim, borderColor: tokens.grn }]}>
           <Text style={[styles.filterPillText, { color: tokens.grn, fontSize: fs(10.5) }]}>{RATING_SHORT_LABELS[c]}</Text>
+        </View>
+      ))}
+      {(challenge.ratings ?? []).map((r) => (
+        <View key={r} style={[styles.filterPill, { backgroundColor: tokens.bdim, borderColor: tokens.amb }]}>
+          <Text style={[styles.filterPillText, { color: tokens.amb, fontSize: fs(10.5) }]}>{STUDY_RATING_LABELS[r]}</Text>
         </View>
       ))}
     </View>
@@ -201,7 +206,8 @@ export default function ChallengeGameScreen() {
         challenge.questionCount,
         challenge.itemTypes ?? undefined,
         challenge.levels ?? undefined,
-        challenge.categoryClasses ?? undefined
+        challenge.categoryClasses ?? undefined,
+        challenge.ratings ?? undefined
       )
       sendDuelPush(newId, 'invited')
       router.replace(`/challenges/${newId}` as any)

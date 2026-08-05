@@ -10,7 +10,7 @@ import {
   getMyChallenges, getChallengeableUsers, createChallenge, respondToChallenge, getDuelStats, sendDuelPush,
   MyChallenge, ChallengeableUser, DuelStats, DuelItemType, KnowledgeLevel, KNOWLEDGE_LEVEL_LABELS,
 } from '@/lib/challenges'
-import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS } from '@/lib/profileRatings'
+import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS, StudyRating, STUDY_RATINGS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
 
 const QUESTION_COUNTS = [3, 5, 10]
 const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac']
@@ -34,6 +34,7 @@ export default function ChallengesScreen() {
   const [activeTypes, setActiveTypes] = useState<DuelItemType[]>([])
   const [activeLevels, setActiveLevels] = useState<KnowledgeLevel[]>([])
   const [activeCategoryClasses, setActiveCategoryClasses] = useState<CategoryClass[]>([])
+  const [activeRatings, setActiveRatings] = useState<StudyRating[]>([])
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -63,6 +64,13 @@ export default function ChallengesScreen() {
     setCreateError(null)
     setActiveCategoryClasses((prev) =>
       prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
+    )
+  }
+
+  const toggleRating = (r: StudyRating) => {
+    setCreateError(null)
+    setActiveRatings((prev) =>
+      prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]
     )
   }
 
@@ -101,7 +109,7 @@ export default function ChallengesScreen() {
     setCreating(true)
     setCreateError(null)
     try {
-      const id = await createChallenge(selectedOpponents, questionCount, activeTypes, activeLevels, activeCategoryClasses)
+      const id = await createChallenge(selectedOpponents, questionCount, activeTypes, activeLevels, activeCategoryClasses, activeRatings)
       setPickerVisible(false)
       sendDuelPush(id, 'invited')
       router.push(`/challenges/${id}` as any)
@@ -308,6 +316,38 @@ export default function ChallengesScreen() {
                     onPress={() => toggleCategoryClass(c)}
                   >
                     <Text style={[styles.countChipText, { color: active ? tokens.grn : tokens.t3, fontSize: fs(13) }]}>{RATING_SHORT_LABELS[c]}</Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+
+            {/* Amber accent, same as Study Mode's own Rating row -- keeps a
+                non-instrument-rated opponent from getting quizzed on
+                Instrument/Airframe/Powerplant-specific material and vice
+                versa. */}
+            <Text style={[styles.modalLabel, { color: tokens.amb, fontSize: fs(11), marginTop: 14 }]}>RATING</Text>
+            <View style={styles.countRow}>
+              <Pressable
+                style={[
+                  styles.countChip,
+                  { backgroundColor: activeRatings.length === 0 ? tokens.bdim : tokens.bg2, borderColor: activeRatings.length === 0 ? tokens.amb : tokens.bdr },
+                ]}
+                onPress={() => { setCreateError(null); setActiveRatings([]) }}
+              >
+                <Text style={[styles.countChipText, { color: activeRatings.length === 0 ? tokens.amb : tokens.t3, fontSize: fs(13) }]}>ALL</Text>
+              </Pressable>
+              {STUDY_RATINGS.map((r) => {
+                const active = activeRatings.includes(r)
+                return (
+                  <Pressable
+                    key={r}
+                    style={[
+                      styles.countChip,
+                      { backgroundColor: active ? tokens.bdim : tokens.bg2, borderColor: active ? tokens.amb : tokens.bdr },
+                    ]}
+                    onPress={() => toggleRating(r)}
+                  >
+                    <Text style={[styles.countChipText, { color: active ? tokens.amb : tokens.t3, fontSize: fs(13) }]}>{STUDY_RATING_LABELS[r]}</Text>
                   </Pressable>
                 )
               })}

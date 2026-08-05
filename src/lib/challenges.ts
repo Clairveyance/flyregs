@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase'
-import type { CategoryClass } from '@/lib/profileRatings'
+import type { CategoryClass, StudyRating } from '@/lib/profileRatings'
 
 // "Duels" -- async free-for-all quizzes, 2-8 participants (the creator plus
 // 1-7 invitees). Everyone gets the same question set and plays at their own
@@ -40,6 +40,7 @@ export interface MyChallenge {
   itemTypes: DuelItemType[] | null
   levels: KnowledgeLevel[] | null
   categoryClasses: CategoryClass[] | null
+  ratings: StudyRating[] | null
   others: ChallengeParticipant[]
 }
 
@@ -125,7 +126,8 @@ export async function createChallenge(
   questionCount = 5,
   itemTypes?: DuelItemType[],
   levels?: KnowledgeLevel[],
-  categoryClasses?: CategoryClass[]
+  categoryClasses?: CategoryClass[],
+  ratings?: StudyRating[]
 ): Promise<string> {
   const { data, error } = await supabase.rpc('create_challenge', {
     p_opponent_ids: opponentIds,
@@ -133,6 +135,7 @@ export async function createChallenge(
     p_item_types: itemTypes && itemTypes.length > 0 ? itemTypes : null,
     p_levels: levels && levels.length > 0 ? levels : null,
     p_category_classes: categoryClasses && categoryClasses.length > 0 ? categoryClasses : null,
+    p_ratings: ratings && ratings.length > 0 ? ratings : null,
   })
   if (error) throw error
   return data as string
@@ -157,6 +160,7 @@ export async function getMyChallenges(): Promise<MyChallenge[]> {
     itemTypes: r.item_types ?? null,
     levels: r.levels ?? null,
     categoryClasses: r.category_classes ?? null,
+    ratings: r.ratings ?? null,
     others: (r.others ?? []).map((o: any) => ({
       userId: o.userId, label: o.label, status: o.status, answeredCount: o.answeredCount,
     })),

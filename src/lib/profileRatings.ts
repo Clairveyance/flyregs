@@ -113,6 +113,24 @@ export type CategoryClass = Extract<
 >
 export const CATEGORY_CLASSES: CategoryClass[] = ['ASEL', 'ASES', 'AMEL', 'AMES', 'HELI', 'GYRO', 'GLIDER', 'AIRSHIP', 'BALLOON', 'POWLIFT']
 
+// Study Mode/Duels' third filter dimension, alongside Knowledge Level and
+// Category/Class -- see migrations_ratings.sql for the full rationale
+// (Instrument doesn't fit the certificate-progression Level axis, same as
+// Category/Class doesn't; A&P genuinely splits into Airframe/Powerplant per
+// real FAA rating structure). NOT derived from RatingCode like CategoryClass
+// is, on purpose: RatingCode's own 'IR'/'A&P' are coarse self-attested
+// bragging-rights badges (one combined "A&P" badge, no separate Airframe/
+// Powerplant codes), and splitting A&P there would risk orphaning any
+// user's already-saved 'A&P' profile rating. This filter is its own small
+// vocabulary instead, same as it's an independent DB dimension.
+export type StudyRating = 'instrument' | 'airframe' | 'powerplant'
+export const STUDY_RATINGS: StudyRating[] = ['instrument', 'airframe', 'powerplant']
+export const STUDY_RATING_LABELS: Record<StudyRating, string> = {
+  instrument: 'Instrument',
+  airframe: 'Airframe',
+  powerplant: 'Powerplant',
+}
+
 export async function getMyRatings(userId: string): Promise<RatingCode[]> {
   const { data, error } = await supabase
     .from('user_profile_ratings')

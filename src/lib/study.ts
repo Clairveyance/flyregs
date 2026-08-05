@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import type { KnowledgeLevel } from '@/lib/challenges'
-import type { CategoryClass } from '@/lib/profileRatings'
-export type { CategoryClass } from '@/lib/profileRatings'
+import type { CategoryClass, StudyRating } from '@/lib/profileRatings'
+export type { CategoryClass, StudyRating } from '@/lib/profileRatings'
 
 export type StudyItemType = 'pcg' | 'far' | 'aim' | 'ac'
 
@@ -28,13 +28,15 @@ export async function getStudyQueue(
   limit = 20,
   itemTypes?: StudyItemType[],
   levels?: KnowledgeLevel[],
-  categoryClasses?: CategoryClass[]
+  categoryClasses?: CategoryClass[],
+  ratings?: StudyRating[]
 ): Promise<StudyCard[]> {
   const { data, error } = await supabase.rpc('get_study_queue', {
     p_limit: limit,
     p_item_types: itemTypes && itemTypes.length > 0 ? itemTypes : null,
     p_levels: levels && levels.length > 0 ? levels : null,
     p_category_classes: categoryClasses && categoryClasses.length > 0 ? categoryClasses : null,
+    p_ratings: ratings && ratings.length > 0 ? ratings : null,
   })
   if (error) throw error
   return (data ?? []) as StudyCard[]
@@ -48,12 +50,14 @@ export async function getStudyQueue(
 export async function getStudyPoolCount(
   itemTypes?: StudyItemType[],
   levels?: KnowledgeLevel[],
-  categoryClasses?: CategoryClass[]
+  categoryClasses?: CategoryClass[],
+  ratings?: StudyRating[]
 ): Promise<number> {
   const { data, error } = await supabase.rpc('get_study_pool_count', {
     p_item_types: itemTypes && itemTypes.length > 0 ? itemTypes : null,
     p_levels: levels && levels.length > 0 ? levels : null,
     p_category_classes: categoryClasses && categoryClasses.length > 0 ? categoryClasses : null,
+    p_ratings: ratings && ratings.length > 0 ? ratings : null,
   })
   if (error) throw error
   return (data as number) ?? 0

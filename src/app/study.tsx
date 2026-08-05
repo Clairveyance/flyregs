@@ -13,7 +13,7 @@ import { getStudyQueue, getStudyPoolCount, recordStudyReview, getStudyMastery, g
 import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { KnowledgeLevel, KNOWLEDGE_LEVEL_LABELS } from '@/lib/challenges'
-import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS } from '@/lib/profileRatings'
+import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS, StudyRating, STUDY_RATINGS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { buildStudyCard, type QuizSourceType } from '@/lib/quizQuestion'
 
@@ -152,12 +152,13 @@ export default function StudyScreen() {
     levelParam && (ALL_LEVELS as string[]).includes(levelParam) ? [levelParam as KnowledgeLevel] : []
   )
   const [activeCategoryClasses, setActiveCategoryClasses] = useState<CategoryClass[]>([])
+  const [activeRatings, setActiveRatings] = useState<StudyRating[]>([])
 
   // True when the deck is narrowed at all. Used to relabel the mastery
   // counter, which always reports the WHOLE corpus and otherwise appears to
   // contradict the "N items match the filters" line directly beneath it.
   const filtersActive =
-    activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0
+    activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0 || activeRatings.length > 0
 
   const toggleType = (t: StudyItemType) => {
     setActiveTypes((prev) =>
@@ -177,13 +178,19 @@ export default function StudyScreen() {
     )
   }
 
+  const toggleRating = (r: StudyRating) => {
+    setActiveRatings((prev) =>
+      prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]
+    )
+  }
+
   const load = useCallback(() => {
     setLoading(true)
     Promise.all([
-      getStudyQueue(sessionSize, activeTypes, activeLevels, activeCategoryClasses),
+      getStudyQueue(sessionSize, activeTypes, activeLevels, activeCategoryClasses, activeRatings),
       getStudyMastery(),
       getCurrency(),
-      getStudyPoolCount(activeTypes, activeLevels, activeCategoryClasses),
+      getStudyPoolCount(activeTypes, activeLevels, activeCategoryClasses, activeRatings),
     ])
       .then(([queue, m, c, pool]) =>
         // Facts are fetched AFTER the deck (not in the same Promise.all --
@@ -217,7 +224,7 @@ export default function StudyScreen() {
         })
       )
       .finally(() => setLoading(false))
-  }, [activeTypes, activeLevels, activeCategoryClasses, sessionSize])
+  }, [activeTypes, activeLevels, activeCategoryClasses, activeRatings, sessionSize])
 
   useEffect(() => {
     if (isPro) load()
@@ -377,7 +384,7 @@ export default function StudyScreen() {
         <Icon
           name="slider.horizontal.3"
           size={fs(24)}
-          color={activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0 ? tokens.blu : tokens.t3}
+          color={activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0 || activeRatings.length > 0 ? tokens.blu : tokens.t3}
         />
         <Text style={[styles.filtersHeaderText, { color: tokens.t2, fontSize: fs(13.5) }]}>Filters</Text>
       </Pressable>
@@ -476,6 +483,45 @@ export default function StudyScreen() {
             >
               <Text style={[styles.filterChipText, { color: active ? tokens.grn : tokens.t3, fontSize: fs(11.5) }]}>
                 {RATING_SHORT_LABELS[c]}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
+
+      {/* Amber accent, a fourth distinct color alongside CONTENT (gold),
+          KNOWLEDGE LEVEL (blue), and CATEGORY/CLASS (green) -- Instrument/
+          Airframe/Powerplant is its own axis, same reasoning as Category/
+          Class: a private pilot can be instrument-rated or not regardless
+          of certificate level, and A&P's Airframe/Powerplant split doesn't
+          fit the Mechanic level bucket either. See migrations_ratings.sql.
+          Same "NULL means universal" convention as Category/Class -- most
+          content isn't rating-specific and stays visible under any
+          selection. */}
+      <Text style={[styles.filterGroupLabel, styles.levelFilterRow, { color: tokens.amb, fontSize: fs(10) }]}>RATING</Text>
+      <View style={styles.filterRow}>
+        <Pressable
+          style={[
+            styles.filterChip,
+            { backgroundColor: activeRatings.length === 0 ? tokens.bdim : tokens.bg2, borderColor: activeRatings.length === 0 ? tokens.amb : tokens.bdr },
+          ]}
+          onPress={() => setActiveRatings([])}
+        >
+          <Text style={[styles.filterChipText, { color: activeRatings.length === 0 ? tokens.amb : tokens.t3, fontSize: fs(11.5) }]}>ALL</Text>
+        </Pressable>
+        {STUDY_RATINGS.map((r) => {
+          const active = activeRatings.includes(r)
+          return (
+            <Pressable
+              key={r}
+              style={[
+                styles.filterChip,
+                { backgroundColor: active ? tokens.bdim : tokens.bg2, borderColor: active ? tokens.amb : tokens.bdr },
+              ]}
+              onPress={() => toggleRating(r)}
+            >
+              <Text style={[styles.filterChipText, { color: active ? tokens.amb : tokens.t3, fontSize: fs(11.5) }]}>
+                {STUDY_RATING_LABELS[r]}
               </Text>
             </Pressable>
           )
@@ -609,6 +655,7 @@ export default function StudyScreen() {
             Studying: {activeTypes.length === 0 ? 'All content' : activeTypes.map((t) => TYPE_LABEL[t]).join(', ')}
             {activeLevels.length > 0 ? ` · ${activeLevels.map((l) => KNOWLEDGE_LEVEL_LABELS[l]).join(', ')}` : ''}
             {activeCategoryClasses.length > 0 ? ` · ${activeCategoryClasses.map((c) => RATING_SHORT_LABELS[c]).join(', ')}` : ''}
+            {activeRatings.length > 0 ? ` · ${activeRatings.map((r) => STUDY_RATING_LABELS[r]).join(', ')}` : ''}
           </Text>
           <View style={styles.progressRow}>
             <Text style={[styles.progress, { color: tokens.t4, fontSize: fs(11.5) }]}>
