@@ -14,6 +14,7 @@
 import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
 import path from 'path'
+import { canReceiveProPush } from './lib/tier-cap.mjs'
 
 const envPath = path.resolve(process.cwd(), '.env.scraper')
 if (!fs.existsSync(envPath)) {
@@ -42,9 +43,12 @@ if (!today) {
   process.exit(1)
 }
 
+// user_id too, so the Pro gate below can be applied per recipient. DailyReg
+// is a Pro feature and this used to send on the opt-in flag alone -- see
+// canReceiveProPush in lib/tier-cap.mjs for why that leaked.
 const { data: tokens, error: tokenErr } = await sb
   .from('push_tokens')
-  .select('expo_push_token')
+  .select('user_id, expo_push_token')
   .eq('enabled', true)
   .eq('reg_of_day_enabled', true)
 
@@ -52,12 +56,28 @@ if (tokenErr) {
   console.error('Failed to fetch push tokens:', tokenErr.message)
   process.exit(1)
 }
-if (!tokens || tokens.length === 0) {
+
+const { data: entitlements, error: entErr } = await sb
+  .from('user_entitlements')
+  .select('user_id, is_pro, is_premium')
+if (entErr) {
+  console.error('Failed to fetch user_entitlements:', entErr.message)
+  process.exit(1)
+}
+const entByUser = new Map((entitlements ?? []).map((e) => [e.user_id, e]))
+// Pro gate applied here, after the opt-in filter: a lapsed subscriber keeps
+// reg_of_day_enabled = true forever (nothing ever rewrites push_tokens on a
+// downgrade), so the entitlement is the only thing that can stop this.
+const eligible = (tokens ?? []).filter((t) => canReceiveProPush(entByUser.get(t.user_id)))
+const skipped = (tokens ?? []).length - eligible.length
+if (skipped > 0) console.log(`Skipping ${skipped} device(s) whose tier no longer includes DailyReg.`)
+
+if (!eligible || eligible.length === 0) {
   console.log('No devices opted into DailyReg -- nothing to send.')
   process.exit(0)
 }
 
-console.log(`Sending "${today.term}" to ${tokens.length} device(s).`)
+console.log(`Sending "${today.term}" to ${eligible.length} device(s).`)
 
 // Truncated to a single readable line -- this is a lock-screen notification
 // body, not the full glossary entry; tapping it opens the real definition
@@ -81,7 +101,7 @@ const citation =
 // see notifications.ts's DailyRegSource comment) -- the deep link has
 // to carry which one so the tap handler routes to /far, /aim, or /ac
 // correctly.
-const messages = tokens.map((t) => ({
+const messages = eligible.map((t) => ({
   to: t.expo_push_token,
   sound: 'default',
   title: `DailyReg — ${citation}`,

@@ -15,6 +15,7 @@
 import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
 import path from 'path'
+import { canReceiveProPush } from './lib/tier-cap.mjs'
 
 // ── Load credentials (never logged) ─────────────────────────────────────────
 const envPath = path.resolve(process.cwd(), '.env.scraper')
@@ -72,9 +73,13 @@ const body =
     : touchedDocs.slice(0, 3).map((d) => `AC ${d}`).join(', ') + (touchedDocs.length > 3 ? ', and more' : '')
 
 // ── Fetch enabled recipients ─────────────────────────────────────────────────
+// `enabled` IS the AC Update Alerts opt-in (enableAcUpdateAlerts sets it);
+// user_id comes along so the Pro gate below can be applied per recipient.
+// AC Update Alerts is a Pro feature and this used to send on the opt-in
+// flag alone -- see canReceiveProPush in lib/tier-cap.mjs.
 const { data: tokens, error: tokenErr } = await sb
   .from('push_tokens')
-  .select('expo_push_token')
+  .select('user_id, expo_push_token')
   .eq('enabled', true)
 
 if (tokenErr) {
@@ -82,15 +87,31 @@ if (tokenErr) {
   process.exit(1)
 }
 
-if (!tokens || tokens.length === 0) {
+const { data: entitlements, error: entErr } = await sb
+  .from('user_entitlements')
+  .select('user_id, is_pro, is_premium')
+if (entErr) {
+  console.error('Failed to fetch user_entitlements:', entErr.message)
+  process.exit(1)
+}
+const entByUser = new Map((entitlements ?? []).map((e) => [e.user_id, e]))
+
+// Pro gate applied here, after the opt-in filter -- same reasoning as
+// send-reg-of-day.mjs: `enabled` survives a downgrade untouched, so the
+// entitlement is the only thing that can stop the alerts.
+const eligible = (tokens ?? []).filter((t) => canReceiveProPush(entByUser.get(t.user_id)))
+const skipped = (tokens ?? []).length - eligible.length
+if (skipped > 0) console.log(`Skipping ${skipped} device(s) whose tier no longer includes AC Update Alerts.`)
+
+if (!eligible || eligible.length === 0) {
   console.log('No enabled push tokens — nothing to send.')
   process.exit(0)
 }
 
-console.log(`Sending update alert to ${tokens.length} device(s) for: ${touchedDocs.join(', ')}`)
+console.log(`Sending update alert to ${eligible.length} device(s) for: ${touchedDocs.join(', ')}`)
 
 // ── Send via Expo's Push API (batches of 100 per their limit) ───────────────
-const messages = tokens.map((t) => ({
+const messages = eligible.map((t) => ({
   to: t.expo_push_token,
   sound: 'default',
   title,

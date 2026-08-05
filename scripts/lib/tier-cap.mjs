@@ -81,3 +81,25 @@ export async function fetchHiddenAircraftIds(sb) {
   if (entErr) throw new Error(`user_entitlements fetch failed: ${entErr.message}`)
   return hiddenAircraftIds(allAircraft, entitlements)
 }
+
+// Users whose tier includes the PRO-tier push features: DailyReg and AC
+// Update Alerts. Both are Pro in the product, and both push senders were
+// sending on the OPT-IN FLAG ALONE -- `push_tokens.reg_of_day_enabled` /
+// `push_tokens.enabled` -- with no entitlement check anywhere.
+//
+// That's the classic "clung on after the downgrade" leak, and it's the
+// version that reaches a pocket: subscribe to Pro, switch both alerts on,
+// let the subscription lapse. The webhook correctly flips is_pro to false,
+// but nothing ever touches push_tokens, so the notifications keep arriving
+// indefinitely. Found in the pre-beta gating audit; send-ad-alerts.mjs and
+// send-reminder-alerts.mjs already enforced tier, these two didn't, which
+// is the usual shape -- one shared rule, drifted call sites.
+//
+// Fail-open on a missing entitlement row, identical reasoning to
+// aircraftCapFor/canReceiveAdPush above: a sync hiccup must not silently
+// cut off a paying customer's alerts, and the client's own RevenueCat check
+// covers that window.
+export function canReceiveProPush(entitlement) {
+  if (!entitlement) return true
+  return Boolean(entitlement.is_pro || entitlement.is_premium)
+}
