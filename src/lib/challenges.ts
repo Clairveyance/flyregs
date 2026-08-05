@@ -225,6 +225,18 @@ export async function submitChallengeAnswer(
 // a holdover from the 1:1 design) -- fanning a group invite/accept/
 // completion out to every other participant is tracked as a fast-follow,
 // not done in this pass.
+//
+// 2026-08-05: get_duel_push_target itself was reading challenges.opponent_id,
+// a column that no longer exists since Duels moved to the multi-participant
+// challenge_participants model -- every single call raised "column
+// opponent_id does not exist", swallowed silently by the try/catch below.
+// Every Duel push notification (invite/accept/complete) had been completely
+// non-functional, not just limited to one recipient as the note above
+// describes. Rewritten against challenge_participants, same single-
+// recipient scope preserved (still `limit 1`) -- confirmed live via direct
+// RPC call (was a hard error, now a clean no-op when no matching push
+// token exists) and by hand-verifying the recipient-selection filter picks
+// the right participant for each of the three events.
 export async function sendDuelPush(challengeId: string, event: 'invited' | 'accepted' | 'completed'): Promise<void> {
   try {
     const { data, error } = await supabase.rpc('get_duel_push_target', { p_challenge_id: challengeId, p_event: event })
