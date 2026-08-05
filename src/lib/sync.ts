@@ -161,17 +161,26 @@ async function mergeFolders(userId: string) {
     }
     if (remoteNewer) {
       // Carries `shared` forward from the existing local value -- synced_folders
-      // has no such column (it's a local-only "has this ever been shared" flag,
-      // see the Folder.shared comment in folders.ts), so a remote-newer update
-      // must not silently drop it, only sort_order and the other real columns
-      // actually come from `r`.
+      // has no boolean "shared" column of its own (see the Folder.shared
+      // comment in folders.ts), so a remote-newer update must not silently
+      // drop it, only sort_order and the other real columns actually come
+      // from `r`. Also OR'd with `r.share_token != null`: on a folder pulled
+      // fresh (new device, reinstall, cleared storage -- `loc` undefined or
+      // stale-false), the local flag alone would come back false even though
+      // the folder genuinely IS shared, silently downgrading every later
+      // add/remove on it to a non-force push (wrong subscription-tier check,
+      // and skippable by the personal Back-up & Sync toggle) -- collaborators
+      // would stop seeing this device's edits with no error anywhere. Never
+      // goes the other way (share_token is "deliberately never unset by
+      // unsharing" per that same comment, so this can't spuriously flip an
+      // unshared folder back to shared).
       merged.set(r.id, {
         id: r.id,
         name: r.name,
         created_at: r.created_at,
         updated_at: r.updated_at,
         sort_order: r.sort_order ?? undefined,
-        shared: loc?.shared,
+        shared: loc?.shared || !!r.share_token,
       })
     }
   }
