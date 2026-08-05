@@ -32,7 +32,7 @@ import { NameTag } from '@/components/NameTag'
 export default function CommunityScreen() {
   const { tokens, redShift } = useTheme()
   const fs = useFS()
-  const { session, isPro, hasPlusAccess, avatarOverride } = useAuth()
+  const { session, isPro, isPremium, hasPlusAccess, avatarOverride } = useAuth()
   // Same resolution chain Account/Drawer use (avatarOverride takes priority
   // so a freshly picked photo/preset shows here in the same tick, no
   // waiting on a session refresh) -- this card previously hardcoded a bare
@@ -80,8 +80,16 @@ export default function CommunityScreen() {
     router.push('/study')
   }
 
+  // Duels itself is PREMIUM (paywall.tsx's PREMIUM_ADDITIONS, RC 2026-07-31)
+  // -- confirmed live as a real bug, not just a stale comment: this card's
+  // own lock icon and this check were still `isPro`, so a Pro (not
+  // Premium) account saw NO lock here, tapped through, and only hit the
+  // real gate two navigations later inside /challenges (which correctly
+  // checks isPremium) -- Ready Room's OWN isPro gate is genuinely correct
+  // (it's a separate, Pro-tier leaderboard per PRO_ADDITIONS) and stays;
+  // only THIS card's promise was wrong.
   const openDuels = () => {
-    if (!isPro) { router.push('/paywall'); return }
+    if (!isPremium) { router.push('/paywall?tier=premium'); return }
     router.push('/ready-room')
   }
 
@@ -238,7 +246,7 @@ export default function CommunityScreen() {
                 Multiple-choice quiz across FAR, AIM, P/CG, AC — most correct wins, time breaks ties
               </Text>
             </View>
-            {!isPro && <Icon name="lock.fill" size={fs(13)} color={tokens.t4} />}
+            {!isPremium && <Icon name="lock.fill" size={fs(13)} color={tokens.t4} />}
           </Pressable>
 
           {refPackets.length > 0 && (

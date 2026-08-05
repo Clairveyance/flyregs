@@ -27,7 +27,7 @@ type LbTab = 'study' | 'duels' | 'mastery'
 export default function ReadyRoomScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { isPro } = useAuth()
+  const { isPro, isPremium } = useAuth()
   const [tab, setTab] = useState<LbTab>('study')
   const [loading, setLoading] = useState(true)
   const [studyRows, setStudyRows] = useState<LeaderboardRow[]>([])
@@ -67,9 +67,21 @@ export default function ReadyRoomScreen() {
     )
   }
 
+  // Duels itself is Premium (this screen is only Pro) -- /challenges
+  // already enforces that on load, but this button had no lock at all, so
+  // a Pro user got a surprise paywall one tap after arriving here with no
+  // upfront signal. Same fix as the Community hub card's own Duels entry.
   const headerRight = (
-    <Pressable onPress={() => router.push('/challenges' as any)} hitSlop={12} style={{ padding: 4 }}>
-      <Icon name="bolt.fill" size={fs(20)} color={tokens.gold} />
+    <Pressable
+      onPress={() => router.push(isPremium ? '/challenges' : ('/paywall?tier=premium' as any))}
+      hitSlop={12}
+      style={{ padding: 4 }}
+    >
+      {isPremium ? (
+        <Icon name="bolt.fill" size={fs(20)} color={tokens.gold} />
+      ) : (
+        <Icon name="lock.fill" size={fs(18)} color={tokens.t4} />
+      )}
     </Pressable>
   )
 
