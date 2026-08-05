@@ -31,17 +31,27 @@ export interface ConfirmOptions {
   /** Red confirm button, for deletes and anything irreversible. */
   destructive?: boolean
   /**
-   * Require the user to TYPE this exact word before the confirm button does
-   * anything. For irreversible, multi-record deletes only.
+   * Two-step confirm where the button MOVES between steps -- RC's design:
+   * step 1 puts it at the bottom, step 2 at the top, so completing the
+   * action requires physically touching a different part of the screen.
+   * That defeats every realistic accident (finger bounce, double-tap, a
+   * tap already travelling toward something else when a modal appears)
+   * without making a deliberate user type anything.
    *
-   * Added 2026-08-05 after the downgrade gate deleted three real aircraft
-   * from a stray tap during testing. The gate is a blocking modal that can
-   * appear over ANY screen, and its primary action permanently destroys a
-   * fleet -- so a tap already in flight toward something else lands on a
-   * delete button that wasn't there a moment earlier. That's not a testing
-   * artifact; it's the classic "modal stole my tap" failure, and a real
-   * user hits it the same way. Typing makes an accidental trigger
-   * impossible rather than merely unlikely.
+   * Automatically on for `destructive` actions -- pass false to opt out.
+   */
+  twoStep?: boolean
+  /** Title shown on the SECOND step, if it should read differently. */
+  finalTitle?: string
+  /**
+   * Require the user to TYPE this exact word. Reserved for deletes that are
+   * BOTH multi-record AND reachable from a dialog the user never asked for
+   * -- currently only the downgrade gate's fleet wipe. For anything the
+   * user deliberately started, twoStep above is the proportionate
+   * protection; typing is friction they did not earn. RC on the aircraft
+   * case: "it isn't an enormous deal... they do have to re-enter their own
+   * reminders, but there's only usually four or five of those per
+   * Aircraft."
    */
   requireTyped?: string
   /** May be async -- the dialog shows a spinner and stays open until it settles. */
@@ -64,18 +74,33 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [typed, setTyped] = useState('')
+  const [step, setStep] = useState(1)
+  // Brief arming delay on the final step so a fast second tap can't land on
+  // the newly-positioned button before the user has seen it move.
+  const [stepArmed, setStepArmed] = useState(true)
 
   const confirm = useCallback((o: ConfirmOptions) => {
     setError(null)
     setBusy(false)
     setTyped('')
+    setStep(1)
+    setStepArmed(true)
     setOpts(o)
   }, [])
 
-  const close = () => { setOpts(null); setBusy(false); setError(null); setTyped('') }
+  const close = () => { setOpts(null); setBusy(false); setError(null); setTyped(''); setStep(1); setStepArmed(true) }
 
   const handleConfirm = async () => {
     if (!armed) return
+    // Step 1 only ADVANCES -- it never performs the action. The button then
+    // renders somewhere else, so the second tap can't be muscle memory
+    // from the first.
+    if (wantsTwoStep && step === 1) {
+      setStep(2)
+      setStepArmed(false)
+      setTimeout(() => setStepArmed(true), 400)
+      return
+    }
     if (!opts?.onConfirm) { close(); return }
     setBusy(true)
     setError(null)
@@ -92,10 +117,25 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   }
 
   const showCancel = opts?.cancelLabel !== null
-  // Nothing destructive is clickable until the word is typed exactly. A
-  // dialog with no requireTyped is armed immediately, as before.
-  const armed = !opts?.requireTyped || typed.trim().toUpperCase() === opts.requireTyped.toUpperCase()
+  const wantsTwoStep = opts?.twoStep ?? !!opts?.destructive
+  const onFinalStep = !wantsTwoStep || step === 2
+  const typedOk = !opts?.requireTyped || typed.trim().toUpperCase() === opts.requireTyped.toUpperCase()
+  const armed = onFinalStep ? typedOk && stepArmed : true
   const confirmColor = !armed ? tokens.bdim : opts?.destructive ? tokens.red : tokens.blu
+
+  const confirmButton = (
+    <Pressable
+      style={[styles.btn, { backgroundColor: confirmColor }]}
+      onPress={handleConfirm}
+      disabled={!armed}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !armed }}
+    >
+      <Text style={[styles.btnText, { fontSize: fs(14.5), opacity: armed ? 1 : 0.55 }]}>
+        {onFinalStep ? (opts?.confirmLabel ?? 'OK') : 'Continue'}
+      </Text>
+    </Pressable>
+  )
 
   return (
     <ConfirmContext.Provider value={confirm}>
@@ -106,7 +146,13 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
             {opts?.destructive && (
               <Icon name="exclamationmark.triangle" size={fs(24)} color={tokens.red} />
             )}
-            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16.5) }]}>{opts?.title}</Text>
+            {/* RC's design: on the FINAL step the button jumps to the top,
+                above the text, so confirming requires touching a different
+                part of the screen than the tap that got you here. */}
+            {onFinalStep && wantsTwoStep && !busy ? confirmButton : null}
+            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16.5) }]}>
+              {onFinalStep && wantsTwoStep ? (opts?.finalTitle ?? opts?.title) : opts?.title}
+            </Text>
             {opts?.message ? (
               <Text style={[styles.message, { color: tokens.t3, fontSize: fs(13.5) }]}>{opts.message}</Text>
             ) : null}
@@ -133,17 +179,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               <ActivityIndicator color={tokens.t3} style={{ marginVertical: 14 }} />
             ) : (
               <View style={styles.actions}>
-                <Pressable
-                  style={[styles.btn, { backgroundColor: confirmColor }]}
-                  onPress={handleConfirm}
-                  disabled={!armed}
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: !armed }}
-                >
-                  <Text style={[styles.btnText, { fontSize: fs(14.5), opacity: armed ? 1 : 0.55 }]}>
-                    {opts?.confirmLabel ?? 'OK'}
-                  </Text>
-                </Pressable>
+                {onFinalStep && wantsTwoStep ? null : confirmButton}
                 {showCancel && (
                   <Pressable onPress={() => { opts?.onCancel?.(); close() }} hitSlop={8} accessibilityRole="button">
                     <Text style={[styles.cancel, { color: tokens.t3, fontSize: fs(13.5) }]}>

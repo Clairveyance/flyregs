@@ -541,11 +541,14 @@ export default function MyAircraftScreen() {
       message: 'This permanently removes the aircraft and its equipment, reminders, and AD history. This cannot be undone.',
       confirmLabel: 'Delete',
       destructive: true,
-      // Same reasoning as the downgrade gate: this wipes an aircraft plus
-      // all of its equipment, reminders and AD history with no undo, and
-      // it's reachable from a swipe on a list row -- so it must not be
-      // possible to complete by tap alone.
-      requireTyped: 'DELETE',
+      // Two-step with the button MOVING between steps (RC's design) rather
+      // than typed confirmation. RC re-scoped the stakes correctly: losing
+      // an aircraft costs a few minutes -- ADs repopulate themselves from
+      // make/model, and it's ~5 reminders to re-enter -- so demanding typed
+      // input for it is friction out of proportion to the harm. Moving the
+      // button still defeats every realistic accident, because the second
+      // tap has to land somewhere the first one wasn't.
+      finalTitle: `Delete ${label} — confirm`,
       onConfirm: async () => {
         const { error } = await supabase.from('user_aircraft').delete().eq('id', a.aircraftId)
         // Previously unchecked -- a failed delete silently left the row in
