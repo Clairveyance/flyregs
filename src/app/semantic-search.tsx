@@ -3,7 +3,7 @@ import { View, Text, TextInput, ScrollView, Pressable, StyleSheet, ActivityIndic
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -49,6 +49,7 @@ const EXAMPLE_PROMPTS = [
 export default function SemanticSearchScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
   const { hasProAccess } = useAuth()
   const [query, setQuery] = useState('')
   const [submittedQuery, setSubmittedQuery] = useState('')
@@ -115,7 +116,7 @@ export default function SemanticSearchScreen() {
         <View style={styles.content}>
           <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
             <TextInput
-              style={[styles.searchInput, { color: tokens.t1, fontSize: fs(14.5) }]}
+              style={[styles.searchInput, { color: tokens.t1, fontSize: ifs(14.5) }]}
               placeholder="Ask a question about the regs…"
               placeholderTextColor={tokens.t3}
               value={query}

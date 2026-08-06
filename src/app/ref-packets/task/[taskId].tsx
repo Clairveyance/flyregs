@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { TabletContainer } from '@/components/TabletContainer'
 import { RegPreviewPane } from '@/components/RegPreviewPane'
@@ -16,6 +16,7 @@ export default function RefPacketTaskScreen() {
   const { taskId } = useLocalSearchParams<{ taskId: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
   const [task, setTask] = useState<RefPacketTask | null>(null)
   const [loading, setLoading] = useState(true)
   const [previewRoute, setPreviewRoute] = useState<string | null>(null)
@@ -123,7 +124,7 @@ export default function RefPacketTaskScreen() {
               <View style={[styles.searchBar, { backgroundColor: tokens.inp, borderColor: tokens.bdr }]}>
                 <Icon name="magnifyingglass" size={fs(15)} color={tokens.t3} />
                 <TextInput
-                  style={[styles.searchInput, { color: tokens.t1, fontSize: fs(13.5) }]}
+                  style={[styles.searchInput, { color: tokens.t1, fontSize: ifs(13.5) }]}
                   value={query}
                   onChangeText={handleQueryChange}
                   placeholder="Search a topic — e.g. runway markings…"

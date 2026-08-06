@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuth } from '@/context/auth'
 import { useTheme } from '@/context/theme'
 import { Icon } from '@/components/Icon'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { markJustConfirmed } from '@/lib/justConfirmed'
 import { useConfirm } from '@/components/ConfirmDialog'
 
@@ -25,6 +25,7 @@ export default function AuthScreen() {
   // See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  const ifs = useInputFS()
   const { signIn, signUp, resendConfirmation, requestPasswordReset } = useAuth()
   const insets = useSafeAreaInsets()
   const [mode, setMode] = useState<Mode>('signin')
@@ -242,7 +243,7 @@ export default function AuthScreen() {
             <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: emailError ? tokens.red : tokens.bdr2 }]}>
               <Icon name="envelope" size={fs(16)} color={tokens.t3} />
               <TextInput
-                style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
+                style={[styles.input, { color: tokens.t1, fontSize: ifs(15) }]}
                 placeholder="Email address"
                 placeholderTextColor={tokens.t3}
                 value={email}
@@ -321,7 +322,7 @@ export default function AuthScreen() {
             <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: emailError ? tokens.red : tokens.bdr2 }]}>
               <Icon name="envelope" size={fs(16)} color={tokens.t3} />
               <TextInput
-                style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
+                style={[styles.input, { color: tokens.t1, fontSize: ifs(15) }]}
                 placeholder="Email address"
                 placeholderTextColor={tokens.t3}
                 value={email}
@@ -340,7 +341,7 @@ export default function AuthScreen() {
             <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: passwordError ? tokens.red : tokens.bdr2 }]}>
               <Icon name="lock" size={fs(16)} color={tokens.t3} />
               <TextInput
-                style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
+                style={[styles.input, { color: tokens.t1, fontSize: ifs(15) }]}
                 placeholder="Password"
                 placeholderTextColor={tokens.t3}
                 value={password}

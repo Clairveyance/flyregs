@@ -3,7 +3,7 @@ import { View, Text, FlatList, Pressable, TextInput, StyleSheet, ActivityIndicat
 import { router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -38,6 +38,7 @@ interface LoiHit {
 export default function LoiIndexScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<LoiHit[]>([])
   const [searching, setSearching] = useState(false)
@@ -107,7 +108,7 @@ export default function LoiIndexScreen() {
         <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
           <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
           <TextInput
-            style={[styles.searchInput, { color: tokens.t1, fontSize: fs(14) }]}
+            style={[styles.searchInput, { color: tokens.t1, fontSize: ifs(14) }]}
             placeholder="Search interpretations (e.g. 'wet lease', 'BasicMed')…"
             placeholderTextColor={tokens.t3}
             value={query}

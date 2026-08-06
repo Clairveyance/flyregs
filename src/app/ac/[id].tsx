@@ -7,7 +7,7 @@ import { useLocalSearchParams, router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { BackToBreadcrumb } from '@/components/DocNavBar'
 import { Icon } from '@/components/Icon'
@@ -146,6 +146,7 @@ export default function ACDetailScreen() {
   // sharing stay Premium-only, unchanged from before.
   const { isPremium, hasPlusAccess, hasProAccess } = useAuth()
   const fs = useFS()
+  const ifs = useInputFS()
   const scrollRef = useRef<ScrollView>(null)
   const acBodyRef = useRef<ACBodyHandle>(null)
   const [ac, setAC] = useState<AdvisoryCircular | null>(null)
@@ -808,7 +809,7 @@ export default function ACDetailScreen() {
               <TextInput
                 style={[
                   styles.acSearchInput,
-                  { color: tokens.t1, fontSize: fs(15) },
+                  { color: tokens.t1, fontSize: ifs(15) },
                   Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : undefined,
                 ]}
                 placeholder="Search..."

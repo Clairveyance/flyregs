@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { Platform } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 const SCALE_KEY = '@flyregs/font-scale'
@@ -54,4 +55,19 @@ export function useFontScale() {
 export function useFS() {
   const { fontScale } = useFontScale()
   return (n: number) => Math.round(n * fontScale)
+}
+
+// RC, real device (iPad, web preview): tapping into a text field auto-
+// zoomed the whole page. Root cause, confirmed corpus-wide: Mobile Safari
+// (and any WebKit webview) auto-zooms on focus whenever the focused
+// element's rendered font-size is under 16px -- and nearly every
+// TextInput in this app renders at 13-15px through plain useFS(). Native
+// iOS/Android have no such behavior, so this floor only applies on web.
+//
+// Use this ONLY for a TextInput's own fontSize, never for surrounding
+// Text/labels -- flooring plain text to 16px everywhere would blow out
+// the app's whole visual hierarchy just to work around a web-only quirk.
+export function useInputFS() {
+  const fs = useFS()
+  return (n: number) => (Platform.OS === 'web' ? Math.max(fs(n), 16) : fs(n))
 }

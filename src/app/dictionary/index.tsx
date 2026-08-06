@@ -4,7 +4,7 @@ import { router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -35,6 +35,7 @@ export const MNEMONIC_UNGROUPED = 'Other'
 export default function DictionaryIndexScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
@@ -118,7 +119,7 @@ export default function DictionaryIndexScreen() {
           <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
             <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
             <TextInput
-              style={[styles.searchInput, { color: tokens.t1, fontSize: fs(14) }]}
+              style={[styles.searchInput, { color: tokens.t1, fontSize: ifs(14) }]}
               placeholder="Find a term or acronym…"
               placeholderTextColor={tokens.t3}
               value={query}

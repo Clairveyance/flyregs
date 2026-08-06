@@ -1,6 +1,6 @@
 import { View, Text, TextInput, Pressable, StyleSheet, Platform } from 'react-native'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 
 // Extracted from ac/[id].tsx's own "IN DOC" search bar, pixel-for-pixel,
@@ -26,6 +26,7 @@ export function InDocSearchBar({
 }) {
   const { tokens } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
 
   return (
     <View style={[styles.sticky, { backgroundColor: tokens.bg, borderBottomColor: tokens.bdr }]}>
@@ -43,7 +44,7 @@ export function InDocSearchBar({
           <TextInput
             style={[
               styles.input,
-              { color: tokens.t1, fontSize: fs(15) },
+              { color: tokens.t1, fontSize: ifs(15) },
               Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : undefined,
             ]}
             placeholder="Search..."

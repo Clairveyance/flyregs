@@ -5,7 +5,7 @@ import Reanimated, {
 import { View, Text, Image, ScrollView, Pressable, TextInput, Switch, StyleSheet, ActivityIndicator, Modal } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
@@ -255,6 +255,7 @@ export default function ProfileScreen() {
   const { userId, label } = useLocalSearchParams<{ userId: string; label?: string }>()
   const { tokens, redShift, resolved } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
   const { session, avatarOverride } = useAuth()
   const isSelf = session?.user.id === userId
   // Same avatarOverride-first resolution as Account/Drawer/Community's
@@ -393,7 +394,7 @@ export default function ProfileScreen() {
                 </View>
                 <View style={styles.aircraftRow}>
                   <TextInput
-                    style={[styles.aircraftInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg, fontSize: fs(13.5) }]}
+                    style={[styles.aircraftInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg, fontSize: ifs(13.5) }]}
                     value={aircraftInput}
                     onChangeText={(v) => { setAircraftInput(v); setAircraftDirty(true) }}
                     placeholder="Current aircraft (e.g. SR22, G550)"

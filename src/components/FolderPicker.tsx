@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Modal, View, Text, FlatList, Pressable, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
 import {
@@ -50,6 +50,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   // See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  const ifs = useInputFS()
   const { hasPlusAccess } = useAuth()
   const [folders, setFolders] = useState<Folder[]>([])
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({})
@@ -220,7 +221,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
             <View style={[styles.createRow, { borderTopColor: tokens.bdr, backgroundColor: tokens.bg2 }]}>
               <TextInput
                 ref={inputRef}
-                style={[styles.nameInput, { color: tokens.t1, borderColor: tokens.bdr2, backgroundColor: tokens.inp ?? tokens.bg, fontSize: fs(14) }]}
+                style={[styles.nameInput, { color: tokens.t1, borderColor: tokens.bdr2, backgroundColor: tokens.inp ?? tokens.bg, fontSize: ifs(14) }]}
                 placeholder="Folder name"
                 placeholderTextColor={tokens.t3}
                 value={newName}

@@ -6,7 +6,7 @@ import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { TabletContainer } from '@/components/TabletContainer'
 import { Icon } from '@/components/Icon'
@@ -633,6 +633,7 @@ function NoteEditor({
 }) {
   const insets = useSafeAreaInsets()
   const fs = useFS()
+  const ifs = useInputFS()
   const { hasPlusAccess } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const [title, setTitle] = useState(note.title)
@@ -843,7 +844,7 @@ function NoteEditor({
         />
         <View style={[styles.editorDivider, { backgroundColor: tokens.bdr }]} />
         <TextInput
-          style={[styles.bodyInput, { color: tokens.t1, fontSize: fs(15), lineHeight: fs(15) * 1.6 }]}
+          style={[styles.bodyInput, { color: tokens.t1, fontSize: ifs(15), lineHeight: fs(15) * 1.6 }]}
           placeholder={'Start writing… mention an AC like "61-65K" and it\'ll auto-link.\n\nOn iOS, use your keyboard\'s dictation button to speak notes aloud.'}
           placeholderTextColor={tokens.t3}
           value={body}

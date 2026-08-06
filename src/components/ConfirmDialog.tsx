@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useRef, useState } from 'react'
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Modal, TextInput } from 'react-native'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 
 // App-wide replacement for Alert.alert().
@@ -81,6 +81,7 @@ export function useConfirm() {
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const { tokens } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
   const [opts, setOpts] = useState<ConfirmOptions | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -209,7 +210,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                   autoCorrect={false}
                   placeholder={opts.requireTyped}
                   placeholderTextColor={tokens.t4}
-                  style={[styles.typedInput, { color: tokens.t1, borderColor: armed ? tokens.red : tokens.bdr, fontSize: fs(14.5) }]}
+                  style={[styles.typedInput, { color: tokens.t1, borderColor: armed ? tokens.red : tokens.bdr, fontSize: ifs(14.5) }]}
                 />
               </View>
             ) : null}

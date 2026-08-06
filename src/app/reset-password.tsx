@@ -4,7 +4,7 @@ import { router, useLocalSearchParams } from 'expo-router'
 import * as Linking from 'expo-linking'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { supabase } from '@/lib/supabase'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -23,6 +23,7 @@ export default function ResetPasswordScreen() {
   // See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  const ifs = useInputFS()
   const insets = useSafeAreaInsets()
   const { access_token, refresh_token } = useLocalSearchParams<{ access_token?: string; refresh_token?: string }>()
   const incomingUrl = Linking.useURL()
@@ -111,7 +112,7 @@ export default function ResetPasswordScreen() {
       <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
         <Icon name="lock" size={fs(16)} color={tokens.t3} />
         <TextInput
-          style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
+          style={[styles.input, { color: tokens.t1, fontSize: ifs(15) }]}
           placeholder="New password"
           placeholderTextColor={tokens.t3}
           value={password}
@@ -128,7 +129,7 @@ export default function ResetPasswordScreen() {
       <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
         <Icon name="lock" size={fs(16)} color={tokens.t3} />
         <TextInput
-          style={[styles.input, { color: tokens.t1, fontSize: fs(15) }]}
+          style={[styles.input, { color: tokens.t1, fontSize: ifs(15) }]}
           placeholder="Confirm password"
           placeholderTextColor={tokens.t3}
           value={confirmPassword}

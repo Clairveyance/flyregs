@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Modal, View, Text, FlatList, Pressable, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
 import { getFolders, getFolderItemCounts, createFolder, Folder, DUPLICATE_FOLDER_NAME } from '@/lib/folders'
@@ -33,6 +33,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
   // See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  const ifs = useInputFS()
   const { hasPlusAccess } = useAuth()
   const [folders, setFolders] = useState<Folder[]>([])
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({})
@@ -170,7 +171,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
                   color: tokens.t1,
                   borderColor: tokens.bdr2,
                   backgroundColor: (tokens as any).inp ?? tokens.bg,
-                  fontSize: fs(14),
+                  fontSize: ifs(14),
                 }]}
                 placeholder="Folder name"
                 placeholderTextColor={tokens.t3}

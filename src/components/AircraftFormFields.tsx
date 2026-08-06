@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, ActivityIndicator, Modal } from 'react-native'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { InfoPopup } from '@/components/InfoPopup'
 import { supabase } from '@/lib/supabase'
@@ -44,6 +44,7 @@ export function TypeDesignatorField({
   fs: (n: number) => number
   style?: object
 }) {
+  const ifs = useInputFS()
   const [suggestions, setSuggestions] = useState<TypeDesignatorSuggestion[]>([])
   const [focused, setFocused] = useState(false)
 
@@ -76,7 +77,7 @@ export function TypeDesignatorField({
         placeholder="Type designator (required, e.g. PA-28-181)"
         placeholderTextColor={tokens.t3}
         autoCapitalize="characters"
-        style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }, label ? undefined : style]}
+        style={[styles.input, { color: tokens.t1, fontSize: ifs(14.5), borderColor: tokens.bdr }, label ? undefined : style]}
       />
       {focused && suggestions.length > 0 && (
         <View style={[styles.suggestBox, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
@@ -112,6 +113,7 @@ export function MakeField({
   fs: (n: number) => number
   style?: object
 }) {
+  const ifs = useInputFS()
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [focused, setFocused] = useState(false)
 
@@ -140,7 +142,7 @@ export function MakeField({
         onBlur={() => setTimeout(() => setFocused(false), 150)}
         placeholder="Make (e.g. Cessna)"
         placeholderTextColor={tokens.t3}
-        style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }, label ? undefined : style]}
+        style={[styles.input, { color: tokens.t1, fontSize: ifs(14.5), borderColor: tokens.bdr }, label ? undefined : style]}
       />
       {focused && suggestions.length > 0 && (
         <View style={[styles.suggestBox, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
@@ -177,6 +179,7 @@ export function ModelField({
   fs: (n: number) => number
   style?: object
 }) {
+  const ifs = useInputFS()
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [focused, setFocused] = useState(false)
 
@@ -203,7 +206,7 @@ export function ModelField({
         onBlur={() => setTimeout(() => setFocused(false), 150)}
         placeholder="Model name (e.g. Skyhawk) — leave blank if none"
         placeholderTextColor={tokens.t3}
-        style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }, label ? undefined : style]}
+        style={[styles.input, { color: tokens.t1, fontSize: ifs(14.5), borderColor: tokens.bdr }, label ? undefined : style]}
       />
       {focused && suggestions.length > 0 && (
         <View style={[styles.suggestBox, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
@@ -378,6 +381,7 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: Us
   // See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  const ifs = useInputFS()
   const [make, setMake] = useState('')
   const [model, setModel] = useState('')
   const [typeDesignator, setTypeDesignator] = useState('')
@@ -500,7 +504,7 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: Us
               onChangeText={setNickname}
               placeholder="Optional, e.g. N12345"
               placeholderTextColor={tokens.t3}
-              style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }]}
+              style={[styles.input, { color: tokens.t1, fontSize: ifs(14.5), borderColor: tokens.bdr }]}
             />
           </View>
           <Pressable style={[styles.addButton, { backgroundColor: tokens.blu, marginTop: 14 }]} onPress={handleSave} disabled={saving}>

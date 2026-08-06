@@ -3,7 +3,7 @@ import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndic
 import { router, useLocalSearchParams } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -37,6 +37,7 @@ const AD_NUM_RE = /^\d{4}-\d{2}-\d{2}$/
 export default function AdIndexScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
   // `q` -- deep-link from My Aircraft's "widen your search" prompt
   // (my-aircraft/[id].tsx) when the precision-tightened AD matcher can't
   // confirm a model-specific match; pre-fills and runs a real search here
@@ -156,7 +157,7 @@ export default function AdIndexScreen() {
           <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
             <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
             <TextInput
-              style={[styles.searchInput, { color: tokens.t1, fontSize: fs(14) }]}
+              style={[styles.searchInput, { color: tokens.t1, fontSize: ifs(14) }]}
               placeholder="AD number or subject…"
               placeholderTextColor={tokens.t3}
               value={query}

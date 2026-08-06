@@ -11,7 +11,7 @@ import Reanimated, {
 } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
 import { renameFolder, Folder, DUPLICATE_FOLDER_NAME } from '@/lib/folders'
@@ -69,6 +69,7 @@ export function FolderListView({
   // See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  const ifs = useInputFS()
   const { hasPlusAccess } = useAuth()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
@@ -214,7 +215,7 @@ export function FolderListView({
               <View style={[styles.folderCard, { backgroundColor: tokens.bg2, borderColor: tokens.blu }]}>
                 <Icon name="folder.fill" size={fs(20)} color={tokens.blu} />
                 <TextInput
-                  style={[styles.nameInput, { color: tokens.t1, flex: 1, fontSize: fs(14.5) }]}
+                  style={[styles.nameInput, { color: tokens.t1, flex: 1, fontSize: ifs(14.5) }]}
                   value={editName}
                   onChangeText={setEditName}
                   autoFocus

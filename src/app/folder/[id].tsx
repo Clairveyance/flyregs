@@ -3,7 +3,7 @@ import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Anima
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
@@ -63,6 +63,7 @@ export default function FolderDetail() {
   // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  const ifs = useInputFS()
   const { isPremium } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const { shareAC, shareNote, shareReg } = useShareActions()
@@ -405,7 +406,7 @@ export default function FolderDetail() {
         {renaming && (
           <View style={[styles.renameBar, { backgroundColor: tokens.bg2, borderBottomColor: tokens.bdr }]}>
             <TextInput
-              style={[styles.renameInput, { color: tokens.t1, fontSize: fs(15) }]}
+              style={[styles.renameInput, { color: tokens.t1, fontSize: ifs(15) }]}
               value={renameText}
               onChangeText={setRenameText}
               autoFocus

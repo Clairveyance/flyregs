@@ -11,7 +11,7 @@ import { Icon } from '@/components/Icon'
 import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
 import { restorePurchases } from '@/lib/revenuecat'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { SUPPORT_EMAIL } from '@/lib/appInfo'
 import { supabase } from '@/lib/supabase'
 import { getAvatarUrl, getAvatarPresetId, resolveAvatarUrl, resolveAvatarPresetId, pickAndUploadAvatar, takeAndUploadAvatar, removeAvatar, selectAvatarPreset, getDisplayName } from '@/lib/avatar'
@@ -42,6 +42,7 @@ export default function AccountScreen() {
   // Browser-pane QA. See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  const ifs = useInputFS()
   const { session, isPro, setIsPro, isPremium, setIsPremium, isUnlocked, setIsUnlocked, signOut, avatarOverride, setAvatarOverride, clearAvatarOverride } = useAuth()
   const insets = useSafeAreaInsets()
   const backToMenu = useReturnToMenu()
@@ -575,7 +576,7 @@ export default function AccountScreen() {
           </View>
           <View style={styles.handleInputRow}>
             <TextInput
-              style={[styles.handleInput, { color: tokens.t1, borderColor: callsignError ? tokens.red : tokens.bdr, backgroundColor: tokens.bg, fontSize: fs(14.5) }]}
+              style={[styles.handleInput, { color: tokens.t1, borderColor: callsignError ? tokens.red : tokens.bdr, backgroundColor: tokens.bg, fontSize: ifs(14.5) }]}
               value={callsignInput}
               onChangeText={(v) => { setCallsignInput(v); setCallsignDirty(true); setCallsignError(null) }}
               placeholder="e.g. Maverick"

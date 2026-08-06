@@ -4,7 +4,7 @@ import { router, useFocusEffect } from 'expo-router'
 import { useTheme, type ThemeTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useConfirm } from '@/components/ConfirmDialog'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { InfoPopup } from '@/components/InfoPopup'
@@ -292,6 +292,7 @@ function PopupRingSwatchRow({ items, tokens }: { items: React.ReactNode[]; token
 export default function MyAircraftScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
   const { session, isPro, isPremium } = useAuth()
   const confirm = useConfirm()
   const [aircraft, setAircraft] = useState<FleetAircraftSummary[]>([])
@@ -932,7 +933,7 @@ export default function MyAircraftScreen() {
                   onChangeText={setNickname}
                   placeholder="Nickname (optional, e.g. N12345)"
                   placeholderTextColor={tokens.t3}
-                  style={[styles.input, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }]}
+                  style={[styles.input, { color: tokens.t1, fontSize: ifs(14.5), borderColor: tokens.bdr }]}
                 />
                 <Pressable
                   style={[styles.addButton, { backgroundColor: tokens.blu }]}

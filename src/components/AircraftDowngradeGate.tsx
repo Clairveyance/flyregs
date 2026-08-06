@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal, TextInput } from 'react-native'
 import { router, usePathname } from 'expo-router'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
 import { getFleetHiddenCount, getOwnedAircraftOldestFirst, keepOnlyAircraft } from '@/lib/aircraftSharing'
@@ -28,6 +28,7 @@ import { getFleetHiddenCount, getOwnedAircraftOldestFirst, keepOnlyAircraft } fr
 export function AircraftDowngradeGate() {
   const { tokens } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
   const { session, isPremium } = useAuth()
   const pathname = usePathname()
   const [locked, setLocked] = useState<{ aircraftId: string; make: string; model: string; nickname: string | null }[]>([])
@@ -133,7 +134,7 @@ export function AircraftDowngradeGate() {
                     autoCorrect={false}
                     placeholder="DELETE"
                     placeholderTextColor={tokens.t4}
-                    style={[styles.typedInput, { color: tokens.t1, borderColor: armed ? tokens.red : tokens.bdr, fontSize: fs(14.5) }]}
+                    style={[styles.typedInput, { color: tokens.t1, borderColor: armed ? tokens.red : tokens.bdr, fontSize: ifs(14.5) }]}
                   />
                 </View>
                 <Pressable

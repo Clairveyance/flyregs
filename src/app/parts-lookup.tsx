@@ -3,7 +3,7 @@ import { View, Text, TextInput, FlatList, Pressable, StyleSheet, ActivityIndicat
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -40,6 +40,7 @@ function HighlightedPartName({ name, words, color, style }: { name: string; word
 export default function PartsLookupScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
   const { hasPlusAccess } = useAuth()
   const [query, setQuery] = useState('')
   const queryWords = query.trim().split(/\s+/).filter(Boolean)
@@ -97,7 +98,7 @@ export default function PartsLookupScreen() {
         <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
           <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
           <TextInput
-            style={[styles.searchInput, { color: tokens.t1, fontSize: fs(14) }]}
+            style={[styles.searchInput, { color: tokens.t1, fontSize: ifs(14) }]}
             placeholder="Engine, propeller, avionics part…"
             placeholderTextColor={tokens.t3}
             value={query}

@@ -7,7 +7,7 @@ import { useAuth } from '@/context/auth'
 import { useReturnToMenu } from '@/context/drawer'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { SUPPORT_EMAIL, APP_NAME, APP_VERSION } from '@/lib/appInfo'
 import { useConfirm } from '@/components/ConfirmDialog'
 
@@ -39,6 +39,7 @@ export default function FeedbackScreen() {
   // See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  const ifs = useInputFS()
   const { session, hasProAccess } = useAuth()
   const insets = useSafeAreaInsets()
   const backToMenu = useReturnToMenu()
@@ -143,7 +144,7 @@ export default function FeedbackScreen() {
         <TextInput
           style={[
             styles.input,
-            { backgroundColor: tokens.bg2, borderColor: tokens.bdr, color: tokens.t1, fontSize: fs(14.5) },
+            { backgroundColor: tokens.bg2, borderColor: tokens.bdr, color: tokens.t1, fontSize: ifs(14.5) },
           ]}
           placeholder={
             category === 'aircraft_part'

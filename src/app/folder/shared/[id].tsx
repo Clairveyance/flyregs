@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, Modal, ScrollView, TextInput } from 'react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -88,6 +88,7 @@ export default function SharedFolderDetail() {
   // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  const ifs = useInputFS()
   const { id } = useLocalSearchParams<{ id: string }>()
   const { badgeDays } = useBadgeLifespan()
   const [folderName, setFolderName] = useState('')
@@ -483,7 +484,7 @@ export default function SharedFolderDetail() {
                     placeholderTextColor={tokens.t3}
                   />
                   <TextInput
-                    style={[styles.modalBodyInput, { color: tokens.t2, fontSize: fs(14.5), borderColor: tokens.bdr2 }]}
+                    style={[styles.modalBodyInput, { color: tokens.t2, fontSize: ifs(14.5), borderColor: tokens.bdr2 }]}
                     value={noteEditBody}
                     onChangeText={setNoteEditBody}
                     placeholder="Note"
@@ -643,7 +644,7 @@ export default function SharedFolderDetail() {
               autoFocus
             />
             <TextInput
-              style={[styles.modalBodyInput, { color: tokens.t2, fontSize: fs(14.5), borderColor: tokens.bdr2 }]}
+              style={[styles.modalBodyInput, { color: tokens.t2, fontSize: ifs(14.5), borderColor: tokens.bdr2 }]}
               value={newNoteBody}
               onChangeText={setNewNoteBody}
               placeholder="Note"

@@ -3,7 +3,7 @@ import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndic
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { InfoPopup } from '@/components/InfoPopup'
@@ -836,6 +836,7 @@ export default function AircraftDetailScreen() {
 function PartPickerModal({ visible, editing, onClose, onPicked }: { visible: boolean; editing?: boolean; onClose: () => void; onPicked: (p: AdPart) => void }) {
   const { tokens } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<AdPart[]>([])
   const [relatedTo, setRelatedTo] = useState<PartComponentType | null>(null)
@@ -861,7 +862,7 @@ function PartPickerModal({ visible, editing, onClose, onPicked }: { visible: boo
         <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
           <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
           <TextInput
-            style={[styles.searchInput, { color: tokens.t1, fontSize: fs(14) }]}
+            style={[styles.searchInput, { color: tokens.t1, fontSize: ifs(14) }]}
             placeholder="Engine, propeller, avionics part…"
             placeholderTextColor={tokens.t3}
             value={query}
@@ -926,6 +927,7 @@ function ReminderFormModal({
 }) {
   const { tokens } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
   const confirm = useConfirm()
   const [typeKey, setTypeKey] = useState<ReminderTypeKey | null>(null)
   const [title, setTitle] = useState('')
@@ -1017,7 +1019,7 @@ function ReminderFormModal({
               onChangeText={setTitle}
               placeholder="What (e.g. ELT battery, Annual)"
               placeholderTextColor={tokens.t3}
-              style={[styles.formInput, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }]}
+              style={[styles.formInput, { color: tokens.t1, fontSize: ifs(14.5), borderColor: tokens.bdr }]}
             />
 
             <Pressable style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr }]} onPress={() => setDatePickerVisible(true)}>
@@ -1039,7 +1041,7 @@ function ReminderFormModal({
               onChangeText={setNotes}
               placeholder="Notes (optional)"
               placeholderTextColor={tokens.t3}
-              style={[styles.formInput, { color: tokens.t1, fontSize: fs(14.5), borderColor: tokens.bdr }]}
+              style={[styles.formInput, { color: tokens.t1, fontSize: ifs(14.5), borderColor: tokens.bdr }]}
             />
 
             <Pressable style={[styles.addButton, { backgroundColor: tokens.blu }]} onPress={handleSave}>
