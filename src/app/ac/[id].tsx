@@ -28,6 +28,8 @@ import { MagicLinkPod } from '@/components/MagicLinkPod'
 import { isOcrScanned, ocrScannedSeq, OCR_SCANNED_TOTAL } from '@/lib/ocrScannedACs'
 import { buildACShareLink, highlightSnippet } from '@/lib/acShare'
 import { FolderPicker } from '@/components/FolderPicker'
+import { useIsTabletLandscape, useIsTabletPortrait } from '@/context/responsive'
+import { useScreenActions } from '@/context/screenActions'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { consumePendingBreadcrumb, setPendingBreadcrumb } from '@/lib/navBreadcrumb'
@@ -147,12 +149,15 @@ export default function ACDetailScreen() {
   const { isPremium, hasPlusAccess, hasProAccess } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
+  const isTabletLandscape = useIsTabletLandscape()
+  const isTabletPortrait = useIsTabletPortrait()
   const scrollRef = useRef<ScrollView>(null)
   const acBodyRef = useRef<ACBodyHandle>(null)
   const [ac, setAC] = useState<AdvisoryCircular | null>(null)
   const [backTo, setBackTo] = useState<string | null>(null)
   const [related, setRelated] = useState<RelatedItem[]>([])
   const [bookmarked, setBookmarked] = useState(false)
+  const [overflowOpen, setOverflowOpen] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
   const [downloadBusy, setDownloadBusy] = useState(false)
   const [folderPickerVisible, setFolderPickerVisible] = useState(false)
@@ -752,6 +757,25 @@ export default function ACDetailScreen() {
     router.push({ pathname: '/pdf-viewer', params: { url, title: ac ? `AC ${ac.document_number}` : undefined } })
   }
 
+  // RC, annotated iPad screenshot: the overflow menu and bookmark icon
+  // circled, both moved to the bottom bar. The overflow menu's own dropdown
+  // still lives here (lifted to controlled open/onOpenChange so the bottom
+  // bar's action can drive it) -- only its trigger icon and the header
+  // bookmark icon actually move.
+  const isTabletSplit = isTabletLandscape || isTabletPortrait
+  useScreenActions(
+    [
+      { key: 'overflow', icon: 'ellipsis', onPress: () => setOverflowOpen(true) },
+      {
+        key: 'bookmark',
+        icon: bookmarked ? 'bookmark.fill' : 'bookmark',
+        onPress: handleToggleBookmark,
+        variant: bookmarked ? 'primary' : 'default',
+      },
+    ],
+    [bookmarked]
+  )
+
   const headerRight = (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
       {scrollY > 200 && (
@@ -764,19 +788,25 @@ export default function ACDetailScreen() {
         </Pressable>
       )}
       <HeaderOverflowMenu
+        hideTrigger={isTabletSplit}
+        open={overflowOpen}
+        onOpenChange={setOverflowOpen}
+        position={isTabletSplit ? 'bottom' : 'top'}
         items={[
           { icon: 'printer', label: 'Print', onPress: handlePrint, disabled: !hasPlusAccess },
           { icon: 'square.and.arrow.up', label: 'Share', onPress: handleShare, disabled: !hasPlusAccess },
           { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasPlusAccess },
         ]}
       />
-      <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
-        <Icon
-          name={bookmarked ? 'bookmark.fill' : 'bookmark'}
-          size={fs(21)}
-          color={bookmarked ? tokens.blu : tokens.t2}
-        />
-      </Pressable>
+      {!isTabletSplit && (
+        <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
+          <Icon
+            name={bookmarked ? 'bookmark.fill' : 'bookmark'}
+            size={fs(21)}
+            color={bookmarked ? tokens.blu : tokens.t2}
+          />
+        </Pressable>
+      )}
     </View>
   )
 

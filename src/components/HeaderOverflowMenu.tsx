@@ -26,23 +26,47 @@ export interface OverflowMenuItem {
 // for "more" overflow menus (Safari, Mail, Files), and it's the one SF
 // Symbol name already confirmed to render on device; a literal
 // ellipsis.vertical isn't a standard SF Symbol.
-export function HeaderOverflowMenu({ items }: { items: OverflowMenuItem[] }) {
+export function HeaderOverflowMenu({
+  items,
+  hideTrigger,
+  open: openProp,
+  onOpenChange,
+  position = 'top',
+}: {
+  items: OverflowMenuItem[]
+  /** iPad: the "..." trigger itself moved to the bottom bar (RC, annotated
+   * screenshot), so this instance only renders the dropdown -- the bottom
+   * bar's own action drives `open`/`onOpenChange` instead. */
+  hideTrigger?: boolean
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** 'bottom' anchors the dropdown near the bottom bar instead of the
+   * header, so it visually opens from wherever its trigger actually is. */
+  position?: 'top' | 'bottom'
+}) {
   const { tokens } = useTheme()
   const fs = useFS()
   const insets = useSafeAreaInsets()
-  const [open, setOpen] = useState(false)
+  const [openState, setOpenState] = useState(false)
+  const open = openProp ?? openState
+  const setOpen = onOpenChange ?? setOpenState
 
   return (
     <>
-      <Pressable onPress={() => setOpen(true)} hitSlop={12} style={styles.trigger}>
-        <Icon name="ellipsis" size={fs(21)} color={tokens.t2} />
-      </Pressable>
+      {!hideTrigger && (
+        <Pressable onPress={() => setOpen(true)} hitSlop={12} style={styles.trigger}>
+          <Icon name="ellipsis" size={fs(21)} color={tokens.t2} />
+        </Pressable>
+      )}
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)}>
           <View
             style={[
               styles.menu,
-              { top: insets.top + 52, backgroundColor: tokens.bg2, borderColor: tokens.bdr },
+              position === 'bottom'
+                ? { bottom: insets.bottom + 60 }
+                : { top: insets.top + 52 },
+              { backgroundColor: tokens.bg2, borderColor: tokens.bdr },
             ]}
           >
             {items.map((item, i) => (

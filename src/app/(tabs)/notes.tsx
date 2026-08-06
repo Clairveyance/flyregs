@@ -28,6 +28,8 @@ import { getNotes, saveNotes, makeNoteId, type Note } from '@/lib/notes'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
 import { syncPushNote, syncPushNoteDeletes } from '@/lib/syncPush'
 import { updateSharedNote } from '@/lib/sharedFolders'
+import { useScreenActions } from '@/context/screenActions'
+import { useIsTablet } from '@/context/responsive'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
@@ -88,6 +90,7 @@ export default function NotesScreen() {
   // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  const isTablet = useIsTablet()
   // Notes creation/editing is Plus-tier now (hasPlusAccess); cloud sync of
   // notes is Pro-tier (isPro) per the pricing pivot -- see flyregs_decisions.md.
   const { isPro, isPremium, hasPlusAccess, session } = useAuth()
@@ -288,7 +291,21 @@ export default function NotesScreen() {
     }
   }
 
-  const rightSlot = hasPlusAccess ? (
+  // RC, annotated iPad screenshot: Select/+New (list) circled, moved to the
+  // bottom bar. Skips registering while the editor is open -- NoteEditor
+  // registers its own Back/Folder/Share/Delete/Done there instead (see
+  // below), and re-asserts these the moment editorNote goes back to null.
+  useScreenActions(
+    !hasPlusAccess || editorNote !== null
+      ? []
+      : [
+          { key: 'select', label: selectMode ? 'Done' : 'Select', onPress: toggleSelect },
+          ...(!selectMode ? [{ key: 'new', label: '+ New', onPress: openNew, variant: 'primary' as const }] : []),
+        ],
+    [hasPlusAccess, editorNote !== null, selectMode]
+  )
+
+  const rightSlot = hasPlusAccess && !isTablet ? (
     <View style={styles.headerRight}>
       <Pressable onPress={toggleSelect} hitSlop={8}>
         <Text style={[styles.selectBtnText, { color: tokens.blu, fontSize: fs(13) }]}>
@@ -634,6 +651,7 @@ function NoteEditor({
   const insets = useSafeAreaInsets()
   const fs = useFS()
   const ifs = useInputFS()
+  const isTablet = useIsTablet()
   const { hasPlusAccess } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const [title, setTitle] = useState(note.title)
@@ -782,6 +800,21 @@ function NoteEditor({
     onSave({ ...note, title: title.trim() || 'Untitled', body, linked_ac: linkedAC })
   }
 
+  // RC, annotated iPad screenshot: Back/Folder/Share/Delete/Done circled,
+  // moved to the bottom bar. Registers while this editor is mounted;
+  // clears on unmount, at which point NotesScreen's own useScreenActions
+  // call (gated on editorNote) re-asserts Select/+New.
+  useScreenActions(
+    [
+      { key: 'back', label: 'Notes', onPress: onClose },
+      ...(onFolder ? [{ key: 'folder', icon: 'folder.badge.plus', onPress: onFolder }] : []),
+      ...(onShare ? [{ key: 'share', icon: 'square.and.arrow.up', onPress: onShare }] : []),
+      ...(onDelete ? [{ key: 'delete', icon: 'trash', onPress: onDelete, variant: 'destructive' as const }] : []),
+      { key: 'done', label: 'Done', onPress: handleDone, variant: 'primary' as const },
+    ],
+    [!!onFolder, !!onShare, !!onDelete]
+  )
+
   // Save the note, then open the full AC detail screen.
   const openFullAC = () => {
     if (!paneData) return
@@ -797,33 +830,41 @@ function NoteEditor({
     >
       {/* Header */}
       <View style={[styles.editorHeader, { backgroundColor: tokens.bg2, borderBottomColor: tokens.bdr, paddingTop: insets.top + 14 }]}>
-        <Pressable onPress={onClose} style={styles.editorBack} hitSlop={8}>
-          <Icon name="chevron.left" size={fs(17)} color={tokens.blu} />
-          <Text style={[styles.editorBackText, { color: tokens.blu, fontSize: fs(14) }]}>Notes</Text>
-        </Pressable>
-        <Text style={[styles.editorHeadTitle, { color: tokens.t1, fontSize: fs(14) }]}>
+        {/* On iPad, Back/Folder/Share/Delete/Done all move to the bottom
+            bar (useScreenActions above) -- RC, annotated screenshot: "all
+            things like this need to find their way to the bottom of the
+            screen." Phone keeps this header exactly as it was. */}
+        {!isTablet && (
+          <Pressable onPress={onClose} style={styles.editorBack} hitSlop={8}>
+            <Icon name="chevron.left" size={fs(17)} color={tokens.blu} />
+            <Text style={[styles.editorBackText, { color: tokens.blu, fontSize: fs(14) }]}>Notes</Text>
+          </Pressable>
+        )}
+        <Text style={[styles.editorHeadTitle, { color: tokens.t1, fontSize: fs(14) }, isTablet && { textAlign: 'left' }]}>
           {note.id ? 'Edit note' : 'New note'}
         </Text>
-        <View style={styles.editorHeaderRight}>
-          {onFolder && (
-            <Pressable onPress={onFolder} hitSlop={10} style={styles.editorDeleteBtn}>
-              <Icon name="folder.badge.plus" size={fs(21)} color={tokens.blu} />
+        {!isTablet && (
+          <View style={styles.editorHeaderRight}>
+            {onFolder && (
+              <Pressable onPress={onFolder} hitSlop={10} style={styles.editorDeleteBtn}>
+                <Icon name="folder.badge.plus" size={fs(21)} color={tokens.blu} />
+              </Pressable>
+            )}
+            {onShare && (
+              <Pressable onPress={onShare} hitSlop={10} style={styles.editorDeleteBtn}>
+                <Icon name="square.and.arrow.up" size={fs(20)} color={tokens.blu} />
+              </Pressable>
+            )}
+            {onDelete && (
+              <Pressable onPress={onDelete} hitSlop={10} style={styles.editorDeleteBtn}>
+                <Icon name="trash" size={fs(21)} color={tokens.red} />
+              </Pressable>
+            )}
+            <Pressable onPress={handleDone} style={[styles.doneBtn, { backgroundColor: tokens.blu }]}>
+              <Text style={[styles.doneBtnText, { fontSize: fs(13) }]}>Done</Text>
             </Pressable>
-          )}
-          {onShare && (
-            <Pressable onPress={onShare} hitSlop={10} style={styles.editorDeleteBtn}>
-              <Icon name="square.and.arrow.up" size={fs(20)} color={tokens.blu} />
-            </Pressable>
-          )}
-          {onDelete && (
-            <Pressable onPress={onDelete} hitSlop={10} style={styles.editorDeleteBtn}>
-              <Icon name="trash" size={fs(21)} color={tokens.red} />
-            </Pressable>
-          )}
-          <Pressable onPress={handleDone} style={[styles.doneBtn, { backgroundColor: tokens.blu }]}>
-            <Text style={[styles.doneBtnText, { fontSize: fs(13) }]}>Done</Text>
-          </Pressable>
-        </View>
+          </View>
+        )}
       </View>
 
       {/* Body */}

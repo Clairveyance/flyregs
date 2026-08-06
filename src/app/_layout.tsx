@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react'
 import { ThemeProvider, useTheme } from '@/context/theme'
 import { AuthProvider } from '@/context/auth'
 import { DrawerProvider } from '@/context/drawer'
+import { ScreenActionsProvider } from '@/context/screenActions'
 import { FontScaleProvider } from '@/context/fontScale'
 import { BadgeLifespanProvider } from '@/context/badgeLifespan'
 import { ResponsiveProvider } from '@/context/responsive'
@@ -118,6 +119,7 @@ export default function RootLayout() {
       <AuthProvider>
         <ShareCardProvider>
         <DrawerProvider>
+        <ScreenActionsProvider>
         <ConfirmProvider>
           <AppShell>
             <Stack screenOptions={{ headerShown: false }}>
@@ -144,6 +146,7 @@ export default function RootLayout() {
             <AircraftDowngradeGate />
           </AppShell>
         </ConfirmProvider>
+        </ScreenActionsProvider>
         </DrawerProvider>
         </ShareCardProvider>
       </AuthProvider>

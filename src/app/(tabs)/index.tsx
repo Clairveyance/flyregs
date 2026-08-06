@@ -39,6 +39,7 @@ import { FigureViewer } from '@/components/FigureViewer'
 import { TabletContainer } from '@/components/TabletContainer'
 import { SplitPane } from '@/components/SplitPane'
 import { useIsTabletLandscape, useIsTabletPortrait } from '@/context/responsive'
+import { useScreenActions } from '@/context/screenActions'
 import { SmartSearchLabel } from '@/components/SmartSearchLabel'
 import type { AcFigure } from '@/types'
 import { getRecentSearches, addRecentSearch, removeRecentSearch, clearRecentSearches } from '@/lib/recentSearches'
@@ -830,6 +831,17 @@ export default function HomeScreen() {
   // chars), so only one of the two ever renders at a time.
   const showRecentSearches = searchActive && searchQuery.trim().length === 0 && recentSearches.length > 0
 
+  // RC, iPad screenshot: Cancel (search-active) and the filter icon
+  // circled, moved to the bottom bar. Mutually exclusive with each other,
+  // same as the header buttons they replace on tablet -- see
+  // screenActions.tsx.
+  useScreenActions(
+    showCancel
+      ? [{ key: 'cancel', label: 'Cancel', onPress: dismissSearch }]
+      : [{ key: 'filter', icon: 'slider.horizontal.3', onPress: openFilter }],
+    [showCancel]
+  )
+
   const regTypes = [
     { key: 'far', label: 'Federal Aviation Regulations', abbr: 'FAR', count: farCount, unit: 'sections', route: '/far' },
     { key: 'aim', label: 'Aeronautical Information Manual', abbr: 'AIM', count: aimCount, unit: 'paragraphs', route: '/aim' },
@@ -952,7 +964,11 @@ export default function HomeScreen() {
             </Pressable>
           )}
         </View>
-        {!showCancel && (
+        {/* On iPad these two move to the bottom bar (useScreenActions
+            above) -- RC, annotated screenshot: "all things like this need
+            to find their way to the bottom of the screen." Phone keeps
+            them right here, unchanged. */}
+        {!showCancel && !isTabletLandscape && !isTabletPortrait && (
           <Pressable
             onPress={openFilter}
             style={[styles.filterBtn, { backgroundColor: tokens.inp, borderColor: activeFilterCount > 0 ? tokens.blu : tokens.bdr }]}
@@ -966,7 +982,7 @@ export default function HomeScreen() {
             )}
           </Pressable>
         )}
-        {showCancel && (
+        {showCancel && !isTabletLandscape && !isTabletPortrait && (
           <Pressable onPress={dismissSearch} style={styles.cancelWrap} hitSlop={4}>
             <Text style={[styles.cancelText, { color: tokens.blu, fontSize: fs(14) }]}>Cancel</Text>
           </Pressable>
