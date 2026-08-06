@@ -33,6 +33,7 @@ import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { consumePendingBreadcrumb, setPendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { splitIntoParagraphs } from '@/lib/regTextFormat'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { TabletContainer } from '@/components/TabletContainer'
 import type { AdvisoryCircular, AcFigure, FormulaRef } from '@/types'
 
 // Maps a block to the fields a highlight bookmark needs — chapter headings
@@ -859,6 +860,7 @@ export default function ACDetailScreen() {
           <Text style={{ color: tokens.t3, fontSize: fs(14) }}>AC not found.</Text>
         </View>
       ) : (
+        <TabletContainer>
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={styles.content}
@@ -1128,6 +1130,7 @@ export default function ACDetailScreen() {
               : 'Not yet updated'}
           </Text>
         </ScrollView>
+        </TabletContainer>
       )}
       <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
       <FormulaRefViewer formulaRef={viewerFormulaRef} onClose={() => setViewerFormulaRef(null)} />
