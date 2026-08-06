@@ -12,6 +12,7 @@ import { Icon } from '@/components/Icon'
 import { InfoPopup } from '@/components/InfoPopup'
 import { RatingPicker } from '@/components/RatingPicker'
 import { TabletContainer } from '@/components/TabletContainer'
+import { useIsTablet } from '@/context/responsive'
 import { getDuelStats, type DuelStats } from '@/lib/challenges'
 import { getStudyMastery, type StudyMastery } from '@/lib/study'
 import { getMyRatings, RATING_SHORT_LABELS, type RatingCode } from '@/lib/profileRatings'
@@ -258,6 +259,15 @@ export default function ProfileScreen() {
   const ifs = useInputFS()
   const { session, avatarOverride } = useAuth()
   const isSelf = session?.user.id === userId
+  // iPad, RC: "our coins, and orbiting planets, and ratings lists, etc. we
+  // can make big separate boxes for all of this and give real, good,
+  // visual sep bet all of it." Phone deliberately dropped these boxes in
+  // an earlier pass ("we don't need the boxes" -- RC, 3rd redesign round)
+  // because a single narrow column made them feel like padding, not
+  // separation. iPad's wide detail pane is a different tier of space --
+  // real boxes plus a genuine 2-up row for the two stat visuals reads as
+  // organized, not padded. Phone's exact JSX/logic is untouched below.
+  const isTablet = useIsTablet()
   // Same avatarOverride-first resolution as Account/Drawer/Community's
   // identity card -- only meaningful for isSelf, since we have no public
   // avatar lookup for other users here.
@@ -431,56 +441,80 @@ export default function ProfileScreen() {
                 page," not gated behind the "Show my stats" toggle the way
                 ratings/coins/aircraft are (RC: "your total Overall Mastery
                 %. plus the nametag. all the things to really brag about"). */}
-            {duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0) && (
-              <Pressable
-                style={styles.section}
-                disabled={!isSelf}
-                onPress={isSelf ? () => router.push('/challenges' as any) : undefined}
-              >
-                <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>DUEL RECORD</Text>
-                {/* RC: "we see the 0W 1L 1T count already, so what is the
-                    'plan' with these rings?" -- fair catch, the rings below
-                    already show each of wins/losses/ties as their own
-                    number, so restating the same breakdown here was pure
-                    duplication. This headline now only says what the rings
-                    don't: the total played. */}
-                <Text style={{ color: tokens.t1 }}>
-                  <Text style={[styles.statHeadlineNum, { fontSize: fs(23) }]}>
-                    {duelStats.wins + duelStats.losses + duelStats.ties}
+            {(() => {
+              const showDuel = duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0)
+              const showMastery = mastery && mastery.mastered > 0
+              // RC, iPad: "we can make big separate boxes for all of this
+              // and give real, good, visual sep bet all of it." Phone keeps
+              // the exact bare-section, stacked layout from the 3rd redesign
+              // pass (styles.section, no box) -- only isTablet adds a real
+              // bordered/backgrounded card and sits the two stat visuals
+              // side by side instead of stacked, since there's finally
+              // width to spare for it.
+              const duelCard = showDuel ? (
+                <Pressable
+                  style={[styles.section, isTablet && [styles.tabletCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }], isTablet && { flex: 1 }]}
+                  disabled={!isSelf}
+                  onPress={isSelf ? () => router.push('/challenges' as any) : undefined}
+                >
+                  <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>DUEL RECORD</Text>
+                  {/* RC: "we see the 0W 1L 1T count already, so what is the
+                      'plan' with these rings?" -- fair catch, the rings below
+                      already show each of wins/losses/ties as their own
+                      number, so restating the same breakdown here was pure
+                      duplication. This headline now only says what the rings
+                      don't: the total played. */}
+                  <Text style={{ color: tokens.t1 }}>
+                    <Text style={[styles.statHeadlineNum, { fontSize: fs(23) }]}>
+                      {duelStats!.wins + duelStats!.losses + duelStats!.ties}
+                    </Text>
+                    <Text style={[styles.statHeadlineSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+                      {' '}duel{duelStats!.wins + duelStats!.losses + duelStats!.ties === 1 ? '' : 's'} played
+                    </Text>
                   </Text>
-                  <Text style={[styles.statHeadlineSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-                    {' '}duel{duelStats.wins + duelStats.losses + duelStats.ties === 1 ? '' : 's'} played
-                  </Text>
-                </Text>
-                <DuelOrbit
-                  wins={duelStats.wins}
-                  losses={duelStats.losses}
-                  ties={duelStats.ties}
-                  tokens={tokens}
-                  fs={fs}
-                  redShift={redShift}
-                  isLight={resolved === 'light'}
-                />
-              </Pressable>
-            )}
+                  <DuelOrbit
+                    wins={duelStats!.wins}
+                    losses={duelStats!.losses}
+                    ties={duelStats!.ties}
+                    tokens={tokens}
+                    fs={fs}
+                    redShift={redShift}
+                    isLight={resolved === 'light'}
+                  />
+                </Pressable>
+              ) : null
 
-            {mastery && mastery.mastered > 0 && (
-              <Pressable
-                style={[styles.section, styles.sectionDivided, { borderTopColor: tokens.bdr }]}
-                disabled={!isSelf}
-                onPress={isSelf ? () => router.push('/study' as any) : undefined}
-              >
-                <View style={styles.sectionTitleRow}>
-                  <Icon name="graduationcap.fill" size={fs(11)} color={tokens.t3} />
-                  <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>OVERALL MASTERY</Text>
-                </View>
-                <Text style={{ color: tokens.t1 }}>
-                  <Text style={[styles.statHeadlineNum, { fontSize: fs(23) }]}>{mastery.pct}%</Text>
-                  <Text style={[styles.statHeadlineSub, { color: tokens.t3, fontSize: fs(13.5) }]}> · {mastery.mastered} terms mastered</Text>
-                </Text>
-                <MasteryBar pct={mastery.pct} tokens={tokens} redShift={redShift} />
-              </Pressable>
-            )}
+              const masteryCard = showMastery ? (
+                <Pressable
+                  style={[
+                    styles.section,
+                    !isTablet && styles.sectionDivided,
+                    !isTablet && { borderTopColor: tokens.bdr },
+                    isTablet && [styles.tabletCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }],
+                    isTablet && { flex: 1 },
+                  ]}
+                  disabled={!isSelf}
+                  onPress={isSelf ? () => router.push('/study' as any) : undefined}
+                >
+                  <View style={styles.sectionTitleRow}>
+                    <Icon name="graduationcap.fill" size={fs(11)} color={tokens.t3} />
+                    <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>OVERALL MASTERY</Text>
+                  </View>
+                  <Text style={{ color: tokens.t1 }}>
+                    <Text style={[styles.statHeadlineNum, { fontSize: fs(23) }]}>{mastery!.pct}%</Text>
+                    <Text style={[styles.statHeadlineSub, { color: tokens.t3, fontSize: fs(13.5) }]}> · {mastery!.mastered} terms mastered</Text>
+                  </Text>
+                  <MasteryBar pct={mastery!.pct} tokens={tokens} redShift={redShift} />
+                </Pressable>
+              ) : null
+
+              if (!duelCard && !masteryCard) return null
+              return isTablet ? (
+                <View style={styles.statRow}>{duelCard}{masteryCard}</View>
+              ) : (
+                <>{duelCard}{masteryCard}</>
+              )
+            })()}
 
             {!visible ? (
               <View style={[styles.privateCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
@@ -492,7 +526,12 @@ export default function ProfileScreen() {
             ) : (
               <>
                 {(ratings.length > 0 || isSelf) && (
-                  <View style={[styles.section, styles.sectionDivided, { borderTopColor: tokens.bdr }]}>
+                  <View style={[
+                    styles.section,
+                    !isTablet && styles.sectionDivided,
+                    !isTablet && { borderTopColor: tokens.bdr },
+                    isTablet && [styles.tabletCard, styles.tabletCardSpaced, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }],
+                  ]}>
                     <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>RATINGS</Text>
                     <View style={styles.chipWrap}>
                       {ratings.map((code) => (
@@ -513,7 +552,12 @@ export default function ProfileScreen() {
                   </View>
                 )}
 
-                <View style={[styles.section, styles.sectionDivided, { borderTopColor: tokens.bdr }]}>
+                <View style={[
+                  styles.section,
+                  !isTablet && styles.sectionDivided,
+                  !isTablet && { borderTopColor: tokens.bdr },
+                  isTablet && [styles.tabletCard, styles.tabletCardSpaced, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }],
+                ]}>
                   <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>
                     CHALLENGE COINS{coins.length > 0 ? ` · ${coins.length}` : ''}
                   </Text>
@@ -649,6 +693,9 @@ const styles = StyleSheet.create({
 
   section: { gap: 8 },
   sectionDivided: { paddingTop: 22, borderTopWidth: StyleSheet.hairlineWidth },
+  statRow: { flexDirection: 'row', gap: 14, marginTop: 22 },
+  tabletCard: { borderWidth: 1, borderRadius: 16, padding: 16 },
+  tabletCardSpaced: { marginTop: 22 },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   sectionTitle: { fontWeight: '700', letterSpacing: 0.6 },
   emptySub: {},
