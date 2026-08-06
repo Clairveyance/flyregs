@@ -324,7 +324,7 @@ export default function NotesScreen() {
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <ScreenHeader title="Notes" right={rightSlot} />
-      <TabletContainer>
+      <TabletContainer disabled={isTablet}>
 
       {!hasPlusAccess ? (
         <View style={[styles.empty, { padding: 32 }]}>
@@ -388,20 +388,33 @@ export default function NotesScreen() {
             </View>
           ) : (
             <FlatList
+              // iPad creative pass: same flexWrap-grid idea as Recents
+              // (85f6ed5) and Home's What's New -- a 2-up grid instead of one
+              // narrow scrolling column. FlatList's own numColumns needs a
+              // `key` change to remount cleanly when the column count changes
+              // (RN requirement), and each card needs a wrapper to take a
+              // fractional width since SwipeableNoteCard itself is full-width
+              // by design (phone). Phone (isTablet false) is the exact
+              // original single-column FlatList, byte-identical.
+              key={isTablet ? 'grid' : 'list'}
               data={notes}
               keyExtractor={(n) => n.id}
-              contentContainerStyle={styles.list}
+              numColumns={isTablet ? 2 : 1}
+              columnWrapperStyle={isTablet ? styles.gridRow : undefined}
+              contentContainerStyle={isTablet ? styles.tabletList : styles.list}
               renderItem={({ item }) => (
-                <SwipeableNoteCard
-                  note={item}
-                  tokens={tokens}
-                  selectMode={selectMode}
-                  selected={selected.has(item.id)}
-                  onPress={() => openExisting(item)}
-                  onDelete={() => confirmDelete(item.id)}
-                  onFolder={() => setPickerNote(item)}
-                  onShare={() => handleShare(item)}
-                />
+                <View style={isTablet ? styles.gridCell : undefined}>
+                  <SwipeableNoteCard
+                    note={item}
+                    tokens={tokens}
+                    selectMode={selectMode}
+                    selected={selected.has(item.id)}
+                    onPress={() => openExisting(item)}
+                    onDelete={() => confirmDelete(item.id)}
+                    onFolder={() => setPickerNote(item)}
+                    onShare={() => handleShare(item)}
+                  />
+                </View>
               )}
             />
           )}
@@ -1119,7 +1132,10 @@ const styles = StyleSheet.create({
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
   addBtnText: { color: '#fff', fontWeight: '600', fontSize: 12.5 },
 
-  syncWrap: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 4 },
+  // maxWidth keeps this a bounded settings-style card once TabletContainer
+  // is disabled for the grid below (isTablet) -- harmless on phone, where
+  // the screen is already narrower than the cap.
+  syncWrap: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 4, maxWidth: 460 },
   syncRow: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11, gap: 8 },
   syncTopRow: { flexDirection: 'row', alignItems: 'center' },
   syncLabel: { fontWeight: '600', fontSize: 13, flexShrink: 1 },
@@ -1137,6 +1153,9 @@ const styles = StyleSheet.create({
   upgradeBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 
   list: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 40 },
+  tabletList: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 40 },
+  gridRow: { gap: 12 },
+  gridCell: { flex: 1 },
 
   // Swipeable wrapper
   swipeWrap: { marginBottom: 8, borderRadius: 14, overflow: 'hidden' },
