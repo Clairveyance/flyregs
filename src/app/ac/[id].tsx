@@ -264,6 +264,19 @@ export default function ACDetailScreen() {
   }, [matchCount])
 
   useEffect(() => {
+    // A MagicLink/direct URL to an AC's document_number ("61-65K") lands
+    // here BEFORE the resolver effect above has replaced it with the real
+    // UUID -- both effects depend on the same `[id]` and run in the same
+    // initial pass. Tracked down a real, reproducible bug from this exact
+    // race: `id` (a document_number string) sent straight into `.eq('id',
+    // id)` below, a UUID column, so Postgres/PostgREST rejects the whole
+    // query with a 400 ("invalid input syntax for type uuid"). The
+    // resolver's router.replace() remounts a fresh, correct instance
+    // moments later, so the final render was always right -- this was a
+    // real, silent, wasted request on every single MagicLink/document-
+    // number arrival, not a one-off. Same guard the resolver effect
+    // already uses: skip entirely until `id` is the canonical UUID.
+    if (!id || !UUID_RE.test(id)) return
     setFigures(null)
     setFormulaRefs(null)
     // _gated view returns only the free-preview slice of pdf_blocks for
