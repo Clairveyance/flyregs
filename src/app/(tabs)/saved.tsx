@@ -6,6 +6,7 @@ import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
+import { useIsTablet } from '@/context/responsive'
 import { useAuth } from '@/context/auth'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
@@ -68,6 +69,14 @@ export default function SavedScreen() {
   // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  // iPad creative pass: same flexWrap-grid idea already shipped for Recents
+  // (85f6ed5) and Notes (349ded4) -- applied here to the All/Bookmarks tab,
+  // the one RC named directly ("Bookmarks/Recents/Notes"). Folders/Shared/
+  // Offline are deliberately left as their existing single-column lists for
+  // now (each has its own distinct card shape -- FolderListView, the
+  // OwnerAvatar shared-rows -- and grid-ifying all of them well is a bigger
+  // job than a single night-rules pass; not a call to rush unilaterally).
+  const isTablet = useIsTablet()
   // Bookmarks/Folders are Plus-tier (hasPlusAccess); cloud sync is Pro-tier
   // (isPro); shared/collaborative folders and offline stay Premium-only --
   // see flyregs_decisions.md's pricing pivot.
@@ -664,8 +673,14 @@ export default function SavedScreen() {
               <EmptyState tokens={tokens} signedIn={!!session} />
             ) : (
               <FlatList
+                // iPad creative pass: 2-up grid instead of one narrow column,
+                // same idea already shipped for Recents/Notes. numColumns
+                // needs a `key` change to remount cleanly (RN requirement).
+                key={isTablet ? 'grid' : 'list'}
                 data={bookmarks}
                 keyExtractor={(item) => item.id}
+                numColumns={isTablet ? 2 : 1}
+                columnWrapperStyle={isTablet ? styles.gridRow : undefined}
                 contentContainerStyle={styles.list}
                 ListHeaderComponent={
                   <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
@@ -683,21 +698,23 @@ export default function SavedScreen() {
                     ? { hlId: otherHighlight.id }
                     : undefined
                   return (
-                    <BookmarkRow
-                      item={item}
-                      tokens={tokens}
-                      redShift={redShift}
-                      selectMode={selectMode}
-                      selected={selected.has(item.id)}
-                      stale={staleHighlightIds.has(item.id)}
-                      hasHighlight={!!otherHighlight}
-                      badgeData={bookmarkItemType(item) === 'ac' ? badgeDataById[item.acId ?? item.id] : undefined}
-                      badgeDays={badgeDays}
-                      onPress={selectMode ? () => toggleRow(item.id) : () => router.push(routeForBookmark(item, jumpTarget) as any)}
-                      onRemove={() => handleRemove(item)}
-                      onFolder={() => setPickerAC(item)}
-                      onShare={() => handleShare(item)}
-                    />
+                    <View style={isTablet ? styles.gridCell : undefined}>
+                      <BookmarkRow
+                        item={item}
+                        tokens={tokens}
+                        redShift={redShift}
+                        selectMode={selectMode}
+                        selected={selected.has(item.id)}
+                        stale={staleHighlightIds.has(item.id)}
+                        hasHighlight={!!otherHighlight}
+                        badgeData={bookmarkItemType(item) === 'ac' ? badgeDataById[item.acId ?? item.id] : undefined}
+                        badgeDays={badgeDays}
+                        onPress={selectMode ? () => toggleRow(item.id) : () => router.push(routeForBookmark(item, jumpTarget) as any)}
+                        onRemove={() => handleRemove(item)}
+                        onFolder={() => setPickerAC(item)}
+                        onShare={() => handleShare(item)}
+                      />
+                    </View>
                   )
                 }}
               />
@@ -1572,6 +1589,8 @@ const styles = StyleSheet.create({
   statusPillText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.3 },
 
   list: { padding: 12, paddingBottom: 32 },
+  gridRow: { gap: 12 },
+  gridCell: { flex: 1 },
   groupLabel: {
     fontSize: 11,
     fontWeight: '600',
