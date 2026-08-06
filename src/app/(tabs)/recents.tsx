@@ -1,10 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { View, Text, Pressable, SectionList, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, Pressable, SectionList, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
+import { useIsTablet } from '@/context/responsive'
 import { useAuth } from '@/context/auth'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
@@ -55,6 +56,13 @@ function groupByTime(recents: RecentAC[]): Group[] {
 
 export default function RecentsScreen() {
   const { tokens } = useTheme()
+  // iPad creative pass: a single narrow centered column wasted most of the
+  // screen's width for a list that's really just cards. Matches Home's own
+  // What's New treatment (a3db9d0) -- flexWrap grid of fixed-ish-width cards,
+  // TabletContainer disabled so the grid gets the full rail-inset width
+  // instead of a 700px cap. Phone (isTablet false) renders the exact
+  // original SectionList, untouched.
+  const isTablet = useIsTablet()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web, so these confirms (and the deletes behind them) were
   // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
@@ -287,6 +295,24 @@ export default function RecentsScreen() {
     setSelectMode(false)
   }
 
+  const renderRow = (item: RecentAC) => (
+    <SwipeableRecentRow
+      key={item.id}
+      item={item}
+      tokens={tokens}
+      selectMode={selectMode}
+      selected={selected.has(item.id)}
+      bookmarked={bookmarkedIds.has(item.id)}
+      badgeData={badgeDataById[item.id]}
+      badgeDays={badgeDays}
+      onPress={selectMode ? () => toggleRow(item.id) : () => router.push(routeForRecent(item) as any)}
+      onToggleBookmark={() => handleToggleBookmark(item)}
+      onFolder={() => handleFolder(item)}
+      onRemove={() => handleRemove(item)}
+      onShare={() => handleShare(item)}
+    />
+  )
+
   const hasRecents = groups.length > 0
   const rightSlot = hasRecents ? (
     <View style={styles.headerRight}>
@@ -306,7 +332,7 @@ export default function RecentsScreen() {
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <ScreenHeader title="Recents" right={rightSlot} />
-      <TabletContainer>
+      <TabletContainer disabled={isTablet}>
 
       {loading ? (
         <View style={styles.center}>
@@ -320,6 +346,23 @@ export default function RecentsScreen() {
             Anything you open will appear here so you can jump back quickly
           </Text>
         </View>
+      ) : isTablet ? (
+        <ScrollView contentContainerStyle={styles.tabletList}>
+          {groups.map((group) => (
+            <View key={group.title}>
+              <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
+                {group.title.toUpperCase()}
+              </Text>
+              <View style={styles.grid}>
+                {group.data.map((item) => (
+                  <View key={item.id} style={styles.gridCell}>
+                    {renderRow(item)}
+                  </View>
+                ))}
+              </View>
+            </View>
+          ))}
+        </ScrollView>
       ) : (
         <SectionList
           sections={groups}
@@ -331,22 +374,7 @@ export default function RecentsScreen() {
               {section.title.toUpperCase()}
             </Text>
           )}
-          renderItem={({ item }) => (
-            <SwipeableRecentRow
-              item={item}
-              tokens={tokens}
-              selectMode={selectMode}
-              selected={selected.has(item.id)}
-              bookmarked={bookmarkedIds.has(item.id)}
-              badgeData={badgeDataById[item.id]}
-              badgeDays={badgeDays}
-              onPress={selectMode ? () => toggleRow(item.id) : () => router.push(routeForRecent(item) as any)}
-              onToggleBookmark={() => handleToggleBookmark(item)}
-              onFolder={() => handleFolder(item)}
-              onRemove={() => handleRemove(item)}
-              onShare={() => handleShare(item)}
-            />
-          )}
+          renderItem={({ item }) => renderRow(item)}
         />
       )}
 
@@ -579,6 +607,9 @@ const styles = StyleSheet.create({
   headerBtnText: { fontSize: 13, fontWeight: '600' },
 
   list: { padding: 12, paddingBottom: 32 },
+  tabletList: { padding: 16, paddingBottom: 32 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 8 },
+  gridCell: { width: '48%', minWidth: 320 },
   groupLabel: {
     fontSize: 11,
     fontWeight: '600',
