@@ -7,6 +7,7 @@ import { useFS } from '@/context/fontScale'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
+import { useIsTablet } from '@/context/responsive'
 import { getRefPackets, splitPacketTitle, type RefPacket } from '@/lib/refPackets'
 import { getStudyMastery, getCurrency, type StudyMastery, type Currency } from '@/lib/study'
 import { getMyCoins, type EarnedCoin } from '@/lib/coins'
@@ -33,6 +34,15 @@ export default function CommunityScreen() {
   const { tokens, redShift } = useTheme()
   const fs = useFS()
   const { session, isPro, isPremium, hasPlusAccess, avatarOverride } = useAuth()
+  // RC, iPad: "our community screen is a great place for an ipad redesign.
+  // all kinds of cool stuff to place and sort and divide up on a big
+  // screen. be creative." Phone keeps the exact original stacked-list hub
+  // (each card its own full-width row, its own group label above it) --
+  // only isTablet swaps the 3 primary hub cards (Ask FlyRegs, Study Mode,
+  // Duels) for a 3-up row of taller, icon-forward tiles under one shared
+  // label, closer to how an iPad app-launcher groups a handful of
+  // destinations than a settings-style list.
+  const isTablet = useIsTablet()
   // Same resolution chain Account/Drawer use (avatarOverride takes priority
   // so a freshly picked photo/preset shows here in the same tick, no
   // waiting on a session refresh) -- this card previously hardcoded a bare
@@ -193,61 +203,113 @@ export default function CommunityScreen() {
               overlay needed here since hasPlusAccess is already required
               just to see this screen at all (unlike Study/Duels below,
               which need the higher isPro tier specifically). */}
-          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>SEARCH</Text>
-          <Pressable
-            style={[styles.hubCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-            onPress={() => router.push('/semantic-search')}
-          >
-            <View style={[styles.hubIconWrap, { backgroundColor: tokens.gdim }]}>
-              <Icon name="text.bubble.fill" size={fs(19)} color={tokens.grn} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Ask FlyRegs</Text>
-              <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
-                Ask a real question in plain English — get the passages that actually answer it
-              </Text>
-            </View>
-          </Pressable>
+          {isTablet ? (
+            <>
+              <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>PLAY &amp; STUDY</Text>
+              <View style={styles.hubTileRow}>
+                <Pressable
+                  style={[styles.hubTile, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                  onPress={() => router.push('/semantic-search')}
+                >
+                  <View style={[styles.hubTileIconWrap, { backgroundColor: tokens.gdim }]}>
+                    <Icon name="text.bubble.fill" size={fs(26)} color={tokens.grn} />
+                  </View>
+                  <Text style={[styles.hubTileTitle, { color: tokens.t1, fontSize: fs(15) }]}>Ask FlyRegs</Text>
+                  <Text style={[styles.hubTileSub, { color: tokens.t3, fontSize: fs(12) }]}>
+                    Plain-English answers to real questions
+                  </Text>
+                </Pressable>
 
-          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 18 }]}>STUDY &amp; PRACTICE</Text>
-          <Pressable
-            style={[styles.hubCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-            onPress={openStudy}
-          >
-            <View style={[styles.hubIconWrap, { backgroundColor: tokens.bdim }]}>
-              <Icon name="rectangle.stack" size={fs(19)} color={tokens.blu} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Study Mode</Text>
-              <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
-                {mastery && mastery.seen > 0
-                  ? `${mastery.mastered} of ${mastery.total_available} items mastered`
-                  : 'Spaced-repetition flashcards across FAR, AIM, P/CG, and ACs'}
-              </Text>
-            </View>
-            {!isPro && <Icon name="lock.fill" size={fs(13)} color={tokens.t4} />}
-          </Pressable>
+                <Pressable
+                  style={[styles.hubTile, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                  onPress={openStudy}
+                >
+                  {!isPro && <Icon name="lock.fill" size={fs(12)} color={tokens.t4} style={styles.hubTileLock} />}
+                  <View style={[styles.hubTileIconWrap, { backgroundColor: tokens.bdim }]}>
+                    <Icon name="rectangle.stack" size={fs(26)} color={tokens.blu} />
+                  </View>
+                  <Text style={[styles.hubTileTitle, { color: tokens.t1, fontSize: fs(15) }]}>Study Mode</Text>
+                  <Text style={[styles.hubTileSub, { color: tokens.t3, fontSize: fs(12) }]}>
+                    {mastery && mastery.seen > 0
+                      ? `${mastery.mastered} of ${mastery.total_available} mastered`
+                      : 'Spaced-repetition flashcards'}
+                  </Text>
+                </Pressable>
 
-          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 18 }]}>DUELS</Text>
-          <Pressable
-            style={[styles.hubCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-            onPress={openDuels}
-          >
-            <View style={[styles.hubIconWrap, { backgroundColor: tokens.goldlt }]}>
-              <Icon name="bolt.fill" size={fs(19)} color={tokens.gold} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Challenge a friend</Text>
-              {/* RC: "we don't want the user's score listed in this
-                  descrip" -- the score already shows on the identity card
-                  above (W-L chip) and on Profile's own Duel record section,
-                  so this line stays the plain generic descriptor always. */}
-              <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
-                Multiple-choice quiz across FAR, AIM, P/CG, AC — most correct wins, time breaks ties
-              </Text>
-            </View>
-            {!isPremium && <Icon name="lock.fill" size={fs(13)} color={tokens.t4} />}
-          </Pressable>
+                <Pressable
+                  style={[styles.hubTile, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                  onPress={openDuels}
+                >
+                  {!isPremium && <Icon name="lock.fill" size={fs(12)} color={tokens.t4} style={styles.hubTileLock} />}
+                  <View style={[styles.hubTileIconWrap, { backgroundColor: tokens.goldlt }]}>
+                    <Icon name="bolt.fill" size={fs(26)} color={tokens.gold} />
+                  </View>
+                  <Text style={[styles.hubTileTitle, { color: tokens.t1, fontSize: fs(15) }]}>Challenge a friend</Text>
+                  <Text style={[styles.hubTileSub, { color: tokens.t3, fontSize: fs(12) }]}>
+                    Multiple-choice quiz, most correct wins
+                  </Text>
+                </Pressable>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>SEARCH</Text>
+              <Pressable
+                style={[styles.hubCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                onPress={() => router.push('/semantic-search')}
+              >
+                <View style={[styles.hubIconWrap, { backgroundColor: tokens.gdim }]}>
+                  <Icon name="text.bubble.fill" size={fs(19)} color={tokens.grn} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Ask FlyRegs</Text>
+                  <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                    Ask a real question in plain English — get the passages that actually answer it
+                  </Text>
+                </View>
+              </Pressable>
+
+              <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 18 }]}>STUDY &amp; PRACTICE</Text>
+              <Pressable
+                style={[styles.hubCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                onPress={openStudy}
+              >
+                <View style={[styles.hubIconWrap, { backgroundColor: tokens.bdim }]}>
+                  <Icon name="rectangle.stack" size={fs(19)} color={tokens.blu} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Study Mode</Text>
+                  <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                    {mastery && mastery.seen > 0
+                      ? `${mastery.mastered} of ${mastery.total_available} items mastered`
+                      : 'Spaced-repetition flashcards across FAR, AIM, P/CG, and ACs'}
+                  </Text>
+                </View>
+                {!isPro && <Icon name="lock.fill" size={fs(13)} color={tokens.t4} />}
+              </Pressable>
+
+              <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 18 }]}>DUELS</Text>
+              <Pressable
+                style={[styles.hubCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                onPress={openDuels}
+              >
+                <View style={[styles.hubIconWrap, { backgroundColor: tokens.goldlt }]}>
+                  <Icon name="bolt.fill" size={fs(19)} color={tokens.gold} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Challenge a friend</Text>
+                  {/* RC: "we don't want the user's score listed in this
+                      descrip" -- the score already shows on the identity card
+                      above (W-L chip) and on Profile's own Duel record section,
+                      so this line stays the plain generic descriptor always. */}
+                  <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                    Multiple-choice quiz across FAR, AIM, P/CG, AC — most correct wins, time breaks ties
+                  </Text>
+                </View>
+                {!isPremium && <Icon name="lock.fill" size={fs(13)} color={tokens.t4} />}
+              </Pressable>
+            </>
+          )}
 
           {refPackets.length > 0 && (
             <RefPacketGrid
@@ -502,6 +564,22 @@ const styles = StyleSheet.create({
   },
   hubTitle: { fontWeight: '600' },
   hubSub: { marginTop: 2, lineHeight: 17 },
+
+  // iPad tile grid (see isTablet branch above) -- icon-forward, centered,
+  // taller tiles instead of the phone's icon-left list rows.
+  hubTileRow: { flexDirection: 'row', gap: 14 },
+  hubTile: {
+    flex: 1, borderRadius: 18, borderWidth: 1, padding: 20,
+    alignItems: 'center', gap: 8, minHeight: 148, justifyContent: 'center',
+    position: 'relative',
+  },
+  hubTileIconWrap: {
+    width: 56, height: 56, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 2,
+  },
+  hubTileTitle: { fontWeight: '700', textAlign: 'center' },
+  hubTileSub: { textAlign: 'center', lineHeight: 16 },
+  hubTileLock: { position: 'absolute', top: 12, right: 12 },
 
   // Ref Packet grid
   packetHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8, paddingLeft: 2 },
