@@ -5,7 +5,8 @@ import * as Sentry from '@sentry/react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme, ThemeTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
-import { useReturnToMenu } from '@/context/drawer'
+import { useReturnToMenu, useRailInset } from '@/context/drawer'
+import { useIsTablet } from '@/context/responsive'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { InfoPopup } from '@/components/InfoPopup'
@@ -46,6 +47,13 @@ export default function AccountScreen() {
   const { session, isPro, setIsPro, isPremium, setIsPremium, isUnlocked, setIsUnlocked, signOut, avatarOverride, setAvatarOverride, clearAvatarOverride } = useAuth()
   const insets = useSafeAreaInsets()
   const backToMenu = useReturnToMenu()
+  // iPad: RC, "there's plenty of room for Account to open fully to the
+  // right of the burger." The drawer stays open beside this screen instead
+  // of closing (see Drawer.tsx's nav() + context/drawer.tsx's
+  // RAIL_AWARE_PATHS) -- railInset offsets this screen's own content so it
+  // starts after the drawer panel instead of rendering underneath it.
+  const isTablet = useIsTablet()
+  const railInset = useRailInset(isTablet)
   const [restoring, setRestoring] = useState(false)
   const [avatarBusy, setAvatarBusy] = useState(false)
   const [avatarEditOpen, setAvatarEditOpen] = useState(false)
@@ -483,7 +491,7 @@ export default function AccountScreen() {
   // Not signed in — soft prompt
   if (!session) {
     return (
-      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+      <View style={[styles.root, { backgroundColor: tokens.bg, marginLeft: railInset, borderLeftWidth: railInset ? 1 : 0, borderLeftColor: tokens.bdr2 }]}>
         <OverlayHeader title="Account" onBack={backToMenu} />
         <View style={styles.signedOut}>
           <View style={[styles.avatar, { backgroundColor: tokens.bg4 }]}>
@@ -505,7 +513,7 @@ export default function AccountScreen() {
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+    <View style={[styles.root, { backgroundColor: tokens.bg, marginLeft: railInset, borderLeftWidth: railInset ? 1 : 0, borderLeftColor: tokens.bdr2 }]}>
       <OverlayHeader title="Account" onBack={backToMenu} />
       <TabletContainer>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} keyboardDismissMode="interactive">

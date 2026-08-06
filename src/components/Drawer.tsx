@@ -7,8 +7,9 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { router } from 'expo-router'
-import { useDrawer } from '@/context/drawer'
+import { router, usePathname } from 'expo-router'
+import { useDrawer, RAIL_AWARE_PATHS, DRAWER_WIDTH_MIN, DRAWER_WIDTH_MAX } from '@/context/drawer'
+import { useIsTablet } from '@/context/responsive'
 import { useTheme, ThemeTokens, ThemeMode } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFontScale, useFS, FONT_SCALE_MIN, FONT_SCALE_MAX } from '@/context/fontScale'
@@ -25,21 +26,37 @@ import { useConfirm } from '@/components/ConfirmDialog'
 const DRAWER_WIDTH = 284
 
 export function Drawer() {
-  const { isOpen, close } = useDrawer()
+  const { isOpen, close, railWidth, setRailWidth } = useDrawer()
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
+  const isTablet = useIsTablet()
+  const pathname = usePathname()
+  // iPad: RC, "there's plenty of room for Account to open fully to the
+  // right of the burger." A rail-aware path (see RAIL_AWARE_PATHS in
+  // context/drawer.tsx) keeps the drawer open instead of closing it, so
+  // Account renders beside it (see account.tsx's own railInset) rather than
+  // covering it. Track whether we WERE on a rail path so navigating away to
+  // something unrelated (Sign Out -> /auth, etc.) auto-closes the drawer
+  // instead of leaving it stuck open over an unrelated screen.
+  const wasRailPath = useRef(false)
+  useEffect(() => {
+    const isRailPath = RAIL_AWARE_PATHS.includes(pathname)
+    if (wasRailPath.current && !isRailPath && isOpen) close()
+    wasRailPath.current = isRailPath
+  }, [pathname])
 
-  const translateX = useSharedValue(-DRAWER_WIDTH)
+  const panelWidth = isTablet ? railWidth : DRAWER_WIDTH
+  const translateX = useSharedValue(-panelWidth)
   const scrimOpacity = useSharedValue(0)
 
   useEffect(() => {
-    translateX.value = withSpring(isOpen ? 0 : -DRAWER_WIDTH, {
+    translateX.value = withSpring(isOpen ? 0 : -panelWidth, {
       damping: 20,
       stiffness: 300,
       overshootClamping: true,
     })
     scrimOpacity.value = withTiming(isOpen ? 1 : 0, { duration: 180 })
-  }, [isOpen])
+  }, [isOpen, panelWidth])
 
   const drawerStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
@@ -48,6 +65,20 @@ export function Drawer() {
   const scrimStyle = useAnimatedStyle(() => ({
     opacity: scrimOpacity.value,
   }))
+
+  // Tablet-only resize handle on the panel's trailing edge -- "each vert
+  // separator is slideable." A plain PanResponder (not Gesture/reanimated)
+  // matches the pattern TextSizeSlider already uses lower in this same
+  // file; no need for a second gesture library dependency for one handle.
+  const startWidth = useRef(panelWidth)
+  const resizePan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => { startWidth.current = railWidth },
+      onPanResponderMove: (_, { dx }) => setRailWidth(startWidth.current + dx),
+      onPanResponderRelease: (_, { dx }) => setRailWidth(startWidth.current + dx),
+    })
+  ).current
 
   return (
     <>
@@ -69,6 +100,7 @@ export function Drawer() {
           styles.panel,
           drawerStyle,
           {
+            width: panelWidth,
             backgroundColor: tokens.bg2,
             borderRightColor: tokens.bdr2,
             paddingTop: Math.max(insets.top + 8, 34),
@@ -77,6 +109,11 @@ export function Drawer() {
         ]}
       >
         <DrawerContent tokens={tokens} onClose={close} />
+        {isTablet && (
+          <View style={styles.resizeHandleHit} {...resizePan.panHandlers}>
+            <View style={[styles.resizeHandleBar, { backgroundColor: tokens.bdr2 }]} />
+          </View>
+        )}
       </Animated.View>
     </>
   )
@@ -118,8 +155,17 @@ function DrawerContent({
   )
   const avatarUrl = avatarOverride ? avatarOverride.uri : cachedAvatarUrl
   const avatarPreset = getAvatarPreset(resolveAvatarPresetId(avatarOverride, session))
+  const isTablet = useIsTablet()
 
   const nav = (path: string) => {
+    // iPad: a rail-aware path (Account) stays open beside the drawer
+    // instead of closing it -- see the Drawer component's own comment and
+    // context/drawer.tsx. Everything else keeps the exact original
+    // close-then-push behavior, on every platform.
+    if (isTablet && RAIL_AWARE_PATHS.includes(path)) {
+      router.push(path as any)
+      return
+    }
     onClose()
     // Small delay so drawer closes before modal opens
     setTimeout(() => router.push(path as any), 200)
@@ -527,6 +573,20 @@ const styles = StyleSheet.create({
     width: DRAWER_WIDTH,
     zIndex: 65,
     borderRightWidth: 1,
+  },
+  resizeHandleHit: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    right: -8,
+    width: 16,
+    alignItems: 'center',
+    ...(Platform.OS === 'web' ? ({ cursor: 'col-resize' } as object) : null),
+  },
+  resizeHandleBar: {
+    width: 2,
+    height: '100%',
+    opacity: 0.6,
   },
   contentScroll: {
     flex: 1,
