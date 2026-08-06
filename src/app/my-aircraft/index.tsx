@@ -289,7 +289,17 @@ function PopupRingSwatchRow({ items, tokens }: { items: React.ReactNode[]; token
   )
 }
 
-export default function MyAircraftScreen() {
+// RC, iPad: "let's figure out how to build the 3 pane slide out" (Account
+// beside the drawer already shipped; My Aircraft/My Fleet as a genuine 3rd
+// pane was deliberately deferred pending this). Splitting the body out from
+// the route wrapper -- same pattern ACBody.tsx already established -- lets
+// account.tsx embed the real, full-featured screen directly as a 3rd pane
+// instead of guessing at react-navigation's stack-layering behavior or
+// duplicating any of this screen's logic. `embedded`/`onClose` default to
+// the exact values that make this behave byte-for-byte like the original
+// unexported component below -- the real route (phone and any non-rail
+// iPad case) never passes either, so nothing here changes for it.
+export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boolean; onClose?: () => void }) {
   const { tokens } = useTheme()
   const fs = useFS()
   const ifs = useInputFS()
@@ -591,14 +601,14 @@ export default function MyAircraftScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title={screenTitle} onBack={() => router.back()} />
+      <OverlayHeader title={screenTitle} onBack={embedded ? (onClose ?? (() => {})) : () => router.back()} />
 
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
       ) : (
-        <TabletContainer>
+        <TabletContainer disabled={embedded}>
         <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="interactive">
           <View style={styles.introRow}>
             <Text style={[styles.intro, { color: tokens.t3, fontSize: fs(13) }]}>How this works</Text>
@@ -971,6 +981,10 @@ export default function MyAircraftScreen() {
       />
     </View>
   )
+}
+
+export default function MyAircraftScreen() {
+  return <MyAircraftBody />
 }
 
 const styles = StyleSheet.create({

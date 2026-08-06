@@ -38,11 +38,21 @@ export function Drawer() {
   // covering it. Track whether we WERE on a rail path so navigating away to
   // something unrelated (Sign Out -> /auth, etc.) auto-closes the drawer
   // instead of leaving it stuck open over an unrelated screen.
+  // Real bug found while building the 3rd rail pane (see account.tsx): the
+  // scrim below is a StyleSheet.absoluteFill Pressable with onPress=close,
+  // rendered (and thus hit-tested) above every screen regardless of rail
+  // mode -- so ANY tap anywhere on Account while the drawer stayed open
+  // beside it just closed the drawer instead of reaching Account's own
+  // controls. Confirmed live: tapping the Callsign text input never
+  // focused it, it closed the drawer. The rail is meant to be a persistent
+  // side-by-side layout, not a modal overlay, so a rail-mode drawer must
+  // not have a click-outside-to-dismiss scrim at all.
+  const isRailPath = isTablet && RAIL_AWARE_PATHS.includes(pathname)
   const wasRailPath = useRef(false)
   useEffect(() => {
-    const isRailPath = RAIL_AWARE_PATHS.includes(pathname)
-    if (wasRailPath.current && !isRailPath && isOpen) close()
-    wasRailPath.current = isRailPath
+    const isRail = RAIL_AWARE_PATHS.includes(pathname)
+    if (wasRailPath.current && !isRail && isOpen) close()
+    wasRailPath.current = isRail
   }, [pathname])
 
   const panelWidth = isTablet ? railWidth : DRAWER_WIDTH
@@ -55,8 +65,8 @@ export function Drawer() {
       stiffness: 300,
       overshootClamping: true,
     })
-    scrimOpacity.value = withTiming(isOpen ? 1 : 0, { duration: 180 })
-  }, [isOpen, panelWidth])
+    scrimOpacity.value = withTiming(isOpen && !isRailPath ? 1 : 0, { duration: 180 })
+  }, [isOpen, panelWidth, isRailPath])
 
   const drawerStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
@@ -88,7 +98,7 @@ export function Drawer() {
           StyleSheet.absoluteFill,
           styles.scrim,
           scrimStyle,
-          { pointerEvents: isOpen ? 'auto' : 'none' },
+          { pointerEvents: isOpen && !isRailPath ? 'auto' : 'none' },
         ]}
       >
         <Pressable style={StyleSheet.absoluteFill} onPress={close} />

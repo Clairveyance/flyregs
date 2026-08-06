@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
-import { View, Text, TextInput, Image, Pressable, ScrollView, StyleSheet, ActivityIndicator, Platform, Linking, Switch, Modal } from 'react-native'
+import { useState, useEffect, useRef } from 'react'
+import { View, Text, TextInput, Image, Pressable, ScrollView, StyleSheet, ActivityIndicator, Platform, Linking, Switch, Modal, PanResponder } from 'react-native'
 import { router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme, ThemeTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -11,6 +12,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
+import { MyAircraftBody } from '@/app/my-aircraft'
 import { restorePurchases } from '@/lib/revenuecat'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { SUPPORT_EMAIL } from '@/lib/appInfo'
@@ -35,6 +37,14 @@ import { getMyRatings, addRating, removeRating, RATING_CODES, RATING_LABELS, RAT
 import { getLeaderboardOptIn, setLeaderboardOptIn } from '@/lib/leaderboard'
 import { getFleetSummary } from '@/lib/aircraftSharing'
 
+// iPad: My Fleet's 3rd-pane width, resizable via a drag handle on its
+// leading edge -- same persistence pattern as the drawer's own railWidth in
+// context/drawer.tsx, just scoped locally here since only this screen uses it.
+const AIRCRAFT_PANE_WIDTH_KEY = '@flyregs/aircraft-pane-width'
+const AIRCRAFT_PANE_WIDTH_DEFAULT = 400
+const AIRCRAFT_PANE_WIDTH_MIN = 320
+const AIRCRAFT_PANE_WIDTH_MAX = 560
+
 export default function AccountScreen() {
   const { tokens, redShift } = useTheme()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
@@ -54,6 +64,37 @@ export default function AccountScreen() {
   // starts after the drawer panel instead of rendering underneath it.
   const isTablet = useIsTablet()
   const railInset = useRailInset(isTablet)
+  // iPad: "let's figure out how to build the 3 pane slide out" -- My Fleet
+  // beside Account, beside the drawer, matching the drawer<->Account rail
+  // pattern above rather than a full-screen push that would cover Account.
+  // Tablet-only; phone keeps the original router.push behavior below.
+  const [aircraftPaneOpen, setAircraftPaneOpen] = useState(false)
+  const [aircraftPaneWidth, setAircraftPaneWidthState] = useState(AIRCRAFT_PANE_WIDTH_DEFAULT)
+  useEffect(() => {
+    AsyncStorage.getItem(AIRCRAFT_PANE_WIDTH_KEY).then((raw) => {
+      const n = Number(raw)
+      if (!isNaN(n) && n >= AIRCRAFT_PANE_WIDTH_MIN && n <= AIRCRAFT_PANE_WIDTH_MAX) {
+        setAircraftPaneWidthState(n)
+      }
+    })
+  }, [])
+  const setAircraftPaneWidth = (w: number) => {
+    const clamped = Math.max(AIRCRAFT_PANE_WIDTH_MIN, Math.min(AIRCRAFT_PANE_WIDTH_MAX, w))
+    setAircraftPaneWidthState(clamped)
+    AsyncStorage.setItem(AIRCRAFT_PANE_WIDTH_KEY, String(clamped))
+  }
+  const aircraftPaneStartWidth = useRef(aircraftPaneWidth)
+  const aircraftPaneResizePan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => { aircraftPaneStartWidth.current = aircraftPaneWidth },
+      // Divider sits at the pane's LEADING edge, so dragging it right (+dx)
+      // should shrink the pane, not grow it -- the inverse of the drawer's
+      // own trailing-edge handle.
+      onPanResponderMove: (_, { dx }) => setAircraftPaneWidth(aircraftPaneStartWidth.current - dx),
+      onPanResponderRelease: (_, { dx }) => setAircraftPaneWidth(aircraftPaneStartWidth.current - dx),
+    })
+  ).current
   const [restoring, setRestoring] = useState(false)
   const [avatarBusy, setAvatarBusy] = useState(false)
   const [avatarEditOpen, setAvatarEditOpen] = useState(false)
@@ -512,8 +553,16 @@ export default function AccountScreen() {
     )
   }
 
+  const showAircraftPane = isTablet && aircraftPaneOpen
   return (
-    <View style={[styles.root, { backgroundColor: tokens.bg, marginLeft: railInset, borderLeftWidth: railInset ? 1 : 0, borderLeftColor: tokens.bdr2 }]}>
+    <View
+      style={[
+        styles.root,
+        showAircraftPane && styles.rootSplit,
+        { backgroundColor: tokens.bg, marginLeft: railInset, borderLeftWidth: railInset ? 1 : 0, borderLeftColor: tokens.bdr2 },
+      ]}
+    >
+    <View style={styles.accountColumn}>
       <OverlayHeader title="Account" onBack={backToMenu} />
       <TabletContainer>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]} keyboardDismissMode="interactive">
@@ -664,6 +713,10 @@ export default function AccountScreen() {
               // the paywall instead of into a screen that would only
               // block them once they try to add an aircraft.
               if (!isPro) { router.push('/paywall'); return }
+              // iPad: open beside Account as a 3rd rail pane instead of
+              // pushing full-screen over it. Phone has no rail to extend,
+              // so it keeps the original push.
+              if (isTablet) { setAircraftPaneOpen(true); return }
               router.push('/my-aircraft' as any)
             }}
             trailing={
@@ -806,6 +859,19 @@ export default function AccountScreen() {
         </View>
       </ScrollView>
       </TabletContainer>
+    </View>
+
+    {showAircraftPane && (
+      <>
+        <View style={styles.paneResizeHandleHit} {...aircraftPaneResizePan.panHandlers}>
+          <View style={[styles.paneResizeHandleBar, { backgroundColor: tokens.bdr2 }]} />
+        </View>
+        <View style={[styles.aircraftPane, { width: aircraftPaneWidth, borderLeftColor: tokens.bdr2, backgroundColor: tokens.bg }]}>
+          <MyAircraftBody embedded onClose={() => setAircraftPaneOpen(false)} />
+        </View>
+      </>
+    )}
+
       <AvatarEditModal
         visible={avatarEditOpen}
         avatarUrl={avatarUrl}
@@ -874,6 +940,19 @@ function Row({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  // iPad 3rd pane: root becomes a row (Account column + divider + My
+  // Fleet pane) only while the pane is open -- see showAircraftPane.
+  rootSplit: { flexDirection: 'row' },
+  accountColumn: { flex: 1 },
+  paneResizeHandleHit: {
+    width: 16,
+    marginHorizontal: -8,
+    zIndex: 1,
+    alignItems: 'center',
+    ...(Platform.OS === 'web' ? ({ cursor: 'col-resize' } as object) : null),
+  },
+  paneResizeHandleBar: { width: 2, height: '100%', opacity: 0.6 },
+  aircraftPane: { borderLeftWidth: 1 },
   content: { padding: 16, gap: 8 },
 
   profileCard: {
