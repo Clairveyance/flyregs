@@ -230,7 +230,11 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                     ))
                   : onFinalStep && wantsTwoStep ? null : confirmButton}
                 {showCancel && (
-                  <Pressable onPress={() => { opts?.onCancel?.(); close() }} hitSlop={8} accessibilityRole="button">
+                  <Pressable
+                    style={[styles.cancelBtn, { borderColor: tokens.bdr }]}
+                    onPress={() => { opts?.onCancel?.(); close() }}
+                    accessibilityRole="button"
+                  >
                     <Text style={[styles.cancel, { color: tokens.t3, fontSize: fs(13.5) }]}>
                       {opts?.cancelLabel ?? 'Cancel'}
                     </Text>
@@ -251,9 +255,17 @@ const styles = StyleSheet.create({
   title: { fontWeight: '700', textAlign: 'center' },
   message: { textAlign: 'center', lineHeight: 19 },
   error: { textAlign: 'center', marginTop: 2 },
-  actions: { alignSelf: 'stretch', alignItems: 'center', gap: 12, marginTop: 6 },
+  // RC, real-device swipe/tap test (Equipment/Reminders, task #195): the
+  // primary button and Cancel were close enough together (12px gap, Cancel
+  // a bare text link with no real touch-target shape of its own) that a
+  // fat-finger tap risked hitting the wrong one right after a swipe
+  // gesture. gap widened and Cancel given its own bordered button shape --
+  // both add real separation AND make Cancel's actual tappable area
+  // obvious rather than implicit in a thin text label.
+  actions: { alignSelf: 'stretch', alignItems: 'center', gap: 22, marginTop: 6 },
   btn: { alignSelf: 'stretch', borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
   btnText: { color: '#fff', fontWeight: '700' },
+  cancelBtn: { alignSelf: 'stretch', borderRadius: 12, borderWidth: 1, paddingVertical: 11, alignItems: 'center' },
   cancel: { fontWeight: '600' },
   typedWrap: { alignSelf: 'stretch', gap: 6, marginTop: 4 },
   typedHint: { textAlign: 'center' },
