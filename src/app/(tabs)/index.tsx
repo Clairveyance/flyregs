@@ -34,6 +34,7 @@ import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { getDailyReg, dailyRegRoute, dailyRegCitation, type DailyReg } from '@/lib/notifications'
 import { splitIntoParagraphs } from '@/lib/regTextFormat'
 import { consumeJustConfirmed } from '@/lib/justConfirmed'
+import { consumeFocusSearchRequest } from '@/lib/focusSearchSignal'
 import { FigureViewer } from '@/components/FigureViewer'
 import { TabletContainer } from '@/components/TabletContainer'
 import { SmartSearchLabel } from '@/components/SmartSearchLabel'
@@ -157,6 +158,18 @@ export default function HomeScreen() {
           Animated.timing(welcomeOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
         ]).start(() => setShowWelcome(false))
       })
+    }, [])
+  )
+
+  // iPad-landscape tab bar's search icon (PersistentTabBar.tsx) -- tapping
+  // it from any screen navigates here and requests focus; consumed once so
+  // returning to Home later (e.g. via the Home tab itself) doesn't re-pop
+  // the keyboard every time.
+  useFocusEffect(
+    useCallback(() => {
+      if (consumeFocusSearchRequest()) {
+        requestAnimationFrame(() => searchInputRef.current?.focus())
+      }
     }, [])
   )
 

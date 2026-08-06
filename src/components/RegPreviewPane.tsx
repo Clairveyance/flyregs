@@ -22,29 +22,12 @@ interface PreviewFigure {
   image_url: string
 }
 
-// Generic "stay where you are" reg preview -- same idea as notes.tsx's AC
-// bottom pane (openAcPane), generalized to any single-document route
-// (AC/FAR/AIM/P-CG/AD) so callers like Ref Packets can show cross-
-// referenced content inline instead of navigating away. Deliberately a
-// simpler fixed slide-up sheet rather than notes.tsx's full drag-gesture
-// pane -- that one's PanResponder/spring machinery is tailored to a single
-// screen; this is meant to drop into any screen with just a `route` prop.
-//
-// route: a linkifyText/linkifyReferences route string, or null to hide.
-// Routes that don't resolve to a single document (bare "/aim", "/far/part/61")
-// fall through to a normal router.push instead of opening the sheet.
-//
-// Bookmark + "add to folder" actions live in the header -- this is what
-// makes "read it, highlight it, save it to a folder I created, then close
-// that page and be right back" (the RefPacks redesign ask) actually work:
-// without these, the only way to save something found here was to first
-// navigate to its full page, defeating "stay in the pack." Character-level
-// highlighting is a separate, native-module-dependent feature (still
-// pending, see flyregs_pending.md) -- saving the whole document is the
-// available "keep this for later" action today.
-export function RegPreviewPane({ route, onClose }: { route: string | null; onClose: () => void }) {
-  const { tokens } = useTheme()
-  const fs = useFS()
+// All the fetch/state/handler logic RegPreviewChrome needs, pulled out of
+// the component itself so it's exactly one implementation regardless of
+// whether the caller wants it in a Modal sheet (RegPreviewPane) or a
+// persistent side pane (RegPreviewInline, for the iPad landscape
+// master-detail split -- see SplitPane.tsx callers).
+function useRegPreviewContent(route: string | null, onClose: () => void) {
   const { hasPlusAccess } = useAuth()
   const [data, setData] = useState<RegPreviewData | null>(null)
   const [loading, setLoading] = useState(false)
@@ -67,15 +50,18 @@ export function RegPreviewPane({ route, onClose }: { route: string | null; onClo
   // component all of those screens render their FolderPicker through.
   const [confirmTick, setConfirmTick] = useState(0)
   const [confirmLabel, setConfirmLabel] = useState('')
-  // Tapping a citation INSIDE this preview opens ANOTHER RegPreviewPane on
-  // top of it (this component rendering itself, recursively) instead of
-  // navigating away -- confirmed live as a real bug/ask: "inside that reg
-  // are hyperlinks to other regs and T&Fs... if you click on those, the app
-  // needs to open another half screen over that half screen... this ENTIRE
-  // process MUST take place in and STAY inside the RP." Closing the nested
-  // sheet just clears this state, which reveals the still-mounted parent
-  // sheet underneath -- unlimited depth for free, no stack data structure
-  // needed since each level owns its own childRoute.
+  // Tapping a citation INSIDE this preview opens a nested RegPreviewPane
+  // (always the Modal variant, even when the base content here is the
+  // persistent pane variant -- "a quick peek at a cross-reference"
+  // deliberately stays a temporary overlay rather than replacing what's
+  // pinned in the split pane) instead of navigating away -- confirmed live
+  // as a real bug/ask: "inside that reg are hyperlinks to other regs and
+  // T&Fs... if you click on those, the app needs to open another half
+  // screen over that half screen... this ENTIRE process MUST take place in
+  // and STAY inside the RP." Closing the nested sheet just clears this
+  // state, revealing whatever's still mounted underneath -- unlimited depth
+  // for free, no stack data structure needed since each level owns its own
+  // childRoute.
   const [childRoute, setChildRoute] = useState<string | null>(null)
 
   useEffect(() => {
@@ -130,111 +116,155 @@ export function RegPreviewPane({ route, onClose }: { route: string | null; onClo
     setFolderPickerOpen(true)
   }
 
-  return (
-    <Modal visible={route !== null} animationType="slide" transparent onRequestClose={onClose}>
-      <Pressable style={styles.scrim} onPress={onClose} />
-      <View style={[styles.sheet, { backgroundColor: tokens.bg }]}>
-        <View style={[styles.header, { borderBottomColor: tokens.bdr }]}>
-          <Text style={[styles.headerLabel, { color: tokens.blu, fontSize: fs(13.5) }]} numberOfLines={1}>
-            {data?.label ?? ' '}
-          </Text>
-          {data && (
-            <View style={styles.headerActions}>
-              <Pressable onPress={handleOpenFolderPicker} hitSlop={10} style={{ padding: 4 }}>
-                <Icon name="folder.badge.plus" size={fs(18)} color={hasPlusAccess ? tokens.t2 : tokens.t4} />
-              </Pressable>
-              <Pressable onPress={handleToggleBookmark} hitSlop={10} style={{ padding: 4 }}>
-                <Icon name={bookmarked ? 'bookmark.fill' : 'bookmark'} size={fs(18)} color={bookmarked ? tokens.gold : tokens.t2} />
-              </Pressable>
-            </View>
-          )}
+  return {
+    hasPlusAccess, data, loading, notFound, bookmarked, folderPickerOpen, setFolderPickerOpen,
+    figures, viewerFigure, setViewerFigure, confirmTick, confirmLabel, setConfirmLabel, setConfirmTick,
+    childRoute, setChildRoute, handleToggleBookmark, handleOpenFolderPicker,
+  }
+}
+
+interface RegPreviewChromeProps {
+  route: string | null
+  onClose: () => void
+  /** modal: slide-up sheet with scrim + close button (existing RefPacks/
+   *  notes/shared-folder behavior). pane: fills its container, no scrim/
+   *  close button -- for the persistent iPad-landscape split-view detail
+   *  pane, where there's nothing to "close," only something else to select. */
+  variant: 'modal' | 'pane'
+}
+
+function RegPreviewChrome({ route, onClose, variant }: RegPreviewChromeProps) {
+  const { tokens } = useTheme()
+  const fs = useFS()
+  const c = useRegPreviewContent(route, onClose)
+
+  const body = (
+    <>
+      <View style={[styles.header, { borderBottomColor: tokens.bdr }]}>
+        <Text style={[styles.headerLabel, { color: tokens.blu, fontSize: fs(13.5) }]} numberOfLines={1}>
+          {c.data?.label ?? ' '}
+        </Text>
+        {c.data && (
+          <View style={styles.headerActions}>
+            <Pressable onPress={c.handleOpenFolderPicker} hitSlop={10} style={{ padding: 4 }}>
+              <Icon name="folder.badge.plus" size={fs(18)} color={c.hasPlusAccess ? tokens.t2 : tokens.t4} />
+            </Pressable>
+            <Pressable onPress={c.handleToggleBookmark} hitSlop={10} style={{ padding: 4 }}>
+              <Icon name={c.bookmarked ? 'bookmark.fill' : 'bookmark'} size={fs(18)} color={c.bookmarked ? tokens.gold : tokens.t2} />
+            </Pressable>
+          </View>
+        )}
+        {variant === 'modal' && (
           <Pressable onPress={onClose} hitSlop={10} style={{ padding: 4 }}>
             <Icon name="xmark" size={fs(18)} color={tokens.t3} />
           </Pressable>
+        )}
+      </View>
+      {c.loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
         </View>
-        {loading ? (
-          <View style={styles.center}>
-            <ActivityIndicator color={tokens.blu} />
-          </View>
-        ) : notFound ? (
-          <View style={styles.center}>
-            <Text style={[styles.notFound, { color: tokens.t3, fontSize: fs(14) }]}>Not found.</Text>
-          </View>
-        ) : data ? (
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.body}>
-            {!!data.title && (
-              <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16) }]}>{stripFarPrefix(data.title)}</Text>
-            )}
-            {/* Real paragraph/table rendering + inline citation hyperlinks --
-                same component the full FAR/AIM/P-CG detail screens use.
-                Previously a bare <Text>, which dumped AIM's " | "-delimited
-                table rows as one unreadable run-on line and left every
-                citation/T&F mention as dead plain text -- confirmed live
-                on AIM 2-3-3's own runway-marking tables. figures+onOpenFigure
-                let a "(See FIG x-x-x.)" mention open the real image inline
-                (via the nested FigureViewer below) instead of silently
-                falling through to PlainTextBody's route-guess fallback --
-                confirmed live as a serious bug: tapping FIG 1-1-6 inside a
-                RefPack's AIM 1-1-9 preview did nothing visible AND pushed
-                the background router to the wrong page (/aim/1-1-6, an
-                unrelated paragraph) out from under the still-open modal.
-                onNavigate redirects every other citation link (§ 91.107,
-                AC 90-67B, etc.) into a NESTED RegPreviewPane (see
-                childRoute below) instead of navigating away -- the whole
-                point of a Ref Packet is staying inside it. */}
-            <PlainTextBody
-              text={data.body}
-              figures={figures}
-              onOpenFigure={(f) => setViewerFigure({ id: f.id, label: f.label ?? '', caption: f.caption, page: 0, image_url: f.image_url })}
-              resolveFigureGlobally={data.kind === 'aim' ? resolveAimFigureGlobally : undefined}
-              onNavigate={setChildRoute}
-              currentLabel={data.label}
-            />
+      ) : c.notFound ? (
+        <View style={styles.center}>
+          <Text style={[styles.notFound, { color: tokens.t3, fontSize: fs(14) }]}>Not found.</Text>
+        </View>
+      ) : c.data ? (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.body}>
+          {!!c.data.title && (
+            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16) }]}>{stripFarPrefix(c.data.title)}</Text>
+          )}
+          {/* Real paragraph/table rendering + inline citation hyperlinks --
+              same component the full FAR/AIM/P-CG detail screens use.
+              figures+onOpenFigure let a "(See FIG x-x-x.)" mention open the
+              real image inline (via the nested FigureViewer below).
+              onNavigate redirects every other citation link (§ 91.107,
+              AC 90-67B, etc.) into a nested Modal RegPreviewPane (see
+              childRoute above) instead of navigating away. */}
+          <PlainTextBody
+            text={c.data.body}
+            figures={c.figures}
+            onOpenFigure={(f) => c.setViewerFigure({ id: f.id, label: f.label ?? '', caption: f.caption, page: 0, image_url: f.image_url })}
+            resolveFigureGlobally={c.data.kind === 'aim' ? resolveAimFigureGlobally : undefined}
+            onNavigate={c.setChildRoute}
+            currentLabel={c.data.label}
+          />
+          {variant === 'modal' && (
             <Pressable
               style={[styles.openBtn, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
               onPress={() => {
                 onClose()
-                router.push(data.fullRoute as any)
+                router.push(c.data!.fullRoute as any)
               }}
             >
               <Text style={[styles.openBtnText, { color: tokens.blu, fontSize: fs(13.5) }]}>Open full page</Text>
               <Icon name="arrow.up.right.square" size={fs(14)} color={tokens.blu} />
             </Pressable>
-          </ScrollView>
-        ) : null}
-        <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
-      </View>
-      {data && (
+          )}
+        </ScrollView>
+      ) : (
+        variant === 'pane' && (
+          <View style={styles.center}>
+            <Icon name="doc.text" size={fs(28)} color={tokens.t4} />
+            <Text style={[styles.emptyPane, { color: tokens.t4, fontSize: fs(13) }]}>Select a section to read</Text>
+          </View>
+        )
+      )}
+      <ConfirmCheck trigger={c.confirmTick} label={c.confirmLabel} />
+      {c.data && (
         <FolderPicker
-          visible={folderPickerOpen}
-          itemType={data.kind}
-          itemId={data.id}
-          onClose={() => setFolderPickerOpen(false)}
-          onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1) }}
-          acMeta={{ document_number: data.label, title: data.title, date_issued: null, office: null, subject_series: null }}
+          visible={c.folderPickerOpen}
+          itemType={c.data.kind}
+          itemId={c.data.id}
+          onClose={() => c.setFolderPickerOpen(false)}
+          onAdded={(msg) => { c.setConfirmLabel(msg); c.setConfirmTick((t) => t + 1) }}
+          acMeta={{ document_number: c.data.label, title: c.data.title, date_issued: null, office: null, subject_series: null }}
         />
       )}
-      <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
-      {/* Self-recursive nesting -- see childRoute's own comment. Rendered as
-          a sibling Modal INSIDE this one, not outside it, so closing the
-          outer pane (its `route` prop going null) unmounts this whole tree,
-          nested children included, with no separate cleanup needed. */}
-      <RegPreviewPane route={childRoute} onClose={() => setChildRoute(null)} />
+      <FigureViewer figure={c.viewerFigure} onClose={() => c.setViewerFigure(null)} />
+      {/* Nested cross-reference peek -- always the Modal variant, on top of
+          whichever variant this outer instance is. */}
+      <RegPreviewPane route={c.childRoute} onClose={() => c.setChildRoute(null)} />
+    </>
+  )
+
+  if (variant === 'pane') {
+    return <View style={[styles.pane, { backgroundColor: tokens.bg }]}>{body}</View>
+  }
+
+  return (
+    <Modal visible={route !== null} animationType="slide" transparent onRequestClose={onClose}>
+      <Pressable style={styles.scrim} onPress={onClose} />
+      <View style={[styles.sheet, { backgroundColor: tokens.bg }]}>{body}</View>
     </Modal>
   )
+}
+
+export function RegPreviewPane({ route, onClose }: { route: string | null; onClose: () => void }) {
+  return <RegPreviewChrome route={route} onClose={onClose} variant="modal" />
+}
+
+// Persistent detail-pane variant -- no Modal, no scrim, no close button,
+// fills whatever container it's given (the right-hand pane of SplitPane on
+// iPad landscape). `onClose` is only ever invoked internally for the
+// "route didn't resolve to a document, navigate instead" fallback and the
+// paywall-redirect cases above -- there's no user-facing close affordance.
+export function RegPreviewInline({ route, onClose }: { route: string | null; onClose: () => void }) {
+  return <RegPreviewChrome route={route} onClose={onClose} variant="pane" />
 }
 
 const styles = StyleSheet.create({
   scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   sheet: { height: '75%', borderTopLeftRadius: 18, borderTopRightRadius: 18, overflow: 'hidden' },
+  pane: { flex: 1 },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerLabel: { fontWeight: '700', flex: 1, marginRight: 12 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 8 },
   notFound: {},
+  emptyPane: { fontWeight: '500' },
   body: { padding: 16, paddingBottom: 40, gap: 14 },
   title: { fontWeight: '700', lineHeight: 22 },
   bodyText: { lineHeight: 21 },

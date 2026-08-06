@@ -7,6 +7,9 @@ import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
+import { SplitPane } from '@/components/SplitPane'
+import { RegPreviewInline } from '@/components/RegPreviewPane'
+import { useIsTabletLandscape } from '@/context/responsive'
 
 interface FarSectionRow {
   section_number: string
@@ -31,6 +34,13 @@ export default function FarPartScreen() {
   const [sections, setSections] = useState<FarSectionRow[]>([])
   const [partLabel, setPartLabel] = useState('')
   const [loading, setLoading] = useState(true)
+  const isTabletLandscape = useIsTabletLandscape()
+  // iPad landscape only -- on phone/portrait, a row tap still pushes to
+  // /far/[id] exactly as before. Reset whenever the part itself changes
+  // (navigating Part 91 -> Part 61 shouldn't leave 91's last-read section
+  // showing in a pane now labeled Part 61).
+  const [selectedRoute, setSelectedRoute] = useState<string | null>(null)
+  useEffect(() => { setSelectedRoute(null) }, [part])
 
   useEffect(() => {
     if (!part) return
@@ -55,6 +65,46 @@ export default function FarPartScreen() {
     g.items.push(s)
   }
 
+  const sectionList = (
+    <FlatList
+      data={groups}
+      keyExtractor={(g) => g.letter || 'none'}
+      contentContainerStyle={styles.list}
+      ListHeaderComponent={
+        <Text style={[styles.partLabel, { color: tokens.t1, fontSize: fs(16) }]}>{partLabel}</Text>
+      }
+      renderItem={({ item: group }) => (
+        <View style={styles.group}>
+          {group.title && (
+            <Text style={[styles.subpartTitle, { color: tokens.t3, fontSize: fs(11) }]}>
+              {group.title.toUpperCase()}
+            </Text>
+          )}
+          {group.items.map((s) => {
+            const route = `/far/${s.section_number}`
+            const isSelected = isTabletLandscape && selectedRoute === route
+            return (
+              <Pressable
+                key={s.section_number}
+                style={[
+                  styles.row,
+                  { backgroundColor: isSelected ? tokens.bdim : tokens.bg2, borderColor: isSelected ? tokens.bbdr : tokens.bdr },
+                ]}
+                onPress={() => (isTabletLandscape ? setSelectedRoute(route) : router.push(route as any))}
+              >
+                <Text style={[styles.secNum, { color: tokens.blu, fontSize: fs(13.5) }]}>§ {s.section_number}</Text>
+                <Text style={[styles.secTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
+                  {(s.title ?? '').replace(/^§\s*[\d.]+\s*/, '')}
+                </Text>
+                <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
+              </Pressable>
+            )
+          })}
+        </View>
+      )}
+    />
+  )
+
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title={`Part ${part}`} onBack={() => router.back()} />
@@ -62,39 +112,14 @@ export default function FarPartScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
-      ) : (
-        <TabletContainer>
-        <FlatList
-          data={groups}
-          keyExtractor={(g) => g.letter || 'none'}
-          contentContainerStyle={styles.list}
-          ListHeaderComponent={
-            <Text style={[styles.partLabel, { color: tokens.t1, fontSize: fs(16) }]}>{partLabel}</Text>
-          }
-          renderItem={({ item: group }) => (
-            <View style={styles.group}>
-              {group.title && (
-                <Text style={[styles.subpartTitle, { color: tokens.t3, fontSize: fs(11) }]}>
-                  {group.title.toUpperCase()}
-                </Text>
-              )}
-              {group.items.map((s) => (
-                <Pressable
-                  key={s.section_number}
-                  style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                  onPress={() => router.push(`/far/${s.section_number}` as any)}
-                >
-                  <Text style={[styles.secNum, { color: tokens.blu, fontSize: fs(13.5) }]}>§ {s.section_number}</Text>
-                  <Text style={[styles.secTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
-                    {(s.title ?? '').replace(/^§\s*[\d.]+\s*/, '')}
-                  </Text>
-                  <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
-                </Pressable>
-              ))}
-            </View>
-          )}
+      ) : isTabletLandscape ? (
+        <SplitPane
+          storageKey="far"
+          rail={sectionList}
+          detail={<RegPreviewInline route={selectedRoute} onClose={() => setSelectedRoute(null)} />}
         />
-        </TabletContainer>
+      ) : (
+        <TabletContainer>{sectionList}</TabletContainer>
       )}
     </View>
   )

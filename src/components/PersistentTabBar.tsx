@@ -3,6 +3,9 @@ import { usePathname, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
+import { useDrawer } from '@/context/drawer'
+import { useIsTabletLandscape } from '@/context/responsive'
+import { requestFocusSearch } from '@/lib/focusSearchSignal'
 import { Icon } from '@/components/Icon'
 
 // `search` route/path kept as-is (renaming would mean touching every
@@ -66,6 +69,68 @@ export function PersistentTabBar() {
   // the bar's edge -- at the default 1x scale this is exactly 44, matching
   // the previous fixed height with no visible change.
   const barHeight = Math.max(44, iconSize + 22)
+  const isTabletLandscape = useIsTabletLandscape()
+  const { open: openDrawer } = useDrawer()
+
+  const focusSearch = () => {
+    requestFocusSearch()
+    router.navigate('/' as never)
+  }
+
+  // Phone/portrait-tablet: unchanged -- every tab flex:1, spread edge to
+  // edge across whatever width the device has. iPad landscape: RC, real
+  // iPad-width screenshot, annotated -- "the bottom menu... we don't need
+  // the oval pill border around them. maybe just the small vert lines
+  // dividing the sections. keep it clean." A centered, thumb-reachable
+  // cluster instead of five icons stretched to the physical edges, with
+  // the drawer/menu and a global search-focus shortcut folded into the
+  // same bar (freeing the space those five icons alone left empty) --
+  // separated from the five tabs by a hairline, not a filled pill/border,
+  // per that same feedback.
+  if (isTabletLandscape) {
+    return (
+      <View
+        style={[
+          styles.containerLandscape,
+          {
+            height: barHeight + insets.bottom,
+            paddingBottom: insets.bottom,
+            backgroundColor: tokens.bg,
+            borderTopColor: tokens.bdr,
+          },
+        ]}
+      >
+        <View style={styles.clusterRow}>
+          <Pressable style={[styles.tabFixed, { height: barHeight }]} onPress={openDrawer} hitSlop={4}>
+            <Icon name="line.3.horizontal" size={iconSize} color={tokens.t3} />
+          </Pressable>
+          <View style={[styles.divider, { backgroundColor: tokens.bdr2 }]} />
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.name
+            return (
+              <Pressable
+                key={tab.name}
+                style={[styles.tabFixed, { height: barHeight }]}
+                onPress={() => router.navigate(tab.path as never)}
+                hitSlop={4}
+              >
+                <Icon
+                  name={tab.icon}
+                  size={iconSize}
+                  color={isActive ? tokens.blu : tokens.t3}
+                  weight={isActive ? 'semibold' : 'regular'}
+                />
+              </Pressable>
+            )
+          })}
+          <View style={[styles.divider, { backgroundColor: tokens.bdr2 }]} />
+          <Pressable style={[styles.tabFixed, { height: barHeight }]} onPress={focusSearch} hitSlop={4}>
+            <Icon name="magnifyingglass" size={iconSize} color={tokens.t3} />
+          </Pressable>
+        </View>
+      </View>
+    )
+  }
 
   return (
     <View
@@ -111,5 +176,24 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  containerLandscape: {
+    borderTopWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clusterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 22,
+  },
+  tabFixed: {
+    width: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  divider: {
+    width: 1,
+    height: 22,
   },
 })

@@ -48,3 +48,15 @@ export function useResponsive() {
 export function useIsTablet(): boolean {
   return useContext(ResponsiveContext).isTablet
 }
+
+// Master-detail split-view screens (SplitPane.tsx callers) only make sense
+// once there's real width to split -- portrait iPad (834pt) is closer to a
+// wide phone than to the ~1194pt landscape width the split was designed
+// against, and a cramped rail+divider+detail there would read as
+// artificially subdivided rather than roomier. Gated on isTablet first so
+// this is never true for a phone's landscape rotation (phones never cross
+// TABLET_BREAKPOINT even sideways).
+export function useIsTabletLandscape(): boolean {
+  const { isTablet, width, height } = useContext(ResponsiveContext)
+  return isTablet && width > height
+}
