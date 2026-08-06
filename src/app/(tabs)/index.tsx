@@ -880,6 +880,7 @@ export default function HomeScreen() {
         hasPlusAccess={hasPlusAccess}
         dailyReg={dailyReg}
         showBrowseLabel={false}
+        isTablet
       />
     </ScrollView>
   )
@@ -1383,6 +1384,7 @@ function HomeHeader({
   hasPlusAccess,
   dailyReg,
   showBrowseLabel = true,
+  isTablet = false,
 }: {
   tokens: ReturnType<typeof useTheme>['tokens']
   whatsNew: WhatsNewAC[]
@@ -1394,6 +1396,15 @@ function HomeHeader({
    * Regulation" as its own rail instead of trailing this header -- false
    * there so it isn't shown twice. */
   showBrowseLabel?: boolean
+  /** iPad, RC, annotated screenshot: "these what's new chunks were going
+   * to list in a pack, and fill in down the screen... we've got all this
+   * wasted space on screen." The detail pane is wide enough to show 4-5
+   * cards per row with real vertical room left under them -- a single
+   * horizontal-scroll strip wasted all of it. Wraps into a real grid
+   * instead of scrolling sideways; phone keeps the original horizontal
+   * strip untouched (isTablet defaults false, and the phone call site
+   * below never passes it). */
+  isTablet?: boolean
 }) {
   const fs = useFS()
 
@@ -1468,19 +1479,31 @@ function HomeHeader({
         </Pressable>
       </View>
       {mergedWhatsNew.length > 0 ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.wnScroll}
-        >
-          {mergedWhatsNew.map((entry) =>
-            entry.kind === 'ac' ? (
-              <WhatsNewCard key={`ac-${entry.item.id}`} ac={entry.item} tokens={tokens} badgeDays={badgeDays} />
-            ) : (
-              <OtherWhatsNewCard key={`${entry.item.type}-${entry.item.id}`} item={entry.item} tokens={tokens} />
-            )
-          )}
-        </ScrollView>
+        isTablet ? (
+          <View style={styles.wnGrid}>
+            {mergedWhatsNew.map((entry) =>
+              entry.kind === 'ac' ? (
+                <WhatsNewCard key={`ac-${entry.item.id}`} ac={entry.item} tokens={tokens} badgeDays={badgeDays} />
+              ) : (
+                <OtherWhatsNewCard key={`${entry.item.type}-${entry.item.id}`} item={entry.item} tokens={tokens} />
+              )
+            )}
+          </View>
+        ) : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.wnScroll}
+          >
+            {mergedWhatsNew.map((entry) =>
+              entry.kind === 'ac' ? (
+                <WhatsNewCard key={`ac-${entry.item.id}`} ac={entry.item} tokens={tokens} badgeDays={badgeDays} />
+              ) : (
+                <OtherWhatsNewCard key={`${entry.item.type}-${entry.item.id}`} item={entry.item} tokens={tokens} />
+              )
+            )}
+          </ScrollView>
+        )
       ) : (
         <View style={[styles.wnEmpty, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <Text style={[styles.wnEmptyText, { color: tokens.t3, fontSize: fs(12.5) }]}>
@@ -2083,6 +2106,7 @@ const styles = StyleSheet.create({
   sectionSub: { fontSize: 13 },
 
   wnScroll: { paddingHorizontal: 16, gap: 10, paddingBottom: 4 },
+  wnGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16, gap: 10, paddingBottom: 4 },
   wnEmpty: {
     marginHorizontal: 16,
     marginBottom: 4,
