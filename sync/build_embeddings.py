@@ -88,7 +88,40 @@ SOURCES = {
     "loi": ("legal_interpretations", "slug", ["body_text"], "title"),
     "ac": ("advisory_circulars", "document_number", ["pdf_text"], "title"),
     "ad": ("airworthiness_directives", "ad_number", ["body_text"], "subject_heading"),
+    # Mnemonics don't have a flat text column to embed -- `senses` is a
+    # structured breakdown (letter/concept/detail per row). Rendered to
+    # natural language below (render_mnemonic_text) instead of a straight
+    # column join, so a query like "what does RAW FAT stand for" or "preflight
+    # briefing mnemonic" actually lands close to the mnemonic's own embedding.
+    # Stored under source_type "dictionary" (task #63) -- reuses the RegType
+    # ask-flyregs.tsx/citedItems.ts already route and label correctly,
+    # rather than inventing a parallel "mnemonic" type only this one path
+    # would ever produce.
+    "mnemonic": ("dictionary_terms", "slug", ["senses"], "term"),
 }
+
+
+def render_mnemonic_text(term: str, senses: list[dict] | str) -> str:
+    """Turn a mnemonic's structured `senses` breakdown into a natural-
+    language paragraph worth embedding. senses is a list of {usage,
+    breakdown: [{letter, concept, detail}], definition} -- see the real
+    shape confirmed live 2026-08-05 (e.g. "RAW FAT")."""
+    import json
+    if isinstance(senses, str):
+        senses = json.loads(senses)
+    parts = [f'"{term}" is an aviation mnemonic.']
+    for sense in senses or []:
+        breakdown = sense.get("breakdown") or []
+        if breakdown:
+            items = ", ".join(
+                f"{b['letter']} – {b['concept']}" + (f" ({b['detail']})" if b.get("detail") else "")
+                for b in breakdown if b.get("letter") and b.get("concept")
+            )
+            if items:
+                parts.append(f"{term} stands for: {items}.")
+        if sense.get("definition"):
+            parts.append(sense["definition"])
+    return " ".join(parts)
 
 
 def split_paragraphs(text: str) -> list[str]:
@@ -127,7 +160,10 @@ def content_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def fetch_rows(table: str, key_field: str, text_fields: list[str], title_field: str, only: str | None) -> list[dict]:
+def fetch_rows(
+    table: str, key_field: str, text_fields: list[str], title_field: str, only: str | None,
+    extra_params: dict | None = None,
+) -> list[dict]:
     # PostgREST silently caps unfiltered .select() results at 1000 rows with
     # no error -- confirmed the hard way elsewhere in this project (far/
     # index.tsx's AC count, pcg/[id].tsx's sibling nav). far_sections alone
@@ -136,7 +172,7 @@ def fetch_rows(table: str, key_field: str, text_fields: list[str], title_field: 
     # comes back short.
     select = ",".join({key_field, title_field, *text_fields})
     if only:
-        params = {"select": select, key_field: f"eq.{only}"}
+        params = {"select": select, key_field: f"eq.{only}", **(extra_params or {})}
         resp = requests.get(f"{SUPABASE_URL}/rest/v1/{table}", headers=SB_HEADERS, params=params, timeout=60)
         resp.raise_for_status()
         return resp.json()
@@ -152,7 +188,7 @@ def fetch_rows(table: str, key_field: str, text_fields: list[str], title_field: 
         resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/{table}",
             headers=SB_HEADERS,
-            params={"select": select, "limit": str(page_size), "offset": str(offset)},
+            params={"select": select, "limit": str(page_size), "offset": str(offset), **(extra_params or {})},
             timeout=60,
         )
         resp.raise_for_status()
@@ -162,6 +198,19 @@ def fetch_rows(table: str, key_field: str, text_fields: list[str], title_field: 
             break
         offset += page_size
     return out
+
+
+# doc_type -> extra PostgREST filter params for fetch_rows, applied only to
+# that source's rows (mnemonic is the one dictionary_terms category worth
+# embedding for Ask FlyRegs -- the other ~9,760 rows are plain glossary
+# entries, not natural-language-answerable content).
+FETCH_FILTERS = {"mnemonic": {"category": "eq.mnemonic"}}
+
+# doc_type -> the source_type actually written to content_chunks. Only
+# "mnemonic" differs -- stored as "dictionary" so ask-flyregs.tsx/
+# citedItems.ts's existing RegType routing/icon/label just works, rather
+# than teaching those a brand-new type only this one source produces.
+SOURCE_TYPE_OVERRIDE = {"mnemonic": "dictionary"}
 
 
 def embed_batch(texts: list[str]) -> list[list[float]]:
@@ -182,6 +231,7 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
 def existing_hashes(doc_type: str) -> dict[str, str]:
     """chunk_text sha -> True, keyed by (source_id, chunk_index), to skip
     re-embedding unchanged chunks on repeat runs."""
+    stored_type = SOURCE_TYPE_OVERRIDE.get(doc_type, doc_type)
     out: dict[str, str] = {}
     offset = 0
     while True:
@@ -190,7 +240,7 @@ def existing_hashes(doc_type: str) -> dict[str, str]:
             headers=SB_HEADERS,
             params={
                 "select": "source_id,chunk_index,chunk_text",
-                "source_type": f"eq.{doc_type}",
+                "source_type": f"eq.{stored_type}",
                 "limit": "1000",
                 "offset": str(offset),
             },
@@ -223,8 +273,9 @@ def upsert_chunks(rows: list[dict]) -> None:
 
 def run_type(doc_type: str, only: str | None, dry_run: bool) -> tuple[int, int]:
     table, key_field, text_fields, title_field = SOURCES[doc_type]
+    stored_type = SOURCE_TYPE_OVERRIDE.get(doc_type, doc_type)
     log.info(f"[{doc_type}] fetching source rows from {table}...")
-    rows = fetch_rows(table, key_field, text_fields, title_field, only)
+    rows = fetch_rows(table, key_field, text_fields, title_field, only, FETCH_FILTERS.get(doc_type))
     log.info(f"[{doc_type}] {len(rows)} source rows")
 
     existing = existing_hashes(doc_type)
@@ -260,7 +311,10 @@ def run_type(doc_type: str, only: str | None, dry_run: bool) -> tuple[int, int]:
     for row in rows:
         key = row.get(key_field)
         title = row.get(title_field) or ""
-        text = " ".join((row.get(f) or "") for f in text_fields).strip()
+        if doc_type == "mnemonic":
+            text = render_mnemonic_text(title, row.get("senses"))
+        else:
+            text = " ".join((row.get(f) or "") for f in text_fields).strip()
         if not key or not text:
             continue
         chunks = chunk_text(text)
@@ -272,7 +326,7 @@ def run_type(doc_type: str, only: str | None, dry_run: bool) -> tuple[int, int]:
             embed_input = f"{title}\n\n{chunk}" if title else chunk
             pending_texts.append(embed_input[:8000])  # hard safety cap, well under the token limit
             pending_meta.append({
-                "source_type": doc_type,
+                "source_type": stored_type,
                 "source_id": key,
                 "chunk_index": idx,
                 "title": title,

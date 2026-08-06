@@ -3,7 +3,7 @@
 // cited_type value alongside 'far' (a citation can point at a whole Part
 // rather than one section); both open the same /far/<id> route since
 // far/[id].tsx already resolves either shape.
-export type CitedType = 'ac' | 'far' | 'far_part' | 'aim' | 'pcg' | 'ad' | 'loi'
+export type CitedType = 'ac' | 'far' | 'far_part' | 'aim' | 'pcg' | 'ad' | 'loi' | 'dictionary'
 
 export function routeForCitedItem(citedType: string, citedId: string): string {
   switch (citedType) {
@@ -18,6 +18,8 @@ export function routeForCitedItem(citedType: string, citedId: string): string {
       return `/ad/${citedId}`
     case 'loi':
       return `/loi/${citedId}`
+    case 'dictionary':
+      return `/dictionary/${citedId}`
     default:
       return `/ac/${citedId}`
   }
