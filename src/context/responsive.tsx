@@ -60,3 +60,13 @@ export function useIsTabletLandscape(): boolean {
   const { isTablet, width, height } = useContext(ResponsiveContext)
   return isTablet && width > height
 }
+
+// Portrait iPad (768pt wide) DOES have the room for a master-detail split --
+// just not left/right like landscape (that would squeeze the reading column
+// back to phone width). See far/part/[part].tsx's SplitPane usage with
+// orientation="vertical" for the top-rail/bottom-reading-pane pattern this
+// gates.
+export function useIsTabletPortrait(): boolean {
+  const { isTablet, width, height } = useContext(ResponsiveContext)
+  return isTablet && width <= height
+}

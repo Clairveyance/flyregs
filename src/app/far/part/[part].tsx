@@ -9,7 +9,7 @@ import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { SplitPane } from '@/components/SplitPane'
 import { RegPreviewInline } from '@/components/RegPreviewPane'
-import { useIsTabletLandscape } from '@/context/responsive'
+import { useIsTabletLandscape, useIsTabletPortrait } from '@/context/responsive'
 
 interface FarSectionRow {
   section_number: string
@@ -35,10 +35,13 @@ export default function FarPartScreen() {
   const [partLabel, setPartLabel] = useState('')
   const [loading, setLoading] = useState(true)
   const isTabletLandscape = useIsTabletLandscape()
-  // iPad landscape only -- on phone/portrait, a row tap still pushes to
-  // /far/[id] exactly as before. Reset whenever the part itself changes
-  // (navigating Part 91 -> Part 61 shouldn't leave 91's last-read section
-  // showing in a pane now labeled Part 61).
+  const isTabletPortrait = useIsTabletPortrait()
+  // Either tablet split variant swaps the reading pane in place instead of
+  // navigating -- only phone still pushes to /far/[id] as before.
+  const isSplit = isTabletLandscape || isTabletPortrait
+  // Reset whenever the part itself changes (navigating Part 91 -> Part 61
+  // shouldn't leave 91's last-read section showing in a pane now labeled
+  // Part 61).
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null)
   useEffect(() => { setSelectedRoute(null) }, [part])
 
@@ -82,7 +85,7 @@ export default function FarPartScreen() {
           )}
           {group.items.map((s) => {
             const route = `/far/${s.section_number}`
-            const isSelected = isTabletLandscape && selectedRoute === route
+            const isSelected = isSplit && selectedRoute === route
             return (
               <Pressable
                 key={s.section_number}
@@ -90,7 +93,7 @@ export default function FarPartScreen() {
                   styles.row,
                   { backgroundColor: isSelected ? tokens.bdim : tokens.bg2, borderColor: isSelected ? tokens.bbdr : tokens.bdr },
                 ]}
-                onPress={() => (isTabletLandscape ? setSelectedRoute(route) : router.push(route as any))}
+                onPress={() => (isSplit ? setSelectedRoute(route) : router.push(route as any))}
               >
                 <Text style={[styles.secNum, { color: tokens.blu, fontSize: fs(13.5) }]}>§ {s.section_number}</Text>
                 <Text style={[styles.secTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
@@ -115,6 +118,13 @@ export default function FarPartScreen() {
       ) : isTabletLandscape ? (
         <SplitPane
           storageKey="far"
+          rail={sectionList}
+          detail={<RegPreviewInline route={selectedRoute} onClose={() => setSelectedRoute(null)} />}
+        />
+      ) : isTabletPortrait ? (
+        <SplitPane
+          storageKey="far-portrait"
+          orientation="vertical"
           rail={sectionList}
           detail={<RegPreviewInline route={selectedRoute} onClose={() => setSelectedRoute(null)} />}
         />

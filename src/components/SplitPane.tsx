@@ -5,71 +5,93 @@ import { runOnJS } from 'react-native-reanimated'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useTheme } from '@/context/theme'
 
-// iPad-landscape master-detail split: a resizable rail on the left, a
-// draggable divider, and a detail pane filling the rest. RC: "that center
-// vertical line splitting the screen should be adjustable, to make either
-// side bigger/smaller." Same Gesture.Pan()/runOnJS pattern already proven
-// live in FolderListView's drag-to-reorder handle -- not a new mechanism.
+// Master-detail split: a resizable rail (left on landscape, top on
+// portrait) with a draggable divider, and a detail pane filling the rest.
+// RC: "that center vertical line splitting the screen should be
+// adjustable" (landscape), then separately: portrait needs the same
+// adjustable-divider feel but split top/bottom instead of left/right, since
+// portrait's 768pt width doesn't have room for a side rail without
+// squeezing the reading column back to phone width. Same Gesture.Pan()/
+// runOnJS pattern already proven live in FolderListView's drag-to-reorder
+// handle, generalized over an axis instead of duplicated per orientation.
 //
-// Deliberately NOT used on phone or portrait tablet -- callers decide when
-// to render this at all (see useIsTabletLandscape in context/responsive.tsx)
-// rather than this component guessing from its own width, since a caller
-// may want the split only past a wider breakpoint than TABLET_BREAKPOINT.
-const MIN_RAIL = 240
-const MAX_RAIL = 520
-const HANDLE_HIT_WIDTH = 14
+// Deliberately NOT used on phone -- callers decide when to render this at
+// all (see useIsTabletLandscape/useIsTabletPortrait in context/responsive)
+// rather than this component guessing from its own width.
+const HANDLE_HIT_SIZE = 14
 
 interface SplitPaneProps {
-  /** Persists the chosen rail width across sessions, keyed per screen
-   * (e.g. "far", "home") so resizing one split doesn't affect another. */
+  /** Persists the chosen rail size across sessions, keyed per screen +
+   * orientation (e.g. "far", "far-portrait") so resizing one split doesn't
+   * affect another. */
   storageKey: string
+  /** 'horizontal' = left rail / vertical divider (landscape). 'vertical' =
+   * top rail / horizontal divider (portrait). Default 'horizontal' keeps
+   * every existing landscape call site's behavior unchanged. */
+  orientation?: 'horizontal' | 'vertical'
   defaultRailWidth?: number
+  min?: number
+  max?: number
   rail: React.ReactNode
   detail: React.ReactNode
 }
 
-export function SplitPane({ storageKey, defaultRailWidth = 320, rail, detail }: SplitPaneProps) {
+export function SplitPane({
+  storageKey,
+  orientation = 'horizontal',
+  defaultRailWidth,
+  min,
+  max,
+  rail,
+  detail,
+}: SplitPaneProps) {
   const { tokens } = useTheme()
+  const isVertical = orientation === 'vertical'
+  const MIN = min ?? (isVertical ? 160 : 240)
+  const MAX = max ?? (isVertical ? 520 : 520)
+  const defaultSize = defaultRailWidth ?? (isVertical ? 280 : 320)
+
+  // Key name kept as "rail_width" even for the vertical/portrait case --
+  // renaming it would silently forget every already-persisted landscape
+  // rail width on next load for no functional reason.
   const persistKey = `splitpane_rail_width:${storageKey}`
-  const [railWidth, setRailWidth] = useState(defaultRailWidth)
-  // Read on mount only, not re-applied if defaultRailWidth changes later --
-  // a persisted user choice should always win over a new default.
-  const startWidth = useRef(defaultRailWidth)
-  const loadedRef = useRef(false)
+  const [railSize, setRailSize] = useState(defaultSize)
+  // Read on mount only, not re-applied if defaultSize changes later -- a
+  // persisted user choice should always win over a new default.
+  const startSize = useRef(defaultSize)
   // Gesture.Pan() is rebuilt every render, but the ACTIVE gesture instance
   // for an in-flight drag keeps whichever JS closures were bound when it
   // started -- confirmed live: onFinalize's handler kept persisting the
-  // PRE-drag railWidth, since its closure over the `railWidth` state
-  // variable never saw the onUpdate-driven re-renders that happened after
-  // the gesture began. A ref sidesteps this entirely: reading `.current`
+  // PRE-drag size, since its closure over the `railSize` state variable
+  // never saw the onUpdate-driven re-renders that happened after the
+  // gesture began. A ref sidesteps this entirely: reading `.current`
   // always returns the truly-latest value regardless of which render's
   // closure is doing the reading, since the ref object itself (not its
   // contents) is what got captured.
-  const latestWidth = useRef(defaultRailWidth)
+  const latestSize = useRef(defaultSize)
 
   useEffect(() => {
     AsyncStorage.getItem(persistKey).then((v) => {
       const n = v ? parseInt(v, 10) : NaN
-      if (!isNaN(n) && n >= MIN_RAIL && n <= MAX_RAIL) {
-        setRailWidth(n)
-        startWidth.current = n
-        latestWidth.current = n
+      if (!isNaN(n) && n >= MIN && n <= MAX) {
+        setRailSize(n)
+        startSize.current = n
+        latestSize.current = n
       }
-      loadedRef.current = true
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [persistKey])
 
   const handleDragStart = () => {
-    startWidth.current = railWidth
+    startSize.current = railSize
   }
-  const handleDragUpdate = (translationX: number) => {
-    const next = Math.min(MAX_RAIL, Math.max(MIN_RAIL, startWidth.current + translationX))
-    latestWidth.current = next
-    setRailWidth(next)
+  const handleDragUpdate = (translation: number) => {
+    const next = Math.min(MAX, Math.max(MIN, startSize.current + translation))
+    latestSize.current = next
+    setRailSize(next)
   }
   const handleDragEnd = () => {
-    AsyncStorage.setItem(persistKey, String(Math.round(latestWidth.current)))
+    AsyncStorage.setItem(persistKey, String(Math.round(latestSize.current)))
   }
 
   const panGesture = Gesture.Pan()
@@ -77,7 +99,7 @@ export function SplitPane({ storageKey, defaultRailWidth = 320, rail, detail }: 
       runOnJS(handleDragStart)()
     })
     .onUpdate((e) => {
-      runOnJS(handleDragUpdate)(e.translationX)
+      runOnJS(handleDragUpdate)(isVertical ? e.translationY : e.translationX)
     })
     // onFinalize (not onEnd) -- fires on a cancelled gesture too (e.g. the
     // pointer leaving the window mid-drag), not just a clean release.
@@ -89,11 +111,16 @@ export function SplitPane({ storageKey, defaultRailWidth = 320, rail, detail }: 
     })
 
   return (
-    <View style={styles.row}>
-      <View style={{ width: railWidth }}>{rail}</View>
+    <View style={isVertical ? styles.column : styles.row}>
+      <View style={isVertical ? { height: railSize } : { width: railSize }}>{rail}</View>
       <GestureDetector gesture={panGesture}>
-        <View style={styles.handleHit}>
-          <View style={[styles.handleLine, { backgroundColor: tokens.bdr2 }]} />
+        <View style={isVertical ? styles.handleHitH : styles.handleHitV}>
+          <View
+            style={[
+              isVertical ? styles.handleLineH : styles.handleLineV,
+              { backgroundColor: tokens.bdr2 },
+            ]}
+          />
         </View>
       </GestureDetector>
       <View style={styles.detail}>{detail}</View>
@@ -103,12 +130,20 @@ export function SplitPane({ storageKey, defaultRailWidth = 320, rail, detail }: 
 
 const styles = StyleSheet.create({
   row: { flex: 1, flexDirection: 'row' },
-  handleHit: {
-    width: HANDLE_HIT_WIDTH,
+  column: { flex: 1, flexDirection: 'column' },
+  handleHitV: {
+    width: HANDLE_HIT_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
     ...(Platform.OS === 'web' ? { cursor: 'col-resize' as any } : null),
   },
-  handleLine: { width: 1, height: '100%' },
+  handleHitH: {
+    height: HANDLE_HIT_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web' ? { cursor: 'row-resize' as any } : null),
+  },
+  handleLineV: { width: 1, height: '100%' },
+  handleLineH: { height: 1, width: '100%' },
   detail: { flex: 1, minWidth: 0 },
 })
