@@ -5,7 +5,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useDrawer } from '@/context/drawer'
 import { useIsTablet } from '@/context/responsive'
-import { requestFocusSearch } from '@/lib/focusSearchSignal'
+import { requestFocusSearch, focusHomeSearchNow } from '@/lib/focusSearchSignal'
 import { Icon } from '@/components/Icon'
 
 // `search` route/path kept as-is (renaming would mean touching every
@@ -73,7 +73,10 @@ export function PersistentTabBar() {
   const { open: openDrawer } = useDrawer()
 
   const focusSearch = () => {
-    requestFocusSearch()
+    // Try the direct, synchronous path first (see focusSearchSignal.ts) --
+    // only fall back to the flag+navigate dance if Home genuinely hasn't
+    // registered yet.
+    if (!focusHomeSearchNow()) requestFocusSearch()
     router.navigate('/' as never)
   }
 

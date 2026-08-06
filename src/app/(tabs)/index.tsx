@@ -19,7 +19,7 @@ import { router, useFocusEffect } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { REG_TYPE } from '@/lib/regTypes'
@@ -34,9 +34,11 @@ import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { getDailyReg, dailyRegRoute, dailyRegCitation, type DailyReg } from '@/lib/notifications'
 import { splitIntoParagraphs } from '@/lib/regTextFormat'
 import { consumeJustConfirmed } from '@/lib/justConfirmed'
-import { consumeFocusSearchRequest } from '@/lib/focusSearchSignal'
+import { consumeFocusSearchRequest, registerHomeSearchFocus } from '@/lib/focusSearchSignal'
 import { FigureViewer } from '@/components/FigureViewer'
 import { TabletContainer } from '@/components/TabletContainer'
+import { SplitPane } from '@/components/SplitPane'
+import { useIsTabletLandscape, useIsTabletPortrait } from '@/context/responsive'
 import { SmartSearchLabel } from '@/components/SmartSearchLabel'
 import type { AcFigure } from '@/types'
 import { getRecentSearches, addRecentSearch, removeRecentSearch, clearRecentSearches } from '@/lib/recentSearches'
@@ -123,6 +125,9 @@ export default function HomeScreen() {
   const { tokens } = useTheme()
   const { hasPlusAccess } = useAuth()
   const fs = useFS()
+  const ifs = useInputFS()
+  const isTabletLandscape = useIsTabletLandscape()
+  const isTabletPortrait = useIsTabletPortrait()
   const [totalCount, setTotalCount] = useState<number | null>(null)
   // Regulatory-body card counts -- redesign step 5 (see
   // PROJECT_NOTES/flyregs_expansion_plan.md, "Home screen — redesigned").
@@ -161,10 +166,20 @@ export default function HomeScreen() {
     }, [])
   )
 
-  // iPad-landscape tab bar's search icon (PersistentTabBar.tsx) -- tapping
-  // it from any screen navigates here and requests focus; consumed once so
-  // returning to Home later (e.g. via the Home tab itself) doesn't re-pop
-  // the keyboard every time.
+  // Tab bar's search icon (PersistentTabBar.tsx) needs to focus this
+  // input from any screen. Registering the real focus function here lets
+  // the tab bar call it directly and synchronously in its own tap
+  // handler -- see focusSearchSignal.ts's header comment for why that,
+  // not a navigate-then-useFocusEffect chain, is what actually gets the
+  // keyboard to appear on web. Home stays mounted as a background tab for
+  // the whole session, so this only ever needs to register once.
+  useEffect(() => {
+    registerHomeSearchFocus(() => searchInputRef.current?.focus())
+    return () => registerHomeSearchFocus(null)
+  }, [])
+
+  // Defensive fallback only -- covers the split second before the effect
+  // above has registered (e.g. Home's very first mount this session).
   useFocusEffect(
     useCallback(() => {
       if (consumeFocusSearchRequest()) {
@@ -815,12 +830,54 @@ export default function HomeScreen() {
   // chars), so only one of the two ever renders at a time.
   const showRecentSearches = searchActive && searchQuery.trim().length === 0 && recentSearches.length > 0
 
+  const regTypes = [
+    { key: 'far', label: 'Federal Aviation Regulations', abbr: 'FAR', count: farCount, unit: 'sections', route: '/far' },
+    { key: 'aim', label: 'Aeronautical Information Manual', abbr: 'AIM', count: aimCount, unit: 'paragraphs', route: '/aim' },
+    { key: 'ac', label: 'Advisory Circulars', abbr: 'AC', count: totalCount, unit: 'active', route: '/ac/library' },
+    { key: 'pcg', label: 'Pilot/Controller Glossary', abbr: 'P/CG', count: pcgCount, unit: 'terms', route: '/pcg' },
+    { key: 'ad', label: 'Airworthiness Directives', abbr: 'AD', count: adCount, unit: 'directives', route: '/ad' },
+    { key: 'loi', label: 'Legal Interpretations', abbr: 'LOI', count: loiCount, unit: 'interpretations', route: '/loi' },
+    { key: 'dictionary', label: 'Aviation Dictionary', abbr: 'A/D', count: dictCount, unit: 'terms', route: '/dictionary' },
+  ]
+
+  // iPad (either orientation): "Browse by Regulation" becomes its own rail
+  // instead of a stretched-phone single column -- RC, real device: "home
+  // screen lost it's duality and reverted back to a blown up phone
+  // layout." Same SplitPane/RegBodyCard pieces the list below already
+  // uses, just split into two panes instead of one stacked column.
+  const homeRail = (
+    <FlatList
+      data={regTypes}
+      keyExtractor={(item) => item.key}
+      contentContainerStyle={styles.listContent}
+      ListHeaderComponent={
+        <View style={styles.sectionLabel}>
+          <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(16.5) }]}>Browse by Regulation</Text>
+        </View>
+      }
+      renderItem={({ item }) => <RegBodyCard item={item} tokens={tokens} />}
+    />
+  )
+  const homeDetail = (
+    <ScrollView contentContainerStyle={styles.listContent} keyboardDismissMode="interactive">
+      <HomeHeader
+        tokens={tokens}
+        whatsNew={whatsNew}
+        otherWhatsNew={otherWhatsNew}
+        badgeDays={badgeDays}
+        hasPlusAccess={hasPlusAccess}
+        dailyReg={dailyReg}
+        showBrowseLabel={false}
+      />
+    </ScrollView>
+  )
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <ScreenHeader showWordmark />
-      <TabletContainer>
+      <TabletContainer disabled={isTabletLandscape || isTabletPortrait}>
 
       {showWelcome && (
         <Animated.View
@@ -848,7 +905,7 @@ export default function HomeScreen() {
           <View style={{ flex: 1 }}>
             <TextInput
               ref={searchInputRef}
-              style={[styles.searchInput, { color: tokens.t1, fontSize: fs(13.5) }]}
+              style={[styles.searchInput, { color: tokens.t1, fontSize: ifs(13.5) }]}
               placeholder=""
               accessibilityLabel="Search: SmartSearch — Reg, word, or phrase"
               value={searchQuery}
@@ -952,17 +1009,16 @@ export default function HomeScreen() {
           }
           renderItem={({ item }) => <FilterResultRowView item={item} tokens={tokens} />}
         />
+      ) : isTabletLandscape || isTabletPortrait ? (
+        <SplitPane
+          storageKey={isTabletLandscape ? 'home' : 'home-portrait'}
+          orientation={isTabletLandscape ? 'horizontal' : 'vertical'}
+          rail={homeRail}
+          detail={homeDetail}
+        />
       ) : (
         <FlatList
-          data={[
-            { key: 'far', label: 'Federal Aviation Regulations', abbr: 'FAR', count: farCount, unit: 'sections', route: '/far' },
-            { key: 'aim', label: 'Aeronautical Information Manual', abbr: 'AIM', count: aimCount, unit: 'paragraphs', route: '/aim' },
-            { key: 'ac', label: 'Advisory Circulars', abbr: 'AC', count: totalCount, unit: 'active', route: '/ac/library' },
-            { key: 'pcg', label: 'Pilot/Controller Glossary', abbr: 'P/CG', count: pcgCount, unit: 'terms', route: '/pcg' },
-            { key: 'ad', label: 'Airworthiness Directives', abbr: 'AD', count: adCount, unit: 'directives', route: '/ad' },
-            { key: 'loi', label: 'Legal Interpretations', abbr: 'LOI', count: loiCount, unit: 'interpretations', route: '/loi' },
-            { key: 'dictionary', label: 'Aviation Dictionary', abbr: 'A/D', count: dictCount, unit: 'terms', route: '/dictionary' },
-          ]}
+          data={regTypes}
           keyExtractor={(item) => item.key}
           contentContainerStyle={styles.listContent}
           keyboardDismissMode="interactive"
@@ -1052,14 +1108,14 @@ export default function HomeScreen() {
             <Text style={[styles.filterSectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>DATE RANGE (NOT AIM OR P/CG)</Text>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TextInput
-                style={[styles.filterDateInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg2, fontSize: fs(13) }]}
+                style={[styles.filterDateInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg2, fontSize: ifs(13) }]}
                 value={filterDateFrom}
                 onChangeText={setFilterDateFrom}
                 placeholder="YYYY-MM-DD"
                 placeholderTextColor={tokens.t4}
               />
               <TextInput
-                style={[styles.filterDateInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg2, fontSize: fs(13) }]}
+                style={[styles.filterDateInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg2, fontSize: ifs(13) }]}
                 value={filterDateTo}
                 onChangeText={setFilterDateTo}
                 placeholder="YYYY-MM-DD"
@@ -1087,7 +1143,7 @@ export default function HomeScreen() {
             <>
               <View style={[styles.citesInputWrap, { borderColor: tokens.bdr, backgroundColor: tokens.bg2 }]}>
                 <TextInput
-                  style={[styles.citesInput, { color: tokens.t1, fontSize: fs(13) }]}
+                  style={[styles.citesInput, { color: tokens.t1, fontSize: ifs(13) }]}
                   value={citesQuery}
                   onChangeText={setCitesQuery}
                   placeholder="Search a FAR section, AIM paragraph, P/CG term, AC, or LOI…"
@@ -1310,6 +1366,7 @@ function HomeHeader({
   badgeDays,
   hasPlusAccess,
   dailyReg,
+  showBrowseLabel = true,
 }: {
   tokens: ReturnType<typeof useTheme>['tokens']
   whatsNew: WhatsNewAC[]
@@ -1317,6 +1374,10 @@ function HomeHeader({
   badgeDays: number
   hasPlusAccess: boolean
   dailyReg: DailyReg | null
+  /** iPad split view (see the main render below) shows "Browse by
+   * Regulation" as its own rail instead of trailing this header -- false
+   * there so it isn't shown twice. */
+  showBrowseLabel?: boolean
 }) {
   const fs = useFS()
 
@@ -1415,9 +1476,11 @@ function HomeHeader({
       <DailyRegCard dailyReg={dailyReg} tokens={tokens} />
 
       {/* Regulatory-body cards label */}
-      <View style={styles.sectionLabel}>
-        <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(16.5) }]}>Browse by Regulation</Text>
-      </View>
+      {showBrowseLabel && (
+        <View style={styles.sectionLabel}>
+          <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(16.5) }]}>Browse by Regulation</Text>
+        </View>
+      )}
     </>
   )
 }

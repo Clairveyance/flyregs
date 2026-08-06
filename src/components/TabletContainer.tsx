@@ -9,9 +9,21 @@ import { useResponsive } from '@/context/responsive'
 // half of iPad optimization; true master-detail split-view navigation
 // (list and detail panes side by side, not just a wide single column) is a
 // separate, larger project -- see flyregs_pending.md.
-export function TabletContainer({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
+export function TabletContainer({
+  children,
+  style,
+  disabled,
+}: {
+  children: React.ReactNode
+  style?: ViewStyle
+  /** Callers building their own full-width tablet layout (a master-detail
+   * split, for instance) opt out of the centered-column treatment entirely
+   * -- the whole point of a split is using the width this would otherwise
+   * take away. */
+  disabled?: boolean
+}) {
   const { isTablet, contentMaxWidth } = useResponsive()
-  if (!isTablet) return <>{children}</>
+  if (!isTablet || disabled) return <>{children}</>
   return (
     <View style={styles.outer}>
       <View style={[styles.inner, { maxWidth: contentMaxWidth }, style]}>{children}</View>
