@@ -92,6 +92,29 @@ function AppShell({ children }: { children: React.ReactNode }) {
     return () => sub.remove()
   }, [])
 
+  // RC, real device (web preview): "every time I click it [the pencil/
+  // circle annotate tool] to circle things for you, it blows the screen up
+  // huge and I can't edit." WebKit's double-tap-to-zoom gesture -- live by
+  // default, uncapped, on every page -- reads a quick double-tap-style
+  // interaction (exactly what circling something on a screenshot involves)
+  // as "zoom in," with nothing capping how far. Tried fixing this via a
+  // custom app/+html.tsx viewport override first, but that mechanism only
+  // applies to `expo export`'s static-render path, not the interactive
+  // `expo start --web` dev server this Preview actually runs -- confirmed
+  // live via direct curl, unaffected even after a full server restart.
+  // touch-action:manipulation on the root disables double-tap-zoom (and
+  // the ~300ms tap-delay browsers use to detect it) directly via CSS,
+  // which the normal web bundle DOES hot-reload, so it works in both dev
+  // preview and any real build regardless of which HTML template ends up
+  // serving the page.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return
+    const style = document.createElement('style')
+    style.textContent = 'html, body, #root { touch-action: manipulation; }'
+    document.head.appendChild(style)
+    return () => { document.head.removeChild(style) }
+  }, [])
+
   // On web, always render (fonts come from CSS). On native, wait for fonts.
   if (!fontsLoaded && Platform.OS !== 'web') return null
 
