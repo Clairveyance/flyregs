@@ -233,7 +233,15 @@ def parse_ad_text(raw_text: str, document_number: str) -> dict | None:
     # here, before any field extraction, so every downstream field
     # (make/summary/body_text/subject_heading/applicability/...) inherits
     # the fix automatically since they all derive from `text`.
-    text = decode_sgml_entities(re.sub(r"<[^>]+>", "", raw_text))
+    #
+    # NUL bytes (literal 0x00) are stripped here too -- confirmed live
+    # 2026-08-05: a single NUL byte anywhere in one AD's raw_text_url
+    # response (a PDF-to-text rendering artifact upstream at govinfo.gov,
+    # not FlyRegs's own scrape) makes Postgres reject the whole batch
+    # upsert with error 22P05 ("0x00 cannot be converted to text") -- NOT
+    # just that one row. Two full years (2014, 2023) silently lost their
+    # entire batch this way during the effective_date backfill before this fix.
+    text = decode_sgml_entities(re.sub(r"<[^>]+>", "", raw_text)).replace("\x00", "")
 
     # A single "\n" mid-text is a PDF line-wrap, not a real paragraph break
     # (those are "\n\n") -- confirmed live as a real bug: a docket number
@@ -340,6 +348,16 @@ def _upsert(table: str, rows: list[dict], on_conflict: str) -> bool:
                 log.info(f"  Logged {n} AD revision(s) for What's Changed")
         except Exception as e:
             log.warning(f"  revision logging failed (non-fatal): {e}")
+    # Belt-and-suspenders NUL-byte strip -- parse_ad_text already strips
+    # \x00 at the source, but this catches any other field derived from
+    # upstream text (e.g. a future field sourced from the FR API's own
+    # JSON, which CAN legally carry an escaped NUL) so one bad
+    # character in one row can never again silently drop an entire year's
+    # batch the way it did for 2014 and 2023.
+    for row in rows:
+        for k, v in row.items():
+            if isinstance(v, str) and "\x00" in v:
+                row[k] = v.replace("\x00", "")
     try:
         resp = requests.post(
             f"{SUPABASE_URL}/rest/v1/{table}",
