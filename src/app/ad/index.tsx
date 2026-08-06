@@ -274,7 +274,7 @@ export default function AdIndexScreen() {
             </>
           )}
 
-          {trimmedQuery && (
+          {trimmedQuery.length > 0 && (
             searching ? (
               <View style={styles.center}>
                 <ActivityIndicator color={tokens.blu} />
