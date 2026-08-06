@@ -477,7 +477,7 @@ export default function SharedFolderDetail() {
               {noteEditing ? (
                 <>
                   <TextInput
-                    style={[styles.modalTitleInput, { color: tokens.t1, fontSize: fs(18), borderColor: tokens.bdr2 }]}
+                    style={[styles.modalTitleInput, { color: tokens.t1, fontSize: ifs(18), borderColor: tokens.bdr2 }]}
                     value={noteEditTitle}
                     onChangeText={setNoteEditTitle}
                     placeholder="Title"
@@ -636,7 +636,7 @@ export default function SharedFolderDetail() {
               </Pressable>
             </View>
             <TextInput
-              style={[styles.modalTitleInput, { color: tokens.t1, fontSize: fs(18), borderColor: tokens.bdr2 }]}
+              style={[styles.modalTitleInput, { color: tokens.t1, fontSize: ifs(18), borderColor: tokens.bdr2 }]}
               value={newNoteTitle}
               onChangeText={setNewNoteTitle}
               placeholder="Title"

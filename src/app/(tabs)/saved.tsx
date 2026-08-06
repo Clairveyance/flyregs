@@ -5,7 +5,7 @@ import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
@@ -966,6 +966,7 @@ function FolderEditor({
 }) {
   const { tokens } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
   const insets = useSafeAreaInsets()
   const [name, setName] = useState('')
 
@@ -999,7 +1000,7 @@ function FolderEditor({
 
       <Pressable style={styles.editorBody} onPress={Keyboard.dismiss}>
         <TextInput
-          style={[styles.titleInput, { color: tokens.t1, fontSize: fs(19) }]}
+          style={[styles.titleInput, { color: tokens.t1, fontSize: ifs(19) }]}
           placeholder="Folder name"
           placeholderTextColor={tokens.t3}
           value={name}

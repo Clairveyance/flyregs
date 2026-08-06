@@ -6,6 +6,7 @@ import { useFS } from '@/context/fontScale'
 import { useDrawer } from '@/context/drawer'
 import { useIsTablet } from '@/context/responsive'
 import { requestFocusSearch, focusHomeSearchNow } from '@/lib/focusSearchSignal'
+import { runNavigateSync } from '@/lib/syncNavigate'
 import { useScreenActionsContext, ScreenAction } from '@/context/screenActions'
 import { Icon } from '@/components/Icon'
 
@@ -75,11 +76,16 @@ export function PersistentTabBar() {
   const { actions: screenActions } = useScreenActionsContext()
 
   const focusSearch = () => {
-    // Try the direct, synchronous path first (see focusSearchSignal.ts) --
-    // only fall back to the flag+navigate dance if Home genuinely hasn't
-    // registered yet.
+    // RC, real iPad: tapping search from a non-Home tab navigated to Home
+    // but never raised the keyboard. Confirmed live: calling focus BEFORE
+    // the tab switch finds Home's input not yet visible/focusable (a
+    // silent no-op), and deferring focus until AFTER the switch (a
+    // microtask/RAF) falls outside WebKit's user-activation window instead.
+    // runNavigateSync (web only) forces the switch's state update to commit
+    // synchronously, still inside this same click handler, so Home is
+    // genuinely visible by the time we call focus next -- no gap either way.
+    runNavigateSync(() => router.navigate('/' as never))
     if (!focusHomeSearchNow()) requestFocusSearch()
-    router.navigate('/' as never)
   }
 
   // Phone only: unchanged -- every tab flex:1, spread edge to edge across

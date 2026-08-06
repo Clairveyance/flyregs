@@ -875,7 +875,7 @@ function NoteEditor({
         keyboardDismissMode="interactive"
       >
         <TextInput
-          style={[styles.titleInput, { color: tokens.t1, fontSize: fs(19) }]}
+          style={[styles.titleInput, { color: tokens.t1, fontSize: ifs(19) }]}
           placeholder="Title"
           placeholderTextColor={tokens.t3}
           value={title}
