@@ -173,7 +173,7 @@ def search_ads(
         "order": order,
         "fields[]": [
             "document_number", "title", "abstract", "publication_date",
-            "pdf_url", "raw_text_url",
+            "pdf_url", "raw_text_url", "effective_on",
         ],
     }
     if since:
@@ -388,6 +388,13 @@ def process_ads(ad_summaries: list[dict], dry_run: bool) -> list[dict]:
         parsed["product_subtype"] = None
         parsed["pdf_url"] = summary.get("pdf_url")
         parsed["citation_publish_date"] = summary.get("publication_date")
+        # effective_on is the FR API's own field for "when this rule takes
+        # effect" -- confirmed live 2026-08-05 that it's populated back to
+        # at least 2000 (this corpus's own earliest coverage), the same
+        # source citation_publish_date already comes from. Was never
+        # requested before, which is why effective_date sat 100% NULL
+        # across all 5,023 existing rows.
+        parsed["effective_date"] = summary.get("effective_on")
         parsed["status"] = "Current"
 
         rows.append(parsed)

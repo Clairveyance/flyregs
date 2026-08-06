@@ -334,21 +334,31 @@ def run_full(session: requests.Session):
     # below, but re-fetching "old text" per term would be 1,300+ separate
     # HTTP calls). Must run BEFORE the per-term upsert loop overwrites
     # what's currently live. See revision_log.py.
+    # last_amended (task #300): P/CG has no FAA-published version history
+    # anywhere, so this same paragraph-level diff is the only real signal
+    # available for "did this term actually change" -- reusing it here
+    # rather than a separate hash check means the existing TBL/FIG-renumber
+    # noise filter (see revision_log.py) also protects last_amended, not
+    # just the What's Changed timeline.
+    changed_slugs: set = set()
     if SUPABASE_URL and SUPABASE_KEY:
         try:
             n = log_revisions(
                 SUPABASE_URL, _supa_headers(), doc_type="pcg", table="pcg_terms",
                 key_field="slug", text_field="definition", title_field="term",
-                new_rows=terms,
+                new_rows=terms, changed_keys=changed_slugs,
             )
             if n:
-                log.info(f"Logged {n} P/CG revision(s) for What's Changed")
+                log.info(f"Logged {n} P/CG revision(s) for What's Changed ({len(changed_slugs)} term(s) get a new last_amended)")
         except Exception as e:
             log.warning(f"revision logging failed (non-fatal): {e}")
 
     now = datetime.now(timezone.utc).isoformat()
+    today = now[:10]
     for i, t in enumerate(terms, 1):
         record = {**t, "updated_at": now}
+        if t["slug"] in changed_slugs:
+            record["last_amended"] = today
         log.info(f"[{i}/{total}] {t['term']}")
         if upsert_term(record):
             added += 1

@@ -96,13 +96,24 @@ def log_revisions(
     text_field: str,
     title_field: str,
     new_rows: list[dict],
+    changed_keys: set | None = None,
 ) -> int:
     """Diffs new_rows' text_field against what's currently in the DB (fetched
     fresh here, so this MUST run before the real upsert overwrites it), and
     inserts one content_revisions row per changed doc_key. Returns the
     number of revisions logged. Never raises on a single-row failure --
     logs and continues, since a revision-log miss shouldn't block the real
-    data upsert that follows it."""
+    data upsert that follows it.
+
+    If `changed_keys` is passed, every key_field value with a genuine
+    (post-noise-filtering) content diff is added to it in place -- lets a
+    caller stamp a real "last changed" date on exactly the rows that
+    actually changed, without re-implementing this same diff a second time
+    (see pcg_amendment dates, task #300 -- P/CG has no other source for a
+    per-term change date at all). A brand-new row (no prior version to
+    diff against) is deliberately NOT added -- "first time we've seen
+    this" isn't the same claim as "this changed on this date."
+    """
     candidates = [r for r in new_rows if r.get(key_field) and r.get(text_field)]
     if not candidates:
         return 0
@@ -138,6 +149,9 @@ def log_revisions(
         removed = [p for p in old_paras_list if _normalize_for_diff(p) not in new_normalized]
         if not added and not removed:
             continue  # whitespace/label-only difference -- not worth a timeline entry
+
+        if changed_keys is not None:
+            changed_keys.add(key)
 
         to_insert.append({
             "doc_type": doc_type,

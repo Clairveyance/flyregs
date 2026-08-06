@@ -94,8 +94,18 @@ echo "▶ Step 4/5 — Real page-image backfill"
 # into this pipeline before 2026-07-28 -- confirmed a real gap, not just an
 # AC/FAR/P-CG-only problem.
 echo ""
-echo "▶ Step 5/5 — MagicLink citation extraction (AIM -> FAR body-text mentions)"
+echo "▶ Step 5/6 — MagicLink citation extraction (AIM -> FAR body-text mentions)"
 "$PYTHON3" sync/aim_far_citations.py
+
+# Real per-paragraph change dates from the current edition's own
+# Explanation of Changes page -- see sync/aim_amendment_dates.py's header
+# for why this is deliberately partial (only paragraphs the FAA names in
+# the current edition get a date; there's no AIM version-history source
+# to backfill the rest). Non-fatal: a parsing hiccup on the FAA's EoC page
+# shouldn't fail the whole weekly sync.
+echo ""
+echo "▶ Step 6/6 — AIM per-paragraph change dates (Explanation of Changes)"
+"$PYTHON3" sync/aim_amendment_dates.py || echo "  WARNING: amendment-dates step failed (non-fatal, continuing)"
 
 END_TS="$(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
