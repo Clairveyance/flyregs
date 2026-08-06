@@ -1429,6 +1429,11 @@ function HomeHeader({
   if (!hasPlusAccess) {
     return (
       <>
+        {/* RC, iPad tablet-split view, annotated: "DR can go to top on this
+            view." DailyReg leads on the split-view detail pane; phone keeps
+            its original trailing position below (isTablet defaults false
+            there, so this is a no-op on phone). */}
+        {isTablet && <DailyRegCard dailyReg={dailyReg} tokens={tokens} />}
         <View style={[styles.sectionLabel, { justifyContent: 'flex-start', gap: 8 }]}>
           <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(16.5) }]}>What's New</Text>
         </View>
@@ -1447,13 +1452,18 @@ function HomeHeader({
           </View>
           <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
         </Pressable>
-        <DailyRegCard dailyReg={dailyReg} tokens={tokens} />
+        {!isTablet && <DailyRegCard dailyReg={dailyReg} tokens={tokens} />}
       </>
     )
   }
 
   return (
     <>
+      {/* RC, iPad tablet-split view, annotated: "DR can go to top on this
+          view." Same isTablet-only lead placement as the no-Plus branch
+          above; phone's trailing DailyRegCard below is untouched. */}
+      {isTablet && <DailyRegCard dailyReg={dailyReg} tokens={tokens} />}
+
       {/* What's New strip — always shown, even with zero results, so a user
           isn't left wondering why the whole section vanished; the empty
           state tells them to widen Badge Duration if they expect to see
@@ -1512,7 +1522,7 @@ function HomeHeader({
         </View>
       )}
 
-      <DailyRegCard dailyReg={dailyReg} tokens={tokens} />
+      {!isTablet && <DailyRegCard dailyReg={dailyReg} tokens={tokens} />}
 
       {/* Regulatory-body cards label */}
       {showBrowseLabel && (

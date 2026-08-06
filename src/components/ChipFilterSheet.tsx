@@ -1,5 +1,6 @@
 import { ReactNode, useRef } from 'react'
-import { View, Text, Pressable, ScrollView, Modal, StyleSheet, ActivityIndicator, PanResponder, Platform } from 'react-native'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, PanResponder, Platform, KeyboardAvoidingView } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -40,10 +41,29 @@ export function ChipFilterSheet({
 }) {
   const { tokens } = useTheme()
   const fs = useFS()
+  const insets = useSafeAreaInsets()
+
+  // RC, real iPad, annotated: "this screen doesn't need to be this wide"
+  // + "keep other buttons at bottom of screen." RN's own <Modal> renders in
+  // its own top-level native layer (confirmed live: zIndex 9999 on web,
+  // same idea natively) -- ABOVE everything in the app including
+  // PersistentTabBar, with no way for chrome underneath to poke through
+  // while it's open. Rendering as a plain in-tree absolutely-positioned
+  // overlay instead (same idea Drawer.tsx already uses for exactly this
+  // reason) confines it to Home's own screen box, which the root layout
+  // already keeps clear of the tab bar's own flex space -- so the tab bar
+  // stays visible AND tappable underneath for free, no tab-bar-specific
+  // code needed here at all.
+  if (!visible) return null
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+    <View style={styles.overlay} pointerEvents="box-none">
+      <View style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]} pointerEvents="auto" />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.kbWrap}
+        pointerEvents="box-none"
+      >
         <View style={[styles.card, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
           <View style={styles.header}>
             <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16) }]}>{title}</Text>
@@ -55,27 +75,27 @@ export function ChipFilterSheet({
             <Text style={[styles.subtitle, { color: tokens.t3, fontSize: fs(12) }]}>{subtitle}</Text>
           ) : null}
 
-          <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+          <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
             {children}
           </ScrollView>
 
-          <View style={[styles.footer, { borderTopColor: tokens.bdr }]}>
+          <View style={[styles.footer, { borderTopColor: tokens.bdr, paddingBottom: Math.max(12, insets.bottom) }]}>
             <Pressable style={[styles.clearBtn, { borderColor: tokens.bdr }]} onPress={onClearAll}>
-              <Text style={[styles.clearBtnText, { color: tokens.t2, fontSize: fs(13.5) }]}>Clear all</Text>
+              <Text style={[styles.clearBtnText, { color: tokens.t2, fontSize: fs(13) }]}>Clear all</Text>
             </Pressable>
             <Pressable style={[styles.applyBtn, { backgroundColor: tokens.blu }]} onPress={onApply}>
               {countLoading ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={[styles.applyBtnText, { fontSize: fs(14) }]}>
+                <Text style={[styles.applyBtnText, { fontSize: fs(13) }]}>
                   {applyLabel}{resultCount != null ? ` · ${resultCount}` : ''}
                 </Text>
               )}
             </Pressable>
           </View>
         </View>
-      </View>
-    </Modal>
+      </KeyboardAvoidingView>
+    </View>
   )
 }
 
@@ -215,8 +235,16 @@ export function ChipFilterSection({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'flex-end' },
-  card: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, maxHeight: '85%' },
+  // Absolutely fills Home's own screen box (its nearest positioned
+  // ancestor), not the whole window -- see the component's own comment on
+  // why that's exactly what keeps the tab bar clear.
+  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'flex-end', zIndex: 30 },
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  kbWrap: { justifyContent: 'flex-end' },
+  // maxWidth+centered: RC, real iPad -- "this screen doesn't need to be
+  // this wide, for just a filter." Harmless on phone, where the screen is
+  // already narrower than the cap (same pattern as Notes' syncWrap).
+  card: { width: '100%', maxWidth: 440, alignSelf: 'center', borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, maxHeight: '85%' },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     padding: 18, paddingBottom: 12,
@@ -235,10 +263,11 @@ const styles = StyleSheet.create({
   chipText: { fontWeight: '600' },
 
   footer: {
-    flexDirection: 'row', gap: 10, padding: 16, borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth,
   },
-  clearBtn: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 18, paddingVertical: 12 },
+  // RC, real iPad -- "the bottom action button is huge, make smaller."
+  clearBtn: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 9 },
   clearBtnText: { fontWeight: '700' },
-  applyBtn: { flex: 1, borderRadius: 20, alignItems: 'center', paddingVertical: 12 },
+  applyBtn: { flex: 1, borderRadius: 16, alignItems: 'center', paddingVertical: 9 },
   applyBtnText: { color: '#fff', fontWeight: '700' },
 })
