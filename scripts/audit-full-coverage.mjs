@@ -35,7 +35,13 @@ console.log('Fetching all active ACs...')
 let allACs = []
 {
   let from = 0
-  const PAGE = 500
+  // 500 rows of full pdf_text + pdf_blocks per request tripped this
+  // project's Postgres statement_timeout (micro compute tier -- see
+  // memory/supabase_disk_io_micro_tier.md) the first time this ran as part
+  // of the consolidated audit suite. Smaller pages, more round trips, same
+  // total data -- reliability over speed for a diagnostic that's meant to
+  // just work unattended.
+  const PAGE = 100
   while (true) {
     let q = supabase
       .from('advisory_circulars')

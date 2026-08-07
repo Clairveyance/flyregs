@@ -34,12 +34,22 @@ from extract_figures import SUPABASE_URL, HEADERS
 import requests
 
 REMOVAL_KEYWORDS = re.compile(
-    r"\b(removes?|removed|rescind(?:ed|s)?|deleted?|no longer (?:included|applicable|available)|"
-    r"relocated|now found (?:on|at)|has been (?:removed|deleted|rescinded))\b",
+    r"\b(removes?|removed|rescind(?:ed|s)?|deleted?|no longer (?:included|applicable|available|used|offered)|"
+    r"relocated|now found (?:on|at)|has been (?:removed|deleted|rescinded)|"
+    r"is (?:currently )?not offered)\b",
     re.IGNORECASE,
 )
+# Extended 2026-08-06 (task #366 triage) after the original 3-class run left 235/261
+# "unclassified" -- reading a sample showed most were the SAME general cross-document-
+# citation family the original CROSS_DOC_RE already targeted, just referencing an FAA
+# Order, a CFR/FAR Part, or an MSG task-number instead of an OpSpec/MSpec/AC. Same
+# anchoring principle (a document-shaped token within the near-context), not a new
+# pattern class -- see the hyphen-artifact gotcha's own lesson about verifying a handful
+# of matches by hand before trusting a broadened regex's aggregate count.
 CROSS_DOC_RE = re.compile(
-    r"\b(OpSpec|MSpec|AC\s+\d+[.\-]\d+|Advisory Circular \d+[.\-]\d+)\b",
+    r"\b(OpSpec|MSpec|AC\s+\d+[.\-]\d+|Advisory Circular \d+[.\-]\d+|"
+    r"(?:FAA\s+)?Order\s+\d{3,4}[.\-]\d+|(?:14\s+)?C\.?F\.?R\.?\s+[Pp]art\s+\d+|"
+    r"FAR\s+[Pp]art\s+\d+|MSG-\d)\b",
     re.IGNORECASE,
 )
 COMPOUND_LABEL_RE = re.compile(

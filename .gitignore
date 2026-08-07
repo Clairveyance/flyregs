@@ -93,3 +93,4 @@ sync/.iph_appendix_b_raw.txt
 sync/.phak_appendix_b_outline.txt
 sync/.weather_appendix_e_raw.txt
 supabase/.temp/
+scripts/audit_reports/

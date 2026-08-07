@@ -11,10 +11,24 @@ const env = fs.readFileSync(envPath, 'utf8')
 const get = (k) => (env.match(new RegExp(`^\\s*(?:export\\s+)?${k}=(.+)$`, 'm')) || [])[1]?.trim()
 const supabase = createClient(get('SUPABASE_URL'), get('SUPABASE_SERVICE_KEY'))
 
-const tsSrc = fs.readFileSync(path.resolve('src/lib/acFormat.ts'), 'utf8')
-const js = ts.transpileModule(tsSrc, { compilerOptions: { module: 'ES2020', target: 'ES2020' } }).outputText
-const tmp = path.join(os.tmpdir(), `acFormat.${Date.now()}.mjs`)
-fs.writeFileSync(tmp, js)
+// acFormat.ts imports './ocrScannedACs' -- transpiling acFormat alone and
+// dropping it into os.tmpdir() left that relative specifier pointing at a
+// module that was never written there, breaking this script entirely
+// (ERR_MODULE_NOT_FOUND). Transpile both files into the SAME fresh tmp
+// directory instead, with the specifier rewritten to the real .mjs
+// filename Node's ESM resolver requires for a relative import.
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-blocks-'))
+const transpile = (relSrcPath) =>
+  ts.transpileModule(fs.readFileSync(path.resolve(relSrcPath), 'utf8'), {
+    compilerOptions: { module: 'ES2020', target: 'ES2020' },
+  }).outputText
+fs.writeFileSync(path.join(tmpDir, 'ocrScannedACs.mjs'), transpile('src/lib/ocrScannedACs.ts'))
+const acFormatJs = transpile('src/lib/acFormat.ts').replace(
+  "from './ocrScannedACs'",
+  "from './ocrScannedACs.mjs'",
+)
+const tmp = path.join(tmpDir, 'acFormat.mjs')
+fs.writeFileSync(tmp, acFormatJs)
 const { parseAC } = await import(pathToFileURL(tmp).href)
 
 let page = 0

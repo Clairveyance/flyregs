@@ -134,13 +134,25 @@ def category_counts():
           -- mirror get_study_*'s membership: within-part-unique titles only
           and section_number in (select section_number from study_far_sections)
       union all
-      select category_classes_from_text(coalesce(title,'')) from aim_paragraphs
+      -- Must call the SAME specialized function get_study_pool_count uses
+      -- (aim_category_classes(chapter, title), which also weighs chapter --
+      -- not the generic title-only category_classes_from_text()). Using the
+      -- generic function here previously made this independent check diverge
+      -- from the RPC's real classification on a handful of paragraphs,
+      -- producing false FAILs on an otherwise-correct RPC.
+      select aim_category_classes(chapter, coalesce(title,'')) from aim_paragraphs
         where body_text is not null and body_text <> ''
       union all
       select category_classes_from_text(term) from pcg_terms
         where definition is not null and definition <> ''
       union all
-      select category_classes_from_text(title) from advisory_circulars
+      -- Same reasoning as AIM above: must call ac_category_classes(subject_
+      -- series, title), the function get_study_pool_count actually uses --
+      -- confirmed 112 of ~700 active AC titles classify differently under
+      -- the generic text-only function vs. this one (which also weighs
+      -- subject_series ranges like 20-/23-/25-/27-/29-/31-), which was the
+      -- entire root cause of every "CATEGORY EXCLUSION IS EXACT" FAIL below.
+      select ac_category_classes(subject_series, title) from advisory_circulars
         where status='active' and title is not null and title <> ''
           and description is not null and description <> ''
     )
@@ -399,12 +411,25 @@ def duel_pool(jwt, types=None, levels=None, cats=None):
     return conds
 
 
+def grant_premium(uid):
+    """Duels is deliberately Premium-gated (RC, 2026-07-31, see paywall.tsx)
+    -- fresh admin-API accounts have no user_entitlements row at all, so
+    create_challenge correctly 400s them with 'Duels requires Premium'.
+    Without this the whole duel scenario throws on its very first call
+    instead of testing anything."""
+    http("POST", "/rest/v1/user_entitlements", key=SERVICE,
+         body={"user_id": uid, "is_pro": True, "is_premium": True, "is_unlocked": True},
+         headers={"Prefer": "resolution=merge-duplicates,return=minimal"})
+
+
 def scenario_duel():
     print("\n" + "=" * 74)
     print("DUELS  —  create_challenge question pool (quizzable_* views)")
     print("=" * 74)
     a = make_user("duelfA")
     b = make_user("duelfB")
+    grant_premium(a["id"])
+    grant_premium(b["id"])
     try:
         def try_create(types=None, levels=None, cats=None, n=10):
             try:

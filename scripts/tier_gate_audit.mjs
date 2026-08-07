@@ -83,11 +83,24 @@ console.log('-'.repeat(88))
 // drifted row fails loudly instead of passing quietly.
 const REG_SCREENS = ['src/app/ac/[id].tsx','src/app/far/[id].tsx','src/app/aim/[id].tsx',
                      'src/app/pcg/[id].tsx','src/app/ad/[id].tsx','src/app/loi/[slug].tsx']
+// LOI's own Share/Print are deliberately gated one tier stricter than the
+// other 5 reg screens (hasProAccess, not hasPlusAccess) because LOI's own
+// body text is Pro-gated (task #138) -- see loi/[slug].tsx's own comment on
+// handleShare/handlePrint. A single documented exception, not a pattern:
+// confirmed live that AC/FAR/AIM/PCG/AD all still use hasPlusAccess/isPremium
+// uniformly. Overriding the expectation here (rather than dropping the
+// cross-check) keeps this loop able to catch a REAL future drift on any of
+// these 6 files, including LOI's own handleDownload, which is NOT excepted.
+const PER_FILE_OVERRIDE = {
+  'src/app/loi/[slug].tsx': { handleShare: 'hasProAccess', handlePrint: 'hasProAccess' },
+}
+
 let drift = 0
 console.log('\nCROSS-CHECK: the gate each handler actually uses')
 for (const f of REG_SCREENS) {
   const src = _read(f, 'utf8')
-  for (const [handler, expected] of [['handleShare','hasPlusAccess'], ['handlePrint','hasPlusAccess'], ['handleDownload','isPremium']]) {
+  for (const [handler, defaultExpected] of [['handleShare','hasPlusAccess'], ['handlePrint','hasPlusAccess'], ['handleDownload','isPremium']]) {
+    const expected = PER_FILE_OVERRIDE[f]?.[handler] ?? defaultExpected
     const i = src.indexOf(`const ${handler} =`)
     if (i < 0) continue
     const window_ = src.slice(i, i + 420)
@@ -95,7 +108,10 @@ for (const f of REG_SCREENS) {
     // `if (!x)` instead picked up the null-guard (`if (!section) return`)
     // and reported six false drifts, because the download gate is written
     // `if (!isPremium && !downloaded)` -- no closing paren after the flag.
-    const m = window_.match(/!\s*(hasPlusAccess|isPro|isPremium)\b/)
+    // hasProAccess must be in this alternation too, or LOI's own (correct,
+    // documented) stricter gate is invisible to the regex and always reads
+    // as "(none)" -- exactly the false-positive this audit run surfaced.
+    const m = window_.match(/!\s*(hasPlusAccess|hasProAccess|isPro|isPremium)\b/)
     const actual = m ? m[1] : '(none)'
     if (actual !== expected) {
       console.log(`  DRIFT ${f} ${handler} gates on ${actual}, table says ${expected}`)
