@@ -26,7 +26,7 @@ import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
 import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
 import { condenseAdSummary, adSummaryWasCondensed, stripAdArtifacts } from '@/lib/adSummary'
-import { splitIntoParagraphs } from '@/lib/regTextFormat'
+import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { useConfirm } from '@/components/ConfirmDialog'
 import type { AcFigure } from '@/types'
 
@@ -469,10 +469,10 @@ export default function AdScreen() {
                   condensed to the actionable sentence. The full text is never
                   discarded -- it is one tap away. */}
               {/* condenseAdSummary's clip is already one short sentence
-                  (splitIntoParagraphs is a no-op on it); the expanded full
-                  preamble is the flat, whitespace-collapsed case this
+                  (splitIntoDisplayParagraphs is a no-op on it); the expanded
+                  full preamble is the flat, whitespace-collapsed case this
                   actually matters for. */}
-              {splitIntoParagraphs(summaryExpanded ? stripAdArtifacts(ad.summary) : condenseAdSummary(ad.summary)).map((para, i, arr) => (
+              {splitIntoDisplayParagraphs(summaryExpanded ? stripAdArtifacts(ad.summary) : condenseAdSummary(ad.summary)).map((para, i, arr) => (
                 <Text
                   key={i}
                   style={[

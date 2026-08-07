@@ -26,7 +26,7 @@ import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch, InDocSearchTarget } from '@/lib/useInDocSearch'
 import { searchPhrase, countOcc, highlightSpans } from '@/lib/searchHighlight'
 import { buildRegShareLink } from '@/lib/regShare'
-import { splitIntoParagraphs } from '@/lib/regTextFormat'
+import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { useConfirm } from '@/components/ConfirmDialog'
 
 interface PcgTerm {
@@ -252,7 +252,14 @@ export default function PcgTermScreen() {
   // (a single number across the whole definition) lands on the right
   // occurrence inside the right paragraph instead of always assuming
   // paragraph 0.
-  const defParagraphs = useMemo(() => splitIntoParagraphs(term?.definition), [term?.definition])
+  // splitIntoDisplayParagraphs (not the bare splitIntoParagraphs) -- RC,
+  // real device, re-reporting this exact bug class on "CRUISE": a
+  // definition with no real \n\n break AND no enumerated ((1)/(a)) marker,
+  // just several ordinary sentences, used to come back as ONE paragraph
+  // and render as a wall of text. The extra soft-wrap chunks still line up
+  // correctly with defParaBase below since that's computed FROM this same
+  // array, not the raw definition.
+  const defParagraphs = useMemo(() => splitIntoDisplayParagraphs(term?.definition), [term?.definition])
   const defParaBase = useMemo(() => {
     if (!hq) return []
     const phrase = searchPhrase(hq)

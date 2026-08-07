@@ -33,7 +33,7 @@ import { useScreenActions } from '@/context/screenActions'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { consumePendingBreadcrumb, setPendingBreadcrumb } from '@/lib/navBreadcrumb'
-import { splitIntoParagraphs } from '@/lib/regTextFormat'
+import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { TabletContainer } from '@/components/TabletContainer'
 import type { AdvisoryCircular, AcFigure, FormulaRef } from '@/types'
@@ -1030,9 +1030,11 @@ export default function ACDetailScreen() {
               {/* Scraped with whitespace fully flattened (faa_scraper.py's
                   _extract_description, get_text(separator=" ")) -- can run
                   to ~3000 chars with an inline enumerated list and zero
-                  paragraph structure. splitIntoParagraphs decides WHERE to
-                  break without changing the source text itself. */}
-              {splitIntoParagraphs(ac.description).map((para, i, arr) => (
+                  paragraph structure. splitIntoDisplayParagraphs decides
+                  WHERE to break (real breaks/enum markers) AND soft-wraps
+                  any remaining long run of plain sentences, without
+                  changing the source text itself. */}
+              {splitIntoDisplayParagraphs(ac.description).map((para, i, arr) => (
                 <Text
                   key={i}
                   style={[

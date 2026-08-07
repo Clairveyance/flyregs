@@ -12,7 +12,7 @@ import { FolderPicker } from '@/components/FolderPicker'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { addRecent } from '@/lib/recents'
 import { linkifyText } from '@/lib/crossRefLinks'
-import { splitIntoParagraphs } from '@/lib/regTextFormat'
+import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { PrevNextFooter } from '@/components/DocNavBar'
 import { DictionarySearchBar } from '@/components/DictionarySearchBar'
 import { buildRegShareLink } from '@/lib/regShare'
@@ -98,15 +98,18 @@ function LinkedParagraph({ text, style, linkColor }: { text: string; style: obje
 
 // Some definitions (handbook/glossary sources especially) arrive as one
 // flat run with no paragraph breaks at all, even when they plainly contain
-// an enumerated list -- RC, real device: "everything needs to be broken up
-// and presented in easily readable formats. this exists many places
-// corpus wide." splitIntoParagraphs decides WHERE to break without
-// changing a single word of the actual FAA/NOAA/etc source text (see its
-// own comment in regTextFormat.ts); each resulting paragraph still runs
-// through the same per-segment citation linkification as before, just one
-// paragraph at a time instead of the whole definition as one giant Text.
+// an enumerated list -- or just several ordinary sentences with no marker
+// at all (RC, 2026-08-06, re-reporting the same class of bug on P/CG:
+// "ALL big chunky paragraphs, ANYWHERE in this entire app corpus, must be
+// spaced and formatted well"). splitIntoDisplayParagraphs decides WHERE to
+// break (real breaks/enum markers, then a soft-wrap pass over whatever's
+// still one long run) without changing a single word of the actual FAA/
+// NOAA/etc source text (see its own comment in regTextFormat.ts); each
+// resulting paragraph still runs through the same per-segment citation
+// linkification as before, just one paragraph at a time instead of the
+// whole definition as one giant Text.
 function LinkedText({ text, style, linkColor }: { text: string; style: object; linkColor: string }) {
-  const paragraphs = splitIntoParagraphs(text)
+  const paragraphs = splitIntoDisplayParagraphs(text)
   if (paragraphs.length <= 1) {
     return <LinkedParagraph text={text} style={style} linkColor={linkColor} />
   }

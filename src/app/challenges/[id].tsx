@@ -32,6 +32,25 @@ const QUESTION_LABEL: Record<DuelItemType, string> = {
   ac: 'WHICH ADVISORY CIRCULAR IS THIS?',
 }
 
+// RC, real duel screenshot circling a live timer stuck open at 553.0s (the
+// tab sat idle mid-question): past a minute, raw seconds stops being
+// readable at a glance -- switch to M:SS.s once it crosses 60s, tenths still
+// ticking. Below 60s stays exactly as before (plain seconds + tenths).
+function formatDuelSeconds(ms: number): string {
+  const totalSeconds = ms / 1000
+  if (totalSeconds < 60) return totalSeconds.toFixed(1)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds - minutes * 60
+  return `${minutes}:${seconds.toFixed(1).padStart(4, '0')}`
+}
+// Same formatting, with the "s" unit only when it's still meaningful (once
+// the colon shows up, "9:13.0s" would be redundant -- the colon already
+// says "this is a duration").
+function formatDuelSecondsLabel(ms: number): string {
+  const formatted = formatDuelSeconds(ms)
+  return ms < 60000 ? `${formatted}s` : formatted
+}
+
 // The Challenger picks Content/Level filters when starting a Duel, but
 // nothing showed either player what was actually selected -- an opponent
 // had no way to know they were about to be quizzed on, say, ATP-only FAR
@@ -322,8 +341,8 @@ export default function ChallengeGameScreen() {
 
           <View style={[styles.timerArea, { borderColor: tokens.goldbdr, backgroundColor: tokens.bg2 }]}>
             <Text style={[styles.timerText, { color: tokens.gold, fontSize: fs(36) }]}>
-              {(liveMs / 1000).toFixed(1)}
-              <Text style={[styles.timerUnit, { color: tokens.t3, fontSize: fs(14) }]}> s</Text>
+              {formatDuelSeconds(liveMs)}
+              {liveMs < 60000 && <Text style={[styles.timerUnit, { color: tokens.t3, fontSize: fs(14) }]}> s</Text>}
             </Text>
           </View>
 
@@ -334,11 +353,14 @@ export default function ChallengeGameScreen() {
             <Text style={[styles.prompt, { color: tokens.t1, fontSize: fs(18) }]}>{question?.prompt}</Text>
           </View>
 
+          {/* RC, real duel screenshot: "put two columns for these answers so
+              they're grouped together better" -- was one long vertical
+              stack of up to 6 options. */}
           <View style={styles.choicesArea}>
             {question?.choices.map((choice) => (
               <Pressable
                 key={choice}
-                style={[styles.choiceBtn, { borderColor: tokens.bdr, backgroundColor: tokens.bg2 }]}
+                style={[styles.choiceBtn, styles.choiceBtnHalf, { borderColor: tokens.bdr, backgroundColor: tokens.bg2 }]}
                 onPress={() => handleChoice(choice)}
               >
                 <Text style={[styles.choiceText, { color: tokens.t1, fontSize: fs(14.5) }]}>{choice}</Text>
@@ -357,7 +379,7 @@ export default function ChallengeGameScreen() {
             {result?.isCorrect ? 'Correct!' : `Answer: ${result?.correctAnswer}`}
           </Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-            Your time: {(myTimeMs / 1000).toFixed(1)}s (only counts if everyone tied with you got it right)
+            Your time: {formatDuelSecondsLabel(myTimeMs)} (only counts if everyone tied with you got it right)
           </Text>
           {/* "0 of 0 others answered this one so far" is what this read
               before anyone accepted the invite -- seen live. */}
@@ -471,7 +493,7 @@ function ResultsView({
             </Text>
             <Text style={[styles.standingScore, { color: tokens.t2, fontSize: fs(13) }]}>
               {s.correctCount} correct
-              {s.tieGroupSize > 1 ? ` · ${(s.tiebreakMs / 1000).toFixed(1)}s` : ''}
+              {s.tieGroupSize > 1 ? ` · ${formatDuelSecondsLabel(s.tiebreakMs)}` : ''}
             </Text>
           </View>
         ))}
@@ -510,7 +532,7 @@ function ResultsView({
             >
               {a.isMe ? 'You' : a.label}: {a.isCorrect ? '✓' : '✕'}
               {!a.isCorrect && a.answerText ? ` ${a.answerText}` : ''}
-              {a.timeMs != null ? ` · ${(a.timeMs / 1000).toFixed(1)}s` : ''}
+              {a.timeMs != null ? ` · ${formatDuelSecondsLabel(a.timeMs)}` : ''}
             </Text>
           ))}
         </Pressable>
@@ -555,8 +577,9 @@ const styles = StyleSheet.create({
   questionLabel: { fontWeight: '700', letterSpacing: 1 },
   prompt: { fontWeight: '600', lineHeight: 24 },
 
-  choicesArea: { gap: 8 },
-  choiceBtn: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 13 },
+  choicesArea: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  choiceBtn: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 13, justifyContent: 'center' },
+  choiceBtnHalf: { width: '48%' },
   choiceText: { fontWeight: '600', textAlign: 'center' },
 
   answerRow: { flexDirection: 'row', gap: 12, marginTop: 10 },

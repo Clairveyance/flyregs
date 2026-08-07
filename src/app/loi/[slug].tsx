@@ -24,7 +24,7 @@ import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
 import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
-import { splitIntoParagraphs } from '@/lib/regTextFormat'
+import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { useConfirm } from '@/components/ConfirmDialog'
 
 // LOI detail screen. Per the expansion plan's explicit priority reframe:
@@ -343,7 +343,7 @@ export default function LoiDetailScreen() {
 
           {loi.summary && (
             <DetailSection title="Summary" tokens={tokens}>
-              {splitIntoParagraphs(loi.summary).map((para, i, arr) => (
+              {splitIntoDisplayParagraphs(loi.summary).map((para, i, arr) => (
                 <Text
                   key={i}
                   style={[

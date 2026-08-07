@@ -11,6 +11,7 @@ import {
   Keyboard,
   Platform,
   Animated,
+  useWindowDimensions,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -32,7 +33,7 @@ import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { getBadgeKind, getBadgeStyle, BadgeKind } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { getDailyReg, dailyRegRoute, dailyRegCitation, type DailyReg } from '@/lib/notifications'
-import { splitIntoParagraphs } from '@/lib/regTextFormat'
+import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { consumeJustConfirmed } from '@/lib/justConfirmed'
 import { consumeFocusSearchRequest, registerHomeSearchFocus } from '@/lib/focusSearchSignal'
 import { FigureViewer } from '@/components/FigureViewer'
@@ -203,6 +204,43 @@ export default function HomeScreen() {
   // distinct from the Recents tab (visited documents, not search terms).
   const [recentSearches, setRecentSearches] = useState<string[]>([])
   const [dropdownTop, setDropdownTop] = useState(0)
+  // RC, real device: "when the k/b hides the rest of the search result
+  // screen should take up the rest of the phone screen. Then, if the k/b is
+  // brought back it recondenses." The dropdown/dropScroll styles used a flat
+  // maxHeight:340 regardless of keyboard state -- close to right WITH the
+  // keyboard up, but left just as much dead space below the results once the
+  // keyboard was dismissed as the keyboard itself used to occupy. Tracking
+  // real keyboard height here (native only -- there's no keyboard concept on
+  // RN-web, so keyboardHeight just stays 0 and the dropdown always gets the
+  // "expanded" height there, which is harmless) lets dropdownMaxHeight below
+  // grow to fill the freed space when the keyboard hides, and shrink back the
+  // moment it returns.
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
+  const { height: windowHeight } = useWindowDimensions()
+
+  useEffect(() => {
+    // keyboardWillShow/Hide (iOS-only) fire ahead of the animation, so the
+    // dropdown resizes in step with the keyboard instead of visibly lagging
+    // a frame behind it; Android has no "will" variants, so it falls back
+    // to the "did" events, matching every other keyboard-aware spot in this
+    // app.
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
+    const showSub = Keyboard.addListener(showEvent, (e) => setKeyboardHeight(e.endCoordinates?.height ?? 0))
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0))
+    return () => {
+      showSub.remove()
+      hideSub.remove()
+    }
+  }, [])
+
+  // Leaves room for the persistent tab bar + safe-area inset below the
+  // dropdown -- same margin the old flat 340 constant was implicitly built
+  // around (dropdownTop ~110-150 + keyboard ~300-340 + this ≈ typical iPhone
+  // screen height). Floored at 200 so a tiny window (or a keyboard height
+  // that briefly reports oddly during its own show/hide animation) never
+  // collapses the results to something unusably short.
+  const dropdownMaxHeight = Math.max(200, windowHeight - dropdownTop - keyboardHeight - 90)
   const searchInputRef = useRef<TextInput>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Only the most-recent search may write results (guards against a slow earlier
@@ -1205,6 +1243,7 @@ export default function HomeScreen() {
             styles.dropdown,
             {
               top: dropdownTop > 0 ? dropdownTop : 110,
+              maxHeight: dropdownMaxHeight,
               backgroundColor: tokens.bg2,
               borderColor: tokens.bdr,
               ...(Platform.OS === 'web'
@@ -1229,7 +1268,7 @@ export default function HomeScreen() {
               flicker away and come back after releasing the mic button. */}
           {combinedResults.length > 0 ? (
             <ScrollView
-              style={styles.dropScroll}
+              style={[styles.dropScroll, { maxHeight: dropdownMaxHeight }]}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="interactive"
               nestedScrollEnabled
@@ -1310,6 +1349,7 @@ export default function HomeScreen() {
             styles.dropdown,
             {
               top: dropdownTop > 0 ? dropdownTop : 110,
+              maxHeight: dropdownMaxHeight,
               backgroundColor: tokens.bg2,
               borderColor: tokens.bdr,
               ...(Platform.OS === 'web'
@@ -1325,7 +1365,7 @@ export default function HomeScreen() {
             </Pressable>
           </View>
           <ScrollView
-            style={styles.dropScroll}
+            style={[styles.dropScroll, { maxHeight: dropdownMaxHeight }]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             nestedScrollEnabled
@@ -1614,7 +1654,7 @@ function DailyRegCard({ dailyReg, tokens }: { dailyReg: DailyReg | null; tokens:
         </View>
         {expanded && (
           <>
-            {splitIntoParagraphs(dailyReg.definition).map((para, i, arr) => (
+            {splitIntoDisplayParagraphs(dailyReg.definition).map((para, i, arr) => (
               <Text
                 key={i}
                 style={[

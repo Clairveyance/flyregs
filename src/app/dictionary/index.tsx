@@ -9,7 +9,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getWordOfTheDay, WordOfTheDay } from '@/lib/notifications'
-import { splitIntoParagraphs } from '@/lib/regTextFormat'
+import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 
 interface TermHit {
   slug: string
@@ -292,7 +292,7 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
       </View>
       {expanded && (
         <>
-          {splitIntoParagraphs(wordOfDay.definition).map((para, i, arr) => (
+          {splitIntoDisplayParagraphs(wordOfDay.definition).map((para, i, arr) => (
             <Text
               key={i}
               style={[

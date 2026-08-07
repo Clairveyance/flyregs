@@ -1,3 +1,5 @@
+import { softWrapParagraph } from '@/lib/softWrap'
+
 // Makes scraped regulation text readable by humans.
 //
 // The source documents are Federal Register / eCFR plain text, and they carry
@@ -162,4 +164,27 @@ export function splitIntoParagraphs(raw: string | null | undefined): string[] {
     .split(/\n\s*\n+/)
     .map((p) => p.trim())
     .filter(Boolean)
+}
+
+/**
+ * splitIntoParagraphs only breaks at a REAL structural signal (an existing
+ * blank line, or an inline enumerated marker like "(1)"/"b."). A definition
+ * that's one long run of ordinary sentences with neither -- confirmed live,
+ * P/CG "CRUISE" (RC, 2026-08-06: "ALL big chunky paragraphs, ANYWHERE in
+ * this entire app corpus, must be spaced and formatted well") -- comes back
+ * as a single untouched block and still reads as a wall of text. This adds
+ * softWrapParagraph's purely-visual sentence-boundary chunking (already
+ * used by PlainTextBody/ACBody for FAR/AIM/AC body text) on top, so every
+ * screen that renders a short, standalone text field this way gets the
+ * same readability treatment for free. Deliberately a SEPARATE export, not
+ * baked into splitIntoParagraphs itself -- normalizeRegBody below calls the
+ * plain version internally as part of FAR/AIM/AC's table-detection
+ * pipeline, where extra visual breaks could split a table block's own
+ * \n-joined rows apart before parseTableBlock ever sees it; this wrapper is
+ * only for call sites rendering a single flat text field with no table
+ * structure to protect (P/CG/AC-description/AD-summary/LOI-summary/
+ * DailyReg/dictionary definitions -- see each screen's own call site).
+ */
+export function splitIntoDisplayParagraphs(raw: string | null | undefined): string[] {
+  return splitIntoParagraphs(raw).flatMap((p) => softWrapParagraph(p))
 }
