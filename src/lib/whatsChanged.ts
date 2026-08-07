@@ -2,14 +2,14 @@ import { supabase } from '@/lib/supabase'
 import { TABLE_HEADER_MARK } from '@/lib/regTextFormat'
 
 // content_revisions is written at ingest time whenever a real content
-// revision is detected -- currently only the AC pipeline (scripts/
-// backfill-blocks.mjs, hooked at the exact spot that already computes
-// changed_block_indices for the NEW/UPD badge) writes rows here. FAR/AIM/
-// P-CG/AD scrapers don't yet log revisions -- same "prove it on one type
-// first" pattern already used for MagicLink and Ref Packets this session.
-// No historical backfill is possible: prior AC text was never retained
-// before this table existed, so the timeline starts from whenever this
-// shipped, not retroactively.
+// revision is detected. Started AC-only (scripts/backfill-blocks.mjs,
+// hooked at the exact spot that already computes changed_block_indices
+// for the NEW/UPD badge) -- same "prove it on one type first" pattern
+// already used for MagicLink and Ref Packets. FAR/AIM/P-CG/AD now log too,
+// via the shared sync/revision_log.py (see that file's docstring). No
+// historical backfill is possible for any type: prior text was never
+// retained before this table existed, so each type's timeline starts from
+// whenever its own logging shipped, not retroactively.
 
 export type RevisionDocType = 'ac' | 'far' | 'aim' | 'pcg' | 'ad'
 

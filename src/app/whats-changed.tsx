@@ -14,6 +14,7 @@ import {
   splitParagraphs,
   ContentRevision,
 } from '@/lib/whatsChanged'
+import { stripAdSubjectPrefix } from '@/lib/titleFormat'
 
 interface RevisionSection {
   title: string
@@ -124,6 +125,7 @@ function RevisionRow({
 }) {
   const added = splitParagraphs(item.addedText)
   const removed = splitParagraphs(item.removedText)
+  const title = item.docType === 'ad' ? stripAdSubjectPrefix(item.title ?? item.docKey) : (item.title ?? item.docKey)
 
   return (
     <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
@@ -132,8 +134,8 @@ function RevisionRow({
           <Text style={[styles.typeChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>{labelForDocType(item.docType)}</Text>
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.cardTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={expanded ? undefined : 2}>
-            {item.title ?? item.docKey}
+          <Text style={[styles.cardTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={expanded ? undefined : 3}>
+            {title}
           </Text>
           <Text style={[styles.diffCounts, { color: tokens.t4, fontSize: fs(11.5) }]}>
             {added.length > 0 && `+${added.length}`}{added.length > 0 && removed.length > 0 && ' '}
