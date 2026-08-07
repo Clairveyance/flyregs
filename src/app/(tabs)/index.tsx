@@ -13,6 +13,7 @@ import {
   Animated,
   useWindowDimensions,
   Modal,
+  KeyboardAvoidingView,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -48,7 +49,7 @@ import { getRecentSearches, addRecentSearch, removeRecentSearch, clearRecentSear
 import { ChipFilterSheet, ChipFilterSection } from '@/components/ChipFilterSheet'
 import { stripAdSubjectPrefix } from '@/lib/titleFormat'
 import { getFleetSummary, type FleetAircraftSummary } from '@/lib/aircraftSharing'
-import { HobbsUpdateModal } from '@/components/HobbsUpdateModal'
+import { HobbsUpdateBody } from '@/components/HobbsUpdateModal'
 import {
   filterDocuments, filterResultCount, routeForFilterResult, searchCitableDocuments,
   getFarPartOptions, getAcSeriesOptions, AUDIENCE_OPTIONS,
@@ -1459,56 +1460,69 @@ function HobbsHeaderButton() {
         <Icon name="speedometer" size={fs(21)} color={tokens.t2} />
       </Pressable>
 
-      <Modal visible={pickerVisible} animationType="slide" transparent onRequestClose={() => setPickerVisible(false)}>
-        <View style={styles.hobbsPickerBackdrop}>
-          <View style={[styles.hobbsPickerCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
-            <View style={styles.hobbsPickerHeader}>
-              <Text style={[styles.hobbsPickerTitle, { color: tokens.t1, fontSize: fs(16) }]}>{isFleet ? 'My Fleet' : 'My Aircraft'}</Text>
-              <Pressable onPress={() => setPickerVisible(false)} hitSlop={10}>
-                <Icon name="xmark" size={fs(18)} color={tokens.t3} />
+      {/* RC, real device: a second stacked native <Modal> for the editor
+          silently ate all touches on iOS (only worked in the web preview,
+          where Modal is just a DOM overlay). One Modal, swapped content --
+          the editor still appears "directly and immediately", just without
+          ever mounting two native modal presentations at once. */}
+      <Modal
+        visible={pickerVisible || !!editing}
+        animationType="slide"
+        transparent
+        onRequestClose={() => (editing ? setEditing(null) : setPickerVisible(false))}
+      >
+        {editing ? (
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.hobbsPickerBackdrop}>
+            <HobbsUpdateBody
+              aircraftId={editing.aircraftId}
+              initialHours={editing.currentHobbsHours}
+              updatedAt={null}
+              onClose={() => setEditing(null)}
+              onSaved={(hours) => {
+                setFleet((prev) => (prev ? prev.map((x) => (x.aircraftId === editing?.aircraftId ? { ...x, currentHobbsHours: hours } : x)) : prev))
+                setEditing(null)
+              }}
+            />
+          </KeyboardAvoidingView>
+        ) : (
+          <View style={styles.hobbsPickerBackdrop}>
+            <View style={[styles.hobbsPickerCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+              <View style={styles.hobbsPickerHeader}>
+                <Text style={[styles.hobbsPickerTitle, { color: tokens.t1, fontSize: fs(16) }]}>{isFleet ? 'My Fleet' : 'My Aircraft'}</Text>
+                <Pressable onPress={() => setPickerVisible(false)} hitSlop={10}>
+                  <Icon name="xmark" size={fs(18)} color={tokens.t3} />
+                </Pressable>
+              </View>
+              {fleet.map((a) => (
+                <Pressable
+                  key={a.aircraftId}
+                  style={[styles.hobbsPickerRow, { borderBottomColor: tokens.bdr }]}
+                  onPress={() => goToAircraft(a.aircraftId)}
+                >
+                  <Icon name="airplane" size={fs(14)} color={tokens.t2} />
+                  <Text style={{ color: tokens.t1, fontSize: fs(14), flex: 1 }}>{a.nickname || `${a.make} ${a.model}`}</Text>
+                  <Pressable
+                    style={styles.hobbsPickerHours}
+                    onPress={(e) => { e.stopPropagation(); setEditing(a) }}
+                    hitSlop={6}
+                  >
+                    <Icon name="speedometer" size={fs(13)} color={tokens.blu} />
+                    <Text style={{ color: tokens.blu, fontSize: fs(13), fontWeight: '600' }}>
+                      {a.currentHobbsHours != null ? `${a.currentHobbsHours}` : 'Set'}
+                    </Text>
+                  </Pressable>
+                </Pressable>
+              ))}
+              <Pressable style={[styles.hobbsPickerManage, { borderColor: tokens.blu }]} onPress={goToFleet}>
+                <Text style={{ color: tokens.blu, fontSize: fs(14), fontWeight: '600' }}>
+                  {isFleet ? 'Manage My Fleet' : 'Manage My Aircraft'}
+                </Text>
+                <Icon name="chevron.right" size={fs(13)} color={tokens.blu} />
               </Pressable>
             </View>
-            {fleet.map((a) => (
-              <Pressable
-                key={a.aircraftId}
-                style={[styles.hobbsPickerRow, { borderBottomColor: tokens.bdr }]}
-                onPress={() => goToAircraft(a.aircraftId)}
-              >
-                <Icon name="airplane" size={fs(14)} color={tokens.t2} />
-                <Text style={{ color: tokens.t1, fontSize: fs(14), flex: 1 }}>{a.nickname || `${a.make} ${a.model}`}</Text>
-                <Pressable
-                  style={styles.hobbsPickerHours}
-                  onPress={(e) => { e.stopPropagation(); setPickerVisible(false); setEditing(a) }}
-                  hitSlop={6}
-                >
-                  <Icon name="speedometer" size={fs(13)} color={tokens.blu} />
-                  <Text style={{ color: tokens.blu, fontSize: fs(13), fontWeight: '600' }}>
-                    {a.currentHobbsHours != null ? `${a.currentHobbsHours}` : 'Set'}
-                  </Text>
-                </Pressable>
-              </Pressable>
-            ))}
-            <Pressable style={[styles.hobbsPickerManage, { borderColor: tokens.blu }]} onPress={goToFleet}>
-              <Text style={{ color: tokens.blu, fontSize: fs(14), fontWeight: '600' }}>
-                {isFleet ? 'Manage My Fleet' : 'Manage My Aircraft'}
-              </Text>
-              <Icon name="chevron.right" size={fs(13)} color={tokens.blu} />
-            </Pressable>
           </View>
-        </View>
+        )}
       </Modal>
-
-      <HobbsUpdateModal
-        visible={!!editing}
-        aircraftId={editing?.aircraftId ?? ''}
-        initialHours={editing?.currentHobbsHours ?? null}
-        updatedAt={null}
-        onClose={() => setEditing(null)}
-        onSaved={(hours) => {
-          setFleet((prev) => (prev ? prev.map((x) => (x.aircraftId === editing?.aircraftId ? { ...x, currentHobbsHours: hours } : x)) : prev))
-          setEditing(null)
-        }}
-      />
     </>
   )
 }

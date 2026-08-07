@@ -1,11 +1,12 @@
 import React, { useMemo, useRef, useEffect, useImperativeHandle, RefObject } from 'react'
-import { Text, View, ScrollView, Platform, StyleSheet, useWindowDimensions } from 'react-native'
+import { Text, View, ScrollView, Pressable, Platform, StyleSheet, useWindowDimensions } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { normalizeRegBody } from '@/lib/regTextFormat'
 import { useFS } from '@/context/fontScale'
 import { linkifyText } from '@/lib/crossRefLinks'
 import { TableGrid } from '@/components/TableGrid'
+import { Icon } from '@/components/Icon'
 import { softWrapParagraph } from '@/lib/softWrap'
 import { setPendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { searchPhrase, highlightSpans } from '@/lib/searchHighlight'
@@ -461,19 +462,38 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
     return rel + fraction * h
   }
 
+  // Extracted so the inline Prev/Next-table row (below) can jump between
+  // tables directly, without going through the imperative ref -- this
+  // component already IS the thing that owns paraRefs/scrollRef.
+  const scrollToParaIndex = (i: number) => {
+    const el: any = paraRefs.current[i]
+    if (!el) return
+    if (Platform.OS === 'web') {
+      const node = (el as any)?.scrollIntoView ? el : (el as any)?._nativeTag ? null : el
+      if (node && typeof node.scrollIntoView === 'function') {
+        node.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        return
+      }
+    }
+    const y = paraRelY.current[i] ?? 0
+    scrollRef?.current?.scrollTo({ y: Math.max(0, y - centerOffset), animated: true })
+  }
+
+  // All table-paragraph indices in this body, in document order -- lets
+  // each rendered TableGrid show "Table 2 of 3" and jump directly to its
+  // neighbors. RC: "even in FARs, find an easy way for users to quickly
+  // jump between T&Fs inside a doc" -- AC/AIM already have this via
+  // FigureViewer's Prev/Next Fig chevrons in their popup; FAR's tables
+  // render inline (no popup), so the equivalent is right on the table
+  // itself instead of in a modal footer.
+  const tableParaIndices = useMemo(
+    () => paragraphs.map((p, i) => ({ p, i })).filter(({ p }) => parseTableBlock(p) !== null).map(({ i }) => i),
+    [paragraphs],
+  )
+
   useImperativeHandle(ref, () => ({
     scrollToParagraph(i: number) {
-      const el: any = paraRefs.current[i]
-      if (!el) return
-      if (Platform.OS === 'web') {
-        const node = (el as any)?.scrollIntoView ? el : (el as any)?._nativeTag ? null : el
-        if (node && typeof node.scrollIntoView === 'function') {
-          node.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          return
-        }
-      }
-      const y = paraRelY.current[i] ?? 0
-      scrollRef?.current?.scrollTo({ y: Math.max(0, y - centerOffset), animated: true })
+      scrollToParaIndex(i)
     },
     scrollToMatch(n: number) {
       if (Platform.OS === 'web') {
@@ -647,12 +667,50 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
               ? [`Table — ${currentLabel}`]
               : ['Table']
           return (
-            <TableGrid
+            // RC, live on FAR 91.175: the Table bar showed a real count and
+            // a chevron (firstTableParaIndex >= 0) but tapping it did
+            // nothing -- this branch returned a bare TableGrid with no
+            // ref-capturing wrapper, unlike every other paragraph type
+            // below, so paraRefs.current[i] was never set for a table
+            // paragraph and scrollToParagraph(i) found `el` undefined and
+            // silently no-opped.
+            <View
               key={i}
-              {...table}
-              captionLines={captionLines}
-              onPress={tableFigure && onOpenFigure ? () => onOpenFigure(tableFigure) : undefined}
-            />
+              ref={(el) => { paraRefs.current[i] = el }}
+              onLayout={(e) => { paraRelY.current[i] = e.nativeEvent.layout.y; paraHeight.current[i] = e.nativeEvent.layout.height }}
+            >
+              <TableGrid
+                {...table}
+                captionLines={captionLines}
+                onPress={tableFigure && onOpenFigure ? () => onOpenFigure(tableFigure) : undefined}
+              />
+              {tableParaIndices.length > 1 && (() => {
+                const ord = tableParaIndices.indexOf(i)
+                const prevIdx = ord > 0 ? tableParaIndices[ord - 1] : null
+                const nextIdx = ord < tableParaIndices.length - 1 ? tableParaIndices[ord + 1] : null
+                return (
+                  <View style={styles.tableNavRow}>
+                    <Pressable
+                      style={[styles.tableNavBtn, prevIdx == null && styles.tableNavBtnDisabled]}
+                      onPress={() => { if (prevIdx != null) scrollToParaIndex(prevIdx) }}
+                      disabled={prevIdx == null}
+                    >
+                      <Icon name="chevron.left" size={fs(11)} color={prevIdx == null ? tokens.t4 : tokens.blu} />
+                      <Text style={{ color: prevIdx == null ? tokens.t4 : tokens.blu, fontSize: fs(12), fontWeight: '600' }}>Prev Table</Text>
+                    </Pressable>
+                    <Text style={{ color: tokens.t4, fontSize: fs(11.5) }}>{ord + 1} of {tableParaIndices.length}</Text>
+                    <Pressable
+                      style={[styles.tableNavBtn, nextIdx == null && styles.tableNavBtnDisabled]}
+                      onPress={() => { if (nextIdx != null) scrollToParaIndex(nextIdx) }}
+                      disabled={nextIdx == null}
+                    >
+                      <Text style={{ color: nextIdx == null ? tokens.t4 : tokens.blu, fontSize: fs(12), fontWeight: '600' }}>Next Table</Text>
+                      <Icon name="chevron.right" size={fs(11)} color={nextIdx == null ? tokens.t4 : tokens.blu} />
+                    </Pressable>
+                  </View>
+                )
+              })()}
+            </View>
           )
         }
         const cleaned = para
@@ -747,4 +805,7 @@ const styles = StyleSheet.create({
   changedWrap: { borderLeftWidth: 3, paddingLeft: 10, paddingVertical: 4, borderRadius: 4, marginBottom: 4 },
   changedTag: { fontWeight: '800', letterSpacing: 0.6, marginBottom: 2 },
   para: { lineHeight: 22, marginBottom: 14 },
+  tableNavRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, marginBottom: 14 },
+  tableNavBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 4 },
+  tableNavBtnDisabled: { opacity: 0.4 },
 })

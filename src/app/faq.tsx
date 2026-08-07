@@ -70,7 +70,7 @@ const FAQ: QA[] = [
     q: 'What does FlyRegs cover?',
     category: 'Getting Started',
     a: [
-      'Six FAA source libraries in one app, all kept current from the FAA\'s own published text:',
+      'Seven libraries in one app. Six are FAA source material, kept current from the FAA\'s own published text:',
       '• Federal Aviation Regulations (FAR)',
       '• Aeronautical Information Manual (AIM)',
       '• Pilot/Controller Glossary (P/CG)',
@@ -78,8 +78,8 @@ const FAQ: QA[] = [
       '• Airworthiness Directives (ADs)',
       '• Legal Interpretations (LOIs)',
       'Every one of them is cross-referenced together (see "What is MagicLink?" below), so a regulation, its related AIM guidance, its glossary terms, and any AC, AD, or LOI that touches it are all reachable from wherever you\'re reading.',
-      'On top of the source libraries, FlyRegs also has a 9,800+ term Aviation Dictionary and a curated collection of aviation mnemonics — see "What is the Aviation Dictionary?" below.',
-      'Browsing and searching all six libraries is free. What each plan adds on top:',
+      'The seventh is the Aviation Dictionary — not FAA material itself, but a 9,800+ term reference (plus a curated collection of aviation mnemonics) that we built and keep current ourselves, so pilots have one place for both the official terminology and the everyday shorthand no government glossary covers. It\'s big and genuinely useful, which is why it gets its own answer below ("What is the Aviation Dictionary?") even though it\'s called out separately from the six FAA sources.',
+      'Browsing and searching all seven libraries is free. What each plan adds on top:',
       '• FAR, AIM and the P/CG are free to read in full — those never sit behind a plan.',
       '• Complete AC and AD text is Plus.',
       '• Full Legal Interpretation letters are Pro.',
@@ -188,7 +188,7 @@ const FAQ: QA[] = [
     category: 'Search',
     a: [
       { tier: 'pro', text: 'A natural-language question box, separate from the regular search bar. Ask the way you\'d actually say it — "how much rest do I need before flying passengers?" — instead of guessing the regulatory wording, and it finds the passages on that subject across the whole library.' },
-      'Find it from the search icon in the tab bar.',
+      'Find it inside the Community section (the lightning bolt icon in the tab bar) — it\'s not the most obvious spot for a search tool, so look there if you can\'t find it.',
       'What it does that SmartSearch can\'t:\n• It matches MEANING, not words — so it can find the right passage even when your question shares no words at all with the regulation.\n• Ask "when do I have to file a NASA report" and it lands on the Aviation Safety Reporting Program. The FAA never calls it a "NASA report," so a word-based search structurally cannot find that; this does.\n• Full sentences help it rather than hurt it. Phrasing, context, and intent are all part of what it matches on.',
       'What it is not:\n• It finds passages — it doesn\'t write you an answer. You still read the reg and decide.\n• It can land in the right neighborhood but the wrong document. Ask about altitude over a house and it may surface drone rules alongside the manned-aircraft ones. Check the source on every result.\n• For a specific section or document number you already know, plain search is faster and exact.',
     ],

@@ -80,6 +80,7 @@ export default function FarSectionScreen() {
   const [backTo, setBackTo] = useState<string | null>(null)
   const [siblingSections, setSiblingSections] = useState<string[]>([])
   const [scrollY, setScrollY] = useState(0)
+  const [tablesExpanded, setTablesExpanded] = useState(false)
   const [scrollViewportHeight, setScrollViewportHeight] = useState<number | undefined>(undefined)
   const scrollRef = useRef<ScrollView>(null)
   const bodyRef = useRef<PlainTextBodyHandle>(null)
@@ -249,28 +250,30 @@ export default function FarSectionScreen() {
   // "tables" are real pipe-delimited rows embedded directly in body_text
   // (confirmed: 93 sections, e.g. $ 47.17's fee schedule), the exact same
   // pattern filter_documents' p_has_figures already detects server-side.
-  // PlainTextBody already renders these as a real grid inline, so unlike
-  // AC/AIM's Figures & Tables bar (which expands a list of separate image
-  // assets you can't otherwise see), there's nothing to expand here -- this
-  // is a plain discoverability badge, not interactive. Counts real table
-  // BLOCKS (one "\n\n"-paragraph with 2+ " | "-delimited lines), mirroring
-  // PlainTextBody's own parseTableBlock() grouping -- not a naive pipe-
-  // character count, which would count individual rows as separate tables.
-  const tableCount = body.split('\n\n').filter((para) => {
-    const pipedLines = para.split('\n').filter((l) => l.includes(' | '))
-    return pipedLines.length >= 2
-  }).length
-  // Index (in PlainTextBody's own paragraph-split space, NOT the raw
-  // tableCount split above) of the first inline table -- lets the badge
-  // actually DO something when tapped. Confirmed live as a real bug: the
-  // badge rendered with no onPress and no chevron at all, an inert-looking
-  // affordance sitting right next to AIM/AC's identically-styled bar that
-  // IS tappable -- "this T&F doesn't even open, not good."
+  // PlainTextBody already renders these as a real grid inline. Indices are
+  // in PlainTextBody's own paragraph-split space (NOT a raw "\n\n" split),
+  // so scrollToParagraph's index always lines up with what actually
+  // rendered.
   const bodyParagraphs = normalizeRegBody(body).split(/\n\n+/).filter((p) => p.trim())
-  const firstTableParaIndex = bodyParagraphs.findIndex((para) => {
-    const pipedLines = para.split('\n').filter((l) => l.includes(' | '))
-    return pipedLines.length >= 2
-  })
+  // RC, real device on FAR 120.117 (3 tables in one section): tapping the
+  // bar jumped straight to the first table with no way to reach the other
+  // two -- fine for AC/AIM (their Figures & Tables bar already expands a
+  // list to choose from before opening anything), broken here since the
+  // bar used to jump immediately. Every table paragraph gets its own entry
+  // now, labeled from whichever lettered/numbered marker starts the
+  // paragraph right before it (FAR almost always introduces a table with
+  // "(a) Use the following chart..."), falling back to a plain ordinal
+  // ("Table 2") when no such marker exists.
+  const LEADING_MARKER_RE = /^(\([a-zA-Z0-9]{1,4}\)|[a-zA-Z0-9]{1,3}\.)\s+/
+  const tables = bodyParagraphs
+    .map((para, i) => ({ para, i }))
+    .filter(({ para }) => para.split('\n').filter((l) => l.includes(' | ')).length >= 2)
+    .map(({ i }, n, arr) => {
+      const marker = bodyParagraphs[i - 1]?.match(LEADING_MARKER_RE)?.[1]
+      return { paraIndex: i, label: marker ? `Table ${marker}` : arr.length > 1 ? `Table ${n + 1}` : 'Table' }
+    })
+  const tableCount = tables.length
+  const firstTableParaIndex = tables[0]?.paraIndex ?? -1
 
   const aimRefs = related.filter((r) => r.cited_type === 'aim')
   const acRefs = related.filter((r) => r.cited_type === 'ac')
@@ -465,19 +468,46 @@ export default function FarSectionScreen() {
                 0" the way every other reg type does. */}
             <Pressable
               style={[styles.tablesBar, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+              // RC, real device on FAR 120.117 (3 tables in one section):
+              // "tapping the T&F bar shouldn't immediately jump to a T&F...
+              // it should show a dropdown menu of the T&Fs... THEN you
+              // select which one." Matches AC's own Figures & Tables bar,
+              // which always expands a list first, even for a single item,
+              // rather than ever jumping straight to content on the bar tap
+              // itself -- same expand-then-choose pattern here.
               onPress={() => {
-                if (firstTableParaIndex >= 0) bodyRef.current?.scrollToParagraph(firstTableParaIndex)
+                if (tableCount > 0) setTablesExpanded((e) => !e)
               }}
-              disabled={firstTableParaIndex < 0}
+              disabled={tableCount === 0}
             >
               <Icon name="photo" size={fs(15)} color={tokens.t3} />
-              <Text style={[styles.tablesBarLabel, { color: tokens.t1, fontSize: fs(13) }]}>
+              <Text style={[styles.tablesBarLabel, { color: tableCount > 0 ? tokens.blu : tokens.t1, fontSize: fs(13) }]}>
                 {tableCount === 1 ? 'Table' : 'Tables'}
               </Text>
               <View style={{ flex: 1 }} />
               <Text style={[styles.tablesBarCount, { color: tokens.t3, fontSize: fs(12.5) }]}>{tableCount}</Text>
-              {firstTableParaIndex >= 0 && <Icon name="chevron.down" size={fs(11)} color={tokens.t4} />}
+              {tableCount > 0 && <Icon name={tablesExpanded ? 'chevron.up' : 'chevron.down'} size={fs(11)} color={tokens.blu} />}
             </Pressable>
+            {tablesExpanded && tableCount > 0 && (
+              <View style={[styles.tablesList, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                {tables.map((t, i) => (
+                  <Pressable
+                    key={t.paraIndex}
+                    style={[styles.tablesListRow, i > 0 && { borderTopWidth: 1, borderTopColor: tokens.bdr }]}
+                    onPress={() => {
+                      setTablesExpanded(false)
+                      bodyRef.current?.scrollToParagraph(t.paraIndex)
+                    }}
+                  >
+                    <Icon name="square.grid.2x2" size={fs(13)} color={tokens.blu} />
+                    <Text style={{ color: tokens.t1, fontSize: fs(13.5), fontWeight: '600', flex: 1 }}>
+                      {t.label}{currentLabel ? ` — ${currentLabel}` : ''}
+                    </Text>
+                    <Icon name="chevron.right" size={fs(11)} color={tokens.t4} />
+                  </Pressable>
+                ))}
+              </View>
+            )}
             <MagicLinkPod
               bars={[
                 { icon: 'doc.text', label: 'Related ACs', items: acRefs },
@@ -580,5 +610,7 @@ const styles = StyleSheet.create({
   },
   tablesBarLabel: { fontWeight: '600' },
   tablesBarCount: { fontWeight: '500' },
+  tablesList: { borderRadius: 12, borderWidth: 1, marginTop: -4, overflow: 'hidden' },
+  tablesListRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 11 },
   body: { fontSize: 14.5, lineHeight: 22 },
 })

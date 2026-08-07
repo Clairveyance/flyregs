@@ -10,10 +10,16 @@ import { setAircraftCurrentHobbs } from '@/lib/aircraftSharing'
 // screen, the Fleet list row, and Home's quick-update CTA, so all three
 // write through the exact same validation + DB path instead of drifting.
 // See sync/migrations_hobbs_tracking.sql.
-export function HobbsUpdateModal({
-  visible, aircraftId, initialHours, updatedAt, onClose, onSaved,
+//
+// Body is split out from the <Modal> wrapper so Home's picker sheet can
+// render it *inside its own already-presented Modal* instead of mounting a
+// second native <Modal> on top. RC, real device: two RN <Modal>s both
+// visible at once works fine on web (just an overlay) but on iOS each one
+// is a real UIKit modal presentation -- stacking a second on a first
+// silently ate all touches, so the editor looked like it did nothing.
+export function HobbsUpdateBody({
+  aircraftId, initialHours, updatedAt, onClose, onSaved,
 }: {
-  visible: boolean
   aircraftId: string
   initialHours: number | null
   updatedAt: string | null
@@ -24,11 +30,7 @@ export function HobbsUpdateModal({
   const fs = useFS()
   const ifs = useInputFS()
   const confirm = useConfirm()
-  const [text, setText] = useState('')
-
-  useEffect(() => {
-    if (visible) setText(initialHours != null ? String(initialHours) : '')
-  }, [visible, initialHours])
+  const [text, setText] = useState(initialHours != null ? String(initialHours) : '')
 
   const handleSave = async () => {
     const trimmed = text.trim()
@@ -46,6 +48,51 @@ export function HobbsUpdateModal({
   }
 
   return (
+    <View style={[styles.card, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+      <View style={styles.header}>
+        <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16) }]}>Current Hobbs / Tach</Text>
+        <Pressable onPress={onClose} hitSlop={10}>
+          <Icon name="xmark" size={fs(18)} color={tokens.t3} />
+        </Pressable>
+      </View>
+      <Text style={{ color: tokens.t3, fontSize: fs(12.5), marginBottom: 4 }}>
+        Self-reported — used to compare against any reminder's usage-based due mark.
+      </Text>
+      <View style={[styles.inputRow, { borderColor: tokens.bdr }]}>
+        <TextInput
+          value={text}
+          onChangeText={(t) => setText(t.replace(/[^0-9.]/g, ''))}
+          placeholder="e.g. 1842.3"
+          placeholderTextColor={tokens.t3}
+          keyboardType="decimal-pad"
+          style={{ flex: 1, color: tokens.t1, fontSize: ifs(14.5), paddingVertical: 12 }}
+          autoFocus
+        />
+        <Text style={{ color: tokens.t3, fontSize: fs(13) }}>hrs</Text>
+      </View>
+      {updatedAt && (
+        <Text style={{ color: tokens.t4, fontSize: fs(11.5) }}>
+          Last updated {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+        </Text>
+      )}
+      <Pressable style={[styles.saveBtn, { backgroundColor: tokens.blu }]} onPress={handleSave}>
+        <Text style={styles.saveBtnText}>Save</Text>
+      </Pressable>
+    </View>
+  )
+}
+
+export function HobbsUpdateModal({
+  visible, aircraftId, initialHours, updatedAt, onClose, onSaved,
+}: {
+  visible: boolean
+  aircraftId: string
+  initialHours: number | null
+  updatedAt: string | null
+  onClose: () => void
+  onSaved: (hours: number | null) => void
+}) {
+  return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent>
       {/* RC, real device: the numeric keypad covered the input box AND the
           Save button entirely, leaving only the bare keypad on screen --
@@ -56,37 +103,15 @@ export function HobbsUpdateModal({
           FolderPicker.tsx/FolderSelectSheet.tsx already use for this exact
           shape of bottom-sheet-with-text-input. */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.backdrop}>
-        <View style={[styles.card, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
-          <View style={styles.header}>
-            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16) }]}>Current Hobbs / Tach</Text>
-            <Pressable onPress={onClose} hitSlop={10}>
-              <Icon name="xmark" size={fs(18)} color={tokens.t3} />
-            </Pressable>
-          </View>
-          <Text style={{ color: tokens.t3, fontSize: fs(12.5), marginBottom: 4 }}>
-            Self-reported — used to compare against any reminder's usage-based due mark.
-          </Text>
-          <View style={[styles.inputRow, { borderColor: tokens.bdr }]}>
-            <TextInput
-              value={text}
-              onChangeText={(t) => setText(t.replace(/[^0-9.]/g, ''))}
-              placeholder="e.g. 1842.3"
-              placeholderTextColor={tokens.t3}
-              keyboardType="decimal-pad"
-              style={{ flex: 1, color: tokens.t1, fontSize: ifs(14.5), paddingVertical: 12 }}
-              autoFocus
-            />
-            <Text style={{ color: tokens.t3, fontSize: fs(13) }}>hrs</Text>
-          </View>
-          {updatedAt && (
-            <Text style={{ color: tokens.t4, fontSize: fs(11.5) }}>
-              Last updated {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-            </Text>
-          )}
-          <Pressable style={[styles.saveBtn, { backgroundColor: tokens.blu }]} onPress={handleSave}>
-            <Text style={styles.saveBtnText}>Save</Text>
-          </Pressable>
-        </View>
+        {visible && (
+          <HobbsUpdateBody
+            aircraftId={aircraftId}
+            initialHours={initialHours}
+            updatedAt={updatedAt}
+            onClose={onClose}
+            onSaved={onSaved}
+          />
+        )}
       </KeyboardAvoidingView>
     </Modal>
   )
