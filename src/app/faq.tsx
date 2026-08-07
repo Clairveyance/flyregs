@@ -245,6 +245,14 @@ const FAQ: QA[] = [
     ],
   },
   {
+    q: 'Does FlyRegs replace my maintenance-tracking software?',
+    category: 'My Aircraft & RefPacks',
+    a: [
+      'No. FlyRegs is a lightweight personal reference for owner/pilots — it\'s not a substitute for comprehensive, professional-grade maintenance and AD-tracking software used by maintenance shops and fleet operators.',
+      'Use FlyRegs to stay informed and get reminders; keep your official maintenance records and compliance sign-offs wherever your mechanic or shop already tracks them.',
+    ],
+  },
+  {
     q: 'Can I share an aircraft with someone else?',
     category: 'My Aircraft & RefPacks',
     a: [
