@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Modal, Share } from 'react-native'
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Modal, Share, KeyboardAvoidingView, Platform } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -71,7 +71,7 @@ const REMINDER_TYPES = [
   { key: 'annual', label: 'Annual', icon: 'checkmark.seal.fill', defaultTitle: 'Annual Inspection', months: 12 },
   { key: 'transponder', label: 'Transponder', icon: 'dot.radiowaves.left.and.right', defaultTitle: 'Transponder Check', months: 24 },
   { key: 'elt', label: 'ELT Battery', icon: 'bolt.fill', defaultTitle: 'ELT Battery', months: 24 },
-  { key: '100hour', label: '100-Hour', icon: 'gauge', defaultTitle: '100-Hour Inspection', months: null },
+  { key: '100hour', label: '100-Hour', icon: 'speedometer', defaultTitle: '100-Hour Inspection', months: null },
   { key: 'ad', label: 'AD Compliance', icon: 'wrench.and.screwdriver.fill', defaultTitle: 'AD Compliance', months: null },
   { key: 'custom', label: 'Custom', icon: 'pencil', defaultTitle: '', months: null },
 ] as const
@@ -500,7 +500,7 @@ export default function AircraftDetailScreen() {
               onPress={canEdit ? () => setHobbsModalVisible(true) : undefined}
               hitSlop={6}
             >
-              <Icon name="gauge" size={fs(12)} color={canEdit ? tokens.blu : tokens.t4} />
+              <Icon name="speedometer" size={fs(12)} color={canEdit ? tokens.blu : tokens.t4} />
               <Text style={[styles.acSub, { color: canEdit ? tokens.blu : tokens.t3, fontSize: fs(12), marginBottom: 0 }]}>
                 {aircraft.current_hobbs_hours != null ? `${aircraft.current_hobbs_hours}` : 'Set'}
               </Text>
@@ -1063,7 +1063,13 @@ function ReminderFormModal({
   return (
     <>
       <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent>
-        <View style={styles.modalBackdrop}>
+        {/* RC, real device: the tach/hobbs decimal-pad keypad (and the
+            title/notes fields' own keypads) covered the input box AND the
+            Save button, same root cause as HobbsUpdateModal.tsx -- this
+            bottom-sheet's content never shifted up without
+            KeyboardAvoidingView. Matches FolderPicker.tsx's own wrapper for
+            the identical shape. */}
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalBackdrop}>
           <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>{editing ? 'Edit Reminder' : 'New Reminder'}</Text>
@@ -1189,7 +1195,7 @@ function ReminderFormModal({
               <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>{editing ? 'Save Changes' : 'Save Reminder'}</Text>
             </Pressable>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <DatePickerModal

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { View, Text, Pressable, TextInput, Modal, StyleSheet } from 'react-native'
+import { View, Text, Pressable, TextInput, Modal, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
@@ -47,7 +47,15 @@ export function HobbsUpdateModal({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent>
-      <View style={styles.backdrop}>
+      {/* RC, real device: the numeric keypad covered the input box AND the
+          Save button entirely, leaving only the bare keypad on screen --
+          this Modal pins its content to the bottom via justifyContent:
+          'flex-end', and without KeyboardAvoidingView that content never
+          shifts up when the keyboard opens (invisible on web, which has no
+          real OS keyboard to cover anything). Matches the same wrapper
+          FolderPicker.tsx/FolderSelectSheet.tsx already use for this exact
+          shape of bottom-sheet-with-text-input. */}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
           <View style={styles.header}>
             <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16) }]}>Current Hobbs / Tach</Text>
@@ -79,7 +87,7 @@ export function HobbsUpdateModal({
             <Text style={styles.saveBtnText}>Save</Text>
           </Pressable>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   )
 }

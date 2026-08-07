@@ -127,7 +127,13 @@ const SF_TO_IONICONS: Record<string, string> = {
   'megaphone.fill': 'megaphone',
   // Reminder type-chip icons (My Aircraft > Reminders quick-select).
   'dot.radiowaves.left.and.right': 'radio-outline',
-  'gauge': 'speedometer-outline',
+  // 'gauge' is a REAL, distinct SF Symbol on native (a full circle split by
+  // a diagonal line) -- visually nothing like Ionicons' speedometer-outline
+  // web fallback, which is what RC actually saw and liked in the Browser
+  // preview. Use the literal SF Symbol named 'speedometer' at every call
+  // site instead of 'gauge' -- it's Apple's own dial-with-needle glyph, much
+  // closer to Ionicons' rendering on both platforms.
+  'speedometer': 'speedometer-outline',
   // Aviation Dictionary -- distinct from FAR's 'book.closed.fill' (already
   // in use), a stack of books reads as a broader reference/lookup source
   // than a single regulation volume. See flyregs_decisions.md.

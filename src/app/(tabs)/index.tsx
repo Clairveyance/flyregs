@@ -1451,7 +1451,7 @@ function HobbsHeaderButton() {
   return (
     <>
       <Pressable onPress={openUpdate} style={styles.iconBtn} hitSlop={8}>
-        <Icon name="gauge" size={fs(21)} color={tokens.t2} />
+        <Icon name="speedometer" size={fs(21)} color={tokens.t2} />
       </Pressable>
 
       <Modal visible={pickerVisible} animationType="slide" transparent onRequestClose={() => setPickerVisible(false)}>
@@ -1469,7 +1469,7 @@ function HobbsHeaderButton() {
                 style={[styles.hobbsPickerRow, { borderBottomColor: tokens.bdr }]}
                 onPress={() => { setPickerVisible(false); setEditing(a) }}
               >
-                <Icon name="gauge" size={fs(14)} color={tokens.blu} />
+                <Icon name="speedometer" size={fs(14)} color={tokens.blu} />
                 <Text style={{ color: tokens.t1, fontSize: fs(14), flex: 1 }}>{a.nickname || `${a.make} ${a.model}`}</Text>
                 <Text style={{ color: tokens.t3, fontSize: fs(13) }}>{a.currentHobbsHours != null ? `${a.currentHobbsHours} hrs` : 'Set'}</Text>
               </Pressable>

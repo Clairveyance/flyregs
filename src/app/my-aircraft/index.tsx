@@ -1280,7 +1280,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                             onPress={(e) => { e.stopPropagation(); if (canEdit) setHobbsEditing(a) }}
                             hitSlop={6}
                           >
-                            <Icon name="gauge" size={fs(11)} color={canEdit ? tokens.blu : tokens.t4} />
+                            <Icon name="speedometer" size={fs(11)} color={canEdit ? tokens.blu : tokens.t4} />
                             <Text style={{ color: canEdit ? tokens.blu : tokens.t3, fontSize: fs(11.5) }}>
                               {a.currentHobbsHours != null ? `${a.currentHobbsHours}` : 'Set'}
                             </Text>
