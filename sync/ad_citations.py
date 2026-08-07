@@ -68,6 +68,23 @@ AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 # dead links -- only real ones we were previously dropping on the floor.
 AD_RE = re.compile(r"\bAD\)?\s*(\d{4}\s*-\s*\d{2}\s*-\s*\d{2})\b")
 
+# Every AD's own standard boilerplate footer cites these same handful of Part
+# 39/43/91 administrative sections regardless of the AD's actual subject --
+# "(g)/(i) Alternative Methods of Compliance," "Special Flight Permits,"
+# "Material Incorporated by Reference," maintenance-record-entry language.
+# Confirmed via a live corpus check (task: "999" MagicLink count on FAR
+# 39.19's page, RC screenshot 2026-08-07): 39.19 alone had 4,387
+# citing_type='ad' rows -- 78% of the entire 5,595-AD corpus literally
+# repeats "14 CFR 39.19" in this one boilerplate paragraph. Extracting it as
+# a real citation is technically accurate (the text really does say that)
+# but semantically useless -- it drowns out every genuinely substantive FAR
+# reference in the same AD, on both sides (the FAR section's own MagicLink
+# count AND every individual AD's "Related FARs" bar). Verified each of
+# these 6 the same way (ad_n/total ratio 80-99.8%, an order-of-magnitude
+# jump over the next real FAR citation): 21.197 (451/466), 43.9 (226/276),
+# 39.17 (153/155), 91.417 (124/155), 43.7 (94/111).
+BOILERPLATE_FAR_EXCLUDE = {"39.19", "21.197", "43.9", "39.17", "91.417", "43.7"}
+
 
 def fetch_all_ads() -> list[dict]:
     out = []
@@ -117,6 +134,8 @@ def extract_citations(ad: dict) -> list[dict]:
             citations.append({"citing_type": "ad", "citing_id": ad["ad_number"], "cited_type": "ac", "cited_id": m.group(1), "label": None})
 
     for m in FAR_RE.finditer(text):
+        if m.group(1) in BOILERPLATE_FAR_EXCLUDE:
+            continue
         key = ("far", m.group(1))
         if key not in seen:
             seen.add(key)
