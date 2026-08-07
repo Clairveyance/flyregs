@@ -45,7 +45,8 @@ ROOT = Path(__file__).resolve().parent.parent
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMS = 1536
 CHUNK_TARGET_CHARS = 3000
-OPENAI_BATCH = 40  # OpenAI embeddings endpoint accepts up to 2048 inputs/req -- kept small for retry-friendliness AND because a 96-row upsert payload (96 x 1536-float embeddings) 500'd against PostgREST on LOI; smaller batches avoid the payload-size cliff
+OPENAI_BATCH = 40  # OpenAI embeddings endpoint accepts up to 2048 inputs/req -- kept small for retry-friendliness
+UPSERT_SUB_BATCH = 10  # content_chunks upsert batch size -- see upsert_chunks()'s own comment for why this is separate from OPENAI_BATCH and deliberately small
 
 
 def load_env() -> dict:
@@ -258,7 +259,7 @@ def existing_hashes(doc_type: str) -> dict[str, str]:
     return out
 
 
-def upsert_chunks(rows: list[dict]) -> None:
+def upsert_chunks_batch(rows: list[dict]) -> None:
     if not rows:
         return
     resp = requests.post(
@@ -269,6 +270,43 @@ def upsert_chunks(rows: list[dict]) -> None:
         timeout=60,
     )
     resp.raise_for_status()
+
+
+def upsert_chunks(rows: list[dict]) -> list[dict]:
+    """Upserts in sub-batches of UPSERT_SUB_BATCH, falling back to one-row-
+    at-a-time on any sub-batch failure. Confirmed live (2026-08-06, mnemonic
+    re-embed): a 40-row upsert batch can genuinely 500 with `57014 canceling
+    statement due to statement timeout` -- NOT the payload-size theory this
+    file used to carry (a 40-row/~800KB payload isn't large; the real cost
+    is per-row HNSW vector-index + tsvector-trigger maintenance on
+    content_chunks, confirmed by timing: 5/10/20/30-row batches took
+    0.8s/5.0s/9.5s/4.8s -- too volatile to fix with a single smaller
+    constant, especially under concurrent load on the Micro compute tier).
+    Returns the list of rows that ended up NOT successfully upserted (empty
+    if everything succeeded) -- the caller must not count a row as embedded
+    unless it's absent from this list. A prior version of this function
+    counted every attempted row as a success regardless of whether the
+    upsert actually happened, so a batch failure like the one above was
+    reported as "N newly embedded/updated" while up to 40 rows silently kept
+    serving stale chunk_text -- caught only by a manual direct DB check
+    after the fact, not by anything this script itself reported."""
+    failed: list[dict] = []
+    for i in range(0, len(rows), UPSERT_SUB_BATCH):
+        sub = rows[i:i + UPSERT_SUB_BATCH]
+        try:
+            upsert_chunks_batch(sub)
+            continue
+        except requests.exceptions.RequestException:
+            pass
+        # Sub-batch failed -- fall back to one row at a time so a single
+        # slow/bad row can't take the rest of the sub-batch down with it.
+        for row in sub:
+            try:
+                upsert_chunks_batch([row])
+            except requests.exceptions.RequestException as e:
+                log.warning(f"upsert failed for {row['source_type']}:{row['source_id']}::{row['chunk_index']}: {e}")
+                failed.append(row)
+    return failed
 
 
 def run_type(doc_type: str, only: str | None, dry_run: bool) -> tuple[int, int]:
@@ -295,16 +333,19 @@ def run_type(doc_type: str, only: str | None, dry_run: bool) -> tuple[int, int]:
             vectors = embed_batch(pending_texts)
             for meta, vec in zip(pending_meta, vectors):
                 meta["embedding"] = str(vec)
-            try:
-                upsert_chunks(pending_meta)
-            except requests.exceptions.RequestException as e:
-                # A single bad batch (confirmed once: a 500 from PostgREST on
-                # an oversized upsert payload) shouldn't take down the whole
-                # multi-type run -- log which source_ids were lost and keep
-                # going; content-hashing means a re-run only retries these.
-                lost = [m["source_id"] for m in pending_meta]
-                log.warning(f"[{doc_type}] batch upsert failed ({len(lost)} chunks, ids: {lost[:5]}{'...' if len(lost) > 5 else ''}): {e}")
-        total_embedded += len(pending_texts)
+            # upsert_chunks sub-batches + falls back to per-row retry
+            # internally (see its own docstring) and returns only the rows
+            # that genuinely never made it in -- content-hashing means a
+            # re-run of this script will retry exactly those next time.
+            # Deliberately NOT counting every attempted row here anymore:
+            # confirmed live that the old code counted a whole failed batch
+            # as "embedded" regardless of outcome, silently masking up to 40
+            # stale rows behind a success-looking log line.
+            failed = upsert_chunks(pending_meta)
+            if failed:
+                lost = [m["source_id"] for m in failed]
+                log.warning(f"[{doc_type}] {len(lost)} chunk(s) still failed after per-row retry: {lost}")
+        total_embedded += len(pending_texts) - (len(failed) if not dry_run else 0)
         pending_texts.clear()
         pending_meta.clear()
 
