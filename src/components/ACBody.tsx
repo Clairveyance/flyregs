@@ -524,9 +524,18 @@ export const ACBody = React.forwardRef<
   const [showFigures, setShowFigures] = useState(false)
   const [showFormulaRefs, setShowFormulaRefs] = useState(false)
   const headingRefs = useRef<Record<string, View | null>>({})
-  // Populated for any block a caller might need to imperatively scroll to
-  // later (changed-in-revision blocks AND saved highlights) — see
-  // scrollToBlockIndex above. Still used on web (DOM scrollIntoView).
+  // Populated for EVERY block (web only reads this on demand in
+  // scrollToBlockIndex, so capturing it for all blocks costs nothing extra)
+  // -- mirrors absoluteBlockY's unconditional onLayout capture on native.
+  // Previously only captured when isChanged/isHighlighted was already true
+  // at render time, which raced the async highlightedBlockTexts fetch
+  // (ac/[id].tsx's getHighlightsForAC): a same-render-cycle jump (?hlId=,
+  // ?hlText=, or the changed-blocks nav) fired via scrollToBlockIndex before
+  // that fetch resolved found nothing in jumpRefs and silently no-opped on
+  // web, landing at the top of the doc with no scroll and no highlight --
+  // confirmed live (tapping a saved highlight bookmark from Saved always
+  // landed at section 1.1, never at the saved passage). Capturing the ref
+  // for every block up front removes that race entirely.
   const jumpRefs = useRef<Record<number, View | null>>({})
   //
   // blockRelY / headingRelY: each block's Y position relative to ACBody's
@@ -930,8 +939,7 @@ export const ACBody = React.forwardRef<
                 key={i}
                 ref={(el) => {
                   headingRefs.current[b.id] = el
-                  if (isChanged) jumpRefs.current[i] = el
-                  if (isHighlighted) jumpRefs.current[i] = el
+                  jumpRefs.current[i] = el
                 }}
                 onLayout={(e) => cacheBlockLayout(i, e.nativeEvent.layout.y, e.nativeEvent.layout.height, b.id)}
                 style={changedStyle}
@@ -959,8 +967,7 @@ export const ACBody = React.forwardRef<
                 key={i}
                 ref={(el) => {
                   headingRefs.current[b.id] = el as any
-                  if (isChanged) jumpRefs.current[i] = el as any
-                  if (isHighlighted) jumpRefs.current[i] = el as any
+                  jumpRefs.current[i] = el as any
                 }}
                 onLayout={(e) => cacheBlockLayout(i, e.nativeEvent.layout.y, e.nativeEvent.layout.height, b.id)}
                 onLongPress={longPress}
@@ -1015,10 +1022,7 @@ export const ACBody = React.forwardRef<
             return (
               <Pressable
                 key={i}
-                ref={(el) => {
-                  if (isChanged) jumpRefs.current[i] = el as any
-                  if (isHighlighted) jumpRefs.current[i] = el as any
-                }}
+                ref={(el) => { jumpRefs.current[i] = el as any }}
                 onLayout={(e) => cacheBlockLayout(i, e.nativeEvent.layout.y, e.nativeEvent.layout.height)}
                 onLongPress={longPress}
                 delayLongPress={450}
@@ -1061,10 +1065,7 @@ export const ACBody = React.forwardRef<
             return (
               <Pressable
                 key={i}
-                ref={(el) => {
-                  if (isChanged) jumpRefs.current[i] = el as any
-                  if (isHighlighted) jumpRefs.current[i] = el as any
-                }}
+                ref={(el) => { jumpRefs.current[i] = el as any }}
                 onLayout={(e) => cacheBlockLayout(i, e.nativeEvent.layout.y, e.nativeEvent.layout.height)}
                 onLongPress={longPress}
                 delayLongPress={450}
