@@ -15,9 +15,18 @@ import type { AcFigure } from '@/types'
 // target is on-device use.
 export function FigureViewer({
   figure,
+  figures,
+  onNavigate,
   onClose,
 }: {
   figure: AcFigure | null
+  // Sibling figures within the same document, in display order — RC: "when
+  // in any Figure inside a reg, we should have Next Fig/Prev Fig buttons so
+  // users don't have to X out of one just to flip through the Figures
+  // inside that reg." Optional so every existing call site keeps compiling
+  // untouched; the footer below just doesn't render without it.
+  figures?: AcFigure[]
+  onNavigate?: (figure: AcFigure) => void
   onClose: () => void
 }) {
   const { tokens } = useTheme()
@@ -28,6 +37,11 @@ export function FigureViewer({
   // while this viewer is open — see useAllowRotation below.
   const { width, height } = useWindowDimensions()
   useAllowRotation(!!figure)
+  const figIdx = figure && figures ? figures.findIndex((f) => f.id === figure.id) : -1
+  const hasPrev = figIdx > 0
+  const hasNext = figIdx >= 0 && !!figures && figIdx < figures.length - 1
+  const goPrev = () => { if (hasPrev && figures && onNavigate) onNavigate(figures[figIdx - 1]) }
+  const goNext = () => { if (hasNext && figures && onNavigate) onNavigate(figures[figIdx + 1]) }
   // Local cached copy if this AC was downloaded for offline reading (see
   // handleDownload in ac/[id].tsx) -- falls back to the live remote URL
   // instantly if nothing's cached yet, so online viewing never regresses.
@@ -46,8 +60,9 @@ export function FigureViewer({
   const [manualRotation, setManualRotation] = useState(0)
   useEffect(() => { setManualRotation(0) }, [figure?.id])
   const rotated90 = manualRotation === 90 || manualRotation === 270
+  const showNav = !!figures && figures.length > 1
   const boxWidth = width
-  const boxHeight = height - insets.top - 56
+  const boxHeight = height - insets.top - 56 - (showNav ? 52 : 0)
 
   return (
     <Modal
@@ -103,6 +118,29 @@ export function FigureViewer({
             />
           )}
         </ScrollView>
+        {showNav && (
+          <View style={[styles.navBar, { paddingBottom: insets.bottom || 8 }]}>
+            <Pressable
+              onPress={goPrev}
+              disabled={!hasPrev}
+              hitSlop={10}
+              style={[styles.navBtn, !hasPrev && styles.navBtnDisabled]}
+            >
+              <Icon name="chevron.left" size={fs(15)} color="#fff" />
+              <Text style={[styles.navText, { fontSize: fs(13) }]}>Prev Fig</Text>
+            </Pressable>
+            <Text style={[styles.navCount, { fontSize: fs(12) }]}>{figIdx + 1} of {figures!.length}</Text>
+            <Pressable
+              onPress={goNext}
+              disabled={!hasNext}
+              hitSlop={10}
+              style={[styles.navBtn, styles.navBtnRight, !hasNext && styles.navBtnDisabled]}
+            >
+              <Text style={[styles.navText, { fontSize: fs(13) }]}>Next Fig</Text>
+              <Icon name="chevron.right" size={fs(15)} color="#fff" />
+            </Pressable>
+          </View>
+        )}
       </View>
     </Modal>
   )
@@ -122,4 +160,18 @@ const styles = StyleSheet.create({
   closeBtn: { padding: 6 },
   scroll: { flex: 1 },
   scrollContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center' },
+  navBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.15)',
+  },
+  navBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 8 },
+  navBtnRight: { flexDirection: 'row-reverse' },
+  navBtnDisabled: { opacity: 0.3 },
+  navText: { color: '#fff', fontWeight: '600' },
+  navCount: { color: 'rgba(255,255,255,0.6)', fontWeight: '500' },
 })

@@ -81,6 +81,13 @@ export default function AimParagraphScreen() {
   const [related, setRelated] = useState<RelatedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
+  // Normalized AcFigure[] for FigureViewer's Prev/Next Fig navigation --
+  // matches the {id,label,caption,page,image_url} shape the onOpenFigure
+  // handlers below already build one-off per tap.
+  const figuresForViewer = useMemo(
+    () => figures.map((f) => ({ id: f.id, label: f.label ?? '', caption: f.caption, page: 0, image_url: f.image_url })),
+    [figures],
+  )
   const [bookmarked, setBookmarked] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
   const [downloadBusy, setDownloadBusy] = useState(false)
@@ -560,7 +567,7 @@ export default function AimParagraphScreen() {
         />
       )}
 
-      <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
+      <FigureViewer figure={viewerFigure} figures={figuresForViewer} onNavigate={setViewerFigure} onClose={() => setViewerFigure(null)} />
       <FolderPicker
         visible={folderPickerVisible}
         itemType="aim"

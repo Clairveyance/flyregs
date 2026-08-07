@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, Image, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
@@ -112,6 +112,14 @@ export default function AdScreen() {
   const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
   const [prevAd, setPrevAd] = useState<{ ad_number: string } | null>(null)
   const [nextAd, setNextAd] = useState<{ ad_number: string } | null>(null)
+  // Normalized AcFigure[] for FigureViewer's Prev/Next Fig navigation --
+  // AdFigureRow itself doesn't carry a display label, so build the exact
+  // same "Page N of M" shape the two onPress handlers below already
+  // construct one-off, for every row up front instead.
+  const figuresForViewer = useMemo(
+    () => figures.map((f, i) => ({ id: f.id, label: `Page ${i + 1} of ${figures.length}`, caption: null, page: f.page_index, image_url: f.image_url })),
+    [figures],
+  )
 
   useEffect(() => {
     if (id) isBookmarked(id).then(setBookmarked)
@@ -623,7 +631,7 @@ export default function AdScreen() {
           onNext={() => nextAd && router.replace(`/ad/${nextAd.ad_number}` as any)}
         />
       )}
-      <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
+      <FigureViewer figure={viewerFigure} figures={figuresForViewer} onNavigate={setViewerFigure} onClose={() => setViewerFigure(null)} />
       <FolderPicker
         visible={folderPickerVisible}
         itemType="ad"
