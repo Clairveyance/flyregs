@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Reanimated, {
-  useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, useReducedMotion,
+  useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, useReducedMotion, interpolateColor,
 } from 'react-native-reanimated'
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Modal } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
@@ -14,7 +14,7 @@ import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
 import { suggestTypeDesignator } from '@/lib/aircraftModels'
-import { backfillAircraftAds, getAircraftAdNotifications, type AircraftAdNotification } from '@/lib/adNotifications'
+import { backfillAircraftAds, getAircraftAdNotifications, markAdComplied, unmarkAdComplied, type AircraftAdNotification } from '@/lib/adNotifications'
 import { getAircraftReminders, type AircraftReminder } from '@/lib/adParts'
 import {
   getFleetSummary,
@@ -91,6 +91,175 @@ function aircraftCapForTier(isPro: boolean, isPremium: boolean): number {
 const RING_SIZE = 152
 const RING_TICKS = 32
 
+// RC, after the two-pill chase read as basically invisible even at a
+// stronger dim: "let's try this instead -- one main pill, it moves slow
+// around the ring, but every 6 seconds it breathes and sends out a
+// shockwave that ripples through the other pills, all the way around and
+// back into the main pill. that ripple should complete in about a second."
+//
+// One slow-moving position (mainPos) shown as a resting dim on whichever
+// tick it currently sits near. Every RIPPLE_PERIOD_MS, the main pill does a
+// quick breathe (a scale bump, reusing the same sine in/out idea as the Pro
+// hero ring's breathe) and launches a ripple: a second position that starts
+// at the main pill's CURRENT spot and sweeps one full lap (RING_TICKS) in
+// RIPPLE_DURATION_MS, ending back where it started -- "back into the main
+// pill" falls out naturally from a full lap of a circle.
+// RC, after seeing the first pass live: 3x the main pill's speed, a bigger
+// breathe, the main pill visibly still moving through the ripple (not just
+// mechanically still moving -- see below), the ripple felt as a passing
+// BULGE on each pill rather than a dim, the ripple itself 2x slower, and an
+// overall "reverberation" quality rather than a single clean pulse.
+//
+// The ripple switched from opacity (dim) to scale (bulge) entirely -- this
+// is what actually solves "main pill keeps moving even as it ripples":
+// mainPos's own drift never paused in the first version either, but sharing
+// the same dim visual language with the ripple made the two impossible to
+// tell apart at a glance. Separating them onto different visual channels
+// (main pill = opacity dim, ripple = scale bulge) makes both readable at
+// once instead of just one blob.
+const RING_STEP_MS = 250
+const MAIN_SPEED = 1.2 // ticks/sec -- 3x the original 0.4
+const MAIN_FALLOFF_TICKS = 1.0
+const MAIN_MAX_DIM = 0.55
+// RC: "make the main pill breathe BEFORE releasing the ripple, as if it
+// takes a big breath and exhales the large ripple" -- lengthened the inhale
+// itself (350->550ms) so the hold reads as deliberate, not a quick flicker,
+// and the interval below now sequences inhale-THEN-release instead of
+// firing both at once (see that effect's own comment for why).
+const BREATHE_MS = 550
+const BREATHE_AMOUNT = 0.7 // up from 0.35 -- a much more obvious inhale
+const RIPPLE_PERIOD_MS = 6000
+// RC: "go back to the previous speed, cancel that 2x slowdown -- looks
+// better the other way." Back to 2000 (was briefly 4000 this session).
+const RIPPLE_DURATION_MS = 2000
+const RIPPLE_BULGE_MAX = 0.55 // peak scale bump right as the wavefront passes a tick
+// RC: "you have a sort of 'dual ripple', a second pill sort of chasing the
+// ripple, a few pills behind." Root cause: the old formula multiplied the
+// exponential decay by a COSINE wobble term, which is periodic -- it doesn't
+// just fade once, it swings back into positive territory a second time
+// (at ticksBehind = 2*RIPPLE_WOBBLE_TICKS), producing a genuine second,
+// separate bump inside the still-visible decay window. That second bump IS
+// the "chaser" RC saw, not a bug in perception. Fixed by dropping the
+// oscillation entirely -- pure exponential decay from the moment the
+// wavefront passes, so there is exactly ONE bulge per tick, fading smoothly,
+// never re-brightening.
+const RIPPLE_DECAY_TICKS = 3.5
+// The wavefront position (ripplePhase * RING_TICKS + origin) keeps advancing
+// past a full lap (phase > 1) so ticks passed right at the END of the sweep
+// -- the ones nearest the main pill's own position -- still get to finish
+// ringing out instead of being cut off the instant phase hits 1.
+const RIPPLE_TAIL = (RIPPLE_DECAY_TICKS * 2.5) / RING_TICKS
+// RC: "make sure the ripple goes all the way around, beyond 360 degrees, to
+// catch back up to the Main pill, which is continuing to move. Right now the
+// ripple terminates at the spot where the main pill USED to be." A flat
+// 1-lap sweep (the old behavior) always lands exactly back on rippleOrigin,
+// but rippleOrigin is a snapshot frozen at the moment of exhale -- mainPos
+// keeps drifting the whole time the ripple is traveling, so by the time the
+// wave finishes its lap the real main pill has already moved a couple ticks
+// further on. This is a classic pursuit problem (a wave chasing a target
+// that started at the same spot and keeps moving the same direction): the
+// wave has to travel slightly MORE than one full lap to actually re-meet the
+// live main pill, not just return to where it launched from.
+//
+// Solving it: the wave's own angular speed is fixed by design at
+// RING_TICKS ticks per RIPPLE_DURATION_MS (that's what "one lap in about N
+// ms" means). Closing speed on the moving target = (wave speed - main pill's
+// speed); the distance to close, in ticks, is one full lap (RING_TICKS) plus
+// however far the target has moved by the time it's caught, which resolves
+// to LAPS_TO_CATCH = waveSpeed / (waveSpeed - MAIN_SPEED) lap-units (algebra
+// below) -- with the current constants this is ~1.08 laps, i.e. the wave
+// only needs to run a little past 360 degrees, not double the sweep.
+// Assumes waveSpeed > MAIN_SPEED (true by a wide margin with these
+// constants) -- otherwise the wave could never catch a target moving faster
+// than it.
+const RIPPLE_WAVE_SPEED_TICKS_PER_SEC = (RING_TICKS * 1000) / RIPPLE_DURATION_MS
+const RIPPLE_LAPS_TO_CATCH = RIPPLE_WAVE_SPEED_TICKS_PER_SEC / (RIPPLE_WAVE_SPEED_TICKS_PER_SEC - MAIN_SPEED)
+
+// RC: "the whole ring should give off this slow 'heat wave' feel... but you
+// have to add this effect to each pill individually and randomly. they all
+// kind of randomly shimmer, glow, and bulge subtly, in a very random way."
+// Explicitly NOT a single coordinated wave -- RC also asked to remove the
+// "big colored circle" ambient halo this session's first attempt added
+// behind the whole ring. Heat now lives ENTIRELY at the per-tick level (see
+// RingTick's own shimmer effect below): each of the 32 ticks runs its own
+// independent, randomly-timed glow/bulge loop, unsynchronized with every
+// other tick and with the main pill/ripple mechanic. A fixed warm
+// engine-heat orange, independent of theme/red-shift -- heat reads as heat
+// in any theme, same reasoning as the FigureViewer's fixed white/black
+// chrome.
+const HEAT_COLOR = '#ff7a1a'
+const HEAT_SHIMMER_MIN_DELAY_MS = 1500
+const HEAT_SHIMMER_MAX_DELAY_MS = 5000
+// RC, after seeing it live with the ambient halo removed: "lessen the size
+// of the bulges on all the random pills... none of them should really
+// stand out, they should all just kind of be alive." The main pill's own
+// breathe bulge (BREATHE_AMOUNT above) was fine as-is -- this is about the
+// per-tick shimmer specifically standing out too much. Two changes: lowered
+// the peak range itself, AND decoupled the shimmer's contribution to the
+// physical scale bulge from its contribution to the color glow (see
+// HEAT_SHIMMER_SCALE_WEIGHT below) -- the glow can still swing through its
+// full range so the ring reads as genuinely warm, while the visible bulge
+// per pill stays small enough that no single pill ever pops out of the ring.
+//
+// RC, next round: "you took a bit too much away from the heat effects for
+// all the pills -- put a little bit of movement, sizing back." Nudged the
+// peak range and the scale weight both back up partway (not all the way to
+// the original 0.15-0.45/1.0, which is what stood out too much in the first
+// place) -- a middle ground with real, visible movement per pill without
+// reintroducing the "look at me" bulge.
+const HEAT_SHIMMER_MIN_PEAK = 0.14
+const HEAT_SHIMMER_MAX_PEAK = 0.38
+const HEAT_SHIMMER_MIN_DURATION_MS = 500
+const HEAT_SHIMMER_MAX_DURATION_MS = 1100
+// Only this fraction of heatShimmer.value shows up as a scale bulge; the
+// full value still drives the color blend below. Keeps the "alive" glow
+// visible without the bulge itself standing out.
+const HEAT_SHIMMER_SCALE_WEIGHT = 0.55
+function randomBetween(min: number, max: number): number {
+  return min + Math.random() * (max - min)
+}
+
+// RC: "you also need to test this with multiple a/c, and with the ring
+// having multiple colors -- this entire effect should be color independent."
+// It wasn't: interpolateColor blends linearly in RGB from a tick's OWN
+// status color toward the fixed HEAT_COLOR, so the perceived shift at the
+// same heatIntensity value depends entirely on how far that status color
+// already sits from HEAT_COLOR in RGB space. Amber (#F59E0B) sits very close
+// to the heat orange (#ff7a1a) -- a real distance of ~40 -- so amber pills
+// barely visibly warm up. Green (#34D399) sits far away (~255 distance), so
+// green pills swing dramatically for the exact same intensity value. Red
+// lands in between (~70). Rather than rework the whole blend into HSL space,
+// DAMP each tick's heatIntensity by a factor proportional to its own color's
+// distance from HEAT_COLOR, so heatIntensity * weight * distance -- the
+// actual RGB distance actually traveled -- tops out around the same
+// HEAT_TARGET_SHIFT no matter which status color a tick starts from. Capped
+// at 1.0 (never amplifies): an early version multiplied amber/red's
+// distance UP past 1x to try to equalize them with green, but live
+// DOM-sampling showed that made amber/red pills snap all the way to solid
+// HEAT_COLOR the moment heatIntensity crossed a low threshold -- a visible
+// "pop," not a smooth shift, and the opposite of "none of them should stand
+// out." Amber and red already sit close enough to HEAT_COLOR that their
+// natural (unweighted) shift is small and safe on its own; only green needs
+// real damping. Live-sampled with a mixed 3-color ring (a real green/amber/
+// red split, not just the usual 2-color fleet): at 90, green's own damped
+// ceiling still landed noticeably above red's natural ~70 and well above
+// amber's natural ~40. Lowered to 45 so green's ceiling sits between the
+// two instead of above both -- all three now read as comparably "warm" at
+// their peak instead of green visibly out-pulsing its neighbors.
+const HEAT_TARGET_SHIFT = 45
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.replace('#', ''), 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+function rgbDistance(a: string, b: string): number {
+  const [r1, g1, b1] = hexToRgb(a)
+  const [r2, g2, b2] = hexToRgb(b)
+  return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2)
+}
+function heatWeightFor(color: string): number {
+  return Math.min(1, HEAT_TARGET_SHIFT / Math.max(1, rgbDistance(color, HEAT_COLOR)))
+}
+
 function FleetRing({
   compliantCount, openCount, overdueCount, total, tokens, fs,
 }: {
@@ -115,20 +284,220 @@ function FleetRing({
   // own mini-ring already uses for the same reason at a size too small for
   // a real proportional dial.
   const worstColor = overdueCount > 0 ? tokens.red : openCount > 0 ? tokens.amb : tokens.grn
+
+  const reduceMotion = useReducedMotion()
+  const mainPos = useSharedValue(0)
+  const breathePulse = useSharedValue(0)
+  const ripplePhase = useSharedValue(-1) // -1 = idle, 0..1 = mid-sweep
+  const rippleOrigin = useSharedValue(0)
+
+  // Main pill's own slow continuous drift -- same setInterval + withTiming
+  // step technique as the retired two-pill version (proven live already):
+  // smoother than a single long withTiming, and sidesteps withRepeat's own
+  // "restarts toward the same fixed toValue" gotcha for open-ended motion.
+  useEffect(() => {
+    if (reduceMotion) return
+    let pos = 0
+    const id = setInterval(() => {
+      pos += MAIN_SPEED * (RING_STEP_MS / 1000)
+      mainPos.value = withTiming(pos, { duration: RING_STEP_MS, easing: Easing.linear })
+    }, RING_STEP_MS)
+    return () => clearInterval(id)
+  }, [reduceMotion, mainPos])
+
+  // Every RIPPLE_PERIOD_MS: inhale FIRST, hold at the peak, then release the
+  // ripple exactly as the exhale begins -- RC: "make the main pill breathe
+  // BEFORE releasing the ripple, as if it takes a big breath and exhales the
+  // large ripple." The ripple used to launch in the SAME tick as the inhale
+  // started (simultaneous, not sequenced); now the ripple launch lives
+  // inside the inhale's own `finished` callback, so it fires only once the
+  // breath has actually finished building.
+  useEffect(() => {
+    if (reduceMotion) return
+    const id = setInterval(() => {
+      breathePulse.value = withTiming(1, { duration: BREATHE_MS, easing: Easing.out(Easing.quad) }, (finished) => {
+        if (!finished) return
+        // Exhale: release the ripple exactly as the breath lets go.
+        rippleOrigin.value = mainPos.value
+        breathePulse.value = withTiming(0, { duration: BREATHE_MS, easing: Easing.in(Easing.quad) })
+        ripplePhase.value = 0
+        ripplePhase.value = withTiming(
+          RIPPLE_LAPS_TO_CATCH + RIPPLE_TAIL,
+          { duration: RIPPLE_DURATION_MS * (RIPPLE_LAPS_TO_CATCH + RIPPLE_TAIL), easing: Easing.linear },
+          (finished2) => {
+            if (finished2) ripplePhase.value = -1 // back to idle once every tick has finished ringing out
+          },
+        )
+      })
+    }, RIPPLE_PERIOD_MS)
+    return () => clearInterval(id)
+  }, [reduceMotion, mainPos, ripplePhase, rippleOrigin, breathePulse])
+
   return (
     <View style={{ width: RING_SIZE, height: RING_SIZE }}>
       {tickColors.map((color, i) => (
-        <View
-          key={i}
-          style={[StyleSheet.absoluteFill, styles.ringTickWrap, { transform: [{ rotate: `${i * angleStep}deg` }] }]}
-        >
-          <View style={[styles.ringTick, { backgroundColor: color }]} />
-        </View>
+        <RingTick
+          key={i} index={i} color={color} angleStep={angleStep}
+          mainPos={mainPos} breathePulse={breathePulse} ripplePhase={ripplePhase} rippleOrigin={rippleOrigin}
+        />
       ))}
       <View style={[StyleSheet.absoluteFill, styles.ringCenter]}>
         <Text style={[styles.ringCenterNum, { color: worstColor, fontSize: fs(32) }]}>{total}</Text>
         <Text style={[styles.ringCenterUnit, { color: tokens.t4, fontSize: fs(11) }]}>AIRCRAFT</Text>
       </View>
+    </View>
+  )
+}
+
+// A component per tick, not an inline useAnimatedStyle inside FleetRing's
+// own .map() -- calling a hook a variable number of times per render inside
+// a loop breaks React's rules of hooks even though RING_TICKS happens to be
+// constant here; a real component per item is the correct Reanimated
+// pattern for "N items all driven by shared state."
+function RingTick({
+  index, color, angleStep, mainPos, breathePulse, ripplePhase, rippleOrigin,
+}: {
+  index: number
+  color: string
+  angleStep: number
+  mainPos: ReturnType<typeof useSharedValue<number>>
+  breathePulse: ReturnType<typeof useSharedValue<number>>
+  ripplePhase: ReturnType<typeof useSharedValue<number>>
+  rippleOrigin: ReturnType<typeof useSharedValue<number>>
+}) {
+  const reduceMotion = useReducedMotion()
+  // Computed once per color (not per frame) -- see heatWeightFor's own
+  // comment above for why this exists at all.
+  const heatWeight = heatWeightFor(color)
+  // RC: "the whole ring should give off this slow 'heat wave' feel... add
+  // this effect to each pill individually and randomly. they all kind of
+  // randomly shimmer, glow, and bulge subtly." A self-scheduling loop
+  // entirely local to THIS tick -- no shared timer, no coordination with any
+  // other tick or with the main pill/ripple -- so 32 instances of this same
+  // effect naturally drift out of sync with each other and never repeat on
+  // a predictable rhythm.
+  const heatShimmer = useSharedValue(0)
+  useEffect(() => {
+    if (reduceMotion) return
+    let timeoutId: ReturnType<typeof setTimeout>
+    const scheduleNext = () => {
+      timeoutId = setTimeout(() => {
+        const peak = randomBetween(HEAT_SHIMMER_MIN_PEAK, HEAT_SHIMMER_MAX_PEAK)
+        const duration = randomBetween(HEAT_SHIMMER_MIN_DURATION_MS, HEAT_SHIMMER_MAX_DURATION_MS)
+        heatShimmer.value = withTiming(peak, { duration, easing: Easing.inOut(Easing.sin) }, (finished) => {
+          if (finished) heatShimmer.value = withTiming(0, { duration, easing: Easing.inOut(Easing.sin) })
+        })
+        scheduleNext()
+      }, randomBetween(HEAT_SHIMMER_MIN_DELAY_MS, HEAT_SHIMMER_MAX_DELAY_MS))
+    }
+    scheduleNext()
+    return () => clearTimeout(timeoutId)
+  }, [reduceMotion, heatShimmer])
+
+  const tickStyle = useAnimatedStyle(() => {
+    // RC's real device (Premium, native): "Uncaught Error -- [Worklets]
+    // Tried to synchronously call a non-worklet function `_temp`" at this
+    // exact line, every time the My Fleet screen opened. The web preview
+    // never caught this -- react-native-web's Reanimated shim doesn't
+    // enforce the real JS/UI-thread worklet boundary the way native does,
+    // so a pattern that's silently fine on web can be a hard crash on a
+    // real device. Root cause: `ringDist`/`closeness` were plain arrow
+    // functions DEFINED INSIDE this worklet and then called -- normally
+    // safe, but Reanimated's Babel plugin has known edge cases where an
+    // inner closure gets extracted for cross-thread capture without its own
+    // 'worklet' flag attached, producing exactly this "_temp" name. Fixed
+    // by removing the intermediate function values entirely: pure inline
+    // arithmetic, nothing to call, nothing for the closure-capture step to
+    // mishandle. See gotcha_reanimated_shadow_props_frozen_on_web.md for
+    // this file's other web-vs-native Reanimated mismatch -- this project's
+    // only real device-testing surface for Reanimated code is a real
+    // device, not the Browser pane.
+    const pMain = ((mainPos.value % RING_TICKS) + RING_TICKS) % RING_TICKS
+    const dMain = Math.abs(index - pMain)
+    const mainDist = Math.min(dMain, RING_TICKS - dMain)
+    // The main pill's own resting presence -- opacity only, so it stays
+    // visually distinct from the ripple's scale-bulge below no matter when
+    // the two happen to be near each other.
+    const mainCloseness = Math.max(0, 1 - mainDist / MAIN_FALLOFF_TICKS)
+    const mainDim = mainCloseness * MAIN_MAX_DIM
+    // Breathe only visibly scales the tick the main pill is actually
+    // sitting on right now -- reusing mainCloseness as the weight means
+    // the bump localizes to wherever the pill is without separate tracking.
+    const breatheScale = breathePulse.value * BREATHE_AMOUNT * mainCloseness
+
+    // The shockwave: a single smooth exponential decay behind the
+    // wavefront's CURRENT absolute position, deliberately NOT oscillating.
+    // RC: "you have a dual ripple, a second pill chasing the ripple a few
+    // pills behind" -- that second pill was a real second peak the old
+    // decay curve used to produce (a periodic cosine wobble re-entering
+    // positive territory a few ticks later), not a perception issue. Fixed
+    // by dropping the oscillation -- but that first fix still capped
+    // ticksBehind's own reference point (phaseAtTick) into a single lap via
+    // modulo, which quietly broke the LATER "catch up to the still-moving
+    // main pill" fix: ripplePhase can now run past 1.0 into a second,
+    // partial lap (see RIPPLE_LAPS_TO_CATCH above), but every tick's
+    // ticksBehind was already enormous (and its bulge already zero) by the
+    // time phase got that far, since phaseAtTick could only ever describe a
+    // tick's FIRST encounter with the wave. The extra catch-up sweep was
+    // animating for real, just with no visible bulge anywhere -- exactly
+    // RC's report that the ripple "terminates at the spot where the main
+    // pill USED to be." Fixed by tracking the wave's absolute (unwrapped)
+    // tick position instead of re-deriving a capped phase per tick: mod-ing
+    // the DISTANCE from that live position back to each tick naturally
+    // finds its most recent passage, whether that's during the first lap or
+    // the extra catch-up ticks near the end.
+    // RC, after seeing THIS fix live: "you've overshot the ripple, it's now
+    // racing PAST the Main pill's current location... get it to catch up
+    // to, and disappear into, the main pill." The bug above is fixed, but
+    // RIPPLE_TAIL -- originally just a grace period letting an
+    // ALREADY-PASSED tick's decay finish playing out -- now had a second,
+    // unwanted job now that wavePos can go anywhere: because wavePos keeps
+    // growing for the entire RIPPLE_TAIL window too, the wavefront's own
+    // PEAK kept physically sweeping forward past the catch-up point instead
+    // of stopping there. Fix: freeze the wave's traveled distance at
+    // RIPPLE_LAPS_TO_CATCH (exactly the main pill's live position) once
+    // phase passes it, so the bulge pattern itself stops moving -- then use
+    // the remaining RIPPLE_TAIL phase purely as a fade-to-zero multiplier on
+    // that now-stationary bulge, which is what actually reads as "the
+    // ripple catches up to and disappears into the main pill" rather than
+    // sweeping past it.
+    let rippleBulge = 0
+    if (ripplePhase.value >= 0) {
+      const cappedPhase = Math.min(ripplePhase.value, RIPPLE_LAPS_TO_CATCH)
+      const wavePos = rippleOrigin.value + cappedPhase * RING_TICKS
+      const ticksBehind = (((wavePos - index) % RING_TICKS) + RING_TICKS) % RING_TICKS
+      let bulge = RIPPLE_BULGE_MAX * Math.exp(-ticksBehind / RIPPLE_DECAY_TICKS)
+      if (ripplePhase.value > RIPPLE_LAPS_TO_CATCH) {
+        const overshoot = ripplePhase.value - RIPPLE_LAPS_TO_CATCH
+        bulge *= Math.max(0, 1 - overshoot / RIPPLE_TAIL)
+      }
+      rippleBulge = bulge
+    }
+
+    // Heat: the localized wave-driven glow (main pill / ripple bulge) PLUS
+    // this tick's own independent random shimmer, combined -- so the ring
+    // reads as hot both where something is actively happening AND as a
+    // constant, ambient, unsynchronized simmer everywhere else. Capped
+    // short of 1.0: the tick's own status color (compliant/open/overdue) is
+    // load-bearing information, not decoration, and can never be fully
+    // overridden. backgroundColor is a real animatable property on both
+    // native and web, unlike shadowOpacity/shadowRadius (see this file's
+    // own gotcha memory on why that approach was dropped).
+    const heatIntensity = Math.min(1, mainCloseness + rippleBulge / RIPPLE_BULGE_MAX + heatShimmer.value)
+    // heatWeight normalizes the RGB distance actually traveled toward
+    // HEAT_COLOR so amber/red/green pills all read as comparably "hot" at
+    // the same heatIntensity -- see heatWeightFor's comment above.
+    const heatColorIntensity = Math.min(1, heatIntensity * heatWeight)
+
+    return {
+      opacity: 1 - mainDim,
+      transform: [{ scale: 1 + breatheScale + rippleBulge + heatShimmer.value * HEAT_SHIMMER_SCALE_WEIGHT }],
+      backgroundColor: interpolateColor(heatColorIntensity, [0, 1], [color, HEAT_COLOR]),
+    }
+  })
+  return (
+    <View style={[StyleSheet.absoluteFill, styles.ringTickWrap, { transform: [{ rotate: `${index * angleStep}deg` }] }]}>
+      <Reanimated.View style={[styles.ringTick, tickStyle]} />
     </View>
   )
 }
@@ -179,13 +548,14 @@ const PRO_HERO_ECHO1_START = PRO_HERO_BREATHE_END
 const PRO_HERO_ECHO2_START = PRO_HERO_BREATHE_END + 0.08 // trails echo 1 for the ripple feel
 
 function ProHero({
-  aircraft, reminderUrgency, nextDueDays, tokens, fs,
+  aircraft, reminderUrgency, nextDueDays, tokens, fs, onPressRing,
 }: {
   aircraft: FleetAircraftSummary
   reminderUrgency: 'overdue' | 'soon' | 'clear'
   nextDueDays: number | null
   tokens: ThemeTokens
   fs: (n: number) => number
+  onPressRing: () => void
 }) {
   const ringColor = reminderUrgency === 'overdue' ? tokens.red : reminderUrgency === 'soon' ? tokens.amb : tokens.grn
   const numColor = aircraft.openAdCount > 0 ? tokens.amb : tokens.grn
@@ -227,7 +597,13 @@ function ProHero({
 
   return (
     <View style={[styles.proHeroCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-      <View style={{ width: PRO_HERO_RING_SIZE, height: PRO_HERO_RING_SIZE }}>
+      <Pressable
+        style={{ width: PRO_HERO_RING_SIZE, height: PRO_HERO_RING_SIZE }}
+        onPress={onPressRing}
+        hitSlop={10}
+        accessibilityRole="button"
+        accessibilityLabel="View open ADs"
+      >
         <Reanimated.View
           pointerEvents="none"
           style={[
@@ -255,7 +631,7 @@ function ProHero({
             <Icon name="checkmark" size={fs(34)} color={numColor} weight="bold" />
           )}
         </Reanimated.View>
-      </View>
+      </Pressable>
       <Text style={[styles.proHeroLabel, { color: tokens.t1, fontSize: fs(16) }]}>{label}</Text>
       <View style={styles.statBoxRow}>
         <StatBox value={aircraft.overdueReminderCount} label="OVERDUE" color={tokens.red} tokens={tokens} fs={fs} />
@@ -442,6 +818,75 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
         .then(([ads, reminders]) => setExpandedDetails((prev) => ({ ...prev, [aircraftId]: { ads, reminders } })))
         .catch(() => setExpandedDetails((prev) => { const next = { ...prev }; delete next[aircraftId]; return next }))
     }
+  }
+
+  // RC found no way to mark an AD complied without drilling all the way
+  // into the aircraft's own detail screen -- the chip here just navigated
+  // to the generic (non-aircraft-scoped) AD page, a dead end for this
+  // action. Mirrors [id].tsx's own confirm wording/disclaimer exactly (same
+  // feature, same register, per the corpus-wide feature-consistency rule)
+  // but updates state IN PLACE instead of navigating away: this list stays
+  // mounted underneath the aircraft detail screen, so navigating there and
+  // back already refreshes via useFocusEffect, but a same-screen action has
+  // no focus event to hook -- the summary ring and row badge would go stale
+  // until the next full reload without this local patch.
+  const handleToggleCompliedFromList = (aircraftId: string, n: AircraftAdNotification) => {
+    const wasComplied = !!n.compliedAt
+    confirm({
+      title: wasComplied ? `Un-mark AD ${n.adNumber}?` : `Mark AD ${n.adNumber} complied?`,
+      message: wasComplied
+        ? 'This moves it back to open.'
+        : "This records that you've completed what this AD requires. FlyRegs doesn't independently verify compliance -- always keep your own maintenance records as the official source.",
+      confirmLabel: wasComplied ? 'Un-mark' : 'Mark Complied',
+      onConfirm: async () => {
+        if (wasComplied) await unmarkAdComplied(n.id)
+        else await markAdComplied(n.id, null)
+        const nowComplied = wasComplied ? null : new Date().toISOString()
+        setExpandedDetails((prev) => {
+          const cur = prev[aircraftId]
+          if (!cur || cur === 'loading') return prev
+          return { ...prev, [aircraftId]: { ...cur, ads: cur.ads.map((x) => (x.id === n.id ? { ...x, compliedAt: nowComplied } : x)) } }
+        })
+        setAircraft((prev) =>
+          prev.map((a) => (a.aircraftId === aircraftId ? { ...a, openAdCount: Math.max(0, a.openAdCount + (wasComplied ? 1 : -1)) } : a))
+        )
+      },
+    })
+  }
+
+  // RC: after building handleToggleCompliedFromList, still couldn't find any
+  // way to mark an AD complied on either My Fleet or My Aircraft -- it was
+  // there, but only inside the row's EXPAND panel, a step most people never
+  // take just to see status. This makes the collapsed row's own status badge
+  // (and Pro's single-aircraft hero ring, which shows the identical number)
+  // directly tappable: no expand required, one tap from the list screen
+  // itself straight to a picker of the open ADs, then straight into the same
+  // confirm as before. Falls back to a fresh fetch if the row was never
+  // expanded (so expandedDetails has nothing cached for it yet).
+  const handleQuickComplied = async (a: FleetAircraftSummary) => {
+    if (!(a.role === 'owner' || a.role === 'editor')) return
+    const label = a.nickname || `${a.make} ${a.model}`
+    const cached = expandedDetails[a.aircraftId]
+    let list: AircraftAdNotification[]
+    if (cached && cached !== 'loading') {
+      list = cached.ads
+    } else {
+      try {
+        list = await getAircraftAdNotifications(a.aircraftId)
+      } catch (e: any) {
+        confirm({ title: 'Could not load ADs', message: e?.message ?? 'Unknown error', cancelLabel: null })
+        return
+      }
+    }
+    const open = list.filter((n) => !n.compliedAt)
+    if (open.length === 0) {
+      confirm({ title: 'All compliant', message: `No open ADs for ${label}.`, cancelLabel: null })
+      return
+    }
+    confirm({
+      title: `Open ADs — ${label}`,
+      choices: open.map((n) => ({ label: `AD ${n.adNumber}`, onPress: () => handleToggleCompliedFromList(a.aircraftId, n) })),
+    })
   }
 
   const handleModelChange = (text: string) => {
@@ -753,6 +1198,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                   nextDueDays={nextDueDays}
                   tokens={tokens}
                   fs={fs}
+                  onPressRing={() => handleQuickComplied(aircraft[0])}
                 />
               )}
 
@@ -824,7 +1270,14 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                         </View>
                         <Text style={[styles.rowNickname, { color: tokens.t3, fontSize: fs(12.5) }]}>{secondaryLabel}</Text>
                       </View>
-                      <RowStatusBadge openAdCount={a.openAdCount} reminderUrgency={reminderUrgency[a.aircraftId] ?? 'clear'} tokens={tokens} fs={fs} />
+                      <Pressable
+                        onPress={(e) => { e.stopPropagation(); handleQuickComplied(a) }}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel="View open ADs"
+                      >
+                        <RowStatusBadge openAdCount={a.openAdCount} reminderUrgency={reminderUrgency[a.aircraftId] ?? 'clear'} tokens={tokens} fs={fs} />
+                      </Pressable>
                       {/* No edit pencil here -- best part is no part. RC:
                           "we don't need this edit button here. the
                           editing takes place once inside the a/c page."
@@ -858,7 +1311,25 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                                   <Pressable
                                     key={n.id}
                                     style={[styles.adChip, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}
-                                    onPress={() => router.push(`/ad/${n.adNumber}` as any)}
+                                    onPress={() => {
+                                      // RC: no way to mark an AD complied
+                                      // without drilling into the aircraft's
+                                      // own detail page -- tapping this chip
+                                      // used to just navigate to the generic
+                                      // AD page, a dead end for that action.
+                                      // Now offers both, right from the list.
+                                      if (!canEdit) { router.push(`/ad/${n.adNumber}` as any); return }
+                                      confirm({
+                                        title: `AD ${n.adNumber}`,
+                                        choices: [
+                                          {
+                                            label: n.compliedAt ? 'Un-mark Complied' : 'Mark Complied',
+                                            onPress: () => handleToggleCompliedFromList(a.aircraftId, n),
+                                          },
+                                          { label: 'View AD Details', onPress: () => router.push(`/ad/${n.adNumber}` as any) },
+                                        ],
+                                      })
+                                    }}
                                   >
                                     {n.compliedAt && <Icon name="checkmark.circle.fill" size={fs(10)} color={tokens.grn} />}
                                     <Text style={[styles.adChipText, { color: n.compliedAt ? tokens.t3 : tokens.blu, fontSize: fs(11.5) }]}>

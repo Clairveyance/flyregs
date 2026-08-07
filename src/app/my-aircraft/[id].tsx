@@ -76,6 +76,15 @@ const REMINDER_TYPES = [
 ] as const
 type ReminderTypeKey = (typeof REMINDER_TYPES)[number]['key']
 
+// RC: "these reminder boxes need to also show the selected length of the
+// reminder (12mo, 24mo, etc) and they all also have to have that bar be
+// editable with a custom length." Separate from the TYPE picker above --
+// this is the actual persisted `interval_months` (see adParts.ts /
+// migrations_reminder_interval.sql), shown and editable on EVERY reminder,
+// not just at creation. "None" covers 100-Hour/AD/Custom reminders with no
+// fixed calendar recurrence.
+const LENGTH_PRESETS = [6, 12, 24, 36] as const
+
 // "how far back" view filter for Applicable ADs -- RC: "populate that a/c
 // profile with them... allowing them to choose how far back they want ADs
 // for." Client-side only (the backfill itself always pulls the FULL
@@ -100,7 +109,7 @@ export default function AircraftDetailScreen() {
   // screen was invisible during Browser-pane QA and the actions behind
   // them untestable. See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
-  const { session, isPremium } = useAuth()
+  const { session, isPremium, hasProAccess } = useAuth()
   const [aircraft, setAircraft] = useState<UserAircraft | null>(null)
   const [adNotifications, setAdNotifications] = useState<AircraftAdNotification[]>([])
   const [adRange, setAdRange] = useState<AdRangeFilter>('all')
@@ -369,7 +378,12 @@ export default function AircraftDetailScreen() {
   }
 
   const openAddReminder = () => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    // Pro+ per the standing push policy ("reminders push Pro+, AD alerts
+    // Premium-only") -- this was wrongly gated at isPremium, silently
+    // blocking every Pro user from creating a reminder at all, contradicting
+    // the FAQ's own "Reminders you set yourself push to your device on Pro
+    // and Premium" line.
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setEditingReminder(null)
     setReminderFormVisible(true)
   }
@@ -620,17 +634,29 @@ export default function AircraftDetailScreen() {
                       >
                         <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
                           {!n.readAt && <View style={[styles.unreadDot, { backgroundColor: tokens.blu }]} />}
-                          {/* Self-reported compliance record -- tap to
-                              toggle. A checkmark isn't FlyRegs asserting
-                              compliance, it's what the owner/editor told
-                              it; handleMarkComplied's own confirm carries
-                              that disclaimer every time. */}
+                          {/* Self-reported compliance record. RC: My
+                              Aircraft (Pro) can have multiple ADs per
+                              aircraft too, and should get the SAME
+                              tap-chip-for-a-choice-sheet interaction the
+                              Fleet list's chips have (my-aircraft/index.tsx's
+                              handleQuickComplied) instead of jumping
+                              straight to mark/un-mark with no "View
+                              Details" alongside it -- byte-identical
+                              interaction on both screens now. A checkmark
+                              isn't FlyRegs asserting compliance, it's what
+                              the owner/editor told it; handleMarkComplied's
+                              own confirm carries that disclaimer every time. */}
                           <Pressable
                             onPress={(e) => {
                               e.stopPropagation()
                               if (!canEdit) return
-                              if (n.compliedAt) handleUnmarkComplied(n)
-                              else handleMarkComplied(n)
+                              confirm({
+                                title: `AD ${n.adNumber}`,
+                                choices: [
+                                  { label: n.compliedAt ? 'Un-mark Complied' : 'Mark Complied', onPress: () => (n.compliedAt ? handleUnmarkComplied(n) : handleMarkComplied(n)) },
+                                  { label: 'View AD Details', onPress: () => handleOpenAd(n) },
+                                ],
+                              })
                             }}
                             hitSlop={8}
                             disabled={!canEdit}
@@ -757,6 +783,7 @@ export default function AircraftDetailScreen() {
                             <Text style={[styles.rowSub, { color, fontSize: fs(12) }]}>
                               {overdue ? `${Math.abs(days)}d` : `${days}d`} · {r.dueDate}
                               {r.linkedAdNumber ? ` · AD ${r.linkedAdNumber}` : ''}
+                              {r.intervalMonths ? ` · every ${r.intervalMonths}mo` : ''}
                             </Text>
                           </View>
                         </View>
@@ -798,13 +825,13 @@ export default function AircraftDetailScreen() {
         editing={editingReminder}
         applicableAds={adNotifications}
         onClose={() => { setReminderFormVisible(false); setEditingReminder(null) }}
-        onSaved={async ({ title, dueDate, notes, linkedAdNumber }) => {
+        onSaved={async ({ title, dueDate, notes, linkedAdNumber, intervalMonths }) => {
           if (!aircraft || !session) return
           try {
             if (editingReminder) {
-              await updateAircraftReminder(editingReminder.id, title, dueDate, linkedAdNumber, notes)
+              await updateAircraftReminder(editingReminder.id, title, dueDate, linkedAdNumber, notes, intervalMonths)
             } else {
-              await addAircraftReminder(session.user.id, aircraft.id, title, dueDate, linkedAdNumber, notes)
+              await addAircraftReminder(session.user.id, aircraft.id, title, dueDate, linkedAdNumber, notes, intervalMonths)
             }
             setReminderFormVisible(false)
             setEditingReminder(null)
@@ -902,10 +929,13 @@ function PartPickerModal({ visible, editing, onClose, onPicked }: { visible: boo
 // schema is more flexible and easy to use for the user? ... they should
 // still be able to manually adjust a date if needed"). Type chips only
 // show in ADD mode -- picking one is a one-time shortcut that fills
-// title+date, not a persisted category (no schema column for it), so
-// re-showing chips in EDIT mode would imply a selection state that doesn't
-// exist once a reminder is saved. Editing works directly on the same
-// title/date/notes/AD-link fields either way.
+// title+date, not a persisted category, so re-showing chips in EDIT mode
+// would imply a selection state that doesn't exist once a reminder is
+// saved. The LENGTH row below (interval_months) is different -- it IS
+// persisted (see migrations_reminder_interval.sql) and shown/editable in
+// BOTH modes per RC: "these reminder boxes need to also show the selected
+// length of the reminder (12mo, 24mo, etc) and they all also have to have
+// that bar be editable with a custom length."
 function ReminderFormModal({
   visible, editing, applicableAds, onClose, onSaved,
 }: {
@@ -913,7 +943,7 @@ function ReminderFormModal({
   editing: AircraftReminder | null
   applicableAds: AircraftAdNotification[]
   onClose: () => void
-  onSaved: (input: { title: string; dueDate: string; notes: string; linkedAdNumber: string | null }) => void
+  onSaved: (input: { title: string; dueDate: string; notes: string; linkedAdNumber: string | null; intervalMonths: number | null }) => void
 }) {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -924,6 +954,8 @@ function ReminderFormModal({
   const [dueDate, setDueDate] = useState('')
   const [notes, setNotes] = useState('')
   const [linkedAdNumber, setLinkedAdNumber] = useState<string | null>(null)
+  const [intervalMonths, setIntervalMonths] = useState<number | null>(null)
+  const [customLengthText, setCustomLengthText] = useState('')
   const [datePickerVisible, setDatePickerVisible] = useState(false)
   const [adPickerVisible, setAdPickerVisible] = useState(false)
 
@@ -952,6 +984,9 @@ function ReminderFormModal({
     setDueDate(editing?.dueDate ?? '')
     setNotes(editing?.notes ?? '')
     setLinkedAdNumber(editing?.linkedAdNumber ?? null)
+    const im = editing?.intervalMonths ?? null
+    setIntervalMonths(im)
+    setCustomLengthText(im != null && !(LENGTH_PRESETS as readonly number[]).includes(im) ? String(im) : '')
   }, [visible, editing])
 
   const selectType = (key: ReminderTypeKey) => {
@@ -959,13 +994,24 @@ function ReminderFormModal({
     const def = REMINDER_TYPES.find((t) => t.key === key)!
     setTitle(def.defaultTitle)
     setDueDate(def.months != null ? toISODate(addMonths(new Date(), def.months)) : '')
+    setIntervalMonths(def.months)
+    setCustomLengthText('')
     if (key !== 'ad') setLinkedAdNumber(null)
   }
 
   const handleSave = () => {
     if (!title.trim()) { confirm({ title: 'Title required', message: 'Enter what this reminder is for.', cancelLabel: null }); return }
     if (!DATE_RE.test(dueDate.trim())) { confirm({ title: 'Pick a due date', message: 'Use the date picker to set when this is due.', cancelLabel: null }); return }
-    onSaved({ title: title.trim(), dueDate: dueDate.trim(), notes, linkedAdNumber })
+    onSaved({ title: title.trim(), dueDate: dueDate.trim(), notes, linkedAdNumber, intervalMonths })
+  }
+
+  const isCustomLength = customLengthText !== '' || (intervalMonths != null && !(LENGTH_PRESETS as readonly number[]).includes(intervalMonths))
+  const selectPresetLength = (n: number | null) => { setIntervalMonths(n); setCustomLengthText('') }
+  const selectCustomLength = (text: string) => {
+    const digitsOnly = text.replace(/[^0-9]/g, '')
+    setCustomLengthText(digitsOnly)
+    const n = parseInt(digitsOnly, 10)
+    setIntervalMonths(digitsOnly && n > 0 ? n : null)
   }
 
   return (
@@ -1016,6 +1062,47 @@ function ReminderFormModal({
               <Text style={{ color: dueDate ? tokens.t1 : tokens.t3, fontSize: fs(14.5) }}>{dueDate || 'Due date'}</Text>
               <Icon name="chevron.down" size={fs(14)} color={tokens.t4} />
             </Pressable>
+
+            <Text style={[styles.formLabel, { color: tokens.t3, fontSize: fs(11) }]}>LENGTH (RECURS EVERY)</Text>
+            <View style={styles.chipGrid}>
+              <Pressable
+                style={[styles.typeChip, { backgroundColor: intervalMonths == null && !isCustomLength ? tokens.bdim : tokens.bg2, borderColor: intervalMonths == null && !isCustomLength ? tokens.blu : tokens.bdr }]}
+                onPress={() => selectPresetLength(null)}
+              >
+                <Text style={[styles.typeChipText, { color: intervalMonths == null && !isCustomLength ? tokens.blu : tokens.t1, fontSize: fs(12.5) }]}>None</Text>
+              </Pressable>
+              {LENGTH_PRESETS.map((n) => {
+                const active = intervalMonths === n && !isCustomLength
+                return (
+                  <Pressable
+                    key={n}
+                    style={[styles.typeChip, { backgroundColor: active ? tokens.bdim : tokens.bg2, borderColor: active ? tokens.blu : tokens.bdr }]}
+                    onPress={() => selectPresetLength(n)}
+                  >
+                    <Text style={[styles.typeChipText, { color: active ? tokens.blu : tokens.t1, fontSize: fs(12.5) }]}>{n}mo</Text>
+                  </Pressable>
+                )
+              })}
+              <Pressable
+                style={[styles.typeChip, { backgroundColor: isCustomLength ? tokens.bdim : tokens.bg2, borderColor: isCustomLength ? tokens.blu : tokens.bdr }]}
+                onPress={() => setCustomLengthText(intervalMonths != null ? String(intervalMonths) : '')}
+              >
+                <Text style={[styles.typeChipText, { color: isCustomLength ? tokens.blu : tokens.t1, fontSize: fs(12.5) }]}>Custom</Text>
+              </Pressable>
+            </View>
+            {isCustomLength && (
+              <View style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr, paddingVertical: 0 }]}>
+                <TextInput
+                  value={customLengthText}
+                  onChangeText={selectCustomLength}
+                  placeholder="Months"
+                  placeholderTextColor={tokens.t3}
+                  keyboardType="number-pad"
+                  style={{ flex: 1, color: tokens.t1, fontSize: ifs(14.5), paddingVertical: 12 }}
+                />
+                <Text style={{ color: tokens.t3, fontSize: fs(13) }}>months</Text>
+              </View>
+            )}
 
             {(typeKey === 'ad' || (editing && linkedAdNumber)) && (
               <Pressable style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr }]} onPress={() => setAdPickerVisible(true)}>

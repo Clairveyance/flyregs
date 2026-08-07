@@ -358,12 +358,17 @@ export interface AircraftReminder {
   dueDate: string
   linkedAdNumber: string | null
   notes: string | null
+  // Nullable -- 100-Hour and AD Compliance reminders aren't calendar-
+  // interval-based, and a Custom reminder may have no fixed recurrence.
+  // See sync/migrations_reminder_interval.sql for why this now persists
+  // (was a client-only creation-time convenience before).
+  intervalMonths: number | null
 }
 
 export async function getAircraftReminders(userAircraftId: string): Promise<AircraftReminder[]> {
   const { data, error } = await supabase
     .from('user_aircraft_reminders')
-    .select('id, user_aircraft_id, title, due_date, linked_ad_number, notes')
+    .select('id, user_aircraft_id, title, due_date, linked_ad_number, notes, interval_months')
     .eq('user_aircraft_id', userAircraftId)
     .order('due_date')
   if (error) throw error
@@ -374,6 +379,7 @@ export async function getAircraftReminders(userAircraftId: string): Promise<Airc
     dueDate: r.due_date,
     linkedAdNumber: r.linked_ad_number,
     notes: r.notes,
+    intervalMonths: r.interval_months,
   }))
 }
 
@@ -384,6 +390,7 @@ export async function addAircraftReminder(
   dueDate: string,
   linkedAdNumber?: string | null,
   notes?: string | null,
+  intervalMonths?: number | null,
 ): Promise<void> {
   const { error } = await supabase.from('user_aircraft_reminders').insert({
     user_id: userId,
@@ -392,6 +399,7 @@ export async function addAircraftReminder(
     due_date: dueDate,
     linked_ad_number: linkedAdNumber || null,
     notes: notes?.trim() || null,
+    interval_months: intervalMonths ?? null,
   })
   if (error) throw error
 }
@@ -407,6 +415,7 @@ export async function updateAircraftReminder(
   dueDate: string,
   linkedAdNumber?: string | null,
   notes?: string | null,
+  intervalMonths?: number | null,
 ): Promise<void> {
   const { error } = await supabase
     .from('user_aircraft_reminders')
@@ -415,6 +424,7 @@ export async function updateAircraftReminder(
       due_date: dueDate,
       linked_ad_number: linkedAdNumber || null,
       notes: notes?.trim() || null,
+      interval_months: intervalMonths ?? null,
     })
     .eq('id', id)
   if (error) throw error

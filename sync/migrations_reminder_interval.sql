@@ -1,0 +1,12 @@
+-- RC: "these reminder boxes need to also show the selected length of the
+-- reminder (12mo, 24mo, etc) and they all also have to have that bar be
+-- editable with a custom length by the user."
+--
+-- Previously `months` on REMINDER_TYPES (my-aircraft/[id].tsx) was a
+-- CLIENT-ONLY convenience: it pre-filled a suggested due date at creation
+-- time and was never stored, so there was no way to show or edit "which
+-- interval is this on" after the fact. This column persists it. Nullable --
+-- 100-Hour and AD Compliance reminders are genuinely not calendar-interval-
+-- based (100-Hour is hobbs/tach-based; AD intervals vary per AD), and a
+-- Custom reminder may have no fixed recurrence at all.
+ALTER TABLE user_aircraft_reminders ADD COLUMN IF NOT EXISTS interval_months INTEGER NULL;
