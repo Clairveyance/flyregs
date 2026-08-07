@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { View, Text, Image, ScrollView, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -29,6 +30,31 @@ import { NameTag } from '@/components/NameTag'
 // tap, matching the exact pattern Ref Packets already used before this
 // redesign. See flyregs_decisions.md / project_flyregs_state.md for the
 // full IA-redesign writeup.
+
+// Identity-card stats cache -- RC: the nametag block "always takes a couple
+// seconds to load... everything moves down" and causes real mis-taps.
+// Root cause: the identity card's second/third lines (IdentityStats vs.
+// "View your profile", and NameTag) start at ZERO height (mastery/currency/
+// duelStats/ratings/coins all begin null/[]), then each of 5 independent
+// Supabase calls resolves at its own pace and pops its own row in, growing
+// the card in multiple separate steps and pushing every card below it down
+// mid-interaction. Two fixes combined: (1) batch all 5 fetches into one
+// Promise.all so the card grows ONCE, atomically, not five times; (2) cache
+// the last-seen snapshot per user (in-memory for the rest of this app
+// session, AsyncStorage across a cold relaunch) and hydrate from it
+// immediately, so every visit after the very first one this install ever
+// makes paints already-correct on the first frame -- matching how
+// useCachedImage (imageCache.ts) already does "instant from cache, refresh
+// live" for avatars.
+type IdentitySnapshot = {
+  mastery: StudyMastery | null
+  currency: Currency | null
+  duelStats: DuelStats | null
+  ratings: RatingCode[]
+  coins: EarnedCoin[]
+}
+const identityStatsMemCache: Record<string, IdentitySnapshot> = {}
+const IDENTITY_CACHE_KEY_PREFIX = '@flyregs/identityStatsCache:'
 
 export default function CommunityScreen() {
   const { tokens, redShift } = useTheme()
@@ -72,11 +98,42 @@ export default function CommunityScreen() {
       setMastery(null); setCurrency(null); setDuelStats(null); setRatings([]); setCoins([])
       return
     }
-    getStudyMastery().then(setMastery).catch(() => {})
-    getCurrency().then(setCurrency).catch(() => {})
-    getMyCoins().then(setCoins).catch(() => {})
-    getDuelStats().then(setDuelStats).catch(() => {})
-    getMyRatings(session.user.id).then(setRatings).catch(() => {})
+    const uid = session.user.id
+
+    // Instant paint from the last-seen snapshot for this user, if any --
+    // same-session cache hits are zero-latency, a cold-launch cache hit is
+    // one fast local read instead of the ~1-2s these 5 queries take
+    // together over the network.
+    const applySnapshot = (snap: IdentitySnapshot) => {
+      setMastery(snap.mastery); setCurrency(snap.currency); setDuelStats(snap.duelStats)
+      setRatings(snap.ratings); setCoins(snap.coins)
+    }
+    const mem = identityStatsMemCache[uid]
+    if (mem) {
+      applySnapshot(mem)
+    } else {
+      AsyncStorage.getItem(IDENTITY_CACHE_KEY_PREFIX + uid).then((raw) => {
+        if (!raw) return
+        try { applySnapshot(JSON.parse(raw)) } catch {}
+      })
+    }
+
+    // Batched into one Promise.all (was 5 independent .then() calls) so the
+    // card grows ONCE when fresh data lands, not in five separate steps at
+    // five different times -- each inner .catch keeps a single failed query
+    // from blanking out the others, matching the original per-call resilience.
+    Promise.all([
+      getStudyMastery().catch(() => null),
+      getCurrency().catch(() => null),
+      getMyCoins().catch(() => [] as EarnedCoin[]),
+      getDuelStats().catch(() => null),
+      getMyRatings(uid).catch(() => [] as RatingCode[]),
+    ]).then(([m, c, co, d, r]) => {
+      const snap: IdentitySnapshot = { mastery: m, currency: c, duelStats: d, ratings: r, coins: co }
+      applySnapshot(snap)
+      identityStatsMemCache[uid] = snap
+      AsyncStorage.setItem(IDENTITY_CACHE_KEY_PREFIX + uid, JSON.stringify(snap)).catch(() => {})
+    })
   }, [session])
 
   const hasAnyStats = !!(
