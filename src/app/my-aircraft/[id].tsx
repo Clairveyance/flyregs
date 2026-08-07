@@ -11,6 +11,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { SwipeToDelete } from '@/components/SwipeToDelete'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { EditAircraftModal, type UserAircraft } from '@/components/AircraftFormFields'
+import { HobbsUpdateModal } from '@/components/HobbsUpdateModal'
 import { supabase } from '@/lib/supabase'
 import {
   searchParts, getAircraftEquipment, addAircraftEquipment, removeAircraftEquipment,
@@ -378,27 +379,6 @@ export default function AircraftDetailScreen() {
     setPartPickerVisible(true)
   }
 
-  // RC's recurring-AD/hobbs design: aircraft-level self-reported current
-  // hours, compared live against each reminder's optional due_hobbs_hours.
-  // v1 is manual-reset -- the user re-opens this and updates the number
-  // themselves whenever they've logged more time, no automatic accrual.
-  const handleSaveHobbs = async (hoursText: string) => {
-    if (!aircraft) return
-    const trimmed = hoursText.trim()
-    const hours = trimmed === '' ? null : parseFloat(trimmed)
-    if (trimmed !== '' && (hours == null || isNaN(hours) || hours < 0)) {
-      confirm({ title: 'Invalid hours', message: 'Enter a positive number, or leave it blank to clear.', cancelLabel: null })
-      return
-    }
-    const { error } = await supabase
-      .from('user_aircraft')
-      .update({ current_hobbs_hours: hours, hobbs_updated_at: hours != null ? new Date().toISOString() : null })
-      .eq('id', aircraft.id)
-    if (error) { confirm({ title: 'Could not save', message: error.message, cancelLabel: null }); return }
-    setHobbsModalVisible(false)
-    load()
-  }
-
   const openAddReminder = () => {
     // Pro+ per the standing push policy ("reminders push Pro+, AD alerts
     // Premium-only") -- this was wrongly gated at isPremium, silently
@@ -507,20 +487,23 @@ export default function AircraftDetailScreen() {
           {/* Self-reported hobbs/tach -- RC: "the field can default to a/c
               level," compared live against each reminder's own optional
               usage-based due mark below. Free-tier disclaimer already
-              covers "based only on what you enter here." */}
+              covers "based only on what you enter here." RC, on a first
+              build with a pencil icon + "Set current hours" label: "we
+              don't need those words. Just the icon and 'Set' - but make
+              them blue so it's clear that they're clickable." Blue only
+              when actually tappable (canEdit) -- a viewer sees the same
+              value in the normal muted text color since tapping does
+              nothing for them. */}
           {(aircraft.current_hobbs_hours != null || canEdit) && (
             <Pressable
               style={styles.hobbsRow}
               onPress={canEdit ? () => setHobbsModalVisible(true) : undefined}
               hitSlop={6}
             >
-              <Icon name="gauge" size={fs(12)} color={tokens.t4} />
-              <Text style={[styles.acSub, { color: tokens.t3, fontSize: fs(12), marginBottom: 0 }]}>
-                {aircraft.current_hobbs_hours != null
-                  ? `${aircraft.current_hobbs_hours} hrs`
-                  : 'Set current hours'}
+              <Icon name="gauge" size={fs(12)} color={canEdit ? tokens.blu : tokens.t4} />
+              <Text style={[styles.acSub, { color: canEdit ? tokens.blu : tokens.t3, fontSize: fs(12), marginBottom: 0 }]}>
+                {aircraft.current_hobbs_hours != null ? `${aircraft.current_hobbs_hours}` : 'Set'}
               </Text>
-              {canEdit && <Icon name="pencil" size={fs(10)} color={tokens.t4} />}
             </Pressable>
           )}
           {!isOwner && (
@@ -900,10 +883,11 @@ export default function AircraftDetailScreen() {
       />
       <HobbsUpdateModal
         visible={hobbsModalVisible}
+        aircraftId={aircraft.id}
         initialHours={aircraft.current_hobbs_hours ?? null}
         updatedAt={aircraft.hobbs_updated_at ?? null}
         onClose={() => setHobbsModalVisible(false)}
-        onSave={handleSaveHobbs}
+        onSaved={() => { setHobbsModalVisible(false); load() }}
       />
     </View>
   )
@@ -979,67 +963,6 @@ function PartPickerModal({ visible, editing, onClose, onPicked }: { visible: boo
             )}
           </ScrollView>
         )}
-      </View>
-    </Modal>
-  )
-}
-
-// Self-reported hobbs/tach, aircraft-level per RC's design ("the field can
-// default to a/c level"). v1 is manual-reset only -- no accrual, no
-// auto-recurrence; the user comes back and updates this number whenever
-// they've logged more time.
-function HobbsUpdateModal({
-  visible, initialHours, updatedAt, onClose, onSave,
-}: {
-  visible: boolean
-  initialHours: number | null
-  updatedAt: string | null
-  onClose: () => void
-  onSave: (hoursText: string) => void
-}) {
-  const { tokens } = useTheme()
-  const fs = useFS()
-  const ifs = useInputFS()
-  const [text, setText] = useState('')
-
-  useEffect(() => {
-    if (visible) setText(initialHours != null ? String(initialHours) : '')
-  }, [visible, initialHours])
-
-  return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent>
-      <View style={styles.modalBackdrop}>
-        <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
-          <View style={styles.modalHeader}>
-            <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Current Hobbs / Tach</Text>
-            <Pressable onPress={onClose} hitSlop={10}>
-              <Icon name="xmark" size={fs(18)} color={tokens.t3} />
-            </Pressable>
-          </View>
-          <Text style={{ color: tokens.t3, fontSize: fs(12.5), marginBottom: 4 }}>
-            Self-reported — used to compare against any reminder's usage-based due mark below.
-          </Text>
-          <View style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr, paddingVertical: 0 }]}>
-            <TextInput
-              value={text}
-              onChangeText={(t) => setText(t.replace(/[^0-9.]/g, ''))}
-              placeholder="e.g. 1842.3"
-              placeholderTextColor={tokens.t3}
-              keyboardType="decimal-pad"
-              style={{ flex: 1, color: tokens.t1, fontSize: ifs(14.5), paddingVertical: 12 }}
-              autoFocus
-            />
-            <Text style={{ color: tokens.t3, fontSize: fs(13) }}>hrs</Text>
-          </View>
-          {updatedAt && (
-            <Text style={{ color: tokens.t4, fontSize: fs(11.5) }}>
-              Last updated {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-            </Text>
-          )}
-          <Pressable style={[styles.addButton, { backgroundColor: tokens.blu }]} onPress={() => onSave(text)}>
-            <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Save</Text>
-          </Pressable>
-        </View>
       </View>
     </Modal>
   )

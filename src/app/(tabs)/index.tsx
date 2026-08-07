@@ -12,6 +12,7 @@ import {
   Platform,
   Animated,
   useWindowDimensions,
+  Modal,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -46,6 +47,8 @@ import type { AcFigure } from '@/types'
 import { getRecentSearches, addRecentSearch, removeRecentSearch, clearRecentSearches } from '@/lib/recentSearches'
 import { ChipFilterSheet, ChipFilterSection } from '@/components/ChipFilterSheet'
 import { stripAdSubjectPrefix } from '@/lib/titleFormat'
+import { getFleetSummary, type FleetAircraftSummary } from '@/lib/aircraftSharing'
+import { HobbsUpdateModal } from '@/components/HobbsUpdateModal'
 import {
   filterDocuments, filterResultCount, routeForFilterResult, searchCitableDocuments,
   getFarPartOptions, getAcSeriesOptions, AUDIENCE_OPTIONS,
@@ -927,7 +930,7 @@ export default function HomeScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <ScreenHeader showWordmark />
+      <ScreenHeader showWordmark right={<HobbsHeaderButton />} />
       <TabletContainer disabled={isTabletLandscape || isTabletPortrait}>
 
       {showWelcome && (
@@ -1411,6 +1414,82 @@ export default function HomeScreen() {
       <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
       </TabletContainer>
     </View>
+  )
+}
+
+// ─── Hobbs/tach quick update (Home header) ───────────────────────────────────
+// RC: "we could find a good place for that on the Home screen so it's a
+// one tap step when opening the app - a CTA box pops up, they update their
+// hobbs/tach time and submit. Then, our system updates the MF/MA pages with
+// that intel... NOW the h/t reminders they input actually are useful."
+// Landed in the header (same row as the wordmark and drawer icon) per RC's
+// own follow-up, not a scrolling-content card -- self-contained like
+// DailyRegCard below (fetches its own data), invisible for Free/Plus or any
+// Pro/Premium account with zero saved aircraft yet.
+function HobbsHeaderButton() {
+  const { tokens } = useTheme()
+  const fs = useFS()
+  const { hasProAccess } = useAuth()
+  const [fleet, setFleet] = useState<FleetAircraftSummary[] | null>(null)
+  const [pickerVisible, setPickerVisible] = useState(false)
+  const [editing, setEditing] = useState<FleetAircraftSummary | null>(null)
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasProAccess) { setFleet([]); return }
+      getFleetSummary().then(setFleet).catch(() => setFleet([]))
+    }, [hasProAccess])
+  )
+
+  if (!hasProAccess || !fleet || fleet.length === 0) return null
+
+  const openUpdate = () => {
+    if (fleet.length === 1) { setEditing(fleet[0]); return }
+    setPickerVisible(true)
+  }
+
+  return (
+    <>
+      <Pressable onPress={openUpdate} style={styles.iconBtn} hitSlop={8}>
+        <Icon name="gauge" size={fs(21)} color={tokens.t2} />
+      </Pressable>
+
+      <Modal visible={pickerVisible} animationType="slide" transparent onRequestClose={() => setPickerVisible(false)}>
+        <View style={styles.hobbsPickerBackdrop}>
+          <View style={[styles.hobbsPickerCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+            <View style={styles.hobbsPickerHeader}>
+              <Text style={[styles.hobbsPickerTitle, { color: tokens.t1, fontSize: fs(16) }]}>Update Hours</Text>
+              <Pressable onPress={() => setPickerVisible(false)} hitSlop={10}>
+                <Icon name="xmark" size={fs(18)} color={tokens.t3} />
+              </Pressable>
+            </View>
+            {fleet.map((a) => (
+              <Pressable
+                key={a.aircraftId}
+                style={[styles.hobbsPickerRow, { borderBottomColor: tokens.bdr }]}
+                onPress={() => { setPickerVisible(false); setEditing(a) }}
+              >
+                <Icon name="gauge" size={fs(14)} color={tokens.blu} />
+                <Text style={{ color: tokens.t1, fontSize: fs(14), flex: 1 }}>{a.nickname || `${a.make} ${a.model}`}</Text>
+                <Text style={{ color: tokens.t3, fontSize: fs(13) }}>{a.currentHobbsHours != null ? `${a.currentHobbsHours} hrs` : 'Set'}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      </Modal>
+
+      <HobbsUpdateModal
+        visible={!!editing}
+        aircraftId={editing?.aircraftId ?? ''}
+        initialHours={editing?.currentHobbsHours ?? null}
+        updatedAt={null}
+        onClose={() => setEditing(null)}
+        onSaved={(hours) => {
+          setFleet((prev) => (prev ? prev.map((x) => (x.aircraftId === editing?.aircraftId ? { ...x, currentHobbsHours: hours } : x)) : prev))
+          setEditing(null)
+        }}
+      />
+    </>
   )
 }
 
@@ -1952,6 +2031,12 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listContent: { paddingBottom: 24 },
+  iconBtn: { padding: 6 },
+  hobbsPickerBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
+  hobbsPickerCard: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, padding: 18, maxHeight: '70%' },
+  hobbsPickerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  hobbsPickerTitle: { fontWeight: '700' },
+  hobbsPickerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   welcomeToast: {
     position: 'absolute',
     top: 60,

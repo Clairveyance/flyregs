@@ -21,6 +21,7 @@ import {
   type FleetAircraftSummary,
 } from '@/lib/aircraftSharing'
 import { SwipeToDelete } from '@/components/SwipeToDelete'
+import { HobbsUpdateModal } from '@/components/HobbsUpdateModal'
 import {
   MakeField, ModelField, TypeDesignatorField, YearField, YearPickerModal, type UserAircraft,
 } from '@/components/AircraftFormFields'
@@ -757,6 +758,10 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   const confirm = useConfirm()
   const [aircraft, setAircraft] = useState<FleetAircraftSummary[]>([])
   const [loading, setLoading] = useState(true)
+  // RC: "make sure the Icon and h/t time also appear here" -- the same
+  // self-reported hobbs/tach value shown on the aircraft detail screen,
+  // now also visible (and editable inline, no navigation) on the list row.
+  const [hobbsEditing, setHobbsEditing] = useState<FleetAircraftSummary | null>(null)
   // Soonest upcoming (not overdue) reminder due date across the whole
   // fleet, for the ring card's "NEXT DUE" stat box. get_fleet_summary()
   // only returns an overdue COUNT, not individual due dates, so this is a
@@ -1269,6 +1274,18 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                           )}
                         </View>
                         <Text style={[styles.rowNickname, { color: tokens.t3, fontSize: fs(12.5) }]}>{secondaryLabel}</Text>
+                        {(a.currentHobbsHours != null || canEdit) && (
+                          <Pressable
+                            style={styles.hobbsRowMini}
+                            onPress={(e) => { e.stopPropagation(); if (canEdit) setHobbsEditing(a) }}
+                            hitSlop={6}
+                          >
+                            <Icon name="gauge" size={fs(11)} color={canEdit ? tokens.blu : tokens.t4} />
+                            <Text style={{ color: canEdit ? tokens.blu : tokens.t3, fontSize: fs(11.5) }}>
+                              {a.currentHobbsHours != null ? `${a.currentHobbsHours}` : 'Set'}
+                            </Text>
+                          </Pressable>
+                        )}
                       </View>
                       <Pressable
                         onPress={(e) => { e.stopPropagation(); handleQuickComplied(a) }}
@@ -1524,6 +1541,17 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
         tokens={tokens}
         fs={fs}
       />
+      <HobbsUpdateModal
+        visible={!!hobbsEditing}
+        aircraftId={hobbsEditing?.aircraftId ?? ''}
+        initialHours={hobbsEditing?.currentHobbsHours ?? null}
+        updatedAt={null}
+        onClose={() => setHobbsEditing(null)}
+        onSaved={(hours) => {
+          setAircraft((prev) => prev.map((x) => (x.aircraftId === hobbsEditing?.aircraftId ? { ...x, currentHobbsHours: hours } : x)))
+          setHobbsEditing(null)
+        }}
+      />
     </View>
   )
 }
@@ -1545,6 +1573,7 @@ const styles = StyleSheet.create({
   rowMakeLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   rowMake: { fontWeight: '600' },
   rowNickname: { marginTop: 2 },
+  hobbsRowMini: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
   roleBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
   roleBadgeText: { fontWeight: '700', letterSpacing: 0.4 },
   rowStatusRing: { width: 34, height: 34, borderRadius: 17, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },

@@ -148,6 +148,7 @@ export interface FleetAircraftSummary {
   role: FleetRole
   openAdCount: number
   overdueReminderCount: number
+  currentHobbsHours: number | null
 }
 
 // The single data source for My Fleet's list screen -- owned AND shared
@@ -164,6 +165,7 @@ export async function getFleetSummary(): Promise<FleetAircraftSummary[]> {
     aircraftId: row.out_aircraft_id, make: row.out_make, model: row.out_model, nickname: row.out_nickname,
     typeDesignator: row.out_type_designator, year: row.out_year, role: row.out_role,
     openAdCount: row.out_open_ad_count, overdueReminderCount: row.out_overdue_reminder_count,
+    currentHobbsHours: row.out_current_hobbs_hours,
   }))
 }
 
@@ -210,6 +212,18 @@ export async function keepOnlyAircraft(keepIds: string[]): Promise<void> {
   let q = supabase.from('user_aircraft').delete().eq('user_id', userId)
   if (keepIds.length > 0) q = q.not('id', 'in', `(${keepIds.join(',')})`)
   const { error } = await q
+  if (error) throw error
+}
+
+// Shared write path for the self-reported hobbs/tach value -- used from the
+// aircraft detail screen, the Fleet list row, and Home's quick-update CTA,
+// so all three stay byte-identical instead of drifting. See
+// sync/migrations_hobbs_tracking.sql.
+export async function setAircraftCurrentHobbs(aircraftId: string, hours: number | null): Promise<void> {
+  const { error } = await supabase
+    .from('user_aircraft')
+    .update({ current_hobbs_hours: hours, hobbs_updated_at: hours != null ? new Date().toISOString() : null })
+    .eq('id', aircraftId)
   if (error) throw error
 }
 
