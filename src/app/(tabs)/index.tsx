@@ -1443,14 +1443,19 @@ function HobbsHeaderButton() {
 
   if (!hasProAccess || !fleet || fleet.length === 0) return null
 
-  const openUpdate = () => {
-    if (fleet.length === 1) { setEditing(fleet[0]); return }
-    setPickerVisible(true)
-  }
+  // RC: "most of the time, this would be how users will access MF/MA" --
+  // the sheet is a real gateway into My Fleet/My Aircraft, not just a
+  // quick-tach shortcut, so it always opens (even for one aircraft) instead
+  // of skipping straight to the update modal. Tapping a row's hours updates
+  // inline and stays on Home; tapping the rest of the row, or the "Manage"
+  // bar, navigates into the app.
+  const isFleet = fleet.length > 1
+  const goToFleet = () => { setPickerVisible(false); router.push('/my-aircraft' as any) }
+  const goToAircraft = (id: string) => { setPickerVisible(false); router.push(`/my-aircraft/${id}` as any) }
 
   return (
     <>
-      <Pressable onPress={openUpdate} style={styles.iconBtn} hitSlop={8}>
+      <Pressable onPress={() => setPickerVisible(true)} style={styles.iconBtn} hitSlop={8}>
         <Icon name="speedometer" size={fs(21)} color={tokens.t2} />
       </Pressable>
 
@@ -1458,7 +1463,7 @@ function HobbsHeaderButton() {
         <View style={styles.hobbsPickerBackdrop}>
           <View style={[styles.hobbsPickerCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
             <View style={styles.hobbsPickerHeader}>
-              <Text style={[styles.hobbsPickerTitle, { color: tokens.t1, fontSize: fs(16) }]}>Update Hours</Text>
+              <Text style={[styles.hobbsPickerTitle, { color: tokens.t1, fontSize: fs(16) }]}>{isFleet ? 'My Fleet' : 'My Aircraft'}</Text>
               <Pressable onPress={() => setPickerVisible(false)} hitSlop={10}>
                 <Icon name="xmark" size={fs(18)} color={tokens.t3} />
               </Pressable>
@@ -1467,13 +1472,28 @@ function HobbsHeaderButton() {
               <Pressable
                 key={a.aircraftId}
                 style={[styles.hobbsPickerRow, { borderBottomColor: tokens.bdr }]}
-                onPress={() => { setPickerVisible(false); setEditing(a) }}
+                onPress={() => goToAircraft(a.aircraftId)}
               >
-                <Icon name="speedometer" size={fs(14)} color={tokens.blu} />
+                <Icon name="airplane" size={fs(14)} color={tokens.t2} />
                 <Text style={{ color: tokens.t1, fontSize: fs(14), flex: 1 }}>{a.nickname || `${a.make} ${a.model}`}</Text>
-                <Text style={{ color: tokens.t3, fontSize: fs(13) }}>{a.currentHobbsHours != null ? `${a.currentHobbsHours} hrs` : 'Set'}</Text>
+                <Pressable
+                  style={styles.hobbsPickerHours}
+                  onPress={(e) => { e.stopPropagation(); setPickerVisible(false); setEditing(a) }}
+                  hitSlop={6}
+                >
+                  <Icon name="speedometer" size={fs(13)} color={tokens.blu} />
+                  <Text style={{ color: tokens.blu, fontSize: fs(13), fontWeight: '600' }}>
+                    {a.currentHobbsHours != null ? `${a.currentHobbsHours}` : 'Set'}
+                  </Text>
+                </Pressable>
               </Pressable>
             ))}
+            <Pressable style={[styles.hobbsPickerManage, { borderColor: tokens.blu }]} onPress={goToFleet}>
+              <Text style={{ color: tokens.blu, fontSize: fs(14), fontWeight: '600' }}>
+                {isFleet ? 'Manage My Fleet' : 'Manage My Aircraft'}
+              </Text>
+              <Icon name="chevron.right" size={fs(13)} color={tokens.blu} />
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -2037,6 +2057,8 @@ const styles = StyleSheet.create({
   hobbsPickerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   hobbsPickerTitle: { fontWeight: '700' },
   hobbsPickerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  hobbsPickerHours: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8 },
+  hobbsPickerManage: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, borderWidth: 1, borderRadius: 10, paddingVertical: 12, marginTop: 14 },
   welcomeToast: {
     position: 'absolute',
     top: 60,
