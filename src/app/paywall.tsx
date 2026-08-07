@@ -96,7 +96,10 @@ const PLUS_FEATURES = [
   { icon: 'wrench.and.screwdriver', label: 'Full text of every Airworthiness Directive' },
   { icon: 'list.bullet',       label: 'Mnemonics — memory aids for checkride prep' },
   { icon: 'square.grid.2x2',   label: 'RefPacks — certificate-specific study collections' },
-  { icon: 'highlighter',       label: 'Highlights, Notes, Bookmarks & Folders' },
+  // Audit gap: the 3-folder cap (PLUS_FOLDER_CAP in (tabs)/saved.tsx) was
+  // disclosed in the FAQ ("Folders (up to 3)") but never here, so a Plus
+  // buyer wasn't told about it until after purchase.
+  { icon: 'highlighter',       label: 'Highlights, Notes, Bookmarks & Folders (up to 3)' },
   { icon: 'printer',           label: 'Print & export any section' },
   { icon: 'magnifyingglass',   label: 'Unlimited search results' },
   { icon: 'doc.badge.clock',   label: "What's Changed — see exactly what the FAA revised" },
@@ -118,7 +121,7 @@ const PRO_ADDITIONS = [
   { icon: 'icloud',    label: 'Cross-device sync for your highlights, notes & bookmarks' },
   { icon: 'bell.badge', label: 'Airworthiness Directive alerts for your saved aircraft' },
   { icon: 'doc.badge.clock', label: 'Advisory Circular update alerts' },
-  { icon: 'airplane',  label: '1 saved aircraft' },
+  { icon: 'airplane',  label: '1 saved aircraft, with your own reminders for recurring maintenance' },
   { icon: 'rectangle.stack', label: 'Study Mode flashcards & mastery tracking' },
   { icon: 'rosette',   label: 'Challenge Coins for streaks & milestones' },
   { icon: 'person.2.fill', label: 'Ready Room leaderboard' },
@@ -134,6 +137,17 @@ const PREMIUM_ADDITIONS = [
   // my-aircraft/[id].tsx already gated this on isPremium (not just isPro,
   // unlike the rest of My Aircraft), it just was never written down here.
   { icon: 'wrench.and.screwdriver.fill', label: 'Tag specific parts to your aircraft for part-keyed AD alerts' },
+  // Confirmed gap: my-aircraft/[id].tsx's share flow (Viewer/Editor invite
+  // links, gated isPremium — see aircraftSharing.ts) was fully built and
+  // shipped but never appeared on this screen's own feature list.
+  { icon: 'link',              label: 'Share an aircraft — invite a Viewer or Editor to see or help track compliance' },
+  // Audit gap: the whole "Share" feature family (share.ts's shareAC/
+  // shareNote/shareReg/shareMany -- branded share cards, not the plain-link
+  // Plus-tier "Print & export") is isPremium-gated at 6+ call sites
+  // (notes.tsx, recents.tsx, saved.tsx, ac/[id].tsx's Share Passage) but was
+  // never mentioned on this screen at all, distinct from both Plus's export
+  // and the aircraft-sharing line just above.
+  { icon: 'square.and.arrow.up', label: 'Share notes, passages & regs as branded cards to any app' },
 ]
 
 // ─── Pricing ──────────────────────────────────────────────────────────────────
@@ -267,7 +281,7 @@ export default function PaywallScreen() {
     if (downgradeMode && tier === 'pro') {
       confirm({
         title: 'Downgrade to Pro?',
-        message: "You'll keep Premium features (shared folders, offline downloads, unlimited aircraft) until your current billing period ends, then move to Pro automatically. No refund for the time remaining.",
+        message: "You'll keep Premium features (shared folders, aircraft sharing, offline downloads, unlimited aircraft) until your current billing period ends, then move to Pro automatically. No refund for the time remaining.",
         confirmLabel: 'Downgrade',
         destructive: true,
         finalTitle: 'Downgrade to Pro — confirm',
@@ -329,7 +343,7 @@ export default function PaywallScreen() {
             <>
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>This is a Premium feature</Text>
               <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
-                Upgrade to Premium to unlock this — plus shared folders, offline downloads, and unlimited aircraft.
+                Upgrade to Premium to unlock this — plus shared folders, aircraft sharing, offline downloads, and unlimited aircraft.
               </Text>
             </>
           ) : proRequired ? (
@@ -343,7 +357,7 @@ export default function PaywallScreen() {
             <>
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>Take FlyRegs further</Text>
               <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
-                Add shared folders, offline downloads, and unlimited saved aircraft to your Pro subscription.
+                Add shared folders, aircraft sharing, offline downloads, and unlimited saved aircraft to your Pro subscription.
               </Text>
             </>
           ) : downgradeMode ? (
@@ -396,7 +410,7 @@ export default function PaywallScreen() {
                   <>
                     FAR, AIM, P/CG & ADs are free. Go{' '}
                     <Text style={{ color: tokens.gold, fontWeight: '700' }}>Premium</Text> for the complete
-                    experience — everything in Plus and Pro, plus offline access and shared folders.
+                    experience — everything in Plus and Pro, plus offline access, aircraft sharing, and shared folders.
                   </>
                 )}
               </Text>

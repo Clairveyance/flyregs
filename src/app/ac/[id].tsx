@@ -32,9 +32,9 @@ import { useIsTabletLandscape, useIsTabletPortrait } from '@/context/responsive'
 import { useScreenActions } from '@/context/screenActions'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { consumePendingBreadcrumb, setPendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
-import { useConfirm } from '@/components/ConfirmDialog'
 import { TabletContainer } from '@/components/TabletContainer'
 import type { AdvisoryCircular, AcFigure, FormulaRef } from '@/types'
 
@@ -473,6 +473,14 @@ export default function ACDetailScreen() {
       router.push('/paywall?tier=premium')
       return
     }
+    if (hasNoSourceAtAll) {
+      confirm({
+        title: 'Not available from the FAA',
+        message: 'The FAA has not published public content for this document, so there is nothing to save offline.',
+        cancelLabel: null,
+      })
+      return
+    }
     if (downloaded) {
       setDownloaded(false)
       await removeDownload(ac.id)
@@ -674,8 +682,14 @@ export default function ACDetailScreen() {
 
   // Long-press entry point: offers Copy alongside the existing Highlight
   // toggle instead of replacing it, so the one gesture now does both without
-  // adding new on-screen buttons to every block. Pro-gated up front so a Free
-  // user is routed straight to the paywall, same as tapping Highlight used to.
+  // adding new on-screen buttons to every block. NOTE this comment used to
+  // claim "Pro-gated up front, same as Highlight" -- that was stale/wrong on
+  // two counts: the entry point (handleBlockLongPress) is hasPlusAccess, not
+  // Pro, and this specific action requires Premium (share.ts's branded
+  // share-card family), one tier higher than what got the user into the
+  // menu. Confirmed via audit as a real advertised-but-bounced mismatch --
+  // the menu label itself now says "(Premium)" for anyone below that tier
+  // instead of silently bouncing with no warning.
   const handleSharePassage = useCallback(async (block: ACBlock) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     if (!ac) return
@@ -709,10 +723,17 @@ export default function ACDetailScreen() {
           label: isHighlighted ? 'Remove Highlight' : 'Highlight',
           onPress: () => handleToggleHighlight(block),
         },
-        { label: 'Share Passage', onPress: () => handleSharePassage(block) },
+        // Reachable by any Plus+ user (the long-press entry point above only
+        // checks hasPlusAccess), but handleSharePassage itself requires
+        // Premium -- confirmed as a real advertised-but-bounced mismatch: a
+        // Plus/Pro user could tap this and land on the paywall with zero
+        // warning. Labeling it up front costs nothing and matches how the
+        // rest of the app discloses a higher-tier gate before the tap, not
+        // after.
+        { label: isPremium ? 'Share Passage' : 'Share Passage (Premium)', onPress: () => handleSharePassage(block) },
       ],
     })
-  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, handleSharePassage])
+  }, [hasPlusAccess, isPremium, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, handleSharePassage])
 
   // Jump nav between the blocks the "What's New" diff flagged as changed —
   // mirrors the existing in-doc search prev/next pattern below (goToPrev/
@@ -749,9 +770,28 @@ export default function ACDetailScreen() {
   // sheet -- see that file's header comment for why (BB-005: a Safari View
   // Controller's own native share/copy-link button let the raw, un-gated PDF
   // URL leak to someone who never had the app at all).
+  // RC's QA framework (2026-08-06) found AC 8260-32F: status=active, but
+  // pdf_url_cached, pdf_url_faa, AND pdf_blocks are all null/empty --
+  // confirmed directly on faa.gov: "This document's content is unavailable."
+  // Not a scraper miss to re-run; the FAA itself doesn't publish this one
+  // (an FAA/USAF interagency order, not a normal public AC). Previously
+  // openPDF() fell through to a GUESSED url pattern in this exact case,
+  // which 404s (our own scraper tries that same pattern first and already
+  // failed to resolve it) -- silently routing to a broken pdf-viewer with no
+  // explanation. Detect the truly-no-source state up front instead.
+  const hasNoSourceAtAll = !ac?.pdf_url_cached && !ac?.pdf_url_faa && !(ac?.pdf_blocks && ac.pdf_blocks.length > 0)
+
   const openPDF = () => {
     if (!hasPlusAccess) {
       router.push('/paywall')
+      return
+    }
+    if (hasNoSourceAtAll) {
+      confirm({
+        title: 'Not available from the FAA',
+        message: 'The FAA has not published public content for this document. This is a gap in the source material, not something we can fix by re-checking.',
+        cancelLabel: null,
+      })
       return
     }
     const url =
@@ -1161,7 +1201,9 @@ export default function ACDetailScreen() {
             </View>
           ) : (
             <Text style={[styles.body, { color: tokens.t4, marginTop: 8, textAlign: 'center', fontSize: fs(13) }]}>
-              Full text is not available for this AC — use Open PDF above.
+              {hasNoSourceAtAll
+                ? 'The FAA has not published public content for this document.'
+                : 'Full text is not available for this AC — use Open PDF above.'}
             </Text>
           )}
 
@@ -1178,7 +1220,7 @@ export default function ACDetailScreen() {
         </ScrollView>
         </TabletContainer>
       )}
-      <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
+      <FigureViewer figure={viewerFigure} figures={figures ?? undefined} onNavigate={setViewerFigure} onClose={() => setViewerFigure(null)} />
       <FormulaRefViewer formulaRef={viewerFormulaRef} onClose={() => setViewerFormulaRef(null)} />
       <FolderPicker
         visible={folderPickerVisible}

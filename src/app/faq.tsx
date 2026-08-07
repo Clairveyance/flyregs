@@ -113,8 +113,8 @@ const FAQ: QA[] = [
     a: [
       'No — browsing the entire library and searching to find an AC are both free, with no account needed, and no limit on how many you can look up. Every AC\'s detail page shows its full Table of Contents plus the beginning of its text for free.',
       { tier: 'plus', text: 'A one-time purchase, not a subscription:\n• Complete text of every AC and AD\n• In-document search, notes, highlights & bookmarks\n• Folders (up to 3)\n• Mnemonics, RefPacks & What\'s Changed' },
-      { tier: 'pro', text: 'Everything in Plus, plus:\n• Cross-device sync\n• AD and AC update alerts, DailyReg\n• MagicLink, Ask FlyRegs & full Legal Interpretations\n• Study Mode, Challenge Coins & Ready Room\n• 1 saved aircraft' },
-      { tier: 'premium', text: 'Everything in Pro, plus:\n• Offline downloads\n• Shared folders, unlimited\n• Duels\n• Unlimited saved aircraft, with equipment tags, reminders & sharing' },
+      { tier: 'pro', text: 'Everything in Plus, plus:\n• Cross-device sync\n• AD and AC update alerts, DailyReg\n• MagicLink, Ask FlyRegs & full Legal Interpretations\n• Study Mode, Challenge Coins & Ready Room\n• 1 saved aircraft, with your own reminders' },
+      { tier: 'premium', text: 'Everything in Pro, plus:\n• Offline downloads\n• Shared folders, unlimited\n• Duels\n• Unlimited saved aircraft, with equipment tags & sharing' },
       'An account is only required when you start a subscription (Pro or Premium, either of which already includes everything Plus does) or make the one-time Plus purchase — creating an account by itself is free and doesn\'t unlock anything.',
     ],
   },
@@ -230,10 +230,10 @@ const FAQ: QA[] = [
     q: 'What is My Aircraft, and how do AD reminders work?',
     category: 'My Aircraft & RefPacks',
     a: [
-      { tier: 'pro', text: 'Save the aircraft you fly by make and model (My Account → My Aircraft), so FlyRegs matches new and revised Airworthiness Directives (ADs) against just the ones that actually apply to you — not the full corpus of thousands. 1 saved aircraft.' },
+      { tier: 'pro', text: 'Save the aircraft you fly by make and model (My Account → My Aircraft), so FlyRegs matches new and revised Airworthiness Directives (ADs) against just the ones that actually apply to you — not the full corpus of thousands. 1 saved aircraft, plus reminders you set yourself for recurring items (annuals, ELT battery, 100-hour, anything on your own schedule).' },
       'AD applicability text is written against the FAA\'s official type designator (e.g. "PA-28-181"), not always the marketing name you\'d know your plane by (e.g. "Warrior") — there\'s an optional Type Designator field for this, auto-suggested for common models, so matching stays accurate either way.',
       'Tap the icon on any Applicable AD to mark it complied, with an optional note — it stays visible with a green check and date instead of disappearing, so you keep a real record instead of a todo list that just empties out. (FlyRegs doesn\'t independently verify compliance — always keep your own maintenance records as the official source.)',
-      { tier: 'premium', text: 'Unlimited saved aircraft (shown as My Fleet instead of My Aircraft). Adds equipment tags for specific parts, engines, or avionics — more precise AD matching than make/model alone — reminders you set yourself for recurring items, and sharing — see the next question.' },
+      { tier: 'premium', text: 'Unlimited saved aircraft (shown as My Fleet instead of My Aircraft). Adds equipment tags for specific parts, engines, or avionics — more precise AD matching than make/model alone — and sharing — see the next question.' },
       'Where the alerts go differs by plan:',
       '• Reminders you set yourself push to your device on Pro and Premium — it\'s your own schedule, so you get told.',
       '• AD alerts push on Premium only. On Pro, new and updated ADs still appear on your My Aircraft page whenever you open it — they just don\'t push to your phone.',
