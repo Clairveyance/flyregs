@@ -189,7 +189,11 @@ export default function NotesScreen() {
       message: 'This note will be permanently deleted.',
       confirmLabel: 'Delete',
       destructive: true,
-      finalTitle: 'Delete Note — confirm',
+      // Single-step: swipe-to-delete already requires a deliberate gesture
+      // before this dialog even appears -- see feedback_destructive_actions_
+      // need_typing's aircraft-fleet-wipe distinction, RC scoped the extra
+      // moving-button step to aircraft deletion only.
+      twoStep: false,
       onConfirm: () => deleteNote(id),
     })
 
@@ -200,7 +204,7 @@ export default function NotesScreen() {
       message: "This can't be undone.",
       confirmLabel: 'Delete',
       destructive: true,
-      finalTitle: `Delete ${count} Note${count > 1 ? 's' : ''} — confirm`,
+      twoStep: false,
       onConfirm: () => {
         const ids = [...selected]
         persist(notes.filter((n) => !selected.has(n.id)))
@@ -472,7 +476,7 @@ export default function NotesScreen() {
                     message: "This can't be undone.",
                     confirmLabel: 'Delete',
                     destructive: true,
-                    finalTitle: 'Delete Note — confirm',
+                    twoStep: false,
                     onConfirm: () => { deleteNote(editorNote.id); setEditorNote(null) },
                   })
               : undefined

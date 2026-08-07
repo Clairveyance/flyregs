@@ -158,7 +158,7 @@ export default function RecentsScreen() {
       message: 'Remove your entire viewing history? This cannot be undone.',
       confirmLabel: 'Clear',
       destructive: true,
-      finalTitle: 'Clear all Recents — confirm',
+      twoStep: false,
       onConfirm: async () => {
         setGroups([])
         await clearRecents()

@@ -516,14 +516,10 @@ export default function AccountScreen() {
       message: `This permanently deletes your account and all synced data (bookmarks, folders, notes, highlights). This cannot be undone.${subscriptionWarning}`,
       confirmLabel: 'Delete Permanently',
       destructive: true,
-      finalTitle: 'There is no way back',
-      // The one place typed confirmation is unambiguously proportionate.
-      // RC's rule is that a deliberate delete earns the moving-button
-      // two-step, not typing -- but that reasoning rests on the damage
-      // being recoverable ("ADs repopulate... only four or five reminders
-      // per Aircraft"). Nothing here is: it's the account itself plus every
-      // bookmark, folder, note and highlight, with no undo and no support
-      // path to restore it. This gets BOTH guards.
+      // RC narrowed the moving-button two-step to aircraft deletion only;
+      // everything else gets one popup. Account deletion keeps its own,
+      // stronger guard below instead -- typing the word, not an extra tap.
+      twoStep: false,
       requireTyped: 'DELETE',
       onConfirm: runAccountDelete,
     })

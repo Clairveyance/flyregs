@@ -224,7 +224,7 @@ export default function FolderDetail() {
       message: `Delete "${folder.name}"? The ACs and notes inside will not be deleted.`,
       confirmLabel: 'Delete',
       destructive: true,
-      finalTitle: `Delete "${folder.name}" — confirm`,
+      twoStep: false,
       onConfirm: async () => {
         await deleteFolder(folder.id)
         router.back()
@@ -326,9 +326,7 @@ export default function FolderDetail() {
       message: `Remove ${c.displayLabel} from "${folder.name}"? They'll need to use the invite link again to rejoin.`,
       confirmLabel: 'Remove',
       destructive: true,
-      // Two-step: the cost of a misfire lands on the OTHER person, who gets
-      // no warning and no way to tell it was an accident.
-      finalTitle: `Remove ${c.displayLabel} — confirm`,
+      twoStep: false,
       onConfirm: async () => {
         await removeCollaborator(folder.id, c.userId)
         setCollaborators((prev) => prev.filter((x) => x.userId !== c.userId))

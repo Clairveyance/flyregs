@@ -216,7 +216,7 @@ export default function AircraftDetailScreen() {
       message: `Remove ${c.displayLabel} from this aircraft? They'll need a new invite link to get back in.`,
       confirmLabel: 'Remove',
       destructive: true,
-      finalTitle: `Remove ${c.displayLabel} — confirm`,
+      twoStep: false,
       onConfirm: async () => {
         await removeCollaborator(aircraft.id, c.userId)
         setCollaborators((prev) => prev.filter((x) => x.userId !== c.userId))
@@ -232,7 +232,7 @@ export default function AircraftDetailScreen() {
       message: `You'll lose access to ${label} until invited again.`,
       confirmLabel: 'Leave',
       destructive: true,
-      finalTitle: `Leave ${label} — confirm`,
+      twoStep: false,
       onConfirm: async () => {
         await leaveSharedAircraft(aircraft.id)
         router.back()
@@ -277,19 +277,13 @@ export default function AircraftDetailScreen() {
     setBackfilling(false)
   }
 
-  // Two-step confirm, unlike Equipment/Reminders' single-tap trash -- RC:
-  // "we can keep the trash consistent, but need CTA confirmations for two
-  // step delete process." A dismissed AD is meaningfully harder to undo
-  // than re-adding a part or reminder (see migrations_ad_dismiss.sql: it
-  // stays dismissed across future syncs, not just removed from this
-  // screen), so it gets the extra guard equipment/reminders don't need.
   const handleDismissAd = (n: AircraftAdNotification) => {
     confirm({
       title: `Remove AD ${n.adNumber}?`,
       message: "This removes it from this aircraft's list. It won't come back on future AD syncs unless you add it again yourself.",
       confirmLabel: 'Remove',
       destructive: true,
-      finalTitle: `Remove AD ${n.adNumber} — confirm`,
+      twoStep: false,
       onConfirm: async () => {
         setAdNotifications((prev) => prev.filter((x) => x.id !== n.id))
         try {
@@ -334,17 +328,13 @@ export default function AircraftDetailScreen() {
     })
   }
 
-  // RC: swipe-to-delete "with two step CTA popup verification explaining
-  // what will be deleted" -- neither of these had any confirm at all
-  // before (a direct trash tap deleted immediately), which is a bigger
-  // gap once the action is swipe-triggered, not a deliberate tap.
   const handleRemoveEquipment = (e: AircraftEquipment) => {
     confirm({
       title: `Remove ${e.part.name}?`,
       message: 'This untags the part from this aircraft -- AD alerts matched only by this equipment will stop appearing.',
       confirmLabel: 'Remove',
       destructive: true,
-      finalTitle: `Remove ${e.part.name} — confirm`,
+      twoStep: false,
       onConfirm: async () => {
         await removeAircraftEquipment(e.id)
         setEquipment((prev) => prev.filter((x) => x.id !== e.id))
@@ -358,7 +348,7 @@ export default function AircraftDetailScreen() {
       message: 'This reminder will be permanently removed.',
       confirmLabel: 'Delete',
       destructive: true,
-      finalTitle: `Delete "${r.title}" — confirm`,
+      twoStep: false,
       onConfirm: async () => {
         await removeAircraftReminder(r.id)
         setReminders((prev) => prev.filter((x) => x.id !== r.id))

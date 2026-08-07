@@ -241,7 +241,7 @@ export default function SharedFolderDetail() {
       message: `You'll lose access to "${folderName}". You can rejoin later with the invite link.`,
       confirmLabel: 'Leave',
       destructive: true,
-      finalTitle: `Leave "${folderName}" — confirm`,
+      twoStep: false,
       onConfirm: async () => {
         await leaveSharedFolder(id)
         router.back()
@@ -259,9 +259,7 @@ export default function SharedFolderDetail() {
       message: `Remove ${label} from this folder? Everyone sharing it loses this item.`,
       confirmLabel: 'Remove',
       destructive: true,
-      // Two-step: this is a real row delete in a SHARED folder, so it
-      // removes the item for every collaborator, not just this device.
-      finalTitle: `Remove ${label} — confirm`,
+      twoStep: false,
       onConfirm: async () => {
         await removeSharedFolderItem(itemRowId)
         setAcs((prev) => prev.filter((r) => r.itemRowId !== itemRowId))

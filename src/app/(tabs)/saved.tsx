@@ -323,9 +323,7 @@ export default function SavedScreen() {
       message: "They'll be removed from Saved but not deleted.",
       confirmLabel: 'Remove',
       destructive: true,
-      // Two-step here but not on the single-bookmark case above: this is a
-      // bulk action on a selection the user may have mis-tapped into.
-      finalTitle: `Remove ${count} Bookmark${count > 1 ? 's' : ''} — confirm`,
+      twoStep: false,
       onConfirm: async () => {
         const ids = [...selected]
         setBookmarks((prev) => prev.filter((b) => !selected.has(b.id)))
@@ -494,9 +492,7 @@ export default function SavedScreen() {
       message: `Remove everyone's access to "${item.folder_name}"? The folder itself won't be deleted -- you can share it again later with a new invite link.`,
       confirmLabel: 'Stop Sharing',
       destructive: true,
-      // Two-step: this revokes OTHER people's access, and they get no
-      // warning at all -- the cost lands on someone who isn't at the screen.
-      finalTitle: `Stop sharing "${item.folder_name}" — confirm`,
+      twoStep: false,
       onConfirm: async () => {
         await unshareFolder(item.folder_id)
         setSharedByMe((prev) => prev.filter((f) => f.folder_id !== item.folder_id))
@@ -510,7 +506,7 @@ export default function SavedScreen() {
       message: `Delete "${folder.name}"? The ACs and notes inside will not be deleted.`,
       confirmLabel: 'Delete',
       destructive: true,
-      finalTitle: `Delete "${folder.name}" — confirm`,
+      twoStep: false,
       onConfirm: async () => {
         await deleteFolder(folder.id)
         load()
