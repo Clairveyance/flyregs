@@ -21,15 +21,30 @@
 // slightly early or late visual break is a minor cosmetic imperfection,
 // not corrupted or lost content.
 
-const MIN_LENGTH_TO_SPLIT = 380
 const TARGET_CHUNK_LENGTH = 220
 
 const SENTENCE_BOUNDARY_RE = /(?<=[.!?])\s+(?=[A-Z0-9"“(])/
 
 export function softWrapParagraph(text: string): string[] {
   const trimmed = text.trim()
-  if (trimmed.length < MIN_LENGTH_TO_SPLIT) return [trimmed]
 
+  // RC, repeatedly: "ALL big chunky paragraphs, ANYWHERE in this entire app
+  // corpus, must be spaced and formatted well" -- and kept finding more
+  // every time he looked. Root cause, confirmed on the mnemonic SHARPTT
+  // (302 chars, three real sentences, rendered as one dense block): a
+  // MIN_LENGTH_TO_SPLIT=380 gate rejected this text before the sentence
+  // splitter ever got a chance to run, even though it plainly reads as
+  // three separate thoughts. That length gate turns out to be redundant
+  // with the grouping logic below, not just wrong: a genuinely short
+  // multi-sentence definition (e.g. "Used for approach guidance. See FAR
+  // 91.175.") never exceeds TARGET_CHUNK_LENGTH while merging, so the loop
+  // naturally re-combines it into one chunk and the `chunks.length > 1`
+  // check below falls through to the original single block anyway --
+  // removing the length gate stops rejecting the medium-length (150-380
+  // char) cases that make up most of the actual "chunky paragraph" reports
+  // without introducing any new over-splitting of short text. Verified
+  // directly: SHARPTT now splits into 2 chunks at its real sentence
+  // boundaries; the short 2-sentence example above still returns unsplit.
   const sentences = trimmed.split(SENTENCE_BOUNDARY_RE)
   if (sentences.length < 2) return [trimmed]
 

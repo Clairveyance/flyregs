@@ -14,6 +14,7 @@ import { ACBody } from '@/components/ACBody'
 import { FigureViewer } from '@/components/FigureViewer'
 import { FormulaRefViewer } from '@/components/FormulaRefViewer'
 import { ACBlock, previewBlockCount } from '@/lib/acFormat'
+import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { supabase } from '@/lib/supabase'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
@@ -1063,9 +1064,16 @@ function NoteEditor({
                     Issued {new Date(paneData.date_issued).toLocaleDateString('en-US', { year: 'numeric', month: 'short' })}
                   </Text>
                 )}
-                {paneData.description ? (
-                  <Text style={[styles.paneDesc, { color: tokens.t2, fontSize: fs(13) }]}>{paneData.description}</Text>
-                ) : null}
+                {paneData.description
+                  ? splitIntoDisplayParagraphs(paneData.description).map((para, i, arr) => (
+                      <Text
+                        key={i}
+                        style={[styles.paneDesc, { color: tokens.t2, fontSize: fs(13) }, i < arr.length - 1 && { marginBottom: 8 }]}
+                      >
+                        {para}
+                      </Text>
+                    ))
+                  : null}
 
                 <Pressable
                   style={[styles.paneOpenBtn, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}

@@ -11,6 +11,7 @@ import { REG_TYPE } from '@/lib/regTypes'
 import { getRefPacketTask, RefPacketTask, RefPacketElement } from '@/lib/refPackets'
 import { linkifyText } from '@/lib/crossRefLinks'
 import { searchRefPackTopic, RefPackSearchGroup } from '@/lib/refPackSearch'
+import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 
 export default function RefPacketTaskScreen() {
   const { taskId } = useLocalSearchParams<{ taskId: string }>()
@@ -112,7 +113,14 @@ export default function RefPacketTaskScreen() {
 
             {task.objective && (
               <Section label="OBJECTIVE" tokens={tokens} fs={fs}>
-                <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14) }]}>{task.objective}</Text>
+                {splitIntoDisplayParagraphs(task.objective).map((para, i, arr) => (
+                  <Text
+                    key={i}
+                    style={[styles.body, { color: tokens.t2, fontSize: fs(14) }, i < arr.length - 1 && { marginBottom: 8 }]}
+                  >
+                    {para}
+                  </Text>
+                ))}
               </Section>
             )}
 
@@ -197,7 +205,14 @@ export default function RefPacketTaskScreen() {
 
             {task.referencesText && (
               <Section label="FAA REFERENCES" tokens={tokens} fs={fs}>
-                <Text style={[styles.body, { color: tokens.t3, fontSize: fs(12.5) }]}>{task.referencesText}</Text>
+                {splitIntoDisplayParagraphs(task.referencesText).map((para, i, arr) => (
+                  <Text
+                    key={i}
+                    style={[styles.body, { color: tokens.t3, fontSize: fs(12.5) }, i < arr.length - 1 && { marginBottom: 8 }]}
+                  >
+                    {para}
+                  </Text>
+                ))}
               </Section>
             )}
 
@@ -262,21 +277,26 @@ function ElementGroup({
             style={[styles.elementRow, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.bdr }]}
           >
             <Text style={[styles.elementCode, { color: tokens.blu, fontSize: fs(11.5) }]}>{el.code}</Text>
-            <Text style={[styles.elementBody, { color: tokens.t2, fontSize: fs(13.5) }]}>
-              {linkifyText(el.bodyText).map((seg, i) =>
-                seg.route ? (
-                  <Text
-                    key={i}
-                    onPress={(e) => { e.stopPropagation(); onOpenPreview(seg.route as string) }}
-                    style={{ color: tokens.blu, fontWeight: '600' }}
-                  >
-                    {seg.text}
-                  </Text>
-                ) : (
-                  <Text key={i}>{seg.text}</Text>
-                ),
-              )}
-            </Text>
+            {splitIntoDisplayParagraphs(el.bodyText).map((para, pi, parr) => (
+              <Text
+                key={pi}
+                style={[styles.elementBody, { color: tokens.t2, fontSize: fs(13.5) }, pi < parr.length - 1 && { marginBottom: 6 }]}
+              >
+                {linkifyText(para).map((seg, i) =>
+                  seg.route ? (
+                    <Text
+                      key={i}
+                      onPress={(e) => { e.stopPropagation(); onOpenPreview(seg.route as string) }}
+                      style={{ color: tokens.blu, fontWeight: '600' }}
+                    >
+                      {seg.text}
+                    </Text>
+                  ) : (
+                    <Text key={i}>{seg.text}</Text>
+                  ),
+                )}
+              </Text>
+            ))}
             <Icon name="magnifyingglass" size={fs(13)} color={tokens.t4} />
           </Pressable>
         ))}
