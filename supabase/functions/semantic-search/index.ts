@@ -287,7 +287,26 @@ Deno.serve(async (req: Request) => {
   // Aggregate-only scoring would have shown the first variant as R@1
   // 0.33 -> 0.44 and read as a clean win. Don't re-add either without
   // re-running the split-subset eval.
-  const PRIMARY_SOURCE_PRIOR: Record<string, number> = { ad: 0.85, loi: 0.85, ac: 0.80 }
+  // 'dictionary' is mnemonics ONLY (see sync/build_embeddings.py's
+  // SOURCE_TYPE_OVERRIDE -- no other dictionary_terms category gets
+  // embedded), and they were built specifically so a matching mnemonic
+  // shows up as a natural-language answer (task #63) -- but a mnemonic's
+  // embedded text is short (a term + its letter breakdown), so it
+  // structurally scores a lower raw cosine similarity than a full FAR/AIM
+  // paragraph even when topically dead-on. Confirmed live 2026-08-06: RC's
+  // real query "how do i know which ifr route to fly with lost comms" is a
+  // textbook match for the AVE-F mnemonic (FAR 91.185(c)(1)'s own route
+  // options), but AVE-F's similarity (0.423) sat just below the top-15 cut
+  // (~0.47) even after the ef_search recall fix (see
+  // migrations_hybrid_search.sql) made it a genuine candidate at all. A
+  // modest boost -- mirroring the AD/LOI/AC discount in the other
+  // direction, same mechanism -- so a mnemonic that's actually in the
+  // running gets pulled into the visible list instead of losing on a
+  // structural length disadvantage. Not a guaranteed #1: the regulatory
+  // text itself should still usually outrank the mnemonic that summarizes
+  // it (see [[feedback_data_is_king]]) -- this only helps a mnemonic clear
+  // the cutoff when it's genuinely a close match.
+  const PRIMARY_SOURCE_PRIOR: Record<string, number> = { ad: 0.85, loi: 0.85, ac: 0.80, dictionary: 1.15 }
   const W_SIMILARITY = 1.0
   const W_FUSED_POSITION = 0.5
 

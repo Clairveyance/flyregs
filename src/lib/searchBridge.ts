@@ -201,9 +201,27 @@ export const USER_TO_FAA: Record<string, string[]> = {
   atc: ['atc', 'controller', 'clearance'],
   clearance: ['clearance', 'atc'],
   airspace: ['airspace', 'class'],
+  'class a': ['airspace', 'class'],
   'class b': ['airspace', 'class'],
   'class c': ['airspace', 'class'],
   'class d': ['airspace', 'class'],
+  'class e': ['airspace', 'class'],
+  'class g': ['airspace', 'class'],
+  // Phonetic-alphabet airspace names are standard aviation phraseology
+  // ("Class Bravo," not just "Class B") but the letter-form entries above
+  // never match them at all -- confirmed live: "class bravo" against AIM's
+  // search_aim doesn't even surface Class B Airspace in the top 3 (ts_rank
+  // can't tell "bravo" apart from noise, so B/C/D/E paragraphs all rank
+  // identically on "class"+"airspace" alone and ties break by insertion
+  // order, which happens to exclude B). These map to the literal phrase
+  // ("class b") rather than the generic terms above, since that's a much
+  // stronger, letter-specific signal against a title like "Class B Airspace."
+  'class alpha': ['class a', 'airspace'],
+  'class bravo': ['class b', 'airspace'],
+  'class charlie': ['class c', 'airspace'],
+  'class delta': ['class d', 'airspace'],
+  'class echo': ['class e', 'airspace'],
+  'class golf': ['class g', 'airspace'],
   tfr: ['restriction', 'temporary', 'airspace'],
   notam: ['notam', 'notice'],
   map: ['chart', 'navigation'],

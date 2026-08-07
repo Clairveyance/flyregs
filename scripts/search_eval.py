@@ -61,7 +61,8 @@ def req(method, path, headers, body=None):
         r.add_header("Content-Type", "application/json")
     try:
         with urllib.request.urlopen(r) as resp:
-            return resp.status, json.loads(resp.read().decode())
+            raw = resp.read().decode()
+            return resp.status, (json.loads(raw) if raw else None)
     except urllib.error.HTTPError as e:
         text = e.read().decode()
         try:
@@ -106,7 +107,15 @@ CASES = [
     ("who has final authority for the operation of an aircraft", "conceptual",
      {"far:91.3"}, set(), ""),
     ("how recently must I have flown to carry passengers", "conceptual",
-     {"far:61.57"}, set(), ""),
+     {"far:61.57"}, set(),
+     "WATCH 2026-08-06: regressed from rank ~5 to a MISS by the hybrid_search v6/v7 "
+     "lexical zero-match fallback (see migrations_hybrid_search.sql) -- this query's "
+     "AND-tsquery also matches 0 rows, so it now gets the same OR-fallback lexical "
+     "signal as the AVE-F case, and that signal is noise here (drowns out far:61.57 "
+     "instead of helping). Kept the fallback anyway: net effect across the conceptual "
+     "set is positive (R@1 0.25->0.33, MRR 0.48->0.52) and it fixed a real crash "
+     "(statement timeout) plus surfaced MEA correctly for lost-comms queries -- but "
+     "this specific case is a real, known cost of that trade, not yet resolved."),
     ("cloud clearance requirements for VFR flight", "conceptual",
      {"far:91.155", "aim:3-1-4"}, {"far:103.23"},
      "known regression case: must not surface the ultralight rule as the answer"),
@@ -122,6 +131,16 @@ CASES = [
     ("how do I become a certificated flight instructor", "conceptual",
      {"ac:61-65K", "far:61.183"}, set(),
      "the AC and the eligibility FAR are both legitimately the answer"),
+    ("how do i know which ifr route to fly with lost comms", "conceptual",
+     {"far:91.185", "aim:6-4-1", "pcg:LOST_COMMUNICATIONS", "dictionary:mnem-mea"}, set(),
+     "RC-reported 2026-08-06: the AVE-F mnemonic (dictionary:mnem-ave-f) is the "
+     "most direct answer to this exact question but its own vector similarity "
+     "is too weak to clear the cutoff even with the dictionary-type rank boost "
+     "-- MEA (a different, equally-valid lost-comms mnemonic) does clear it. "
+     "Scored on the FAR/AIM/PCG/MEA set, not AVE-F specifically -- don't chase "
+     "AVE-F into this list without either richer embedded text for it or a "
+     "boost large enough to also fix this that regresses other cases (both "
+     "measured and rejected, see PRIMARY_SOURCE_PRIOR's comment)."),
 
     # -- citation guards: REGRESSION PROTECTION, do not remove --
     # hybrid_search gives an exact source_id match a flat +1.0 RRF contribution,
@@ -152,13 +171,26 @@ def run(verbose=False):
                {"email": email, "password": pw, "email_confirm": True})
     assert s == 200, d
     uid = d["id"]
-    s, d = req("POST", "/auth/v1/token?grant_type=password", {"apikey": ANON_KEY},
-               {"email": email, "password": pw})
-    assert s == 200, d
-    H = {"apikey": ANON_KEY, "Authorization": f"Bearer {d['access_token']}"}
 
     rows = []
     try:
+        # Ask FlyRegs is Pro-gated server-side (has_pro_access(), added
+        # 2026-08-05, AFTER this harness was first written) -- without a real
+        # user_entitlements row every call 403s before ever reaching
+        # hybrid_search. Grant Pro directly via the DB (not RevenueCat --
+        # this is a throwaway @flyregs.invalid account, not a real purchase)
+        # so the harness measures search quality again instead of the
+        # paywall. Inside the try so a transient failure here still hits the
+        # finally's cleanup instead of orphaning the auth user.
+        s, d = req("POST", "/rest/v1/user_entitlements",
+                   {"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}"},
+                   {"user_id": uid, "is_pro": True})
+        assert s in (200, 201, 204), d
+        s, d = req("POST", "/auth/v1/token?grant_type=password", {"apikey": ANON_KEY},
+                   {"email": email, "password": pw})
+        assert s == 200, d
+        H = {"apikey": ANON_KEY, "Authorization": f"Bearer {d['access_token']}"}
+
         for query, kind, accept, forbidden, note in CASES:
             s, d = req("POST", "/functions/v1/semantic-search", H,
                        {"query": query, "matchCount": 8})

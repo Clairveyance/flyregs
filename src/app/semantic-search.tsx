@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react'
-import { View, Text, TextInput, ScrollView, Pressable, StyleSheet, ActivityIndicator, Keyboard } from 'react-native'
+import { useState, useRef, useCallback } from 'react'
+import { View, Text, TextInput, ScrollView, Pressable, StyleSheet, ActivityIndicator, Keyboard, Platform } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -57,6 +57,39 @@ export default function SemanticSearchScreen() {
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const seq = useRef(0)
+
+  // RC, real device: "the phone mic (voice to text) keeps shutting off after
+  // each word." First theory (WRONG, corrected 2026-08-06 after RC retested
+  // on a real phone and it was still broken): dropping the controlled
+  // `value` prop for `defaultValue` -- reasoned that re-pushing identical
+  // text on every render was the interruption point. That's a real, harmless
+  // improvement (kept below) but NOT the actual cause -- confirmed via
+  // facebook/react-native#18890, #20778, #37991: a `multiline` TextInput on
+  // iOS breaks Dictation regardless of controlled vs. uncontrolled state; the
+  // bug is in RN's own native bridging for `RCTUITextView`, not anything an
+  // app's own state management can route around. Still open/unfixed upstream
+  // as of this writing. Confirms RC's original instinct exactly ("it's
+  // working fine in the other search fields") -- those are all single-line;
+  // this is the only multiline search box in the app.
+  // Real fix: multiline only on platforms that don't have the bug (Android/
+  // web -- no complaint on either, and the web preview can't even exercise
+  // real OS dictation to have hidden it there). iOS gets a plain single-line
+  // field like Home's SmartSearch -- long questions scroll horizontally
+  // instead of wrapping while typing, a real but much smaller tradeoff than
+  // a mic that silently drops most of what you say.
+  const allowMultiline = Platform.OS !== 'ios'
+  // Kept from the first attempt: stop re-pushing text into the field on every
+  // keystroke (`defaultValue`, not `value`) -- `onChangeText` still mirrors
+  // into `query` state for the send button + runSearch(). The one place that
+  // sets text FROM CODE (an example-prompt tap) forces a remount via
+  // `resetKey` instead -- tried `ref.current.setNativeProps` first, which
+  // crashed on web ("not a function"; RN-web's TextInput ref doesn't expose
+  // it) and isn't guaranteed on native either under RN's New Architecture.
+  const [resetKey, setResetKey] = useState(0)
+  const setQueryText = useCallback((text: string) => {
+    setQuery(text)
+    setResetKey((k) => k + 1)
+  }, [])
 
   const runSearch = (q: string) => {
     const trimmed = q.trim()
@@ -116,15 +149,30 @@ export default function SemanticSearchScreen() {
         <View style={styles.content}>
           <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
             <TextInput
+              key={resetKey}
               style={[styles.searchInput, { color: tokens.t1, fontSize: ifs(14.5) }]}
               placeholder="Ask a question about the regs…"
               placeholderTextColor={tokens.t3}
-              value={query}
+              defaultValue={query}
               onChangeText={setQuery}
               onSubmitEditing={() => runSearch(query)}
               returnKeyType="search"
-              multiline
+              multiline={allowMultiline}
             />
+            {query.length > 0 && (
+              <Pressable
+                onPress={() => {
+                  setQueryText('')
+                  setSubmittedQuery('')
+                  setResults([])
+                  setError(null)
+                }}
+                hitSlop={8}
+                style={styles.clearBtn}
+              >
+                <Icon name="xmark.circle" size={fs(17)} color={tokens.t4} />
+              </Pressable>
+            )}
             <Pressable
               style={[styles.searchBtn, { backgroundColor: query.trim().length >= 3 ? tokens.blu : tokens.bdim }]}
               onPress={() => runSearch(query)}
@@ -138,7 +186,7 @@ export default function SemanticSearchScreen() {
             <View style={styles.examplesWrap}>
               <Text style={[styles.examplesLabel, { color: tokens.t3, fontSize: fs(11) }]}>TRY ASKING</Text>
               {EXAMPLE_PROMPTS.map((p) => (
-                <Pressable key={p} style={[styles.exampleRow, { borderColor: tokens.bdr }]} onPress={() => { setQuery(p); runSearch(p) }}>
+                <Pressable key={p} style={[styles.exampleRow, { borderColor: tokens.bdr }]} onPress={() => { setQueryText(p); runSearch(p) }}>
                   <Icon name="text.bubble.fill" size={fs(13)} color={tokens.t3} />
                   <Text style={[styles.exampleText, { color: tokens.t2, fontSize: fs(13.5) }]}>{p}</Text>
                 </Pressable>
@@ -214,6 +262,7 @@ const styles = StyleSheet.create({
     borderRadius: 14, borderWidth: 1, padding: 10, minHeight: 46,
   },
   searchInput: { flex: 1, maxHeight: 120, paddingVertical: 4 },
+  clearBtn: { paddingBottom: 6 },
   searchBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
 
   examplesWrap: { marginTop: 20, gap: 8 },

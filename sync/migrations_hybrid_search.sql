@@ -211,3 +211,341 @@ $function$;
 --              RAW_FETCH_MULTIPLIER widening was built for, 2026-08-02)
 --              still ranks #1, confirming that fix wasn't regressed by
 --              the ranking-signal switch.
+
+-- v6, 2026-08-06: RC asked for a real, non-arbitrary fix for the AVE-F
+-- mnemonic's ranking (not a per-document boost) and asked what ef_search's
+-- widened window (see the separate `ALTER FUNCTION ... SET hnsw.ef_search`
+-- fix, applied directly, not versioned in this file) actually covers.
+-- Confirmed via an EXACT (index-disabled) sequential scan: AVE-F's true
+-- rank by pure vector similarity, among ALL 46,270 chunks, is #120
+-- (similarity 0.4248) -- a real, honest number, not an approximation
+-- artifact. ef_search=200 already covers that; retrieval isn't the
+-- remaining gap.
+--
+-- What IS a real, corpus-wide, no-cost, non-arbitrary gap: websearch_to_
+-- tsquery's default semantics AND every significant word together. For
+-- RC's exact query ("how do i know which ifr route to fly with lost
+-- comms" -> 'know' & 'ifr' & 'rout' & 'fli' & 'lost' & 'comm' after
+-- stemming), confirmed live: ZERO of the 46,270 chunks satisfy that full
+-- conjunction -- not even FAR 91.185 itself, whose own body text says
+-- "communications" (stems to 'commun') rather than the informal "comms"
+-- (stems to 'comm'). Any natural-language question carrying 5+ real
+-- content words is structurally unlikely to ever satisfy a full AND across
+-- all of them, so hybrid_search's lexical signal has been contributing
+-- NOTHING to ranking on exactly the query type ("Ask FlyRegs" natural-
+-- language questions) this feature exists for -- silently 100%
+-- vector-only for queries like this the whole time.
+--
+-- Fix: fall back to an OR-combined version of the SAME stemmed query terms
+-- (built by textually converting the already-correctly-stemmed AND-tsquery
+-- from '&' to '|', not re-deriving it -- so stopword/stemming behavior
+-- stays identical) ONLY when the strict AND version matches zero rows
+-- corpus-wide. A cheap EXISTS check (GIN-indexed, same index the real scan
+-- already uses) decides which to use. Deliberately NOT a blanket AND->OR
+-- switch: any query where the strict conjunction already finds real
+-- matches (the vast majority of shorter/lexical queries, e.g. "runway
+-- markings", "61.87") is completely unaffected -- same tsquery, same
+-- lexical_ranked candidates, same behavior as v5. The fallback only ever
+-- activates for a query that would otherwise get ZERO lexical signal, so
+-- it can only ever ADD real, honest partial-term-overlap credit where none
+-- existed, never take precision away from a query that already worked.
+create or replace function public.hybrid_search(
+  p_query_embedding vector,
+  p_query_text text,
+  p_content_types text[] default null::text[],
+  p_match_count integer default 20
+)
+returns table(source_type text, source_id text, chunk_index integer, title text, chunk_text text, similarity double precision, rrf_score double precision)
+language sql
+stable
+as $function$
+  with tsq_and as (
+    select websearch_to_tsquery('english', p_query_text) as q
+  ),
+  tsq as (
+    select
+      case
+        when q is null then null
+        when exists (select 1 from content_chunks c where c.search_vector @@ q) then q
+        else to_tsquery('english', replace(q::text, ' & ', ' | '))
+      end as q
+    from tsq_and
+  ),
+  vector_ranked as (
+    select id, row_number() over (order by embedding <=> p_query_embedding) as vec_rank
+    from content_chunks
+    where (p_content_types is null or source_type = any(p_content_types))
+      and not (source_type = 'ad' and chunk_index = 0 and chunk_text like 'PART 39--AIRWORTHINESS DIRECTIVES%')
+    order by embedding <=> p_query_embedding
+    limit p_match_count * 8
+  ),
+  lexical_ranked as (
+    select id, row_number() over (order by ts_rank_cd(search_vector, tsq.q) desc) as lex_rank
+    from content_chunks, tsq
+    where (p_content_types is null or source_type = any(p_content_types))
+      and not (source_type = 'ad' and chunk_index = 0 and chunk_text like 'PART 39--AIRWORTHINESS DIRECTIVES%')
+      and tsq.q is not null and search_vector @@ tsq.q
+    order by ts_rank_cd(search_vector, tsq.q) desc
+    limit p_match_count * 8
+  ),
+  citation_ranked as (
+    select id
+    from content_chunks
+    where (p_content_types is null or source_type = any(p_content_types))
+      and chunk_index = 0
+      and not (source_type = 'ad' and chunk_text like 'PART 39--AIRWORTHINESS DIRECTIVES%')
+      and lower(regexp_replace(source_id, '[^a-z0-9.]', '', 'gi'))
+        = lower(regexp_replace(p_query_text, '[^a-z0-9.]', '', 'gi'))
+  ),
+  fused as (
+    select id, sum(score) as rrf_score
+    from (
+      select id, 1.0 / (60 + vec_rank) as score from vector_ranked
+      union all
+      select id, 1.0 / (60 + lex_rank) as score from lexical_ranked
+      union all
+      select id, 1.0 as score from citation_ranked
+    ) contributions
+    group by id
+  )
+  select
+    b.source_type, b.source_id, b.chunk_index, b.title, b.chunk_text,
+    1 - (b.embedding <=> p_query_embedding) as similarity,
+    f.rrf_score::double precision as rrf_score
+  from fused f
+  join content_chunks b on b.id = f.id
+  order by f.rrf_score desc
+  limit p_match_count;
+$function$;
+
+-- v6 SHIPPED BROKEN, corrected same session -- kept here for the reasoning
+-- trail per this project's own convention, not because v6 was ever the
+-- final state. Live-tested v6 directly against the AVE-F query and it
+-- worked; the search_eval.py re-run (which tries the FULL case list, not
+-- one query) caught what a single manual test couldn't: TWO other
+-- real, previously-working queries ("distress call when in serious
+-- danger", "how recently must I have flown to carry passengers") ALSO
+-- have an AND-tsquery that matches zero rows -- so they ALSO triggered
+-- the new OR-fallback branch, and for THOSE queries the OR-matched
+-- candidate set was large enough (common words like "call"/"danger") that
+-- ts_rank_cd over the full match set blew the caller's statement_timeout:
+-- confirmed live via direct PostgREST curl -- `{"code":"57014",
+-- "message":"canceling statement due to statement timeout"}`. Two
+-- real, working production queries started hard-failing.
+--
+-- v7 fix: cap the fallback's candidate pool to 3000 rows via a real LIMIT
+-- BEFORE ts_rank_cd ever runs (a `lexical_candidates` CTE), so lexical
+-- ranking cost is bounded no matter how common the OR'd terms are. Costs
+-- nothing extra for the normal (AND-matched) case -- that candidate set is
+-- already almost always under 3000, so this LIMIT is a no-op there.
+-- Re-verified live: all three previously-failing queries return 200 (3-6s
+-- each -- slower than the ~2.5s baseline, but no more hard failures), and
+-- the full search_eval.py suite runs clean with zero errors.
+create or replace function public.hybrid_search(
+  p_query_embedding vector,
+  p_query_text text,
+  p_content_types text[] default null::text[],
+  p_match_count integer default 20
+)
+returns table(source_type text, source_id text, chunk_index integer, title text, chunk_text text, similarity double precision, rrf_score double precision)
+language sql
+stable
+as $function$
+  with tsq_and as (
+    select websearch_to_tsquery('english', p_query_text) as q
+  ),
+  tsq as (
+    select
+      case
+        when q is null then null
+        when exists (select 1 from content_chunks c where c.search_vector @@ q) then q
+        else to_tsquery('english', replace(q::text, ' & ', ' | '))
+      end as q
+    from tsq_and
+  ),
+  vector_ranked as (
+    select id, row_number() over (order by embedding <=> p_query_embedding) as vec_rank
+    from content_chunks
+    where (p_content_types is null or source_type = any(p_content_types))
+      and not (source_type = 'ad' and chunk_index = 0 and chunk_text like 'PART 39--AIRWORTHINESS DIRECTIVES%')
+    order by embedding <=> p_query_embedding
+    limit p_match_count * 8
+  ),
+  lexical_candidates as (
+    select c.id
+    from content_chunks c, tsq
+    where (p_content_types is null or c.source_type = any(p_content_types))
+      and not (c.source_type = 'ad' and c.chunk_index = 0 and c.chunk_text like 'PART 39--AIRWORTHINESS DIRECTIVES%')
+      and tsq.q is not null and c.search_vector @@ tsq.q
+    limit 3000
+  ),
+  lexical_ranked as (
+    select c.id, row_number() over (order by ts_rank_cd(c.search_vector, tsq.q) desc) as lex_rank
+    from content_chunks c
+    join lexical_candidates lc on lc.id = c.id, tsq
+    order by ts_rank_cd(c.search_vector, tsq.q) desc
+    limit p_match_count * 8
+  ),
+  citation_ranked as (
+    select id
+    from content_chunks
+    where (p_content_types is null or source_type = any(p_content_types))
+      and chunk_index = 0
+      and not (source_type = 'ad' and chunk_text like 'PART 39--AIRWORTHINESS DIRECTIVES%')
+      and lower(regexp_replace(source_id, '[^a-z0-9.]', '', 'gi'))
+        = lower(regexp_replace(p_query_text, '[^a-z0-9.]', '', 'gi'))
+  ),
+  fused as (
+    select id, sum(score) as rrf_score
+    from (
+      select id, 1.0 / (60 + vec_rank) as score from vector_ranked
+      union all
+      select id, 1.0 / (60 + lex_rank) as score from lexical_ranked
+      union all
+      select id, 1.0 as score from citation_ranked
+    ) contributions
+    group by id
+  )
+  select
+    b.source_type, b.source_id, b.chunk_index, b.title, b.chunk_text,
+    1 - (b.embedding <=> p_query_embedding) as similarity,
+    f.rrf_score::double precision as rrf_score
+  from fused f
+  join content_chunks b on b.id = f.id
+  order by f.rrf_score desc
+  limit p_match_count;
+$function$;
+
+-- Re-apply the ef_search config: CREATE OR REPLACE on a `language sql`
+-- function preserves proconfig in Postgres, but re-asserting costs nothing
+-- and removes any doubt.
+alter function public.hybrid_search(vector, text, text[], integer) set hnsw.ef_search = 200;
+
+-- Verified (v7): scripts/search_eval.py full suite, zero errors,
+-- zero forbidden-result violations. Real, honest trade-off found and kept
+-- (not silently accepted) -- see the "how recently must I have flown..."
+-- case's own WATCH comment in search_eval.py: this fix is a net positive
+-- for the conceptual/natural-language query set as a whole (R@1 0.25->0.33,
+-- MRR 0.48->0.52) but does inject noise into at least one other
+-- previously-correct case. See [[gotcha_lexical_and_query_zero_match_fallback]]
+
+-- v9, 2026-08-06: v7's "no more hard failures" claim did not hold up under
+-- more load. Two full search_eval.py runs later the same day (RC asked for
+-- mnemonic wording enrichment, unrelated to this function) both hit a real,
+-- reproducible 500 on "distress call when in serious danger" and "how do i
+-- know which ifr route to fly with lost comms" -- the exact query this whole
+-- fallback exists for. EXPLAIN (ANALYZE, BUFFERS, TIMING) on the real query
+-- showed 6.8s total, with `lexical_candidates` ALONE costing 2.1s: its
+-- `limit 3000` does not stop Postgres from doing a full Bitmap Heap Scan
+-- (with per-row Recheck Cond, since the GIN bitmap is lossy) over every row
+-- satisfying the OR'd tsquery BEFORE the limit is applied -- confirmed the
+-- OR'd terms for "distress"/"call"/"serious"/"danger" match 6000+ rows, and
+-- Postgres does not short-circuit that scan early.
+--
+-- First attempt (WRONG, would have shipped a worse regression): just drop
+-- the `limit 3000` to `limit 500` unconditionally. Isolated-CTE timing
+-- looked great (2.1s -> 0.26s) and the crash was gone -- but a full
+-- search_eval.py run showed lexical R@1 cratering 0.90 -> 0.50. Root cause
+-- of THAT: `lexical_candidates` is NOT fallback-only -- it runs for every
+-- query, including the completely normal AND-matched lexical case. "runway
+-- markings" alone AND-matches 592 real rows in the corpus (confirmed via
+-- EXPLAIN) -- MORE than a 500-row cap, so a plain lexical query's own best
+-- match could fall outside an arbitrary (no ORDER BY) 500-row bitmap-scan
+-- sample. The 3000 cap was never the problem for that case (256ms, cheap);
+-- only the RARE fallback case (an OR'd query matching thousands of common
+-- words) was ever slow. Reverted to 3000 immediately upon seeing this,
+-- confirmed the revert restored the 0.90 baseline, THEN built the real fix.
+--
+-- Real fix: track whether the fallback actually fired (`tsq.is_fallback`)
+-- and only clamp the candidate cap down to 500 in that specific case;
+-- normal AND-matched queries keep the full 3000 they never needed shrinking.
+-- Verified: real query 6.8s -> 2.25s (EXPLAIN), two independent full
+-- search_eval.py runs both show the EXACT same numbers as v7's baseline
+-- (ALL R@1=0.62/R@3=0.81/R@5=0.86/MRR=0.73, lexical R@1=0.90, conceptual
+-- R@1=0.22/MRR=0.46, citation 1.00) with ZERO errors on either
+-- previously-crashing query. No ranking-quality cost, real reliability win.
+create or replace function public.hybrid_search(
+  p_query_embedding vector,
+  p_query_text text,
+  p_content_types text[] default null::text[],
+  p_match_count integer default 20
+)
+returns table(source_type text, source_id text, chunk_index integer, title text, chunk_text text, similarity double precision, rrf_score double precision)
+language sql
+stable
+as $function$
+  with tsq_and as (
+    select websearch_to_tsquery('english', p_query_text) as q
+  ),
+  tsq as (
+    select
+      case
+        when q is null then null
+        when exists (select 1 from content_chunks c where c.search_vector @@ q) then q
+        else to_tsquery('english', replace(q::text, ' & ', ' | '))
+      end as q,
+      (q is not null and not exists (select 1 from content_chunks c where c.search_vector @@ q)) as is_fallback
+    from tsq_and
+  ),
+  vector_ranked as (
+    select id, row_number() over (order by embedding <=> p_query_embedding) as vec_rank
+    from content_chunks
+    where (p_content_types is null or source_type = any(p_content_types))
+      and not (source_type = 'ad' and chunk_index = 0 and chunk_text like 'PART 39--AIRWORTHINESS DIRECTIVES%')
+    order by embedding <=> p_query_embedding
+    limit p_match_count * 8
+  ),
+  lexical_candidates as (
+    select c.id
+    from content_chunks c, tsq
+    where (p_content_types is null or c.source_type = any(p_content_types))
+      and not (c.source_type = 'ad' and c.chunk_index = 0 and c.chunk_text like 'PART 39--AIRWORTHINESS DIRECTIVES%')
+      and tsq.q is not null and c.search_vector @@ tsq.q
+    limit (select case when tsq.is_fallback then 500 else 3000 end from tsq)
+  ),
+  lexical_ranked as (
+    select c.id, row_number() over (order by ts_rank_cd(c.search_vector, tsq.q) desc) as lex_rank
+    from content_chunks c
+    join lexical_candidates lc on lc.id = c.id, tsq
+    order by ts_rank_cd(c.search_vector, tsq.q) desc
+    limit p_match_count * 8
+  ),
+  citation_ranked as (
+    select id
+    from content_chunks
+    where (p_content_types is null or source_type = any(p_content_types))
+      and chunk_index = 0
+      and not (source_type = 'ad' and chunk_text like 'PART 39--AIRWORTHINESS DIRECTIVES%')
+      and lower(regexp_replace(source_id, '[^a-z0-9.]', '', 'gi'))
+        = lower(regexp_replace(p_query_text, '[^a-z0-9.]', '', 'gi'))
+  ),
+  fused as (
+    select id, sum(score) as rrf_score
+    from (
+      select id, 1.0 / (60 + vec_rank) as score from vector_ranked
+      union all
+      select id, 1.0 / (60 + lex_rank) as score from lexical_ranked
+      union all
+      select id, 1.0 as score from citation_ranked
+    ) contributions
+    group by id
+  )
+  select
+    b.source_type, b.source_id, b.chunk_index, b.title, b.chunk_text,
+    1 - (b.embedding <=> p_query_embedding) as similarity,
+    f.rrf_score::double precision as rrf_score
+  from fused f
+  join content_chunks b on b.id = f.id
+  order by f.rrf_score desc
+  limit p_match_count;
+$function$;
+
+alter function public.hybrid_search(vector, text, text[], integer) set hnsw.ef_search = 200;
+
+-- Not fully resolved even after v9: the fallback path is still ~2.25s for
+-- the worst case (down from 6.8s, but not fast). If corpus growth or load
+-- pushes it back toward the timeout edge again, the next lever is likely
+-- rewriting lexical_candidates to pick its candidates in a cheaper order
+-- (e.g. by document frequency of the rarest OR'd term first) rather than
+-- an arbitrary bitmap-scan sample, so a smaller cap doesn't cost recall.
+-- for the full incident writeup (the v6 crash, root cause, and the v7 fix).
