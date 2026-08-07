@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { View, Text, TextInput, ScrollView, Pressable, StyleSheet, ActivityIndicator, Keyboard, Platform } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
@@ -10,6 +10,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { semanticSearch, type SemanticSearchResult } from '@/lib/semanticSearch'
 import { routeForCitedItem } from '@/lib/citedItems'
 import { REG_TYPE } from '@/lib/regTypes'
+import { getRecentSearches, addRecentSearch, removeRecentSearch, clearRecentSearches } from '@/lib/recentSearches'
 
 // "Ask FlyRegs" (task #114) -- the query-UI half of the semantic search
 // infrastructure; see src/lib/semanticSearch.ts's own comment for why this
@@ -56,6 +57,26 @@ export default function SemanticSearchScreen() {
   const [results, setResults] = useState<SemanticSearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // RC: "when you tap the search bar to input, the recent queries should
+  // populate in a dropdown, similar to what we have in other searches
+  // boxes in the app" -- same recentSearches.ts lib Home's SmartSearch bar
+  // uses, under its own 'afr' scope (see that file's own comment for why
+  // AFR's questions and Home's keyword terms don't share one list).
+  const [recentSearches, setRecentSearches] = useState<string[]>([])
+  const [searchFocused, setSearchFocused] = useState(false)
+  const [searchWrapHeight, setSearchWrapHeight] = useState(0)
+  useEffect(() => { getRecentSearches('afr').then(setRecentSearches) }, [])
+  const showRecentSearches = searchFocused && query.trim().length === 0 && recentSearches.length > 0
+  const selectRecentSearch = (q: string) => {
+    setQueryText(q)
+    runSearch(q)
+  }
+  const deleteRecentSearch = (q: string) => {
+    removeRecentSearch(q, 'afr').then(setRecentSearches)
+  }
+  const clearAllRecentSearches = () => {
+    clearRecentSearches('afr').then(() => setRecentSearches([]))
+  }
   const seq = useRef(0)
 
   // RC, real device: "the phone mic (voice to text) keeps shutting off after
@@ -101,6 +122,7 @@ export default function SemanticSearchScreen() {
     // button, the keyboard's own return/search key, and tapping an example
     // prompt -- with one change instead of three.
     Keyboard.dismiss()
+    addRecentSearch(trimmed, 'afr').then(setRecentSearches)
     const mySeq = ++seq.current
     setSearching(true)
     setError(null)
@@ -147,7 +169,10 @@ export default function SemanticSearchScreen() {
       <OverlayHeader title="Ask FlyRegs" onBack={() => router.back()} />
       <TabletContainer>
         <View style={styles.content}>
-          <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
+          <View
+            style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}
+            onLayout={(e) => setSearchWrapHeight(e.nativeEvent.layout.height)}
+          >
             <TextInput
               key={resetKey}
               style={[styles.searchInput, { color: tokens.t1, fontSize: ifs(14.5) }]}
@@ -155,7 +180,27 @@ export default function SemanticSearchScreen() {
               placeholderTextColor={tokens.t3}
               defaultValue={query}
               onChangeText={setQuery}
+              onFocus={() => setSearchFocused(true)}
               onSubmitEditing={() => runSearch(query)}
+              // RC, real device: "need to allow the k/b Return button to
+              // send the requested search -- right now you have to go up
+              // and hit the paper airplane icon." onSubmitEditing above
+              // never actually fires here: it's a documented cross-platform
+              // RN limitation that a multiline field's Return key inserts a
+              // newline instead of submitting, on every platform -- and
+              // Android/web are multiline here (see allowMultiline above,
+              // kept for in-progress-question wrapping). onKeyPress still
+              // sees the raw key regardless of multiline, so it does the
+              // submit; re-affirming the pre-Enter query through the same
+              // resetKey remount the example-prompt tap already uses below
+              // discards whatever newline Enter would otherwise leave
+              // sitting in the box.
+              onKeyPress={({ nativeEvent }) => {
+                if (nativeEvent.key === 'Enter') {
+                  runSearch(query)
+                  setQueryText(query)
+                }
+              }}
               returnKeyType="search"
               multiline={allowMultiline}
             />
@@ -182,7 +227,47 @@ export default function SemanticSearchScreen() {
             </Pressable>
           </View>
 
-          {submittedQuery.length === 0 && !searching && (
+          {showRecentSearches && (
+            <Pressable
+              style={[styles.backdrop, { top: searchWrapHeight + 26 }]}
+              onPress={() => Keyboard.dismiss()}
+            />
+          )}
+          {showRecentSearches && (
+            <View
+              style={[
+                styles.dropdown,
+                { top: searchWrapHeight + 26, backgroundColor: tokens.bg2, borderColor: tokens.bdr },
+              ]}
+            >
+              <View style={[styles.dropHeader, { borderBottomColor: tokens.bdr }]}>
+                <Text style={[styles.dropHeaderText, { color: tokens.t3, fontSize: fs(11.5) }]}>Recent questions</Text>
+                <Pressable onPress={clearAllRecentSearches} hitSlop={8}>
+                  <Text style={[styles.dropHeaderText, { color: tokens.blu, fontSize: fs(11.5) }]}>Clear</Text>
+                </Pressable>
+              </View>
+              {recentSearches.map((q) => (
+                // Two SIBLING Pressables (row select + remove), not nested --
+                // same fix as Home's own dropdown: a Pressable-in-Pressable
+                // lets the parent's touch responder swallow the child's own
+                // press before it fires.
+                <View key={q} style={[styles.dropRow, { borderBottomColor: tokens.bdr }]}>
+                  <Pressable
+                    style={({ pressed }) => [{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }, pressed && { opacity: 0.6 }]}
+                    onPress={() => selectRecentSearch(q)}
+                  >
+                    <Icon name="clock" size={fs(14)} color={tokens.t3} />
+                    <Text style={[styles.dropRowText, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>{q}</Text>
+                  </Pressable>
+                  <Pressable onPress={() => deleteRecentSearch(q)} hitSlop={10} style={styles.dropRowRemove}>
+                    <Icon name="xmark" size={fs(12)} color={tokens.t4} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {submittedQuery.length === 0 && !searching && !showRecentSearches && (
             <View style={styles.examplesWrap}>
               <Text style={[styles.examplesLabel, { color: tokens.t3, fontSize: fs(11) }]}>TRY ASKING</Text>
               {EXAMPLE_PROMPTS.map((p) => (
@@ -252,13 +337,37 @@ const styles = StyleSheet.create({
   content: { flex: 1, padding: 16 },
   center: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 10 },
 
+  backdrop: { position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 1 },
+  dropdown: {
+    position: 'absolute', left: 16, right: 16, zIndex: 2,
+    borderRadius: 12, borderWidth: 1, overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? ({ boxShadow: '0 4px 16px rgba(0,0,0,0.14)' } as object)
+      : { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.13, shadowRadius: 14 }),
+  },
+  dropHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  dropHeaderText: { fontWeight: '600' },
+  dropRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  dropRowText: { flex: 1 },
+  dropRowRemove: { padding: 4 },
+
   upsellTitle: { fontWeight: '700', textAlign: 'center', marginTop: 4 },
   upsellSub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },
   upsellBtn: { borderRadius: 12, paddingVertical: 12, paddingHorizontal: 24, marginTop: 6 },
   upsellBtnText: { color: '#fff', fontWeight: '700', fontSize: 14.5 },
 
   searchWrap: {
-    flexDirection: 'row', alignItems: 'flex-end', gap: 8,
+    // RC: "the cancel 'x' and paper airplane 'Send' icon are right next to
+    // each other, making it too easy to hit the wrong one." clearBtn's own
+    // hitSlop (8) was reaching almost all the way to searchBtn's edge at the
+    // old gap:8 -- widened so that expanded tap zone has real clearance.
+    flexDirection: 'row', alignItems: 'flex-end', gap: 16,
     borderRadius: 14, borderWidth: 1, padding: 10, minHeight: 46,
   },
   searchInput: { flex: 1, maxHeight: 120, paddingVertical: 4 },
