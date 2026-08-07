@@ -1,4 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import Reanimated, {
+  useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, useReducedMotion,
+} from 'react-native-reanimated'
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Modal } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import { useTheme, type ThemeTokens } from '@/context/theme'
@@ -160,6 +163,20 @@ function StatBox({ value, label, color, tokens, fs }: { value: string | number; 
 // plus the same StatBox row Premium uses, fed from this one aircraft's own
 // numbers instead of fleet sums.
 const PRO_HERO_RING_SIZE = 84
+// RC: Pro's ring reads plainer than Premium's proportional FleetRing --
+// "give it a nice touch, like their a/c is alive and well" -- so it gets a
+// slow pulse on the same cadence as the gold Duel-record ring
+// (profile/[userId].tsx's GOLD_PULSE_MS), but a different shape: RC asked
+// for the main ring to "breathe slightly before releasing the pulse" and
+// for the release itself to be two thin, staggered "echo" rings rather than
+// one thick halo. The driver stays linear (unlike the gold ring's eased
+// withTiming) so each named phase below gets an even, predictable slice of
+// the 5s cycle instead of the whole thing being front-loaded by easing.
+const PRO_HERO_PULSE_MS = 5000
+const PRO_HERO_BREATHE_END = 0.1 // main ring inhale-and-release window
+const PRO_HERO_ECHO_WINDOW = 0.4 // each echo ring's own fade/expand duration
+const PRO_HERO_ECHO1_START = PRO_HERO_BREATHE_END
+const PRO_HERO_ECHO2_START = PRO_HERO_BREATHE_END + 0.08 // trails echo 1 for the ripple feel
 
 function ProHero({
   aircraft, reminderUrgency, nextDueDays, tokens, fs,
@@ -173,14 +190,71 @@ function ProHero({
   const ringColor = reminderUrgency === 'overdue' ? tokens.red : reminderUrgency === 'soon' ? tokens.amb : tokens.grn
   const numColor = aircraft.openAdCount > 0 ? tokens.amb : tokens.grn
   const label = aircraft.nickname || `${aircraft.make} ${aircraft.model}`
+
+  const reduceMotion = useReducedMotion()
+  const pulse = useSharedValue(0)
+  useEffect(() => {
+    if (reduceMotion) return
+    pulse.value = withRepeat(withTiming(1, { duration: PRO_HERO_PULSE_MS, easing: Easing.linear }), -1, false)
+  }, [reduceMotion, pulse])
+
+  // The "breathe": a smooth sine bump on the main ring itself, peaking at
+  // the midpoint of the breathe window and back to rest exactly as the
+  // echoes release -- an inhale-then-let-go rather than a linear grow/shrink.
+  const breatheStyle = useAnimatedStyle(() => {
+    const p = pulse.value
+    const scale = p < PRO_HERO_BREATHE_END
+      ? 1 + Math.sin((p / PRO_HERO_BREATHE_END) * Math.PI) * 0.05
+      : 1
+    return { transform: [{ scale }] }
+  })
+
+  // Two thin rings instead of one thick halo, offset in time so the second
+  // trails the first outward -- reads as an echo/ripple rather than a single
+  // pulse. Each fades out and expands over its own window, invisible before
+  // its start and after its window closes.
+  const echoStyle = (start: number) => useAnimatedStyle(() => {
+    const p = pulse.value
+    const t = Math.min(Math.max((p - start) / PRO_HERO_ECHO_WINDOW, 0), 1)
+    const active = p >= start && p <= start + PRO_HERO_ECHO_WINDOW
+    return {
+      opacity: active ? 0.55 * (1 - t) : 0,
+      transform: [{ scale: 1 + t * 0.7 }],
+    }
+  })
+  const echo1Style = echoStyle(PRO_HERO_ECHO1_START)
+  const echo2Style = echoStyle(PRO_HERO_ECHO2_START)
+
   return (
     <View style={[styles.proHeroCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-      <View style={[styles.proHeroRing, { borderColor: ringColor }]}>
-        {aircraft.openAdCount > 0 ? (
-          <Text style={[styles.proHeroNum, { color: numColor, fontSize: fs(30) }]}>{aircraft.openAdCount}</Text>
-        ) : (
-          <Icon name="checkmark" size={fs(34)} color={numColor} weight="bold" />
-        )}
+      <View style={{ width: PRO_HERO_RING_SIZE, height: PRO_HERO_RING_SIZE }}>
+        <Reanimated.View
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute', top: -5, left: -5, right: -5, bottom: -5,
+              borderRadius: (PRO_HERO_RING_SIZE + 10) / 2, borderWidth: 2, borderColor: ringColor,
+            },
+            echo2Style,
+          ]}
+        />
+        <Reanimated.View
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute', top: -5, left: -5, right: -5, bottom: -5,
+              borderRadius: (PRO_HERO_RING_SIZE + 10) / 2, borderWidth: 2, borderColor: ringColor,
+            },
+            echo1Style,
+          ]}
+        />
+        <Reanimated.View style={[styles.proHeroRing, { borderColor: ringColor }, breatheStyle]}>
+          {aircraft.openAdCount > 0 ? (
+            <Text style={[styles.proHeroNum, { color: numColor, fontSize: fs(30) }]}>{aircraft.openAdCount}</Text>
+          ) : (
+            <Icon name="checkmark" size={fs(34)} color={numColor} weight="bold" />
+          )}
+        </Reanimated.View>
       </View>
       <Text style={[styles.proHeroLabel, { color: tokens.t1, fontSize: fs(16) }]}>{label}</Text>
       <View style={styles.statBoxRow}>
