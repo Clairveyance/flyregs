@@ -25,6 +25,11 @@ export interface UserAircraft {
   nickname: string | null
   type_designator: string | null
   year: number | null
+  // Self-reported usage tracking (RC-approved design, 2026-08-07) -- see
+  // sync/migrations_hobbs_tracking.sql. Not present on every screen's
+  // select() (e.g. the Fleet list doesn't need it), so both are optional.
+  current_hobbs_hours?: number | null
+  hobbs_updated_at?: string | null
 }
 
 // Typeahead against the real FAA registry catalog (task #12, backed by

@@ -363,12 +363,17 @@ export interface AircraftReminder {
   // See sync/migrations_reminder_interval.sql for why this now persists
   // (was a client-only creation-time convenience before).
   intervalMonths: number | null
+  // Optional usage-based due mark (100-hour, TBO, etc), compared live
+  // against the aircraft's own current_hobbs_hours. See
+  // sync/migrations_hobbs_tracking.sql -- v1 is manual-reset only, no
+  // auto-generated future cycles.
+  dueHobbsHours: number | null
 }
 
 export async function getAircraftReminders(userAircraftId: string): Promise<AircraftReminder[]> {
   const { data, error } = await supabase
     .from('user_aircraft_reminders')
-    .select('id, user_aircraft_id, title, due_date, linked_ad_number, notes, interval_months')
+    .select('id, user_aircraft_id, title, due_date, linked_ad_number, notes, interval_months, due_hobbs_hours')
     .eq('user_aircraft_id', userAircraftId)
     .order('due_date')
   if (error) throw error
@@ -380,6 +385,7 @@ export async function getAircraftReminders(userAircraftId: string): Promise<Airc
     linkedAdNumber: r.linked_ad_number,
     notes: r.notes,
     intervalMonths: r.interval_months,
+    dueHobbsHours: r.due_hobbs_hours,
   }))
 }
 
@@ -391,6 +397,7 @@ export async function addAircraftReminder(
   linkedAdNumber?: string | null,
   notes?: string | null,
   intervalMonths?: number | null,
+  dueHobbsHours?: number | null,
 ): Promise<void> {
   const { error } = await supabase.from('user_aircraft_reminders').insert({
     user_id: userId,
@@ -400,6 +407,7 @@ export async function addAircraftReminder(
     linked_ad_number: linkedAdNumber || null,
     notes: notes?.trim() || null,
     interval_months: intervalMonths ?? null,
+    due_hobbs_hours: dueHobbsHours ?? null,
   })
   if (error) throw error
 }
@@ -416,6 +424,7 @@ export async function updateAircraftReminder(
   linkedAdNumber?: string | null,
   notes?: string | null,
   intervalMonths?: number | null,
+  dueHobbsHours?: number | null,
 ): Promise<void> {
   const { error } = await supabase
     .from('user_aircraft_reminders')
@@ -425,6 +434,7 @@ export async function updateAircraftReminder(
       linked_ad_number: linkedAdNumber || null,
       notes: notes?.trim() || null,
       interval_months: intervalMonths ?? null,
+      due_hobbs_hours: dueHobbsHours ?? null,
     })
     .eq('id', id)
   if (error) throw error

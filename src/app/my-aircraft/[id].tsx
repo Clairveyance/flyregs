@@ -127,6 +127,7 @@ export default function AircraftDetailScreen() {
   const [editingEquipment, setEditingEquipment] = useState<AircraftEquipment | null>(null)
   const [reminderFormVisible, setReminderFormVisible] = useState(false)
   const [editingReminder, setEditingReminder] = useState<AircraftReminder | null>(null)
+  const [hobbsModalVisible, setHobbsModalVisible] = useState(false)
   // Per-section collapse -- RC, live, on the Applicable ADs list routinely
   // running 60+ rows deep: "we need an expand/collapse button for the AD,
   // Parts, and Reminders sections so the user doesn't have to scroll past
@@ -153,7 +154,7 @@ export default function AircraftDetailScreen() {
     if (!id) return
     setLoading(true)
     Promise.all([
-      supabase.from('user_aircraft').select('id, make, model, nickname, type_designator, year').eq('id', id).single(),
+      supabase.from('user_aircraft').select('id, make, model, nickname, type_designator, year, current_hobbs_hours, hobbs_updated_at').eq('id', id).single(),
       getAircraftAdNotifications(id),
       getAircraftEquipment(id),
       getAircraftReminders(id),
@@ -377,6 +378,27 @@ export default function AircraftDetailScreen() {
     setPartPickerVisible(true)
   }
 
+  // RC's recurring-AD/hobbs design: aircraft-level self-reported current
+  // hours, compared live against each reminder's optional due_hobbs_hours.
+  // v1 is manual-reset -- the user re-opens this and updates the number
+  // themselves whenever they've logged more time, no automatic accrual.
+  const handleSaveHobbs = async (hoursText: string) => {
+    if (!aircraft) return
+    const trimmed = hoursText.trim()
+    const hours = trimmed === '' ? null : parseFloat(trimmed)
+    if (trimmed !== '' && (hours == null || isNaN(hours) || hours < 0)) {
+      confirm({ title: 'Invalid hours', message: 'Enter a positive number, or leave it blank to clear.', cancelLabel: null })
+      return
+    }
+    const { error } = await supabase
+      .from('user_aircraft')
+      .update({ current_hobbs_hours: hours, hobbs_updated_at: hours != null ? new Date().toISOString() : null })
+      .eq('id', aircraft.id)
+    if (error) { confirm({ title: 'Could not save', message: error.message, cancelLabel: null }); return }
+    setHobbsModalVisible(false)
+    load()
+  }
+
   const openAddReminder = () => {
     // Pro+ per the standing push policy ("reminders push Pro+, AD alerts
     // Premium-only") -- this was wrongly gated at isPremium, silently
@@ -481,6 +503,25 @@ export default function AircraftDetailScreen() {
           {aircraft.nickname && <Text style={[styles.acSub, { color: tokens.t3, fontSize: fs(13) }]}>{aircraft.nickname}</Text>}
           {aircraft.type_designator && (
             <Text style={[styles.acSub, { color: tokens.t3, fontSize: fs(12) }]}>Type {aircraft.type_designator}</Text>
+          )}
+          {/* Self-reported hobbs/tach -- RC: "the field can default to a/c
+              level," compared live against each reminder's own optional
+              usage-based due mark below. Free-tier disclaimer already
+              covers "based only on what you enter here." */}
+          {(aircraft.current_hobbs_hours != null || canEdit) && (
+            <Pressable
+              style={styles.hobbsRow}
+              onPress={canEdit ? () => setHobbsModalVisible(true) : undefined}
+              hitSlop={6}
+            >
+              <Icon name="gauge" size={fs(12)} color={tokens.t4} />
+              <Text style={[styles.acSub, { color: tokens.t3, fontSize: fs(12), marginBottom: 0 }]}>
+                {aircraft.current_hobbs_hours != null
+                  ? `${aircraft.current_hobbs_hours} hrs`
+                  : 'Set current hours'}
+              </Text>
+              {canEdit && <Icon name="pencil" size={fs(10)} color={tokens.t4} />}
+            </Pressable>
           )}
           {!isOwner && (
             <Pressable onPress={handleLeave} hitSlop={8} style={{ alignSelf: 'flex-start', marginTop: 2, marginBottom: 4 }}>
@@ -769,6 +810,16 @@ export default function AircraftDetailScreen() {
                   // so a glance here reads the same way a glance at the
                   // ring does.
                   const color = overdue ? tokens.red : soon ? tokens.amb : tokens.grn
+                  // Live usage-based comparison -- only computable once the
+                  // aircraft itself has a self-reported hours value; without
+                  // one, fall back to just stating the due mark plainly.
+                  const hobbsRemaining = r.dueHobbsHours != null && aircraft.current_hobbs_hours != null
+                    ? r.dueHobbsHours - aircraft.current_hobbs_hours
+                    : null
+                  const hobbsOverdue = hobbsRemaining != null && hobbsRemaining < 0
+                  const hobbsText = r.dueHobbsHours == null ? '' : hobbsRemaining != null
+                    ? ` · ${hobbsOverdue ? `OVERDUE by ${Math.abs(hobbsRemaining).toFixed(1)}` : `${hobbsRemaining.toFixed(1)} left`} hrs`
+                    : ` · due at ${r.dueHobbsHours} hrs`
                   return (
                     <View key={r.id} style={i < reminders.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}>
                       <SwipeToDelete
@@ -777,13 +828,14 @@ export default function AircraftDetailScreen() {
                         disabled={!canEdit}
                       >
                         <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
-                          <Icon name="hourglass" size={fs(15)} color={color} />
+                          <Icon name="hourglass" size={fs(15)} color={hobbsOverdue ? tokens.red : color} />
                           <View style={{ flex: 1 }}>
                             <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{r.title}</Text>
-                            <Text style={[styles.rowSub, { color, fontSize: fs(12) }]}>
+                            <Text style={[styles.rowSub, { color: hobbsOverdue ? tokens.red : color, fontSize: fs(12) }]}>
                               {overdue ? `${Math.abs(days)}d` : `${days}d`} · {r.dueDate}
                               {r.linkedAdNumber ? ` · AD ${r.linkedAdNumber}` : ''}
                               {r.intervalMonths ? ` · every ${r.intervalMonths}mo` : ''}
+                              {hobbsText}
                             </Text>
                           </View>
                         </View>
@@ -825,13 +877,13 @@ export default function AircraftDetailScreen() {
         editing={editingReminder}
         applicableAds={adNotifications}
         onClose={() => { setReminderFormVisible(false); setEditingReminder(null) }}
-        onSaved={async ({ title, dueDate, notes, linkedAdNumber, intervalMonths }) => {
+        onSaved={async ({ title, dueDate, notes, linkedAdNumber, intervalMonths, dueHobbsHours }) => {
           if (!aircraft || !session) return
           try {
             if (editingReminder) {
-              await updateAircraftReminder(editingReminder.id, title, dueDate, linkedAdNumber, notes, intervalMonths)
+              await updateAircraftReminder(editingReminder.id, title, dueDate, linkedAdNumber, notes, intervalMonths, dueHobbsHours)
             } else {
-              await addAircraftReminder(session.user.id, aircraft.id, title, dueDate, linkedAdNumber, notes, intervalMonths)
+              await addAircraftReminder(session.user.id, aircraft.id, title, dueDate, linkedAdNumber, notes, intervalMonths, dueHobbsHours)
             }
             setReminderFormVisible(false)
             setEditingReminder(null)
@@ -845,6 +897,13 @@ export default function AircraftDetailScreen() {
         aircraft={editingAircraft}
         onClose={() => setEditingAircraft(null)}
         onSaved={() => { setEditingAircraft(null); load() }}
+      />
+      <HobbsUpdateModal
+        visible={hobbsModalVisible}
+        initialHours={aircraft.current_hobbs_hours ?? null}
+        updatedAt={aircraft.hobbs_updated_at ?? null}
+        onClose={() => setHobbsModalVisible(false)}
+        onSave={handleSaveHobbs}
       />
     </View>
   )
@@ -925,6 +984,67 @@ function PartPickerModal({ visible, editing, onClose, onPicked }: { visible: boo
   )
 }
 
+// Self-reported hobbs/tach, aircraft-level per RC's design ("the field can
+// default to a/c level"). v1 is manual-reset only -- no accrual, no
+// auto-recurrence; the user comes back and updates this number whenever
+// they've logged more time.
+function HobbsUpdateModal({
+  visible, initialHours, updatedAt, onClose, onSave,
+}: {
+  visible: boolean
+  initialHours: number | null
+  updatedAt: string | null
+  onClose: () => void
+  onSave: (hoursText: string) => void
+}) {
+  const { tokens } = useTheme()
+  const fs = useFS()
+  const ifs = useInputFS()
+  const [text, setText] = useState('')
+
+  useEffect(() => {
+    if (visible) setText(initialHours != null ? String(initialHours) : '')
+  }, [visible, initialHours])
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent>
+      <View style={styles.modalBackdrop}>
+        <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Current Hobbs / Tach</Text>
+            <Pressable onPress={onClose} hitSlop={10}>
+              <Icon name="xmark" size={fs(18)} color={tokens.t3} />
+            </Pressable>
+          </View>
+          <Text style={{ color: tokens.t3, fontSize: fs(12.5), marginBottom: 4 }}>
+            Self-reported — used to compare against any reminder's usage-based due mark below.
+          </Text>
+          <View style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr, paddingVertical: 0 }]}>
+            <TextInput
+              value={text}
+              onChangeText={(t) => setText(t.replace(/[^0-9.]/g, ''))}
+              placeholder="e.g. 1842.3"
+              placeholderTextColor={tokens.t3}
+              keyboardType="decimal-pad"
+              style={{ flex: 1, color: tokens.t1, fontSize: ifs(14.5), paddingVertical: 12 }}
+              autoFocus
+            />
+            <Text style={{ color: tokens.t3, fontSize: fs(13) }}>hrs</Text>
+          </View>
+          {updatedAt && (
+            <Text style={{ color: tokens.t4, fontSize: fs(11.5) }}>
+              Last updated {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </Text>
+          )}
+          <Pressable style={[styles.addButton, { backgroundColor: tokens.blu }]} onPress={() => onSave(text)}>
+            <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Save</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  )
+}
+
 // Redesigned add/edit form (RC: scope the Reminders work, then "which
 // schema is more flexible and easy to use for the user? ... they should
 // still be able to manually adjust a date if needed"). Type chips only
@@ -943,7 +1063,7 @@ function ReminderFormModal({
   editing: AircraftReminder | null
   applicableAds: AircraftAdNotification[]
   onClose: () => void
-  onSaved: (input: { title: string; dueDate: string; notes: string; linkedAdNumber: string | null; intervalMonths: number | null }) => void
+  onSaved: (input: { title: string; dueDate: string; notes: string; linkedAdNumber: string | null; intervalMonths: number | null; dueHobbsHours: number | null }) => void
 }) {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -956,6 +1076,7 @@ function ReminderFormModal({
   const [linkedAdNumber, setLinkedAdNumber] = useState<string | null>(null)
   const [intervalMonths, setIntervalMonths] = useState<number | null>(null)
   const [customLengthText, setCustomLengthText] = useState('')
+  const [dueHobbsText, setDueHobbsText] = useState('')
   const [datePickerVisible, setDatePickerVisible] = useState(false)
   const [adPickerVisible, setAdPickerVisible] = useState(false)
 
@@ -987,6 +1108,7 @@ function ReminderFormModal({
     const im = editing?.intervalMonths ?? null
     setIntervalMonths(im)
     setCustomLengthText(im != null && !(LENGTH_PRESETS as readonly number[]).includes(im) ? String(im) : '')
+    setDueHobbsText(editing?.dueHobbsHours != null ? String(editing.dueHobbsHours) : '')
   }, [visible, editing])
 
   const selectType = (key: ReminderTypeKey) => {
@@ -1002,7 +1124,8 @@ function ReminderFormModal({
   const handleSave = () => {
     if (!title.trim()) { confirm({ title: 'Title required', message: 'Enter what this reminder is for.', cancelLabel: null }); return }
     if (!DATE_RE.test(dueDate.trim())) { confirm({ title: 'Pick a due date', message: 'Use the date picker to set when this is due.', cancelLabel: null }); return }
-    onSaved({ title: title.trim(), dueDate: dueDate.trim(), notes, linkedAdNumber, intervalMonths })
+    const dueHobbsHours = dueHobbsText.trim() ? parseFloat(dueHobbsText.trim()) : null
+    onSaved({ title: title.trim(), dueDate: dueDate.trim(), notes, linkedAdNumber, intervalMonths, dueHobbsHours })
   }
 
   const isCustomLength = customLengthText !== '' || (intervalMonths != null && !(LENGTH_PRESETS as readonly number[]).includes(intervalMonths))
@@ -1103,6 +1226,24 @@ function ReminderFormModal({
                 <Text style={{ color: tokens.t3, fontSize: fs(13) }}>months</Text>
               </View>
             )}
+
+            {/* RC: "here, we also need a box to input an a/c's 'tach' time.
+                this is a user custom field - for things like 100 hour, which
+                aren't based on a date, but on usage." Not restricted to the
+                100-Hour type -- any reminder can carry a usage-based due
+                mark alongside its date. Compared live against the
+                aircraft's own self-reported current hours on the row below. */}
+            <View style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr, paddingVertical: 0 }]}>
+              <TextInput
+                value={dueHobbsText}
+                onChangeText={(t) => setDueHobbsText(t.replace(/[^0-9.]/g, ''))}
+                placeholder="Tach/Hobbs hours due (optional)"
+                placeholderTextColor={tokens.t3}
+                keyboardType="decimal-pad"
+                style={{ flex: 1, color: tokens.t1, fontSize: ifs(14.5), paddingVertical: 12 }}
+              />
+              {dueHobbsText !== '' && <Text style={{ color: tokens.t3, fontSize: fs(13) }}>hrs</Text>}
+            </View>
 
             {(typeKey === 'ad' || (editing && linkedAdNumber)) && (
               <Pressable style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr }]} onPress={() => setAdPickerVisible(true)}>
@@ -1322,6 +1463,7 @@ const styles = StyleSheet.create({
   acLineRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   acLine: { fontWeight: '700' },
   acSub: { marginTop: 2, marginBottom: 4 },
+  hobbsRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4, alignSelf: 'flex-start' },
   leaveText: { fontWeight: '600' },
   roleBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
   roleBadgeText: { fontWeight: '700', letterSpacing: 0.4 },
