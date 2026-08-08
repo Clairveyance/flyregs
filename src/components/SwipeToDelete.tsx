@@ -17,12 +17,22 @@ import { useTheme } from '@/context/theme'
 // reveal, not the confirmation copy, since that's specific to what's
 // being deleted on each screen.
 export function SwipeToDelete({
-  onDelete, onPress, disabled, children,
+  onDelete, onPress, disabled, children, leftAction,
 }: {
   onDelete: () => void
   onPress?: () => void
   disabled?: boolean
   children: React.ReactNode
+  /**
+   * Optional second reveal on the OPPOSITE (rightward) swipe -- e.g. "Mark
+   * Complied" on the AD list. RC: ADs could only be marked complied via
+   * the small status-icon tap; a swipe should reach the same action.
+   * Same reveal-then-tap two-step as the delete side (never fires on the
+   * swipe alone), just a different color/label/callback. Only rendered
+   * when passed, so every other existing call site (Equipment, Reminders)
+   * is byte-identical to before.
+   */
+  leftAction?: { label: string; color: string; onPress: () => void }
 }) {
   const fs = useFS()
   const { tokens } = useTheme()
@@ -34,11 +44,14 @@ export function SwipeToDelete({
     .failOffsetY([-10, 10])
     .enabled(!disabled)
     .onUpdate((e) => {
-      translateX.value = Math.min(0, Math.max(-84, e.translationX))
+      translateX.value = Math.min(leftAction ? 84 : 0, Math.max(-84, e.translationX))
     })
     .onEnd((e) => {
       if (e.translationX < -42) {
         translateX.value = withSpring(-76, { damping: 18, stiffness: 280 })
+        swiped.current = true
+      } else if (leftAction && e.translationX > 42) {
+        translateX.value = withSpring(76, { damping: 18, stiffness: 280 })
         swiped.current = true
       } else {
         translateX.value = withSpring(0, { damping: 18, stiffness: 280 })
@@ -68,8 +81,21 @@ export function SwipeToDelete({
     onDelete()
   }
 
+  const handleLeftAction = () => {
+    translateX.value = withSpring(0, { damping: 18, stiffness: 280 })
+    swiped.current = false
+    leftAction?.onPress()
+  }
+
   return (
     <View style={styles.wrap}>
+      {leftAction && (
+        <View style={[styles.leftBg, { backgroundColor: leftAction.color }]}>
+          <Pressable style={styles.removeAction} onPress={handleLeftAction}>
+            <Text style={[styles.removeActionText, { fontSize: fs(12) }]}>{leftAction.label}</Text>
+          </Pressable>
+        </View>
+      )}
       <View style={[styles.removeBg, { backgroundColor: tokens.red }]}>
         <Pressable style={styles.removeAction} onPress={handleSwipeDelete}>
           <Text style={[styles.removeActionText, { fontSize: fs(12) }]}>Delete</Text>
@@ -88,6 +114,10 @@ const styles = StyleSheet.create({
   wrap: { overflow: 'hidden' },
   removeBg: {
     position: 'absolute', top: 0, bottom: 0, right: 0, width: 84,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  leftBg: {
+    position: 'absolute', top: 0, bottom: 0, left: 0, width: 84,
     justifyContent: 'center', alignItems: 'center',
   },
   removeAction: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' },

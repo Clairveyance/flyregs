@@ -741,6 +741,11 @@ export default function AircraftDetailScreen() {
                         onDelete={() => handleDismissAd(n)}
                         onPress={() => handleOpenAd(n)}
                         disabled={!canEdit}
+                        leftAction={canEdit ? {
+                          label: n.compliedAt ? 'Un-mark' : 'Mark',
+                          color: tokens.blu,
+                          onPress: () => (n.compliedAt ? handleUnmarkComplied(n) : handleMarkComplied(n)),
+                        } : undefined}
                       >
                         <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
                           {!n.readAt && <View style={[styles.unreadDot, { backgroundColor: tokens.blu }]} />}
@@ -828,19 +833,38 @@ export default function AircraftDetailScreen() {
                   // Same severity vocabulary as the Reminders row below --
                   // a part's own tracking reads the same way a glance at
                   // a reminder does, since they're the same underlying
-                  // concept (a date/hour compliance mark).
+                  // concept (a date/hour compliance mark). Unlike Reminders
+                  // (which always has a date and treats hobbs as bonus
+                  // info layered onto that date's own color), a part here
+                  // can be hobbs-ONLY with no date at all -- RC, real
+                  // device: "I set a value for one... but I didn't see
+                  // anything different" was this exact gap. hobbs needed
+                  // its OWN full green/amber/red tier, not just a red
+                  // override on top of a date color that might not exist.
                   const hobbsRemaining = e.dueHobbsHours != null && aircraft.current_hobbs_hours != null
                     ? e.dueHobbsHours - aircraft.current_hobbs_hours
                     : null
                   const hobbsOverdue = hobbsRemaining != null && hobbsRemaining < 0
+                  // "Soon" is interval-relative (≤10% of the recurrence
+                  // left) since a part's own interval can be anywhere from
+                  // 25 to 2,000+ hours -- a flat hour cutoff wouldn't mean
+                  // the same thing for both. Falls back to a flat 10hrs
+                  // when there's no interval to scale against.
+                  const hobbsSoon = hobbsRemaining != null && hobbsRemaining >= 0
+                    && hobbsRemaining <= (e.intervalHours ? e.intervalHours * 0.1 : 10)
+                  const hobbsColor = e.dueHobbsHours == null ? null : hobbsOverdue ? tokens.red : hobbsSoon ? tokens.amb : tokens.grn
                   const hobbsText = e.dueHobbsHours == null ? null : hobbsRemaining != null
                     ? `${hobbsOverdue ? `OVERDUE by ${Math.abs(hobbsRemaining).toFixed(1)}` : `${hobbsRemaining.toFixed(1)} left`} hrs`
                     : `due at ${e.dueHobbsHours} hrs`
                   const dateDays = e.dueDate ? daysUntil(e.dueDate) : null
                   const dateOverdue = dateDays != null && dateDays < 0
                   const dateSoon = dateDays != null && dateDays >= 0 && dateDays <= 30
-                  const dateColor = dateOverdue ? tokens.red : dateSoon ? tokens.amb : tokens.grn
+                  const dateColor = e.dueDate == null ? null : dateOverdue ? tokens.red : dateSoon ? tokens.amb : tokens.grn
                   const dateText = dateDays != null ? `${dateOverdue ? `${Math.abs(dateDays)}d overdue` : `${dateDays}d`} · ${e.dueDate}` : null
+                  // Worse-of-the-two-axes wins the row's overall accent --
+                  // red beats amber beats green beats "no tracking at all."
+                  const rank = (c: string | null) => c === tokens.red ? 3 : c === tokens.amb ? 2 : c === tokens.grn ? 1 : 0
+                  const trackColor = rank(hobbsColor) >= rank(dateColor) ? hobbsColor : dateColor
                   const anyOverdue = hobbsOverdue || dateOverdue
                   const trackingParts = [dateText, hobbsText].filter(Boolean)
                   return (
@@ -856,7 +880,7 @@ export default function AircraftDetailScreen() {
                             <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{e.part.name}</Text>
                             {e.part.manufacturer && <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]}>{e.part.manufacturer}</Text>}
                             {trackingParts.length > 0 && (
-                              <Text style={[styles.rowSub, { color: anyOverdue ? tokens.red : dateText ? dateColor : tokens.t3, fontSize: fs(12) }]}>
+                              <Text style={[styles.rowSub, { color: trackColor ?? tokens.t3, fontSize: fs(12), fontWeight: '600' }]}>
                                 {trackingParts.join(' · ')}
                               </Text>
                             )}
@@ -1227,7 +1251,16 @@ function PartTrackingModal({
     <>
       <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+          {/* RC, real device: this card has more stacked fields than any
+              other bottom sheet in the file (interval, due-hobbs, an
+              optional warning line, due-date, Change Part) -- tall enough
+              that once the decimal-pad keyboard is up, KeyboardAvoidingView
+              had nowhere left to push it and the whole card got squeezed
+              flush against the top of the screen, cutting the header off.
+              A capped maxHeight + inner ScrollView (same shape as the
+              AD-link picker's own scrollable list below) lets the content
+              scroll instead of the card being forced to fit in full. */}
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, maxHeight: '85%' }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]} numberOfLines={1}>
                 Track {part?.name ?? 'Part'}
@@ -1237,65 +1270,67 @@ function PartTrackingModal({
               </Pressable>
             </View>
 
-            <Text style={{ color: tokens.t3, fontSize: fs(13) }}>
-              How often does this part need inspection or replacement? Leave blank if it's just tagged for AD
-              matching.
-            </Text>
-
-            <Text style={[styles.formLabel, { color: tokens.t3, fontSize: fs(11) }]}>EVERY (HOURS)</Text>
-            <View style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr, paddingVertical: 0 }]}>
-              <TextInput
-                value={intervalText}
-                onChangeText={applyInterval}
-                placeholder="e.g. 100"
-                placeholderTextColor={tokens.t3}
-                keyboardType="decimal-pad"
-                style={{ flex: 1, color: tokens.t1, fontSize: ifs(14.5), paddingVertical: 12 }}
-              />
-              <Text style={{ color: tokens.t3, fontSize: fs(13) }}>hrs</Text>
-            </View>
-
-            <Text style={[styles.formLabel, { color: tokens.t3, fontSize: fs(11) }]}>DUE AT (TACH HOURS)</Text>
-            <View style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr, paddingVertical: 0 }]}>
-              <TextInput
-                value={dueHobbsText}
-                onChangeText={applyDueHobbs}
-                placeholder={currentHobbs != null ? 'auto: current + interval' : 'e.g. 1594.7'}
-                placeholderTextColor={tokens.t3}
-                keyboardType="decimal-pad"
-                style={{ flex: 1, color: tokens.t1, fontSize: ifs(14.5), paddingVertical: 12 }}
-              />
-              <Text style={{ color: tokens.t3, fontSize: fs(13) }}>hrs</Text>
-            </View>
-            {currentHobbs == null && intervalText.trim() !== '' && (
-              <Text style={{ color: tokens.amb, fontSize: fs(12) }}>
-                No current tach reading on file for this aircraft yet -- enter a due value directly, or set one from
-                My Fleet first.
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10 }}>
+              <Text style={{ color: tokens.t3, fontSize: fs(13) }}>
+                How often does this part need inspection or replacement? Leave blank if it's just tagged for AD
+                matching.
               </Text>
-            )}
 
-            <Text style={[styles.formLabel, { color: tokens.t3, fontSize: fs(11) }]}>DUE DATE (OPTIONAL)</Text>
-            <Pressable style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr }]} onPress={() => setDatePickerVisible(true)}>
-              <Text style={{ color: dueDate ? tokens.t1 : tokens.t3, fontSize: fs(14.5) }}>{dueDate || 'No due date'}</Text>
-              <Icon name="chevron.down" size={fs(14)} color={tokens.t4} />
-            </Pressable>
-            {dueDate !== '' && (
-              <Pressable onPress={() => setDueDate('')} hitSlop={8}>
-                <Text style={{ color: tokens.t3, fontSize: fs(12.5) }}>Clear due date</Text>
-              </Pressable>
-            )}
+              <Text style={[styles.formLabel, { color: tokens.t3, fontSize: fs(11) }]}>EVERY (HOURS)</Text>
+              <View style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr, paddingVertical: 0 }]}>
+                <TextInput
+                  value={intervalText}
+                  onChangeText={applyInterval}
+                  placeholder="e.g. 100"
+                  placeholderTextColor={tokens.t3}
+                  keyboardType="decimal-pad"
+                  style={{ flex: 1, color: tokens.t1, fontSize: ifs(14.5), paddingVertical: 12 }}
+                />
+                <Text style={{ color: tokens.t3, fontSize: fs(13) }}>hrs</Text>
+              </View>
 
-            {canChangePart && (
-              <Pressable onPress={onChangePart} hitSlop={8}>
-                <Text style={{ color: tokens.blu, fontSize: fs(13), fontWeight: '600' }}>Change Part</Text>
-              </Pressable>
-            )}
-
-            <Pressable style={[styles.addButton, { backgroundColor: tokens.blu }]} onPress={handleSave} disabled={saving}>
-              {saving ? <ActivityIndicator color="#fff" /> : (
-                <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Save</Text>
+              <Text style={[styles.formLabel, { color: tokens.t3, fontSize: fs(11) }]}>DUE AT (TACH HOURS)</Text>
+              <View style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr, paddingVertical: 0 }]}>
+                <TextInput
+                  value={dueHobbsText}
+                  onChangeText={applyDueHobbs}
+                  placeholder={currentHobbs != null ? 'auto: current + interval' : 'e.g. 1594.7'}
+                  placeholderTextColor={tokens.t3}
+                  keyboardType="decimal-pad"
+                  style={{ flex: 1, color: tokens.t1, fontSize: ifs(14.5), paddingVertical: 12 }}
+                />
+                <Text style={{ color: tokens.t3, fontSize: fs(13) }}>hrs</Text>
+              </View>
+              {currentHobbs == null && intervalText.trim() !== '' && (
+                <Text style={{ color: tokens.amb, fontSize: fs(12) }}>
+                  No current tach reading on file for this aircraft yet -- enter a due value directly, or set one
+                  from My Fleet first.
+                </Text>
               )}
-            </Pressable>
+
+              <Text style={[styles.formLabel, { color: tokens.t3, fontSize: fs(11) }]}>DUE DATE (OPTIONAL)</Text>
+              <Pressable style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr }]} onPress={() => setDatePickerVisible(true)}>
+                <Text style={{ color: dueDate ? tokens.t1 : tokens.t3, fontSize: fs(14.5) }}>{dueDate || 'No due date'}</Text>
+                <Icon name="chevron.down" size={fs(14)} color={tokens.t4} />
+              </Pressable>
+              {dueDate !== '' && (
+                <Pressable onPress={() => setDueDate('')} hitSlop={8}>
+                  <Text style={{ color: tokens.t3, fontSize: fs(12.5) }}>Clear due date</Text>
+                </Pressable>
+              )}
+
+              {canChangePart && (
+                <Pressable onPress={onChangePart} hitSlop={8}>
+                  <Text style={{ color: tokens.blu, fontSize: fs(13), fontWeight: '600' }}>Change Part</Text>
+                </Pressable>
+              )}
+
+              <Pressable style={[styles.addButton, { backgroundColor: tokens.blu }]} onPress={handleSave} disabled={saving}>
+                {saving ? <ActivityIndicator color="#fff" /> : (
+                  <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Save</Text>
+                )}
+              </Pressable>
+            </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
