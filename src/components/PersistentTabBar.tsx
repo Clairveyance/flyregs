@@ -12,11 +12,14 @@ import { Icon } from '@/components/Icon'
 
 // `search` route/path kept as-is (renaming would mean touching every
 // internal link) but its icon changed in the 2026-07-28 IA redesign -- it's
-// now the study/social/game hub ("Community"), not a search screen. Search
-// itself moved to Home.
+// now the study/social/game hub ("The Wing"), not a search screen. Search
+// itself moved to Home. Icon changed again 2026-08-08 from 'bolt' (a
+// leftover from when this tab was Duels-flavored) to 'wings' -- a pilot
+// wings badge reads as this tab's own identity now that it has a name and a
+// neon-sign header, where the lightning bolt read as arbitrary.
 const TABS = [
   { name: 'index',   icon: 'house',             path: '/'        },
-  { name: 'search',  icon: 'bolt',               path: '/search'  },
+  { name: 'search',  icon: 'wings',              path: '/search'  },
   { name: 'saved',   icon: 'bookmark',           path: '/saved'   },
   { name: 'recents', icon: 'clock',              path: '/recents' },
   { name: 'notes',   icon: 'square.and.pencil',  path: '/notes'   },

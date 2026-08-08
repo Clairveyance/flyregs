@@ -91,15 +91,15 @@ export default function ReadyRoomScreen() {
   const emptyCopy: Record<LbTab, { icon: string; title: string; sub: string }> = {
     study: {
       icon: 'person.2.fill', title: 'Nobody here yet',
-      sub: 'Turn on "Show me on the Ready Room leaderboard" in Account > Community, then study this week to be the first name on the board.',
+      sub: 'Turn on "Show me on the Ready Room leaderboard" in Account > The Wing, then study this week to be the first name on the board.',
     },
     duels: {
       icon: 'bolt.fill', title: 'No duels yet',
-      sub: 'Turn on "Show me on the Ready Room leaderboard" in Account > Community, then challenge another player to be the first name on the board.',
+      sub: 'Turn on "Show me on the Ready Room leaderboard" in Account > The Wing, then challenge another player to be the first name on the board.',
     },
     mastery: {
       icon: 'rectangle.stack', title: 'No mastered terms yet',
-      sub: 'Turn on "Show me on the Ready Room leaderboard" in Account > Community, then study to be the first name on the board.',
+      sub: 'Turn on "Show me on the Ready Room leaderboard" in Account > The Wing, then study to be the first name on the board.',
     },
   }
   const empty = emptyCopy[tab]

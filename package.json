@@ -5,6 +5,7 @@
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
     "@expo-google-fonts/montserrat": "^0.4.2",
+    "@expo-google-fonts/pacifico": "^0.4.1",
     "@expo/ui": "~56.0.18",
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -44,6 +45,7 @@
     "react-native-reanimated": "4.3.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",
+    "react-native-svg": "15.15.4",
     "react-native-url-polyfill": "^3.0.0",
     "react-native-view-shot": "5.1.0",
     "react-native-web": "~0.21.0",

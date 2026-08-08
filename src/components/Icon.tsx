@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons'
 import type { IconProps } from './Icon.types'
 import { View } from 'react-native'
 import { AviationHeadset } from './AviationHeadset'
+import { PilotWings } from './PilotWings'
 
 // Maps SF Symbol names → Ionicons names
 const SF_TO_IONICONS: Record<string, string> = {
@@ -157,6 +158,14 @@ export function Icon({ name, size = 22, color, style }: IconProps) {
     return (
       <View style={style as object}>
         <AviationHeadset size={size} color={color ?? '#000'} />
+      </View>
+    )
+  }
+  // No SF Symbol reads as a pilot-wings badge -- see PilotWings.tsx.
+  if (name === 'wings') {
+    return (
+      <View style={style as object}>
+        <PilotWings size={size} color={color ?? '#000'} />
       </View>
     )
   }

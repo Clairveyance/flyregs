@@ -49,6 +49,14 @@ export function initRevenueCat(_userId?: string) { /* no-op */ }
 // fighting the whole point of the dev-tier override.
 export async function syncEntitlements() { /* no-op */ }
 
+// Missing entirely until a real sign-out click-through caught it: auth.tsx's
+// signOut() awaits this unconditionally, so on web it threw "logOutRevenueCat
+// is not a function" AFTER the real Supabase sign-out had already succeeded —
+// the account was actually signed out, but the confirm dialog stayed open
+// showing a raw JS error instead of closing. No real RevenueCat identity to
+// clear on web, so this is a no-op like the rest of this stub.
+export async function logOutRevenueCat() { /* no-op */ }
+
 export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
   // Mirrors the real entitlement hierarchy: the premium products grant BOTH
   // the `pro` and `premium` entitlements in RevenueCat (verified against the

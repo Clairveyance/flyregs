@@ -11,10 +11,12 @@ interface ScreenHeaderProps {
   /** Show the gold FlyRegs wordmark instead of a text title */
   showWordmark?: boolean
   title?: string
+  /** Custom title content (e.g. The Wing's neon sign) — takes priority over `title`. */
+  titleElement?: React.ReactNode
   right?: React.ReactNode
 }
 
-export function ScreenHeader({ showWordmark, title, right }: ScreenHeaderProps) {
+export function ScreenHeader({ showWordmark, title, titleElement, right }: ScreenHeaderProps) {
   const { tokens, resolved, redShift } = useTheme()
   const wordmarkGold = wordmarkGoldFor(resolved, redShift)
   const fs = useFS()
@@ -40,6 +42,8 @@ export function ScreenHeader({ showWordmark, title, right }: ScreenHeaderProps) 
         <View style={styles.center}>
           {showWordmark ? (
             <Text style={[styles.wordmark, { color: wordmarkGold, fontSize: fs(20), fontFamily: WORDMARK_FONT }]}>FlyRegs</Text>
+          ) : titleElement ? (
+            titleElement
           ) : title ? (
             <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>{title}</Text>
           ) : null}

@@ -11,6 +11,7 @@ import {
   Inter_700Bold,
 } from '@expo-google-fonts/inter'
 import { Montserrat_400Regular } from '@expo-google-fonts/montserrat'
+import { Pacifico_400Regular } from '@expo-google-fonts/pacifico'
 import * as SplashScreen from 'expo-splash-screen'
 import { useEffect, useState } from 'react'
 import { ThemeProvider, useTheme } from '@/context/theme'
@@ -56,6 +57,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
           Inter_600SemiBold,
           Inter_700Bold,
           Montserrat_400Regular,
+          Pacifico_400Regular,
         }
   )
 

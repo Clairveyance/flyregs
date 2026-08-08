@@ -381,7 +381,7 @@ export default function ChallengesScreen() {
                   <Text style={[styles.noOpponentsTitle, { color: tokens.t2, fontSize: fs(13.5) }]}>No one to challenge yet</Text>
                   <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(12.5), textAlign: 'left', marginTop: 3 }]}>
                     A friend needs their own FlyRegs account, with "Show me on the Ready Room leaderboard"
-                    turned on in Account &gt; Community, before they'll show up here.
+                    turned on in Account &gt; The Wing, before they'll show up here.
                   </Text>
                 </View>
               </View>

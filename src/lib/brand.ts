@@ -7,6 +7,12 @@ import { Platform } from 'react-native'
 // both read visibly heavier when checked side by side against the source art.
 export const WORDMARK_FONT = Platform.select({ web: 'Montserrat', default: 'Montserrat_400Regular' })
 
+// The Wing's own header — a cursive neon-tube script, like the sign hanging
+// on the wall of the place. Same native/web split as WORDMARK_FONT above:
+// native loads @expo-google-fonts/pacifico ("Pacifico_400Regular"), web
+// loads the plain family name via global.css's Google Fonts @import.
+export const NEON_SIGN_FONT = Platform.select({ web: 'Pacifico', default: 'Pacifico_400Regular' })
+
 // Sampled from the wordmark artwork's own gradient (flyregs-wordmark.png) so
 // text rendered as the "FlyRegs" word matches the logo's actual gold rather
 // than the app's flatter `tokens.gold` accent color. Dark mode uses the

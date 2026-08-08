@@ -808,7 +808,7 @@ export default function AccountScreen() {
             default, same privacy stance as shared folders/cloud sync
             elsewhere in this app: opting in surfaces your callsign (or email
             prefix) and weekly study activity to every other opted-in user. */}
-        <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>COMMUNITY</Text>
+        <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>THE WING</Text>
         <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <View style={[styles.row, { borderBottomWidth: 0 }]}>
             <View style={styles.rowIcon}>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -188,7 +188,7 @@ const FAQ: QA[] = [
     category: 'Search',
     a: [
       { tier: 'pro', text: 'A natural-language question box, separate from the regular search bar. Ask the way you\'d actually say it — "how much rest do I need before flying passengers?" — instead of guessing the regulatory wording, and it finds the passages on that subject across the whole library.' },
-      'Find it inside the Community section (the lightning bolt icon in the tab bar) — it\'s not the most obvious spot for a search tool, so look there if you can\'t find it.',
+      'Find it inside The Wing (the pilot-wings icon in the tab bar) — it\'s not the most obvious spot for a search tool, so look there if you can\'t find it.',
       'What it does that SmartSearch can\'t:\n• It matches MEANING, not words — so it can find the right passage even when your question shares no words at all with the regulation.\n• Ask "when do I have to file a NASA report" and it lands on the Aviation Safety Reporting Program. The FAA never calls it a "NASA report," so a word-based search structurally cannot find that; this does.\n• Full sentences help it rather than hurt it. Phrasing, context, and intent are all part of what it matches on.',
       'What it is not:\n• It finds passages — it doesn\'t write you an answer. You still read the reg and decide.\n• It can land in the right neighborhood but the wrong document. Ask about altitude over a house and it may surface drone rules alongside the manned-aircraft ones. Check the source on every result.\n• For a specific section or document number you already know, plain search is faster and exact.',
     ],
@@ -222,7 +222,7 @@ const FAQ: QA[] = [
     q: 'What are Duels?',
     category: 'Study Mode, Duels & Coins',
     a: [
-      { tier: 'premium', text: 'A head-to-head multiple-choice quiz against another FlyRegs user, drawing questions from FAR, AIM, P/CG, and AC content. Challenge someone from Community, and you\'ll each get notified when it\'s your turn to answer.' },
+      { tier: 'premium', text: 'A head-to-head multiple-choice quiz against another FlyRegs user, drawing questions from FAR, AIM, P/CG, and AC content. Challenge someone from The Wing, and you\'ll each get notified when it\'s your turn to answer.' },
       'Wins build toward Duel-specific Challenge Coins, and the Ready Room shows a leaderboard of top Duel performance (Ready Room itself just needs Pro to view).',
     ],
   },
@@ -277,7 +277,7 @@ const FAQ: QA[] = [
     a: [
       { tier: 'plus', text: 'Certificate and rating study guides built directly from the FAA\'s own Airman Certification Standards (ACS) and Practical Test Standards (PTS) — the same documents your practical test is actually based on — broken into Areas of Operation, Tasks, and each Task\'s Knowledge, Risk Management, and Skill elements.' },
       'Every element is tappable: it runs a search across FAR, AIM, P/CG, and AC for that specific topic and shows the real regulatory text, instead of leaving you to go find it yourself. A Task\'s "Related Regulations" box also auto-searches on the Task\'s own title the moment you open it.',
-      'Find RefPacks under Community → RefPacks, organized by aircraft category (Airplane, Rotorcraft, Powered-Lift) and, within each, by rating/certificate — Private, Commercial, ATP, Flight Instructor, Aviation Mechanic, and more.',
+      'Find RefPacks under The Wing → RefPacks, organized by aircraft category (Airplane, Rotorcraft, Powered-Lift) and, within each, by rating/certificate — Private, Commercial, ATP, Flight Instructor, Aviation Mechanic, and more.',
     ],
   },
   {
@@ -348,7 +348,7 @@ const FAQ: QA[] = [
   {
     q: 'What are Duel Alerts?',
     category: 'Subscriptions & Sync',
-    a: [{ tier: 'pro', text: 'A notification setting that pushes a notification when someone challenges you to a Duel — FlyRegs\' head-to-head multiple-choice quiz across FAR, AIM, P/CG, and AC — or when a Duel you\'re in updates, so you don\'t have to keep checking Community to see if it\'s your turn.' }],
+    a: [{ tier: 'pro', text: 'A notification setting that pushes a notification when someone challenges you to a Duel — FlyRegs\' head-to-head multiple-choice quiz across FAR, AIM, P/CG, and AC — or when a Duel you\'re in updates, so you don\'t have to keep checking The Wing to see if it\'s your turn.' }],
   },
   {
     q: 'How do I cancel?',
@@ -374,15 +374,49 @@ export default function FAQScreen() {
   // whether the user asked for it or not.
   const [open, setOpen] = useState<number | null>(null)
 
+  // Scroll the tapped question to the top of the viewport on expand -- RC,
+  // live: clicking a question routinely landed with the viewport already
+  // partway down the answer instead of at the question itself, since a long
+  // answer expanding below a question that was only partly scrolled into
+  // view left the reader looking at whatever was already on-screen (often
+  // mid-answer), not the question that triggered it. Measuring in *page*
+  // coordinates (item vs. the ScrollView itself) rather than summing layout
+  // offsets works here because there's no keyboard in play to make the
+  // ScrollView's own tracked offset go stale between the tap and the
+  // measurement -- see ACBody.tsx's blockRelY comment for why that
+  // simpler approach isn't safe everywhere, just why it's fine here.
+  const scrollRef = useRef<ScrollView>(null)
+  const itemRefs = useRef<Record<number, View | null>>({})
+  const scrollOffsetRef = useRef(0)
+
   const toggle = (i: number) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut)
+    const opening = open !== i
     setOpen((prev) => (prev === i ? null : i))
+    if (!opening) return
+    const item = itemRefs.current[i]
+    // ScrollView's TS type doesn't expose the underlying host node's
+    // .measure() (it's only declared on the ref's runtime NativeMethods,
+    // same gap noted in ACBody.tsx's own measure()-based approach).
+    const scrollNode = scrollRef.current as unknown as { measure: View['measure']; scrollTo: ScrollView['scrollTo'] } | null
+    if (!item || !scrollNode) return
+    item.measure((_x: number, _y: number, _w: number, _h: number, pageX: number, pageY: number) => {
+      scrollNode.measure((_sx: number, _sy: number, _sw: number, _sh: number, _spageX: number, spageY: number) => {
+        const targetY = scrollOffsetRef.current + (pageY - spageY) - 12
+        scrollNode.scrollTo({ y: Math.max(0, targetY), animated: true })
+      })
+    })
   }
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title="Help & FAQ" onBack={backToMenu} />
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}>
+      <ScrollView
+        ref={scrollRef}
+        onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y }}
+        scrollEventThrottle={16}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
+      >
         <Text style={[styles.intro, { color: tokens.t2, fontSize: fs(14) }]}>
           Answers to common questions. Still stuck? Reach out and we'll help.
         </Text>
@@ -403,6 +437,7 @@ export default function FAQScreen() {
                   return (
                     <View
                       key={i}
+                      ref={(r) => { itemRefs.current[i] = r }}
                       style={[
                         styles.item,
                         pos < items.length - 1 && { borderBottomWidth: 1, borderBottomColor: tokens.bdr },

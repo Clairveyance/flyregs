@@ -4,6 +4,7 @@ import type { SymbolViewProps } from 'expo-symbols'
 import { Ionicons } from '@expo/vector-icons'
 import type { IconProps } from './Icon.types'
 import { AviationHeadset } from './AviationHeadset'
+import { PilotWings } from './PilotWings'
 
 export function Icon({ name, size = 22, color, weight = 'regular', style }: IconProps) {
   // SF Symbols has no "headset" symbol (headphones/airpods/earbuds only), so
@@ -13,6 +14,14 @@ export function Icon({ name, size = 22, color, weight = 'regular', style }: Icon
     return (
       <View style={style as object}>
         <AviationHeadset size={size} color={color ?? '#000'} />
+      </View>
+    )
+  }
+  // SF Symbols has no wings/insignia glyph either -- see PilotWings.tsx.
+  if (name === 'wings') {
+    return (
+      <View style={style as object}>
+        <PilotWings size={size} color={color ?? '#000'} />
       </View>
     )
   }

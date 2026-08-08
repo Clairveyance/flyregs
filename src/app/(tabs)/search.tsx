@@ -18,6 +18,7 @@ import { getAvatarUrl, resolveAvatarPresetId, getDisplayName } from '@/lib/avata
 import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
 import { NameTag } from '@/components/NameTag'
+import { NEON_SIGN_FONT } from '@/lib/brand'
 
 // IA redesign (2026-07-28): this file used to be the Search tab. Search now
 // lives entirely on Home (see (tabs)/index.tsx's inline search bar +
@@ -56,7 +57,52 @@ type IdentitySnapshot = {
 const identityStatsMemCache: Record<string, IdentitySnapshot> = {}
 const IDENTITY_CACHE_KEY_PREFIX = '@flyregs/identityStatsCache:'
 
-export default function CommunityScreen() {
+// "The Wing" (renamed from "Community", RC 2026-08-08 — "you can take
+// someone under your wing or v/v, you can spread your wings") gets its own
+// header treatment instead of the shared plain-text ScreenHeader title: a
+// cursive white neon-tube script, like the sign hanging on the wall of the
+// place. Two stacked Text layers sharing the same font/color, back one
+// blurred wider + dimmer, front one tighter + fully opaque — RN only gives
+// one native shadow layer per Text, so this fakes the soft-outer/crisp-inner
+// bloom a real multi-layer CSS text-shadow would give a neon tube.
+function WingSign() {
+  const fs = useFS()
+  const size = fs(24)
+  return (
+    <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+      <Text
+        style={[
+          styles.neonText,
+          {
+            position: 'absolute',
+            fontSize: size,
+            textShadowColor: '#fff',
+            textShadowOffset: { width: 0, height: 0 },
+            textShadowRadius: 18,
+            opacity: 0.75,
+          },
+        ]}
+      >
+        The Wing
+      </Text>
+      <Text
+        style={[
+          styles.neonText,
+          {
+            fontSize: size,
+            textShadowColor: '#fff',
+            textShadowOffset: { width: 0, height: 0 },
+            textShadowRadius: 5,
+          },
+        ]}
+      >
+        The Wing
+      </Text>
+    </View>
+  )
+}
+
+export default function TheWingScreen() {
   const { tokens, redShift } = useTheme()
   const fs = useFS()
   const { session, isPro, isPremium, hasPlusAccess, avatarOverride } = useAuth()
@@ -167,12 +213,12 @@ export default function CommunityScreen() {
   if (!hasPlusAccess) {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-        <ScreenHeader title="Community" />
+        <ScreenHeader titleElement={<WingSign />} />
         <TabletContainer>
           <View style={styles.lockedWrap}>
             <Icon name="person.2.fill" size={fs(38)} color={tokens.blu} />
             <Text style={[styles.lockedTitle, { color: tokens.t1, fontSize: fs(17) }]}>
-              Community is a paid feature
+              The Wing is a paid feature
             </Text>
             <Text style={[styles.lockedBody, { color: tokens.t3, fontSize: fs(13.5) }]}>
               Study Mode flashcards, Duels against other players, RefPacks for your
@@ -193,7 +239,7 @@ export default function CommunityScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <ScreenHeader title="Community" />
+      <ScreenHeader titleElement={<WingSign />} />
       <TabletContainer>
         <ScrollView contentContainerStyle={styles.content}>
           {session ? (
@@ -575,6 +621,12 @@ function RefPacketGrid({
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  neonText: {
+    fontFamily: NEON_SIGN_FONT,
+    color: '#fff',
+    textShadowColor: '#fff',
+    textShadowOffset: { width: 0, height: 0 },
+  },
   lockedWrap: { alignItems: 'center', justifyContent: 'center', padding: 28, gap: 10, paddingTop: 80 },
   lockedTitle: { fontWeight: '700', marginTop: 6 },
   lockedBody: { textAlign: 'center', lineHeight: 20, maxWidth: 330 },
