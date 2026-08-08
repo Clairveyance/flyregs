@@ -584,17 +584,39 @@ function ProHero({
   // trails the first outward -- reads as an echo/ripple rather than a single
   // pulse. Each fades out and expands over its own window, invisible before
   // its start and after its window closes.
-  const echoStyle = (start: number) => useAnimatedStyle(() => {
+  //
+  // Sentry (fatal, 724 occurrences on a real device): "[Worklets] Tried to
+  // synchronously call a non-worklet function `_temp` on the UI thread" --
+  // same failure shape as tickStyle's own fix above, but a different root
+  // cause: this used to be a single `echoStyle = (start) => useAnimatedStyle(...)`
+  // factory function called twice (once per start time) instead of two
+  // direct useAnimatedStyle calls. Reanimated's Babel plugin statically
+  // finds and tags `useAnimatedStyle(...)` callbacks at their call site --
+  // routing the call through a locally-defined wrapper function like that
+  // is exactly the kind of indirection its static analysis doesn't reliably
+  // see through, so the returned closure could end up untagged and get
+  // rejected on the UI thread. Fixed by inlining two separate, direct
+  // useAnimatedStyle calls (one per start constant) instead of one
+  // factory -- same lesson as tickStyle: no intermediate function values
+  // between a component body and useAnimatedStyle's own call site.
+  const echo1Style = useAnimatedStyle(() => {
     const p = pulse.value
-    const t = Math.min(Math.max((p - start) / PRO_HERO_ECHO_WINDOW, 0), 1)
-    const active = p >= start && p <= start + PRO_HERO_ECHO_WINDOW
+    const t = Math.min(Math.max((p - PRO_HERO_ECHO1_START) / PRO_HERO_ECHO_WINDOW, 0), 1)
+    const active = p >= PRO_HERO_ECHO1_START && p <= PRO_HERO_ECHO1_START + PRO_HERO_ECHO_WINDOW
     return {
       opacity: active ? 0.55 * (1 - t) : 0,
       transform: [{ scale: 1 + t * 0.7 }],
     }
   })
-  const echo1Style = echoStyle(PRO_HERO_ECHO1_START)
-  const echo2Style = echoStyle(PRO_HERO_ECHO2_START)
+  const echo2Style = useAnimatedStyle(() => {
+    const p = pulse.value
+    const t = Math.min(Math.max((p - PRO_HERO_ECHO2_START) / PRO_HERO_ECHO_WINDOW, 0), 1)
+    const active = p >= PRO_HERO_ECHO2_START && p <= PRO_HERO_ECHO2_START + PRO_HERO_ECHO_WINDOW
+    return {
+      opacity: active ? 0.55 * (1 - t) : 0,
+      transform: [{ scale: 1 + t * 0.7 }],
+    }
+  })
 
   return (
     <View style={[styles.proHeroCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
