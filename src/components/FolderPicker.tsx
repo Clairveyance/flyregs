@@ -15,6 +15,7 @@ import {
   Folder,
   FolderItemType,
   DUPLICATE_FOLDER_NAME,
+  PLUS_FOLDER_CAP,
 } from '@/lib/folders'
 import { addManyBookmarks, BookmarkAC } from '@/lib/bookmarks'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -51,7 +52,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
-  const { hasPlusAccess } = useAuth()
+  const { hasPlusAccess, isPremium } = useAuth()
   const [folders, setFolders] = useState<Folder[]>([])
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({})
   const [memberIds, setMemberIds] = useState<Set<string>>(new Set())
@@ -117,6 +118,21 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   const handleCreate = async () => {
     const name = newName.trim()
     if (!name) return
+    // Plus is capped at PLUS_FOLDER_CAP folders, Premium unlimited -- same
+    // rule saved.tsx's own "New Folder" enforces (see PLUS_FOLDER_CAP in
+    // lib/folders.ts). This picker had no cap check at all, so a Plus user
+    // could keep creating folders past 3 from any detail screen's "Add to
+    // Folder" menu, bypassing the exact upgrade lever the paywall advertises.
+    if (!isPremium && folders.length >= PLUS_FOLDER_CAP) {
+      setCreating(false)
+      confirm({
+        title: 'Folder limit reached',
+        message: `Plus includes ${PLUS_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
+        confirmLabel: 'Upgrade to Premium',
+        onConfirm: () => { handleClose(); router.push('/paywall?tier=premium') },
+      })
+      return
+    }
     let folder: Folder
     try {
       folder = await createFolder(name)

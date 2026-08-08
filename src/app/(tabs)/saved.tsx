@@ -29,6 +29,7 @@ import {
   reorderFolders,
   Folder,
   DUPLICATE_FOLDER_NAME,
+  PLUS_FOLDER_CAP,
 } from '@/lib/folders'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
 import { getMyCollaborations, getMySharedFolders, getOrCreateShareLink, SharedFolderSummary, SharedByMeFolder } from '@/lib/sharedFolders'
@@ -57,10 +58,6 @@ const HIGHLIGHT_TEXT = '#8a6d00'
 const HIGHLIGHT_BG_REDSHIFT = 'rgba(224, 86, 46, 0.16)'
 const HIGHLIGHT_BDR_REDSHIFT = 'rgba(224, 86, 46, 0.45)'
 const HIGHLIGHT_TEXT_REDSHIFT = '#FF9A6B'
-
-// Plus: 3 folders. Premium: unlimited -- a second concrete Plus->Premium
-// upgrade lever alongside the aircraft cap. See flyregs_decisions.md.
-const PLUS_FOLDER_CAP = 3
 
 export default function SavedScreen() {
   const { tokens, redShift } = useTheme()

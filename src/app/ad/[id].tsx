@@ -253,6 +253,13 @@ export default function AdScreen() {
   // sheet where it could leak to someone who never had the app at all.
   const openPDF = () => {
     if (!ad?.pdf_url) return
+    // AD full text is gated at Plus (task #139) -- the raw govinfo.gov PDF
+    // contains the exact same compliance text the "Read the full AD with
+    // Plus" card below is paywalling, so without this check Free tapped
+    // straight past it to the real thing. Every other action on this
+    // screen (bookmark, folder, print, share) already checks this; this
+    // one was the one gap.
+    if (!hasPlusAccess) { router.push('/paywall'); return }
     // Used to window.open() the raw URL on web -- found live: govinfo.gov
     // (where every AD's pdf_url points) serves its PDFs in a way that
     // triggers an OS-level file-download prompt instead of opening as a

@@ -1523,7 +1523,20 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
           ) : (
             <Pressable
               style={[styles.addTrigger, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, marginTop: 20 }]}
-              onPress={() => setAddFormOpen(true)}
+              onPress={() => {
+                // Free/Plus have a 0 aircraft cap (aircraftCapForTier above),
+                // so atProCap is true for them too -- without this check they
+                // fell into the SAME branch as a Pro user at cap and saw its
+                // Pro-specific "One aircraft at a time on Pro... upgrade to
+                // Premium" copy despite never having had Pro access at all.
+                // Route them to the real paywall instead of opening a form
+                // (or a Pro-flavored CTA) they can't use.
+                if (!isPro) {
+                  router.push('/paywall')
+                  return
+                }
+                setAddFormOpen(true)
+              }}
             >
               <Icon name="plus" size={fs(14)} color={tokens.blu} />
               <Text style={[styles.addTriggerText, { color: tokens.blu, fontSize: fs(14) }]}>Add Aircraft</Text>

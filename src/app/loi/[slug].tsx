@@ -362,7 +362,15 @@ export default function LoiDetailScreen() {
               same weight, same place, right before MagicLink. */}
           {loi.pdf_url_cached && (
             <DetailActionRow
-              onOpenPdf={() => router.push({ pathname: '/pdf-viewer', params: { url: loi.pdf_url_cached!, title: loi.title } } as any)}
+              // LOI full text is gated at Pro (task #138) -- same leak and
+              // same fix as ad/[id].tsx's openPDF: the raw cached PDF has
+              // the same legal text the Pro paywall below is guarding, and
+              // every other action on this screen already checks
+              // hasProAccess before this one did.
+              onOpenPdf={() => {
+                if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+                router.push({ pathname: '/pdf-viewer', params: { url: loi.pdf_url_cached!, title: loi.title } } as any)
+              }}
               onDownload={handleDownload}
               downloaded={downloaded}
               downloadBusy={downloadBusy}
