@@ -9,8 +9,9 @@ export interface BookmarkAC {
   /** Absent means 'ac' — every bookmark saved before FAR/AIM/P-CG/AD
    * whole-document bookmarking existed (2026-07-25) has no itemType field at
    * all, so treat a missing value as 'ac' everywhere instead of migrating
-   * old rows. Highlights (blockText set) are always itemType 'ac' — the
-   * other types don't have character-level highlighting yet. */
+   * old rows. Highlights (blockText set) now exist for every PlainTextBody/
+   * paragraph-rendered type (far/aim/pcg/ad/loi), not just 'ac' — see the
+   * Highlights section below. */
   itemType?: FolderItemType
   document_number: string
   title: string
@@ -18,12 +19,17 @@ export interface BookmarkAC {
   office: string | null
   subject_series: string | null
   savedAt: string
-  /** Present only for a "highlight" — a bookmark scoped to one block within
-   * the AC rather than the whole document. `id` here is a freshly generated
-   * value, NOT the AC's own id (unlike a whole-doc bookmark, where id ===
-   * acId) — that's what lets a whole-doc bookmark and any number of
-   * highlights coexist for the same AC without id collisions. `acId` is what
-   * actually points back to the bookmarked AC. */
+  /** Present only for a "highlight" — a bookmark scoped to one block/
+   * paragraph within the document rather than the whole thing. `id` here is
+   * a freshly generated value, NOT the document's own id (unlike a
+   * whole-doc bookmark, where id === acId) — that's what lets a whole-doc
+   * bookmark and any number of highlights coexist for the same document
+   * without id collisions. `acId` is what actually points back to the
+   * bookmarked document — despite the name, this is generic across every
+   * itemType (AC, FAR, AIM, P/CG, AD, LOI), not AC-specific; it's paired
+   * with `itemType` (see getHighlightsForAC/findHighlight/addHighlight
+   * below) so a FAR highlight and an AC highlight can never collide even if
+   * their underlying ids happened to be the same string. */
   acId?: string
   blockKind?: 'section' | 'item' | 'para'
   blockLabel?: string | null
@@ -59,15 +65,25 @@ export function routeForBookmark(item: BookmarkAC, opts?: { hlId?: string }): st
     const acId = resolveBookmarkACId(item)
     return opts?.hlId ? `/ac/${acId}?hlId=${encodeURIComponent(opts.hlId)}` : `/ac/${acId}`
   }
-  // A non-AC bookmark carrying blockText was saved from a Study Mode
-  // flashcard and knows which passage it came from -- pass it through so the
-  // detail screen highlights and scrolls to that spot (see each screen's own
-  // `hl` param handling) instead of opening at the top.
+  // A non-AC bookmark carrying blockText is either a highlight (see the
+  // Highlights section below) or a Study Mode flashcard's saved jump-target
+  // -- either way it knows which passage it came from, so pass it through as
+  // `hl` and the detail screen highlights/scrolls to that spot (see each
+  // screen's own `hl` param handling) instead of opening at the top.
   const hl = item.blockText ? `?hl=${encodeURIComponent(item.blockText)}` : ''
-  if (type === 'far') return `/far/${item.id}${hl}`
-  if (type === 'aim') return `/aim/${item.id}${hl}`
-  if (type === 'pcg') return `/pcg/${item.id}${hl}`
-  if (type === 'ad') return `/ad/${item.id}${hl}`
+  // resolveBookmarkACId, NOT item.id directly -- a highlight's own `id` is a
+  // freshly generated synthetic value (see BookmarkAC's comment), so for a
+  // FAR/AIM/P-CG/AD/LOI highlight `item.id` is NOT a real section/paragraph/
+  // AD/LOI id at all and would 404. This branch used to read item.id
+  // unconditionally, which happened to be harmless only because highlights
+  // were AC-only until now (a whole-doc bookmark's id === its acId, so the
+  // two were indistinguishable there) -- now that every type can have
+  // highlights, the real underlying doc id has to be resolved explicitly.
+  const docId = resolveBookmarkACId(item)
+  if (type === 'far') return `/far/${docId}${hl}`
+  if (type === 'aim') return `/aim/${docId}${hl}`
+  if (type === 'pcg') return `/pcg/${docId}${hl}`
+  if (type === 'ad') return `/ad/${docId}${hl}`
   // LOI bookmarks store the LOI's own slug as `id` (see loi/[slug].tsx's
   // toggleBookmark call), matching /loi/[slug]'s route param directly --
   // was missing entirely, so a synced LOI bookmark silently mis-routed to
@@ -75,7 +91,7 @@ export function routeForBookmark(item: BookmarkAC, opts?: { hlId?: string }): st
   // every other non-AC type above; it alone used to return bare, so a LOI
   // bookmark could never open at its passage even once loi/[slug].tsx knew
   // how to honor the param.
-  if (type === 'loi') return `/loi/${item.id}${hl}`
+  if (type === 'loi') return `/loi/${docId}${hl}`
   // Dictionary bookmarks store the term's own slug as `id`, matching
   // /dictionary/[slug]'s route param -- same pattern as loi above.
   if (type === 'dictionary') return `/dictionary/${item.id}`
@@ -166,21 +182,27 @@ export async function toggleBookmark(ac: Omit<BookmarkAC, 'savedAt'>): Promise<b
 // ── Highlights (section-scoped bookmarks) ───────────────────────────────────
 // Built on the exact same storage/sync as whole-doc bookmarks above — a
 // highlight is just a BookmarkAC row with acId/blockText set and a generated
-// (non-AC) id, so it shows up in the same Saved list, the same sync pipeline,
-// and inherits the same Pro/Premium gating with no separate code path.
+// (non-doc) id, so it shows up in the same Saved list, the same sync
+// pipeline, and inherits the same tier gating with no separate code path.
+// Originally AC-only; itemType defaults to 'ac' below so every existing AC
+// call site keeps working unchanged, but every FAR/AIM/P-CG/AD/LOI detail
+// screen now passes its own itemType too, scoping the acId+blockText lookup
+// so a highlight can never collide with another content type's doc sharing
+// the same underlying id string.
 
-export async function getHighlightsForAC(acId: string): Promise<BookmarkAC[]> {
+export async function getHighlightsForAC(acId: string, itemType: FolderItemType = 'ac'): Promise<BookmarkAC[]> {
   const list = await getBookmarks()
-  return list.filter((b) => b.acId === acId && b.blockText)
+  return list.filter((b) => b.acId === acId && b.blockText && bookmarkItemType(b) === itemType)
 }
 
-export async function findHighlight(acId: string, blockText: string): Promise<BookmarkAC | undefined> {
+export async function findHighlight(acId: string, blockText: string, itemType: FolderItemType = 'ac'): Promise<BookmarkAC | undefined> {
   const list = await getBookmarks()
-  return list.find((b) => b.acId === acId && b.blockText === blockText)
+  return list.find((b) => b.acId === acId && b.blockText === blockText && bookmarkItemType(b) === itemType)
 }
 
 export async function addHighlight(h: {
   acId: string
+  itemType?: FolderItemType
   document_number: string
   title: string
   date_issued: string | null
@@ -193,7 +215,7 @@ export async function addHighlight(h: {
 }): Promise<BookmarkAC> {
   const id = `${h.acId}-hl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const list = await getBookmarks()
-  const bookmark: BookmarkAC = { ...h, id, savedAt: new Date().toISOString() }
+  const bookmark: BookmarkAC = { ...h, itemType: h.itemType ?? 'ac', id, savedAt: new Date().toISOString() }
   await AsyncStorage.setItem(KEY, JSON.stringify([bookmark, ...list]))
   syncPushBookmark(bookmark)
   return bookmark
