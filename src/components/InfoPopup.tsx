@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
+import { supabase } from '@/lib/supabase'
 
 const SEEN_KEY_PREFIX = '@flyregs/info-seen/'
 
@@ -73,6 +74,24 @@ export function InfoPopup({ id, title, body, footer, forceOnce = false, iconSize
 
   const acknowledge = () => {
     AsyncStorage.setItem(SEEN_KEY_PREFIX + id, '1')
+    // Durable, server-side proof of acknowledgment -- the AsyncStorage flag
+    // above only proves this device saw it, which is worthless if the
+    // device is lost, reset, or the app is reinstalled. RC: "by them
+    // clicking 'I understand'... can we log that acceptance somehow? for
+    // legal/liability reasons?" Every forceOnce popup gets this for free
+    // (see this component's own doc comment: forceOnce is reserved for
+    // "text with real liability weight" already), not just the one that
+    // prompted the ask. Best-effort -- a logged-out session or a transient
+    // network failure shouldn't block dismissing the dialog the user just
+    // read and agreed to.
+    supabase.auth.getUser().then(({ data }) => {
+      const userId = data.user?.id
+      if (!userId) return
+      supabase.from('disclaimer_acknowledgments').upsert(
+        { user_id: userId, disclaimer_id: id, acknowledged_at: new Date().toISOString() },
+        { onConflict: 'user_id,disclaimer_id' },
+      )
+    })
     setForcing(false)
     setVisible(false)
   }

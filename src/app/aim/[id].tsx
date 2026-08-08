@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Image, Share } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
+import * as Haptics from 'expo-haptics'
+import * as Clipboard from 'expo-clipboard'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -20,7 +22,7 @@ import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { BackToBreadcrumb, PrevNextFooter } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
-import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
+import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
 import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
 import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
@@ -146,6 +148,16 @@ export default function AimParagraphScreen() {
   useEffect(() => {
     if (id) isBookmarked(id).then(setBookmarked)
   }, [id])
+
+  // Passage-level highlighting -- see far/[id].tsx's identical comment.
+  const [highlightedBlockTexts, setHighlightedBlockTexts] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    if (!id) return
+    getHighlightsForAC(id, 'aim').then((hs) => setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!))))
+  }, [id])
+  // The passage currently under the Copy/Highlight menu -- see
+  // PlainTextBody's pendingBlockText comment.
+  const [pendingHighlight, setPendingHighlight] = useState<string | null>(null)
 
   useEffect(() => {
     if (id) isDownloaded(id).then(setDownloaded)
@@ -274,6 +286,65 @@ export default function AimParagraphScreen() {
     })
     setBookmarked(next)
   }
+
+  // Same guard as far/[id].tsx's identical handler -- see its comment.
+  const toggleInFlight = useRef(false)
+  const lastToggleAt = useRef(0)
+  const handleToggleHighlight = useCallback(async (paraText: string) => {
+    if (!para) return
+    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (toggleInFlight.current) return
+    if (Date.now() - lastToggleAt.current < 800) return
+    lastToggleAt.current = Date.now()
+    toggleInFlight.current = true
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+      const existing = await findHighlight(para.paragraph_number, paraText, 'aim')
+      if (existing) {
+        await removeHighlight(existing.id)
+      } else {
+        await addHighlight({
+          acId: para.paragraph_number,
+          itemType: 'aim',
+          document_number: para.paragraph_number,
+          title: para.title ?? '',
+          date_issued: null,
+          office: null,
+          subject_series: null,
+          blockKind: 'para',
+          blockLabel: null,
+          blockSnippet: paraText.slice(0, 100),
+          blockText: paraText,
+        })
+      }
+      const highlights = await getHighlightsForAC(para.paragraph_number, 'aim')
+      setHighlightedBlockTexts(new Set(highlights.map((h) => h.blockText!)))
+    } finally {
+      toggleInFlight.current = false
+    }
+  }, [para, hasPlusAccess])
+
+  const handleCopyBlock = useCallback(async (paraText: string) => {
+    await Clipboard.setStringAsync(paraText)
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+  }, [])
+
+  const handleBlockLongPress = useCallback((paraText: string) => {
+    if (!hasPlusAccess) { router.push('/paywall'); return }
+    setPendingHighlight(paraText)
+    const isHighlighted = highlightedBlockTexts.has(paraText)
+    confirm({
+      title: 'Passage',
+      choices: [
+        { label: 'Copy Text', onPress: () => { setPendingHighlight(null); handleCopyBlock(paraText) } },
+        {
+          label: isHighlighted ? 'Remove Highlight' : 'Highlight',
+          onPress: () => { setPendingHighlight(null); handleToggleHighlight(paraText) },
+        },
+      ],
+      onCancel: () => setPendingHighlight(null),
+    })
+  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
 
   // Gated synchronously here, not just relying on FolderPicker's own
   // internal backstop -- same rule as ac/[id].tsx's handleOpenFolderPicker,
@@ -534,6 +605,9 @@ export default function AimParagraphScreen() {
               onMatchCount={inDocSearch.setMatchCount}
               scrollRef={scrollRef}
               viewportHeight={scrollViewportHeight}
+              highlightedBlockTexts={highlightedBlockTexts}
+              onToggleHighlight={(paraText) => handleBlockLongPress(paraText)}
+              pendingBlockText={pendingHighlight}
             />
           ) : (
             <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No text available for this paragraph.</Text>

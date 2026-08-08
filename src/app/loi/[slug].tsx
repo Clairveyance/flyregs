@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
+import * as Haptics from 'expo-haptics'
+import * as Clipboard from 'expo-clipboard'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -19,7 +21,7 @@ import { BackToBreadcrumb } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { MetaChip, MetaChipRow, DetailSection, DetailActionRow } from '@/components/DetailMeta'
-import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
+import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
@@ -114,6 +116,16 @@ export default function LoiDetailScreen() {
     if (slug) isDownloaded(slug).then(setDownloaded)
   }, [slug])
 
+  // Passage-level highlighting -- see far/[id].tsx's identical comment.
+  const [highlightedBlockTexts, setHighlightedBlockTexts] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    if (!slug) return
+    getHighlightsForAC(slug, 'loi').then((hs) => setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!))))
+  }, [slug])
+  // The passage currently under the Copy/Highlight menu -- see
+  // PlainTextBody's pendingBlockText comment.
+  const [pendingHighlight, setPendingHighlight] = useState<string | null>(null)
+
   useEffect(() => {
     if (!slug) return
     setLoading(true)
@@ -198,6 +210,65 @@ export default function LoiDetailScreen() {
     })
     setBookmarked(next)
   }
+
+  // Same guard as far/[id].tsx's identical handler -- see its comment.
+  const toggleInFlight = useRef(false)
+  const lastToggleAt = useRef(0)
+  const handleToggleHighlight = useCallback(async (paraText: string) => {
+    if (!loi) return
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (toggleInFlight.current) return
+    if (Date.now() - lastToggleAt.current < 800) return
+    lastToggleAt.current = Date.now()
+    toggleInFlight.current = true
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+      const existing = await findHighlight(loi.slug, paraText, 'loi')
+      if (existing) {
+        await removeHighlight(existing.id)
+      } else {
+        await addHighlight({
+          acId: loi.slug,
+          itemType: 'loi',
+          document_number: loi.title,
+          title: loi.summary ?? loi.title,
+          date_issued: loi.issued_date,
+          office: null,
+          subject_series: null,
+          blockKind: 'para',
+          blockLabel: null,
+          blockSnippet: paraText.slice(0, 100),
+          blockText: paraText,
+        })
+      }
+      const highlights = await getHighlightsForAC(loi.slug, 'loi')
+      setHighlightedBlockTexts(new Set(highlights.map((h) => h.blockText!)))
+    } finally {
+      toggleInFlight.current = false
+    }
+  }, [loi, hasProAccess])
+
+  const handleCopyBlock = useCallback(async (paraText: string) => {
+    await Clipboard.setStringAsync(paraText)
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+  }, [])
+
+  const handleBlockLongPress = useCallback((paraText: string) => {
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    setPendingHighlight(paraText)
+    const isHighlighted = highlightedBlockTexts.has(paraText)
+    confirm({
+      title: 'Passage',
+      choices: [
+        { label: 'Copy Text', onPress: () => { setPendingHighlight(null); handleCopyBlock(paraText) } },
+        {
+          label: isHighlighted ? 'Remove Highlight' : 'Highlight',
+          onPress: () => { setPendingHighlight(null); handleToggleHighlight(paraText) },
+        },
+      ],
+      onCancel: () => setPendingHighlight(null),
+    })
+  }, [hasProAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
 
   const handleOpenFolderPicker = () => {
     if (!loi) return
@@ -407,6 +478,9 @@ export default function LoiDetailScreen() {
                 onMatchCount={inDocSearch.setMatchCount}
                 scrollRef={scrollRef}
                 viewportHeight={scrollViewportHeight}
+                highlightedBlockTexts={highlightedBlockTexts}
+                onToggleHighlight={(paraText) => handleBlockLongPress(paraText)}
+                pendingBlockText={pendingHighlight}
               />
             ) : (
               <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No text available for this interpretation.</Text>

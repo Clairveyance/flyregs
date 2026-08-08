@@ -1143,6 +1143,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                 'Save the aircraft you fly or maintain to get alerted when a new or updated Airworthiness Directive applies to them, instead of scanning the full AD list yourself.',
                 'Premium can share an aircraft with other Premium accounts as a viewer or editor.',
                 'Sorted by urgency — overdue first, then open items, then compliant.',
+                'This tracking is not a substitute for your mechanic, A&P, or other professional airworthiness sources — always verify compliance through official channels.',
               ]}
               footer={
                 <View style={styles.ringLegendSection}>

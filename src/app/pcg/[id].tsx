@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
+import * as Haptics from 'expo-haptics'
+import * as Clipboard from 'expo-clipboard'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -16,7 +18,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
+import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
 import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
 import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
@@ -105,6 +107,18 @@ export default function PcgTermScreen() {
   // cross-reference link can land here with an un-normalized id that gets
   // retried/corrected above (see the retry block), and bookmarking that
   // transient value would silently fail to match what's actually shown.
+  // Passage-level highlighting -- see far/[id].tsx's identical comment.
+  const [highlightedBlockTexts, setHighlightedBlockTexts] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    if (!term) return
+    getHighlightsForAC(term.slug, 'pcg').then((hs) => setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!))))
+  }, [term])
+  // The passage currently under the Copy/Highlight menu -- see
+  // PlainTextBody's pendingBlockText comment (used here directly since P/CG
+  // renders its own definition paragraphs rather than going through
+  // PlainTextBody).
+  const [pendingHighlight, setPendingHighlight] = useState<string | null>(null)
+
   useEffect(() => {
     if (!term) return
     isBookmarked(term.slug).then(setBookmarked)
@@ -294,6 +308,65 @@ export default function PcgTermScreen() {
     setBookmarked(next)
   }
 
+  // Same guard as far/[id].tsx's identical handler -- see its comment.
+  const toggleInFlight = useRef(false)
+  const lastToggleAt = useRef(0)
+  const handleToggleHighlight = useCallback(async (paraText: string) => {
+    if (!term) return
+    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (toggleInFlight.current) return
+    if (Date.now() - lastToggleAt.current < 800) return
+    lastToggleAt.current = Date.now()
+    toggleInFlight.current = true
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+      const existing = await findHighlight(term.slug, paraText, 'pcg')
+      if (existing) {
+        await removeHighlight(existing.id)
+      } else {
+        await addHighlight({
+          acId: term.slug,
+          itemType: 'pcg',
+          document_number: term.term,
+          title: term.term,
+          date_issued: null,
+          office: null,
+          subject_series: null,
+          blockKind: 'para',
+          blockLabel: null,
+          blockSnippet: paraText.slice(0, 100),
+          blockText: paraText,
+        })
+      }
+      const highlights = await getHighlightsForAC(term.slug, 'pcg')
+      setHighlightedBlockTexts(new Set(highlights.map((h) => h.blockText!)))
+    } finally {
+      toggleInFlight.current = false
+    }
+  }, [term, hasPlusAccess])
+
+  const handleCopyBlock = useCallback(async (paraText: string) => {
+    await Clipboard.setStringAsync(paraText)
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+  }, [])
+
+  const handleBlockLongPress = useCallback((paraText: string) => {
+    if (!hasPlusAccess) { router.push('/paywall'); return }
+    setPendingHighlight(paraText)
+    const isHighlighted = highlightedBlockTexts.has(paraText)
+    confirm({
+      title: 'Passage',
+      choices: [
+        { label: 'Copy Text', onPress: () => { setPendingHighlight(null); handleCopyBlock(paraText) } },
+        {
+          label: isHighlighted ? 'Remove Highlight' : 'Highlight',
+          onPress: () => { setPendingHighlight(null); handleToggleHighlight(paraText) },
+        },
+      ],
+      onCancel: () => setPendingHighlight(null),
+    })
+  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
+
   const handleOpenFolderPicker = () => {
     if (!term) return
     if (!hasPlusAccess) { router.push('/paywall'); return }
@@ -435,40 +508,56 @@ export default function PcgTermScreen() {
           )}
 
           {term.definition && defParagraphs.length > 0 ? (
-            defParagraphs.map((para, i) => (
-              <Text
+            defParagraphs.map((para, i) => {
+              const paraText = para.trim()
+              const isHl = highlightedBlockTexts.has(paraText)
+              const isPending = !isHl && pendingHighlight === paraText
+              return (
+              <Pressable
                 key={i}
+                onLongPress={() => handleBlockLongPress(paraText)}
+                delayLongPress={450}
                 style={[
-                  styles.def,
-                  { color: tokens.t2, fontSize: fs(15) },
+                  isHl && styles.defHighlightWrap,
+                  isPending && styles.defPendingWrap,
                   i < defParagraphs.length - 1 && styles.defParaSpacing,
                 ]}
               >
-                {hq ? (
-                  // Same simplification PlainTextBody/ACBody make while
-                  // actively searching: plain highlighted text, hyperlinks
-                  // suppressed for the duration of the search.
-                  highlightSpans(para, hq, { base: defParaBase[i] ?? 0, active: inDocSearch.matchIdx, redShift })
-                ) : (
-                  linkifyText(para).map((seg, si) =>
-                    seg.route ? (
-                      <Text
-                        key={si}
-                        onPress={() => {
-                          setPendingBreadcrumb(term.term)
-                          router.push(seg.route as any)
-                        }}
-                        style={{ color: tokens.blu, fontWeight: '600' }}
-                      >
-                        {seg.text}
-                      </Text>
-                    ) : (
-                      <Text key={si}>{seg.text}</Text>
-                    ),
-                  )
-                )}
-              </Text>
-            ))
+                {isHl && <Text style={[styles.defHighlightTag, { fontSize: fs(9.5) }]}> HIGHLIGHTED </Text>}
+                {isPending && <Text style={[styles.defPendingTag, { fontSize: fs(9.5) }]}> SELECTED </Text>}
+                <Text
+                  style={[
+                    styles.def,
+                    { color: tokens.t2, fontSize: fs(15) },
+                  ]}
+                >
+                  {hq ? (
+                    // Same simplification PlainTextBody/ACBody make while
+                    // actively searching: plain highlighted text, hyperlinks
+                    // suppressed for the duration of the search.
+                    highlightSpans(para, hq, { base: defParaBase[i] ?? 0, active: inDocSearch.matchIdx, redShift })
+                  ) : (
+                    linkifyText(para).map((seg, si) =>
+                      seg.route ? (
+                        <Text
+                          key={si}
+                          onPress={() => {
+                            setPendingBreadcrumb(term.term)
+                            router.push(seg.route as any)
+                          }}
+                          style={{ color: tokens.blu, fontWeight: '600' }}
+                        >
+                          {seg.text}
+                        </Text>
+                      ) : (
+                        <Text key={si}>{seg.text}</Text>
+                      ),
+                    )
+                  )}
+                </Text>
+              </Pressable>
+              )
+            })
           ) : (
             <Text style={[styles.def, { color: tokens.t2, fontSize: fs(15) }]}>
               See related term below — no standalone definition.
@@ -566,6 +655,14 @@ const styles = StyleSheet.create({
   freqText: { fontSize: 11, fontWeight: '600' },
   def: { fontSize: 15, lineHeight: 22 },
   defParaSpacing: { marginBottom: 12 },
+  // Same yellow highlight treatment as ACBody/PlainTextBody -- see either's
+  // comment on these literal (non-token) colors.
+  defHighlightWrap: { backgroundColor: 'rgba(255, 213, 0, 0.10)', borderLeftWidth: 3, borderLeftColor: '#FFD500', paddingLeft: 8 },
+  defHighlightTag: { color: '#8a6d00', backgroundColor: 'rgba(255, 213, 0, 0.35)', fontWeight: '800', letterSpacing: 0.6, marginBottom: 2 },
+  // Same "SELECTED" preview as PlainTextBody's pendingBlockText -- see its
+  // own comment.
+  defPendingWrap: { backgroundColor: 'rgba(59, 130, 246, 0.12)', borderLeftWidth: 3, borderLeftColor: '#3B82F6', paddingLeft: 8 },
+  defPendingTag: { color: '#1d4ed8', backgroundColor: 'rgba(59, 130, 246, 0.22)', fontWeight: '800', letterSpacing: 0.6, marginBottom: 2 },
   // Breathing room around the action/MagicLink stack. These bars used to
   // butt straight up against the Download button above and the body text
   // below, so the whole block read as one cramped slab.

@@ -363,7 +363,26 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
    * pattern as `figures`. Optional; screens that don't pass it render
    * exactly as before. See src/lib/regMnemonics.ts. */
   mnemonicAnchors?: MnemonicAnchor[]
-}>(function PlainTextBody({ text, figures, onOpenFigure, resolveFigureGlobally, onNavigate, currentLabel, highlightQuery, activeMatch, onMatchCount, scrollRef, viewportHeight, changedIndices, mnemonicAnchors }, ref) {
+  /** Saved-highlight passage identities (each paragraph's own trimmed text,
+   * matching bookmarks.ts's blockText snapshot) -- mirrors ACBody's
+   * identically-named prop exactly, so FAR/AIM/AD/LOI get the same "tap and
+   * hold a passage to save/remove a highlight" affordance AC already had.
+   * Optional; omitting it (or onToggleHighlight) renders exactly as before
+   * with no long-press wiring at all. */
+  highlightedBlockTexts?: Set<string>
+  /** Long-press a passage to toggle a highlight on it -- see
+   * highlightedBlockTexts above. Passed the PASSAGE's own trimmed text (the
+   * same value stored as blockText) and its paragraph index. Below the
+   * search-mode branch, "passage" means one softWrap CHUNK, not the raw
+   * pre-wrap paragraph -- see that render branch's own comment for why. */
+  onToggleHighlight?: (paraText: string, index: number) => void
+  /** The passage just long-pressed, while its Copy/Highlight/Cancel menu is
+   * still open and unresolved -- shown with a distinct "SELECTED" preview
+   * style (not yet the committed yellow) so the reader can see exactly what
+   * will be affected before choosing. Set by the parent screen the instant
+   * long-press fires and cleared once the menu closes, any path. */
+  pendingBlockText?: string | null
+}>(function PlainTextBody({ text, figures, onOpenFigure, resolveFigureGlobally, onNavigate, currentLabel, highlightQuery, activeMatch, onMatchCount, scrollRef, viewportHeight, changedIndices, mnemonicAnchors, highlightedBlockTexts, onToggleHighlight, pendingBlockText }, ref) {
   const { tokens, redShift } = useTheme()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web, so every dialog here was invisible in the Browser pane.
@@ -620,18 +639,26 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
         // stacking search highlighting on top of them isn't worth the
         // complexity for what's a temporary interaction mode.
         if (hq) {
+          const paraKey = para.trim()
+          const isHl = !!highlightedBlockTexts?.has(paraKey)
+          const isPending = !isHl && pendingBlockText === paraKey
           return (
-            <View
+            <Pressable
               key={i}
-              ref={(el) => { paraRefs.current[i] = el }}
+              ref={(el) => { paraRefs.current[i] = el as any }}
               onLayout={(e) => { paraRelY.current[i] = e.nativeEvent.layout.y; paraHeight.current[i] = e.nativeEvent.layout.height }}
+              onLongPress={onToggleHighlight ? () => onToggleHighlight(paraKey, i) : undefined}
+              delayLongPress={450}
+              style={isHl ? styles.highlightWrap : isPending ? styles.pendingWrap : undefined}
             >
+              {isHl && <Text style={[styles.highlightTag, { fontSize: fs(9.5) }]}> HIGHLIGHTED </Text>}
+              {isPending && <Text style={[styles.pendingTag, { fontSize: fs(9.5) }]}> SELECTED </Text>}
               {withChangedRail(i,
                 <Text style={[styles.para, { color: tokens.t2, fontSize: fs(14.5) }]}>
                   {highlightSpans(para, hq, { base: paraBase.get(i) ?? 0, active: activeMatch, redShift })}
                 </Text>
               )}
-            </View>
+            </Pressable>
           )
         }
         const table = parseTableBlock(para)
@@ -751,40 +778,64 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
         // wall on a narrow phone screen; short paragraphs are returned
         // unchanged.
         const chunks = softWrapParagraph(body)
-        // The whole paragraph (all its soft-wrapped chunks) is one logical
-        // unit for change-tracking, so the rail wraps the group -- wrapping
-        // each chunk would draw a separate UPDATED tag per visual chunk of
-        // the SAME changed paragraph.
+        // Highlighting is keyed per CHUNK, not per raw paragraph -- confirmed
+        // live as a real bug (RC, LOI): a source paragraph with no real
+        // \n\n break renders as several visually-separate softWrap chunks
+        // (each its own <Text> with normal paragraph spacing, indistinguishable
+        // on screen from a genuine separate paragraph), but the old long-press
+        // wrapped the WHOLE raw paragraph -- so long-pressing one small
+        // visual "paragraph" highlighted every chunk sharing its (much
+        // bigger) unsplit source blob. Each chunk keeping its own Pressable
+        // and its own blockText identity means the highlighted region always
+        // matches exactly what the reader sees and pressed on. The paragraph
+        // as a whole is still one logical unit for change-tracking (the
+        // UPDATED rail below still wraps the group), just not for highlighting.
         const rendered = chunks.map((chunk, ci) => {
           const segments = linkifyText(chunk)
+          const chunkKey = chunk.trim()
+          const isHl = !!highlightedBlockTexts?.has(chunkKey)
+          // Pending: this exact chunk was just long-pressed and the
+          // Copy/Highlight menu is showing but not yet resolved -- lets the
+          // reader SEE the precise passage about to be affected before
+          // choosing, instead of finding out only after tapping Highlight.
+          const isPending = !isHl && pendingBlockText === chunkKey
           return (
-            <Text key={`${i}-${ci}`} style={[styles.para, { color: tokens.t2, fontSize: fs(14.5) }]}>
-              {ci === 0 && marker && <Text style={{ fontWeight: '700', color: tokens.t1 }}>{marker} </Text>}
-              {ci === 0 && headerText && <Text style={{ fontWeight: '700', color: tokens.t1 }}>{headerText} </Text>}
-              {segments.map((seg, j) =>
-                seg.route ? (
-                  <Text
-                    key={j}
-                    onPress={() => handlePress(seg)}
-                    style={{ color: tokens.blu, fontWeight: '600' }}
-                  >
-                    {seg.text}
-                  </Text>
-                ) : mnemonicAnchors && mnemonicAnchors.length > 0 ? (
-                  splitMnemonicSpans(seg.text, mnemonicAnchors).map((mseg, k) =>
-                    mseg.mnemonic ? (
-                      <Text key={`${j}-${k}`} style={{ color: tokens.gold, fontWeight: '700' }}>
-                        {mseg.text}
-                      </Text>
-                    ) : (
-                      <Text key={`${j}-${k}`}>{mseg.text}</Text>
-                    ),
-                  )
-                ) : (
-                  <Text key={j}>{seg.text}</Text>
-                ),
-              )}
-            </Text>
+            <Pressable
+              key={`${i}-${ci}`}
+              onLongPress={onToggleHighlight ? () => onToggleHighlight(chunkKey, i) : undefined}
+              delayLongPress={450}
+              style={isHl ? styles.highlightWrap : isPending ? styles.pendingWrap : undefined}
+            >
+              {isHl && <Text style={[styles.highlightTag, { fontSize: fs(9.5) }]}> HIGHLIGHTED </Text>}
+              {isPending && <Text style={[styles.pendingTag, { fontSize: fs(9.5) }]}> SELECTED </Text>}
+              <Text style={[styles.para, { color: tokens.t2, fontSize: fs(14.5) }]}>
+                {ci === 0 && marker && <Text style={{ fontWeight: '700', color: tokens.t1 }}>{marker} </Text>}
+                {ci === 0 && headerText && <Text style={{ fontWeight: '700', color: tokens.t1 }}>{headerText} </Text>}
+                {segments.map((seg, j) =>
+                  seg.route ? (
+                    <Text
+                      key={j}
+                      onPress={() => handlePress(seg)}
+                      style={{ color: tokens.blu, fontWeight: '600' }}
+                    >
+                      {seg.text}
+                    </Text>
+                  ) : mnemonicAnchors && mnemonicAnchors.length > 0 ? (
+                    splitMnemonicSpans(seg.text, mnemonicAnchors).map((mseg, k) =>
+                      mseg.mnemonic ? (
+                        <Text key={`${j}-${k}`} style={{ color: tokens.gold, fontWeight: '700' }}>
+                          {mseg.text}
+                        </Text>
+                      ) : (
+                        <Text key={`${j}-${k}`}>{mseg.text}</Text>
+                      ),
+                    )
+                  ) : (
+                    <Text key={j}>{seg.text}</Text>
+                  ),
+                )}
+              </Text>
+            </Pressable>
           )
         })
         return (
@@ -804,6 +855,17 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
 const styles = StyleSheet.create({
   changedWrap: { borderLeftWidth: 3, paddingLeft: 10, paddingVertical: 4, borderRadius: 4, marginBottom: 4 },
   changedTag: { fontWeight: '800', letterSpacing: 0.6, marginBottom: 2 },
+  // Same yellow highlight treatment as ACBody's own isHighlighted styling --
+  // kept as literal hex/rgba (not theme tokens) to match ACBody exactly and
+  // stay visible identically in both light and dark mode, same reasoning as
+  // ACBody's own comment on these colors.
+  highlightWrap: { backgroundColor: 'rgba(255, 213, 0, 0.10)', borderLeftWidth: 3, borderLeftColor: '#FFD500', paddingLeft: 8 },
+  highlightTag: { color: '#8a6d00', backgroundColor: 'rgba(255, 213, 0, 0.35)', fontWeight: '800', letterSpacing: 0.6, marginBottom: 2 },
+  // Distinct blue (not yet-committed yellow) so a long-pressed passage
+  // shows exactly what's about to be highlighted while its Copy/Highlight/
+  // Cancel menu is still open -- see pendingBlockText's own comment above.
+  pendingWrap: { backgroundColor: 'rgba(59, 130, 246, 0.12)', borderLeftWidth: 3, borderLeftColor: '#3B82F6', paddingLeft: 8 },
+  pendingTag: { color: '#1d4ed8', backgroundColor: 'rgba(59, 130, 246, 0.22)', fontWeight: '800', letterSpacing: 0.6, marginBottom: 2 },
   para: { lineHeight: 22, marginBottom: 14 },
   tableNavRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, marginBottom: 14 },
   tableNavBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 4 },

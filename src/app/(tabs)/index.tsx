@@ -78,6 +78,10 @@ const HOME_CACHE_KEY = '@flyregs/home-cache'
 // of the card popping in a beat after the RPC resolves (RC, 2026-08-05: "the
 // DR bar always takes a second to load on screen when you go to Home").
 const REG_OF_DAY_CACHE_KEY = '@flyregs/home-regofday-cache'
+// Same cache-first fix, same reason, applied to the Home header's speedometer
+// (Hobbs/tach) icon -- RC: "sometimes the tach icon takes a second to load
+// when you return to Home... on Pro/Prem it should just always be there."
+const FLEET_SUMMARY_CACHE_KEY = '@flyregs/home-fleetsummary-cache'
 
 // IA redesign (2026-07-28): search now lives entirely on Home -- there is no
 // more standalone Search tab/screen to hand off to, so this dropdown IS the
@@ -1430,19 +1434,42 @@ export default function HomeScreen() {
 function HobbsHeaderButton() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasProAccess } = useAuth()
+  const { hasProAccess, loading: authLoading } = useAuth()
   const [fleet, setFleet] = useState<FleetAircraftSummary[] | null>(null)
   const [pickerVisible, setPickerVisible] = useState(false)
   const [editing, setEditing] = useState<FleetAircraftSummary | null>(null)
 
   useFocusEffect(
     useCallback(() => {
-      if (!hasProAccess) { setFleet([]); return }
-      getFleetSummary().then(setFleet).catch(() => setFleet([]))
-    }, [hasProAccess])
+      // Cache-first, same fix and same reason as DailyReg's own
+      // REG_OF_DAY_CACHE_KEY (RC, 2026-08-05: "the DR bar always takes a
+      // second to load... when you go to Home") -- show the last-known
+      // fleet instantly instead of the icon popping in a beat after
+      // getFleetSummary() resolves.
+      AsyncStorage.getItem(FLEET_SUMMARY_CACHE_KEY)
+        .then((cached) => { if (cached) setFleet(JSON.parse(cached)) })
+        .catch(() => {})
+      if (!hasProAccess) {
+        // Only actually clear once auth is DONE resolving entitlements, not
+        // on this transient false -- hasProAccess (isPro || isPremium)
+        // starts false while auth.tsx's own `loading` is still true, so
+        // blanking on that alone is exactly what made a real Pro/Premium
+        // account's icon flicker away and pop back in on every return to
+        // Home, instead of "just always being there."
+        if (!authLoading) {
+          setFleet([])
+          AsyncStorage.removeItem(FLEET_SUMMARY_CACHE_KEY).catch(() => {})
+        }
+        return
+      }
+      getFleetSummary().then((fresh) => {
+        setFleet(fresh)
+        AsyncStorage.setItem(FLEET_SUMMARY_CACHE_KEY, JSON.stringify(fresh)).catch(() => {})
+      }).catch(() => setFleet([]))
+    }, [hasProAccess, authLoading])
   )
 
-  if (!hasProAccess || !fleet || fleet.length === 0) return null
+  if (!fleet || fleet.length === 0) return null
 
   // RC: "most of the time, this would be how users will access MF/MA" --
   // the sheet is a real gateway into My Fleet/My Aircraft, not just a

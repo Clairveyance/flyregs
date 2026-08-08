@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
+import * as Haptics from 'expo-haptics'
+import * as Clipboard from 'expo-clipboard'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -18,7 +20,7 @@ import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { BackToBreadcrumb, PrevNextFooter } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
-import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
+import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
 import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
 import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
@@ -137,6 +139,18 @@ export default function FarSectionScreen() {
   useEffect(() => {
     if (id) isBookmarked(id).then(setBookmarked)
   }, [id])
+
+  // Passage-level highlighting -- FAR/AIM/AD/LOI never had this at all
+  // (only AC did, see bookmarks.ts's Highlights section); ported over so
+  // long-pressing a paragraph here works exactly the same way.
+  const [highlightedBlockTexts, setHighlightedBlockTexts] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    if (!id) return
+    getHighlightsForAC(id, 'far').then((hs) => setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!))))
+  }, [id])
+  // The passage currently under the Copy/Highlight menu, shown as a
+  // "SELECTED" preview -- see PlainTextBody's pendingBlockText comment.
+  const [pendingHighlight, setPendingHighlight] = useState<string | null>(null)
 
   // Consumed once per screen instance (on mount / id change), not on every
   // render -- see navBreadcrumb.ts's single-slot design.
@@ -296,6 +310,72 @@ export default function FarSectionScreen() {
     })
     setBookmarked(next)
   }
+
+  // Same 800ms cooldown + in-flight guard as ac/[id].tsx's own
+  // handleToggleHighlight -- RN Web's Pressable long-press timer path fired
+  // onLongPress repeatedly for what was really one held gesture there;
+  // porting the exact same guard rather than re-deriving it.
+  const toggleInFlight = useRef(false)
+  const lastToggleAt = useRef(0)
+  const handleToggleHighlight = useCallback(async (paraText: string) => {
+    if (!section) return
+    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (toggleInFlight.current) return
+    if (Date.now() - lastToggleAt.current < 800) return
+    lastToggleAt.current = Date.now()
+    toggleInFlight.current = true
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+      const existing = await findHighlight(section.section_number, paraText, 'far')
+      if (existing) {
+        await removeHighlight(existing.id)
+      } else {
+        await addHighlight({
+          acId: section.section_number,
+          itemType: 'far',
+          document_number: `§ ${section.section_number}`,
+          title: section.title ?? '',
+          date_issued: null,
+          office: null,
+          subject_series: null,
+          blockKind: 'para',
+          blockLabel: null,
+          blockSnippet: paraText.slice(0, 100),
+          blockText: paraText,
+        })
+      }
+      const highlights = await getHighlightsForAC(section.section_number, 'far')
+      setHighlightedBlockTexts(new Set(highlights.map((h) => h.blockText!)))
+    } finally {
+      toggleInFlight.current = false
+    }
+  }, [section, hasPlusAccess])
+
+  const handleCopyBlock = useCallback(async (paraText: string) => {
+    await Clipboard.setStringAsync(paraText)
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+  }, [])
+
+  const handleBlockLongPress = useCallback((paraText: string) => {
+    if (!hasPlusAccess) { router.push('/paywall'); return }
+    // Set BEFORE the menu opens, not after a choice -- RC: "the h/l feature
+    // needs to show the h/l area in the doc before any CTA pops up w/
+    // options." Cleared on every dismiss path (any choice, Cancel, or
+    // tapping outside), so it never sticks around.
+    setPendingHighlight(paraText)
+    const isHighlighted = highlightedBlockTexts.has(paraText)
+    confirm({
+      title: 'Passage',
+      choices: [
+        { label: 'Copy Text', onPress: () => { setPendingHighlight(null); handleCopyBlock(paraText) } },
+        {
+          label: isHighlighted ? 'Remove Highlight' : 'Highlight',
+          onPress: () => { setPendingHighlight(null); handleToggleHighlight(paraText) },
+        },
+      ],
+      onCancel: () => setPendingHighlight(null),
+    })
+  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
 
   const handleOpenFolderPicker = () => {
     if (!section) return
@@ -547,6 +627,9 @@ export default function FarSectionScreen() {
               scrollRef={scrollRef}
               viewportHeight={scrollViewportHeight}
               mnemonicAnchors={mnemonicAnchors}
+              highlightedBlockTexts={highlightedBlockTexts}
+              onToggleHighlight={(paraText) => handleBlockLongPress(paraText)}
+              pendingBlockText={pendingHighlight}
             />
           ) : /reserved/i.test(section.title || '') ? (
             <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>

@@ -180,7 +180,16 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     <ConfirmContext.Provider value={confirm}>
       {children}
       <Modal visible={!!opts} transparent animationType="fade" onRequestClose={close}>
-        <Pressable style={styles.scrim} onPress={showCancel && !busy ? close : undefined}>
+        <Pressable
+          style={styles.scrim}
+          // onCancel too, not just close() -- a caller relying on onCancel
+          // to clear its own state (e.g. PlainTextBody's pendingBlockText
+          // preview) needs it to fire on EVERY dismiss path, not only the
+          // Cancel button. Confirmed live as a real gap: tapping outside the
+          // card closed the dialog but silently skipped onCancel, leaving
+          // that caller-side state stuck until it happened to fire again.
+          onPress={showCancel && !busy ? () => { opts?.onCancel?.(); close() } : undefined}
+        >
           <Pressable style={[styles.card, { backgroundColor: tokens.bg2, borderColor: opts?.destructive ? tokens.red : tokens.bdr }]} onPress={() => {}}>
             {opts?.destructive && (
               <Icon name="exclamationmark.triangle" size={fs(24)} color={tokens.red} />
