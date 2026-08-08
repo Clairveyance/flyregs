@@ -33,7 +33,7 @@ import {
   FolderItemType,
 } from '@/lib/folders'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
-import { getMyCollaborations, getMySharedFolders, getOrCreateShareLink, SharedFolderSummary, SharedByMeFolder } from '@/lib/sharedFolders'
+import { getMyCollaborations, getMySharedFolders, getOrCreateShareLink, confirmFolderShared, SharedFolderSummary, SharedByMeFolder } from '@/lib/sharedFolders'
 import { FolderListView } from '@/components/FolderListView'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { FolderPicker } from '@/components/FolderPicker'
@@ -551,38 +551,47 @@ export default function SavedScreen() {
   // end no matter how many times it was tried -- the wrong flow was firing.
   const handleShareFolder = async (folder: Folder) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
-    let link: string
+    let link: string, token: string
     try {
-      link = await getOrCreateShareLink(folder.id)
+      ;({ link, token } = await getOrCreateShareLink(folder.id))
     } catch {
       confirm({ title: 'Error', message: 'Could not create an invite link. Try again in a moment.', cancelLabel: null })
       return
     }
     try {
-      await Share.share({ message: link })
+      const result = await Share.share({ message: link })
+      // Don't mark this shared (and thus visible in From Me) until the send
+      // actually goes through -- see sharedFolders.ts's confirmFolderShared.
+      if (Platform.OS !== 'ios' || result.action === Share.sharedAction) {
+        await confirmFolderShared(folder.id, token)
+      }
     } catch {
-      // The link above was already created and saved server-side -- a
-      // Share.share failure here (no share target, sheet error, web
+      // The link above was already created (just not yet confirmed shared)
+      // -- a Share.share failure here (no share target, sheet error, web
       // preview) is not the same failure as never having a link. Same
       // reasoning as folder/[id].tsx's own handleInvite.
       confirm({ title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
+      await confirmFolderShared(folder.id, token)
     }
   }
 
   const handleBulkShareFolders = async () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     const ids = [...selectedFolders]
-    let links: string[]
+    let entries: { link: string; token: string }[]
     try {
-      links = await Promise.all(ids.map((id) => getOrCreateShareLink(id)))
+      entries = await Promise.all(ids.map((id) => getOrCreateShareLink(id)))
     } catch {
       confirm({ title: 'Error', message: 'Could not create invite links. Try again in a moment.', cancelLabel: null })
       return
     }
+    const confirmAll = () => Promise.all(ids.map((id, i) => confirmFolderShared(id, entries[i].token)))
     try {
-      await Share.share({ message: links.join('\n\n') })
+      const result = await Share.share({ message: entries.map((e) => e.link).join('\n\n') })
+      if (Platform.OS !== 'ios' || result.action === Share.sharedAction) await confirmAll()
     } catch {
-      confirm({ title: 'Invite Links Ready', message: 'Copy or share these links:', linkMessage: links, cancelLabel: null })
+      confirm({ title: 'Invite Links Ready', message: 'Copy or share these links:', linkMessage: entries.map((e) => e.link), cancelLabel: null })
+      await confirmAll()
     }
     setSelectedFolders(new Set())
     setFolderSelectMode(false)

@@ -43,23 +43,30 @@ export function buildShareLink(token: string): string {
 // Returns the existing share link if this folder already has one, generating
 // it on first share so re-sharing the same folder always gives the same link.
 //
+// Deliberately does NOT persist a freshly-generated token or mark the folder
+// shared -- that only happens once the caller actually confirms the send
+// completed, via confirmFolderShared below. A folder that's merely had a link
+// minted (e.g. the owner tapped Invite, then backed out of the native share
+// sheet before picking a recipient) must not show up in From Me -- see
+// getMySharedFolders' share_token-is-not-null definition of "shared."
+//
 // Sharing is a per-folder Premium decision, not a whole-library one -- a user
 // who has never turned on the separate, global "Back up & sync" toggle can
 // still share a folder. On first share, this force-pushes exactly the rows a
 // collaborator needs (the folder itself, its item pointers, and the content
 // of any notes among those items -- notes aren't in a public reference table
 // like ACs are, so their actual title/body has to reach the cloud too) past
-// that toggle, then marks the folder locally so every later mutation to it
-// (add/remove items) keeps force-pushing too. See folders.ts's Folder.shared
-// and syncPush.ts's `force` param.
-export async function getOrCreateShareLink(folderId: string): Promise<string> {
+// that toggle, ahead of confirmation, so the link is valid the instant it's
+// actually sent. See folders.ts's Folder.shared and syncPush.ts's `force`
+// param.
+export async function getOrCreateShareLink(folderId: string): Promise<{ link: string; token: string }> {
   const { data: existing } = await supabase
     .from('synced_folders')
     .select('share_token')
     .eq('id', folderId)
     .maybeSingle()
 
-  if (existing?.share_token) return buildShareLink(existing.share_token)
+  if (existing?.share_token) return { link: buildShareLink(existing.share_token), token: existing.share_token }
 
   const [folders, items, notes] = await Promise.all([getFolders(), getItemsInFolder(folderId), getNotes()])
   const folder = folders.find((f) => f.id === folderId)
@@ -77,12 +84,21 @@ export async function getOrCreateShareLink(folderId: string): Promise<string> {
       .filter((n): n is NonNullable<typeof n> => !!n && !n.authorId)
       .map((n) => syncPushNote(n, true))
   )
-  await markFolderShared(folderId)
 
   const token = makeShareToken()
+  return { link: buildShareLink(token), token }
+}
+
+// Commits a link from getOrCreateShareLink once the caller has confirmed it
+// was actually sent -- this is what makes the folder show up in From Me (see
+// getMySharedFolders) and keeps future mutations force-pushing (see
+// folders.ts's markFolderShared). Safe to call more than once with the same
+// token (e.g. a folder that was already shared before this call) -- it's
+// just re-setting the same value.
+export async function confirmFolderShared(folderId: string, token: string): Promise<void> {
+  await markFolderShared(folderId)
   const { error } = await supabase.from('synced_folders').update({ share_token: token }).eq('id', folderId)
   if (error) throw error
-  return buildShareLink(token)
 }
 
 export async function joinSharedFolder(token: string): Promise<SharedFolderSummary> {

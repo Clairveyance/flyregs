@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Animated, PanResponder } from 'react-native'
+import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Animated, PanResponder, Platform } from 'react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useTheme } from '@/context/theme'
@@ -32,7 +32,7 @@ import { toRegShareType } from '@/lib/regShare'
 import { REG_TYPE, RegType } from '@/lib/regTypes'
 import { highlightSnippet } from '@/lib/acShare'
 import {
-  getOrCreateShareLink, getFolderCollaborators, removeCollaborator, FolderCollaborator,
+  getOrCreateShareLink, confirmFolderShared, getFolderCollaborators, removeCollaborator, FolderCollaborator,
   getFolderCollabMode, setFolderCollabMode, FolderCollabMode, resolveForeignFolderEntries,
 } from '@/lib/sharedFolders'
 import { syncFolderFromCloud } from '@/lib/sync'
@@ -292,28 +292,39 @@ export default function FolderDetail() {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     if (!folder) return
     setInvitingBusy(true)
-    let link: string
+    let link: string, token: string
     try {
-      link = await getOrCreateShareLink(folder.id)
+      ;({ link, token } = await getOrCreateShareLink(folder.id))
     } catch {
       confirm({ title: 'Error', message: 'Could not create an invite link. Try again in a moment.', cancelLabel: null })
       setInvitingBusy(false)
       return
     }
     try {
-      await Share.share({
+      const result = await Share.share({
         // Just the link -- the join page itself explains what it is; no
         // need to repeat that as a wall of text in the message body too.
         message: link,
       })
+      // iOS reports dismissedAction when the sheet is closed without picking
+      // a recipient -- don't mark this shared (and thus visible in From Me)
+      // until the send actually goes through. Android's Share.share never
+      // reports a dismissal (a known RN platform limitation), so there's no
+      // equivalent signal to check there.
+      if (Platform.OS !== 'ios' || result.action === Share.sharedAction) {
+        await confirmFolderShared(folder.id, token)
+      }
     } catch {
-      // The link above was already created and saved server-side -- a
-      // Share.share failure here (no share target on this platform, the
+      // The link above was already created (just not yet confirmed shared)
+      // -- a Share.share failure here (no share target on this platform, the
       // sheet erroring, web preview's lack of Share support) is not the
       // same failure as never having a link. Surface the real link instead
       // of a false "could not create" message that would make it look like
-      // sharing is broken when it actually isn't.
+      // sharing is broken when it actually isn't. We can't tell if they'll
+      // actually use it, but showing it to them to copy/send themselves is
+      // as close to "sent" as this fallback path gets.
       confirm({ title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
+      await confirmFolderShared(folder.id, token)
     }
     setInvitingBusy(false)
   }

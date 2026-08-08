@@ -35,9 +35,11 @@ export interface Folder {
    * folder's own data keep syncing to the cloud (so collaborators keep
    * seeing it) even when the user has never turned on the separate, global
    * "Back up & sync" toggle for their whole library. See sharedFolders.ts's
-   * getOrCreateShareLink, which sets this the moment a folder is first
-   * shared. Deliberately never unset by unsharing -- if they re-share later,
-   * the cloud rows are already there, no harm in leaving them. */
+   * confirmFolderShared, which sets this once the owner has actually
+   * confirmed the invite link was sent (not merely generated -- see
+   * getOrCreateShareLink). Deliberately never unset by unsharing -- if they
+   * re-share later, the cloud rows are already there, no harm in leaving
+   * them. */
   shared?: boolean
   /** User-controlled display order (lower = earlier), set by reorderFolders().
    * Undefined on a folder that's never been touched by the reorder feature --
@@ -146,8 +148,9 @@ export async function renameFolder(id: string, name: string): Promise<void> {
 }
 
 // Marks a folder as shared locally -- called once by sharedFolders.ts's
-// getOrCreateShareLink the first time a folder is actually shared. See the
-// Folder.shared field comment for why this exists.
+// confirmFolderShared, once the owner has actually sent the invite link (not
+// merely generated one). See the Folder.shared field comment for why this
+// exists.
 export async function markFolderShared(folderId: string): Promise<void> {
   const folders = await getFolders()
   const next = folders.map((f) => (f.id === folderId ? { ...f, shared: true } : f))
