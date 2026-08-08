@@ -30,6 +30,7 @@ import {
   Folder,
   DUPLICATE_FOLDER_NAME,
   PLUS_FOLDER_CAP,
+  FolderItemType,
 } from '@/lib/folders'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
 import { getMyCollaborations, getMySharedFolders, getOrCreateShareLink, SharedFolderSummary, SharedByMeFolder } from '@/lib/sharedFolders'
@@ -364,12 +365,27 @@ export default function SavedScreen() {
   }
 
   const handleBulkAddToFolder = async (folderIds: string[]) => {
-    const ids = [...selected]
+    // Selected ids span whatever mix of types the user multi-selected (AC,
+    // FAR, AIM, P/CG, AD, LOI, dictionary) -- hardcoding 'ac' here used to
+    // file every non-AC item under the wrong type (same class of bug fixed
+    // for highlights in resolveForeignFolderEntries; this is the bulk-add
+    // sibling of that, and broader -- it hit any non-AC selection, not just
+    // highlights). Group by each bookmark's own real itemType instead.
+    const bookmarkMap = new Map(bookmarks.map((b) => [b.id, b]))
+    const idsByType = new Map<FolderItemType, string[]>()
+    for (const id of selected) {
+      const bm = bookmarkMap.get(id)
+      const type = bm ? bookmarkItemType(bm) : 'ac'
+      idsByType.set(type, [...(idsByType.get(type) ?? []), id])
+    }
     // Sequential, not Promise.all -- addManyToFolder does its own read-modify-
     // write on the shared folder_items list, so concurrent calls for different
-    // folders would race and clobber each other (only the last write survives).
+    // folders (or different types within the same folder) would race and
+    // clobber each other (only the last write survives).
     for (const folderId of folderIds) {
-      await addManyToFolder(folderId, 'ac', ids)
+      for (const [type, typeIds] of idsByType) {
+        await addManyToFolder(folderId, type, typeIds)
+      }
     }
     setFolderSheetVisible(false)
     setSelected(new Set())
@@ -985,7 +1001,7 @@ export default function SavedScreen() {
       {/* Bulk folder picker */}
       <FolderSelectSheet
         visible={folderSheetVisible}
-        title={`Add ${selected.size} AC${selected.size !== 1 ? 's' : ''} to Folder`}
+        title={`Add ${selected.size} Item${selected.size !== 1 ? 's' : ''} to Folder`}
         onConfirm={handleBulkAddToFolder}
         onClose={() => setFolderSheetVisible(false)}
       />

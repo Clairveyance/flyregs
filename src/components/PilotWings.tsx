@@ -79,6 +79,19 @@ export function PilotWings({ size = 22, color = '#000' }: { size?: number; color
     />
   )
 
+  // RC is testing this as a swap-in for the star above -- a standard
+  // arrowhead pointing up (apex, two base corners) with a V-shaped wedge
+  // cut into the back edge instead of a flat bottom, same "current
+  // location" glyph shape as iOS/Maps use. Sized to roughly the same
+  // footprint as the star (outer points ~radius 6) so swapping the
+  // `centerGlyph` line below is the only change needed either direction --
+  // star kept in place above, not deleted, per RC: "keep the star handy,
+  // we might put it back."
+  const arrowhead = (
+    <Path d="M0,-6 L5.2,4.2 L0,1.6 L-5.2,4.2 Z" fill={color} />
+  )
+  const centerGlyph = arrowhead
+
   // RC: "double the size of the whole icon" -- rendered at 2x the size the
   // tab bar hands us rather than asking every caller to pass a bigger size,
   // since this is the one icon meant to read as noticeably bigger/bolder
@@ -125,7 +138,7 @@ export function PilotWings({ size = 22, color = '#000' }: { size?: number; color
           keeps its existing footprint. Drawn last so both sit on top of the
           wings' roots. */}
       <Circle cx={0} cy={0} r={R} fill="none" stroke={color} strokeWidth={2.2} />
-      {star}
+      {centerGlyph}
     </Svg>
   )
 }
