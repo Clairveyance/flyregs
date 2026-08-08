@@ -535,22 +535,38 @@ export default function SavedScreen() {
   // end no matter how many times it was tried -- the wrong flow was firing.
   const handleShareFolder = async (folder: Folder) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    let link: string
     try {
-      const link = await getOrCreateShareLink(folder.id)
-      await Share.share({ message: link })
+      link = await getOrCreateShareLink(folder.id)
     } catch {
       confirm({ title: 'Error', message: 'Could not create an invite link. Try again in a moment.', cancelLabel: null })
+      return
+    }
+    try {
+      await Share.share({ message: link })
+    } catch {
+      // The link above was already created and saved server-side -- a
+      // Share.share failure here (no share target, sheet error, web
+      // preview) is not the same failure as never having a link. Same
+      // reasoning as folder/[id].tsx's own handleInvite.
+      confirm({ title: 'Invite Link Ready', message: link, cancelLabel: null })
     }
   }
 
   const handleBulkShareFolders = async () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     const ids = [...selectedFolders]
+    let links: string[]
     try {
-      const links = await Promise.all(ids.map((id) => getOrCreateShareLink(id)))
-      await Share.share({ message: links.join('\n\n') })
+      links = await Promise.all(ids.map((id) => getOrCreateShareLink(id)))
     } catch {
       confirm({ title: 'Error', message: 'Could not create invite links. Try again in a moment.', cancelLabel: null })
+      return
+    }
+    try {
+      await Share.share({ message: links.join('\n\n') })
+    } catch {
+      confirm({ title: 'Invite Links Ready', message: links.join('\n\n'), cancelLabel: null })
     }
     setSelectedFolders(new Set())
     setFolderSelectMode(false)
