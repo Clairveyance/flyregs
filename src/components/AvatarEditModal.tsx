@@ -2,6 +2,7 @@ import { Modal, View, Text, Image, Pressable, ActivityIndicator, StyleSheet, Pla
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
+import { InfoPopup } from '@/components/InfoPopup'
 import { AVATAR_PRESETS, AvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 
 // Combines what used to be two separate small controls on the Account
@@ -52,7 +53,15 @@ export function AvatarEditModal({
             <Pressable onPress={onDone} hitSlop={6}>
               <Text style={[styles.cancelText, { color: tokens.t2, fontSize: fs(14.5) }]}>Cancel</Text>
             </Pressable>
-            <Text style={[styles.headerTitle, { color: tokens.t1, fontSize: fs(16) }]}>Profile Photo</Text>
+            <View style={styles.headerTitleRow}>
+              <Text style={[styles.headerTitle, { color: tokens.t1, fontSize: fs(16) }]}>Profile Photo</Text>
+              <InfoPopup
+                id="avatar-photo-privacy"
+                title="Who sees your photo"
+                body="Your photo is anonymized (shown as initials) to everyone except people you're actually connected with — a folder or aircraft you've shared with them, or that they've shared with you. Once you invite or accept a connection, they'll see your real photo instead."
+                iconSize={14}
+              />
+            </View>
             <Pressable onPress={onDone} style={[styles.doneBtn, { backgroundColor: tokens.blu }]} hitSlop={6}>
               <Text style={[styles.doneBtnText, { fontSize: fs(13.5) }]}>Done</Text>
             </Pressable>
@@ -159,7 +168,8 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
   },
-  headerTitle: { flex: 1, textAlign: 'center', fontWeight: '600' },
+  headerTitleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
+  headerTitle: { fontWeight: '600' },
   cancelText: { fontWeight: '500' },
   doneBtn: { borderRadius: 16, paddingHorizontal: 16, paddingVertical: 7 },
   doneBtnText: { color: '#fff', fontWeight: '600' },

@@ -3,9 +3,12 @@ import { File } from 'expo-file-system'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 
-// Profile photo — available to any signed-in user (not tier-gated itself),
-// but it only actually becomes visible to anyone else when Premium sharing
-// includes it on a shared card (see src/lib/shareCard.ts).
+// Profile photo — available to any signed-in user (not tier-gated itself).
+// Reaches someone else's screen in exactly two ways: a Premium share card
+// (see src/lib/shareCard.ts, always the sharer's own photo, their own
+// choice), or the connection-gated profile view below -- never anywhere
+// else. See getConnectedProfileAvatar's own comment for why that gate
+// exists and how it's enforced.
 
 export function getAvatarUrl(session: Session | null): string | null {
   return (session?.user?.user_metadata as { avatar_url?: string } | undefined)?.avatar_url ?? null
@@ -155,4 +158,36 @@ export async function selectAvatarPreset(userId: string, presetId: string): Prom
   await supabase.storage.from('avatars').remove([path]).catch(() => {})
   const { error } = await supabase.auth.updateUser({ data: { avatar_url: null, avatar_preset: presetId } })
   if (error) throw error
+}
+
+export interface ConnectedProfileAvatar {
+  avatarUrl: string | null
+  avatarPresetId: string | null
+  connected: boolean
+}
+
+// RC, 2026-08-08: "images or other personal content will be anonymized to
+// people you don't collab with, until you invite/accept a connection."
+// profile/[userId].tsx (the screen a Ready Room leaderboard tap opens, and
+// the only place an app-wide, not-yet-known user's profile is reachable
+// from) calls this for anyone who isn't the signed-in user themselves.
+// The gate lives entirely in the get_profile_avatar RPC, not here -- a
+// SECURITY DEFINER function that only reads the target's real
+// avatar_url/avatar_preset out of auth.users at all (an authenticated
+// user's own client SDK can't read another user's raw_user_meta_data
+// directly) if an active folder_collaborators or aircraft_collaborators
+// row connects the two accounts. `connected: false` means the two fields
+// come back null unconditionally -- not filtered client-side after the
+// fact, never sent over the wire at all -- so the caller's only correct
+// move on `!connected` is to fall back to initials, same as it already
+// does for a stranger with no avatar set.
+export async function getConnectedProfileAvatar(userId: string): Promise<ConnectedProfileAvatar> {
+  const { data, error } = await supabase.rpc('get_profile_avatar', { p_user_id: userId })
+  if (error) throw error
+  const row = data?.[0]
+  return {
+    avatarUrl: row?.out_avatar_url ?? null,
+    avatarPresetId: row?.out_avatar_preset ?? null,
+    connected: row?.out_connected ?? false,
+  }
 }

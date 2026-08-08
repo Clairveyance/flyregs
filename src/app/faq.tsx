@@ -226,6 +226,15 @@ const FAQ: QA[] = [
     ],
   },
   {
+    q: 'Who can see my profile photo?',
+    category: 'Study Mode, Duels & Coins',
+    a: [
+      'Only people you\'re actually connected with — someone who\'s joined a folder you\'ve shared, or a shared aircraft, in either direction. Everyone else, including anyone browsing the Ready Room leaderboard, sees your initials instead, never your real photo.',
+      'This applies automatically, both directions, the moment an invite is accepted — nothing to turn on. Once you invite or accept a connection with someone, you\'ll see their real photo too, wherever their profile is shown.',
+      'Duels opponents are a separate relationship for now (an invite to a match doesn\'t by itself unlock photo visibility) — something we may expand to later.',
+    ],
+  },
+  {
     q: 'What is My Aircraft, and how do AD reminders work?',
     category: 'My Aircraft & RefPacks',
     a: [

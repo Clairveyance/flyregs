@@ -20,7 +20,7 @@ import { getCoinsForUser, COIN_BY_CODE, COIN_CATALOG, type EarnedCoin, type Coin
 import { CoinMedal } from '@/components/CoinMedal'
 import { NameTag } from '@/components/NameTag'
 import { getStatsVisible, setStatsVisible, getCurrentAircraft, setCurrentAircraft } from '@/lib/leaderboard'
-import { getAvatarUrl, resolveAvatarPresetId, getDisplayName } from '@/lib/avatar'
+import { getAvatarUrl, resolveAvatarPresetId, getDisplayName, getConnectedProfileAvatar, type ConnectedProfileAvatar } from '@/lib/avatar'
 import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
 
@@ -269,11 +269,19 @@ export default function ProfileScreen() {
   // organized, not padded. Phone's exact JSX/logic is untouched below.
   const isTablet = useIsTablet()
   // Same avatarOverride-first resolution as Account/Drawer/Community's
-  // identity card -- only meaningful for isSelf, since we have no public
-  // avatar lookup for other users here.
+  // identity card -- for isSelf only. Someone else's real avatar comes from
+  // otherAvatar below instead, gated server-side by get_profile_avatar (see
+  // getConnectedProfileAvatar's own comment) -- never shown to a viewer who
+  // isn't an actual folder/aircraft collaborator of this profile's owner.
   const selfAvatarPreset = getAvatarPreset(resolveAvatarPresetId(avatarOverride, session))
   const selfCachedAvatarUrl = useCachedImage(session?.user?.id ? `avatar_${session.user.id}` : null, getAvatarUrl(session))
   const selfAvatarUrl = avatarOverride ? avatarOverride.uri : selfCachedAvatarUrl
+  const [otherAvatar, setOtherAvatar] = useState<ConnectedProfileAvatar | null>(null)
+  const otherCachedAvatarUrl = useCachedImage(
+    !isSelf && otherAvatar?.avatarUrl ? `avatar_${userId}` : null,
+    otherAvatar?.avatarUrl ?? null
+  )
+  const otherAvatarPreset = getAvatarPreset(otherAvatar?.avatarPresetId ?? null)
 
   const [loading, setLoading] = useState(true)
   // `statsVisibleReal` is the actual stored toggle value -- always fetched,
@@ -307,6 +315,11 @@ export default function ProfileScreen() {
     setDuelStats(stats)
     setStatsVisibleReal(realVisible)
     setMastery(masteryStats)
+    if (!isSelf) {
+      getConnectedProfileAvatar(userId)
+        .then(setOtherAvatar)
+        .catch(() => setOtherAvatar({ avatarUrl: null, avatarPresetId: null, connected: false }))
+    }
     if (isSelf || realVisible) {
       const [r, c, a] = await Promise.all([
         getMyRatings(userId).catch(() => []),
@@ -356,11 +369,21 @@ export default function ProfileScreen() {
         <TabletContainer>
           <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="interactive">
             <View style={styles.headerRow}>
-              <View style={[styles.avatar, { backgroundColor: (isSelf && selfAvatarPreset && avatarColorFor(selfAvatarPreset, redShift)) || tokens.goldlt, borderColor: tokens.goldbdr }]}>
+              <View style={[styles.avatar, {
+                backgroundColor:
+                  (isSelf && selfAvatarPreset && avatarColorFor(selfAvatarPreset, redShift)) ||
+                  (!isSelf && otherAvatarPreset && avatarColorFor(otherAvatarPreset, redShift)) ||
+                  tokens.goldlt,
+                borderColor: tokens.goldbdr,
+              }]}>
                 {isSelf && selfAvatarUrl ? (
                   <Image source={{ uri: selfAvatarUrl }} style={styles.avatarImage} />
                 ) : isSelf && selfAvatarPreset ? (
                   <Icon name={selfAvatarPreset.icon} size={fs(26)} color="#fff" />
+                ) : !isSelf && otherCachedAvatarUrl ? (
+                  <Image source={{ uri: otherCachedAvatarUrl }} style={styles.avatarImage} />
+                ) : !isSelf && otherAvatarPreset ? (
+                  <Icon name={otherAvatarPreset.icon} size={fs(26)} color="#fff" />
                 ) : (
                   <Text style={[styles.avatarText, { color: tokens.gold, fontSize: fs(24) }]}>
                     {displayLabel.charAt(0).toUpperCase()}
