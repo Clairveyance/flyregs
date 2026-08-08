@@ -575,10 +575,31 @@ export default function ProfileScreen() {
                             style={styles.coinCard}
                             onPress={() => setCoinDetail(coin)}
                           >
-                            <CoinMedal tier={coin.tier} icon={coin.icon} earned={earned} />
-                            <Text style={[styles.coinName, { color: earned ? tokens.t1 : tokens.t4, fontSize: fs(12) }]} numberOfLines={2}>
-                              {coin.name}
-                            </Text>
+                            <View style={styles.coinMedalWrap}>
+                              <CoinMedal tier={coin.tier} icon={coin.icon} earned={earned} />
+                              {/* Same "subscript circle" tally treatment as
+                                  NameTag's per-tier badge up in the header --
+                                  RC: "the number of each coin a user has,
+                                  should also be shown on these larger coins
+                                  down in this area, like they are up top."
+                                  Every catalog coin is a one-time milestone
+                                  today (count is always 1 once earned, never
+                                  higher), but the badge itself is what makes
+                                  an earned coin visually match the tally
+                                  style shown elsewhere -- and it's already
+                                  the right shape if a coin ever becomes
+                                  re-earnable. */}
+                              {earned && (
+                                <View style={[styles.coinCountBadge, { backgroundColor: tokens.gold }]}>
+                                  <Text style={styles.coinCountBadgeText}>1</Text>
+                                </View>
+                              )}
+                            </View>
+                            <View style={styles.coinNameSlot}>
+                              <Text style={[styles.coinName, { color: earned ? tokens.t1 : tokens.t4, fontSize: fs(12) }]} numberOfLines={2}>
+                                {coin.name}
+                              </Text>
+                            </View>
                           </Pressable>
                         )
                       })}
@@ -592,8 +613,15 @@ export default function ProfileScreen() {
                         if (!def) return null
                         return (
                           <View key={c.code} style={styles.coinCard}>
-                            <CoinMedal tier={def.tier} icon={def.icon} earned />
-                            <Text style={[styles.coinName, { color: tokens.t1, fontSize: fs(12) }]} numberOfLines={2}>{def.name}</Text>
+                            <View style={styles.coinMedalWrap}>
+                              <CoinMedal tier={def.tier} icon={def.icon} earned />
+                              <View style={[styles.coinCountBadge, { backgroundColor: tokens.gold }]}>
+                                <Text style={styles.coinCountBadgeText}>1</Text>
+                              </View>
+                            </View>
+                            <View style={styles.coinNameSlot}>
+                              <Text style={[styles.coinName, { color: tokens.t1, fontSize: fs(12) }]} numberOfLines={2}>{def.name}</Text>
+                            </View>
                           </View>
                         )
                       })}
@@ -704,9 +732,31 @@ const styles = StyleSheet.create({
   ratingChipText: { fontWeight: '700' },
 
   coinGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  // alignItems: 'flex-start' (not 'center') is load-bearing -- RC, real
+  // device: "coins aren't aligned." Root cause, confirmed via direct DOM
+  // measurement: numberOfLines={2} lets a card's label render as 1 line
+  // ("Century") or 2 ("30-Day Currency") depending on the coin's own name
+  // length. With every card centered independently inside a row that CSS
+  // flexbox stretches to its tallest sibling, a 1-line card's whole
+  // coin+label stack shifts DOWN (and a 2-line card's shifts UP) by half
+  // the line-count difference -- coins in the same row visibly land at
+  // different heights. Top-aligning removes the thing that was doing the
+  // shifting; coinNameSlot's fixed height (below) removes the OTHER half
+  // of the cause by giving every label the same reserved space regardless
+  // of its own actual line count.
   coinCard: {
-    width: '26%', gap: 6, alignItems: 'center', justifyContent: 'center',
+    width: '26%', gap: 6, alignItems: 'center', justifyContent: 'flex-start',
   },
+  coinMedalWrap: { position: 'relative' },
+  coinCountBadge: {
+    position: 'absolute', bottom: -2, right: -4,
+    minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 3,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  coinCountBadgeText: { color: '#000', fontWeight: '800', fontSize: 10 },
+  // Fixed 2-line height (lineHeight 14 * 2) regardless of how many lines
+  // THIS coin's own name actually needs -- see coinCard's own comment.
+  coinNameSlot: { height: 28, justifyContent: 'flex-start' },
   coinName: { fontWeight: '600', textAlign: 'center', lineHeight: 14 },
 
   coinScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 32 },
