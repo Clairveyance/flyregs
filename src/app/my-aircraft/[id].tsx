@@ -927,7 +927,7 @@ export default function AircraftDetailScreen() {
                   // above (not a 4th color like the gold this replaced),
                   // so a glance here reads the same way a glance at the
                   // ring does.
-                  const color = overdue ? tokens.red : soon ? tokens.amb : tokens.grn
+                  const dateColor = overdue ? tokens.red : soon ? tokens.amb : tokens.grn
                   // Live usage-based comparison -- only computable once the
                   // aircraft itself has a self-reported hours value; without
                   // one, fall back to just stating the due mark plainly.
@@ -935,11 +935,27 @@ export default function AircraftDetailScreen() {
                     ? r.dueHobbsHours - aircraft.current_hobbs_hours
                     : null
                   const hobbsOverdue = hobbsRemaining != null && hobbsRemaining < 0
+                  // Same consistency fix as the Equipment row: hobbs used
+                  // to only ever override to red-if-overdue, riding on
+                  // whatever the DATE's color already was otherwise -- a
+                  // hobbs-only reminder had no way to show its own
+                  // amber/green. Reminders have no hours-based interval
+                  // field of their own (only intervalMonths, a calendar
+                  // recurrence), so this uses the same flat 10hr threshold
+                  // Equipment's own hobbs tier falls back to when it has
+                  // no interval to scale against -- one consistent
+                  // threshold shared by both features now.
+                  const hobbsSoon = hobbsRemaining != null && hobbsRemaining >= 0 && hobbsRemaining <= 10
+                  const hobbsColor = r.dueHobbsHours == null ? null : hobbsOverdue ? tokens.red : hobbsSoon ? tokens.amb : tokens.grn
                   // Same wording as the Equipment row above -- RC: "not
                   // '100 left hrs' but say 'Due in 100.0 hrs'."
                   const hobbsText = r.dueHobbsHours == null ? '' : hobbsRemaining != null
                     ? ` · ${hobbsOverdue ? `OVERDUE by ${Math.abs(hobbsRemaining).toFixed(1)} hrs` : `Due in ${hobbsRemaining.toFixed(1)} hrs`}`
                     : ` · Due at ${r.dueHobbsHours} hrs`
+                  // Worst-of-both-axes wins, same rank function as the
+                  // Equipment row -- red beats amber beats green.
+                  const rank = (c: string | null) => c === tokens.red ? 3 : c === tokens.amb ? 2 : c === tokens.grn ? 1 : 0
+                  const color = rank(hobbsColor) >= rank(dateColor) ? (hobbsColor ?? dateColor) : dateColor
                   return (
                     <View key={r.id} style={i < reminders.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}>
                       <SwipeToDelete
@@ -948,10 +964,10 @@ export default function AircraftDetailScreen() {
                         disabled={!canEdit}
                       >
                         <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
-                          <Icon name="hourglass" size={fs(15)} color={hobbsOverdue ? tokens.red : color} />
+                          <Icon name="hourglass" size={fs(15)} color={color} />
                           <View style={{ flex: 1 }}>
                             <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{r.title}</Text>
-                            <Text style={[styles.rowSub, { color: hobbsOverdue ? tokens.red : color, fontSize: fs(12) }]}>
+                            <Text style={[styles.rowSub, { color, fontSize: fs(12) }]}>
                               {overdue ? `${Math.abs(days)}d` : `${days}d`} · {r.dueDate}
                               {r.linkedAdNumber ? ` · AD ${r.linkedAdNumber}` : ''}
                               {r.intervalMonths ? ` · every ${r.intervalMonths}mo` : ''}
