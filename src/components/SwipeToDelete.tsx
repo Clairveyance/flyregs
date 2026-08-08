@@ -47,10 +47,20 @@ export function SwipeToDelete({
       translateX.value = Math.min(leftAction ? 84 : 0, Math.max(-84, e.translationX))
     })
     .onEnd((e) => {
-      if (e.translationX < -42) {
+      // RC, real device (leftAction/Mark case): swipe right to reveal
+      // Mark, then move the finger back left to cancel -- the old check
+      // only looked at the FINAL translationX from the start of the whole
+      // gesture, so a normal "give up" motion that overshoots back past
+      // center got read as a fresh leftward swipe and "forced" the row
+      // into Delete instead of just closing. A reversal -- position still
+      // on one side but velocity now carrying the opposite way -- means
+      // the user changed their mind mid-swipe, and always closes instead
+      // of letting the raw endpoint decide.
+      const reversing = (e.translationX > 0 && e.velocityX < -300) || (e.translationX < 0 && e.velocityX > 300)
+      if (!reversing && e.translationX < -48) {
         translateX.value = withSpring(-76, { damping: 18, stiffness: 280 })
         swiped.current = true
-      } else if (leftAction && e.translationX > 42) {
+      } else if (!reversing && leftAction && e.translationX > 48) {
         translateX.value = withSpring(76, { damping: 18, stiffness: 280 })
         swiped.current = true
       } else {

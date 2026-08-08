@@ -854,8 +854,8 @@ export default function AircraftDetailScreen() {
                     && hobbsRemaining <= (e.intervalHours ? e.intervalHours * 0.1 : 10)
                   const hobbsColor = e.dueHobbsHours == null ? null : hobbsOverdue ? tokens.red : hobbsSoon ? tokens.amb : tokens.grn
                   const hobbsText = e.dueHobbsHours == null ? null : hobbsRemaining != null
-                    ? `${hobbsOverdue ? `OVERDUE by ${Math.abs(hobbsRemaining).toFixed(1)}` : `${hobbsRemaining.toFixed(1)} left`} hrs`
-                    : `due at ${e.dueHobbsHours} hrs`
+                    ? (hobbsOverdue ? `OVERDUE by ${Math.abs(hobbsRemaining).toFixed(1)} hrs` : `Due in ${hobbsRemaining.toFixed(1)} hrs`)
+                    : `Due at ${e.dueHobbsHours} hrs`
                   const dateDays = e.dueDate ? daysUntil(e.dueDate) : null
                   const dateOverdue = dateDays != null && dateDays < 0
                   const dateSoon = dateDays != null && dateDays >= 0 && dateDays <= 30
@@ -935,9 +935,11 @@ export default function AircraftDetailScreen() {
                     ? r.dueHobbsHours - aircraft.current_hobbs_hours
                     : null
                   const hobbsOverdue = hobbsRemaining != null && hobbsRemaining < 0
+                  // Same wording as the Equipment row above -- RC: "not
+                  // '100 left hrs' but say 'Due in 100.0 hrs'."
                   const hobbsText = r.dueHobbsHours == null ? '' : hobbsRemaining != null
-                    ? ` · ${hobbsOverdue ? `OVERDUE by ${Math.abs(hobbsRemaining).toFixed(1)}` : `${hobbsRemaining.toFixed(1)} left`} hrs`
-                    : ` · due at ${r.dueHobbsHours} hrs`
+                    ? ` · ${hobbsOverdue ? `OVERDUE by ${Math.abs(hobbsRemaining).toFixed(1)} hrs` : `Due in ${hobbsRemaining.toFixed(1)} hrs`}`
+                    : ` · Due at ${r.dueHobbsHours} hrs`
                   return (
                     <View key={r.id} style={i < reminders.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}>
                       <SwipeToDelete
