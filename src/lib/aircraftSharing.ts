@@ -104,6 +104,11 @@ export interface AircraftCollaborator {
   role: CollaboratorRole
   joinedAt: string
   lastViewedAt: string | null
+  /** False until this specific person has actually opened the invite
+   * link and accepted it -- the roster row for a pending invite shows
+   * greyed out with an "Invited" badge instead of a real role badge. See
+   * inviteCollaboratorByCallsign below. */
+  accepted: boolean
 }
 
 export async function getAircraftCollaborators(aircraftId: string): Promise<AircraftCollaborator[]> {
@@ -111,8 +116,40 @@ export async function getAircraftCollaborators(aircraftId: string): Promise<Airc
   if (error) throw error
   return (data ?? []).map((row: any) => ({
     userId: row.out_user_id, displayLabel: row.out_display_label, role: row.out_role,
-    joinedAt: row.out_joined_at, lastViewedAt: row.out_last_viewed_at,
+    joinedAt: row.out_joined_at, lastViewedAt: row.out_last_viewed_at, accepted: !!row.out_accepted,
   }))
+}
+
+// RC: "we still need to track/log when an a/c is being shared... the
+// 'name' [is] the person's Callsign from the app" -- targets a specific
+// FlyRegs user by their Callsign (the same handle shown in Duels and
+// every other collaborator list) instead of handing out an anonymous
+// link anyone could redeem. Creates a pending aircraft_collaborators row
+// (accepted_at null) with its own token; the roster shows it greyed out
+// as "Invited" until that exact person opens the link, and the owner can
+// revoke it beforehand via removeCollaborator (same function, same row).
+export interface CallsignInvite {
+  token: string
+  userId: string
+  callsign: string
+}
+
+export async function inviteCollaboratorByCallsign(
+  aircraftId: string,
+  callsign: string,
+  role: CollaboratorRole
+): Promise<CallsignInvite> {
+  const token = makeShareToken()
+  const { data, error } = await supabase.rpc('invite_aircraft_collaborator', {
+    p_aircraft_id: aircraftId,
+    p_callsign: callsign,
+    p_role: role,
+    p_token: token,
+  })
+  if (error) throw error
+  const row = data?.[0]
+  if (!row) throw new Error('Could not create invite')
+  return { token: row.out_token, userId: row.out_user_id, callsign: row.out_callsign }
 }
 
 export async function removeCollaborator(aircraftId: string, userId: string): Promise<void> {
@@ -250,6 +287,7 @@ export async function getMyAircraftRole(aircraftId: string): Promise<Collaborato
     .eq('aircraft_id', aircraftId)
     .eq('user_id', userId)
     .is('left_at', null)
+    .not('accepted_at', 'is', null)
     .maybeSingle()
   if (error) throw error
   return (data?.role as CollaboratorRole) ?? null

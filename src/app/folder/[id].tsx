@@ -292,15 +292,28 @@ export default function FolderDetail() {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     if (!folder) return
     setInvitingBusy(true)
+    let link: string
     try {
-      const link = await getOrCreateShareLink(folder.id)
+      link = await getOrCreateShareLink(folder.id)
+    } catch {
+      confirm({ title: 'Error', message: 'Could not create an invite link. Try again in a moment.', cancelLabel: null })
+      setInvitingBusy(false)
+      return
+    }
+    try {
       await Share.share({
         // Just the link -- the join page itself explains what it is; no
         // need to repeat that as a wall of text in the message body too.
         message: link,
       })
     } catch {
-      confirm({ title: 'Error', message: 'Could not create an invite link. Try again in a moment.', cancelLabel: null })
+      // The link above was already created and saved server-side -- a
+      // Share.share failure here (no share target on this platform, the
+      // sheet erroring, web preview's lack of Share support) is not the
+      // same failure as never having a link. Surface the real link instead
+      // of a false "could not create" message that would make it look like
+      // sharing is broken when it actually isn't.
+      confirm({ title: 'Invite Link Ready', message: link, cancelLabel: null })
     }
     setInvitingBusy(false)
   }

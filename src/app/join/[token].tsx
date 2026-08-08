@@ -48,7 +48,23 @@ export default function JoinFolder() {
         // through before this fires.
         setTimeout(() => router.replace('/saved?tab=shared&sub=withMe'), 1200)
       })
-      .catch(() => {
+      .catch((err: any) => {
+        // Only a token that matches no folder at all falls through to
+        // trying it as an aircraft token. Any other failure (Premium
+        // required, already own it) means this WAS a real folder token --
+        // showing it as a generic/aircraft error would tell a user who
+        // never touched aircraft sharing that "aircraft sharing requires
+        // Premium," which is simply wrong for what they're doing.
+        if (err?.message !== 'Invalid or expired invite link') {
+          setKind('folder')
+          if (err?.message === 'Folder sharing requires Premium') {
+            setState('needs_premium')
+          } else {
+            setErrorMsg(err?.message ?? 'This invite link is invalid or has expired.')
+            setState('error')
+          }
+          return
+        }
         // Not a folder token -- try aircraft. A real Premium gate, not
         // just copy in the share message: every collaborator needs their
         // own subscription (RC: "anyone who is going to be receiving and
@@ -86,7 +102,9 @@ export default function JoinFolder() {
           <Icon name="lock.fill" size={fs(44)} color={tokens.blu} />
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Premium required</Text>
           <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
-            Viewing or editing a shared aircraft requires your own Premium subscription.
+            {kind === 'folder'
+              ? 'Joining a shared folder requires your own Premium subscription.'
+              : 'Viewing or editing a shared aircraft requires your own Premium subscription.'}
           </Text>
           <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.replace('/paywall?tier=premium')}>
             <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>Upgrade to Premium</Text>

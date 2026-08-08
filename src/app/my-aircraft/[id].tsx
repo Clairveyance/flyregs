@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Modal, Share, KeyboardAvoidingView, Platform } from 'react-native'
-import { useLocalSearchParams, router } from 'expo-router'
+import { useLocalSearchParams, router, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -23,7 +23,8 @@ import {
   markAdComplied, unmarkAdComplied, type AircraftAdNotification,
 } from '@/lib/adNotifications'
 import {
-  getMyAircraftRole, getOrCreateShareLink, getAircraftCollaborators, removeCollaborator, leaveSharedAircraft,
+  getMyAircraftRole, getAircraftCollaborators, removeCollaborator, leaveSharedAircraft,
+  inviteCollaboratorByCallsign, buildAircraftShareLink,
   type CollaboratorRole, type AircraftCollaborator, type FleetRole,
 } from '@/lib/aircraftSharing'
 
@@ -105,6 +106,7 @@ export default function AircraftDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
+  const ifs = useInputFS()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web (silently, no throw, no log), so every dialog on this
   // screen was invisible during Browser-pane QA and the actions behind
@@ -146,6 +148,11 @@ export default function AircraftDetailScreen() {
   const [role, setRole] = useState<FleetRole | null>(null)
   const [collaborators, setCollaborators] = useState<AircraftCollaborator[]>([])
   const [sharingBusy, setSharingBusy] = useState(false)
+  // Drives the Callsign-entry modal below -- non-null while it's open,
+  // holding which role the invite will use once a Callsign is submitted.
+  const [inviteRole, setInviteRole] = useState<CollaboratorRole | null>(null)
+  const [inviteCallsign, setInviteCallsign] = useState('')
+  const [inviteError, setInviteError] = useState<string | null>(null)
   // RC: "the editing takes place once inside the a/c page. Make sure
   // editing IS available inside for all things." Owner+editor can both
   // update user_aircraft per the live RLS (editors_update_shared_aircraft).
@@ -178,7 +185,14 @@ export default function AircraftDetailScreen() {
     })
   }, [id])
 
-  useEffect(() => { load() }, [load])
+  // useFocusEffect, not a plain mount-only useEffect -- matches
+  // folder/[id].tsx's own identical fix. RC: "we still need to track/log
+  // when an a/c is being shared" -- without this, an owner who shares an
+  // aircraft and stays on this same screen never sees a collaborator's
+  // acceptance land (no refetch, no realtime subscription) until they
+  // navigate away and back, which reads as the roster silently not
+  // updating even though the join genuinely succeeded server-side.
+  useFocusEffect(useCallback(() => { load() }, [load]))
 
   const isOwner = role === 'owner'
   const canEdit = role === 'owner' || role === 'editor'
@@ -193,39 +207,56 @@ export default function AircraftDetailScreen() {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     confirm({
       title: 'Share this aircraft',
-      message: "Choose what the person you invite can do. They'll need their own Premium subscription to join.",
+      message: "Invite by Callsign. They'll need their own Premium subscription and a Callsign set to join.",
       choices: [
-        { label: 'Invite as Viewer', onPress: () => shareAs('viewer') },
-        { label: 'Invite as Editor', onPress: () => shareAs('editor') },
+        { label: 'Invite as Viewer', onPress: () => { setInviteError(null); setInviteCallsign(''); setInviteRole('viewer') } },
+        { label: 'Invite as Editor', onPress: () => { setInviteError(null); setInviteCallsign(''); setInviteRole('editor') } },
       ],
     })
   }
 
-  // RC: "an invite should be sent via a text link to join (just like
-  // folder). receiver taps text icon, CTA pops up, they click Join and
-  // that a/c is automatically added to their Fleet profile... that's it."
-  // Just the link -- same reasoning as folders' own handleInvite: the
-  // join page itself explains what it is and what access was granted, no
-  // need to repeat that as a wall of text in the message body too.
-  const shareAs = async (shareRole: CollaboratorRole) => {
-    if (!aircraft) return
+  // RC: "we still need to track/log when an a/c is being shared" -- and
+  // on identifying the recipient: "the 'name' [is] the person's Callsign
+  // from the app." Targets one specific FlyRegs account instead of
+  // handing out an anonymous link, which is what makes the pending/
+  // greyed-out roster state below possible at all -- you can't show
+  // "invited" for a person the app has no idea was invited.
+  const submitInvite = async () => {
+    if (!aircraft || !inviteRole) return
     setSharingBusy(true)
+    setInviteError(null)
+    let invite: Awaited<ReturnType<typeof inviteCollaboratorByCallsign>>
     try {
-      const link = await getOrCreateShareLink(aircraft.id, shareRole)
-      await Share.share({ message: link })
-      getAircraftCollaborators(aircraft.id).then(setCollaborators).catch(() => {})
+      invite = await inviteCollaboratorByCallsign(aircraft.id, inviteCallsign, inviteRole)
     } catch (e: any) {
-      confirm({ title: 'Could not create invite', message: e?.message ?? 'Unknown error', cancelLabel: null })
+      setInviteError(e?.message ?? 'Could not create invite')
+      setSharingBusy(false)
+      return
     }
+    const link = buildAircraftShareLink(invite.token)
+    setInviteRole(null)
+    try {
+      await Share.share({ message: link })
+    } catch {
+      // The invite row above was already created and saved server-side,
+      // so a Share.share failure (no share target, sheet error, web
+      // preview) is not a "could not create invite" failure. Surface the
+      // real link instead of a false error -- same reasoning as
+      // folder/[id].tsx's own handleInvite.
+      confirm({ title: 'Invite Link Ready', message: link, cancelLabel: null })
+    }
+    getAircraftCollaborators(aircraft.id).then(setCollaborators).catch(() => {})
     setSharingBusy(false)
   }
 
   const handleRemoveCollaborator = (c: AircraftCollaborator) => {
     if (!aircraft) return
     confirm({
-      title: 'Remove Access',
-      message: `Remove ${c.displayLabel} from this aircraft? They'll need a new invite link to get back in.`,
-      confirmLabel: 'Remove',
+      title: c.accepted ? 'Remove Access' : 'Revoke Invite',
+      message: c.accepted
+        ? `Remove ${c.displayLabel} from this aircraft? They'll need a new invite to get back in.`
+        : `Revoke the invite sent to ${c.displayLabel}? They won't be able to accept it.`,
+      confirmLabel: c.accepted ? 'Remove' : 'Revoke',
       destructive: true,
       twoStep: false,
       onConfirm: async () => {
@@ -535,17 +566,19 @@ export default function AircraftDetailScreen() {
                 />
               </View>
               {collaborators.map((c) => (
-                <View key={c.userId} style={[styles.collabRow, { borderTopColor: tokens.bdr }]}>
+                <View key={c.userId} style={[styles.collabRow, { borderTopColor: tokens.bdr, opacity: c.accepted ? 1 : 0.5 }]}>
                   <Icon
-                    name={c.lastViewedAt ? 'eye.fill' : 'eye.slash'}
+                    name={c.accepted ? (c.lastViewedAt ? 'eye.fill' : 'eye.slash') : 'clock'}
                     size={fs(13)}
-                    color={c.lastViewedAt ? tokens.grn : tokens.t4}
+                    color={c.accepted ? (c.lastViewedAt ? tokens.grn : tokens.t4) : tokens.t4}
                   />
-                  <Text style={[styles.collabName, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
+                  <Text style={[styles.collabName, { color: c.accepted ? tokens.t1 : tokens.t3, fontSize: fs(13.5) }]} numberOfLines={1}>
                     {c.displayLabel}
                   </Text>
                   <View style={[styles.roleBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
-                    <Text style={[styles.roleBadgeText, { color: tokens.t3, fontSize: fs(10) }]}>{c.role.toUpperCase()}</Text>
+                    <Text style={[styles.roleBadgeText, { color: tokens.t3, fontSize: fs(10) }]}>
+                      {c.accepted ? c.role.toUpperCase() : 'INVITED'}
+                    </Text>
                   </View>
                   <Pressable onPress={() => handleRemoveCollaborator(c)} hitSlop={8}>
                     <Icon name="xmark.circle" size={fs(18)} color={tokens.t4} />
@@ -889,6 +922,38 @@ export default function AircraftDetailScreen() {
         onClose={() => setHobbsModalVisible(false)}
         onSaved={() => { setHobbsModalVisible(false); load() }}
       />
+      <Modal visible={!!inviteRole} animationType="slide" transparent onRequestClose={() => setInviteRole(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+            <View style={styles.modalHeader}>
+              <Pressable onPress={() => setInviteRole(null)} hitSlop={10}>
+                <Text style={{ color: tokens.t3, fontSize: fs(14.5) }}>Cancel</Text>
+              </Pressable>
+              <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>
+                Invite as {inviteRole === 'editor' ? 'Editor' : 'Viewer'}
+              </Text>
+              <Pressable onPress={submitInvite} hitSlop={10} disabled={sharingBusy || !inviteCallsign.trim()}>
+                {sharingBusy ? <ActivityIndicator color={tokens.blu} /> : (
+                  <Text style={{ color: inviteCallsign.trim() ? tokens.blu : tokens.t4, fontWeight: '700', fontSize: fs(14.5) }}>Invite</Text>
+                )}
+              </Pressable>
+            </View>
+            <Text style={{ color: tokens.t3, fontSize: fs(13) }}>
+              Their Callsign, exactly as it appears in FlyRegs.
+            </Text>
+            <TextInput
+              value={inviteCallsign}
+              onChangeText={setInviteCallsign}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="Callsign"
+              placeholderTextColor={tokens.t4}
+              style={[styles.inviteInput, { color: tokens.t1, borderColor: inviteError ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
+            />
+            {inviteError && <Text style={{ color: tokens.red, fontSize: fs(12.5) }}>{inviteError}</Text>}
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   )
 }
@@ -1429,6 +1494,7 @@ const styles = StyleSheet.create({
   modalCard: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, padding: 18, gap: 10 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   modalTitle: { fontWeight: '700' },
+  inviteInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontWeight: '600' },
   formLabel: { fontWeight: '700', letterSpacing: 0.5, marginTop: 2 },
   chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 4 },
   typeChip: {

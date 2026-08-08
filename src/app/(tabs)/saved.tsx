@@ -101,8 +101,14 @@ export default function SavedScreen() {
   // the reader can still reach any of the others via their own separate rows.
   const highlightByAcId = useMemo(() => {
     const m = new Map<string, BookmarkAC>()
+    // Scoped to itemType 'ac' -- highlights now exist for every content
+    // type (see bookmarks.ts), and this map feeds ONLY the AC whole-doc
+    // "contains a highlight" merged-row treatment below. Without the
+    // itemType check, a FAR/AIM/AD/LOI highlight sharing an id string with
+    // some unrelated AC could theoretically attach its highlight to the
+    // wrong document's row.
     for (const b of bookmarks) {
-      if (b.blockText && b.acId && !m.has(b.acId)) m.set(b.acId, b)
+      if (b.blockText && b.acId && bookmarkItemType(b) === 'ac' && !m.has(b.acId)) m.set(b.acId, b)
     }
     return m
   }, [bookmarks])
@@ -159,7 +165,12 @@ export default function SavedScreen() {
   }, [bookmarks])
 
   useEffect(() => {
-    const highlights = bookmarks.filter((b) => b.blockText && b.acId)
+    // AC-only -- stale_highlight_ac_ids only knows how to diff against
+    // advisory_circulars' own pdf_blocks/changed_block_indices. A FAR/AIM/
+    // AD/LOI highlight's acId isn't a real advisory_circulars.id, so
+    // without this filter every one of those would be sent as a useless
+    // probe the RPC can never match.
+    const highlights = bookmarks.filter((b) => b.blockText && b.acId && bookmarkItemType(b) === 'ac')
     if (highlights.length === 0) {
       setStaleHighlightIds(new Set())
       return
@@ -925,7 +936,15 @@ export default function SavedScreen() {
         itemType={pickerAC ? bookmarkItemType(pickerAC) : 'ac'}
         itemId={pickerAC?.id ?? ''}
         onClose={() => setPickerAC(null)}
-        onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1) }}
+        // RC: "make sure all folders update their content count right away
+        // -- there has seemed to be some delay." Root cause: this picker is
+        // opened and closed entirely within THIS screen (no navigation, no
+        // refocus), so the normal fix -- Saved's own useFocusEffect re-running
+        // load() on return -- never fires here. onAdded only showed a
+        // confirmation toast before; it now also re-pulls folder counts so
+        // the Folders tab reflects the add immediately, not on some later,
+        // unrelated focus event.
+        onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1); getFolderItemCounts().then(setFolderCounts) }}
       />
 
       {/* Folder picker for offline downloads */}
@@ -934,7 +953,7 @@ export default function SavedScreen() {
         itemType={downloadItemType(downloads.find((x) => x.id === pickerDownloadId) ?? {})}
         itemId={pickerDownloadId ?? ''}
         onClose={() => setPickerDownloadId(null)}
-        onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1) }}
+        onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1); getFolderItemCounts().then(setFolderCounts) }}
         acMeta={(() => {
           const d = downloads.find((x) => x.id === pickerDownloadId)
           return d ? {
