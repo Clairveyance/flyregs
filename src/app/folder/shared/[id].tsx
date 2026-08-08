@@ -11,6 +11,7 @@ import {
   getSharedFolderACItems, getSharedFolderNoteItems, leaveSharedFolder, markSharedFolderViewed,
   getSharedFolderFARItems, getSharedFolderAIMItems, getSharedFolderPCGItems, getSharedFolderADItems, getSharedFolderLOIItems,
   getSharedFolderDictionaryItems, FolderCollabMode, removeSharedFolderItem, addSharedFolderNote, updateSharedNote,
+  resolveMissingAsHighlights,
 } from '@/lib/sharedFolders'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
@@ -31,6 +32,14 @@ interface ACRow {
   cancels: string[]
   changed_block_indices: number[] | null
   date_issued: string | null
+  /** Set only when this row is a highlight resolved via synced_bookmarks --
+   * see resolveMissingAsHighlights. `id` above is the highlight bookmark's
+   * own synthetic id (needed for removal), `acId` is the real
+   * advisory_circulars.id needed to actually open the document. */
+  acId?: string
+  blockText?: string
+  blockLabel?: string | null
+  blockSnippet?: string
 }
 
 interface NoteRow {
@@ -41,6 +50,17 @@ interface NoteRow {
   linked_ac: string | null
   updated_at: string
 }
+
+// Same highlighter-yellow accent Saved uses for its own H/L tag (see
+// saved.tsx) -- kept as local constants here too since it isn't a theme
+// token, just matched exactly so a highlight looks the same everywhere it
+// shows up.
+const HIGHLIGHT_BG = 'rgba(255, 213, 0, 0.12)'
+const HIGHLIGHT_BDR = 'rgba(255, 213, 0, 0.4)'
+const HIGHLIGHT_TEXT = '#8a6d00'
+const HIGHLIGHT_BG_REDSHIFT = 'rgba(224, 86, 46, 0.16)'
+const HIGHLIGHT_BDR_REDSHIFT = 'rgba(224, 86, 46, 0.45)'
+const HIGHLIGHT_TEXT_REDSHIFT = '#FF9A6B'
 
 // FAR/AIM/P-CG/AD/LOI item, normalized to one shape -- `label` is the
 // short id (section/paragraph number, term, AD number) shown the same way
@@ -56,6 +76,11 @@ interface RegRow {
   label: string
   title: string
   route: string
+  /** Set only when this row is a highlight resolved via synced_bookmarks --
+   * same meaning as ACRow's own fields above. */
+  blockText?: string
+  blockLabel?: string | null
+  blockSnippet?: string
 }
 
 const REG_SECTION_TITLE: Record<RegRow['regType'], string> = {
@@ -82,7 +107,7 @@ function timeAgo(iso: string): string {
 // gated the same as anywhere else in the app: full text needs your OWN
 // Pro/Premium subscription, being invited here doesn't unlock it).
 export default function SharedFolderDetail() {
-  const { tokens } = useTheme()
+  const { tokens, redShift } = useTheme()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web, so these confirms (and the deletes behind them) were
   // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
@@ -162,7 +187,27 @@ export default function SharedFolderDetail() {
         .from('advisory_circulars')
         .select('id, document_number, title, cancels, changed_block_indices, date_issued')
         .in('id', acIds)
-      setAcs((acRows ?? []).map((r) => ({ ...r, itemRowId: acItems.find((i) => i.item_id === r.id)?.id ?? '' })))
+      const matched = new Set((acRows ?? []).map((r) => r.id))
+      // Anything left unmatched is a highlight, not a missing AC -- see
+      // resolveMissingAsHighlights' own comment for why item_id doesn't
+      // resolve directly for those.
+      const acHl = await resolveMissingAsHighlights('ac', acIds.filter((i) => !matched.has(i)), () => '')
+      setAcs([
+        ...(acRows ?? []).map((r) => ({ ...r, itemRowId: acItems.find((i) => i.item_id === r.id)?.id ?? '' })),
+        ...acHl.map((h): ACRow => ({
+          id: h.id,
+          itemRowId: acItems.find((i) => i.item_id === h.id)?.id ?? '',
+          document_number: h.document_number,
+          title: h.title,
+          cancels: [],
+          changed_block_indices: null,
+          date_issued: h.date_issued,
+          acId: h.acId,
+          blockText: h.blockText,
+          blockLabel: h.blockLabel ?? null,
+          blockSnippet: h.blockSnippet,
+        })),
+      ])
     } else {
       setAcs([])
     }
@@ -213,6 +258,28 @@ export default function SharedFolderDetail() {
         : Promise.resolve({ data: [] }),
     ])
     const rowIdFor = (list: { id: string; item_id: string }[], itemId: string) => list.find((i) => i.item_id === itemId)?.id ?? ''
+
+    // Same highlight fallback as the AC block above -- an item_id that
+    // missed the direct table lookup above is a highlight, not a deleted
+    // doc. Dictionary has no highlight support (single-block definitions),
+    // so it's excluded here.
+    const farMatched = new Set((farRows.data ?? []).map((r: any) => r.section_number))
+    const aimMatched = new Set((aimRows.data ?? []).map((r: any) => r.paragraph_number))
+    const pcgMatched = new Set((pcgRows.data ?? []).map((r: any) => r.slug))
+    const adMatched = new Set((adRows.data ?? []).map((r: any) => r.ad_number))
+    const loiMatched = new Set((loiRows.data ?? []).map((r: any) => r.slug))
+    const [farHl, aimHl, pcgHl, adHl, loiHl] = await Promise.all([
+      resolveMissingAsHighlights('far', farIds.filter((i) => !farMatched.has(i)), () => ''),
+      resolveMissingAsHighlights('aim', aimIds.filter((i) => !aimMatched.has(i)), () => ''),
+      resolveMissingAsHighlights('pcg', pcgIds.filter((i) => !pcgMatched.has(i)), () => ''),
+      resolveMissingAsHighlights('ad', adIds.filter((i) => !adMatched.has(i)), () => ''),
+      resolveMissingAsHighlights('loi', loiIds.filter((i) => !loiMatched.has(i)), () => ''),
+    ])
+    // Routes use acId (the real section/paragraph/slug/ad number the
+    // highlight points back to), never document_number -- for P/CG those
+    // diverge (document_number holds the display term, acId the real slug).
+    const hlRoute = (base: string, h: { acId?: string; blockText?: string }) =>
+      `${base}/${h.acId}${h.blockText ? `?hl=${encodeURIComponent(h.blockText)}` : ''}`
     setRegs([
       ...(farRows.data ?? []).map((r: any): RegRow => ({ id: r.section_number, itemRowId: rowIdFor(farItems, r.section_number), regType: 'far', label: `§ ${r.section_number}`, title: r.title, route: `/far/${r.section_number}` })),
       ...(aimRows.data ?? []).map((r: any): RegRow => ({ id: r.paragraph_number, itemRowId: rowIdFor(aimItems, r.paragraph_number), regType: 'aim', label: r.paragraph_number, title: r.title ?? '', route: `/aim/${r.paragraph_number}` })),
@@ -220,6 +287,11 @@ export default function SharedFolderDetail() {
       ...(adRows.data ?? []).map((r: any): RegRow => ({ id: r.ad_number, itemRowId: rowIdFor(adItems, r.ad_number), regType: 'ad', label: r.ad_number, title: r.subject_heading, route: `/ad/${r.ad_number}` })),
       ...(loiRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, itemRowId: rowIdFor(loiItems, r.slug), regType: 'loi', label: r.slug, title: r.title, route: `/loi/${r.slug}` })),
       ...(dictRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, itemRowId: rowIdFor(dictItems, r.slug), regType: 'dictionary', label: r.term, title: r.term, route: `/dictionary/${r.slug}` })),
+      ...farHl.map((h): RegRow => ({ id: h.id, itemRowId: rowIdFor(farItems, h.id), regType: 'far', label: `§ ${h.document_number}`, title: h.title, route: hlRoute('/far', h), blockText: h.blockText, blockLabel: h.blockLabel, blockSnippet: h.blockSnippet })),
+      ...aimHl.map((h): RegRow => ({ id: h.id, itemRowId: rowIdFor(aimItems, h.id), regType: 'aim', label: h.document_number, title: h.title, route: hlRoute('/aim', h), blockText: h.blockText, blockLabel: h.blockLabel, blockSnippet: h.blockSnippet })),
+      ...pcgHl.map((h): RegRow => ({ id: h.id, itemRowId: rowIdFor(pcgItems, h.id), regType: 'pcg', label: h.document_number, title: h.title, route: hlRoute('/pcg', h), blockText: h.blockText, blockLabel: h.blockLabel, blockSnippet: h.blockSnippet })),
+      ...adHl.map((h): RegRow => ({ id: h.id, itemRowId: rowIdFor(adItems, h.id), regType: 'ad', label: h.document_number, title: h.title, route: hlRoute('/ad', h), blockText: h.blockText, blockLabel: h.blockLabel, blockSnippet: h.blockSnippet })),
+      ...loiHl.map((h): RegRow => ({ id: h.id, itemRowId: rowIdFor(loiItems, h.id), regType: 'loi', label: h.document_number, title: h.title, route: hlRoute('/loi', h), blockText: h.blockText, blockLabel: h.blockLabel, blockSnippet: h.blockSnippet })),
     ])
 
     setLoading(false)
@@ -374,7 +446,14 @@ export default function SharedFolderDetail() {
               >
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.rowDoc, { color: tokens.blu, fontSize: fs(13) }]}>{item.label}</Text>
-                  {item.regType !== 'pcg' && (
+                  {item.blockText ? (
+                    <View style={[styles.highlightTag, { backgroundColor: redShift ? HIGHLIGHT_BG_REDSHIFT : HIGHLIGHT_BG, borderColor: redShift ? HIGHLIGHT_BDR_REDSHIFT : HIGHLIGHT_BDR }]}>
+                      <Icon name="highlighter" size={fs(11)} color={redShift ? HIGHLIGHT_TEXT_REDSHIFT : HIGHLIGHT_TEXT} />
+                      <Text style={[styles.highlightTagText, { color: redShift ? HIGHLIGHT_TEXT_REDSHIFT : HIGHLIGHT_TEXT, fontSize: fs(10.5) }]} numberOfLines={1}>
+                        {item.blockLabel ? `§ ${item.blockLabel} ` : ''}{item.blockSnippet}
+                      </Text>
+                    </View>
+                  ) : item.regType !== 'pcg' && (
                     <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
                       {stripFarPrefix(item.title)}
                     </Text>
@@ -390,7 +469,11 @@ export default function SharedFolderDetail() {
             ) : 'document_number' in item ? (
               <Pressable
                 style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => router.push(`/ac/${item.id}`)}
+                onPress={() => {
+                  const acId = item.acId ?? item.id
+                  const hlText = item.blockText ? `?hlText=${encodeURIComponent(item.blockText.slice(0, 120))}` : ''
+                  router.push(`/ac/${acId}${hlText}` as any)
+                }}
               >
                 <View style={{ flex: 1 }}>
                   <View style={styles.rowNumBadgeWrap}>
@@ -406,9 +489,18 @@ export default function SharedFolderDetail() {
                       )
                     })()}
                   </View>
-                  <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
-                    {stripFarPrefix(item.title)}
-                  </Text>
+                  {item.blockText ? (
+                    <View style={[styles.highlightTag, { backgroundColor: redShift ? HIGHLIGHT_BG_REDSHIFT : HIGHLIGHT_BG, borderColor: redShift ? HIGHLIGHT_BDR_REDSHIFT : HIGHLIGHT_BDR }]}>
+                      <Icon name="highlighter" size={fs(11)} color={redShift ? HIGHLIGHT_TEXT_REDSHIFT : HIGHLIGHT_TEXT} />
+                      <Text style={[styles.highlightTagText, { color: redShift ? HIGHLIGHT_TEXT_REDSHIFT : HIGHLIGHT_TEXT, fontSize: fs(10.5) }]} numberOfLines={1}>
+                        {item.blockLabel ? `§ ${item.blockLabel} ` : ''}{item.blockSnippet}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
+                      {stripFarPrefix(item.title)}
+                    </Text>
+                  )}
                 </View>
                 {canWrite && (
                   <Pressable onPress={() => handleRemoveItem(item.itemRowId, item.document_number)} hitSlop={8} style={styles.removeBtn}>
@@ -693,6 +785,19 @@ const styles = StyleSheet.create({
   rowNumBadge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 1.5 },
   rowNumBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
   rowTitle: { fontWeight: '500' },
+  highlightTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    marginTop: 2,
+    maxWidth: '100%',
+  },
+  highlightTagText: { fontWeight: '700', flexShrink: 1 },
   typeBadge: {
     borderRadius: 5,
     borderWidth: 1,

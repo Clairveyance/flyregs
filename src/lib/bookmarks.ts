@@ -57,13 +57,26 @@ export function resolveBookmarkACId(item: BookmarkAC): string {
 // Single source of truth for "where does tapping this bookmark go" — used by
 // Saved, Recents, and Offline so a FAR/AIM/P-CG/AD whole-doc bookmark doesn't
 // silently mis-route to /ac/<section_number> (which 404s, since that's not a
-// real advisory_circulars.id). Highlights/jump-targets are AC-only (see
-// BookmarkAC's own comment), so only the 'ac' branch needs the hlId param.
+// real advisory_circulars.id).
 export function routeForBookmark(item: BookmarkAC, opts?: { hlId?: string }): string {
   const type = bookmarkItemType(item)
   if (type === 'ac') {
     const acId = resolveBookmarkACId(item)
-    return opts?.hlId ? `/ac/${acId}?hlId=${encodeURIComponent(opts.hlId)}` : `/ac/${acId}`
+    // hlId looks up a highlight in the CALLER's own local bookmark list (see
+    // ac/[id].tsx) -- correct for the owner opening their own highlight, but
+    // a no-op for anyone else (a shared-folder collaborator, a Study Mode
+    // jump-target recipient) who never had that row locally. blockText
+    // doesn't have that limitation -- ac/[id].tsx's own ?hlText= handler
+    // locates the passage by matching content directly against this
+    // device's copy of the doc, and creates a real highlight for THIS
+    // viewer at that spot (see its own comment), so it's included whenever
+    // available rather than only as a fallback -- harmless to include
+    // alongside hlId since the two jump to the same place.
+    const params = new URLSearchParams()
+    if (opts?.hlId) params.set('hlId', opts.hlId)
+    if (item.blockText) params.set('hlText', item.blockText.slice(0, 120))
+    const qs = params.toString()
+    return qs ? `/ac/${acId}?${qs}` : `/ac/${acId}`
   }
   // A non-AC bookmark carrying blockText is either a highlight (see the
   // Highlights section below) or a Study Mode flashcard's saved jump-target

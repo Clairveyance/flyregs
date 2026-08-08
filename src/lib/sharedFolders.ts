@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { syncPushFolder, syncPushFolderItems, syncPushNote } from '@/lib/syncPush'
-import { getFolders, getItemsInFolder, markFolderShared, FolderItem } from '@/lib/folders'
+import { getFolders, getItemsInFolder, markFolderShared, FolderItem, FolderItemType } from '@/lib/folders'
 import { getNotes } from '@/lib/notes'
 import type { BookmarkAC } from '@/lib/bookmarks'
 
@@ -422,6 +422,78 @@ export async function updateSharedNote(noteId: string, updates: { title?: string
 // bookmarkMap path; each type is looked up directly against its own content
 // table instead, the same per-type queries folder/shared/[id].tsx's
 // read-only collaborator view already runs.
+// A highlight's folder item stores the highlight bookmark's own synthetic id
+// as item_id, not the real document id (see BookmarkAC.id's comment in
+// bookmarks.ts), so it never matches a row in that type's own content table
+// above -- it silently vanished from every collaborator's view. Every
+// highlight is unconditionally pushed to synced_bookmarks the moment it's
+// created (see syncPushBookmark's call sites in bookmarks.ts, unlike normal
+// bookmarks this isn't gated behind the separate Back-up & Sync toggle), so
+// any item_id the direct lookup above missed gets a second pass here:
+// resolve it as a highlight via synced_bookmarks (ac_id + block_text carry
+// the real doc + passage), then look up that doc's own current title the
+// same way the direct path does. Requires the
+// collaborators_read_shared_bookmarks RLS policy -- see
+// sync/migrations_shared_folder_highlights.sql.
+export async function resolveMissingAsHighlights(itemType: FolderItemType, missedIds: string[], savedAtFor: (id: string) => string): Promise<BookmarkAC[]> {
+  if (!missedIds.length) return []
+  const { data: hlRows } = await supabase
+    .from('synced_bookmarks')
+    .select('id, ac_id, block_kind, block_label, block_snippet, block_text')
+    .eq('item_type', itemType)
+    .in('id', missedIds)
+  if (!hlRows?.length) return []
+
+  const docIds = [...new Set(hlRows.map((h) => h.ac_id).filter((v): v is string => !!v))]
+  if (!docIds.length) return []
+
+  type DocRow = { id: string; document_number: string; title: string; date_issued?: string | null; office?: string | null; subject_series?: string | null }
+  let docs: DocRow[] = []
+  if (itemType === 'ac') {
+    const { data } = await supabase.from('advisory_circulars').select('id, document_number, title, date_issued, office, subject_series').in('id', docIds)
+    docs = data ?? []
+  } else if (itemType === 'far') {
+    const { data } = await supabase.from('far_sections').select('section_number, title').in('section_number', docIds)
+    docs = (data ?? []).map((r) => ({ id: r.section_number, document_number: r.section_number, title: r.title }))
+  } else if (itemType === 'aim') {
+    const { data } = await supabase.from('aim_paragraphs').select('paragraph_number, title').in('paragraph_number', docIds)
+    docs = (data ?? []).map((r) => ({ id: r.paragraph_number, document_number: r.paragraph_number, title: r.title ?? '' }))
+  } else if (itemType === 'pcg') {
+    const { data } = await supabase.from('pcg_terms').select('slug, term').in('slug', docIds)
+    docs = (data ?? []).map((r) => ({ id: r.slug, document_number: r.term, title: r.term }))
+  } else if (itemType === 'ad') {
+    const { data } = await supabase.from('airworthiness_directives').select('ad_number, subject_heading').in('ad_number', docIds)
+    docs = (data ?? []).map((r) => ({ id: r.ad_number, document_number: r.ad_number, title: r.subject_heading }))
+  } else if (itemType === 'loi') {
+    const { data } = await supabase.from('legal_interpretations').select('slug, title').in('slug', docIds)
+    docs = (data ?? []).map((r) => ({ id: r.slug, document_number: r.slug, title: r.title }))
+  }
+  const docMap = new Map(docs.map((d) => [d.id, d]))
+
+  const results: BookmarkAC[] = []
+  for (const h of hlRows) {
+    if (!h.ac_id) continue
+    const doc = docMap.get(h.ac_id)
+    if (!doc) continue
+    results.push({
+      id: h.id,
+      itemType,
+      acId: h.ac_id,
+      document_number: doc.document_number,
+      title: doc.title,
+      date_issued: doc.date_issued ?? null,
+      office: doc.office ?? null,
+      subject_series: doc.subject_series ?? null,
+      blockKind: (h.block_kind as 'section' | 'item' | 'para' | null) ?? undefined,
+      blockLabel: h.block_label ?? undefined,
+      blockSnippet: h.block_snippet ?? undefined,
+      blockText: h.block_text ?? undefined,
+      savedAt: savedAtFor(h.id),
+    })
+  }
+  return results
+}
+
 export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<BookmarkAC[]> {
   const byType = new Map<string, FolderItem[]>()
   for (const i of items) {
@@ -436,57 +508,81 @@ export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<
 
   const acItems = byType.get('ac') ?? []
   if (acItems.length) {
+    const acIds = acItems.map((i) => i.item_id)
     const { data } = await supabase
       .from('advisory_circulars')
       .select('id, document_number, title, date_issued, office, subject_series')
-      .in('id', acItems.map((i) => i.item_id))
+      .in('id', acIds)
+    const matched = new Set<string>()
     for (const r of data ?? []) {
+      matched.add(r.id)
       results.push({
         id: r.id, itemType: 'ac', document_number: r.document_number, title: r.title,
         date_issued: r.date_issued, office: r.office, subject_series: r.subject_series,
         savedAt: savedAtFor(acItems, r.id),
       })
     }
+    results.push(...await resolveMissingAsHighlights('ac', acIds.filter((id) => !matched.has(id)), (id) => savedAtFor(acItems, id)))
   }
 
   const farItems = byType.get('far') ?? []
   if (farItems.length) {
-    const { data } = await supabase.from('far_sections').select('section_number, title').in('section_number', farItems.map((i) => i.item_id))
+    const farIds = farItems.map((i) => i.item_id)
+    const { data } = await supabase.from('far_sections').select('section_number, title').in('section_number', farIds)
+    const matched = new Set<string>()
     for (const r of data ?? []) {
+      matched.add(r.section_number)
       results.push({ id: r.section_number, itemType: 'far', document_number: r.section_number, title: r.title, date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(farItems, r.section_number) })
     }
+    results.push(...await resolveMissingAsHighlights('far', farIds.filter((id) => !matched.has(id)), (id) => savedAtFor(farItems, id)))
   }
 
   const aimItems = byType.get('aim') ?? []
   if (aimItems.length) {
-    const { data } = await supabase.from('aim_paragraphs').select('paragraph_number, title').in('paragraph_number', aimItems.map((i) => i.item_id))
+    const aimIds = aimItems.map((i) => i.item_id)
+    const { data } = await supabase.from('aim_paragraphs').select('paragraph_number, title').in('paragraph_number', aimIds)
+    const matched = new Set<string>()
     for (const r of data ?? []) {
+      matched.add(r.paragraph_number)
       results.push({ id: r.paragraph_number, itemType: 'aim', document_number: r.paragraph_number, title: r.title ?? '', date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(aimItems, r.paragraph_number) })
     }
+    results.push(...await resolveMissingAsHighlights('aim', aimIds.filter((id) => !matched.has(id)), (id) => savedAtFor(aimItems, id)))
   }
 
   const pcgItems = byType.get('pcg') ?? []
   if (pcgItems.length) {
-    const { data } = await supabase.from('pcg_terms').select('slug, term').in('slug', pcgItems.map((i) => i.item_id))
+    const pcgIds = pcgItems.map((i) => i.item_id)
+    const { data } = await supabase.from('pcg_terms').select('slug, term').in('slug', pcgIds)
+    const matched = new Set<string>()
     for (const r of data ?? []) {
+      matched.add(r.slug)
       results.push({ id: r.slug, itemType: 'pcg', document_number: r.term, title: r.term, date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(pcgItems, r.slug) })
     }
+    results.push(...await resolveMissingAsHighlights('pcg', pcgIds.filter((id) => !matched.has(id)), (id) => savedAtFor(pcgItems, id)))
   }
 
   const adItems = byType.get('ad') ?? []
   if (adItems.length) {
-    const { data } = await supabase.from('airworthiness_directives').select('ad_number, subject_heading').in('ad_number', adItems.map((i) => i.item_id))
+    const adIds = adItems.map((i) => i.item_id)
+    const { data } = await supabase.from('airworthiness_directives').select('ad_number, subject_heading').in('ad_number', adIds)
+    const matched = new Set<string>()
     for (const r of data ?? []) {
+      matched.add(r.ad_number)
       results.push({ id: r.ad_number, itemType: 'ad', document_number: r.ad_number, title: r.subject_heading, date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(adItems, r.ad_number) })
     }
+    results.push(...await resolveMissingAsHighlights('ad', adIds.filter((id) => !matched.has(id)), (id) => savedAtFor(adItems, id)))
   }
 
   const loiItems = byType.get('loi') ?? []
   if (loiItems.length) {
-    const { data } = await supabase.from('legal_interpretations').select('slug, title').in('slug', loiItems.map((i) => i.item_id))
+    const loiIds = loiItems.map((i) => i.item_id)
+    const { data } = await supabase.from('legal_interpretations').select('slug, title').in('slug', loiIds)
+    const matched = new Set<string>()
     for (const r of data ?? []) {
+      matched.add(r.slug)
       results.push({ id: r.slug, itemType: 'loi', document_number: r.slug, title: r.title, date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(loiItems, r.slug) })
     }
+    results.push(...await resolveMissingAsHighlights('loi', loiIds.filter((id) => !matched.has(id)), (id) => savedAtFor(loiItems, id)))
   }
 
   const dictItems = byType.get('dictionary') ?? []
