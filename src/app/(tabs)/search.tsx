@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { View, Text, Image, ScrollView, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router } from 'expo-router'
-import { useTheme } from '@/context/theme'
+import { useTheme, redshiftTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { ScreenHeader } from '@/components/ScreenHeader'
@@ -76,6 +76,12 @@ function WingSign() {
   // earlier 10/0.6/2 pass), since less blur bloom reads as a thinner sign
   // even though the underlying letterforms themselves can't get any thinner.
   const size = fs(24)
+  // Hardcoded white the whole time -- didn't react to Red Shift like every
+  // other lit/glowing element in the app. redshiftTokens.t1 is the palette's
+  // own bright red-orange "lit text" tone, so a neon tube reads as switched
+  // to red-safe lighting the same way everything else does.
+  const { redShift } = useTheme()
+  const neonColor = redShift ? redshiftTokens.t1 : '#fff'
   return (
     <View style={{ alignItems: 'center', justifyContent: 'center' }}>
       <Text
@@ -84,7 +90,8 @@ function WingSign() {
           {
             position: 'absolute',
             fontSize: size,
-            textShadowColor: '#fff',
+            color: neonColor,
+            textShadowColor: neonColor,
             textShadowOffset: { width: 0, height: 0 },
             textShadowRadius: 8,
             opacity: 0.55,
@@ -98,7 +105,8 @@ function WingSign() {
           styles.neonText,
           {
             fontSize: size,
-            textShadowColor: '#fff',
+            color: neonColor,
+            textShadowColor: neonColor,
             textShadowOffset: { width: 0, height: 0 },
             textShadowRadius: 1.5,
           },

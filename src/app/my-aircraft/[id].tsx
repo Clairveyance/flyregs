@@ -148,8 +148,11 @@ export default function AircraftDetailScreen() {
   const [role, setRole] = useState<FleetRole | null>(null)
   const [collaborators, setCollaborators] = useState<AircraftCollaborator[]>([])
   const [sharingBusy, setSharingBusy] = useState(false)
-  // Drives the Callsign-entry modal below -- non-null while it's open,
-  // holding which role the invite will use once a Callsign is submitted.
+  // Drives the share modal below. 'role' shows the Viewer/Editor choice,
+  // 'callsign' shows the Callsign field -- both are steps of the SAME
+  // <Modal>, never two separate ones (see shareStep's own comment at the
+  // modal for why that split used to freeze the screen on native).
+  const [shareStep, setShareStep] = useState<'closed' | 'role' | 'callsign'>('closed')
   const [inviteRole, setInviteRole] = useState<CollaboratorRole | null>(null)
   const [inviteCallsign, setInviteCallsign] = useState('')
   const [inviteError, setInviteError] = useState<string | null>(null)
@@ -202,17 +205,31 @@ export default function AircraftDetailScreen() {
   // (join/[token].tsx) but this owner side wasn't -- a plain Pro owner
   // could tap Share and mint a real invite link before this, same gate
   // folder/[id].tsx already has for its own owner-side Share.
+  // RC real-device report: tapping Invite froze the screen. Root cause --
+  // this used to open confirm()'s own action-sheet Modal for the Viewer/
+  // Editor choice, whose onPress ALSO set inviteRole, which opened a SECOND
+  // separate <Modal> (the Callsign field below) for the Callsign step. Two
+  // RN <Modal>s wanting to be visible in the same render (one presenting
+  // while the other is still mid-dismiss) is a known iOS UIKit deadlock --
+  // invisible on web, where Modal is just a portal div with no native
+  // presentation stack to wedge. Folded both steps into the ONE modal below
+  // instead of ever mounting two.
   const handleShare = () => {
     if (!aircraft) return
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
-    confirm({
-      title: 'Share this aircraft',
-      message: "Invite by Callsign. They'll need their own Premium subscription and a Callsign set to join.",
-      choices: [
-        { label: 'Invite as Viewer', onPress: () => { setInviteError(null); setInviteCallsign(''); setInviteRole('viewer') } },
-        { label: 'Invite as Editor', onPress: () => { setInviteError(null); setInviteCallsign(''); setInviteRole('editor') } },
-      ],
-    })
+    setShareStep('role')
+  }
+
+  const pickRole = (r: CollaboratorRole) => {
+    setInviteError(null)
+    setInviteCallsign('')
+    setInviteRole(r)
+    setShareStep('callsign')
+  }
+
+  const closeShareModal = () => {
+    setShareStep('closed')
+    setInviteRole(null)
   }
 
   // RC: "we still need to track/log when an a/c is being shared" -- and
@@ -234,7 +251,7 @@ export default function AircraftDetailScreen() {
       return
     }
     const link = buildAircraftShareLink(invite.token)
-    setInviteRole(null)
+    closeShareModal()
     try {
       await Share.share({ message: link })
     } catch {
@@ -922,35 +939,64 @@ export default function AircraftDetailScreen() {
         onClose={() => setHobbsModalVisible(false)}
         onSaved={() => { setHobbsModalVisible(false); load() }}
       />
-      <Modal visible={!!inviteRole} animationType="slide" transparent onRequestClose={() => setInviteRole(null)}>
+      <Modal visible={shareStep !== 'closed'} animationType="slide" transparent onRequestClose={closeShareModal}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
           <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
-            <View style={styles.modalHeader}>
-              <Pressable onPress={() => setInviteRole(null)} hitSlop={10}>
-                <Text style={{ color: tokens.t3, fontSize: fs(14.5) }}>Cancel</Text>
-              </Pressable>
-              <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>
-                Invite as {inviteRole === 'editor' ? 'Editor' : 'Viewer'}
-              </Text>
-              <Pressable onPress={submitInvite} hitSlop={10} disabled={sharingBusy || !inviteCallsign.trim()}>
-                {sharingBusy ? <ActivityIndicator color={tokens.blu} /> : (
-                  <Text style={{ color: inviteCallsign.trim() ? tokens.blu : tokens.t4, fontWeight: '700', fontSize: fs(14.5) }}>Invite</Text>
-                )}
-              </Pressable>
-            </View>
-            <Text style={{ color: tokens.t3, fontSize: fs(13) }}>
-              Their Callsign, exactly as it appears in FlyRegs.
-            </Text>
-            <TextInput
-              value={inviteCallsign}
-              onChangeText={setInviteCallsign}
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder="Callsign"
-              placeholderTextColor={tokens.t4}
-              style={[styles.inviteInput, { color: tokens.t1, borderColor: inviteError ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
-            />
-            {inviteError && <Text style={{ color: tokens.red, fontSize: fs(12.5) }}>{inviteError}</Text>}
+            {shareStep === 'role' ? (
+              <>
+                <View style={styles.modalHeader}>
+                  <Pressable onPress={closeShareModal} hitSlop={10}>
+                    <Text style={{ color: tokens.t3, fontSize: fs(14.5) }}>Cancel</Text>
+                  </Pressable>
+                  <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Share this aircraft</Text>
+                  <View style={{ width: 50 }} />
+                </View>
+                <Text style={{ color: tokens.t3, fontSize: fs(13) }}>
+                  Invite by Callsign. They'll need their own Premium subscription and a Callsign set to join.
+                </Text>
+                <Pressable
+                  onPress={() => pickRole('viewer')}
+                  style={[styles.shareRoleBtn, { backgroundColor: tokens.blu }]}
+                >
+                  <Text style={styles.shareRoleBtnText}>Invite as Viewer</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => pickRole('editor')}
+                  style={[styles.shareRoleBtn, { backgroundColor: tokens.blu }]}
+                >
+                  <Text style={styles.shareRoleBtnText}>Invite as Editor</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <View style={styles.modalHeader}>
+                  <Pressable onPress={closeShareModal} hitSlop={10}>
+                    <Text style={{ color: tokens.t3, fontSize: fs(14.5) }}>Cancel</Text>
+                  </Pressable>
+                  <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>
+                    Invite as {inviteRole === 'editor' ? 'Editor' : 'Viewer'}
+                  </Text>
+                  <Pressable onPress={submitInvite} hitSlop={10} disabled={sharingBusy || !inviteCallsign.trim()}>
+                    {sharingBusy ? <ActivityIndicator color={tokens.blu} /> : (
+                      <Text style={{ color: inviteCallsign.trim() ? tokens.blu : tokens.t4, fontWeight: '700', fontSize: fs(14.5) }}>Invite</Text>
+                    )}
+                  </Pressable>
+                </View>
+                <Text style={{ color: tokens.t3, fontSize: fs(13) }}>
+                  Their Callsign, exactly as it appears in FlyRegs.
+                </Text>
+                <TextInput
+                  value={inviteCallsign}
+                  onChangeText={setInviteCallsign}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="Callsign"
+                  placeholderTextColor={tokens.t4}
+                  style={[styles.inviteInput, { color: tokens.t1, borderColor: inviteError ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
+                />
+                {inviteError && <Text style={{ color: tokens.red, fontSize: fs(12.5) }}>{inviteError}</Text>}
+              </>
+            )}
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -1495,6 +1541,8 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   modalTitle: { fontWeight: '700' },
   inviteInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontWeight: '600' },
+  shareRoleBtn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
+  shareRoleBtnText: { color: '#fff', fontWeight: '700' },
   formLabel: { fontWeight: '700', letterSpacing: 0.5, marginTop: 2 },
   chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 4 },
   typeChip: {
