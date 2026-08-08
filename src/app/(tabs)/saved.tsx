@@ -549,7 +549,7 @@ export default function SavedScreen() {
       // Share.share failure here (no share target, sheet error, web
       // preview) is not the same failure as never having a link. Same
       // reasoning as folder/[id].tsx's own handleInvite.
-      confirm({ title: 'Invite Link Ready', message: link, cancelLabel: null })
+      confirm({ title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
     }
   }
 
@@ -566,7 +566,7 @@ export default function SavedScreen() {
     try {
       await Share.share({ message: links.join('\n\n') })
     } catch {
-      confirm({ title: 'Invite Links Ready', message: links.join('\n\n'), cancelLabel: null })
+      confirm({ title: 'Invite Links Ready', message: 'Copy or share these links:', linkMessage: links, cancelLabel: null })
     }
     setSelectedFolders(new Set())
     setFolderSelectMode(false)

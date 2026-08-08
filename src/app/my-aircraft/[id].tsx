@@ -268,7 +268,7 @@ export default function AircraftDetailScreen() {
       // preview) is not a "could not create invite" failure. Surface the
       // real link instead of a false error -- same reasoning as
       // folder/[id].tsx's own handleInvite.
-      confirm({ title: 'Invite Link Ready', message: link, cancelLabel: null })
+      confirm({ title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
     }
     getAircraftCollaborators(aircraft.id).then(setCollaborators).catch(() => {})
     setSharingBusy(false)

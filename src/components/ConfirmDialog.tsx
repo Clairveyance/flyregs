@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useRef, useState } from 'react'
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Modal, TextInput } from 'react-native'
+import * as Clipboard from 'expo-clipboard'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
@@ -24,6 +25,18 @@ import { Icon } from '@/components/Icon'
 export interface ConfirmOptions {
   title: string
   message?: string
+  /**
+   * One or more shareable links, each rendered as its own graphical pill
+   * (truncated, monospace-ish, with a tap-to-copy button) instead of
+   * dumped into `message` as raw text -- a bare URL in the plain message
+   * Text ran the full width of the card edge-to-edge with no way to act on
+   * it short of manually selecting it. Every Share.share() fallback (no
+   * share target, web preview, sheet error) across the invite-link call
+   * sites hits this same dialog, so it needed real treatment, not just
+   * smaller text. Pass an array for the bulk-share case (one pill per
+   * folder) -- each copies independently since they're separate links.
+   */
+  linkMessage?: string | string[]
   /** Defaults to 'OK'. */
   confirmLabel?: string
   /** Pass null for an informational dialog with no cancel button. */
@@ -86,6 +99,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [typed, setTyped] = useState('')
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const [step, setStep] = useState(1)
   // Brief arming delay on the final step so a fast second tap can't land on
   // the newly-positioned button before the user has seen it move.
@@ -103,12 +117,19 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     setError(null)
     setBusy(false)
     setTyped('')
+    setCopiedIndex(null)
     setStep(1)
     setStepArmed(true)
     setOpts(o)
   }, [])
 
-  const reset = () => { setOpts(null); setBusy(false); setError(null); setTyped(''); setStep(1); setStepArmed(true) }
+  const reset = () => { setOpts(null); setBusy(false); setError(null); setTyped(''); setCopiedIndex(null); setStep(1); setStepArmed(true) }
+
+  const handleCopyLink = async (link: string, index: number) => {
+    await Clipboard.setStringAsync(link)
+    setCopiedIndex(index)
+    setTimeout(() => setCopiedIndex((cur) => (cur === index ? null : cur)), 2000)
+  }
   /** Closes only if no newer dialog opened while we were awaiting. */
   const closeIfCurrent = (gen: number) => { if (generation.current === gen) reset() }
   const close = () => reset()
@@ -204,6 +225,25 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
             {opts?.message ? (
               <Text style={[styles.message, { color: tokens.t3, fontSize: fs(13.5) }]}>{opts.message}</Text>
             ) : null}
+            {opts?.linkMessage ? (
+              <View style={styles.linkList}>
+                {(Array.isArray(opts.linkMessage) ? opts.linkMessage : [opts.linkMessage]).map((link, i) => (
+                  <View key={link} style={[styles.linkBox, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+                    <Icon name="link" size={fs(14)} color={tokens.t3} />
+                    <Text
+                      style={[styles.linkText, { color: tokens.t2, fontSize: fs(12.5) }]}
+                      numberOfLines={1}
+                      ellipsizeMode="middle"
+                    >
+                      {link.replace(/^https?:\/\//, '')}
+                    </Text>
+                    <Pressable onPress={() => handleCopyLink(link, i)} hitSlop={8} style={styles.copyBtn} accessibilityRole="button">
+                      <Icon name={copiedIndex === i ? 'checkmark' : 'rectangle.stack'} size={fs(15)} color={copiedIndex === i ? tokens.grn : tokens.blu} />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            ) : null}
             {error ? (
               <Text style={[styles.error, { color: tokens.red, fontSize: fs(12.5) }]}>{error}</Text>
             ) : null}
@@ -264,6 +304,13 @@ const styles = StyleSheet.create({
   card: { width: '100%', maxWidth: 360, borderRadius: 18, borderWidth: 1, padding: 22, alignItems: 'center', gap: 9 },
   title: { fontWeight: '700', textAlign: 'center' },
   message: { textAlign: 'center', lineHeight: 19 },
+  linkList: { alignSelf: 'stretch', gap: 8, marginTop: 2 },
+  linkBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderWidth: 1, borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12,
+  },
+  linkText: { flex: 1 },
+  copyBtn: { padding: 2 },
   error: { textAlign: 'center', marginTop: 2 },
   // RC, real-device swipe/tap test (Equipment/Reminders, task #195): the
   // primary button and Cancel were close enough together (12px gap, Cancel

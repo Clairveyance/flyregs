@@ -313,7 +313,7 @@ export default function FolderDetail() {
       // same failure as never having a link. Surface the real link instead
       // of a false "could not create" message that would make it look like
       // sharing is broken when it actually isn't.
-      confirm({ title: 'Invite Link Ready', message: link, cancelLabel: null })
+      confirm({ title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
     }
     setInvitingBusy(false)
   }
