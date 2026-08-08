@@ -188,7 +188,6 @@ const FAQ: QA[] = [
     category: 'Search',
     a: [
       { tier: 'pro', text: 'A natural-language question box, separate from the regular search bar. Ask the way you\'d actually say it — "how much rest do I need before flying passengers?" — instead of guessing the regulatory wording, and it finds the passages on that subject across the whole library.' },
-      'Find it inside The Wing (the pilot-wings icon in the tab bar) — it\'s not the most obvious spot for a search tool, so look there if you can\'t find it.',
       'What it does that SmartSearch can\'t:\n• It matches MEANING, not words — so it can find the right passage even when your question shares no words at all with the regulation.\n• Ask "when do I have to file a NASA report" and it lands on the Aviation Safety Reporting Program. The FAA never calls it a "NASA report," so a word-based search structurally cannot find that; this does.\n• Full sentences help it rather than hurt it. Phrasing, context, and intent are all part of what it matches on.',
       'What it is not:\n• It finds passages — it doesn\'t write you an answer. You still read the reg and decide.\n• It can land in the right neighborhood but the wrong document. Ask about altitude over a house and it may surface drone rules alongside the manned-aircraft ones. Check the source on every result.\n• For a specific section or document number you already know, plain search is faster and exact.',
     ],

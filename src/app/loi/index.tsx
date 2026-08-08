@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { View, Text, FlatList, Pressable, TextInput, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, FlatList, Pressable, TextInput, StyleSheet, ActivityIndicator, Keyboard, Platform } from 'react-native'
 import { router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
@@ -44,6 +44,8 @@ export default function LoiIndexScreen() {
   const [searching, setSearching] = useState(false)
   const [recentLoi, setRecentLoi] = useState<RecentAC[]>([])
   const [yearCounts, setYearCounts] = useState<{ year: number; count: number }[]>([])
+  const [searchFocused, setSearchFocused] = useState(false)
+  const [searchWrapHeight, setSearchWrapHeight] = useState(0)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchSeq = useRef(0)
 
@@ -100,19 +102,24 @@ export default function LoiIndexScreen() {
   }
 
   const trimmedQuery = query.trim()
+  const showRecentLoi = searchFocused && trimmedQuery.length === 0 && recentLoi.length > 0
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title="Legal Interpretations" onBack={() => router.back()} />
       <TabletContainer>
-        <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
+        <View
+          style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}
+          onLayout={(e) => setSearchWrapHeight(e.nativeEvent.layout.height)}
+        >
           <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
           <TextInput
             style={[styles.searchInput, { color: tokens.t1, fontSize: ifs(14) }]}
-            placeholder="Search interpretations (e.g. 'wet lease', 'BasicMed')…"
+            placeholder="Search LOIs (e.g. 'wet lease', 'BasicMed')…"
             placeholderTextColor={tokens.t3}
             value={query}
             onChangeText={handleQueryChange}
+            onFocus={() => setSearchFocused(true)}
             autoCapitalize="none"
             autoCorrect={false}
             returnKeyType="search"
@@ -124,6 +131,42 @@ export default function LoiIndexScreen() {
           )}
         </View>
 
+        {showRecentLoi && (
+          <Pressable
+            style={[styles.backdrop, { top: searchWrapHeight + 18 }]}
+            onPress={() => Keyboard.dismiss()}
+          />
+        )}
+        {showRecentLoi && (
+          <View
+            style={[
+              styles.dropdown,
+              { top: searchWrapHeight + 18, backgroundColor: tokens.bg2, borderColor: tokens.bdr },
+            ]}
+          >
+            <View style={[styles.dropHeader, { borderBottomColor: tokens.bdr }]}>
+              <Text style={[styles.dropHeaderText, { color: tokens.t3, fontSize: fs(11.5) }]}>RECENTLY VIEWED</Text>
+            </View>
+            {recentLoi.map((r) => (
+              <Pressable
+                key={r.id}
+                style={({ pressed }) => [styles.dropRow, { borderBottomColor: tokens.bdr }, pressed && { opacity: 0.6 }]}
+                onPress={() => router.push(`/loi/${r.id}` as any)}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
+                    {r.document_number.replace(/-/g, ' ')}
+                  </Text>
+                  <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={1}>
+                    {r.title}
+                  </Text>
+                </View>
+                <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
+              </Pressable>
+            ))}
+          </View>
+        )}
+
         {trimmedQuery ? (
           searching ? (
             <View style={styles.center}>
@@ -131,6 +174,7 @@ export default function LoiIndexScreen() {
             </View>
           ) : (
             <FlatList
+              key="search-hits"
               keyboardDismissMode="interactive"
               style={styles.flatList}
               data={hits}
@@ -171,38 +215,19 @@ export default function LoiIndexScreen() {
           )
         ) : (
           <FlatList
+            key="browse-years"
             style={styles.flatList}
             keyboardDismissMode="interactive"
             data={yearCounts}
             keyExtractor={(item) => String(item.year)}
             contentContainerStyle={styles.list}
+            numColumns={2}
+            columnWrapperStyle={styles.yearRow}
             ListHeaderComponent={
               <>
-                {recentLoi.length > 0 && (
-                  <View style={styles.recentWrap}>
-                    <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>RECENTLY VIEWED</Text>
-                    {recentLoi.map((r) => (
-                      <Pressable
-                        key={r.id}
-                        style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                        onPress={() => router.push(`/loi/${r.id}` as any)}
-                      >
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
-                            {r.document_number.replace(/-/g, ' ')}
-                          </Text>
-                          <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={1}>
-                            {r.title}
-                          </Text>
-                        </View>
-                        <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
                 <View style={styles.hintBar}>
-                  <Icon name="magnifyingglass" size={fs(13)} color={tokens.t4} />
-                  <Text style={[styles.hintBarText, { color: tokens.t4, fontSize: fs(11.5) }]}>
+                  <Icon name="magnifyingglass" size={fs(13)} color={tokens.t3} />
+                  <Text style={[styles.hintBarText, { color: tokens.t3, fontSize: fs(11.5) }]}>
                     Interpretation letters are named after the requester, not the subject —
                     full-text search above is the fastest way to find one by topic.
                   </Text>
@@ -212,15 +237,12 @@ export default function LoiIndexScreen() {
             }
             renderItem={({ item }) => (
               <Pressable
-                style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+                style={[styles.yearCell, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
                 onPress={() => router.push(`/loi/year/${item.year}` as any)}
               >
-                <Text style={[styles.yearText, { color: tokens.blu, fontSize: fs(15) }]}>{item.year}</Text>
+                <Text style={[styles.yearText, { color: tokens.blu, fontSize: fs(16) }]}>{item.year}</Text>
                 <View style={{ flex: 1 }} />
-                <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
-                  {item.count} interpretation{item.count === 1 ? '' : 's'}
-                </Text>
-                <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
+                <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12.5) }]}>{item.count}</Text>
               </Pressable>
             )}
           />
@@ -247,8 +269,27 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1 },
 
-  recentWrap: { marginTop: 14, paddingHorizontal: 12 },
   groupLabel: { fontWeight: '600', letterSpacing: 0.5, marginBottom: 8, paddingLeft: 2 },
+
+  // Focus-gated "Recently Viewed" dropdown -- same pattern as
+  // semantic-search.tsx's recent-questions dropdown: hidden until the search
+  // bar is focused with an empty query, dismissed on outside-tap or once the
+  // user starts typing (RC: "shouldn't pop up by itself... just like it is
+  // in other places in the app").
+  backdrop: { position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 1 },
+  dropdown: {
+    position: 'absolute', left: 12, right: 12, zIndex: 2,
+    borderRadius: 12, borderWidth: 1, overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? ({ boxShadow: '0 4px 16px rgba(0,0,0,0.14)' } as object)
+      : { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.13, shadowRadius: 14 }),
+  },
+  dropHeader: { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  dropHeaderText: { fontWeight: '600', letterSpacing: 0.5 },
+  dropRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth,
+  },
 
   flatList: { flex: 1 },
   list: { padding: 12, paddingBottom: 32 },
@@ -260,4 +301,15 @@ const styles = StyleSheet.create({
   rowTitle: { fontWeight: '600', textTransform: 'capitalize' },
   rowSub: { marginTop: 2, lineHeight: 16 },
   rowCfr: { marginTop: 4, fontWeight: '600' },
+
+  // Two-column year grid (RC: tapping a year always goes to another list
+  // screen, never straight to content, so a denser grid fits more years per
+  // screen than the single-column list this replaced) -- each cell just
+  // shows the year and its raw count, no "interpretation(s)" label (RC:
+  // "we already know where we are").
+  yearRow: { gap: 8 },
+  yearCell: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderRadius: 12, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 12, marginBottom: 8,
+  },
 })

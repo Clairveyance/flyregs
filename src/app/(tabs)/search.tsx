@@ -67,6 +67,14 @@ const IDENTITY_CACHE_KEY_PREFIX = '@flyregs/identityStatsCache:'
 // bloom a real multi-layer CSS text-shadow would give a neon tube.
 function WingSign() {
   const fs = useFS()
+  // Back on Pacifico (RC: tried a thinner-stroked font, Sacramento, but
+  // preferred Pacifico back — "whatever the thinnest setting is, is fine").
+  // Pacifico's own strokes are a fixed weight (single-weight typeface, no
+  // Light variant), so the only real lever left is how much glow bloom sits
+  // on top of them -- this is the thinnest of the two glow passes tried
+  // (radius 8/opacity 0.55 on the back layer, 1.5 on the front, down from an
+  // earlier 10/0.6/2 pass), since less blur bloom reads as a thinner sign
+  // even though the underlying letterforms themselves can't get any thinner.
   const size = fs(24)
   return (
     <View style={{ alignItems: 'center', justifyContent: 'center' }}>
@@ -78,8 +86,8 @@ function WingSign() {
             fontSize: size,
             textShadowColor: '#fff',
             textShadowOffset: { width: 0, height: 0 },
-            textShadowRadius: 18,
-            opacity: 0.75,
+            textShadowRadius: 8,
+            opacity: 0.55,
           },
         ]}
       >
@@ -92,7 +100,7 @@ function WingSign() {
             fontSize: size,
             textShadowColor: '#fff',
             textShadowOffset: { width: 0, height: 0 },
-            textShadowRadius: 5,
+            textShadowRadius: 1.5,
           },
         ]}
       >
