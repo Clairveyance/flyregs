@@ -91,6 +91,21 @@ type Tier = 'plus' | 'pro' | 'premium'
 //     stays free) -- RC: "if we did make it free, at the very least we'd
 //     remove the Mnemonic look up and gate that at Plus." New hasPlusAccess
 //     gate on both the index card and the entry detail page.
+//
+// Sixth round, 2026-08-08 -- RC: "parts lookup is not avail at all for
+// Free. remove it and double check that gate." Parts Lookup
+// (parts-lookup.tsx) previously ran real searches for Free and showed the
+// first 5 results with an "unlock Plus" upsell for the rest -- a real cap,
+// but not the "not available at all" the label above already implied.
+// Replaced with a single lock card before any search UI at all, same
+// no-preview pattern as AD's own body text right next to it. Also added
+// here for the first time -- audit gap, it was never on this list despite
+// being a real, distinct Plus-gated screen. Same pass: AD's own list
+// screen (ad/index.tsx) had an unguarded "NEW — LAST Nd" feed visible to
+// every tier, never gated at all -- RC: "in Free, the AD page should not
+// display the 'New' list at all. That's a paid tier feature." Now
+// hasPlusAccess-gated (both the fetch and the render), matching this
+// list's own AD body-text boundary.
 const PLUS_FEATURES = [
   { icon: 'doc.text',          label: 'Complete text of every Advisory Circular' },
   { icon: 'wrench.and.screwdriver', label: 'Full text of every Airworthiness Directive' },
@@ -103,6 +118,7 @@ const PLUS_FEATURES = [
   { icon: 'printer',           label: 'Print & export any section' },
   { icon: 'magnifyingglass',   label: 'Unlimited search results' },
   { icon: 'doc.badge.clock',   label: "What's Changed — see exactly what the FAA revised" },
+  { icon: 'wrench',            label: 'Parts Lookup — find ADs by a specific engine, propeller, or avionics part' },
 ]
 
 const PRO_ADDITIONS = [

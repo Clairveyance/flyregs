@@ -9,11 +9,14 @@ import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { searchParts, getAdsForPart, bestMatchingToken, PART_TYPE_LABELS, type AdPart, type PartMentionAd, type PartComponentType } from '@/lib/adParts'
 
-// Tier boundary (revised 2026-07-28, see flyregs_decisions.md): a specialized
-// parts/component search gates to Plus. RC, 2026-08-03: general AD reading
-// itself moved to Plus too (ad/[id].tsx), so this screen's cap is no longer
-// a contrast against a free neighbor -- it's the same tier, just its own
-// separate cap (5 results here vs. no preview at all on the AD body itself).
+// Tier boundary (revised 2026-08-08, see flyregs_decisions.md): a specialized
+// parts/component search gates to Plus, with NO free preview at all -- RC:
+// "parts lookup is not avail at all for Free." Previously this screen let
+// Free run real searches and see the first 5 results with an "unlock Plus"
+// upsell for the rest; that undersold the gate (a free user could still use
+// the feature, just capped) and didn't match AD's own "no preview at all"
+// boundary on the body text right next to it (ad/[id].tsx). Now Free sees a
+// single lock card, same pattern as that screen, before ever typing a query.
 // Saving/tagging a specific aircraft with a part stays Premium, handled in
 // my-aircraft.tsx, not here -- this screen is pure retrieval.
 
@@ -47,10 +50,6 @@ export default function PartsLookupScreen() {
   const [results, setResults] = useState<AdPart[]>([])
   const [relatedTo, setRelatedTo] = useState<PartComponentType | null>(null)
   const [partialMatch, setPartialMatch] = useState<{ droppedWords: string[]; usedWords: string[] } | null>(null)
-  // Parts Lookup is FREE, like the AD list itself -- but free results are
-  // capped the same way, so the value of the full list stays behind the
-  // paywall without hiding the feature's existence from anyone.
-  const FREE_RESULT_CAP = 5
   const [searching, setSearching] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [adsByPart, setAdsByPart] = useState<Record<string, PartMentionAd[]>>({})
@@ -95,6 +94,22 @@ export default function PartsLookupScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title="Parts Lookup" onBack={() => router.back()} />
       <TabletContainer>
+        {!hasPlusAccess ? (
+          <Pressable
+            style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
+            onPress={() => router.push('/paywall?tier=plus')}
+          >
+            <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
+            <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Parts Lookup is a Plus feature</Text>
+            <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+              Search ADs by a specific part — an engine model, a muffler, an avionics box — across the entire AD catalog. Unlock Plus to use it.
+            </Text>
+            <View style={[styles.proGateBtn, { backgroundColor: tokens.blu }]}>
+              <Text style={[styles.proGateBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
+            </View>
+          </Pressable>
+        ) : (
+        <>
         <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
           <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
           <TextInput
@@ -139,7 +154,7 @@ export default function PartsLookupScreen() {
           <FlatList
             keyboardDismissMode="interactive"
             style={styles.flatList}
-            data={hasPlusAccess ? results : results.slice(0, FREE_RESULT_CAP)}
+            data={results}
             keyExtractor={(p) => p.id}
             contentContainerStyle={styles.list}
             ListHeaderComponent={
@@ -157,19 +172,6 @@ export default function PartsLookupScreen() {
                     No exact match for "{query.trim()}" — showing {TYPE_LABELS[relatedTo]} parts, the closest category.
                   </Text>
                 </View>
-              ) : null
-            }
-            ListFooterComponent={
-              !hasPlusAccess && results.length > FREE_RESULT_CAP ? (
-                <Pressable
-                  style={[styles.moreRow, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
-                  onPress={() => router.push('/paywall?tier=plus')}
-                >
-                  <Icon name="lock.fill" size={fs(14)} color={tokens.gold} />
-                  <Text style={[styles.moreText, { color: tokens.t2, fontSize: fs(13) }]}>
-                    {results.length - FREE_RESULT_CAP} more {results.length - FREE_RESULT_CAP === 1 ? 'part' : 'parts'} match — unlock Plus to see them all
-                  </Text>
-                </Pressable>
               ) : null
             }
             renderItem={({ item }) => {
@@ -222,6 +224,8 @@ export default function PartsLookupScreen() {
             }}
           />
         )}
+        </>
+        )}
       </TabletContainer>
     </View>
   )
@@ -232,11 +236,23 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 8 },
   emptyTitle: { fontWeight: '600', marginTop: 6 },
   emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 320 },
-  moreRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    borderRadius: 12, borderWidth: 1, padding: 13, marginTop: 10,
+  proGate: {
+    marginTop: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 24,
+    alignItems: 'center',
+    gap: 8,
   },
-  moreText: { flex: 1, fontWeight: '500', lineHeight: 18 },
+  proGateTitle: { fontWeight: '700', fontSize: 16, marginTop: 4 },
+  proGateSub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 280 },
+  proGateBtn: {
+    marginTop: 8,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+  },
+  proGateBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   relatedNote: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 7,
     borderRadius: 10, borderWidth: 1, padding: 10, marginBottom: 10,

@@ -264,9 +264,8 @@ const FAQ: QA[] = [
     q: 'Can I search for a specific part — an engine, prop, or avionics box?',
     category: 'My Aircraft & RefPacks',
     a: [
-      'Parts Lookup searches a catalog of parts actually named in real AD applicability text, independent of any aircraft you\'ve saved — free, with the first 5 results shown to anyone.',
+      { tier: 'plus', text: 'Parts Lookup searches a catalog of parts actually named in real AD applicability text, independent of any aircraft you\'ve saved.' },
       'If a search for a common shop term comes back empty, that\'s because the catalog is bounded to what\'s genuinely named in an AD, not a universal parts database — it falls back to showing the closest matching category instead of a dead end.',
-      { tier: 'plus', text: 'The full result list beyond the first 5.' },
       { tier: 'premium', text: 'Tagging a specific part to one of your saved aircraft, so AD alerts catch part-keyed ADs too, not just airframe ones — see My Aircraft above.' },
     ],
   },

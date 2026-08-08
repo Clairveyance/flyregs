@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/context/auth'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
@@ -36,6 +37,7 @@ const AD_NUM_RE = /^\d{4}-\d{2}-\d{2}$/
 
 export default function AdIndexScreen() {
   const { tokens } = useTheme()
+  const { hasPlusAccess } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
   // `q` -- deep-link from My Aircraft's "widen your search" prompt
@@ -63,7 +65,13 @@ export default function AdIndexScreen() {
   // parsed-block concept AD doesn't have), this is just "published within
   // the same rolling window the Badge Duration setting already controls
   // everywhere else" -- same cutoff, no NEW/UPD badge distinction needed.
+  // RC, 2026-08-08: "in Free, the AD page should not display the 'New' list
+  // at all. That's a paid tier feature" -- matches this screen's own AD
+  // body-text boundary (Plus, see ad/[id].tsx), which this list was
+  // missing entirely; skip the fetch too, not just the render, for a
+  // free-tier viewer.
   useEffect(() => {
+    if (!hasPlusAccess) { setNewAds([]); return }
     const cutoffDate = new Date()
     cutoffDate.setDate(cutoffDate.getDate() - badgeDays)
     const cutoff = cutoffDate.toISOString().split('T')[0]
@@ -81,7 +89,7 @@ export default function AdIndexScreen() {
       .order('citation_publish_date', { ascending: false })
       .limit(20)
       .then(({ data }) => setNewAds((data ?? []) as NewAd[]))
-  }, [badgeDays])
+  }, [badgeDays, hasPlusAccess])
 
   const runSearch = useCallback((q: string) => {
     const trimmed = q.trim()
