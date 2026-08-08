@@ -321,22 +321,65 @@ export async function suggestPart(name: string, componentType: PartComponentType
 export interface AircraftEquipment {
   id: string
   part: AdPart
+  // "Every X hours" recurrence for this specific part -- e.g. a 100-hour
+  // inspection item. Independent of the general Reminders list: this lives
+  // on the part itself so the compliance mark travels with the equipment
+  // tag (RC: "each part box needs an input sheet" for its own date/hour
+  // requirement). Nullable -- most tagged parts (e.g. an avionics box just
+  // tagged for AD matching) carry no tracking at all.
+  intervalHours: number | null
+  // The actual next-due mark. Client auto-computes this as the aircraft's
+  // current_hobbs_hours + intervalHours at the moment the part is added,
+  // but it's a plain editable numeric column -- an owner whose part
+  // already has hours on it (installed before they started using FlyRegs)
+  // overrides it with a custom starting point instead of "now."
+  dueHobbsHours: number | null
+  // Independent calendar-based due mark -- a part can be tracked by
+  // hours, by date, by both, or by neither.
+  dueDate: string | null
 }
 
 export async function getAircraftEquipment(userAircraftId: string): Promise<AircraftEquipment[]> {
   const { data, error } = await supabase
     .from('user_aircraft_equipment')
-    .select('id, ad_parts!inner(id, name, component_type, manufacturer)')
+    .select('id, interval_hours, due_hobbs_hours, due_date, ad_parts!inner(id, name, component_type, manufacturer)')
     .eq('user_aircraft_id', userAircraftId)
   if (error) throw error
   return (data ?? []).map((r: any) => ({
     id: r.id,
     part: { id: r.ad_parts.id, name: r.ad_parts.name, componentType: r.ad_parts.component_type, manufacturer: r.ad_parts.manufacturer },
+    intervalHours: r.interval_hours,
+    dueHobbsHours: r.due_hobbs_hours,
+    dueDate: r.due_date,
   }))
 }
 
-export async function addAircraftEquipment(userAircraftId: string, partId: string): Promise<void> {
-  const { error } = await supabase.from('user_aircraft_equipment').insert({ user_aircraft_id: userAircraftId, part_id: partId })
+export interface PartTracking {
+  intervalHours: number | null
+  dueHobbsHours: number | null
+  dueDate: string | null
+}
+
+export async function addAircraftEquipment(userAircraftId: string, partId: string, tracking?: PartTracking): Promise<void> {
+  const { error } = await supabase.from('user_aircraft_equipment').insert({
+    user_aircraft_id: userAircraftId,
+    part_id: partId,
+    interval_hours: tracking?.intervalHours ?? null,
+    due_hobbs_hours: tracking?.dueHobbsHours ?? null,
+    due_date: tracking?.dueDate ?? null,
+  })
+  if (error) throw error
+}
+
+export async function updateAircraftEquipmentTracking(id: string, tracking: PartTracking): Promise<void> {
+  const { error } = await supabase
+    .from('user_aircraft_equipment')
+    .update({
+      interval_hours: tracking.intervalHours,
+      due_hobbs_hours: tracking.dueHobbsHours,
+      due_date: tracking.dueDate,
+    })
+    .eq('id', id)
   if (error) throw error
 }
 

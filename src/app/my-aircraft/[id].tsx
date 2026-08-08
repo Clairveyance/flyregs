@@ -14,9 +14,9 @@ import { EditAircraftModal, type UserAircraft } from '@/components/AircraftFormF
 import { HobbsUpdateModal } from '@/components/HobbsUpdateModal'
 import { supabase } from '@/lib/supabase'
 import {
-  searchParts, getAircraftEquipment, addAircraftEquipment, removeAircraftEquipment,
+  searchParts, getAircraftEquipment, addAircraftEquipment, removeAircraftEquipment, updateAircraftEquipmentTracking,
   getAircraftReminders, addAircraftReminder, updateAircraftReminder, removeAircraftReminder, PART_TYPE_LABELS,
-  type AdPart, type AircraftEquipment, type AircraftReminder, type PartComponentType,
+  type AdPart, type AircraftEquipment, type AircraftReminder, type PartComponentType, type PartTracking,
 } from '@/lib/adParts'
 import {
   getAircraftAdNotifications, markAdNotificationRead, dismissAdNotification, backfillAircraftAds,
@@ -128,6 +128,14 @@ export default function AircraftDetailScreen() {
   // means re-opening the same part picker and swapping the tag rather than
   // a pre-filled form the way ReminderFormModal works for reminders.
   const [editingEquipment, setEditingEquipment] = useState<AircraftEquipment | null>(null)
+  // Drives PartTrackingModal below -- 'new' for a part just picked in
+  // PartPickerModal (not inserted yet, tracking is entered before the
+  // first insert), 'edit' for tapping an already-tagged part's row to
+  // change its interval/due values. RC: "each part box needs an input
+  // sheet" for the specific date/hour requirement of that part.
+  const [trackingTarget, setTrackingTarget] = useState<
+    { mode: 'new'; part: AdPart } | { mode: 'edit'; equipment: AircraftEquipment } | null
+  >(null)
   const [reminderFormVisible, setReminderFormVisible] = useState(false)
   const [editingReminder, setEditingReminder] = useState<AircraftReminder | null>(null)
   const [hobbsModalVisible, setHobbsModalVisible] = useState(false)
@@ -421,10 +429,38 @@ export default function AircraftDetailScreen() {
     setPartPickerVisible(true)
   }
 
-  const openEditEquipment = (e: AircraftEquipment) => {
+  // Tapping an already-tagged part now opens its own tracking sheet
+  // (interval/due date/due hobbs) rather than immediately re-opening the
+  // part picker -- swapping which part this is is the rare case now,
+  // reachable via "Change Part" inside PartTrackingModal instead.
+  const openTrackEquipment = (e: AircraftEquipment) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
-    setEditingEquipment(e)
+    setTrackingTarget({ mode: 'edit', equipment: e })
+  }
+
+  const changeEquipmentPart = () => {
+    if (trackingTarget?.mode !== 'edit') return
+    setEditingEquipment(trackingTarget.equipment)
+    setTrackingTarget(null)
     setPartPickerVisible(true)
+  }
+
+  const handleSaveTracking = async (tracking: PartTracking) => {
+    if (!aircraft || !trackingTarget) return
+    if (trackingTarget.mode === 'new') {
+      await addAircraftEquipment(aircraft.id, trackingTarget.part.id, tracking)
+      setTrackingTarget(null)
+      load()
+      // Same reasoning as the picker's own backfill call below -- a newly
+      // tagged part can carry real historical ADs of its own.
+      backfillAircraftAds(aircraft.id)
+        .then((count) => { if (count > 0) getAircraftAdNotifications(aircraft.id).then(setAdNotifications) })
+        .catch((e) => console.error('AD backfill failed for new equipment tag:', e?.message ?? e))
+    } else {
+      await updateAircraftEquipmentTracking(trackingTarget.equipment.id, tracking)
+      setTrackingTarget(null)
+      load()
+    }
   }
 
   const openAddReminder = () => {
@@ -788,23 +824,48 @@ export default function AircraftDetailScreen() {
               </Text>
             ) : (
               <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-                {equipment.map((e, i) => (
-                  <View key={e.id} style={i < equipment.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}>
-                    <SwipeToDelete
-                      onDelete={() => handleRemoveEquipment(e)}
-                      onPress={canEdit ? () => openEditEquipment(e) : undefined}
-                      disabled={!canEdit}
-                    >
-                      <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
-                        <Icon name="wrench" size={fs(15)} color={tokens.blu} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{e.part.name}</Text>
-                          {e.part.manufacturer && <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]}>{e.part.manufacturer}</Text>}
+                {equipment.map((e, i) => {
+                  // Same severity vocabulary as the Reminders row below --
+                  // a part's own tracking reads the same way a glance at
+                  // a reminder does, since they're the same underlying
+                  // concept (a date/hour compliance mark).
+                  const hobbsRemaining = e.dueHobbsHours != null && aircraft.current_hobbs_hours != null
+                    ? e.dueHobbsHours - aircraft.current_hobbs_hours
+                    : null
+                  const hobbsOverdue = hobbsRemaining != null && hobbsRemaining < 0
+                  const hobbsText = e.dueHobbsHours == null ? null : hobbsRemaining != null
+                    ? `${hobbsOverdue ? `OVERDUE by ${Math.abs(hobbsRemaining).toFixed(1)}` : `${hobbsRemaining.toFixed(1)} left`} hrs`
+                    : `due at ${e.dueHobbsHours} hrs`
+                  const dateDays = e.dueDate ? daysUntil(e.dueDate) : null
+                  const dateOverdue = dateDays != null && dateDays < 0
+                  const dateSoon = dateDays != null && dateDays >= 0 && dateDays <= 30
+                  const dateColor = dateOverdue ? tokens.red : dateSoon ? tokens.amb : tokens.grn
+                  const dateText = dateDays != null ? `${dateOverdue ? `${Math.abs(dateDays)}d overdue` : `${dateDays}d`} · ${e.dueDate}` : null
+                  const anyOverdue = hobbsOverdue || dateOverdue
+                  const trackingParts = [dateText, hobbsText].filter(Boolean)
+                  return (
+                    <View key={e.id} style={i < equipment.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}>
+                      <SwipeToDelete
+                        onDelete={() => handleRemoveEquipment(e)}
+                        onPress={canEdit ? () => openTrackEquipment(e) : undefined}
+                        disabled={!canEdit}
+                      >
+                        <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
+                          <Icon name="wrench" size={fs(15)} color={anyOverdue ? tokens.red : tokens.blu} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{e.part.name}</Text>
+                            {e.part.manufacturer && <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]}>{e.part.manufacturer}</Text>}
+                            {trackingParts.length > 0 && (
+                              <Text style={[styles.rowSub, { color: anyOverdue ? tokens.red : dateText ? dateColor : tokens.t3, fontSize: fs(12) }]}>
+                                {trackingParts.join(' · ')}
+                              </Text>
+                            )}
+                          </View>
                         </View>
-                      </View>
-                    </SwipeToDelete>
-                  </View>
-                ))}
+                      </SwipeToDelete>
+                    </View>
+                  )
+                })}
               </View>
             )
           )}
@@ -888,22 +949,38 @@ export default function AircraftDetailScreen() {
         onClose={() => { setPartPickerVisible(false); setEditingEquipment(null) }}
         onPicked={async (part) => {
           if (!aircraft) return
-          // Editing = swap which part this tag points to. No update-in-
-          // place function exists for a part reference (nothing else on
-          // the row is editable), so this is remove-old-tag then add-new,
-          // same net effect, using the two functions that already exist.
-          if (editingEquipment) await removeAircraftEquipment(editingEquipment.id)
-          await addAircraftEquipment(aircraft.id, part.id)
-          setPartPickerVisible(false)
-          setEditingEquipment(null)
-          load()
-          // A newly-tagged part can have real historical ADs of its own --
-          // the equipment-keyed match is independent of airframe, so this
-          // needs its own backfill call, not just the one on aircraft add.
-          backfillAircraftAds(aircraft.id)
-            .then((count) => { if (count > 0) getAircraftAdNotifications(aircraft.id).then(setAdNotifications) })
-            .catch((e) => console.error('AD backfill failed for new equipment tag:', e?.message ?? e))
+          if (editingEquipment) {
+            // Swap which part this tag points to. No update-in-place
+            // function exists for a part reference, so this is
+            // remove-old-tag then add-new -- tracking values reset blank
+            // on the new part rather than carrying over, since a
+            // different part's own interval rarely matches the old one's.
+            await removeAircraftEquipment(editingEquipment.id)
+            await addAircraftEquipment(aircraft.id, part.id)
+            setPartPickerVisible(false)
+            setEditingEquipment(null)
+            load()
+            backfillAircraftAds(aircraft.id)
+              .then((count) => { if (count > 0) getAircraftAdNotifications(aircraft.id).then(setAdNotifications) })
+              .catch((e) => console.error('AD backfill failed for new equipment tag:', e?.message ?? e))
+          } else {
+            // Brand new tag -- don't insert yet. RC: "each part box needs
+            // an input sheet" for its own date/hour requirement, so the
+            // tracking sheet is the next step, not an immediate insert.
+            setPartPickerVisible(false)
+            setTrackingTarget({ mode: 'new', part })
+          }
         }}
+      />
+      <PartTrackingModal
+        visible={!!trackingTarget}
+        part={trackingTarget?.mode === 'new' ? trackingTarget.part : trackingTarget?.equipment.part ?? null}
+        initial={trackingTarget?.mode === 'edit' ? trackingTarget.equipment : null}
+        currentHobbs={aircraft.current_hobbs_hours ?? null}
+        canChangePart={trackingTarget?.mode === 'edit'}
+        onClose={() => setTrackingTarget(null)}
+        onChangePart={changeEquipmentPart}
+        onSave={handleSaveTracking}
       />
       <ReminderFormModal
         visible={reminderFormVisible}
@@ -1076,6 +1153,162 @@ function PartPickerModal({ visible, editing, onClose, onPicked }: { visible: boo
         )}
       </View>
     </Modal>
+  )
+}
+
+// RC: "each part box needs an input sheet" -- when a part like a 100-hour
+// item is tagged, the owner needs to say how often it recurs and get that
+// tracked by tach hours, by calendar date, or both. Mirrors
+// ReminderFormModal's own due-date/due-hobbs shape and its nested
+// DatePickerModal reset-on-every-visibility-change discipline (see that
+// component's comment for the real freeze this prevents), but scoped to
+// ONE part instead of a freeform reminder list entry.
+function PartTrackingModal({
+  visible, part, initial, currentHobbs, canChangePart, onClose, onChangePart, onSave,
+}: {
+  visible: boolean
+  part: AdPart | null
+  initial: PartTracking | null
+  currentHobbs: number | null
+  canChangePart: boolean
+  onClose: () => void
+  onChangePart: () => void
+  onSave: (tracking: PartTracking) => void | Promise<void>
+}) {
+  const { tokens } = useTheme()
+  const fs = useFS()
+  const ifs = useInputFS()
+  const [intervalText, setIntervalText] = useState('')
+  const [dueHobbsText, setDueHobbsText] = useState('')
+  // Tracks whether the owner has typed into the due-hobbs field directly
+  // this session -- until they do, it auto-follows the interval field
+  // (RC: "tach tracking can happen automatically based on the current
+  // time of their a/c when the part is added"). Typing over the
+  // auto-filled value IS the "custom start point" override RC also asked
+  // for -- no separate toggle needed, just stop auto-following once
+  // they've touched it themselves.
+  const [dueHobbsTouched, setDueHobbsTouched] = useState(false)
+  const [dueDate, setDueDate] = useState('')
+  const [datePickerVisible, setDatePickerVisible] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setDatePickerVisible(false)
+    if (!visible) return
+    setIntervalText(initial?.intervalHours != null ? String(initial.intervalHours) : '')
+    setDueHobbsText(initial?.dueHobbsHours != null ? String(initial.dueHobbsHours) : '')
+    setDueHobbsTouched(false)
+    setDueDate(initial?.dueDate ?? '')
+    setSaving(false)
+  }, [visible, initial])
+
+  const applyInterval = (text: string) => {
+    const digitsOnly = text.replace(/[^0-9.]/g, '')
+    setIntervalText(digitsOnly)
+    if (dueHobbsTouched) return
+    const n = parseFloat(digitsOnly)
+    if (!digitsOnly || isNaN(n) || currentHobbs == null) { setDueHobbsText(''); return }
+    setDueHobbsText(String(Math.round((currentHobbs + n) * 10) / 10))
+  }
+
+  const applyDueHobbs = (text: string) => {
+    setDueHobbsTouched(true)
+    setDueHobbsText(text.replace(/[^0-9.]/g, ''))
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    const intervalHours = intervalText.trim() ? parseFloat(intervalText.trim()) : null
+    const dueHobbsHours = dueHobbsText.trim() ? parseFloat(dueHobbsText.trim()) : null
+    await onSave({ intervalHours, dueHobbsHours, dueDate: dueDate.trim() || null })
+  }
+
+  return (
+    <>
+      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]} numberOfLines={1}>
+                Track {part?.name ?? 'Part'}
+              </Text>
+              <Pressable onPress={onClose} hitSlop={10}>
+                <Icon name="xmark" size={fs(18)} color={tokens.t3} />
+              </Pressable>
+            </View>
+
+            <Text style={{ color: tokens.t3, fontSize: fs(13) }}>
+              How often does this part need inspection or replacement? Leave blank if it's just tagged for AD
+              matching.
+            </Text>
+
+            <Text style={[styles.formLabel, { color: tokens.t3, fontSize: fs(11) }]}>EVERY (HOURS)</Text>
+            <View style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr, paddingVertical: 0 }]}>
+              <TextInput
+                value={intervalText}
+                onChangeText={applyInterval}
+                placeholder="e.g. 100"
+                placeholderTextColor={tokens.t3}
+                keyboardType="decimal-pad"
+                style={{ flex: 1, color: tokens.t1, fontSize: ifs(14.5), paddingVertical: 12 }}
+              />
+              <Text style={{ color: tokens.t3, fontSize: fs(13) }}>hrs</Text>
+            </View>
+
+            <Text style={[styles.formLabel, { color: tokens.t3, fontSize: fs(11) }]}>DUE AT (TACH HOURS)</Text>
+            <View style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr, paddingVertical: 0 }]}>
+              <TextInput
+                value={dueHobbsText}
+                onChangeText={applyDueHobbs}
+                placeholder={currentHobbs != null ? 'auto: current + interval' : 'e.g. 1594.7'}
+                placeholderTextColor={tokens.t3}
+                keyboardType="decimal-pad"
+                style={{ flex: 1, color: tokens.t1, fontSize: ifs(14.5), paddingVertical: 12 }}
+              />
+              <Text style={{ color: tokens.t3, fontSize: fs(13) }}>hrs</Text>
+            </View>
+            {currentHobbs == null && intervalText.trim() !== '' && (
+              <Text style={{ color: tokens.amb, fontSize: fs(12) }}>
+                No current tach reading on file for this aircraft yet -- enter a due value directly, or set one from
+                My Fleet first.
+              </Text>
+            )}
+
+            <Text style={[styles.formLabel, { color: tokens.t3, fontSize: fs(11) }]}>DUE DATE (OPTIONAL)</Text>
+            <Pressable style={[styles.formInput, styles.dateField, { borderColor: tokens.bdr }]} onPress={() => setDatePickerVisible(true)}>
+              <Text style={{ color: dueDate ? tokens.t1 : tokens.t3, fontSize: fs(14.5) }}>{dueDate || 'No due date'}</Text>
+              <Icon name="chevron.down" size={fs(14)} color={tokens.t4} />
+            </Pressable>
+            {dueDate !== '' && (
+              <Pressable onPress={() => setDueDate('')} hitSlop={8}>
+                <Text style={{ color: tokens.t3, fontSize: fs(12.5) }}>Clear due date</Text>
+              </Pressable>
+            )}
+
+            {canChangePart && (
+              <Pressable onPress={onChangePart} hitSlop={8}>
+                <Text style={{ color: tokens.blu, fontSize: fs(13), fontWeight: '600' }}>Change Part</Text>
+              </Pressable>
+            )}
+
+            <Pressable style={[styles.addButton, { backgroundColor: tokens.blu }]} onPress={handleSave} disabled={saving}>
+              {saving ? <ActivityIndicator color="#fff" /> : (
+                <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Save</Text>
+              )}
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <DatePickerModal
+        visible={datePickerVisible}
+        initialDate={dueDate}
+        onClose={() => setDatePickerVisible(false)}
+        onSelect={setDueDate}
+        tokens={tokens}
+        fs={fs}
+      />
+    </>
   )
 }
 
