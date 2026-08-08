@@ -475,9 +475,9 @@ export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<
 
   const adItems = byType.get('ad') ?? []
   if (adItems.length) {
-    const { data } = await supabase.from('airworthiness_directives').select('ad_number, title').in('ad_number', adItems.map((i) => i.item_id))
+    const { data } = await supabase.from('airworthiness_directives').select('ad_number, subject_heading').in('ad_number', adItems.map((i) => i.item_id))
     for (const r of data ?? []) {
-      results.push({ id: r.ad_number, itemType: 'ad', document_number: r.ad_number, title: r.title, date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(adItems, r.ad_number) })
+      results.push({ id: r.ad_number, itemType: 'ad', document_number: r.ad_number, title: r.subject_heading, date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(adItems, r.ad_number) })
     }
   }
 

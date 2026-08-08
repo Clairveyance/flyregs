@@ -201,7 +201,7 @@ export default function SharedFolderDetail() {
         ? supabase.from('pcg_terms').select('slug, term').in('slug', pcgIds)
         : Promise.resolve({ data: [] }),
       adIds.length
-        ? supabase.from('airworthiness_directives').select('ad_number, title').in('ad_number', adIds)
+        ? supabase.from('airworthiness_directives').select('ad_number, subject_heading').in('ad_number', adIds)
         : Promise.resolve({ data: [] }),
       loiIds.length
         ? supabase.from('legal_interpretations').select('slug, title').in('slug', loiIds)
@@ -217,7 +217,7 @@ export default function SharedFolderDetail() {
       ...(farRows.data ?? []).map((r: any): RegRow => ({ id: r.section_number, itemRowId: rowIdFor(farItems, r.section_number), regType: 'far', label: `§ ${r.section_number}`, title: r.title, route: `/far/${r.section_number}` })),
       ...(aimRows.data ?? []).map((r: any): RegRow => ({ id: r.paragraph_number, itemRowId: rowIdFor(aimItems, r.paragraph_number), regType: 'aim', label: r.paragraph_number, title: r.title ?? '', route: `/aim/${r.paragraph_number}` })),
       ...(pcgRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, itemRowId: rowIdFor(pcgItems, r.slug), regType: 'pcg', label: r.term, title: r.term, route: `/pcg/${r.slug}` })),
-      ...(adRows.data ?? []).map((r: any): RegRow => ({ id: r.ad_number, itemRowId: rowIdFor(adItems, r.ad_number), regType: 'ad', label: r.ad_number, title: r.title, route: `/ad/${r.ad_number}` })),
+      ...(adRows.data ?? []).map((r: any): RegRow => ({ id: r.ad_number, itemRowId: rowIdFor(adItems, r.ad_number), regType: 'ad', label: r.ad_number, title: r.subject_heading, route: `/ad/${r.ad_number}` })),
       ...(loiRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, itemRowId: rowIdFor(loiItems, r.slug), regType: 'loi', label: r.slug, title: r.title, route: `/loi/${r.slug}` })),
       ...(dictRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, itemRowId: rowIdFor(dictItems, r.slug), regType: 'dictionary', label: r.term, title: r.term, route: `/dictionary/${r.slug}` })),
     ])
