@@ -63,6 +63,17 @@ def make_user(prefix):
                     body={"email": email, "password": password, "email_confirm": True})
     if st != 200:
         raise RuntimeError(f"create user {st}: {body}")
+    # Ask FlyRegs is Pro-gated server-side (has_pro_access(), added 2026-08-05)
+    # -- without a real user_entitlements row every call below 403s before
+    # ever reaching hybrid_search, and this script's own `!! FAILED` print
+    # never raised or set a nonzero exit, so the whole breadth test has been
+    # silently testing nothing since the gate shipped despite run_all_audits.sh
+    # reporting PASS. Same fix as search_eval.py's run(): grant Pro directly
+    # via the DB (throwaway @flyregs.invalid account, not a real purchase).
+    st, ent = http("POST", "/rest/v1/user_entitlements", key=SERVICE,
+                   body={"user_id": body["id"], "is_pro": True})
+    if st not in (200, 201, 204):
+        raise RuntimeError(f"grant pro {st}: {ent}")
     st, tok = http("POST", "/auth/v1/token?grant_type=password", key=ANON,
                    body={"email": email, "password": password})
     return {"id": body["id"], "jwt": tok["access_token"]}
@@ -114,6 +125,7 @@ QUERIES = [
 
 def main():
     user = make_user("askflyregs")
+    failures = 0
     try:
         print(f"Testing {len(QUERIES)} queries against real deployed semantic-search...\n")
         for query, category, hint in QUERIES:
@@ -123,6 +135,7 @@ def main():
             if st != 200 or not isinstance(body, dict) or "results" not in body:
                 print(f"    !! FAILED: HTTP {st} {body}")
                 print()
+                failures += 1
                 continue
             results = body["results"]
             if not results:
@@ -135,6 +148,16 @@ def main():
             print()
     finally:
         delete_user(user["id"])
+    # This script's own !! FAILED print used to be the only signal of an
+    # HTTP failure -- main() always returned normally regardless, so
+    # run_all_audits.sh's exit-code check saw a clean 0 and reported PASS
+    # even when every single query 403'd (see make_user's own comment on
+    # the Pro-gate bug this masked for as long as it existed). Any HTTP
+    # failure is now a real, nonzero exit so the wrapper can actually catch
+    # a regression here again.
+    if failures:
+        print(f"{failures}/{len(QUERIES)} queries failed outright (see !! FAILED above)")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
