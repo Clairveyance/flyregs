@@ -8,9 +8,13 @@ import { Platform } from 'react-native'
 export const WORDMARK_FONT = Platform.select({ web: 'Montserrat', default: 'Montserrat_400Regular' })
 
 // The Wing's own header — a cursive neon-tube script, like the sign hanging
-// on the wall of the place. Same native/web split as WORDMARK_FONT above:
-// native loads @expo-google-fonts/pacifico ("Pacifico_400Regular"), web
-// loads the plain family name via global.css's Google Fonts @import.
+// on the wall of the place. Briefly tried swapping to Sacramento (a thinner
+// monoline script) after RC asked for the sign to read thinner, but RC
+// preferred Pacifico back -- "whatever the thinnest setting is, is fine" --
+// so the thinning lever here is WingSign's own glow-radius tuning in
+// search.tsx, not the typeface. Same native/web split as WORDMARK_FONT
+// above: native loads @expo-google-fonts/pacifico ("Pacifico_400Regular"),
+// web loads the plain family name via global.css's Google Fonts @import.
 export const NEON_SIGN_FONT = Platform.select({ web: 'Pacifico', default: 'Pacifico_400Regular' })
 
 // Sampled from the wordmark artwork's own gradient (flyregs-wordmark.png) so
