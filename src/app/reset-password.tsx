@@ -10,12 +10,17 @@ import { supabase } from '@/lib/supabase'
 import { useConfirm } from '@/components/ConfirmDialog'
 
 // Landing screen for flyregs://reset-password -- reached after tapping the
-// "Reset password" email link. Supabase's redirect carries a recovery
-// access_token/refresh_token, same shape as confirm.tsx's confirmation
-// tokens (query params via the website hand-off page, or a raw hash
-// fragment if a Universal Link tap skipped that page entirely) --
-// setSession() with them establishes a short-lived recovery session that
-// updateUser({ password }) is allowed to act on.
+// "Reset password" email link. The email now points at the website's
+// hand-off page with ?token_hash=...&type=recovery (query params via that
+// page, or a raw hash fragment if a Universal Link tap skipped it entirely),
+// NOT at Supabase's own /auth/v1/verify link (the old {{ .ConfirmationURL }}
+// in the email template). That raw link is single-use and gets consumed by
+// the first GET from ANYONE -- an email security scanner or link-preview
+// fetch that visits it before the user taps kills it before the user ever
+// sees it, reproduced live: the first curl request to a freshly generated
+// link consumed it instantly, every request after got "otp_expired." Moving
+// the actual exchange to verifyOtp() here means only this app's own JS ever
+// consumes the token -- a scanner bot can't execute React Native.
 export default function ResetPasswordScreen() {
   const { tokens } = useTheme()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
@@ -25,7 +30,7 @@ export default function ResetPasswordScreen() {
   const fs = useFS()
   const ifs = useInputFS()
   const insets = useSafeAreaInsets()
-  const { access_token, refresh_token } = useLocalSearchParams<{ access_token?: string; refresh_token?: string }>()
+  const { token_hash, type } = useLocalSearchParams<{ token_hash?: string; type?: string }>()
   const incomingUrl = Linking.useURL()
   const [state, setState] = useState<'working' | 'ready' | 'saving' | 'done' | 'invalid'>('working')
   const [password, setPassword] = useState('')
@@ -33,24 +38,24 @@ export default function ResetPasswordScreen() {
   const [showPassword, setShowPassword] = useState(false)
 
   useEffect(() => {
-    let at = access_token
-    let rt = refresh_token
-    if ((typeof at !== 'string' || typeof rt !== 'string') && incomingUrl) {
+    let hash = token_hash
+    let verifyType = type
+    if (typeof hash !== 'string' && incomingUrl) {
       const hashIdx = incomingUrl.indexOf('#')
-      if (hashIdx !== -1) {
-        const hashParams = new URLSearchParams(incomingUrl.slice(hashIdx + 1))
-        at = hashParams.get('access_token') ?? undefined
-        rt = hashParams.get('refresh_token') ?? undefined
-      }
+      const queryIdx = incomingUrl.indexOf('?')
+      const paramString = hashIdx !== -1 ? incomingUrl.slice(hashIdx + 1) : queryIdx !== -1 ? incomingUrl.slice(queryIdx + 1) : ''
+      const params = new URLSearchParams(paramString)
+      hash = params.get('token_hash') ?? undefined
+      verifyType = (params.get('type') as typeof verifyType) ?? undefined
     }
-    if (typeof at !== 'string' || typeof rt !== 'string') {
+    if (typeof hash !== 'string') {
       setState('invalid')
       return
     }
-    supabase.auth.setSession({ access_token: at, refresh_token: rt }).then(({ error }) => {
+    supabase.auth.verifyOtp({ token_hash: hash, type: (verifyType as 'recovery') ?? 'recovery' }).then(({ error }) => {
       setState(error ? 'invalid' : 'ready')
     })
-  }, [access_token, refresh_token, incomingUrl])
+  }, [token_hash, type, incomingUrl])
 
   const handleSave = async () => {
     if (password.length < 6) {
