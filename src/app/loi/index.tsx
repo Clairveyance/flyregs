@@ -120,6 +120,7 @@ export default function LoiIndexScreen() {
             value={query}
             onChangeText={handleQueryChange}
             onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
             autoCapitalize="none"
             autoCorrect={false}
             returnKeyType="search"
@@ -134,7 +135,7 @@ export default function LoiIndexScreen() {
         {showRecentLoi && (
           <Pressable
             style={[styles.backdrop, { top: searchWrapHeight + 18 }]}
-            onPress={() => Keyboard.dismiss()}
+            onPress={() => { setSearchFocused(false); Keyboard.dismiss() }}
           />
         )}
         {showRecentLoi && (

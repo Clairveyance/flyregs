@@ -181,6 +181,7 @@ export default function SemanticSearchScreen() {
               defaultValue={query}
               onChangeText={setQuery}
               onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
               onSubmitEditing={() => runSearch(query)}
               // RC, real device: "need to allow the k/b Return button to
               // send the requested search -- right now you have to go up
@@ -230,7 +231,7 @@ export default function SemanticSearchScreen() {
           {showRecentSearches && (
             <Pressable
               style={[styles.backdrop, { top: searchWrapHeight + 26 }]}
-              onPress={() => Keyboard.dismiss()}
+              onPress={() => { setSearchFocused(false); Keyboard.dismiss() }}
             />
           )}
           {showRecentSearches && (
