@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, Modal, ScrollView, TextInput } from 'react-native'
+import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, Modal, ScrollView, TextInput, RefreshControl } from 'react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -433,6 +433,7 @@ export default function SharedFolderDetail() {
           sections={sections}
           keyExtractor={(item: ACRow | NoteRow | RegRow) => ('regType' in item ? `${item.regType}-${item.id}` : item.id)}
           contentContainerStyle={styles.list}
+          refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={tokens.t3} />}
           renderSectionHeader={({ section }) =>
             sections.length > 1 ? (
               <Text style={[styles.sectionHeader, { color: tokens.t3, fontSize: fs(11) }]}>{section.title}</Text>

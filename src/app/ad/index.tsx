@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/auth'
@@ -56,9 +56,17 @@ export default function AdIndexScreen() {
   const searchSeq = useRef(0)
   const { badgeDays } = useBadgeLifespan()
 
-  useEffect(() => {
+  // BB-081, RC real-device beta report: "we need pull-down-to-refresh for
+  // all updatable screens." Shared by the mount effect below and the
+  // ScrollView's own refreshControl so pulling down re-runs the exact same
+  // fetches instead of duplicating them.
+  const loadRecentAd = useCallback(() => {
     getRecents().then((rs) => setRecentAd(rs.filter((r) => recentItemType(r) === 'ad').slice(0, 10)))
   }, [])
+
+  useEffect(() => {
+    loadRecentAd()
+  }, [loadRecentAd])
 
   // A general, non-specific "new ADs" feed -- unlike AC's What's New (which
   // distinguishes genuinely-new vs. revised via changed_block_indices, a
@@ -70,7 +78,7 @@ export default function AdIndexScreen() {
   // body-text boundary (Plus, see ad/[id].tsx), which this list was
   // missing entirely; skip the fetch too, not just the render, for a
   // free-tier viewer.
-  useEffect(() => {
+  const loadNewAds = useCallback(() => {
     if (!hasPlusAccess) { setNewAds([]); return }
     const cutoffDate = new Date()
     cutoffDate.setDate(cutoffDate.getDate() - badgeDays)
@@ -90,6 +98,15 @@ export default function AdIndexScreen() {
       .limit(20)
       .then(({ data }) => setNewAds((data ?? []) as NewAd[]))
   }, [badgeDays, hasPlusAccess])
+
+  useEffect(() => {
+    loadNewAds()
+  }, [loadNewAds])
+
+  const onRefresh = useCallback(() => {
+    loadRecentAd()
+    loadNewAds()
+  }, [loadRecentAd, loadNewAds])
 
   const runSearch = useCallback((q: string) => {
     const trimmed = q.trim()
@@ -161,7 +178,11 @@ export default function AdIndexScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title="Airworthiness Directives" onBack={() => router.back()} />
       <TabletContainer>
-        <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="interactive">
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardDismissMode="interactive"
+          refreshControl={<RefreshControl refreshing={false} onRefresh={onRefresh} tintColor={tokens.t3} />}
+        >
           <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
             <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />
             <TextInput

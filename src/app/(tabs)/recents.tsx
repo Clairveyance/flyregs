@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { View, Text, Pressable, SectionList, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, Pressable, SectionList, ScrollView, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
@@ -369,6 +369,7 @@ export default function RecentsScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           stickySectionHeadersEnabled={false}
+          refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={tokens.t3} />}
           renderSectionHeader={({ section }) => (
             <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
               {section.title.toUpperCase()}

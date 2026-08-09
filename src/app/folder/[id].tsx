@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Animated, PanResponder, Platform } from 'react-native'
+import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Animated, PanResponder, Platform, RefreshControl } from 'react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useTheme } from '@/context/theme'
@@ -553,6 +553,7 @@ export default function FolderDetail() {
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           stickySectionHeadersEnabled={false}
+          refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={tokens.t3} />}
           renderSectionHeader={({ section }) => (
             <Text style={[styles.sectionLabel, { color: tokens.t3, fontSize: fs(11) }]}>{section.title}</Text>
           )}

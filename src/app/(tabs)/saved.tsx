@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { View, Text, Image, FlatList, Pressable, TextInput, StyleSheet, Switch, KeyboardAvoidingView, Keyboard, Platform, Share } from 'react-native'
+import { View, Text, Image, FlatList, Pressable, TextInput, StyleSheet, Switch, KeyboardAvoidingView, Keyboard, Platform, Share, RefreshControl } from 'react-native'
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
@@ -727,6 +727,7 @@ export default function SavedScreen() {
                 numColumns={isTablet ? 2 : 1}
                 columnWrapperStyle={isTablet ? styles.gridRow : undefined}
                 contentContainerStyle={styles.list}
+                refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={tokens.t3} />}
                 ListHeaderComponent={
                   <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
                     {bookmarks.length} SAVED ITEM{bookmarks.length !== 1 ? 'S' : ''}
@@ -836,6 +837,7 @@ export default function SavedScreen() {
                 data={collaborations}
                 keyExtractor={(c) => c.folder_id}
                 contentContainerStyle={styles.sharedList}
+                refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={tokens.t3} />}
                 renderItem={({ item }) => (
                   <Pressable
                     style={[styles.sharedRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
@@ -881,6 +883,7 @@ export default function SavedScreen() {
               data={sharedByMe}
               keyExtractor={(c) => c.folder_id}
               contentContainerStyle={styles.sharedList}
+              refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={tokens.t3} />}
               renderItem={({ item }) => (
                 <Pressable
                   style={[styles.sharedRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
@@ -911,6 +914,7 @@ export default function SavedScreen() {
           onFolder={(item) => setPickerDownloadId(item.id)}
           onRemove={handleRemoveDownload}
           onShare={shareDownload}
+          onRefresh={load}
         />
       )}
 
@@ -1268,6 +1272,7 @@ function OfflineListView({
   onFolder,
   onRemove,
   onShare,
+  onRefresh,
 }: {
   downloads: DownloadedAC[]
   tokens: ReturnType<typeof useTheme>['tokens']
@@ -1275,6 +1280,7 @@ function OfflineListView({
   onFolder: (item: DownloadedAC) => void
   onRemove: (item: DownloadedAC) => void
   onShare: (item: DownloadedAC) => void
+  onRefresh: () => void
 }) {
   const fs = useFS()
   const [sort, setSort] = useState<OfflineSort>('recent')
@@ -1306,6 +1312,7 @@ function OfflineListView({
       data={sorted}
       keyExtractor={(item) => item.id}
       contentContainerStyle={styles.list}
+      refreshControl={<RefreshControl refreshing={false} onRefresh={onRefresh} tintColor={tokens.t3} />}
       ListHeaderComponent={
         <View style={styles.offlineHeaderRow}>
           <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>

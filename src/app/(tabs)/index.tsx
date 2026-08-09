@@ -14,6 +14,7 @@ import {
   useWindowDimensions,
   Modal,
   KeyboardAvoidingView,
+  RefreshControl,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -1085,6 +1086,7 @@ export default function HomeScreen() {
           keyExtractor={(item) => item.key}
           contentContainerStyle={styles.listContent}
           keyboardDismissMode="interactive"
+          refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={tokens.t3} />}
           ListHeaderComponent={
             <HomeHeader
               tokens={tokens}
