@@ -102,6 +102,15 @@ def make_user(prefix):
                    body={"email": email, "password": password})
     if st != 200:
         raise RuntimeError(f"signin {st}: {tok}")
+    # create_challenge is Premium-gated server-side (checks only the
+    # CREATOR, confirmed in the RPC -- opponents can accept/play at any
+    # tier) -- grant it directly via the DB for this disposable account,
+    # same pattern search_eval.py/tier_matrix_test.py use, not a real
+    # purchase. Every scenario in this file may act as the challenger at
+    # some point, so this is granted unconditionally rather than per-scenario.
+    http("POST", "/rest/v1/user_entitlements", key=SERVICE,
+         body={"user_id": uid, "is_premium": True},
+         headers={"Prefer": "resolution=merge-duplicates"})
     return {"id": uid, "email": email, "jwt": tok["access_token"], "label": prefix.upper()}
 
 
