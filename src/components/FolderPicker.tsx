@@ -59,6 +59,13 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   const [addedNames, setAddedNames] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  // BB-070 audit: handleCreate is reachable from BOTH the TextInput's
+  // onSubmitEditing (hitting Return) and the Create button's onPress --
+  // hitting Return then tapping Create before the first request resolves
+  // fired createFolder() twice, matching the same double-tap-race class of
+  // bug already fixed for printReg.ts (BB-083) and ReminderFormModal
+  // (BB-094).
+  const [submittingCreate, setSubmittingCreate] = useState(false)
   const inputRef = useRef<TextInput>(null)
 
   useEffect(() => {
@@ -116,8 +123,18 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   }
 
   const handleCreate = async () => {
+    if (submittingCreate) return
     const name = newName.trim()
     if (!name) return
+    setSubmittingCreate(true)
+    try {
+      await doCreate(name)
+    } finally {
+      setSubmittingCreate(false)
+    }
+  }
+
+  const doCreate = async (name: string) => {
     // Plus is capped at PLUS_FOLDER_CAP folders, Premium unlimited -- same
     // rule saved.tsx's own "New Folder" enforces (see PLUS_FOLDER_CAP in
     // lib/folders.ts). This picker had no cap check at all, so a Plus user
@@ -248,7 +265,8 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
               />
               <Pressable
                 onPress={handleCreate}
-                style={[styles.createBtn, { backgroundColor: tokens.blu, opacity: newName.trim() ? 1 : 0.5 }]}
+                disabled={submittingCreate}
+                style={[styles.createBtn, { backgroundColor: tokens.blu, opacity: newName.trim() && !submittingCreate ? 1 : 0.5 }]}
               >
                 <Text style={[styles.createBtnText, { fontSize: fs(13) }]}>Create</Text>
               </Pressable>
