@@ -276,6 +276,10 @@ def main():
                         key=ANON, jwt=invitee["jwt"])
         check("invitee cannot read the aircraft BEFORE accepting", not rows, str(rows))
 
+        hidden = rpc("get_fleet_hidden_count", invitee["jwt"])
+        check("a pending, unaccepted invite does NOT inflate get_fleet_hidden_count",
+              hidden == 0, f"got {hidden}, expected 0")
+
         try:
             rpc("invite_aircraft_collaborator", owner["jwt"],
                 {"p_aircraft_id": aircraft_id, "p_callsign": "no-such-callsign-" + secrets.token_hex(4),
