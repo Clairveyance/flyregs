@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { getBookmarks } from '@/lib/bookmarks'
 import { getFolders, getFolderItems } from '@/lib/folders'
 import { getNotes, saveNotes, isSeedNote } from '@/lib/notes'
+import { getSyncOwner, setSyncOwner } from '@/lib/syncOwner'
 import {
   SYNC_ENABLED_KEY,
   isSyncEnabled,
@@ -50,24 +51,11 @@ const BOOKMARKS_KEY = '@flyregs/bookmarks'
 // ever goes up. Deliberately NOT a "wipe local data on sign-out" fix, which
 // would break local-first bookmarks, and not per-user namespacing, which
 // would be a much larger change.
-const SYNC_OWNER_KEY = '@flyregs/sync-owner'
-
-async function getSyncOwner(): Promise<string | null> {
-  try {
-    return await AsyncStorage.getItem(SYNC_OWNER_KEY)
-  } catch {
-    return null
-  }
-}
-
-async function setSyncOwner(userId: string): Promise<void> {
-  try {
-    await AsyncStorage.setItem(SYNC_OWNER_KEY, userId)
-  } catch {
-    // Non-fatal: a failed write just means the next enableSync is treated as
-    // a first-time/unknown owner, which is the conservative direction.
-  }
-}
+//
+// getSyncOwner/setSyncOwner now live in syncOwner.ts, not here -- the local
+// READERS (folders.ts/bookmarks.ts/notes.ts) need the same check for the
+// READ direction (see that file's own comment for the leak this closes),
+// and this file already imports FROM them, so they can't import back here.
 
 // Called from signOut. Stamps the departing user as the owner of whatever is
 // left on this device, which closes the case the enableSync guard alone

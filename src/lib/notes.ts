@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
 
 const NOTES_KEY = '@flyregs/notes'
 
@@ -62,8 +63,15 @@ export function isSeedNote(id: string): boolean {
   return id.startsWith('seed-')
 }
 
+// Same account-mismatch guard as folders.ts's getFolders() -- see that
+// function's own comment for the leak this closes. This store is likewise
+// global/unnamespaced (see syncOwner.ts). Deliberately returns [] without
+// touching AsyncStorage on a mismatch -- writing SEED_NOTES here would
+// overwrite (and destroy) the previous account's still-cached real notes.
 export async function getNotes(): Promise<Note[]> {
   try {
+    const userId = await currentUserId()
+    if (userId && !(await localDataBelongsTo(userId))) return []
     const raw = await AsyncStorage.getItem(NOTES_KEY)
     if (raw) return JSON.parse(raw)
     await AsyncStorage.setItem(NOTES_KEY, JSON.stringify(SEED_NOTES))

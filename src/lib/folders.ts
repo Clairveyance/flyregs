@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { syncPushFolder, syncPushFolderDelete, syncPushFolderItems, syncPushFolderItemDeletes, syncPushNote } from '@/lib/syncPush'
 import { getNotes } from '@/lib/notes'
+import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
 
 // Revokes sharing entirely: removes every collaborator and invalidates the
 // share link (a new one is generated next time the owner shares again). The
@@ -76,8 +77,20 @@ function makeId() {
 
 // ── Folders ───────────────────────────────────────────────────────────────────
 
+// Gotcha, found 2026-08-09 while verifying BB-102: this local store is
+// GLOBAL (no per-user namespacing -- see syncOwner.ts's own comment), and
+// this function used to serve whatever was cached here to ANY signed-in
+// user with zero ownership check. On a shared device, signing into a
+// different account still rendered the PREVIOUS account's folders --
+// owner-only UI (invite, delete, mode toggle) included -- even though
+// server-side RLS was always correctly locked down; this was a pure
+// client-side stale-cache read leak. Signed-out (anonymous) browsing is
+// deliberately unaffected -- there's no userId to compare against yet, so
+// local-first bookmarks/folders keep working exactly as before.
 export async function getFolders(): Promise<Folder[]> {
   try {
+    const userId = await currentUserId()
+    if (userId && !(await localDataBelongsTo(userId))) return []
     const raw = await AsyncStorage.getItem(FOLDERS_KEY)
     const folders: Folder[] = raw ? JSON.parse(raw) : []
     // Stable sort -- a folder with no sort_order yet (never touched by
@@ -210,6 +223,10 @@ export async function duplicateFolder(id: string): Promise<Folder> {
 
 export async function getFolderItems(): Promise<FolderItem[]> {
   try {
+    // Same account-mismatch guard as getFolders() above -- these two stores
+    // are always read/written together.
+    const userId = await currentUserId()
+    if (userId && !(await localDataBelongsTo(userId))) return []
     const raw = await AsyncStorage.getItem(FOLDER_ITEMS_KEY)
     return raw ? JSON.parse(raw) : []
   } catch {

@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { syncPushBookmark, syncPushBookmarkDeletes } from '@/lib/syncPush'
 import { removeItemsFromAllFolders, FolderItemType } from '@/lib/folders'
+import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
 
 const KEY = '@flyregs/bookmarks'
 
@@ -111,8 +112,13 @@ export function routeForBookmark(item: BookmarkAC, opts?: { hlId?: string }): st
   return `/ac/${item.id}` // 'note' never reaches here — notes aren't bookmarks
 }
 
+// Same account-mismatch guard as folders.ts's getFolders() -- see that
+// function's own comment for the leak this closes. This store is likewise
+// global/unnamespaced (see syncOwner.ts).
 export async function getBookmarks(): Promise<BookmarkAC[]> {
   try {
+    const userId = await currentUserId()
+    if (userId && !(await localDataBelongsTo(userId))) return []
     const raw = await AsyncStorage.getItem(KEY)
     return raw ? JSON.parse(raw) : []
   } catch {
