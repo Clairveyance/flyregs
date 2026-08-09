@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Animated, PanResponder, Platform, RefreshControl } from 'react-native'
+import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Platform, RefreshControl } from 'react-native'
+import Reanimated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated'
+import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import * as Clipboard from 'expo-clipboard'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
@@ -277,6 +279,10 @@ export default function FolderDetail() {
   // it. Editing inline here instead, same NoteEditor component notes.tsx
   // uses.
   const [editorNote, setEditorNote] = useState<Note | null>(null)
+  // Only one AC/note row's swipe stays open at a time -- swiping row B open
+  // now springs row A shut instead of leaving it stuck open indefinitely
+  // (RC, real device: swipe-to-remove "clunky and getting stuck").
+  const [openSwipeId, setOpenSwipeId] = useState<string | null>(null)
 
   const handleMove = (item: FolderItem) => setMoveItem(item)
 
@@ -666,6 +672,9 @@ export default function FolderDetail() {
                 tokens={tokens}
                 badgeData={bookmarkItemType(item.data) === 'ac' ? badgeDataById[item.data.acId ?? item.data.id] : undefined}
                 badgeDays={badgeDays}
+                isOpen={openSwipeId === item.folderItem.id}
+                onSwipeOpen={() => setOpenSwipeId(item.folderItem.id)}
+                onSwipeClose={() => setOpenSwipeId((cur) => (cur === item.folderItem.id ? null : cur))}
                 onPress={() => router.push(routeForBookmark(item.data, item.data.blockText ? { hlId: item.data.id } : undefined) as any)}
                 onRemove={() => handleRemove(item.folderItem)}
                 onMove={() => handleMove(item.folderItem)}
@@ -675,6 +684,9 @@ export default function FolderDetail() {
               <SwipeableNoteRow
                 entry={item}
                 tokens={tokens}
+                isOpen={openSwipeId === item.folderItem.id}
+                onSwipeOpen={() => setOpenSwipeId(item.folderItem.id)}
+                onSwipeClose={() => setOpenSwipeId((cur) => (cur === item.folderItem.id ? null : cur))}
                 onPress={() => setEditorNote({ ...item.data })}
                 onRemove={() => handleRemove(item.folderItem)}
                 onMove={() => handleMove(item.folderItem)}
@@ -724,44 +736,56 @@ export default function FolderDetail() {
 // ── Swipeable AC row ──────────────────────────────────────────────────────────
 
 function SwipeableACRow({
-  entry, tokens, badgeData, badgeDays, onPress, onRemove, onMove, onShare,
+  entry, tokens, badgeData, badgeDays, isOpen, onSwipeOpen, onSwipeClose, onPress, onRemove, onMove, onShare,
 }: {
   entry: ACEntry
   tokens: ReturnType<typeof useTheme>['tokens']
   badgeData?: { cancels: string[]; changed_block_indices: number[] | null; date_issued: string | null; document_number: string }
   badgeDays: number
+  /** True when a DIFFERENT row's swipe was opened after this one -- springs
+   * this row shut instead of leaving it stuck open indefinitely. */
+  isOpen: boolean
+  onSwipeOpen: () => void
+  onSwipeClose: () => void
   onPress: () => void
   onRemove: () => void
   onMove: () => void
   onShare: () => void
 }) {
   const fs = useFS()
-  const translateX = useRef(new Animated.Value(0)).current
-  const swiped = useRef(false)
+  const translateX = useSharedValue(0)
 
-  const pan = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) =>
-        Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy),
-      onPanResponderMove: (_, g) => {
-        translateX.setValue(Math.min(0, Math.max(-84, g.dx)))
-      },
-      onPanResponderRelease: (_, g) => {
-        if (g.dx < -42) {
-          Animated.spring(translateX, { toValue: -76, useNativeDriver: true, damping: 18, stiffness: 280 }).start()
-          swiped.current = true
-        } else {
-          Animated.spring(translateX, { toValue: 0, useNativeDriver: true, damping: 18, stiffness: 280 }).start()
-          swiped.current = false
-        }
-      },
+  // Native-thread gesture-handler + Reanimated, not the JS-thread
+  // PanResponder this replaced -- RC, real device: "the swipe to Remove
+  // function in a folder is clunky and getting stuck." Same proven pattern
+  // FolderListView.tsx's own swipeable rows already use.
+  useEffect(() => {
+    if (!isOpen && translateX.value !== 0) translateX.value = withSpring(0, { damping: 18, stiffness: 280 })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
+
+  const panGesture = Gesture.Pan()
+    .activeOffsetX([-6, 6])
+    .failOffsetY([-10, 10])
+    .onUpdate((e) => {
+      translateX.value = Math.min(0, Math.max(-84, e.translationX))
     })
-  ).current
+    .onEnd((e) => {
+      if (e.translationX < -42) {
+        translateX.value = withSpring(-76, { damping: 18, stiffness: 280 })
+        runOnJS(onSwipeOpen)()
+      } else {
+        translateX.value = withSpring(0, { damping: 18, stiffness: 280 })
+        runOnJS(onSwipeClose)()
+      }
+    })
+
+  const rowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }] }))
 
   const handlePress = () => {
-    if (swiped.current) {
-      Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start()
-      swiped.current = false
+    if (translateX.value < -1) {
+      translateX.value = withSpring(0, { damping: 18, stiffness: 280 })
+      onSwipeClose()
     } else {
       onPress()
     }
@@ -773,14 +797,15 @@ function SwipeableACRow({
     <View style={styles.swipeWrap}>
       <View style={[styles.removeBg, { backgroundColor: tokens.red }]}>
         <Pressable style={styles.removeAction} onPress={() => {
-          Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start()
-          swiped.current = false
+          translateX.value = withSpring(0, { damping: 18, stiffness: 280 })
+          onSwipeClose()
           onRemove()
         }}>
           <Text style={[styles.removeActionText, { fontSize: fs(12) }]}>Remove</Text>
         </Pressable>
       </View>
-      <Animated.View style={{ transform: [{ translateX }] }} {...pan.panHandlers}>
+      <GestureDetector gesture={panGesture}>
+        <Reanimated.View style={rowStyle}>
         <Pressable
           style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
           onPress={handlePress}
@@ -818,7 +843,8 @@ function SwipeableACRow({
             <Icon name="square.and.arrow.up" size={fs(17)} color={tokens.t3} />
           </Pressable>
         </Pressable>
-      </Animated.View>
+        </Reanimated.View>
+      </GestureDetector>
     </View>
   )
 }
@@ -826,42 +852,48 @@ function SwipeableACRow({
 // ── Swipeable Note row ────────────────────────────────────────────────────────
 
 function SwipeableNoteRow({
-  entry, tokens, onPress, onRemove, onMove, onShare,
+  entry, tokens, isOpen, onSwipeOpen, onSwipeClose, onPress, onRemove, onMove, onShare,
 }: {
   entry: NoteEntry
   tokens: ReturnType<typeof useTheme>['tokens']
+  isOpen: boolean
+  onSwipeOpen: () => void
+  onSwipeClose: () => void
   onPress: () => void
   onRemove: () => void
   onMove: () => void
   onShare: () => void
 }) {
   const fs = useFS()
-  const translateX = useRef(new Animated.Value(0)).current
-  const swiped = useRef(false)
+  const translateX = useSharedValue(0)
 
-  const pan = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) =>
-        Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy),
-      onPanResponderMove: (_, g) => {
-        translateX.setValue(Math.min(0, Math.max(-84, g.dx)))
-      },
-      onPanResponderRelease: (_, g) => {
-        if (g.dx < -42) {
-          Animated.spring(translateX, { toValue: -76, useNativeDriver: true, damping: 18, stiffness: 280 }).start()
-          swiped.current = true
-        } else {
-          Animated.spring(translateX, { toValue: 0, useNativeDriver: true, damping: 18, stiffness: 280 }).start()
-          swiped.current = false
-        }
-      },
+  useEffect(() => {
+    if (!isOpen && translateX.value !== 0) translateX.value = withSpring(0, { damping: 18, stiffness: 280 })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
+
+  const panGesture = Gesture.Pan()
+    .activeOffsetX([-6, 6])
+    .failOffsetY([-10, 10])
+    .onUpdate((e) => {
+      translateX.value = Math.min(0, Math.max(-84, e.translationX))
     })
-  ).current
+    .onEnd((e) => {
+      if (e.translationX < -42) {
+        translateX.value = withSpring(-76, { damping: 18, stiffness: 280 })
+        runOnJS(onSwipeOpen)()
+      } else {
+        translateX.value = withSpring(0, { damping: 18, stiffness: 280 })
+        runOnJS(onSwipeClose)()
+      }
+    })
+
+  const rowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }] }))
 
   const handlePress = () => {
-    if (swiped.current) {
-      Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start()
-      swiped.current = false
+    if (translateX.value < -1) {
+      translateX.value = withSpring(0, { damping: 18, stiffness: 280 })
+      onSwipeClose()
     } else {
       onPress()
     }
@@ -883,14 +915,15 @@ function SwipeableNoteRow({
     <View style={styles.swipeWrap}>
       <View style={[styles.removeBg, { backgroundColor: tokens.red }]}>
         <Pressable style={styles.removeAction} onPress={() => {
-          Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start()
-          swiped.current = false
+          translateX.value = withSpring(0, { damping: 18, stiffness: 280 })
+          onSwipeClose()
           onRemove()
         }}>
           <Text style={[styles.removeActionText, { fontSize: fs(12) }]}>Remove</Text>
         </Pressable>
       </View>
-      <Animated.View style={{ transform: [{ translateX }] }} {...pan.panHandlers}>
+      <GestureDetector gesture={panGesture}>
+        <Reanimated.View style={rowStyle}>
         <Pressable
           style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
           onPress={handlePress}
@@ -922,7 +955,8 @@ function SwipeableNoteRow({
             <Icon name="square.and.arrow.up" size={fs(17)} color={tokens.t3} />
           </Pressable>
         </Pressable>
-      </Animated.View>
+        </Reanimated.View>
+      </GestureDetector>
     </View>
   )
 }
