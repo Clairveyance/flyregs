@@ -93,6 +93,13 @@ def make_user(prefix):
         raise RuntimeError(f"create user {st}: {body}")
     st, tok = http("POST", "/auth/v1/token?grant_type=password", key=ANON,
                    body={"email": email, "password": password})
+    # create_challenge is Premium-gated server-side (checks only the
+    # CREATOR) -- grant it directly via the DB for this disposable
+    # account, same pattern as search_eval.py/tier_matrix_test.py, not a
+    # real purchase. Any persona here may act as the duel creator.
+    http("POST", "/rest/v1/user_entitlements", key=SERVICE,
+         body={"user_id": body["id"], "is_premium": True},
+         headers={"Prefer": "resolution=merge-duplicates"})
     return {"id": body["id"], "jwt": tok["access_token"], "label": prefix}
 
 
