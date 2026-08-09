@@ -88,16 +88,16 @@ export default function FolderDetail() {
   const [collabExpanded, setCollabExpanded] = useState(false)
   const [collabMode, setCollabMode] = useState<FolderCollabMode>('read_only')
 
-  const load = useCallback(async () => {
-    // Pulls in anything a collaborator wrote since the last full sync,
-    // before the local reads below -- getItemsInFolder/getNotes are pure
-    // local-first, so without this a collaborator's write would only ever
-    // show up here after the next app launch or Back-up & Sync toggle.
-    if (typeof id === 'string') {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) await syncFolderFromCloud(id, user.id).catch(() => {})
-    }
-
+  // Renders local-first data immediately, no network round-trip in the way
+  // of first paint. BB-076, RC real-device beta report: "all general folder
+  // content needs to load faster when opening. taking too long" -- root
+  // cause was `load()` AWAITING syncFolderFromCloud (a network call)
+  // before even the LOCAL data below (getItemsInFolder/getBookmarks/etc,
+  // already on-device) rendered, exactly the "show cached data immediately"
+  // problem Home's own load() already solved for itself. `load()` below
+  // still runs the cloud sync, just after this local render, then re-runs
+  // this to pick up anything the sync just pulled in.
+  const loadLocal = useCallback(async () => {
     const [folders, items, bookmarks, notesRaw] = await Promise.all([
       getFolders(),
       getItemsInFolder(id),
@@ -177,6 +177,23 @@ export default function FolderDetail() {
       getFolderCollabMode(id).then(setCollabMode).catch(() => {})
     }
   }, [id])
+
+  // Pulls in anything a collaborator wrote since the last full sync --
+  // getItemsInFolder/getNotes are pure local-first, so without this a
+  // collaborator's write would only ever show up here after the next app
+  // launch or Back-up & Sync toggle. Runs AFTER the local render above so
+  // the network round-trip never blocks first paint; re-runs loadLocal
+  // once it finishes so the sync's own results actually show up.
+  const load = useCallback(async () => {
+    await loadLocal()
+    if (typeof id === 'string') {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        await syncFolderFromCloud(id, user.id).catch(() => {})
+        await loadLocal()
+      }
+    }
+  }, [id, loadLocal])
 
   useFocusEffect(useCallback(() => { load() }, [load]))
 
