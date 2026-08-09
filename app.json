@@ -83,7 +83,13 @@
           "project": "react-native"
         }
       ],
-      "expo-mail-composer"
+      "expo-mail-composer",
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "FlyRegs uses your contacts to let you pick who to invite to a shared folder — nothing is read or stored beyond the names/numbers you select."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

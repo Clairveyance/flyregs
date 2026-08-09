@@ -46,6 +46,7 @@ import { useConfirm } from '@/components/ConfirmDialog'
 import { getNotes, saveNotes, type Note } from '@/lib/notes'
 import { syncPushNote, syncPushNoteDeletes } from '@/lib/syncPush'
 import { NoteEditor } from '@/components/NoteEditor'
+import { BulkInviteContactPicker } from '@/components/BulkInviteContactPicker'
 
 // ── Unified entry for the mixed-content list ──────────────────────────────────
 type ACEntry  = { kind: 'ac';   data: BookmarkAC;  folderItem: FolderItem }
@@ -327,6 +328,10 @@ export default function FolderDetail() {
   const [inviteCallsign, setInviteCallsign] = useState('')
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [callsignBusy, setCallsignBusy] = useState(false)
+  // BB-078: pick several contacts at once instead of sending the invite
+  // link one person at a time via the plain OS share sheet.
+  const [bulkInviteVisible, setBulkInviteVisible] = useState(false)
+  const bulkInviteTokenRef = useRef<string | null>(null)
 
   // The header's own "Invite" icon -- offers both invite methods up front
   // (link vs. named Callsign) rather than always defaulting to the
@@ -340,8 +345,39 @@ export default function FolderDetail() {
       choices: [
         { label: 'Invite by Link', onPress: handleInvite },
         { label: 'Invite by Callsign', onPress: openCallsignInvite },
+        { label: 'Invite Multiple (Contacts)', onPress: openBulkInvite },
       ],
     })
+  }
+
+  // BB-078, RC real-device beta report: "we need to allow a bulk-add ...
+  // tapping the group icon currently just opens the plain iOS share sheet."
+  // Gets (or creates) the same anonymous link handleInvite would use, then
+  // hands it to a real multi-select contact picker that queues one native
+  // SMS compose sheet per selected person -- never one message to a shared
+  // thread, which would expose every invitee's number to every other one.
+  const openBulkInvite = async () => {
+    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!folder) return
+    try {
+      const { token } = await getOrCreateShareLink(folder.id)
+      bulkInviteTokenRef.current = token
+      setBulkInviteVisible(true)
+    } catch {
+      confirm({ title: 'Error', message: 'Could not create an invite link. Try again in a moment.', cancelLabel: null })
+    }
+  }
+
+  const handleBulkInviteSent = async (sentCount: number) => {
+    setBulkInviteVisible(false)
+    if (sentCount > 0 && folder && bulkInviteTokenRef.current) {
+      // Same "shared" signal as handleInvite -- only counts once a real
+      // send actually happened, not just because the picker was opened.
+      await confirmFolderShared(folder.id, bulkInviteTokenRef.current)
+    }
+    if (sentCount > 0) {
+      confirm({ title: 'Invites Sent', message: `Sent to ${sentCount} contact${sentCount === 1 ? '' : 's'}.`, cancelLabel: null })
+    }
   }
 
   const openCallsignInvite = () => {
@@ -849,6 +885,12 @@ export default function FolderDetail() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      <BulkInviteContactPicker
+        visible={bulkInviteVisible}
+        onClose={() => setBulkInviteVisible(false)}
+        message={bulkInviteTokenRef.current ? buildShareLink(bulkInviteTokenRef.current) : ''}
+        onSent={handleBulkInviteSent}
+      />
       <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
     </View>
   )
