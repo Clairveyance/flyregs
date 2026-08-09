@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, Modal } from 'react-native'
+import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, Modal, ScrollView } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -217,6 +217,15 @@ export default function ChallengesScreen() {
               </Pressable>
             </View>
 
+            {/* BB-091 corpus-wide audit ("checks to all other CTA and popups
+                app wide"): `modalCard` had a `maxHeight: '85%'` but no
+                ScrollView around this body -- 6 filter rows plus a
+                potentially-long opponent list plus the Start button, on a
+                plain View, meant the maxHeight just truncated the content
+                with no way to reach whatever fell past it. Same pattern
+                already fixed for my-aircraft/[id].tsx's ReminderFormModal
+                and AvatarEditModal -- header stays pinned outside. */}
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11) }]}>QUESTIONS</Text>
             <View style={styles.countRow}>
               {QUESTION_COUNTS.map((n) => (
@@ -423,6 +432,7 @@ export default function ChallengesScreen() {
                 )}
               </Pressable>
             )}
+            </ScrollView>
           </View>
         </View>
       </Modal>

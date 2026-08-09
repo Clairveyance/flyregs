@@ -1,4 +1,4 @@
-import { Modal, View, Text, Image, Pressable, ActivityIndicator, StyleSheet, Platform } from 'react-native'
+import { Modal, View, Text, Image, Pressable, ActivityIndicator, StyleSheet, Platform, ScrollView } from 'react-native'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
@@ -48,7 +48,7 @@ export function AvatarEditModal({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onDone}>
       <View style={styles.backdrop}>
-        <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+        <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, maxHeight: '85%' }]}>
           <View style={[styles.header, { borderBottomColor: tokens.bdr }]}>
             <Pressable onPress={onDone} hitSlop={6}>
               <Text style={[styles.cancelText, { color: tokens.t2, fontSize: fs(14.5) }]}>Cancel</Text>
@@ -67,6 +67,14 @@ export function AvatarEditModal({
             </Pressable>
           </View>
 
+          {/* BB-091 corpus-wide audit ("checks to all other CTA and popups
+              app wide"): this card had no ScrollView and no maxHeight --
+              at larger text-size settings on a shorter phone, the photo
+              circle + 3 action buttons + full preset swatch row could
+              exceed the screen height with no way to reach Done or the
+              lower presets. Header stays pinned outside the scroll (same
+              pattern as my-aircraft/[id].tsx's ReminderFormModal fix). */}
+          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={styles.photoWrap}>
             <View style={[styles.photoCircle, { backgroundColor: preset ? avatarColorFor(preset, redShift) : tokens.blu }]}>
               {busy ? (
@@ -140,6 +148,7 @@ export function AvatarEditModal({
               })}
             </View>
           </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
