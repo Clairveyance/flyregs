@@ -95,10 +95,17 @@ export function AnimatedSplash({ onDone }: { onDone: () => void }) {
   const rootOpacity = useSharedValue(1)
 
   useEffect(() => {
-    const WING_LAND_DURATION = 520
-    const MORPH_DURATION = 650
-    const WORDMARK_HOLD = 450 // halved from 900
-    const FADE_DURATION = 500
+    // RC, 2026-08-09: "reduce the timing of that animation... keep the look
+    // and timing of each piece the same in terms of how it reacts to the
+    // next -- but reduce each piece by 20%." Every duration below (including
+    // the fade-in) is the prior value * 0.8 -- since morphStart/fadeStart are
+    // DERIVED from these constants rather than hardcoded separately, scaling
+    // just the base durations automatically compresses the whole sequence by
+    // the same 20% while preserving every piece's relative timing to the next.
+    const WING_LAND_DURATION = 416 // 520 * 0.8
+    const MORPH_DURATION = 520 // 650 * 0.8
+    const WORDMARK_HOLD = 360 // 450 * 0.8 (itself already halved from 900 previously)
+    const FADE_DURATION = 400 // 500 * 0.8
 
     // Wing shrinks into the lockup the instant it lands at full size — no
     // hold in between — so morph starts right as the landing pop finishes.
@@ -109,7 +116,7 @@ export function AnimatedSplash({ onDone }: { onDone: () => void }) {
     // life — assigning twice in the same tick (e.g. once to fade in, again
     // later to fade out) makes the second assignment cancel the first before
     // it ever animates, since both run synchronously at mount.
-    wingOpacity.value = withTiming(1, { duration: 400, easing: Easing.out(Easing.cubic) })
+    wingOpacity.value = withTiming(1, { duration: 320, easing: Easing.out(Easing.cubic) }) // 400 * 0.8
     wingScale.value = withSequence(
       withTiming(1, { duration: WING_LAND_DURATION, easing: Easing.out(Easing.back(1.3)) }),
       withTiming(WING_SCALE_TARGET, { duration: MORPH_DURATION, easing: Easing.inOut(Easing.cubic) })

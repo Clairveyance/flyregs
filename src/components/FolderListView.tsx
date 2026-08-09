@@ -265,7 +265,16 @@ export function FolderListView({
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
             setDragStartIndex(index); setDragHoverIndex(index); setDragId(item.id)
           }}
-              onDragUpdate={(translationY: number) => handleDragUpdate(translationY, index, displayFolders.length)}
+              // dragStartIndex, not `index` -- `index` is this row's CURRENT
+              // rendered position, which shifts every time displayFolders
+              // re-splices mid-drag (same fact the comment above this row
+              // already accounts for in the visual transform). translationY
+              // from the Pan gesture is cumulative from the ORIGINAL touch-
+              // down point, so feeding it a drifting reference point instead
+              // of the fixed start compounds the error every time the row
+              // crosses a neighbor -- RC, real device: "only allows you to
+              // drag ... to the very top, not anyplace in between."
+              onDragUpdate={(translationY: number) => handleDragUpdate(translationY, dragStartIndex, displayFolders.length)}
               onDragEnd={handleDragEnd}
             />
           )

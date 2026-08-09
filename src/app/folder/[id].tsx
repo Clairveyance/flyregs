@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Animated, PanResponder, Platform, RefreshControl } from 'react-native'
+import * as Clipboard from 'expo-clipboard'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -340,11 +341,21 @@ export default function FolderDetail() {
       // sheet erroring, web preview's lack of Share support) is not the
       // same failure as never having a link. Surface the real link instead
       // of a false "could not create" message that would make it look like
-      // sharing is broken when it actually isn't. We can't tell if they'll
-      // actually use it, but showing it to them to copy/send themselves is
-      // as close to "sent" as this fallback path gets.
-      confirm({ title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
-      await confirmFolderShared(folder.id, token)
+      // sharing is broken when it actually isn't. Previously this confirmed
+      // "shared" unconditionally the moment this dialog appeared, regardless
+      // of whether the person ever actually copied or sent the link -- a
+      // folder the owner never really shared (dismissed this dialog without
+      // touching it) still showed sharing controls with an empty roster
+      // forever, no way to make them go away. Requiring the explicit "Copy
+      // Link" tap ties "shared" to a real signal instead of dialog dismissal.
+      confirm({
+        title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link,
+        confirmLabel: 'Copy Link', cancelLabel: 'Not Now',
+        onConfirm: async () => {
+          await Clipboard.setStringAsync(link)
+          await confirmFolderShared(folder.id, token)
+        },
+      })
     }
     setInvitingBusy(false)
   }

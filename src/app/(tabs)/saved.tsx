@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { View, Text, Image, FlatList, Pressable, TextInput, StyleSheet, Switch, KeyboardAvoidingView, Keyboard, Platform, Share, RefreshControl } from 'react-native'
+import * as Clipboard from 'expo-clipboard'
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
@@ -570,9 +571,17 @@ export default function SavedScreen() {
       // The link above was already created (just not yet confirmed shared)
       // -- a Share.share failure here (no share target, sheet error, web
       // preview) is not the same failure as never having a link. Same
-      // reasoning as folder/[id].tsx's own handleInvite.
-      confirm({ title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
-      await confirmFolderShared(folder.id, token)
+      // reasoning as folder/[id].tsx's own handleInvite -- requiring the
+      // explicit "Copy Link" tap (not just dialog dismissal) ties "shared"
+      // to a real signal instead of firing regardless of what the owner did.
+      confirm({
+        title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link,
+        confirmLabel: 'Copy Link', cancelLabel: 'Not Now',
+        onConfirm: async () => {
+          await Clipboard.setStringAsync(link)
+          await confirmFolderShared(folder.id, token)
+        },
+      })
     }
   }
 
@@ -612,8 +621,14 @@ export default function SavedScreen() {
       const result = await Share.share({ message: entries.map((e) => e.link).join('\n\n') })
       if (Platform.OS !== 'ios' || result.action === Share.sharedAction) await confirmAll()
     } catch {
-      confirm({ title: 'Invite Links Ready', message: 'Copy or share these links:', linkMessage: entries.map((e) => e.link), cancelLabel: null })
-      await confirmAll()
+      confirm({
+        title: 'Invite Links Ready', message: 'Copy or share these links:', linkMessage: entries.map((e) => e.link),
+        confirmLabel: 'Copy Links', cancelLabel: 'Not Now',
+        onConfirm: async () => {
+          await Clipboard.setStringAsync(entries.map((e) => e.link).join('\n\n'))
+          await confirmAll()
+        },
+      })
     }
     setSelectedFolders(new Set())
     setFolderSelectMode(false)

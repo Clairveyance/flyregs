@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { View, Text, Pressable, StyleSheet, Modal } from 'react-native'
+import { View, Text, Pressable, StyleSheet, Modal, InteractionManager } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -72,7 +72,20 @@ export function HeaderOverflowMenu({
             {items.map((item, i) => (
               <Pressable
                 key={i}
-                onPress={() => { setOpen(false); item.onPress() }}
+                // RC, real device: an item like Share (which presents ITS OWN
+                // native modal, e.g. Share.share()'s UIActivityViewController)
+                // "doesn't respond at all, or responds very late and
+                // freezes/closes/crashes" -- classic iOS "present while
+                // dismissing" race: setOpen(false) starts this dropdown
+                // Modal's async dismiss transition, and firing item.onPress()
+                // in the SAME tick asks UIKit to present a second modal on a
+                // view controller that's still mid-dismissal. Deferring to
+                // runAfterInteractions (rather than a magic-number setTimeout)
+                // waits for that dismiss animation to actually finish first.
+                onPress={() => {
+                  setOpen(false)
+                  InteractionManager.runAfterInteractions(() => item.onPress())
+                }}
                 style={[styles.row, i < items.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
               >
                 <Icon name={item.icon} size={fs(18)} color={item.disabled ? tokens.t4 : tokens.t2} />
