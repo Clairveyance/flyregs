@@ -4,6 +4,8 @@ import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
+import { useBadgeLifespan } from '@/context/badgeLifespan'
+import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -38,6 +40,7 @@ export default function WhatsChangedScreen() {
   const { tokens, redShift } = useTheme()
   const fs = useFS()
   const { hasPlusAccess } = useAuth()
+  const { badgeDays } = useBadgeLifespan()
   const [revisions, setRevisions] = useState<ContentRevision[]>([])
   const [expanded, setExpanded] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -97,6 +100,7 @@ export default function WhatsChangedScreen() {
                 tokens={tokens}
                 redShift={redShift}
                 fs={fs}
+                badgeDays={badgeDays}
                 expanded={expanded === item.id}
                 onToggle={() => setExpanded((prev) => (prev === item.id ? null : item.id))}
               />
@@ -113,6 +117,7 @@ function RevisionRow({
   tokens,
   redShift,
   fs,
+  badgeDays,
   expanded,
   onToggle,
 }: {
@@ -120,12 +125,21 @@ function RevisionRow({
   tokens: ReturnType<typeof useTheme>['tokens']
   redShift: boolean
   fs: (n: number) => number
+  badgeDays: number
   expanded: boolean
   onToggle: () => void
 }) {
   const added = splitParagraphs(item.addedText)
   const removed = splitParagraphs(item.removedText)
   const title = item.docType === 'ad' ? stripAdSubjectPrefix(item.title ?? item.docKey) : (item.title ?? item.docKey)
+  // RC, real-device beta report: "that screen also needs to show the
+  // duration of those docs (90d, 180d, etc)" -- every other list in the app
+  // that shows a NEW/UPD badge gates it on the same Badge Duration setting
+  // (see ad/index.tsx's "NEW — LAST {badgeDays}d" section label,
+  // saved.tsx/recents.tsx's per-row badge via isWithinBadgeLifespan), but
+  // this screen had no badge-duration integration at all. Reuses the exact
+  // same helper/wording so "90d"/"180d" means the same thing everywhere.
+  const isRecent = isWithinBadgeLifespan(item.revisedAt, badgeDays)
 
   return (
     <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
@@ -133,6 +147,11 @@ function RevisionRow({
         <View style={[styles.typeChip, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
           <Text style={[styles.typeChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>{labelForDocType(item.docType)}</Text>
         </View>
+        {isRecent && (
+          <View style={[styles.durationChip, { backgroundColor: tokens.gdim, borderColor: tokens.gbdr }]}>
+            <Text style={[styles.durationChipText, { color: tokens.grn, fontSize: fs(9.5) }]}>LAST {badgeDays}D</Text>
+          </View>
+        )}
         <View style={{ flex: 1 }}>
           <Text style={[styles.cardTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={expanded ? undefined : 3}>
             {title}
@@ -188,6 +207,8 @@ const styles = StyleSheet.create({
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 13 },
   typeChip: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 3 },
   typeChipText: { fontWeight: '700', letterSpacing: 0.3 },
+  durationChip: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 3 },
+  durationChipText: { fontWeight: '700', letterSpacing: 0.3 },
   cardTitle: { fontWeight: '600', lineHeight: 19 },
   diffCounts: { marginTop: 2, fontWeight: '600' },
 
