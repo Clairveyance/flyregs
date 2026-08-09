@@ -1013,7 +1013,9 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
       return
     }
     const trimmedMake = make.trim()
-    const trimmedType = typeDesignator.trim()
+    // Uppercased at save, not while typing -- see AircraftFormFields.tsx's
+    // TypeDesignatorField (BB-074, real device beta report).
+    const trimmedType = typeDesignator.trim().toUpperCase()
     // Some aircraft have no separate marketing name (a Pilatus PC-12 isn't
     // "known by" anything other than its own type designator) -- RC, live:
     // "i don't think that a/c has a 'name', i think it's just known by
@@ -1155,7 +1157,13 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
         </View>
       ) : (
         <TabletContainer disabled={embedded}>
-        <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="interactive">
+        {/* keyboardShouldPersistTaps="handled" -- without it (RN's default
+            is "never"), the first tap on any Type/Make/Model suggestion
+            row below just dismissed the keyboard instead of firing the
+            row's onPress, since the keyboard is always up while the user
+            is mid-typeahead. BB-092, real device beta report: "none of
+            them are selectable... this COMPLETELY defeats the point." */}
+        <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled">
           <View style={styles.introRow}>
             <Text style={[styles.intro, { color: tokens.t3, fontSize: fs(13) }]}>How this works</Text>
             <InfoPopup

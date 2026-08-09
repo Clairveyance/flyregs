@@ -81,7 +81,13 @@ export function TypeDesignatorField({
         onBlur={() => setTimeout(() => setFocused(false), 150)}
         placeholder="Type designator (required, e.g. PA-28-181)"
         placeholderTextColor={tokens.t3}
-        autoCapitalize="characters"
+        // NOT autoCapitalize="characters" -- that forced every keystroke to
+        // appear as a shouted capital while typing (BB-074, real device
+        // beta report: "typing area input is defaulted to all CAPS").
+        // Storage still normalizes to uppercase at save time below, so AD
+        // matching (which expects FAA-style "PA-28-181") is unaffected --
+        // this only changes what the user sees while typing.
+        autoCapitalize="none"
         style={[styles.input, { color: tokens.t1, fontSize: ifs(14.5), borderColor: tokens.bdr }, label ? undefined : style]}
       />
       {focused && suggestions.length > 0 && (
@@ -427,7 +433,10 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: Us
   const handleSave = async () => {
     if (!aircraft) return
     const trimmedMake = make.trim()
-    const trimmedType = typeDesignator.trim()
+    // Uppercased here, once, at save -- not while typing (see
+    // TypeDesignatorField's autoCapitalize note above) -- so AD matching
+    // still gets the FAA-style "PA-28-181" it expects regardless of case.
+    const trimmedType = typeDesignator.trim().toUpperCase()
     const trimmedModel = model.trim() || trimmedType
     if (!trimmedMake || !trimmedModel) {
       confirm({ title: 'Make and model required', message: 'Enter both the aircraft make and model.', cancelLabel: null })
@@ -539,7 +548,10 @@ const styles = StyleSheet.create({
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 2 },
   fieldLabel: { fontWeight: '600', letterSpacing: 0.3, marginBottom: 5, marginLeft: 2 },
   suggestBox: { borderWidth: 1, borderRadius: 8, marginTop: 4, overflow: 'hidden' },
-  suggestRow: { paddingHorizontal: 12, paddingVertical: 9 },
+  // Widened from paddingVertical: 9 -- BB-092, real device beta report:
+  // rows were "really tight and cramped, hard to select an option without
+  // hitting another one."
+  suggestRow: { paddingHorizontal: 14, paddingVertical: 13, minHeight: 44 },
   typeHint: { marginTop: 8, marginBottom: 2 },
   addButton: { borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   addButtonText: { color: '#fff', fontWeight: '600', fontSize: 14.5 },

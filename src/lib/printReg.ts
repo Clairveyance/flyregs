@@ -89,9 +89,28 @@ export function buildPrintHtml(reg: PrintableReg): string {
 </body></html>`
 }
 
+// expo-print's native module is a single global slot -- a second
+// printAsync() call while one is still in flight throws "Another print
+// request is already in progress" instead of queuing. Every reg-detail
+// screen's Print menu item has no busy-state guard of its own (confirmed:
+// ac/far/aim/pcg/ad/loi all call this directly from an onPress with no
+// debounce), so a double-tap -- exactly what a slow/janky UI thread
+// produces -- threw this uncaught. Real device Sentry event, build 31,
+// dist 31: "Another print request is already in progress" at
+// expo-print/build/Print.js printAsync. Fixed once here since every call
+// site shares this one function, not patched per-screen.
+let inFlightPrint: Promise<void> | null = null
+
 /** Opens the platform print dialog. Resolves once the dialog is dismissed;
- * a user cancelling is not an error. */
+ * a user cancelling is not an error. A second call while one is already
+ * in flight reuses the same promise instead of racing the native module. */
 export async function printReg(reg: PrintableReg): Promise<void> {
+  if (inFlightPrint) return inFlightPrint
+  inFlightPrint = doPrintReg(reg).finally(() => { inFlightPrint = null })
+  return inFlightPrint
+}
+
+async function doPrintReg(reg: PrintableReg): Promise<void> {
   const html = buildPrintHtml(reg)
   if (Platform.OS === 'web') {
     // expo-print's web path opens a print window already, but going through

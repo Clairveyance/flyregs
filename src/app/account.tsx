@@ -322,7 +322,12 @@ export default function AccountScreen() {
   }
 
   const handleToggleDuelNotifications = async (v: boolean) => {
-    if (!isPro) { router.push('/paywall'); return }
+    // Duels itself is Premium-only (see paywall.tsx PLUS/PRO/PREMIUM feature
+    // lists) -- this toggle was copy-pasted from handleToggleDailyReg above
+    // it and inherited that function's `isPro` check, which let a Pro
+    // (non-Premium) account enable alerts for a feature it can't even play.
+    // BB-090, real device beta report, 2026-08-08.
+    if (!isPremium) { router.push('/paywall?tier=premium'); return }
     if (!session?.user?.id) return
     setDuelNotifBusy(true)
     try {
@@ -473,7 +478,10 @@ export default function AccountScreen() {
       // red. It just needs a confirm, not a warning.
       onConfirm: async () => {
         await signOut()
-        router.back()
+        // backToMenu (not plain router.back()) so this lands on the burger
+        // menu like every other Account exit, not whatever screen (often
+        // Home) happened to be underneath. BB-071, real device beta report.
+        backToMenu()
       },
     })
   }
@@ -484,7 +492,7 @@ export default function AccountScreen() {
       const { error } = await supabase.functions.invoke('delete-account', { method: 'POST' })
       if (error) throw error
       await signOut()
-      router.back()
+      backToMenu()
     } catch (err: any) {
       Sentry.captureException(err)
       confirm({
@@ -786,9 +794,9 @@ export default function AccountScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>Duel Alerts</Text>
-              {!isPro && (
+              {!isPremium && (
                 <View style={[styles.premBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
-                  <Text style={[styles.premBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>PRO</Text>
+                  <Text style={[styles.premBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>PREMIUM</Text>
                 </View>
               )}
             </View>
