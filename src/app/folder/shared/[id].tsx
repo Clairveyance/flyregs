@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, Modal, ScrollView, TextInput, RefreshControl } from 'react-native'
+import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, Modal, ScrollView, TextInput, RefreshControl, KeyboardAvoidingView, Platform } from 'react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -549,6 +549,7 @@ export default function SharedFolderDetail() {
       )}
 
       <Modal visible={!!openNote} transparent animationType="fade" onRequestClose={() => setOpenNote(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <View style={[styles.modalBackdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
           <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
             <View style={styles.modalHeader}>
@@ -564,7 +565,7 @@ export default function SharedFolderDetail() {
                 <Icon name="xmark" size={fs(18)} color={tokens.t3} />
               </Pressable>
             </View>
-            <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingBottom: 20 }}>
+            <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingBottom: 20 }} keyboardShouldPersistTaps="handled">
               {noteEditing ? (
                 <>
                   <TextInput
@@ -715,42 +716,62 @@ export default function SharedFolderDetail() {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={addNoteVisible} transparent animationType="fade" onRequestClose={() => setAddNoteVisible(false)}>
-        <View style={[styles.modalBackdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
-          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.headerTitle, { color: tokens.t1, fontSize: fs(16) }]}>New Note</Text>
-              <Pressable onPress={() => setAddNoteVisible(false)} hitSlop={10}>
-                <Icon name="xmark" size={fs(18)} color={tokens.t3} />
-              </Pressable>
+        {/* BB-085, RC real-device beta report: "the note/text input box is
+            locked/stuck on the screen. it can't adjust, the k/b blocks part
+            of it, you can't move or hide the k/b, and can't even get to the
+            Done/Save blue button." Root cause: this Add Note modal had
+            neither a KeyboardAvoidingView nor a ScrollView -- a vertically-
+            centered card with an empty multiline body input and no keyboard
+            accommodation at all, unlike the sibling view/edit-note modal
+            above (which already scrolls). KeyboardAvoidingView shifts the
+            whole centered card up so the keyboard doesn't just cover
+            whatever's behind it; the inner ScrollView is the fallback for
+            whatever's still too tall once the card itself has been shifted
+            as far as it can go. */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <View style={[styles.modalBackdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+            <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.headerTitle, { color: tokens.t1, fontSize: fs(16) }]}>New Note</Text>
+                <Pressable onPress={() => setAddNoteVisible(false)} hitSlop={10}>
+                  <Icon name="xmark" size={fs(18)} color={tokens.t3} />
+                </Pressable>
+              </View>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                <TextInput
+                  style={[styles.modalTitleInput, { color: tokens.t1, fontSize: ifs(18), borderColor: tokens.bdr2 }]}
+                  value={newNoteTitle}
+                  onChangeText={setNewNoteTitle}
+                  placeholder="Title"
+                  placeholderTextColor={tokens.t3}
+                  autoFocus
+                />
+                <TextInput
+                  style={[styles.modalBodyInput, { color: tokens.t2, fontSize: ifs(14.5), borderColor: tokens.bdr2 }]}
+                  value={newNoteBody}
+                  onChangeText={setNewNoteBody}
+                  placeholder="Note"
+                  placeholderTextColor={tokens.t3}
+                  multiline
+                />
+                <Pressable
+                  style={[styles.saveNoteBtn, { backgroundColor: tokens.blu, opacity: newNoteTitle.trim() && !savingNote ? 1 : 0.5 }]}
+                  onPress={handleAddNote}
+                  disabled={!newNoteTitle.trim() || savingNote}
+                >
+                  <Text style={[styles.saveNoteBtnText, { fontSize: fs(14) }]}>{savingNote ? 'Adding…' : 'Add Note'}</Text>
+                </Pressable>
+              </ScrollView>
             </View>
-            <TextInput
-              style={[styles.modalTitleInput, { color: tokens.t1, fontSize: ifs(18), borderColor: tokens.bdr2 }]}
-              value={newNoteTitle}
-              onChangeText={setNewNoteTitle}
-              placeholder="Title"
-              placeholderTextColor={tokens.t3}
-              autoFocus
-            />
-            <TextInput
-              style={[styles.modalBodyInput, { color: tokens.t2, fontSize: ifs(14.5), borderColor: tokens.bdr2 }]}
-              value={newNoteBody}
-              onChangeText={setNewNoteBody}
-              placeholder="Note"
-              placeholderTextColor={tokens.t3}
-              multiline
-            />
-            <Pressable
-              style={[styles.saveNoteBtn, { backgroundColor: tokens.blu, opacity: newNoteTitle.trim() && !savingNote ? 1 : 0.5 }]}
-              onPress={handleAddNote}
-              disabled={!newNoteTitle.trim() || savingNote}
-            >
-              <Text style={[styles.saveNoteBtnText, { fontSize: fs(14) }]}>{savingNote ? 'Adding…' : 'Add Note'}</Text>
-            </Pressable>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   )
