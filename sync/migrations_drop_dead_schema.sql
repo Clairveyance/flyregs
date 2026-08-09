@@ -1,0 +1,37 @@
+-- Dropping 2 relations confirmed dead during the 2026-08-09 night-rules dead-schema
+-- sweep (see PROJECT_NOTES/flyregs_pending.md's "full RLS-vs-GRANT consistency sweep"
+-- and "dead-schema sweep extended to all 71 public relations" entries). Both were
+-- positively confirmed via exhaustive grep across src/, scripts/, sync/, supabase/
+-- and a search of every live Postgres function body (pg_proc.prosrc) -- zero
+-- references anywhere. RC approved dropping both on 2026-08-09.
+--
+-- user_bookmarks: pre-sync-rewrite legacy table, fully superseded by
+-- synced_bookmarks (which has real CRUD grants and is used throughout
+-- sync.ts/syncPush.ts/sharedFolders.ts). Had 0 rows at drop time -- zero data
+-- loss. Schema for the record, in case anything ever needs to be resurrected:
+--
+--   CREATE TABLE public.user_bookmarks (
+--     id uuid,
+--     user_id uuid,
+--     ac_id uuid,
+--     note text,
+--     created_at timestamp with time zone
+--   );
+--   -- RLS: "Bookmarks: own rows only" FOR ALL USING (auth.uid() = user_id)
+--
+-- recent_acs: a convenience view (top-50 recently-updated active ACs), never
+-- actually queried by any RPC, script, or client code -- its only reference
+-- anywhere was being listed in this same file's own earlier GRANT lockdown
+-- statement. No stored data of its own (a view), zero risk. Definition for
+-- the record:
+--
+--   CREATE VIEW public.recent_acs AS
+--     SELECT id, document_number, title, date_issued, office, subject_series,
+--            description, updated_at
+--     FROM advisory_circulars
+--     WHERE status = 'active'
+--     ORDER BY updated_at DESC
+--     LIMIT 50;
+
+DROP TABLE IF EXISTS public.user_bookmarks;
+DROP VIEW IF EXISTS public.recent_acs;

@@ -17,8 +17,26 @@ import {
   DUPLICATE_FOLDER_NAME,
   PLUS_FOLDER_CAP,
 } from '@/lib/folders'
+import {
+  getMyCollaborations,
+  addExistingItemToSharedFolder,
+  removeExistingItemFromSharedFolder,
+  getSharedFolderMembership,
+  SharedFolderSummary,
+  SEED_NOTE_NOT_SHAREABLE,
+} from '@/lib/sharedFolders'
 import { addManyBookmarks, BookmarkAC } from '@/lib/bookmarks'
 import { useConfirm } from '@/components/ConfirmDialog'
+
+// BB-082: a folder shared with you (with read/write access) previously
+// couldn't appear here at all -- this picker only ever called getFolders()
+// (this account's own local folders), so a folder you'd joined literally
+// had no way to show up, even though the server-side RLS already fully
+// supports a read_write collaborator inserting into it
+// (editors_manage_shared_folder_items, see sharedFolders.ts). Read-only
+// collaborations are deliberately excluded -- offering a folder here that
+// would just fail on tap is worse than not showing it.
+type PickerRow = { kind: 'own'; folder: Folder } | { kind: 'shared'; folder: SharedFolderSummary }
 
 interface Props {
   visible: boolean
@@ -54,6 +72,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   const ifs = useInputFS()
   const { hasPlusAccess, isPremium } = useAuth()
   const [folders, setFolders] = useState<Folder[]>([])
+  const [sharedFolders, setSharedFolders] = useState<SharedFolderSummary[]>([])
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({})
   const [memberIds, setMemberIds] = useState<Set<string>>(new Set())
   const [addedNames, setAddedNames] = useState<string[]>([])
@@ -93,14 +112,21 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   }, [creating])
 
   const load = async () => {
-    const [allFolders, memberFolderIds, counts] = await Promise.all([
+    const [allFolders, memberFolderIds, counts, collaborations] = await Promise.all([
       getFolders(),
       getFoldersForItem(itemType, itemId),
       getFolderItemCounts(),
+      getMyCollaborations(),
     ])
+    const writable = collaborations.filter((c) => c.collabMode === 'read_write')
     setFolders(allFolders)
+    setSharedFolders(writable)
     setMemberIds(new Set(memberFolderIds))
     setItemCounts(counts)
+    if (writable.length) {
+      const foreignMembers = await getSharedFolderMembership(writable.map((w) => w.folder_id), itemType, itemId)
+      setMemberIds((prev) => new Set([...prev, ...foreignMembers]))
+    }
   }
 
   // Multi-select: tapping a folder toggles membership without closing, so
@@ -119,6 +145,31 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
       setMemberIds((prev) => new Set([...prev, folder.id]))
       setAddedNames((prev) => [...prev, folder.name])
       setItemCounts((prev) => ({ ...prev, [folder.id]: (prev[folder.id] ?? 0) + 1 }))
+    }
+  }
+
+  // Foreign-folder counterpart to toggle() -- no acMeta/addManyBookmarks step
+  // here: a foreign folder's contents resolve on the OWNER's side via
+  // resolveForeignFolderEntries reading the real content tables directly,
+  // never through MY bookmarks, so there's nothing local to seed.
+  const toggleShared = async (folder: SharedFolderSummary) => {
+    const id = folder.folder_id
+    if (memberIds.has(id)) {
+      await removeExistingItemFromSharedFolder(id, itemType, itemId)
+      setMemberIds((prev) => { const s = new Set(prev); s.delete(id); return s })
+      setAddedNames((prev) => prev.filter((n) => n !== folder.folder_name))
+    } else {
+      try {
+        await addExistingItemToSharedFolder(id, itemType, itemId)
+      } catch (e) {
+        if (e instanceof Error && e.message === SEED_NOTE_NOT_SHAREABLE) {
+          confirm({ title: "Can't Share This Note", message: 'This is one of the starter demo notes -- create your own note to share into this folder.', cancelLabel: null })
+          return
+        }
+        throw e
+      }
+      setMemberIds((prev) => new Set([...prev, id]))
+      setAddedNames((prev) => [...prev, folder.folder_name])
     }
   }
 
@@ -206,24 +257,59 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
             </Pressable>
           </View>
 
-          {/* Folder list */}
-          {folders.length === 0 && !creating ? (
+          {/* Folder list -- own folders first, then any read/write shared-with-me
+              folders (BB-082). Single FlatList (not two nested lists) so the
+              sheet scrolls as one unit. */}
+          {folders.length === 0 && sharedFolders.length === 0 && !creating ? (
             <Text style={[styles.emptyText, { color: tokens.t3, fontSize: fs(13) }]}>
               No folders yet — create one below.
             </Text>
           ) : (
             <FlatList
-              data={folders}
-              keyExtractor={(f) => f.id}
+              data={[
+                ...folders.map((f): PickerRow => ({ kind: 'own', folder: f })),
+                ...sharedFolders.map((f): PickerRow => ({ kind: 'shared', folder: f })),
+              ]}
+              keyExtractor={(row) => (row.kind === 'own' ? row.folder.id : row.folder.folder_id)}
               style={styles.list}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="interactive"
-              renderItem={({ item }) => {
-                const isMember = memberIds.has(item.id)
+              renderItem={({ item: row }) => {
+                if (row.kind === 'own') {
+                  const item = row.folder
+                  const isMember = memberIds.has(item.id)
+                  return (
+                    <Pressable
+                      style={[styles.folderRow, { borderBottomColor: tokens.bdr }]}
+                      onPress={() => toggle(item)}
+                    >
+                      <Icon
+                        name={isMember ? 'folder.fill' : 'folder'}
+                        size={fs(19)}
+                        color={isMember ? tokens.blu : tokens.t3}
+                      />
+                      <View style={styles.folderNameRow}>
+                        <Text style={[styles.folderName, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
+                          {item.name}
+                        </Text>
+                        {!!itemCounts[item.id] && (
+                          <Text style={[styles.folderCount, { color: tokens.t3, fontSize: fs(13) }]}>
+                            ({itemCounts[item.id]})
+                          </Text>
+                        )}
+                      </View>
+                      {isMember && (
+                        <Icon name="checkmark" size={fs(14)} color={tokens.blu} />
+                      )}
+                    </Pressable>
+                  )
+                }
+                const item = row.folder
+                const isMember = memberIds.has(item.folder_id)
                 return (
                   <Pressable
                     style={[styles.folderRow, { borderBottomColor: tokens.bdr }]}
-                    onPress={() => toggle(item)}
+                    onPress={() => toggleShared(item)}
                   >
                     <Icon
                       name={isMember ? 'folder.fill' : 'folder'}
@@ -232,11 +318,11 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
                     />
                     <View style={styles.folderNameRow}>
                       <Text style={[styles.folderName, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
-                        {item.name}
+                        {item.folder_name}
                       </Text>
-                      {!!itemCounts[item.id] && (
-                        <Text style={[styles.folderCount, { color: tokens.t3, fontSize: fs(13) }]}>
-                          ({itemCounts[item.id]})
+                      {!!item.ownerDisplayName && (
+                        <Text style={[styles.folderCount, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={1}>
+                          Shared by {item.ownerDisplayName}
                         </Text>
                       )}
                     </View>

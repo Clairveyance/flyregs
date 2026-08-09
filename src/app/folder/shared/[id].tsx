@@ -11,7 +11,7 @@ import {
   getSharedFolderACItems, getSharedFolderNoteItems, leaveSharedFolder, markSharedFolderViewed,
   getSharedFolderFARItems, getSharedFolderAIMItems, getSharedFolderPCGItems, getSharedFolderADItems, getSharedFolderLOIItems,
   getSharedFolderDictionaryItems, FolderCollabMode, removeSharedFolderItem, addSharedFolderNote, updateSharedNote,
-  resolveMissingAsHighlights,
+  resolveMissingAsHighlights, useFolderRealtime,
 } from '@/lib/sharedFolders'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
@@ -298,6 +298,11 @@ export default function SharedFolderDetail() {
   }, [id])
 
   useFocusEffect(useCallback(() => { load() }, [load]))
+
+  // Live push on top of the pull-on-focus above -- sees the owner's edits
+  // (or another collaborator's) while this screen is already open, not
+  // just on the next focus.
+  useFolderRealtime(typeof id === 'string' ? id : undefined, load)
 
   // Clears the unread dot in Saved > Shared > With Me the moment the
   // collaborator actually opens this folder -- fire-and-forget, not

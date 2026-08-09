@@ -10,6 +10,7 @@ import Reanimated, {
   type SharedValue,
 } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
+import * as Haptics from 'expo-haptics'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
@@ -260,7 +261,10 @@ export function FolderListView({
               dragIndexDelta={dragId === item.id ? index - dragStartIndex : 0}
               rowHeight={rowHeight}
               onLayoutHeight={onRowLayout}
-              onDragStart={() => { setDragStartIndex(index); setDragHoverIndex(index); setDragId(item.id) }}
+              onDragStart={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+            setDragStartIndex(index); setDragHoverIndex(index); setDragId(item.id)
+          }}
               onDragUpdate={(translationY: number) => handleDragUpdate(translationY, index, displayFolders.length)}
               onDragEnd={handleDragEnd}
             />
@@ -317,20 +321,20 @@ function SwipeableFolderRow({
       }
     })
 
-  // Only active on the small drag-handle icon (not the whole row), so it
-  // never has to be composed against panGesture (swipe) or the row's own tap
-  // -- both of those are already disabled in reorderMode anyway.
-  // Same directional-gating technique panGesture above already relies on
-  // (proven on real devices this session, unlike this drag gesture at first
-  // -- RC: "my drag to reorder Folders isn't working in phone dev"). Without
-  // an explicit activeOffsetY, an ungated Pan on this small handle loses
-  // gesture arbitration to the parent FlatList's own scroll responder on
-  // native and never activates at all -- it only "worked" in the Browser
-  // preview because synthetic DOM pointer events have no competing native
-  // scroll responder to lose against.
+  // Whole-row press-and-hold-then-drag, not a tiny handle icon. Previously
+  // this only lived on a ~20px handle icon reached via a separate
+  // GestureDetector nested inside this row's own -- RC reported "press/hold
+  // ... nothing" on real device, and pressing/holding the row itself (the
+  // natural gesture, matching iOS's own long-press-then-drag pattern) was
+  // never wired to anything at all. activateAfterLongPress is RNGH's
+  // purpose-built solution for exactly this arbitration problem: the pan
+  // simply doesn't activate until the hold duration elapses, so it never
+  // competes with the parent FlatList's native scroll responder on a quick
+  // swipe/scroll -- unlike the old manual activeOffsetY/failOffsetX gating,
+  // which was never confirmed working on real hardware.
   const dragGesture = Gesture.Pan()
-    .activeOffsetY([-8, 8])
-    .failOffsetX([-10, 10])
+    .activateAfterLongPress(300)
+    .enabled(!selectMode && reorderMode)
     .onStart(() => {
       if (onDragStart) runOnJS(onDragStart)()
     })
@@ -340,6 +344,11 @@ function SwipeableFolderRow({
     .onEnd(() => {
       if (onDragEnd) runOnJS(onDragEnd)()
     })
+
+  // Only one of these ever applies to a row at a time -- reorderMode already
+  // disables panGesture (swipe) and enables dragGesture, so picking directly
+  // avoids composing two gesture recognizers against each other at all.
+  const rowGesture = reorderMode ? dragGesture : panGesture
 
   const cardStyle = useAnimatedStyle(() => ({
     transform: [
@@ -381,7 +390,7 @@ function SwipeableFolderRow({
         </Pressable>
       </View>
 
-      <GestureDetector gesture={panGesture}>
+      <GestureDetector gesture={rowGesture}>
         <Reanimated.View style={cardStyle}>
           <Pressable
             style={[
@@ -427,11 +436,12 @@ function SwipeableFolderRow({
               </>
             )}
             {reorderMode && (
-              <GestureDetector gesture={dragGesture}>
-                <Reanimated.View style={styles.dragHandle} hitSlop={12}>
-                  <Icon name="arrow.up.arrow.down" size={fs(20)} color={tokens.t3} />
-                </Reanimated.View>
-              </GestureDetector>
+              // Purely decorative now -- the whole row is the drag target
+              // (rowGesture above), not just this icon. Kept as a visual
+              // affordance so it's still obvious the row is draggable.
+              <View style={styles.dragHandle}>
+                <Icon name="arrow.up.arrow.down" size={fs(20)} color={tokens.t3} />
+              </View>
             )}
           </Pressable>
         </Reanimated.View>

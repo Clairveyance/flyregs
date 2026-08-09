@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Animated, PanResponder, Platform, RefreshControl } from 'react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
@@ -20,6 +19,7 @@ import {
   removeFromFolder,
   removeManyFromFolder,
   addToFolder,
+  removeItemsFromAllFolders,
   Folder,
   FolderItem,
   DUPLICATE_FOLDER_NAME,
@@ -33,23 +33,16 @@ import { REG_TYPE, RegType } from '@/lib/regTypes'
 import { highlightSnippet } from '@/lib/acShare'
 import {
   getOrCreateShareLink, confirmFolderShared, getFolderCollaborators, removeCollaborator, FolderCollaborator,
-  getFolderCollabMode, setFolderCollabMode, FolderCollabMode, resolveForeignFolderEntries,
+  getFolderCollabMode, setFolderCollabMode, FolderCollabMode, resolveForeignFolderEntries, updateSharedNote,
+  useFolderRealtime,
 } from '@/lib/sharedFolders'
 import { syncFolderFromCloud } from '@/lib/sync'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { stripFarPrefix, rowTitle } from '@/lib/titleFormat'
 import { useConfirm } from '@/components/ConfirmDialog'
-
-// ── Local Note type (mirrors notes.tsx — local-first AsyncStorage notes) ──────
-interface Note {
-  id: string
-  title: string
-  body: string
-  linked_ac: string | null
-  updated_at: string
-}
-
-const NOTES_KEY = '@flyregs/notes'
+import { getNotes, saveNotes, type Note } from '@/lib/notes'
+import { syncPushNote, syncPushNoteDeletes } from '@/lib/syncPush'
+import { NoteEditor } from '@/components/NoteEditor'
 
 // ── Unified entry for the mixed-content list ──────────────────────────────────
 type ACEntry  = { kind: 'ac';   data: BookmarkAC;  folderItem: FolderItem }
@@ -98,17 +91,16 @@ export default function FolderDetail() {
   // still runs the cloud sync, just after this local render, then re-runs
   // this to pick up anything the sync just pulled in.
   const loadLocal = useCallback(async () => {
-    const [folders, items, bookmarks, notesRaw] = await Promise.all([
+    const [folders, items, bookmarks, notes] = await Promise.all([
       getFolders(),
       getItemsInFolder(id),
       getBookmarks(),
-      AsyncStorage.getItem(NOTES_KEY),
+      getNotes(),
     ])
 
     const thisFolder = folders.find((f) => f.id === id) ?? null
     setFolder(thisFolder)
 
-    const notes: Note[] = notesRaw ? JSON.parse(notesRaw) : []
     const bookmarkMap = new Map(bookmarks.map((b) => [b.id, b]))
     const noteMap = new Map(notes.map((n) => [n.id, n]))
 
@@ -197,6 +189,11 @@ export default function FolderDetail() {
 
   useFocusEffect(useCallback(() => { load() }, [load]))
 
+  // Live push on top of the pull-on-focus above -- sees a collaborator's
+  // edit (item add/remove, note create/edit) while this screen is already
+  // open, not just on the next focus.
+  useFolderRealtime(typeof id === 'string' ? id : undefined, load)
+
   useEffect(() => {
     const ids = [...new Set(acEntries.map((e) => e.data.acId ?? e.data.id))]
     if (ids.length === 0) { setBadgeDataById({}); return }
@@ -273,6 +270,12 @@ export default function FolderDetail() {
   const [moveItem, setMoveItem] = useState<FolderItem | null>(null)
   const [confirmTick, setConfirmTick] = useState(0)
   const [confirmLabel, setConfirmLabel] = useState('')
+  // BB-080: tapping a note used to navigate to the Notes tab
+  // (router.push({ pathname: '/(tabs)/notes', params: { openId } })), which
+  // meant "back" left this folder screen entirely instead of returning to
+  // it. Editing inline here instead, same NoteEditor component notes.tsx
+  // uses.
+  const [editorNote, setEditorNote] = useState<Note | null>(null)
 
   const handleMove = (item: FolderItem) => setMoveItem(item)
 
@@ -403,6 +406,42 @@ export default function FolderDetail() {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     shareNote(note)
   }
+
+  // Mirrors notes.tsx's handleSave/deleteNote exactly -- a note pulled in
+  // because a collaborator placed it in a folder THIS account owns
+  // (authorId set, see sync.ts's mergeNotes) isn't mine to upsert; route
+  // that edit through updateSharedNote (plain update-by-id) instead of the
+  // normal syncPushNote upsert, which keys on (user_id, id) and would
+  // create a duplicate row under my own id rather than update the original.
+  const handleSaveNote = async (note: Note) => {
+    const updated = { ...note, updated_at: new Date().toISOString() }
+    const all = await getNotes()
+    await saveNotes(all.map((n) => (n.id === updated.id ? updated : n)))
+    setNoteEntries((prev) => prev.map((e) => (e.data.id === updated.id ? { ...e, data: updated } : e)))
+    if (updated.authorId) {
+      updateSharedNote(updated.id, { title: updated.title, body: updated.body })
+    } else {
+      syncPushNote(updated)
+    }
+    setEditorNote(null)
+  }
+
+  const handleDeleteNote = (note: Note) =>
+    confirm({
+      title: 'Delete Note',
+      message: "This can't be undone.",
+      confirmLabel: 'Delete',
+      destructive: true,
+      twoStep: false,
+      onConfirm: async () => {
+        const all = await getNotes()
+        await saveNotes(all.filter((n) => n.id !== note.id))
+        syncPushNoteDeletes([note.id])
+        removeItemsFromAllFolders('note', [note.id])
+        setNoteEntries((prev) => prev.filter((e) => e.data.id !== note.id))
+        setEditorNote(null)
+      },
+    })
 
   const activeCollaborators = collaborators.filter((c) => !c.leftAt)
   const leftCollaborators = collaborators.filter((c) => c.leftAt)
@@ -590,7 +629,7 @@ export default function FolderDetail() {
               <SwipeableNoteRow
                 entry={item}
                 tokens={tokens}
-                onPress={() => router.push({ pathname: '/(tabs)/notes', params: { openId: item.data.id } })}
+                onPress={() => setEditorNote({ ...item.data })}
                 onRemove={() => handleRemove(item.folderItem)}
                 onMove={() => handleMove(item.folderItem)}
                 onShare={() => handleShareNote(item.data)}
@@ -599,6 +638,19 @@ export default function FolderDetail() {
           }
         />
         </TabletContainer>
+      )}
+
+      {/* Note editor overlay -- inline now (BB-080), no navigation away */}
+      {editorNote !== null && (
+        <NoteEditor
+          note={editorNote}
+          tokens={tokens}
+          backLabel={folder?.name ?? 'Folder'}
+          onSave={handleSaveNote}
+          onClose={() => setEditorNote(null)}
+          onDelete={() => handleDeleteNote(editorNote)}
+          onShare={() => handleShareNote(editorNote)}
+        />
       )}
 
       {/* Tapping anywhere below the header/rename-bar while renaming cancels

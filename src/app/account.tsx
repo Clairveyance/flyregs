@@ -237,6 +237,18 @@ export default function AccountScreen() {
   const handleToggleLeaderboard = async (v: boolean) => {
     if (!session?.user?.id) return
     if (v && !isPro) { router.push('/paywall'); return }
+    // Every leaderboard RPC's display name falls back to a generic "Pilot"
+    // when no Callsign is set (see sync/migrations_fix_leaderboard_email_
+    // exposure.sql) -- safe, but not personalized. Require a real Callsign
+    // before opt-in so nobody shows up on a leaderboard as just "Pilot."
+    if (v && !existingCallsign.trim()) {
+      confirm({
+        title: 'Set a Callsign First',
+        message: 'The Ready Room leaderboard shows your Callsign to other pilots -- set one above, then turn this on.',
+        cancelLabel: null,
+      })
+      return
+    }
     setLeaderboardBusy(true)
     try {
       await setLeaderboardOptIn(session.user.id, v)

@@ -1,0 +1,16 @@
+-- Enables Supabase Realtime (Postgres Changes) for the three tables that
+-- drive shared-folder sync. Previously the app was pull-on-focus only
+-- (useFocusEffect) -- opening a screen someone already had open, and
+-- backgrounding/refocusing, was the only way to see a collaborator's
+-- change. None of these tables were in the supabase_realtime publication
+-- at all before this migration (confirmed via pg_publication_tables).
+--
+-- REPLICA IDENTITY is left at DEFAULT (primary key) -- confirmed via
+-- pg_class.relreplident='d' already on all three -- sufficient here since
+-- the client only needs a change SIGNAL to trigger its own existing
+-- pull-based reload, not the old row's full column values.
+--
+-- Realtime's Postgres Changes feature authorizes each change against the
+-- connected client's own RLS policies, so this does not bypass or change
+-- any existing access control on these tables.
+ALTER PUBLICATION supabase_realtime ADD TABLE public.synced_folder_items, public.synced_notes, public.synced_folders;

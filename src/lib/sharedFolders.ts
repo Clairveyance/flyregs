@@ -1,8 +1,13 @@
+import { useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { syncPushFolder, syncPushFolderItems, syncPushNote } from '@/lib/syncPush'
 import { getFolders, getItemsInFolder, markFolderShared, FolderItem, FolderItemType } from '@/lib/folders'
-import { getNotes } from '@/lib/notes'
+import { getNotes, isSeedNote } from '@/lib/notes'
 import type { BookmarkAC } from '@/lib/bookmarks'
+
+function makeItemId(): string {
+  return `item-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
+}
 
 // Real folder sharing: an owner generates an invite link, anyone who redeems
 // it gets access to that folder's bookmarks and notes across their own
@@ -24,6 +29,12 @@ export interface SharedFolderSummary {
    * unread dot in With Me, matching the unread-email convention. Never
    * re-appears after the first open, even if the owner adds more ACs later. */
   isUnread?: boolean
+  /** BB-082: whether THIS collaborator can write into the folder, not just
+   * read it -- read_write is a flag on the folder (synced_folders.collab_mode),
+   * not a role tied to the person, so the same account can be a viewer on one
+   * shared folder and an editor on another. FolderPicker.tsx uses this to
+   * decide which of a user's collaborations to even offer as an add target. */
+  collabMode?: 'read_only' | 'read_write'
 }
 
 function makeShareToken(): string {
@@ -132,9 +143,9 @@ export async function getMyCollaborations(): Promise<SharedFolderSummary[]> {
   // filter a collaborator would keep seeing a folder the owner thinks is gone.
   const { data: folders } = await supabase
     .from('synced_folders')
-    .select('id, name')
+    .select('id, name, collab_mode')
     .in('id', folderIds)
-    .eq('deleted', false)
+    .eq('deleted', false) as { data: { id: string; name: string; collab_mode: FolderCollabMode | null }[] | null }
   if (!folders?.length) return []
 
   // Best-effort: owner avatar/name is a nice-to-have, not load-bearing --
@@ -156,6 +167,7 @@ export async function getMyCollaborations(): Promise<SharedFolderSummary[]> {
     ownerAvatarPreset: ownerMap.get(f.id)?.avatarPreset ?? null,
     ownerDisplayName: ownerMap.get(f.id)?.displayName ?? null,
     isUnread: unreadMap.get(f.id) ?? false,
+    collabMode: f.collab_mode ?? 'read_only',
   }))
 }
 
@@ -392,6 +404,89 @@ export async function removeSharedFolderItem(itemRowId: string): Promise<void> {
   if (error) throw error
 }
 
+// BB-082: lets a read_write collaborator add an EXISTING item (an AC/FAR/
+// AIM/PCG/AD/LOI/dictionary bookmark, or one of their own already-written
+// notes) into a folder they don't own, from the app-wide FolderPicker --
+// previously the only cross-account write here was addSharedFolderNote,
+// which creates a brand-new note, not "file this existing thing into
+// someone else's folder." Server-side this was already fully supported and
+// unused: editors_manage_shared_folder_items' RLS policy (has_folder_access
+// with p_require_editor=true) already permits exactly this insert, gated on
+// the folder's own collab_mode -- no new RPC or migration needed, just the
+// client-side call nothing was making.
+//
+// Inserted under the CALLER's own user_id (an insert, not an update, so the
+// normal RLS insert path applies) -- mirrors addSharedFolderNote's item
+// pointer exactly. Silently no-ops if already present (same idempotent
+// shape as addManyToFolder's own dedupe), so a caller doesn't need to
+// pre-check membership itself.
+// Thrown by addExistingItemToSharedFolder when asked to share one of the
+// fake demo notes every fresh install starts with (id prefix "seed-", see
+// lib/notes.ts's isSeedNote) -- caught live in testing: without this guard,
+// the note got force-pushed to synced_notes and a folder_item pointer was
+// created, silently handing a collaborator fake placeholder content under
+// a real cloud row. Seed notes are supposed to never leave the device (see
+// sync.ts's own isSeedNote checks) -- this is the one path that didn't
+// check yet.
+export const SEED_NOTE_NOT_SHAREABLE = 'SEED_NOTE_NOT_SHAREABLE'
+
+export async function addExistingItemToSharedFolder(folderId: string, itemType: FolderItemType, itemId: string): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not signed in')
+
+  if (itemType === 'note' && isSeedNote(itemId)) throw new Error(SEED_NOTE_NOT_SHAREABLE)
+
+  const { data: existing } = await supabase
+    .from('synced_folder_items')
+    .select('id')
+    .eq('folder_id', folderId).eq('item_type', itemType).eq('item_id', itemId).eq('deleted', false)
+    .maybeSingle()
+  if (existing) return
+
+  // A note this account has never pushed to the cloud (Back-up & Sync off,
+  // or on but this note predates it) has no synced_notes row for the
+  // folder owner to read via owners_manage_shared_notes/editors_manage_
+  // shared_notes -- force-push it now regardless of that toggle, same as
+  // getOrCreateShareLink already does for the OWNER's own shared-folder
+  // notes. Without this, the folder_item pointer would insert cleanly but
+  // resolve to nothing on the owner's side.
+  if (itemType === 'note') {
+    const notes = await getNotes()
+    const note = notes.find((n) => n.id === itemId)
+    if (note) await syncPushNote(note, true)
+  }
+
+  const now = new Date().toISOString()
+  const { error } = await supabase.from('synced_folder_items').insert({
+    id: makeItemId(), user_id: user.id, folder_id: folderId, item_type: itemType, item_id: itemId,
+    added_at: now, updated_at: now, deleted: false,
+  })
+  if (error) throw error
+}
+
+// The remove counterpart -- unlike removeSharedFolderItem (which targets a
+// known synced_folder_items row id), FolderPicker only ever knows the
+// (folder, type, item) triple, same as its own local removeFromFolder.
+export async function removeExistingItemFromSharedFolder(folderId: string, itemType: FolderItemType, itemId: string): Promise<void> {
+  const { error } = await supabase
+    .from('synced_folder_items')
+    .update({ deleted: true, updated_at: new Date().toISOString() })
+    .eq('folder_id', folderId).eq('item_type', itemType).eq('item_id', itemId).eq('deleted', false)
+  if (error) throw error
+}
+
+// Which of the given foreign folders already contain this item -- lets
+// FolderPicker seed its membership checkmarks for shared folders the same
+// way getFoldersForItem does for the user's own local ones.
+export async function getSharedFolderMembership(folderIds: string[], itemType: FolderItemType, itemId: string): Promise<Set<string>> {
+  if (!folderIds.length) return new Set()
+  const { data } = await supabase
+    .from('synced_folder_items')
+    .select('folder_id')
+    .in('folder_id', folderIds).eq('item_type', itemType).eq('item_id', itemId).eq('deleted', false)
+  return new Set((data ?? []).map((r) => r.folder_id))
+}
+
 // Adds a brand-new note directly into a shared folder -- always inserted
 // under the CALLER's own user_id (an insert, unlike the update helpers
 // above, so the normal RLS insert path applies: users_manage_own_synced_
@@ -610,4 +705,43 @@ export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<
   }
 
   return results
+}
+
+// Everything above this line is pull-on-focus only (`useFocusEffect`) --
+// this hook is the one live-push mechanism in the app. It doesn't fetch
+// anything itself; it just re-fires `onChange` (the screen's own existing
+// `load()`) whenever a row this account is RLS-authorized to see changes
+// in one of the three tables that make up a shared folder. That's enough
+// for both the owner's `folder/[id].tsx` and the collaborator's
+// `folder/shared/[id].tsx` to see each other's edits without needing to
+// background/refocus the screen first -- closing the exact gap
+// [[gotcha_bb086_089_shared_sync_verified]] documented as still real and
+// unbuilt. `synced_notes` has no folder_id column, so it's subscribed
+// unfiltered -- Realtime still authorizes each event against this
+// client's own RLS policies, so a note this account can't see never
+// arrives; it just means a completely unrelated note edit can trigger one
+// extra (harmless, idempotent) reload of an open folder screen. Debounced
+// so a burst of changes (e.g. adding 5 items) triggers one reload, not 5.
+export function useFolderRealtime(folderId: string | undefined, onChange: () => void): void {
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+
+  useEffect(() => {
+    if (!folderId) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const debounced = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => onChangeRef.current(), 400)
+    }
+    const channel = supabase
+      .channel(`folder-realtime-${folderId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'synced_folder_items', filter: `folder_id=eq.${folderId}` }, debounced)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'synced_notes' }, debounced)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'synced_folders', filter: `id=eq.${folderId}` }, debounced)
+      .subscribe()
+    return () => {
+      if (timer) clearTimeout(timer)
+      supabase.removeChannel(channel)
+    }
+  }, [folderId])
 }
