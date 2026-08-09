@@ -8,6 +8,8 @@ import { Icon } from '@/components/Icon'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { markJustConfirmed } from '@/lib/justConfirmed'
 import { useConfirm } from '@/components/ConfirmDialog'
+import * as Biometric from '@/lib/biometricAuth'
+import { supabase } from '@/lib/supabase'
 
 const WORDMARK_ASPECT = 1915 / 1428 // flyregs-wordmark.png width/height
 
@@ -43,8 +45,69 @@ export default function AuthScreen() {
   const [emailError, setEmailError] = useState<string | null>(null)
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  // BB-008/#422: Face ID/Touch ID as a faster alternative to typing
+  // email+password -- see lib/biometricAuth.ts for the full design. null
+  // means "not available/not enabled," so the button stays hidden by default
+  // until this resolves (native-only; expo-local-authentication has no web
+  // implementation, so this always stays null in the web preview).
+  const [biometricEmail, setBiometricEmail] = useState<string | null>(null)
+  const [biometricLabel, setBiometricLabel] = useState('Face ID')
+  const [biometricBusy, setBiometricBusy] = useState(false)
+
+  useEffect(() => {
+    if (mode !== 'signin') return
+    let cancelled = false
+    ;(async () => {
+      const enabled = await Biometric.isBiometricSignInEnabled()
+      if (!enabled) return
+      const [storedEmail, label] = await Promise.all([Biometric.getBiometricSignInEmail(), Biometric.biometricLabel()])
+      if (cancelled) return
+      setBiometricEmail(storedEmail)
+      setBiometricLabel(label)
+    })()
+    return () => { cancelled = true }
+  }, [mode])
 
   const clearErrors = () => { setEmailError(null); setPasswordError(null); setFormError(null) }
+
+  const handleBiometricSignIn = async () => {
+    setFormError(null)
+    setBiometricBusy(true)
+    try {
+      const signedInEmail = await Biometric.signInWithBiometric()
+      if (signedInEmail) router.dismiss()
+      // null means the user cancelled the prompt -- stay on this screen with
+      // no error, exactly like tapping away from a native biometric sheet.
+    } catch {
+      setBiometricEmail(null)
+      setFormError('Your saved sign-in has expired. Please sign in with your password.')
+    }
+    setBiometricBusy(false)
+  }
+
+  // Offered once, right after a real password sign-in, only if biometric
+  // hardware exists, it isn't already enabled, and the user hasn't already
+  // said no once before (checked, not just assumed, each time -- a user who
+  // enables it on one account and later signs into a different one should
+  // still get asked, since enabling always overwrites to the current
+  // session).
+  const maybeOfferBiometricEnroll = async () => {
+    if (!(await Biometric.isHardwareAvailable())) return
+    if (await Biometric.isBiometricSignInEnabled()) return
+    if (await Biometric.hasDeclinedBiometricPrompt()) return
+    const { data } = await supabase.auth.getSession()
+    const session = data.session
+    if (!session) return
+    const label = await Biometric.biometricLabel()
+    confirm({
+      title: `Sign in with ${label}?`,
+      message: `Skip typing your email and password next time on this device.`,
+      confirmLabel: 'Enable',
+      cancelLabel: 'Not Now',
+      onConfirm: async () => { await Biometric.enableBiometricSignIn(session) },
+      onCancel: () => { Biometric.markBiometricPromptDeclined() },
+    })
+  }
 
   const handleSubmit = async () => {
     const trimmedEmail = email.trim()
@@ -59,6 +122,7 @@ export default function AuthScreen() {
     try {
       if (mode === 'signin') {
         await signIn(trimmedEmail, password)
+        await maybeOfferBiometricEnroll()
         router.dismiss()
       } else {
         await signUp(trimmedEmail, password)
@@ -318,6 +382,32 @@ export default function AuthScreen() {
                 : "It's free to create an account — Pro and Premium features unlock once you subscribe."}
             </Text>
 
+            {mode === 'signin' && biometricEmail && (
+              <>
+                <Pressable
+                  style={[styles.btn, styles.biometricBtn, { borderColor: tokens.blu }, biometricBusy && styles.btnDisabled]}
+                  onPress={handleBiometricSignIn}
+                  disabled={biometricBusy}
+                >
+                  {biometricBusy ? (
+                    <ActivityIndicator color={tokens.blu} />
+                  ) : (
+                    <>
+                      <Icon name="faceid" size={fs(18)} color={tokens.blu} />
+                      <Text style={[styles.btnText, { color: tokens.blu, fontSize: fs(16) }]}>
+                        Sign in as {biometricEmail}
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
+                <View style={styles.dividerRow}>
+                  <View style={[styles.dividerLine, { backgroundColor: tokens.bdr }]} />
+                  <Text style={[styles.dividerText, { color: tokens.t4, fontSize: fs(12) }]}>or</Text>
+                  <View style={[styles.dividerLine, { backgroundColor: tokens.bdr }]} />
+                </View>
+              </>
+            )}
+
             {/* Email */}
             <View style={[styles.inputWrap, { backgroundColor: tokens.inp, borderColor: emailError ? tokens.red : tokens.bdr2 }]}>
               <Icon name="envelope" size={fs(16)} color={tokens.t3} />
@@ -454,6 +544,10 @@ const styles = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.6 },
   btnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  biometricBtn: { backgroundColor: 'transparent', borderWidth: 1.5, flexDirection: 'row', gap: 8 },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 2 },
+  dividerLine: { flex: 1, height: 1 },
+  dividerText: { fontWeight: '600' },
 
   fieldError: { marginTop: -8, marginLeft: 4 },
   formError: { textAlign: 'center', lineHeight: 18, marginTop: 2 },

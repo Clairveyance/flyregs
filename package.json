@@ -25,6 +25,7 @@
     "expo-image-picker": "~56.0.19",
     "expo-linear-gradient": "~56.0.4",
     "expo-linking": "~56.0.14",
+    "expo-local-authentication": "~56.0.5",
     "expo-mail-composer": "~56.0.4",
     "expo-notifications": "~56.0.19",
     "expo-print": "~56.0.4",

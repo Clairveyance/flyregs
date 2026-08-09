@@ -52,6 +52,8 @@ const SF_TO_IONICONS: Record<string, string> = {
   'xmark.circle.fill': 'close-circle',
   'lock': 'lock-closed-outline',
   'lock.fill': 'lock-closed',
+  'faceid': 'finger-print-outline', // Ionicons has no Face ID glyph -- native iOS resolves the real SF Symbol directly, this is web/Android-web-preview only
+
   'person.crop.circle': 'person-circle-outline',
   'person.2.fill': 'people',
   'icloud': 'cloud-outline',

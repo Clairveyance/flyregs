@@ -89,6 +89,12 @@
         {
           "contactsPermission": "FlyRegs uses your contacts to let you pick who to invite to a shared folder — nothing is read or stored beyond the names/numbers you select."
         }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "FlyRegs uses Face ID to sign you in faster, as an alternative to typing your email and password."
+        }
       ]
     ],
     "experiments": {

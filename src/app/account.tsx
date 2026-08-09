@@ -22,6 +22,7 @@ import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
 import { AvatarEditModal } from '@/components/AvatarEditModal'
 import { useConfirm } from '@/components/ConfirmDialog'
+import * as Biometric from '@/lib/biometricAuth'
 import {
   isAcUpdateAlertsEnabled,
   enableAcUpdateAlerts,
@@ -82,6 +83,33 @@ export default function AccountScreen() {
     const clamped = Math.max(AIRCRAFT_PANE_WIDTH_MIN, Math.min(AIRCRAFT_PANE_WIDTH_MAX, w))
     setAircraftPaneWidthState(clamped)
     AsyncStorage.setItem(AIRCRAFT_PANE_WIDTH_KEY, String(clamped))
+  }
+  // BB-008/#422: Face ID/Touch ID as a faster sign-in alternative -- see
+  // lib/biometricAuth.ts. Row stays hidden entirely when there's no
+  // biometric hardware (always true on web/web preview).
+  const [biometricAvailable, setBiometricAvailable] = useState(false)
+  const [biometricEnabled, setBiometricEnabled] = useState(false)
+  const [biometricBusy, setBiometricBusy] = useState(false)
+  const [bioLabel, setBioLabel] = useState('Face ID')
+  useEffect(() => {
+    Biometric.isHardwareAvailable().then((available) => {
+      setBiometricAvailable(available)
+      if (!available) return
+      Biometric.biometricLabel().then(setBioLabel)
+      Biometric.isBiometricSignInEnabled().then(setBiometricEnabled)
+    })
+  }, [])
+  const handleToggleBiometric = async (next: boolean) => {
+    if (!session) return
+    setBiometricBusy(true)
+    if (next) {
+      const ok = await Biometric.enableBiometricSignIn(session).catch(() => false)
+      setBiometricEnabled(ok)
+    } else {
+      await Biometric.disableBiometricSignIn()
+      setBiometricEnabled(false)
+    }
+    setBiometricBusy(false)
   }
   const aircraftPaneStartWidth = useRef(aircraftPaneWidth)
   const aircraftPaneResizePan = useRef(
@@ -504,6 +532,10 @@ export default function AccountScreen() {
     try {
       const { error } = await supabase.functions.invoke('delete-account', { method: 'POST' })
       if (error) throw error
+      // Unlike a plain sign-out, the account itself is gone -- a stored
+      // biometric credential pointing at it would just be a dead "Sign in
+      // with Face ID" button on this device's sign-in screen forever after.
+      await Biometric.disableBiometricSignIn().catch(() => {})
       await signOut()
       backToMenu()
     } catch (err: any) {
@@ -710,6 +742,34 @@ export default function AccountScreen() {
             last
           />
         </View>
+
+        {/* Security group — hidden entirely with no biometric hardware on
+            this device (always the case on web/web preview). See
+            lib/biometricAuth.ts for the full BB-008/#422 design. */}
+        {biometricAvailable && (
+          <>
+            <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>SECURITY</Text>
+            <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+              <View style={[styles.row, { borderBottomWidth: 0 }]}>
+                <View style={styles.rowIcon}>
+                  <Icon name="faceid" size={fs(17)} color={tokens.t2} />
+                </View>
+                <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5), flex: 1 }]}>
+                  Sign in with {bioLabel}
+                </Text>
+                {biometricBusy ? (
+                  <ActivityIndicator size="small" color={tokens.t3} />
+                ) : (
+                  <Switch
+                    value={biometricEnabled}
+                    onValueChange={handleToggleBiometric}
+                    trackColor={{ true: tokens.blu, false: undefined }}
+                  />
+                )}
+              </View>
+            </View>
+          </>
+        )}
 
         {/* My Aircraft group — the actual targeting mechanism for AD
             alerts, see my-aircraft.tsx's own header comment. */}
