@@ -101,6 +101,15 @@ def delete_user(uid):
     http("DELETE", f"/auth/v1/admin/users/{uid}", key=SERVICE)
 
 
+def grant_premium(uid):
+    """Folder sharing is Premium-gated server-side (set_share_token RPC) --
+    grant it directly via the DB for this disposable test account, same
+    pattern search_eval.py/tier_matrix_test.py use, not a real purchase."""
+    http("POST", "/rest/v1/user_entitlements", key=SERVICE,
+         body={"user_id": uid, "is_premium": True},
+         headers={"Prefer": "resolution=merge-duplicates"})
+
+
 def real_item_ids():
     """Real ids for every folder item type, so nothing is a fake fixture."""
     out = {}
@@ -122,6 +131,14 @@ def main():
     owner = make_user("fldA")
     mate = make_user("fldB")
     stranger = make_user("fldC")
+    # Sharing is Premium-only on BOTH sides -- join_shared_folder itself
+    # requires the JOINER to have Premium too (confirmed live in the RPC:
+    # not just gating who can create a share token), so both real
+    # participants need the grant for this suite to exercise the actual
+    # flow. `stranger` stays ungranted -- it only tests RLS/invalid-token
+    # rejection, never joins.
+    grant_premium(owner["id"])
+    grant_premium(mate["id"])
     ids = real_item_ids()
     folder_id = "fld-" + secrets.token_hex(6)
     token = secrets.token_urlsafe(9)
