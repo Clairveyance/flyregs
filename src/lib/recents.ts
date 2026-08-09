@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { FolderItemType } from '@/lib/folders'
+import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
 
 const KEY = '@flyregs/recents'
 const MAX = 50
@@ -41,8 +42,15 @@ export async function addRecent(ac: Omit<RecentAC, 'viewedAt'>) {
   } catch {}
 }
 
+// Same account-mismatch guard as folders.ts's getFolders() -- see that
+// function's own comment for the leak this closes. Defense-in-depth: the
+// device-level claim in context/auth.tsx (claimDeviceIfMismatched) should
+// already have cleared this key on a genuine mismatch, but this catches it
+// too if that ever fails or races.
 export async function getRecents(): Promise<RecentAC[]> {
   try {
+    const userId = await currentUserId()
+    if (userId && !(await localDataBelongsTo(userId))) return []
     const raw = await AsyncStorage.getItem(KEY)
     return raw ? JSON.parse(raw) : []
   } catch {

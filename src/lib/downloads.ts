@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { ACBlock } from '@/lib/acFormat'
 import type { AcFigure, FormulaRef } from '@/types'
+import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
 
 const KEY = '@flyregs/downloads'
 
@@ -79,8 +80,14 @@ export async function findDownload(id: string): Promise<DownloadedAC | undefined
   return list.find((d) => d.id === id)
 }
 
+// Same account-mismatch guard as folders.ts's getFolders() -- see that
+// function's own comment for the leak this closes. Defense-in-depth: see
+// recents.ts's getRecents() for why this stays even with the device-level
+// claim in context/auth.tsx.
 export async function getDownloads(): Promise<DownloadedAC[]> {
   try {
+    const userId = await currentUserId()
+    if (userId && !(await localDataBelongsTo(userId))) return []
     const raw = await AsyncStorage.getItem(KEY)
     return raw ? JSON.parse(raw) : []
   } catch {

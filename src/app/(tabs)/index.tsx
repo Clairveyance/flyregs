@@ -1436,7 +1436,7 @@ export default function HomeScreen() {
 function HobbsHeaderButton() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasProAccess, loading: authLoading } = useAuth()
+  const { hasProAccess, loading: authLoading, session } = useAuth()
   const [fleet, setFleet] = useState<FleetAircraftSummary[] | null>(null)
   const [pickerVisible, setPickerVisible] = useState(false)
   const [editing, setEditing] = useState<FleetAircraftSummary | null>(null)
@@ -1447,8 +1447,21 @@ function HobbsHeaderButton() {
       // REG_OF_DAY_CACHE_KEY (RC, 2026-08-05: "the DR bar always takes a
       // second to load... when you go to Home") -- show the last-known
       // fleet instantly instead of the icon popping in a beat after
-      // getFleetSummary() resolves.
-      AsyncStorage.getItem(FLEET_SUMMARY_CACHE_KEY)
+      // getFleetSummary() resolves. Keyed by uid (same pattern as search.tsx's
+      // IDENTITY_CACHE_KEY_PREFIX) -- this was a bare global key until
+      // 2026-08-09, which briefly painted a PREVIOUS account's real aircraft
+      // (tail numbers, compliance status) on Home the instant a different
+      // Pro/Premium user signed in on the same device, before getFleetSummary()
+      // resolved and overwrote it. context/auth.tsx's claimDeviceIfMismatched
+      // doesn't cover this key (it's namespaced here instead, matching
+      // identityStatsCache's own precedent), so the uid keying is this key's
+      // only guard -- necessary on its own.
+      if (!session) {
+        setFleet([])
+        return
+      }
+      const uid = session.user.id
+      AsyncStorage.getItem(FLEET_SUMMARY_CACHE_KEY + uid)
         .then((cached) => { if (cached) setFleet(JSON.parse(cached)) })
         .catch(() => {})
       if (!hasProAccess) {
@@ -1460,15 +1473,15 @@ function HobbsHeaderButton() {
         // Home, instead of "just always being there."
         if (!authLoading) {
           setFleet([])
-          AsyncStorage.removeItem(FLEET_SUMMARY_CACHE_KEY).catch(() => {})
+          AsyncStorage.removeItem(FLEET_SUMMARY_CACHE_KEY + uid).catch(() => {})
         }
         return
       }
       getFleetSummary().then((fresh) => {
         setFleet(fresh)
-        AsyncStorage.setItem(FLEET_SUMMARY_CACHE_KEY, JSON.stringify(fresh)).catch(() => {})
+        AsyncStorage.setItem(FLEET_SUMMARY_CACHE_KEY + uid, JSON.stringify(fresh)).catch(() => {})
       }).catch(() => setFleet([]))
-    }, [hasProAccess, authLoading])
+    }, [hasProAccess, authLoading, session])
   )
 
   if (!fleet || fleet.length === 0) return null

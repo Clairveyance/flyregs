@@ -3,6 +3,7 @@ import { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { initRevenueCat, getSubscriptionStatus, logOutRevenueCat, syncEntitlements } from '@/lib/revenuecat'
 import { applyRemoteSyncPreference, claimLocalDataForSignedOutUser } from '@/lib/sync'
+import { claimDeviceIfMismatched } from '@/lib/syncOwner'
 import { getDeviceId } from '@/lib/deviceId'
 import type { AvatarOverride } from '@/lib/avatar'
 
@@ -71,6 +72,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session)
       if (session?.user) {
+        // Must run before anything below reads or writes local-first
+        // storage (folders/bookmarks/notes/recents/downloads/recent-
+        // searches) -- see claimDeviceIfMismatched's own comment for why a
+        // mismatch has to be resolved here, up front, rather than left to
+        // each read/write call to discover independently.
+        await claimDeviceIfMismatched(session.user.id)
         initRevenueCat(session.user.id)
         const status = await getSubscriptionStatus()
         setIsPro(status.isPro)
@@ -97,6 +104,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session)
       if (session?.user) {
+        // Same reasoning as the session-restore branch above.
+        await claimDeviceIfMismatched(session.user.id)
         initRevenueCat(session.user.id)
         const status = await getSubscriptionStatus()
         setIsPro(status.isPro)

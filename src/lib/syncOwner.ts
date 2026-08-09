@@ -59,3 +59,52 @@ export async function currentUserId(): Promise<string | null> {
     return null
   }
 }
+
+// Every local-first store that isn't per-user namespaced. Kept in one list
+// so a genuine owner mismatch clears all of them together -- see
+// claimDeviceIfMismatched below. (Deliberately excludes public/identical-
+// for-everyone caches like the AC/FAR/AIM index or Home's What's New feed,
+// and identityStatsCache/home-fleetsummary-cache, which are namespaced by
+// uid at their own call sites instead.)
+const ALL_LOCAL_KEYS = [
+  '@flyregs/folders',
+  '@flyregs/folder_items',
+  '@flyregs/bookmarks',
+  '@flyregs/notes',
+  '@flyregs/recents',
+  '@flyregs/downloads',
+  '@flyregs/recent-searches',
+  '@flyregs/recent-searches:afr',
+]
+
+// Call once per confirmed session -- both a fresh sign-in and an app-launch
+// session restore, see context/auth.tsx -- as early as possible, before any
+// screen reads or writes local data. If this device's cache belongs to a
+// DIFFERENT account (a real mismatch, not just an unset/never-claimed
+// owner), every store above is wiped and the tag is reclaimed for `userId`
+// right here.
+//
+// Why this has to happen up front, not just at read time: the per-read
+// guards in folders.ts/bookmarks.ts/notes.ts (localDataBelongsTo) correctly
+// hide a mismatched previous account's data from a read -- but a WRITE from
+// the new account (e.g. createFolder, which reads that now-empty guarded
+// array and appends to it, then writes the result back) has no way to tell
+// "genuinely empty" apart from "emptied by the mismatch guard." Without this
+// upfront claim, the new account's very first local write would silently
+// overwrite -- not merge with -- the previous account's still-present real
+// data, since the write path builds its result on top of the guarded (empty)
+// view, not the actual underlying array. Resolving the mismatch once, here,
+// means every later read AND write this session sees a real, consistent,
+// already-reset local store instead of racing to discover it mid-write.
+export async function claimDeviceIfMismatched(userId: string): Promise<void> {
+  try {
+    const owner = await getSyncOwner()
+    if (owner === null || owner === userId) return
+    await Promise.all(ALL_LOCAL_KEYS.map((k) => AsyncStorage.removeItem(k)))
+    await setSyncOwner(userId)
+  } catch {
+    // Non-fatal -- the per-read guards in folders.ts/bookmarks.ts/notes.ts
+    // still hide a mismatch from view even if this proactive clear fails;
+    // worst case is a stale write-clobber risk, not a read-side leak.
+  }
+}

@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
 
 // Past SEARCH QUERIES the user has typed ("light gun signals", "runway
 // marking") — distinct from the existing Recents tab, which tracks
@@ -21,7 +22,13 @@ function keyFor(scope: string): string {
 }
 const MAX_RECENT_SEARCHES = 10
 
+// Same account-mismatch guard as folders.ts's getFolders() -- see that
+// function's own comment for the leak this closes. Defense-in-depth: see
+// recents.ts's getRecents() for why this stays even with the device-level
+// claim in context/auth.tsx.
 export async function getRecentSearches(scope: string = 'default'): Promise<string[]> {
+  const userId = await currentUserId()
+  if (userId && !(await localDataBelongsTo(userId))) return []
   const raw = await AsyncStorage.getItem(keyFor(scope))
   return raw ? JSON.parse(raw) : []
 }
