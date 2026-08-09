@@ -565,7 +565,7 @@ export default function SharedFolderDetail() {
                 <Icon name="xmark" size={fs(18)} color={tokens.t3} />
               </Pressable>
             </View>
-            <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingBottom: 20 }} keyboardShouldPersistTaps="handled">
+            <ScrollView style={styles.modalScroll} contentContainerStyle={{ paddingBottom: 20 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
               {noteEditing ? (
                 <>
                   <TextInput
@@ -744,7 +744,7 @@ export default function SharedFolderDetail() {
                   <Icon name="xmark" size={fs(18)} color={tokens.t3} />
                 </Pressable>
               </View>
-              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
                 <TextInput
                   style={[styles.modalTitleInput, { color: tokens.t1, fontSize: ifs(18), borderColor: tokens.bdr2 }]}
                   value={newNoteTitle}

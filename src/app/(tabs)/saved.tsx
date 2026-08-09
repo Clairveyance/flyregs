@@ -727,6 +727,7 @@ export default function SavedScreen() {
                 numColumns={isTablet ? 2 : 1}
                 columnWrapperStyle={isTablet ? styles.gridRow : undefined}
                 contentContainerStyle={styles.list}
+                keyboardDismissMode="interactive"
                 refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={tokens.t3} />}
                 ListHeaderComponent={
                   <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>
@@ -837,6 +838,7 @@ export default function SavedScreen() {
                 data={collaborations}
                 keyExtractor={(c) => c.folder_id}
                 contentContainerStyle={styles.sharedList}
+                keyboardDismissMode="interactive"
                 refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={tokens.t3} />}
                 renderItem={({ item }) => (
                   <Pressable
@@ -883,6 +885,7 @@ export default function SavedScreen() {
               data={sharedByMe}
               keyExtractor={(c) => c.folder_id}
               contentContainerStyle={styles.sharedList}
+              keyboardDismissMode="interactive"
               refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={tokens.t3} />}
               renderItem={({ item }) => (
                 <Pressable
@@ -1312,6 +1315,7 @@ function OfflineListView({
       data={sorted}
       keyExtractor={(item) => item.id}
       contentContainerStyle={styles.list}
+      keyboardDismissMode="interactive"
       refreshControl={<RefreshControl refreshing={false} onRefresh={onRefresh} tintColor={tokens.t3} />}
       ListHeaderComponent={
         <View style={styles.offlineHeaderRow}>
