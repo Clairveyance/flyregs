@@ -33,7 +33,7 @@ import { REG_TYPE, RegType } from '@/lib/regTypes'
 import { highlightSnippet } from '@/lib/acShare'
 import {
   getOrCreateShareLink, confirmFolderShared, getFolderCollaborators, removeCollaborator, FolderCollaborator,
-  getFolderCollabMode, setFolderCollabMode, FolderCollabMode, resolveForeignFolderEntries, updateSharedNote,
+  getFolderCollabMode, setFolderCollabMode, setCollaboratorMode, FolderCollabMode, resolveForeignFolderEntries, updateSharedNote,
   useFolderRealtime,
 } from '@/lib/sharedFolders'
 import { syncFolderFromCloud } from '@/lib/sync'
@@ -360,6 +360,20 @@ export default function FolderDetail() {
     }
   }
 
+  // BB-077: per-invitee, not per-folder -- one collaborator can be a viewer
+  // while another on the same folder is an editor. Optimistic, matching
+  // handleSetCollabMode above.
+  const handleSetCollaboratorMode = async (c: FolderCollaborator, mode: FolderCollabMode) => {
+    if (!folder || mode === c.collabMode) return
+    setCollaborators((prev) => prev.map((x) => (x.userId === c.userId ? { ...x, collabMode: mode } : x)))
+    try {
+      await setCollaboratorMode(folder.id, c.userId, mode)
+    } catch {
+      setCollaborators((prev) => prev.map((x) => (x.userId === c.userId ? { ...x, collabMode: c.collabMode } : x)))
+      confirm({ title: 'Error', message: 'Could not update access. Try again in a moment.', cancelLabel: null })
+    }
+  }
+
   const handleRemoveCollaborator = (c: FolderCollaborator) => {
     if (!folder) return
     // Same invite link works for anyone who has it, indefinitely (there's
@@ -521,13 +535,15 @@ export default function FolderDetail() {
             <Icon name={collabExpanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
           </Pressable>
 
-          {/* Per-folder, not per-person -- always visible (not gated behind
-              expand) since this is the actual "set access" step, and the
-              owner should be able to check or flip it without opening the
-              collaborator list. Everyone who currently has the link gets
-              whichever mode this folder is set to; revoking read/write here
-              takes effect immediately, no new link needed. */}
-          <View style={[styles.modeRow, { borderTopColor: tokens.bdr }]}>
+          {/* This is now the DEFAULT a NEW invite link starts at, not a
+              blanket setting for everyone already on the folder -- BB-077
+              moved actual enforcement to a per-collaborator toggle in each
+              row below, since one person may need write access while
+              another should stay read-only on the same folder. Always
+              visible (not gated behind expand) since it's still the first
+              thing to set before sharing a link. */}
+          <Text style={[styles.modeSectionLabel, { color: tokens.t3, fontSize: fs(11), borderTopColor: tokens.bdr }]}>NEW INVITES GET</Text>
+          <View style={[styles.modeRow, { borderTopColor: tokens.bdr, borderTopWidth: 0, paddingTop: 0 }]}>
             <Pressable
               style={[styles.modeBtn, { backgroundColor: collabMode === 'read_only' ? tokens.bdim : 'transparent', borderColor: tokens.bbdr }]}
               onPress={() => handleSetCollabMode('read_only')}
@@ -565,6 +581,25 @@ export default function FolderDetail() {
                   <Text style={[styles.collabEmail, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
                     {c.displayLabel}
                   </Text>
+                  {/* BB-077: this specific person's own access -- independent
+                      of the "new invites get" default above and of any other
+                      collaborator on this same folder. */}
+                  <View style={[styles.collabModeToggle, { borderColor: tokens.bbdr }]}>
+                    <Pressable
+                      style={[styles.collabModeSeg, { backgroundColor: c.collabMode === 'read_only' ? tokens.bdim : 'transparent' }]}
+                      onPress={() => handleSetCollaboratorMode(c, 'read_only')}
+                      hitSlop={4}
+                    >
+                      <Icon name="eye" size={fs(12)} color={c.collabMode === 'read_only' ? tokens.blu : tokens.t4} />
+                    </Pressable>
+                    <Pressable
+                      style={[styles.collabModeSeg, { backgroundColor: c.collabMode === 'read_write' ? tokens.bdim : 'transparent' }]}
+                      onPress={() => handleSetCollaboratorMode(c, 'read_write')}
+                      hitSlop={4}
+                    >
+                      <Icon name="pencil" size={fs(12)} color={c.collabMode === 'read_write' ? tokens.blu : tokens.t4} />
+                    </Pressable>
+                  </View>
                   <Pressable onPress={() => handleRemoveCollaborator(c)} hitSlop={8}>
                     <Icon name="xmark.circle" size={fs(18)} color={tokens.t4} />
                   </Pressable>
@@ -895,6 +930,9 @@ const styles = StyleSheet.create({
   modeRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 12, paddingTop: 4, borderTopWidth: StyleSheet.hairlineWidth },
   modeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 10, borderWidth: 1, paddingVertical: 8 },
   modeBtnText: { fontWeight: '600' },
+  modeSectionLabel: { fontWeight: '700', letterSpacing: 0.4, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4, borderTopWidth: StyleSheet.hairlineWidth },
+  collabModeToggle: { flexDirection: 'row', alignItems: 'center', borderRadius: 8, borderWidth: 1, overflow: 'hidden' },
+  collabModeSeg: { paddingHorizontal: 8, paddingVertical: 5 },
   collabRow: {
     flexDirection: 'row',
     alignItems: 'center',

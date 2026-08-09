@@ -322,6 +322,8 @@ export async function leaveSharedFolder(folderId: string): Promise<void> {
     .eq('user_id', userId)
 }
 
+export type FolderCollabMode = 'read_only' | 'read_write'
+
 export interface FolderCollaborator {
   userId: string
   /** The collaborator's chosen callsign (Account > Callsign), falling back
@@ -336,6 +338,8 @@ export interface FolderCollaborator {
    * that drives the With Me unread dot, reused here as the owner-facing
    * "has this person actually looked at it yet" signal. */
   lastViewedAt: string | null
+  /** BB-077: per-invitee, not per-folder -- see setCollaboratorMode below. */
+  collabMode: FolderCollabMode
 }
 
 export async function getFolderCollaborators(folderId: string): Promise<FolderCollaborator[]> {
@@ -347,6 +351,7 @@ export async function getFolderCollaborators(folderId: string): Promise<FolderCo
     joinedAt: row.out_joined_at,
     leftAt: row.out_left_at,
     lastViewedAt: row.out_last_viewed_at,
+    collabMode: (row.out_collab_mode as FolderCollabMode) ?? 'read_only',
   }))
 }
 
@@ -359,14 +364,24 @@ export async function removeCollaborator(folderId: string, userId: string): Prom
   if (error) throw error
 }
 
-export type FolderCollabMode = 'read_only' | 'read_write'
+// BB-077: each collaborator gets their own read/write mode -- the same
+// folder can have one editor and one viewer at once. Owner-only in
+// practice via RLS's owners_update_collaborator_mode policy.
+export async function setCollaboratorMode(folderId: string, userId: string, mode: FolderCollabMode): Promise<void> {
+  const { error } = await supabase
+    .from('folder_collaborators')
+    .update({ collab_mode: mode })
+    .eq('folder_id', folderId)
+    .eq('user_id', userId)
+  if (error) throw error
+}
 
-// Per-folder, not per-person -- the same person can be a plain viewer on one
-// shared folder and a full editor on another, since this is a flag on
-// synced_folders itself, not a role on folder_collaborators (which has no
-// role column, unlike aircraft_collaborators). Owner-only in practice: RLS's
-// users_manage_own_synced_folders already restricts the underlying UPDATE to
-// auth.uid() = user_id, this just gives it a name.
+// This is now only the DEFAULT a NEW collaborator starts at when they join
+// (see join_shared_folder) -- it no longer retroactively changes anyone
+// already on the folder, which is what setCollaboratorMode above is for.
+// Owner-only in practice: RLS's users_manage_own_synced_folders already
+// restricts the underlying UPDATE to auth.uid() = user_id, this just gives
+// it a name.
 export async function setFolderCollabMode(folderId: string, mode: FolderCollabMode): Promise<void> {
   const { error } = await supabase.from('synced_folders').update({ collab_mode: mode }).eq('id', folderId)
   if (error) throw error
