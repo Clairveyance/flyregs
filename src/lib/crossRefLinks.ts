@@ -37,8 +37,14 @@ interface CandidateMatch {
 
 interface LinkPattern {
   regex: RegExp
-  buildRoute: (m: RegExpExecArray) => string
+  buildRoute?: (m: RegExpExecArray) => string
   isFigure?: boolean
+  // For an enumeration match ("§§ 133.19, 133.21, and 133.23") -- returns
+  // one candidate per individual citation found inside the whole match,
+  // instead of treating the whole span as a single link. Whatever text sits
+  // between them (", ", " and ") is left unlinked, same as any other gap.
+  // Mutually exclusive with buildRoute (a pattern uses one or the other).
+  buildSubMatches?: (m: RegExpExecArray) => { text: string; offset: number; route: string }[]
 }
 
 // Order doesn't matter for correctness (overlap resolution below sorts by
@@ -79,6 +85,35 @@ const PATTERNS: LinkPattern[] = [
   // section 91.123)" rendered as plain text, not a link, because the word
   // "section" between "14 CFR" and the number wasn't accounted for.
   { regex: /(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b/g, buildRoute: (m) => `/far/${m[1]}` },
+  // FAR section ENUMERATION ("§§ 133.19, 133.21, and 133.23", "§§ 133.41
+  // and 133.43") -- confirmed live, RC: "in FAR 133, in the text body,
+  // there are 3 other FARs referenced. only the first one has a
+  // hyperlink." Root cause: the single-citation pattern above only
+  // recognizes a number immediately preceded by its own "§"/"FAR"/"14
+  // CFR" marker -- legal-citation lists conventionally carry that marker
+  // ONCE, up front ("§§ A, B, and C"), leaving every number after the
+  // first with nothing for that pattern to match on. This pattern instead
+  // matches the WHOLE list as one span (so a `(b)`-style subparagraph
+  // between numbers like "27.865(b) and 29.865(b)" doesn't break the
+  // scan), then hands back one sub-candidate per bare X.X number found
+  // inside it via buildSubMatches -- each becomes its own tappable link,
+  // with the connecting ", "/" and " left as plain text between them,
+  // exactly like the single-citation pattern already leaves surrounding
+  // prose alone.
+  {
+    regex: /(?:§§?\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+(?:\([a-zA-Z0-9]+\))?(?:(?:\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or)\s+)\d+\.\d+(?:\([a-zA-Z0-9]+\))?)+)/g,
+    buildSubMatches: (m) => {
+      const list = m[1]
+      const offset = m[0].length - list.length
+      const subs: { text: string; offset: number; route: string }[] = []
+      const numRe = /\d+\.\d+/g
+      let sm: RegExpExecArray | null
+      while ((sm = numRe.exec(list))) {
+        subs.push({ text: sm[0], offset: offset + sm.index, route: `/far/${sm[0]}` })
+      }
+      return subs
+    },
+  },
   // P/CG glossary term mention — the exact phrase the AIM/FAR scrapers'
   // own citation regex already looks for.
   { regex: /Pilot\/Controller Glossary Term-\s*([^.]+)\.?/g, buildRoute: (m) => `/pcg/${slugifyPcgTerm(m[1].trim())}` },
@@ -103,11 +138,17 @@ const PATTERNS: LinkPattern[] = [
 
 export function linkifyText(text: string): LinkSegment[] {
   const candidates: CandidateMatch[] = []
-  for (const { regex, buildRoute, isFigure } of PATTERNS) {
+  for (const { regex, buildRoute, isFigure, buildSubMatches } of PATTERNS) {
     regex.lastIndex = 0
     let m: RegExpExecArray | null
     while ((m = regex.exec(text))) {
-      candidates.push({ start: m.index, end: m.index + m[0].length, text: m[0], route: buildRoute(m), isFigure })
+      if (buildSubMatches) {
+        for (const sub of buildSubMatches(m)) {
+          candidates.push({ start: m.index + sub.offset, end: m.index + sub.offset + sub.text.length, text: sub.text, route: sub.route })
+        }
+      } else {
+        candidates.push({ start: m.index, end: m.index + m[0].length, text: m[0], route: buildRoute!(m), isFigure })
+      }
       if (m[0].length === 0) regex.lastIndex++ // guard against a zero-length match looping forever
     }
   }
