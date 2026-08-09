@@ -31,19 +31,24 @@ export function HobbsUpdateBody({
   const ifs = useInputFS()
   const confirm = useConfirm()
   const [text, setText] = useState(initialHours != null ? String(initialHours) : '')
+  const [saving, setSaving] = useState(false)
 
   const handleSave = async () => {
+    if (saving) return
     const trimmed = text.trim()
     const hours = trimmed === '' ? null : parseFloat(trimmed)
     if (trimmed !== '' && (hours == null || isNaN(hours) || hours < 0)) {
       confirm({ title: 'Invalid hours', message: 'Enter a positive number, or leave it blank to clear.', cancelLabel: null })
       return
     }
+    setSaving(true)
     try {
       await setAircraftCurrentHobbs(aircraftId, hours)
       onSaved(hours)
     } catch (e: any) {
       confirm({ title: 'Could not save', message: e?.message ?? 'Unknown error', cancelLabel: null })
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -75,7 +80,7 @@ export function HobbsUpdateBody({
           Last updated {new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
         </Text>
       )}
-      <Pressable style={[styles.saveBtn, { backgroundColor: tokens.blu }]} onPress={handleSave}>
+      <Pressable style={[styles.saveBtn, { backgroundColor: tokens.blu, opacity: saving ? 0.5 : 1 }]} onPress={handleSave} disabled={saving}>
         <Text style={styles.saveBtnText}>Save</Text>
       </Pressable>
     </View>

@@ -74,23 +74,31 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
     })
   }
 
+  const [submittingCreate, setSubmittingCreate] = useState(false)
+
   const handleCreate = async () => {
+    if (submittingCreate) return
     const name = newName.trim()
     if (!name) return
-    let folder: Folder
+    setSubmittingCreate(true)
     try {
-      folder = await createFolder(name)
-    } catch (e) {
-      if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
-        confirm({ title: 'Folder Already Exists', message: `You already have a folder named "${name}". Choose a different name.`, cancelLabel: null })
-        return
+      let folder: Folder
+      try {
+        folder = await createFolder(name)
+      } catch (e) {
+        if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
+          confirm({ title: 'Folder Already Exists', message: `You already have a folder named "${name}". Choose a different name.`, cancelLabel: null })
+          return
+        }
+        throw e
       }
-      throw e
+      setFolders((prev) => [...prev, folder])
+      setSelected((prev) => new Set([...prev, folder.id]))
+      setNewName('')
+      setCreating(false)
+    } finally {
+      setSubmittingCreate(false)
     }
-    setFolders((prev) => [...prev, folder])
-    setSelected((prev) => new Set([...prev, folder.id]))
-    setNewName('')
-    setCreating(false)
   }
 
   const handleDone = () => {
@@ -183,7 +191,8 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
               />
               <Pressable
                 onPress={handleCreate}
-                style={[styles.createBtn, { backgroundColor: tokens.blu, opacity: newName.trim() ? 1 : 0.5 }]}
+                disabled={submittingCreate}
+                style={[styles.createBtn, { backgroundColor: tokens.blu, opacity: newName.trim() && !submittingCreate ? 1 : 0.5 }]}
               >
                 <Text style={[styles.createBtnText, { fontSize: fs(13) }]}>Create</Text>
               </Pressable>
