@@ -1383,7 +1383,7 @@ function ReminderFormModal({
   editing: AircraftReminder | null
   applicableAds: AircraftAdNotification[]
   onClose: () => void
-  onSaved: (input: { title: string; dueDate: string; notes: string; linkedAdNumber: string | null; intervalMonths: number | null; dueHobbsHours: number | null }) => void
+  onSaved: (input: { title: string; dueDate: string; notes: string; linkedAdNumber: string | null; intervalMonths: number | null; dueHobbsHours: number | null }) => Promise<void>
 }) {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -1399,6 +1399,7 @@ function ReminderFormModal({
   const [dueHobbsText, setDueHobbsText] = useState('')
   const [datePickerVisible, setDatePickerVisible] = useState(false)
   const [adPickerVisible, setAdPickerVisible] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     // RC, real device: tapping a reminder to edit it sometimes did nothing,
@@ -1419,6 +1420,7 @@ function ReminderFormModal({
     // can ever outlive its parent.
     setDatePickerVisible(false)
     setAdPickerVisible(false)
+    setSaving(false)
     if (!visible) return
     setTypeKey(null)
     setTitle(editing?.title ?? '')
@@ -1441,11 +1443,25 @@ function ReminderFormModal({
     if (key !== 'ad') setLinkedAdNumber(null)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    // Real device beta report (BB-070/BB-094): this screen "fully froze,
+    // locked up" trying to save a reminder. No busy-state guard on Save
+    // meant a slow network round-trip plus an impatient second tap (the
+    // exact "many movements and button clicks happen quickly" pattern RC
+    // flagged app-wide) could fire two concurrent saves racing each other.
+    // Now the button disables itself and shows a spinner the instant the
+    // real save starts, and can't be tapped again until it actually
+    // resolves either way.
+    if (saving) return
     if (!title.trim()) { confirm({ title: 'Title required', message: 'Enter what this reminder is for.', cancelLabel: null }); return }
     if (!DATE_RE.test(dueDate.trim())) { confirm({ title: 'Pick a due date', message: 'Use the date picker to set when this is due.', cancelLabel: null }); return }
     const dueHobbsHours = dueHobbsText.trim() ? parseFloat(dueHobbsText.trim()) : null
-    onSaved({ title: title.trim(), dueDate: dueDate.trim(), notes, linkedAdNumber, intervalMonths, dueHobbsHours })
+    setSaving(true)
+    try {
+      await onSaved({ title: title.trim(), dueDate: dueDate.trim(), notes, linkedAdNumber, intervalMonths, dueHobbsHours })
+    } finally {
+      setSaving(false)
+    }
   }
 
   const isCustomLength = customLengthText !== '' || (intervalMonths != null && !(LENGTH_PRESETS as readonly number[]).includes(intervalMonths))
@@ -1467,13 +1483,23 @@ function ReminderFormModal({
             KeyboardAvoidingView. Matches FolderPicker.tsx's own wrapper for
             the identical shape. */}
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+          {/* maxHeight + inner ScrollView (not a fixed-height View) --
+              real device beta report (BB-070/BB-094): this whole form is
+              taller than one screen once AD Compliance/a linked AD/custom
+              length are all showing, and larger text-size settings make it
+              worse. Previously nothing scrolled, so on a real device the
+              Save button (and the fields above it) could end up
+              unreachable -- looking exactly like a frozen screen. Save
+              stays pinned outside the ScrollView so it's always reachable
+              regardless of scroll position or text size. */}
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, maxHeight: '90%' }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>{editing ? 'Edit Reminder' : 'New Reminder'}</Text>
               <Pressable onPress={onClose} hitSlop={10}>
                 <Icon name="xmark" size={fs(18)} color={tokens.t3} />
               </Pressable>
             </View>
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
 
             {!editing && (
               <>
@@ -1587,9 +1613,12 @@ function ReminderFormModal({
               placeholderTextColor={tokens.t3}
               style={[styles.formInput, { color: tokens.t1, fontSize: ifs(14.5), borderColor: tokens.bdr }]}
             />
+            </ScrollView>
 
-            <Pressable style={[styles.addButton, { backgroundColor: tokens.blu }]} onPress={handleSave}>
-              <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>{editing ? 'Save Changes' : 'Save Reminder'}</Text>
+            <Pressable style={[styles.addButton, { backgroundColor: tokens.blu, opacity: saving ? 0.6 : 1, marginTop: 10 }]} onPress={handleSave} disabled={saving}>
+              {saving
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>{editing ? 'Save Changes' : 'Save Reminder'}</Text>}
             </Pressable>
           </View>
         </KeyboardAvoidingView>
