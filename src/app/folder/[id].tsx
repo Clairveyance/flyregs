@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Platform, RefreshControl } from 'react-native'
+import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Platform, RefreshControl, Modal, KeyboardAvoidingView, ActivityIndicator } from 'react-native'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import * as Clipboard from 'expo-clipboard'
@@ -37,7 +37,7 @@ import { highlightSnippet } from '@/lib/acShare'
 import {
   getOrCreateShareLink, confirmFolderShared, getFolderCollaborators, removeCollaborator, FolderCollaborator,
   getFolderCollabMode, setFolderCollabMode, setCollaboratorMode, FolderCollabMode, resolveForeignFolderEntries, updateSharedNote,
-  useFolderRealtime,
+  useFolderRealtime, inviteCollaboratorByCallsign, buildShareLink,
 } from '@/lib/sharedFolders'
 import { syncFolderFromCloud } from '@/lib/sync'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
@@ -315,6 +315,70 @@ export default function FolderDetail() {
 
   const [invitingBusy, setInvitingBusy] = useState(false)
 
+  // RC: "since the receiver has to have a FR account... it's not bad to
+  // suggest there too (like with a/c sharing) that they create a Callsign.
+  // scope it a build it. should be fairly straightforward since you
+  // already built it in the a/c area." Second, optional way to share a
+  // folder alongside the existing anonymous-link "Invite" header icon --
+  // this one targets one specific FlyRegs account by name instead of
+  // handing out a link anyone could redeem, which is what makes the
+  // pending/greyed "INVITED" roster state below possible at all.
+  const [callsignModalVisible, setCallsignModalVisible] = useState(false)
+  const [inviteCallsign, setInviteCallsign] = useState('')
+  const [inviteError, setInviteError] = useState<string | null>(null)
+  const [callsignBusy, setCallsignBusy] = useState(false)
+
+  // The header's own "Invite" icon -- offers both invite methods up front
+  // (link vs. named Callsign) rather than always defaulting to the
+  // anonymous link, so a folder that's never been shared yet still has a
+  // way to reach the Callsign flow (the in-roster shortcut below only
+  // exists once folder.shared is already true).
+  const handleInviteChoice = () => {
+    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    confirm({
+      title: 'Invite to this folder',
+      choices: [
+        { label: 'Invite by Link', onPress: handleInvite },
+        { label: 'Invite by Callsign', onPress: openCallsignInvite },
+      ],
+    })
+  }
+
+  const openCallsignInvite = () => {
+    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    setInviteCallsign('')
+    setInviteError(null)
+    setCallsignModalVisible(true)
+  }
+
+  const submitCallsignInvite = async () => {
+    if (!folder) return
+    setCallsignBusy(true)
+    setInviteError(null)
+    let invite: Awaited<ReturnType<typeof inviteCollaboratorByCallsign>>
+    try {
+      invite = await inviteCollaboratorByCallsign(folder.id, inviteCallsign)
+    } catch (e: any) {
+      setInviteError(e?.message ?? 'Could not create invite')
+      setCallsignBusy(false)
+      return
+    }
+    setCallsignModalVisible(false)
+    // A named invite IS the "shared" signal, unlike the anonymous link's
+    // handleInvite (which only counts as shared once the owner actually
+    // sends/copies it) -- there's no equivalent ambiguity here: creating
+    // this row already required knowing exactly who it's for.
+    await confirmFolderShared(folder.id, invite.token)
+    const link = buildShareLink(invite.token)
+    try {
+      await Share.share({ message: link })
+    } catch {
+      confirm({ title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
+    }
+    getFolderCollaborators(folder.id).then(setCollaborators).catch(() => {})
+    setCallsignBusy(false)
+  }
+
   const handleInvite = async () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     if (!folder) return
@@ -476,6 +540,10 @@ export default function FolderDetail() {
 
   const activeCollaborators = collaborators.filter((c) => !c.leftAt)
   const leftCollaborators = collaborators.filter((c) => c.leftAt)
+  // "Joined" means actually accepted -- a pending Callsign invite hasn't,
+  // so it shouldn't inflate this count (matches my-aircraft/[id].tsx's
+  // identical accepted-only header count).
+  const joinedCollaboratorCount = activeCollaborators.filter((c) => c.accepted).length
 
   const totalCount = acEntries.length + noteEntries.length
 
@@ -490,7 +558,7 @@ export default function FolderDetail() {
 
   const rightSlot = (
     <View style={styles.headerRight}>
-      <Pressable onPress={handleInvite} hitSlop={10} style={styles.headerBtn} disabled={invitingBusy}>
+      <Pressable onPress={handleInviteChoice} hitSlop={10} style={styles.headerBtn} disabled={invitingBusy}>
         <Icon name="person.2.fill" size={fs(21)} color={tokens.t2} />
       </Pressable>
       <Pressable onPress={startRename} hitSlop={10} style={styles.headerBtn}>
@@ -545,9 +613,9 @@ export default function FolderDetail() {
           <Pressable style={styles.collabHeader} onPress={() => setCollabExpanded((v) => !v)}>
             <Icon name="person.2.fill" size={fs(15)} color={tokens.t2} />
             <Text style={[styles.collabHeaderText, { color: tokens.t2, fontSize: fs(13) }]}>
-              {activeCollaborators.length === 0
+              {joinedCollaboratorCount === 0
                 ? 'No one has joined yet'
-                : `${activeCollaborators.length} ${activeCollaborators.length === 1 ? 'person has' : 'people have'} joined`}
+                : `${joinedCollaboratorCount} ${joinedCollaboratorCount === 1 ? 'person has' : 'people have'} joined`}
             </Text>
             <Icon name={collabExpanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
           </Pressable>
@@ -577,46 +645,64 @@ export default function FolderDetail() {
             </Pressable>
           </View>
 
+          {/* RC: "it's not bad to suggest there too (like with a/c sharing)
+              that they create a Callsign" -- second, optional way to share
+              alongside the anonymous link above, for targeting one specific
+              FlyRegs account by name. Always visible next to the mode
+              toggle, same reasoning as that toggle's own comment. */}
+          <Pressable style={styles.callsignInviteRow} onPress={openCallsignInvite}>
+            <Icon name="at" size={fs(13)} color={tokens.blu} />
+            <Text style={[styles.callsignInviteText, { color: tokens.blu, fontSize: fs(12.5) }]}>Invite by Callsign</Text>
+          </Pressable>
+
           {collabExpanded && (
             <>
               {activeCollaborators.map((c) => (
-                <View key={c.userId} style={[styles.collabRow, { borderTopColor: tokens.bdr }]}>
+                <View key={c.userId} style={[styles.collabRow, { borderTopColor: tokens.bdr, opacity: c.accepted ? 1 : 0.5 }]}>
                   {/* Opened indicator: filled when they've viewed the folder
                       at least once (same field driving the With Me unread
                       dot), hollow otherwise -- lets the owner tell "joined,
                       hasn't looked yet" from "joined and has actually seen
                       it," the same distinction WhatsApp's delivered/read
-                      ticks draw. There's no third "invited, hasn't joined"
-                      state to show here -- a native share-sheet link genuinely
-                      carries no recipient identity until someone redeems it,
-                      so that state isn't something the app can know. */}
+                      ticks draw. A pending Callsign invite (accepted false)
+                      shows a clock instead -- unlike the anonymous link
+                      (which genuinely carries no recipient identity until
+                      redeemed), THIS row exists precisely because the app
+                      does know who it's for and that they haven't accepted
+                      yet, same as my-aircraft/[id].tsx's roster. */}
                   <Icon
-                    name={c.lastViewedAt ? 'eye.fill' : 'eye.slash'}
+                    name={!c.accepted ? 'clock' : c.lastViewedAt ? 'eye.fill' : 'eye.slash'}
                     size={fs(13)}
-                    color={c.lastViewedAt ? tokens.grn : tokens.t4}
+                    color={c.accepted && c.lastViewedAt ? tokens.grn : tokens.t4}
                   />
-                  <Text style={[styles.collabEmail, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
+                  <Text style={[styles.collabEmail, { color: c.accepted ? tokens.t1 : tokens.t3, fontSize: fs(13.5) }]} numberOfLines={1}>
                     {c.displayLabel}
                   </Text>
-                  {/* BB-077: this specific person's own access -- independent
-                      of the "new invites get" default above and of any other
-                      collaborator on this same folder. */}
-                  <View style={[styles.collabModeToggle, { borderColor: tokens.bbdr }]}>
-                    <Pressable
-                      style={[styles.collabModeSeg, { backgroundColor: c.collabMode === 'read_only' ? tokens.bdim : 'transparent' }]}
-                      onPress={() => handleSetCollaboratorMode(c, 'read_only')}
-                      hitSlop={4}
-                    >
-                      <Icon name="eye" size={fs(12)} color={c.collabMode === 'read_only' ? tokens.blu : tokens.t4} />
-                    </Pressable>
-                    <Pressable
-                      style={[styles.collabModeSeg, { backgroundColor: c.collabMode === 'read_write' ? tokens.bdim : 'transparent' }]}
-                      onPress={() => handleSetCollaboratorMode(c, 'read_write')}
-                      hitSlop={4}
-                    >
-                      <Icon name="pencil" size={fs(12)} color={c.collabMode === 'read_write' ? tokens.blu : tokens.t4} />
-                    </Pressable>
-                  </View>
+                  {c.accepted ? (
+                    // BB-077: this specific person's own access --
+                    // independent of the "new invites get" default above and
+                    // of any other collaborator on this same folder.
+                    <View style={[styles.collabModeToggle, { borderColor: tokens.bbdr }]}>
+                      <Pressable
+                        style={[styles.collabModeSeg, { backgroundColor: c.collabMode === 'read_only' ? tokens.bdim : 'transparent' }]}
+                        onPress={() => handleSetCollaboratorMode(c, 'read_only')}
+                        hitSlop={4}
+                      >
+                        <Icon name="eye" size={fs(12)} color={c.collabMode === 'read_only' ? tokens.blu : tokens.t4} />
+                      </Pressable>
+                      <Pressable
+                        style={[styles.collabModeSeg, { backgroundColor: c.collabMode === 'read_write' ? tokens.bdim : 'transparent' }]}
+                        onPress={() => handleSetCollaboratorMode(c, 'read_write')}
+                        hitSlop={4}
+                      >
+                        <Icon name="pencil" size={fs(12)} color={c.collabMode === 'read_write' ? tokens.blu : tokens.t4} />
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <View style={[styles.roleBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
+                      <Text style={[styles.roleBadgeText, { color: tokens.t3, fontSize: fs(10) }]}>INVITED</Text>
+                    </View>
+                  )}
                   <Pressable onPress={() => handleRemoveCollaborator(c)} hitSlop={8}>
                     <Icon name="xmark.circle" size={fs(18)} color={tokens.t4} />
                   </Pressable>
@@ -728,6 +814,41 @@ export default function FolderDetail() {
         onConfirm={handleConfirmMove}
         onClose={() => setMoveItem(null)}
       />
+      {/* Mirrors my-aircraft/[id].tsx's own callsign step exactly (single
+          text field + Invite action) -- no role-picker step needed here
+          since a folder's per-invitee access already has its own
+          default+override mechanism (NEW INVITES GET + setCollaboratorMode
+          after they join), unlike aircraft's viewer/editor choice. */}
+      <Modal visible={callsignModalVisible} animationType="slide" transparent onRequestClose={() => setCallsignModalVisible(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+            <View style={styles.modalHeader}>
+              <Pressable onPress={() => setCallsignModalVisible(false)} hitSlop={10}>
+                <Text style={{ color: tokens.t3, fontSize: fs(14.5) }}>Cancel</Text>
+              </Pressable>
+              <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Invite by Callsign</Text>
+              <Pressable onPress={submitCallsignInvite} hitSlop={10} disabled={callsignBusy || !inviteCallsign.trim()}>
+                {callsignBusy ? <ActivityIndicator color={tokens.blu} /> : (
+                  <Text style={{ color: inviteCallsign.trim() ? tokens.blu : tokens.t4, fontWeight: '700', fontSize: fs(14.5) }}>Invite</Text>
+                )}
+              </Pressable>
+            </View>
+            <Text style={{ color: tokens.t3, fontSize: fs(13) }}>
+              Their Callsign, exactly as it appears in FlyRegs. They'll need their own Premium subscription and a Callsign set to join.
+            </Text>
+            <TextInput
+              value={inviteCallsign}
+              onChangeText={setInviteCallsign}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="Callsign"
+              placeholderTextColor={tokens.t4}
+              style={[styles.inviteInput, { color: tokens.t1, borderColor: inviteError ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
+            />
+            {inviteError && <Text style={{ color: tokens.red, fontSize: fs(12.5) }}>{inviteError}</Text>}
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
       <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
     </View>
   )
@@ -978,6 +1099,18 @@ const styles = StyleSheet.create({
   modeSectionLabel: { fontWeight: '700', letterSpacing: 0.4, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4, borderTopWidth: StyleSheet.hairlineWidth },
   collabModeToggle: { flexDirection: 'row', alignItems: 'center', borderRadius: 8, borderWidth: 1, overflow: 'hidden' },
   collabModeSeg: { paddingHorizontal: 8, paddingVertical: 5 },
+  callsignInviteRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 12 },
+  callsignInviteText: { fontWeight: '600' },
+  roleBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 3 },
+  roleBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
+  // Same 4 style shapes as my-aircraft/[id].tsx's own callsign-invite modal
+  // -- kept as this screen's own copy rather than a shared import since
+  // neither screen exports its StyleSheet.
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
+  modalCard: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, padding: 18, gap: 10 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  modalTitle: { fontWeight: '700' },
+  inviteInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontWeight: '600' },
   collabRow: {
     flexDirection: 'row',
     alignItems: 'center',

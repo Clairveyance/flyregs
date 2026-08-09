@@ -70,15 +70,14 @@ export function buildShareLink(token: string): string {
 // that toggle, ahead of confirmation, so the link is valid the instant it's
 // actually sent. See folders.ts's Folder.shared and syncPush.ts's `force`
 // param.
-export async function getOrCreateShareLink(folderId: string): Promise<{ link: string; token: string }> {
-  const { data: existing } = await supabase
-    .from('synced_folders')
-    .select('share_token')
-    .eq('id', folderId)
-    .maybeSingle()
-
-  if (existing?.share_token) return { link: buildShareLink(existing.share_token), token: existing.share_token }
-
+// Force-pushes a folder (and its own items/notes) to the cloud if it isn't
+// there yet -- both share paths (link and Callsign) need the folder to exist
+// in synced_folders before the server can act on it, but a folder created
+// with the global "Back up & sync" toggle off only ever lives in local
+// AsyncStorage. Without this, invite_folder_collaborator's ownership check
+// (`user_id = auth.uid()`) simply finds no row and raises "Not authorized" --
+// a confusing error for what's really just "this folder was never synced."
+async function ensureFolderPushed(folderId: string): Promise<void> {
   const [folders, items, notes] = await Promise.all([getFolders(), getItemsInFolder(folderId), getNotes()])
   const folder = folders.find((f) => f.id === folderId)
   if (!folder) throw new Error('Folder not found')
@@ -95,6 +94,18 @@ export async function getOrCreateShareLink(folderId: string): Promise<{ link: st
       .filter((n): n is NonNullable<typeof n> => !!n && !n.authorId)
       .map((n) => syncPushNote(n, true))
   )
+}
+
+export async function getOrCreateShareLink(folderId: string): Promise<{ link: string; token: string }> {
+  const { data: existing } = await supabase
+    .from('synced_folders')
+    .select('share_token')
+    .eq('id', folderId)
+    .maybeSingle()
+
+  if (existing?.share_token) return { link: buildShareLink(existing.share_token), token: existing.share_token }
+
+  await ensureFolderPushed(folderId)
 
   const token = makeShareToken()
   return { link: buildShareLink(token), token }
@@ -340,6 +351,13 @@ export interface FolderCollaborator {
   lastViewedAt: string | null
   /** BB-077: per-invitee, not per-folder -- see setCollaboratorMode below. */
   collabMode: FolderCollabMode
+  /** False until this specific person has actually opened a NAMED
+   * (Callsign) invite link and accepted it -- the roster row for a pending
+   * invite shows greyed out with an "Invited" badge instead of a real
+   * access badge. Always true for anyone who joined via the folder's
+   * anonymous link (the "Invite" header icon), which has no such pending
+   * state -- see inviteCollaboratorByCallsign below. */
+  accepted: boolean
 }
 
 export async function getFolderCollaborators(folderId: string): Promise<FolderCollaborator[]> {
@@ -352,7 +370,38 @@ export async function getFolderCollaborators(folderId: string): Promise<FolderCo
     leftAt: row.out_left_at,
     lastViewedAt: row.out_last_viewed_at,
     collabMode: (row.out_collab_mode as FolderCollabMode) ?? 'read_only',
+    accepted: !!row.out_accepted,
   }))
+}
+
+// RC: "since the receiver has to have a FR account to get the shared
+// folders... it's not bad to suggest there too (like with a/c sharing) that
+// they create a Callsign... scope it a build it. should be fairly
+// straightforward since you already built it in the a/c area." Mirrors
+// aircraftSharing.ts's inviteCollaboratorByCallsign exactly, minus the role
+// param -- a folder's per-invitee access (BB-077's collabMode) already has
+// its own default+override mechanism (the "NEW INVITES GET" toggle plus
+// setCollaboratorMode after they join), so this doesn't need a second
+// role-picker step the way aircraft's viewer/editor invite does.
+export interface FolderCallsignInvite {
+  token: string
+  userId: string
+  callsign: string
+}
+
+export async function inviteCollaboratorByCallsign(folderId: string, callsign: string): Promise<FolderCallsignInvite> {
+  await ensureFolderPushed(folderId)
+
+  const token = makeShareToken()
+  const { data, error } = await supabase.rpc('invite_folder_collaborator', {
+    p_folder_id: folderId,
+    p_callsign: callsign,
+    p_token: token,
+  })
+  if (error) throw error
+  const row = data?.[0]
+  if (!row) throw new Error('Could not create invite')
+  return { token: row.out_token, userId: row.out_user_id, callsign: row.out_callsign }
 }
 
 export async function removeCollaborator(folderId: string, userId: string): Promise<void> {
