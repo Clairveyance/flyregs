@@ -1069,11 +1069,18 @@ function FolderEditor({
   const ifs = useInputFS()
   const insets = useSafeAreaInsets()
   const [name, setName] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
+    if (submitting) return
     const trimmed = name.trim()
     if (!trimmed) return
-    onCreate(trimmed)
+    setSubmitting(true)
+    try {
+      await onCreate(trimmed)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -1090,8 +1097,8 @@ function FolderEditor({
         <View style={styles.editorHeaderRight}>
           <Pressable
             onPress={handleCreate}
-            disabled={!name.trim()}
-            style={[styles.doneBtn, { backgroundColor: tokens.blu, opacity: name.trim() ? 1 : 0.5 }]}
+            disabled={!name.trim() || submitting}
+            style={[styles.doneBtn, { backgroundColor: tokens.blu, opacity: name.trim() && !submitting ? 1 : 0.5 }]}
           >
             <Text style={[styles.doneBtnText, { fontSize: fs(13) }]}>Create</Text>
           </Pressable>

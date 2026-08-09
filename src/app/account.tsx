@@ -162,6 +162,7 @@ export default function AccountScreen() {
   }, [existingCallsign])
 
   const handleSaveCallsign = async () => {
+    if (callsignSaving) return
     const trimmed = callsignInput.trim().slice(0, 40)
     setCallsignError(null)
     setCallsignSaving(true)
