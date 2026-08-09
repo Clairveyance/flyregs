@@ -6,7 +6,6 @@ import { normalizeRegBody } from '@/lib/regTextFormat'
 import { useFS } from '@/context/fontScale'
 import { linkifyText } from '@/lib/crossRefLinks'
 import { TableGrid } from '@/components/TableGrid'
-import { Icon } from '@/components/Icon'
 import { softWrapParagraph } from '@/lib/softWrap'
 import { setPendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { searchPhrase, highlightSpans } from '@/lib/searchHighlight'
@@ -382,7 +381,25 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
    * will be affected before choosing. Set by the parent screen the instant
    * long-press fires and cleared once the menu closes, any path. */
   pendingBlockText?: string | null
-}>(function PlainTextBody({ text, figures, onOpenFigure, resolveFigureGlobally, onNavigate, currentLabel, highlightQuery, activeMatch, onMatchCount, scrollRef, viewportHeight, changedIndices, mnemonicAnchors, highlightedBlockTexts, onToggleHighlight, pendingBlockText }, ref) {
+  /** The parent screen's own tracked ScrollView scroll offset (it already
+   * reads this via onScroll for its "return to top" button) -- used to
+   * figure out which table/figure the reader has actually scrolled to, so
+   * onActiveTableChange can report a stable "current" one instead of every
+   * table on the page at once. */
+  scrollY?: number
+  /** Fires whenever the "currently viewed" table changes (including to
+   * null, when the reader hasn't scrolled to any table yet, or scrolls
+   * back above the first one) -- lets the PARENT screen render a single
+   * Prev/Next-Table control near the bottom of the page, stacked above its
+   * own doc-level Prev/Next footer, instead of this component rendering
+   * one inline after every table. RC, real device: "those Prev/Next T&F
+   * buttons... right now they're in the middle of the screen. Place them
+   * down near the bottom... they would only show when a T&F has already
+   * been selected to view." Omit both this and scrollY to get the old
+   * behavior of simply never surfacing a table nav at all (no screen
+   * should do that today, but keeps the prop optional/backward-safe). */
+  onActiveTableChange?: (info: { ord: number; total: number; prevIndex: number | null; nextIndex: number | null } | null) => void
+}>(function PlainTextBody({ text, figures, onOpenFigure, resolveFigureGlobally, onNavigate, currentLabel, highlightQuery, activeMatch, onMatchCount, scrollRef, viewportHeight, changedIndices, mnemonicAnchors, highlightedBlockTexts, onToggleHighlight, pendingBlockText, scrollY, onActiveTableChange }, ref) {
   const { tokens, redShift } = useTheme()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web, so every dialog here was invisible in the Browser pane.
@@ -414,7 +431,20 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
   // list markers, and 81% contain [[Page NNNN]] breaks — all of which render
   // as ragged fragments. See regTextFormat.ts for the full measurements and
   // why this runs at render time instead of rewriting the database.
-  const paragraphs = normalizeRegBody(text).split(/\n\n+/).filter((p) => p.trim())
+  // Memoized on `text` alone -- this used to recompute (a new array, same
+  // content) on EVERY render, which was harmless while nothing depended on
+  // its IDENTITY. Once tableParaIndices' own useMemo below started keying
+  // off this array, that constant identity-churn defeated ITS memoization
+  // too, and the onActiveTableChange effect further down (which depends on
+  // tableParaIndices) fired every single render -- calling the parent's
+  // setState, which re-renders this component, which recomputes a new
+  // `paragraphs` array again. Real bug, caught live: React's "Maximum
+  // update depth exceeded" in the browser preview the moment a table
+  // scrolled into view and the bar first tried to appear.
+  const paragraphs = useMemo(
+    () => normalizeRegBody(text).split(/\n\n+/).filter((p) => p.trim()),
+    [text],
+  )
 
   const hq = highlightQuery && highlightQuery.length >= 2 ? highlightQuery : null
   const phrase = hq ? searchPhrase(hq) : null
@@ -509,6 +539,49 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
     () => paragraphs.map((p, i) => ({ p, i })).filter(({ p }) => parseTableBlock(p) !== null).map(({ i }) => i),
     [paragraphs],
   )
+
+  // Which table counts as "currently viewed" for the parent's bottom nav
+  // bar -- the LAST table whose top edge the reader has scrolled to or
+  // past, i.e. classic scrollspy logic. Recomputed on every scroll tick
+  // (paraRelY is a ref, so this reads whatever's most current each time,
+  // not stale values from when the effect was created) using the same
+  // paraRelY layout measurements scrollToParaIndex already relies on.
+  // Deliberately reports null (hides the bar) until the reader has
+  // actually scrolled to the first table -- RC: "they would only show
+  // when a T&F has already been selected to view."
+  const lastReportedTableRef = useRef<string | null>('unset')
+  useEffect(() => {
+    if (!onActiveTableChange) return
+    if (tableParaIndices.length <= 1) {
+      if (lastReportedTableRef.current !== null) { lastReportedTableRef.current = null; onActiveTableChange(null) }
+      return
+    }
+    const y = scrollY ?? 0
+    let activeOrd: number | null = null
+    for (let k = 0; k < tableParaIndices.length; k++) {
+      const relY = paraRelY.current[tableParaIndices[k]]
+      if (relY != null && relY <= y + 60) activeOrd = k
+    }
+    if (activeOrd == null) {
+      if (lastReportedTableRef.current !== null) { lastReportedTableRef.current = null; onActiveTableChange(null) }
+      return
+    }
+    const info = {
+      ord: activeOrd,
+      total: tableParaIndices.length,
+      prevIndex: activeOrd > 0 ? tableParaIndices[activeOrd - 1] : null,
+      nextIndex: activeOrd < tableParaIndices.length - 1 ? tableParaIndices[activeOrd + 1] : null,
+    }
+    // Belt-and-suspenders against re-triggering: even with `paragraphs` now
+    // properly memoized above, this guard means a future caller passing a
+    // fresh onActiveTableChange closure each render (e.g. an inline arrow
+    // fn instead of a stable setState) still can't loop -- the callback
+    // only ever fires when the reported VALUE actually changes.
+    const key = `${info.ord}|${info.total}|${info.prevIndex}|${info.nextIndex}`
+    if (lastReportedTableRef.current === key) return
+    lastReportedTableRef.current = key
+    onActiveTableChange(info)
+  }, [scrollY, tableParaIndices, onActiveTableChange])
 
   useImperativeHandle(ref, () => ({
     scrollToParagraph(i: number) {
@@ -711,32 +784,6 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
                 captionLines={captionLines}
                 onPress={tableFigure && onOpenFigure ? () => onOpenFigure(tableFigure) : undefined}
               />
-              {tableParaIndices.length > 1 && (() => {
-                const ord = tableParaIndices.indexOf(i)
-                const prevIdx = ord > 0 ? tableParaIndices[ord - 1] : null
-                const nextIdx = ord < tableParaIndices.length - 1 ? tableParaIndices[ord + 1] : null
-                return (
-                  <View style={styles.tableNavRow}>
-                    <Pressable
-                      style={[styles.tableNavBtn, prevIdx == null && styles.tableNavBtnDisabled]}
-                      onPress={() => { if (prevIdx != null) scrollToParaIndex(prevIdx) }}
-                      disabled={prevIdx == null}
-                    >
-                      <Icon name="chevron.left" size={fs(11)} color={prevIdx == null ? tokens.t4 : tokens.blu} />
-                      <Text style={{ color: prevIdx == null ? tokens.t4 : tokens.blu, fontSize: fs(12), fontWeight: '600' }}>Prev Table</Text>
-                    </Pressable>
-                    <Text style={{ color: tokens.t4, fontSize: fs(11.5) }}>{ord + 1} of {tableParaIndices.length}</Text>
-                    <Pressable
-                      style={[styles.tableNavBtn, nextIdx == null && styles.tableNavBtnDisabled]}
-                      onPress={() => { if (nextIdx != null) scrollToParaIndex(nextIdx) }}
-                      disabled={nextIdx == null}
-                    >
-                      <Text style={{ color: nextIdx == null ? tokens.t4 : tokens.blu, fontSize: fs(12), fontWeight: '600' }}>Next Table</Text>
-                      <Icon name="chevron.right" size={fs(11)} color={nextIdx == null ? tokens.t4 : tokens.blu} />
-                    </Pressable>
-                  </View>
-                )
-              })()}
             </View>
           )
         }
@@ -867,7 +914,4 @@ const styles = StyleSheet.create({
   pendingWrap: { backgroundColor: 'rgba(59, 130, 246, 0.12)', borderLeftWidth: 3, borderLeftColor: '#3B82F6', paddingLeft: 8 },
   pendingTag: { color: '#1d4ed8', backgroundColor: 'rgba(59, 130, 246, 0.22)', fontWeight: '800', letterSpacing: 0.6, marginBottom: 2 },
   para: { lineHeight: 22, marginBottom: 14 },
-  tableNavRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, marginBottom: 14 },
-  tableNavBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 4 },
-  tableNavBtnDisabled: { opacity: 0.4 },
 })

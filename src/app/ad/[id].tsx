@@ -18,7 +18,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { BackToBreadcrumb, PrevNextFooter } from '@/components/DocNavBar'
+import { BackToBreadcrumb, PrevNextFooter, TableNavBar } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { MetaChip, MetaChipRow, DetailSection, DetailActionRow } from '@/components/DetailMeta'
@@ -89,6 +89,9 @@ export default function AdScreen() {
   const [confirmTick, setConfirmTick] = useState(0)
   const [scrollY, setScrollY] = useState(0)
   const [scrollViewportHeight, setScrollViewportHeight] = useState<number | undefined>(undefined)
+  // See PlainTextBody's onActiveTableChange comment -- drives the bottom
+  // TableNavBar rendered above this screen's own PrevNextFooter.
+  const [activeTable, setActiveTable] = useState<{ ord: number; total: number; prevIndex: number | null; nextIndex: number | null } | null>(null)
   const scrollRef = useRef<ScrollView>(null)
   const bodyRef = useRef<PlainTextBodyHandle>(null)
   const inDocSearch = useInDocSearch(bodyRef)
@@ -675,6 +678,8 @@ export default function AdScreen() {
                 highlightedBlockTexts={highlightedBlockTexts}
                 onToggleHighlight={(paraText) => handleBlockLongPress(paraText)}
                 pendingBlockText={pendingHighlight}
+                scrollY={scrollY}
+                onActiveTableChange={setActiveTable}
               />
             ) : (
               <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No further text available for this AD.</Text>
@@ -703,6 +708,14 @@ export default function AdScreen() {
           )}
         </ScrollView>
         </TabletContainer>
+      )}
+      {activeTable && (
+        <TableNavBar
+          ord={activeTable.ord}
+          total={activeTable.total}
+          onPrev={activeTable.prevIndex != null ? () => bodyRef.current?.scrollToParagraph(activeTable.prevIndex!) : null}
+          onNext={activeTable.nextIndex != null ? () => bodyRef.current?.scrollToParagraph(activeTable.nextIndex!) : null}
+        />
       )}
       {ad && (
         <PrevNextFooter

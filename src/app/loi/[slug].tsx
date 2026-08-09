@@ -17,7 +17,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { BackToBreadcrumb } from '@/components/DocNavBar'
+import { BackToBreadcrumb, TableNavBar } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { MetaChip, MetaChipRow, DetailSection, DetailActionRow } from '@/components/DetailMeta'
@@ -90,6 +90,12 @@ export default function LoiDetailScreen() {
   const [backTo, setBackTo] = useState<string | null>(null)
   const [scrollY, setScrollY] = useState(0)
   const [scrollViewportHeight, setScrollViewportHeight] = useState<number | undefined>(undefined)
+  // See PlainTextBody's onActiveTableChange comment. LOI has no
+  // PrevNextFooter (LOIs aren't sequentially numbered like FAR/AIM/AD
+  // sections), so this bar just floats at the bottom with nothing to stack
+  // above -- still an improvement over the old inline-after-every-table
+  // placement.
+  const [activeTable, setActiveTable] = useState<{ ord: number; total: number; prevIndex: number | null; nextIndex: number | null } | null>(null)
   const scrollRef = useRef<ScrollView>(null)
   const bodyRef = useRef<PlainTextBodyHandle>(null)
   const inDocSearch = useInDocSearch(bodyRef)
@@ -481,6 +487,8 @@ export default function LoiDetailScreen() {
                 highlightedBlockTexts={highlightedBlockTexts}
                 onToggleHighlight={(paraText) => handleBlockLongPress(paraText)}
                 pendingBlockText={pendingHighlight}
+                scrollY={scrollY}
+                onActiveTableChange={setActiveTable}
               />
             ) : (
               <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No text available for this interpretation.</Text>
@@ -512,6 +520,14 @@ export default function LoiDetailScreen() {
           )}
         </ScrollView>
         </TabletContainer>
+      )}
+      {activeTable && (
+        <TableNavBar
+          ord={activeTable.ord}
+          total={activeTable.total}
+          onPrev={activeTable.prevIndex != null ? () => bodyRef.current?.scrollToParagraph(activeTable.prevIndex!) : null}
+          onNext={activeTable.nextIndex != null ? () => bodyRef.current?.scrollToParagraph(activeTable.nextIndex!) : null}
+        />
       )}
 
       <FolderPicker
