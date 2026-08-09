@@ -147,10 +147,10 @@ function RegPreviewChrome({ route, onClose, variant }: RegPreviewChromeProps) {
         {c.data && (
           <View style={styles.headerActions}>
             <Pressable onPress={c.handleOpenFolderPicker} hitSlop={10} style={{ padding: 4 }}>
-              <Icon name="folder.badge.plus" size={fs(18)} color={c.hasPlusAccess ? tokens.t2 : tokens.t4} />
+              <Icon name="folder.badge.plus" size={fs(21)} color={c.hasPlusAccess ? tokens.t2 : tokens.t4} />
             </Pressable>
             <Pressable onPress={c.handleToggleBookmark} hitSlop={10} style={{ padding: 4 }}>
-              <Icon name={c.bookmarked ? 'bookmark.fill' : 'bookmark'} size={fs(18)} color={c.bookmarked ? tokens.gold : tokens.t2} />
+              <Icon name={c.bookmarked ? 'bookmark.fill' : 'bookmark'} size={fs(21)} color={c.bookmarked ? tokens.gold : tokens.t2} />
             </Pressable>
           </View>
         )}
@@ -257,11 +257,16 @@ const styles = StyleSheet.create({
   sheet: { height: '75%', borderTopLeftRadius: 18, borderTopRightRadius: 18, overflow: 'hidden' },
   pane: { flex: 1 },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    // gap (not just justifyContent: 'space-between') -- with headerLabel's
+    // flex:1 eating all the slack, headerActions and the close X sat with
+    // zero space between them regardless of space-between; BB-075, real
+    // device beta report: "add to folder and bookmark icons are too small
+    // and too close to the X. Will be mis-hit."
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10,
     paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerLabel: { fontWeight: '700', flex: 1, marginRight: 12 },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 8 },
   notFound: {},
   emptyPane: { fontWeight: '500' },
