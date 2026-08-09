@@ -135,7 +135,11 @@ export function TableGrid({ captionLines, headerCells, rows, footnotes, onPress 
                 ri % 2 === 1 && { backgroundColor: tokens.bg2 },
               ]}
             >
-              <Text style={[styles.defTerm, { color: tokens.blu, fontSize: fs(13) }]}>{row[0]}</Text>
+              {/* NOT tokens.blu -- same fix as the regular grid's ci===0
+                  cell below: this "term" label is never tappable (no
+                  onPress on a data row anywhere in this component), so
+                  coloring it the app's link-blue misleadingly reads as one. */}
+              <Text style={[styles.defTerm, { color: tokens.t1, fontSize: fs(13) }]}>{row[0]}</Text>
               <Text style={[styles.defBody, { color: tokens.t2, fontSize: fs(13) }]}>{row[1]}</Text>
             </View>
           ))}
@@ -192,7 +196,16 @@ export function TableGrid({ captionLines, headerCells, rows, footnotes, onPress 
                       // (a number, a device/facility name) — contrasting it
                       // gives the grid a real visual anchor to scan down,
                       // directly addressing "numbering isn't contrasted."
-                      ci === 0 ? { color: tokens.blu, fontWeight: '700' } : { color: tokens.t2 },
+                      // NOT tokens.blu -- RC, real device (annotated
+                      // screenshot): "why isn't the Table caption
+                      // hyperlinked in blue, yet the text below is?" This
+                      // cell was never a link (no onPress anywhere on a
+                      // data cell), but coloring it the exact same blue this
+                      // app uses everywhere else to mean "tappable" reads as
+                      // one. Bold + full-brightness t1 (vs the muted t2
+                      // every other cell uses) keeps the same scan-anchor
+                      // contrast without borrowing the link color.
+                      ci === 0 ? { color: tokens.t1, fontWeight: '700' } : { color: tokens.t2 },
                     ]}
                   >
                     {cell}
