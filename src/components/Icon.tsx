@@ -96,6 +96,7 @@ const SF_TO_IONICONS: Record<string, string> = {
   'plus.circle.fill': 'add-circle',
   'rosette': 'ribbon-outline',
   'rectangle.stack': 'copy-outline',
+  'doc.on.doc': 'copy-outline',
   'arrow.uturn.left': 'arrow-undo-outline',
   'hourglass': 'hourglass-outline',
   'wrench': 'construct-outline',

@@ -171,6 +171,41 @@ export async function deleteFolder(id: string): Promise<void> {
   unshareFolder(id).catch(() => {})
 }
 
+// BB-079, RC real-device beta report: "we need to allow creation of a
+// 'duplicate' folder. so user could share same folder w/ diff sets of
+// people w/o having to recreate it." The new folder starts as a plain,
+// unshared copy of the source's OWN content -- deliberately does NOT
+// carry over share_token/collaborators (the whole point is a fresh,
+// independently-shareable folder) and skips any item this account didn't
+// author itself (a foreign/collaborator-added item on a folder THIS
+// account owns -- see FolderItem.authorId -- isn't this account's content
+// to hand to a brand new set of people without the original author's say).
+export async function duplicateFolder(id: string): Promise<Folder> {
+  const [folders, items] = await Promise.all([getFolders(), getItemsInFolder(id)])
+  const source = folders.find((f) => f.id === id)
+  if (!source) throw new Error('Folder not found')
+
+  let name = `${source.name} Copy`
+  let n = 2
+  while (folders.some((f) => f.name.trim().toLowerCase() === name.toLowerCase())) {
+    name = `${source.name} Copy ${n}`
+    n++
+  }
+  const copy = await createFolder(name)
+
+  const byType = new Map<FolderItemType, string[]>()
+  for (const item of items) {
+    if (item.authorId) continue
+    const arr = byType.get(item.item_type) ?? []
+    arr.push(item.item_id)
+    byType.set(item.item_type, arr)
+  }
+  for (const [type, itemIds] of byType) {
+    await addManyToFolder(copy.id, type, itemIds)
+  }
+  return copy
+}
+
 // ── Folder items ──────────────────────────────────────────────────────────────
 
 export async function getFolderItems(): Promise<FolderItem[]> {

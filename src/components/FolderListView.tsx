@@ -36,6 +36,7 @@ interface Props {
   onRenamed: () => void
   onDelete: (folder: Folder) => void
   onShare: (folder: Folder) => void
+  onDuplicate: (folder: Folder) => void
   onCreateFolder: () => void
   listHeader?: React.ReactElement
   /** True while the user is in "Reorder" mode (a header toggle owned by the
@@ -58,6 +59,7 @@ export function FolderListView({
   onRenamed,
   onDelete,
   onShare,
+  onDuplicate,
   onCreateFolder,
   listHeader,
   reorderMode = false,
@@ -244,6 +246,7 @@ export function FolderListView({
               onRename={() => startRename(item, index)}
               onDelete={() => onDelete(item)}
               onShare={() => onShare(item)}
+              onDuplicate={() => onDuplicate(item)}
               reorderMode={reorderMode}
               isDragging={dragId === item.id}
               dragY={dragY}
@@ -269,7 +272,7 @@ export function FolderListView({
 }
 
 function SwipeableFolderRow({
-  folder, count, tokens, selectMode, selected, onPress, onRename, onShare, onDelete,
+  folder, count, tokens, selectMode, selected, onPress, onRename, onShare, onDuplicate, onDelete,
   reorderMode = false, isDragging = false, dragY, dragIndexDelta = 0, rowHeight = FALLBACK_ROW_HEIGHT,
   onLayoutHeight, onDragStart, onDragUpdate, onDragEnd,
 }: {
@@ -281,6 +284,7 @@ function SwipeableFolderRow({
   onPress: () => void
   onRename: () => void
   onShare: () => void
+  onDuplicate: () => void
   onDelete: () => void
   reorderMode?: boolean
   isDragging?: boolean
@@ -412,6 +416,13 @@ function SwipeableFolderRow({
                 </Pressable>
                 <Pressable onPress={onShare} hitSlop={10} style={styles.iconBtn}>
                   <Icon name="square.and.arrow.up" size={fs(20)} color={tokens.t3} />
+                </Pressable>
+                {/* BB-079, RC real-device beta report: "we need to allow
+                    creation of a 'duplicate' folder. so user could share
+                    same folder w/ diff sets of people w/o having to
+                    recreate it." */}
+                <Pressable onPress={onDuplicate} hitSlop={10} style={styles.iconBtn}>
+                  <Icon name="doc.on.doc" size={fs(19)} color={tokens.t3} />
                 </Pressable>
               </>
             )}

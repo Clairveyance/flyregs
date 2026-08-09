@@ -24,6 +24,7 @@ import {
   getFolderItemCounts,
   createFolder,
   deleteFolder,
+  duplicateFolder,
   addManyToFolder,
   unshareFolder,
   reorderFolders,
@@ -575,6 +576,27 @@ export default function SavedScreen() {
     }
   }
 
+  // BB-079, RC real-device beta report: "we need to allow creation of a
+  // 'duplicate' folder. so user could share same folder w/ diff sets of
+  // people w/o having to recreate it." Same folder-count cap as creating a
+  // brand new folder -- a duplicate IS a new folder as far as the Plus/
+  // Premium limit is concerned.
+  const handleDuplicateFolder = async (folder: Folder) => {
+    if (folders.length >= folderCap) {
+      confirm({
+        title: 'Folder limit reached',
+        message: `Plus includes ${PLUS_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
+        confirmLabel: 'Upgrade to Premium',
+        onConfirm: () => router.push('/paywall?tier=premium'),
+      })
+      return
+    }
+    const copy = await duplicateFolder(folder.id)
+    load()
+    setConfirmLabel(`Duplicated as "${copy.name}"`)
+    setConfirmTick((t) => t + 1)
+  }
+
   const handleBulkShareFolders = async () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     const ids = [...selectedFolders]
@@ -800,6 +822,7 @@ export default function SavedScreen() {
             onRenamed={load}
             onDelete={handleDeleteFolder}
             onShare={handleShareFolder}
+            onDuplicate={handleDuplicateFolder}
             reorderMode={folderReorderMode}
             onReorder={handleFolderReorder}
             onCreateFolder={() => setNewFolderVisible(true)}
