@@ -310,8 +310,27 @@ function SwipeableFolderRow({
   onDragEnd?: () => void
 }) {
   const fs = useFS()
+  // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
+  // Native Web, so this dialog would be invisible in the Browser pane.
+  const confirm = useConfirm()
   const translateX = useSharedValue(0)
   const swiped = useRef(false)
+
+  // RC, real-device feedback: "move Duplicate + rename pencil into a Folders
+  // ⋯ menu" -- these two were cluttering the row as separate icons. Reuses
+  // the existing choices action-sheet pattern (see folder/[id].tsx's
+  // Invite-by-Link/Callsign picker) rather than HeaderOverflowMenu, since
+  // that component's dropdown is fixed-anchored near the screen's top/bottom
+  // insets -- wrong for a per-row menu inside a scrolling list.
+  const handleMore = () => {
+    confirm({
+      title: folder.name,
+      choices: [
+        { label: 'Rename', onPress: onRename },
+        { label: 'Duplicate', onPress: onDuplicate },
+      ],
+    })
+  }
 
   const panGesture = Gesture.Pan()
     .activeOffsetX([-6, 6])
@@ -429,18 +448,14 @@ function SwipeableFolderRow({
             </View>
             {!selectMode && !reorderMode && (
               <>
-                <Pressable onPress={onRename} hitSlop={10} style={styles.iconBtn}>
-                  <Icon name="pencil" size={fs(20)} color={tokens.t3} />
-                </Pressable>
                 <Pressable onPress={onShare} hitSlop={10} style={styles.iconBtn}>
                   <Icon name="square.and.arrow.up" size={fs(20)} color={tokens.t3} />
                 </Pressable>
-                {/* BB-079, RC real-device beta report: "we need to allow
-                    creation of a 'duplicate' folder. so user could share
-                    same folder w/ diff sets of people w/o having to
-                    recreate it." */}
-                <Pressable onPress={onDuplicate} hitSlop={10} style={styles.iconBtn}>
-                  <Icon name="doc.on.doc" size={fs(19)} color={tokens.t3} />
+                {/* BB-102/task #433, RC real-device beta report: Rename +
+                    Duplicate (BB-079) declutter into one "..." menu instead
+                    of two separate row icons. */}
+                <Pressable onPress={handleMore} hitSlop={10} style={styles.iconBtn}>
+                  <Icon name="ellipsis" size={fs(20)} color={tokens.t3} />
                 </Pressable>
               </>
             )}
