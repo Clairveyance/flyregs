@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { View, Text, TextInput, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
+import { View, Text, TextInput, Pressable, ActivityIndicator, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import * as Linking from 'expo-linking'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -110,7 +110,14 @@ export default function ResetPasswordScreen() {
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: tokens.bg, paddingTop: insets.top + 40 }]}>
+    // KeyboardAvoidingView -- this screen has no ScrollView at all, so
+    // without it the keyboard could push "Update Password" fully
+    // off-screen with literally no way to reach it while resetting a
+    // password (an especially bad moment to get stuck, mid account-recovery).
+    <KeyboardAvoidingView
+      style={[styles.root, { backgroundColor: tokens.bg, paddingTop: insets.top + 40 }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <Icon name="lock" size={fs(40)} color={tokens.blu} />
       <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Set a new password</Text>
 
@@ -156,7 +163,7 @@ export default function ResetPasswordScreen() {
           <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>Update Password</Text>
         )}
       </Pressable>
-    </View>
+    </KeyboardAvoidingView>
   )
 }
 
