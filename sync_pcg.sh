@@ -44,6 +44,24 @@ echo "════════════════════════�
 cd "$APP"
 "$PYTHON3" sync/pcg_scraper.py --mode full
 
+# Dead see_refs repair (ICAO-prefix / abbreviation-suffix rewrites, and
+# dropping genuinely-unresolvable entries) -- MUST run AFTER the scraper
+# step above, every time, not just once. Confirmed live 2026-08-10: this
+# script was written and run by hand exactly once, on 2026-08-02, and fixed
+# 467 of 1,048 dead see_refs entries (296 rewrites + 171 drops) -- but the
+# scraper step re-upserts EVERY column (including see_refs) straight from
+# the FAA's raw HTML on every run, so all 467 fixes got silently reset back
+# to the original broken text on the very next scheduled sync and stayed
+# broken for over a week with no failing job to notice, until this same
+# investigation found it again by coincidence while checking see_refs for
+# something else entirely. Re-running this script right here, every week,
+# closes that gap permanently instead of needing a human to notice and
+# re-run it by hand again. Idempotent: a ref that's already correctly
+# formed resolves on the very first check and is left untouched.
+echo ""
+echo "▶ P/CG see_refs dead-link repair (ICAO/abbreviation rewrites + drops)"
+"$PYTHON3" sync/fix_pcg_see_refs.py
+
 # MagicLink citation extraction (full corpus re-scan) -- was a total, silent
 # gap before 2026-07-28: no script existed for P/CG's own outbound citations
 # to AC/FAR/AIM/AD (distinct from see_refs, which covers pcg-to-pcg "See X"
@@ -51,6 +69,20 @@ cd "$APP"
 echo ""
 echo "▶ MagicLink citation extraction (P/CG -> AC/FAR/AIM/AD)"
 "$PYTHON3" sync/pcg_citations.py
+
+# P/CG-mentions-P/CG-by-name see_refs backfill -- MUST run AFTER
+# pcg_scraper.py, every time, not just once. Confirmed live 2026-08-10: the
+# scraper step above re-upserts every row's see_refs straight from the FAA's
+# own HTML on every run (Prefer: resolution=merge-duplicates overwrites the
+# whole column), so a term whose FAA source genuinely has no structured
+# "See ..." line gets see_refs reset to [] every single week -- silently
+# wiping this script's own additions from the previous run if it isn't
+# re-run right here, every time, to re-fill the same gap. Safe to re-run:
+# only ever touches rows whose see_refs is CURRENTLY empty, so it can never
+# clobber a real "See ..." line the FAA source does provide.
+echo ""
+echo "▶ P/CG see_refs backfill (inline mentions of other P/CG terms by name)"
+"$PYTHON3" sync/pcg_see_refs_backfill.py
 
 # NOTE: the OTHER direction (FAR/AIM/AC/AD/LOI -> P/CG, i.e. "which documents
 # use this glossary term") is NOT built here. It's sync/pcg_term_links.py, a

@@ -36,6 +36,24 @@ either way, so removing it is strictly better than leaving a landmine for
 a future "why doesn't this see_refs code use per-row existence checks"
 question.
 
+REGRESSION FOUND AND FIXED 2026-08-10 (P/CG corpus-wide MagicLink
+investigation): this script was only ever run once, by hand, on 2026-08-02.
+sync/pcg_scraper.py --mode full re-upserts EVERY pcg_terms column, including
+see_refs, straight from the FAA's raw HTML on every weekly run (`Prefer:
+resolution=merge-duplicates` overwrites the whole row) -- so every one of
+this script's 296 rewrites got silently reset back to the FAA's original,
+un-rewritten text on the very next scheduled sync, and stayed that way ever
+since; a live recheck the same day this comment was written found exactly
+296 rewrites and 171 drops pending again, i.e. the ENTIRE original fix had
+been fully undone, not partially. Also converted this script from the
+Supabase Management API (mgmt_sql) to plain PostgREST (SUPABASE_URL +
+SUPABASE_SERVICE_KEY) as part of the same fix -- the Management API's token
+is deliberately never a CI secret (see sync/pcg_term_links.py's own header),
+so a script that only speaks to it can only ever be run by hand, which is
+what let this regress silently for over a week with no failing job to
+notice. Now wired into sync_pcg.sh to re-run every week, right after the
+scraper step whose overwrite necessitates it -- see that file's comment.
+
 Usage:
   python3 sync/fix_pcg_see_refs.py --dry-run
   python3 sync/fix_pcg_see_refs.py
@@ -45,8 +63,14 @@ import os
 import re
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
-from author_fact_deck import mgmt_sql  # noqa: E402
+import requests
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pcg_term_links import fetch_all  # noqa: E402
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
 
 
 def slugify(term: str) -> str:
@@ -60,7 +84,11 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    all_terms = mgmt_sql("select slug, term from pcg_terms")
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        print("ERROR: SUPABASE_URL and SUPABASE_SERVICE_KEY must be set")
+        sys.exit(1)
+
+    all_terms = fetch_all("pcg_terms", "id,slug,term,see_refs")
     all_slugs = {r["slug"] for r in all_terms}
 
     # "term without its trailing (ABBREV) suffix" -> real slug, e.g.
@@ -100,10 +128,7 @@ def main():
             return target_term
         return "DROP"
 
-    rows = mgmt_sql(
-        "select id, slug, see_refs from pcg_terms "
-        "where see_refs is not null and jsonb_array_length(to_jsonb(see_refs)) > 0"
-    )
+    rows = [r for r in all_terms if r.get("see_refs")]
 
     rewrites = 0
     drops = 0
@@ -134,8 +159,14 @@ def main():
         return
 
     for pid, refs in updates:
-        arr_literal = "ARRAY[" + ",".join("'" + r.replace("'", "''") + "'" for r in refs) + "]::text[]" if refs else "ARRAY[]::text[]"
-        mgmt_sql(f"update pcg_terms set see_refs = {arr_literal} where id = '{pid}'")
+        resp = requests.patch(
+            f"{SUPABASE_URL}/rest/v1/pcg_terms",
+            headers={**HEADERS, "Prefer": "return=minimal"},
+            params={"id": f"eq.{pid}"},
+            json={"see_refs": refs},
+            timeout=30,
+        )
+        resp.raise_for_status()
     print(f"Updated {len(updates)} rows.")
 
 

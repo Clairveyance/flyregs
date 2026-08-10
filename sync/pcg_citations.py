@@ -37,10 +37,40 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 
-AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:\.\d+)?-\d+[A-Za-z]*(?:[\-–]\d+)?)\b")
+# Widened 2026-08-10 (corpus-wide P/CG MagicLink investigation) after
+# finding real, live misses: three friction-related terms (FRICTION_
+# MEASUREMENT, MAINTENANCE_PLANNING_FRICTION_LEVEL, MINIMUM_FRICTION_LEVEL)
+# and RUNWAY_SAFETY_AREA all cite "AC 150/5320-12" / "AC 150/5300-13" --
+# the FAA's slash-form AC numbering (used for airport-design ACs) -- which
+# the old pattern could never match at all: its first segment was a bare
+# `\d+(?:\.\d+)?` with no slash option. Two of those four also use a
+# Unicode hyphen (U+2010 "‐", seen literally in the source prose) where the
+# old pattern's own capture group only ever wrote an ASCII "-" into
+# cited_id -- harmless for the OLD pattern (it never reached the slash
+# numbers that carry this), but would have silently produced an
+# unresolvable cited_id here. All four resolve to a real advisory_circulars
+# row via citation_validate.py's existing AC-base-number fallback (e.g.
+# "150/5320-12" -> real row "150/5320-12C") once the digits/hyphens
+# actually match -- no change needed there.
+AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:/\d+)?(?:\.\d+)?[\-‐‑–]\d+[A-Za-z]*(?:[\-‐‑–]\d+)?)\b")
 FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
 AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 AD_RE = re.compile(r"\bAD\s+(\d{4}-\d{2}-\d{2})\b")
+
+# The FAA's own PDF->HTML text extraction is inconsistent about which
+# hyphen-like character it uses in a given document (confirmed live: two of
+# the four AC_RE matches above use U+2010 "‐" where the other two use plain
+# ASCII "-" for the exact same "150/5320-12" style number). A cited_id has
+# to be ASCII-normalized before it's ever compared against a real
+# document_number, or it silently never resolves. See Robust Matching
+# Mandate in project memory -- applied to all four regexes' captures here,
+# not just AC's (the one confirmed affected), since the same FAA-source
+# inconsistency could just as easily hit an AIM/AD dash some other week.
+_HYPHEN_VARIANTS_RE = re.compile("[‐‑–]")
+
+
+def _normalize_hyphens(s: str) -> str:
+    return _HYPHEN_VARIANTS_RE.sub("-", s)
 
 
 def fetch_all_pcg_terms() -> list[dict]:
@@ -69,28 +99,32 @@ def extract_citations(term: dict) -> list[dict]:
     own_id = term["slug"]
 
     for m in FAR_RE.finditer(text):
-        key = ("far", m.group(1))
+        cited_id = _normalize_hyphens(m.group(1))
+        key = ("far", cited_id)
         if key not in seen:
             seen.add(key)
-            citations.append({"citing_type": "pcg", "citing_id": own_id, "cited_type": "far", "cited_id": m.group(1), "label": None})
+            citations.append({"citing_type": "pcg", "citing_id": own_id, "cited_type": "far", "cited_id": cited_id, "label": None})
 
     for m in AIM_PARA_RE.finditer(text):
-        key = ("aim", m.group(1))
+        cited_id = _normalize_hyphens(m.group(1))
+        key = ("aim", cited_id)
         if key not in seen:
             seen.add(key)
-            citations.append({"citing_type": "pcg", "citing_id": own_id, "cited_type": "aim", "cited_id": m.group(1), "label": None})
+            citations.append({"citing_type": "pcg", "citing_id": own_id, "cited_type": "aim", "cited_id": cited_id, "label": None})
 
     for m in AD_RE.finditer(text):
-        key = ("ad", m.group(1))
+        cited_id = _normalize_hyphens(m.group(1))
+        key = ("ad", cited_id)
         if key not in seen:
             seen.add(key)
-            citations.append({"citing_type": "pcg", "citing_id": own_id, "cited_type": "ad", "cited_id": m.group(1), "label": None})
+            citations.append({"citing_type": "pcg", "citing_id": own_id, "cited_type": "ad", "cited_id": cited_id, "label": None})
 
     for m in AC_RE.finditer(text):
-        key = ("ac", m.group(1))
+        cited_id = _normalize_hyphens(m.group(1))
+        key = ("ac", cited_id)
         if key not in seen:
             seen.add(key)
-            citations.append({"citing_type": "pcg", "citing_id": own_id, "cited_type": "ac", "cited_id": m.group(1), "label": None})
+            citations.append({"citing_type": "pcg", "citing_id": own_id, "cited_type": "ac", "cited_id": cited_id, "label": None})
 
     return citations
 
