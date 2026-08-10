@@ -32,6 +32,19 @@ const AIRCRAFT_PART_CATEGORY = { key: 'aircraft_part', label: 'Suggest Aircraft 
 
 type CatKey = (typeof CATEGORIES)[number]['key'] | typeof AIRCRAFT_PART_CATEGORY.key
 
+// RC: "this default msg example should be unique to each category of
+// feedback. Esp for the a/c owners - it should suggest/remind them what/how
+// to send reqs for what they need." One shared generic placeholder across
+// every category (aircraft_part excepted) gave no hint of what a GOOD
+// report for that specific category looks like.
+const MESSAGE_PLACEHOLDER: Record<CatKey, string> = {
+  bug: 'What happened? Include what screen you were on, what you expected, and what happened instead.',
+  idea: 'What would you like to see added or changed, and why would it help?',
+  content: 'Which regulation, page, or section has the error — and what should it say instead?',
+  other: "What's on your mind?",
+  aircraft_part: 'Include the manufacturer, full model name, and type designator if you know it — e.g. "Cirrus SR22T G6" or "Van\'s RV-14" — so we can find the exact right one and get it added for you. Thank you for being a valued subscriber.',
+}
+
 export default function FeedbackScreen() {
   const { tokens } = useTheme()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
@@ -143,11 +156,7 @@ export default function FeedbackScreen() {
             styles.input,
             { backgroundColor: tokens.bg2, borderColor: tokens.bdr, color: tokens.t1, fontSize: ifs(14.5) },
           ]}
-          placeholder={
-            category === 'aircraft_part'
-              ? 'When requesting a new aircraft or part, please include as much information and be as specific as possible, so we can find it correctly and get it added for you. Thank you for being a valued subscriber.'
-              : 'Describe the bug, idea, or correction…'
-          }
+          placeholder={MESSAGE_PLACEHOLDER[category]}
           placeholderTextColor={tokens.t3}
           value={message}
           onChangeText={setMessage}
