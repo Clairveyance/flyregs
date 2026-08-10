@@ -64,7 +64,7 @@ import os
 import re
 import sys
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import requests
 
@@ -378,7 +378,40 @@ def _upsert(table: str, rows: list[dict], on_conflict: str) -> bool:
         return False
 
 
-def process_ads(ad_summaries: list[dict], dry_run: bool) -> list[dict]:
+def log_scraper_run(run: dict) -> None:
+    """Write a scraper_runs record to Supabase.
+
+    ad_scraper.py never had ANY scraper_runs logging at all -- a gap flagged
+    but not fixed during the 2026-08-09 night-rules sweep that fixed the
+    same table's silent-schema-drift bug for faa/far/aim/pcg_scraper.py (see
+    those files' own log_scraper_run() for the full story). AD content
+    itself has been syncing fine per its own updated_at evidence the whole
+    time; this just closes the monitoring-coverage gap so a future real
+    failure here doesn't go unnoticed the same way those did. Same
+    non-silent-failure pattern as the other four scrapers: a failed insert
+    here must never fail the actual scrape, but it must never vanish either.
+    """
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return
+    try:
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/scraper_runs",
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            json=run,
+            timeout=10,
+        )
+        if not r.ok:
+            log.error(f"log_scraper_run: insert failed ({r.status_code}): {r.text[:500]}")
+    except Exception as e:
+        log.error(f"log_scraper_run: insert raised: {e}")
+
+
+def process_ads(ad_summaries: list[dict], dry_run: bool) -> tuple[list[dict], int]:
     rows = []
     errors = 0
     for i, summary in enumerate(ad_summaries):
@@ -442,7 +475,7 @@ def process_ads(ad_summaries: list[dict], dry_run: bool) -> list[dict]:
         deduped[row["ad_number"]] = row
 
     log.info(f"Parsed {len(rows)} ADs ({len(deduped)} distinct AD numbers), {errors} errors")
-    return list(deduped.values())
+    return list(deduped.values()), errors
 
 
 def main():
@@ -469,6 +502,11 @@ def main():
         log.info(f"Incremental mode: fetching ADs published since {since or '(none found — fetching all)'}")
 
     if args.mode == "full":
+        run_record = {
+            "mode": "full",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "status": "running",
+        }
         # Upserts once PER YEAR, not once at the very end -- a run covering
         # the whole ~90-year corpus takes real wall-clock time (a full-text
         # fetch per AD), and batching everything into one final write means
@@ -477,19 +515,37 @@ def main():
         # active-aircraft ADs land in the DB earliest.
         log.info("Searching Federal Register for every 14 CFR Part 39 Final Rule (full mode, newest year first)...")
         total_rows = 0
+        total_ad_errors = 0
+        upsert_failures = 0
         for year, ad_summaries in iter_years_full():
             if not ad_summaries:
                 continue
             log.info(f"=== {year}: {len(ad_summaries)} AD documents ===")
-            rows = process_ads(ad_summaries, dry_run=False)
+            rows, ad_errors = process_ads(ad_summaries, dry_run=False)
+            total_ad_errors += ad_errors
             if rows:
                 ok = _upsert("airworthiness_directives", rows, "ad_number")
                 if not ok:
                     log.error(f"  {year}: upsert failed, continuing to next year rather than losing all remaining progress")
+                    upsert_failures += 1
                 else:
                     total_rows += len(rows)
         log.info(f"Done. Total ADs upserted={total_rows}")
+        run_record.update({
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "status": "success" if upsert_failures == 0 else "partial",
+            "ad_total": total_rows,
+            "ad_added": total_rows,
+            "ad_errors": total_ad_errors + upsert_failures,
+        })
+        log_scraper_run(run_record)
         return
+
+    run_record = {
+        "mode": args.mode,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "status": "running",
+    }
 
     limit = args.limit or (10 if args.mode == "test" else None)
     order = "newest" if args.mode in ("test", "incremental") else "oldest"
@@ -497,18 +553,32 @@ def main():
     ad_summaries = search_ads(since=since, limit=limit, order=order)
     log.info(f"Found {len(ad_summaries)} AD documents to process")
 
-    rows = process_ads(ad_summaries, dry_run=(args.mode == "test"))
+    rows, ad_errors = process_ads(ad_summaries, dry_run=(args.mode == "test"))
 
+    upsert_failed = False
     if args.mode != "test" and rows:
         ok = _upsert("airworthiness_directives", rows, "ad_number")
         if not ok:
-            sys.exit(1)
+            upsert_failed = True
 
     if args.touched_out and rows:
         with open(args.touched_out, "w") as f:
             f.write("\n".join(row["ad_number"] for row in rows))
 
     log.info(f"Done. ADs={len(rows)}")
+
+    if args.mode != "test":
+        run_record.update({
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "status": "success" if (ad_errors == 0 and not upsert_failed) else "partial",
+            "ad_total": len(ad_summaries),
+            "ad_added": len(rows),
+            "ad_errors": ad_errors + (1 if upsert_failed else 0),
+        })
+        log_scraper_run(run_record)
+
+    if upsert_failed:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
