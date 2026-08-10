@@ -992,6 +992,21 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aircraft])
 
+  // RC: "the add a/c box also needs a cancel option." Collapsing the
+  // trigger alone (setAddFormOpen(false)) would leave whatever the user
+  // had already typed sitting in state, silently reappearing pre-filled
+  // the next time they tapped "+ Add Aircraft" -- same reset the real
+  // Add Aircraft success path already does below, just without saving.
+  const handleCancelAdd = () => {
+    setMake('')
+    setModel('')
+    setNickname('')
+    setTypeDesignator('')
+    setYear(null)
+    typeDesignatorEdited.current = false
+    setAddFormOpen(false)
+  }
+
   const handleAdd = async () => {
     if (!session) {
       router.push('/auth')
@@ -1557,6 +1572,9 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                     <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Add Aircraft</Text>
                   )}
                 </Pressable>
+                <Pressable onPress={handleCancelAdd} disabled={saving} style={styles.cancelAddBtn} hitSlop={8}>
+                  <Text style={[styles.capDismiss, { color: tokens.t3, fontSize: fs(13) }]}>Cancel</Text>
+                </Pressable>
               </View>
             </>
           ) : (
@@ -1713,6 +1731,7 @@ const styles = StyleSheet.create({
   typeDesignatorRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   addButton: { borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   addButtonText: { color: '#fff', fontWeight: '600', fontSize: 14.5 },
+  cancelAddBtn: { alignItems: 'center', paddingVertical: 10, marginTop: 2 },
   addTrigger: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, borderRadius: 12, borderWidth: 1, paddingVertical: 13 },
   addTriggerText: { fontWeight: '600' },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
