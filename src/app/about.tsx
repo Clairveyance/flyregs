@@ -48,9 +48,10 @@ export default function AboutScreen() {
         {/* Description */}
         <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14) }]}>
-            {APP_NAME} puts the FARs, AIM, Pilot/Controller Glossary, Airworthiness Directives, and
-            every active Advisory Circular in your pocket — searchable, browsable, and linkable from
-            your own notes. Built for pilots, mechanics, and operators who need the current guidance fast.
+            {APP_NAME} puts the FARs, AIM, Pilot/Controller Glossary, Airworthiness Directives, Legal
+            Interpretations, every active Advisory Circular, and a 9,800+ term Aviation Dictionary in
+            your pocket — searchable, browsable, and linkable from your own notes. Built for pilots,
+            mechanics, and operators who need the current guidance fast.
           </Text>
         </View>
 

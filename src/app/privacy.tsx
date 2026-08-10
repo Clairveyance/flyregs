@@ -5,7 +5,7 @@ const SECTIONS: ProseSection[] = [
   {
     heading: 'What we collect',
     body: [
-      `${APP_NAME} is designed to work without an account. Browsing the Advisory Circular library, searching, and viewing recently opened ACs all happen on your device and require no sign-in.`,
+      `${APP_NAME} is designed to work without an account. Browsing the full library (FAR, AIM, P/CG, Advisory Circulars, Airworthiness Directives, Legal Interpretations, and the Aviation Dictionary), searching, and viewing your recently opened items all happen on your device and require no sign-in.`,
       'If you create an account, we collect your email address to authenticate you. If you turn on any push notification (AC Update Alerts, DailyReg, Duel Alerts, or aircraft alerts), we store a device push token so we can notify you. If you upload a profile picture, it is stored and may be visible to people you share content with. We never sell your data.',
     ],
   },
@@ -31,7 +31,7 @@ const SECTIONS: ProseSection[] = [
   {
     heading: 'Source content',
     body: [
-      'Advisory Circular text and PDFs are published by the U.S. Federal Aviation Administration and are in the public domain. FlyRegs organizes and presents this material but does not alter the official content.',
+      'FAR, AIM, P/CG, Advisory Circular, Airworthiness Directive, and Legal Interpretation text is published by the U.S. Federal Aviation Administration and is in the public domain. FlyRegs organizes and presents this material but does not alter the official content. The Aviation Dictionary is compiled by FlyRegs from public FAA/NOAA sources plus a small originally-written informal-terms tier, clearly labeled as such in the app.',
     ],
   },
   {

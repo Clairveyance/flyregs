@@ -130,7 +130,7 @@ const FAQ: QA[] = [
     q: 'What do the NEW, UPD, and VER badges mean?',
     category: 'The Content Library',
     a: [
-      { badge: 'new', text: 'an AC issued recently.' },
+      { badge: 'new', text: 'an AC, AD, or LOI issued recently.' },
       { badge: 'upd', text: 'the same AC number revised in place, with real changes you can jump between inside the document.' },
       { badge: 'ver', text: 'an AC that moved to a new letter version (for example 20-136B → 20-136C), replacing the prior version rather than editing it in place.' },
       'All three roll off automatically after 90 days by default — set Badge Duration in the menu to 14, 30, 90, or 180 days instead if you want them (and the Home "What\'s New" feed) to move faster or slower.',
@@ -221,7 +221,7 @@ const FAQ: QA[] = [
     q: 'What are Duels?',
     category: 'Study Mode, Duels & Coins',
     a: [
-      { tier: 'premium', text: 'A head-to-head multiple-choice quiz against another FlyRegs user, drawing questions from FAR, AIM, P/CG, and AC content. Challenge someone from The Wing, and you\'ll each get notified when it\'s your turn to answer.' },
+      { tier: 'premium', text: 'A multiple-choice quiz against up to 7 other FlyRegs users at once — a free-for-all, not just 1-on-1 — drawing questions from FAR, AIM, P/CG, and AC content. Challenge one or more people from The Wing, and you\'ll each get notified when it\'s your turn to answer.' },
       'Wins build toward Duel-specific Challenge Coins, and the Ready Room shows a leaderboard of top Duel performance (Ready Room itself just needs Pro to view).',
     ],
   },
@@ -355,7 +355,7 @@ const FAQ: QA[] = [
   {
     q: 'What are Duel Alerts?',
     category: 'Subscriptions & Sync',
-    a: [{ tier: 'pro', text: 'A notification setting that pushes a notification when someone challenges you to a Duel — FlyRegs\' head-to-head multiple-choice quiz across FAR, AIM, P/CG, and AC — or when a Duel you\'re in updates, so you don\'t have to keep checking The Wing to see if it\'s your turn.' }],
+    a: [{ tier: 'pro', text: 'A notification setting that pushes a notification when someone challenges you to a Duel — FlyRegs\' multiple-choice quiz against up to 7 other players across FAR, AIM, P/CG, and AC — or when a Duel you\'re in updates, so you don\'t have to keep checking The Wing to see if it\'s your turn.' }],
   },
   {
     q: 'How do I cancel?',
