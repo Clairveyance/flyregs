@@ -53,6 +53,24 @@
 --      invitee-driven role change when an owner changes a share code's
 --      default role and the same invitee re-redeems it) -> still works,
 --      because current_user is 'postgres' inside that RPC.
+--
+-- REGRESSION FIX (same day): the first version of this trigger only
+-- special-cased last_viewed_at, which broke leaveSharedFolder()'s plain
+-- client-side `UPDATE folder_collaborators SET left_at = now() ...` --
+-- caught immediately by re-running folders_e2e_test.py right after shipping
+-- (3 failures: leave no longer worked). aircraft_collaborators' own leave
+-- path uses DELETE instead of UPDATE, so it was unaffected -- confirmed
+-- clean by aircraft_sharing_e2e_test.py both before and after this fix.
+-- Fix: allow a collaborator to self-set their OWN left_at, but only the
+-- one-way null -> non-null "I am leaving" transition, never combined with
+-- any other column change, and never un-leaving or re-touching an
+-- already-set left_at. Applied to both guard functions for parity, even
+-- though aircraft_collaborators doesn't currently need it, so a future
+-- refactor to UPDATE-based leave doesn't silently regress the same way.
+-- Re-verified after this fix: folders_e2e_test.py, aircraft_sharing_e2e_test.py,
+-- duel_e2e_test.py, and run_all_audits.sh (10/10) all pass clean, and the
+-- collab_mode/role self-escalation exploit is still structurally blocked
+-- (collab_mode/role remain unconditionally in the raise-exception OR chain).
 -- ============================================================================
 
 create or replace function public.guard_aircraft_collaborator_self_update()
@@ -67,17 +85,18 @@ begin
     return new; -- owner acting directly, e.g. a future owner-side role editor
   end if;
   -- Otherwise this is the collaborator themselves via raw PostgREST/direct
-  -- client update. Only last_viewed_at may change.
+  -- client update. Only last_viewed_at, or self-leaving (left_at null ->
+  -- set), may change.
   if new.aircraft_id is distinct from old.aircraft_id
      or new.owner_id is distinct from old.owner_id
      or new.user_id is distinct from old.user_id
      or new.role is distinct from old.role
      or new.invite_token is distinct from old.invite_token
      or new.accepted_at is distinct from old.accepted_at
-     or new.left_at is distinct from old.left_at
      or new.joined_at is distinct from old.joined_at
+     or (new.left_at is distinct from old.left_at and not (old.left_at is null and new.left_at is not null))
   then
-    raise exception 'Only last_viewed_at may be self-updated by a collaborator';
+    raise exception 'Only last_viewed_at, or leaving (left_at null -> set), may be self-updated by a collaborator';
   end if;
   return new;
 end;
@@ -105,10 +124,10 @@ begin
      or new.collab_mode is distinct from old.collab_mode
      or new.invite_token is distinct from old.invite_token
      or new.accepted_at is distinct from old.accepted_at
-     or new.left_at is distinct from old.left_at
      or new.joined_at is distinct from old.joined_at
+     or (new.left_at is distinct from old.left_at and not (old.left_at is null and new.left_at is not null))
   then
-    raise exception 'Only last_viewed_at may be self-updated by a collaborator';
+    raise exception 'Only last_viewed_at, or leaving (left_at null -> set), may be self-updated by a collaborator';
   end if;
   return new;
 end;
