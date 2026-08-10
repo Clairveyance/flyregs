@@ -219,7 +219,7 @@ export default function TheWingScreen() {
   // only THIS card's promise was wrong.
   const openDuels = () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
-    router.push('/ready-room')
+    router.push('/challenges')
   }
 
   // Community is a PAID area end to end (RC, 2026-07-31): Study Mode, Duels,
