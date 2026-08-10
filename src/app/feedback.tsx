@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Linking, Platform, KeyboardAvoidingView, Animated } from 'react-native'
-import * as MailComposer from 'expo-mail-composer'
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Platform, KeyboardAvoidingView, Animated } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -8,8 +7,9 @@ import { useReturnToMenu } from '@/context/drawer'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { useFS, useInputFS } from '@/context/fontScale'
-import { SUPPORT_EMAIL, APP_NAME, APP_VERSION } from '@/lib/appInfo'
+import { SUPPORT_EMAIL, APP_VERSION } from '@/lib/appInfo'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { supabase } from '@/lib/supabase'
 
 const CATEGORIES = [
   { key: 'bug', label: 'Report a bug', icon: 'ladybug.fill' },
@@ -47,6 +47,7 @@ export default function FeedbackScreen() {
   const [message, setMessage] = useState('')
   const visibleCategories = hasProAccess ? [...CATEGORIES, AIRCRAFT_PART_CATEGORY] : CATEGORIES
   const [showSentToast, setShowSentToast] = useState(false)
+  const [sending, setSending] = useState(false)
   const toastOpacity = useRef(new Animated.Value(0)).current
 
   useEffect(() => {
@@ -64,39 +65,35 @@ export default function FeedbackScreen() {
       confirm({ title: 'Add a little more', message: 'Tell us what happened or what you have in mind.', cancelLabel: null })
       return
     }
-    const catLabel = [...CATEGORIES, AIRCRAFT_PART_CATEGORY].find((c) => c.key === category)?.label ?? 'Feedback'
-    const subject = `${APP_NAME} — ${catLabel}`
-    const footer = `\n\n—\n${APP_NAME} v${APP_VERSION} · ${Platform.OS}${
-      session?.user?.email ? ` · ${session.user.email}` : ''
-    }`
-    const body = trimmed + footer
+    if (sending) return
+    setSending(true)
 
-    // MailComposer presents Mail as an in-app sheet (never fully exits the
-    // app) and tells us whether the user actually hit Send -- Linking's
-    // mailto: handoff could do neither, which is exactly what left users
-    // stuck looking at a stale compose window with no idea if it sent.
-    const available = await MailComposer.isAvailableAsync()
-    if (!available) {
-      const url = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-      Linking.openURL(url).catch(() =>
-        confirm({ title: 'Could not open mail', message: `Please email us at ${SUPPORT_EMAIL}.`, cancelLabel: null })
-      )
-      return
-    }
-
+    // Writes directly to Supabase (feedback_submissions), which a
+    // server-side trigger relays to support@flyregs.com via Resend --
+    // deliberately NOT dependent on the device's own mail app anymore.
+    // The old expo-mail-composer/mailto handoff had no way to guarantee an
+    // email actually left the device: on web, MailComposer.composeAsync()
+    // can only ever report UNDETERMINED, never SENT; on native it falls
+    // back to a raw Linking.openURL('mailto:...') for any device with no
+    // account in Settings > Mail, which failed at least once for real (see
+    // gotcha_feedback_pipeline_mailto_unreliable.md). This insert is the
+    // ENTIRE send now -- durable the instant it succeeds, independent of
+    // what happens next on the device.
     try {
-      const result = await MailComposer.composeAsync({
-        recipients: [SUPPORT_EMAIL],
-        subject,
-        body,
+      const { error } = await supabase.from('feedback_submissions').insert({
+        category,
+        message: trimmed,
+        user_email: session?.user?.email ?? null,
+        app_version: APP_VERSION,
+        platform: Platform.OS,
       })
-      if (result.status === MailComposer.MailComposerStatus.SENT) {
-        setMessage('')
-        setShowSentToast(true)
-      }
-      // cancelled/saved: leave the draft text in place so they can try again.
+      if (error) throw error
+      setMessage('')
+      setShowSentToast(true)
     } catch {
-      confirm({ title: 'Could not open mail', message: `Please email us at ${SUPPORT_EMAIL}.`, cancelLabel: null })
+      confirm({ title: 'Could not send', message: 'Please check your connection and try again.', cancelLabel: null })
+    } finally {
+      setSending(false)
     }
   }
 
@@ -159,9 +156,13 @@ export default function FeedbackScreen() {
           autoCapitalize="sentences"
         />
 
-        <Pressable style={[styles.submit, { backgroundColor: tokens.blu }]} onPress={submit}>
+        <Pressable
+          style={[styles.submit, { backgroundColor: tokens.blu, opacity: sending ? 0.6 : 1 }]}
+          onPress={submit}
+          disabled={sending}
+        >
           <Icon name="paperplane.fill" size={fs(16)} color="#fff" />
-          <Text style={[styles.submitText, { fontSize: fs(15.5) }]}>Send</Text>
+          <Text style={[styles.submitText, { fontSize: fs(15.5) }]}>{sending ? 'Sending…' : 'Send'}</Text>
         </Pressable>
 
         <Text style={[styles.note, { color: tokens.t4, fontSize: fs(11.5) }]}>
