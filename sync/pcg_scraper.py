@@ -273,18 +273,31 @@ def upsert_term(record: dict) -> bool:
 
 
 def log_scraper_run(run: dict) -> None:
-    """Write a scraper_runs record — same shared table faa_scraper.py logs to."""
+    """Write a scraper_runs record — same shared table faa_scraper.py logs to.
+
+    Was a bare `except: pass` -- confirmed live, 2026-08-09: this run_record's
+    own field names (pcg_total, pcg_upserted, pcg_errors) had NEVER matched
+    any real column on the shared scraper_runs table (which only ever had
+    faa_scraper.py's AC-specific columns) -- every single P/CG sync run had
+    been silently failing to log here, this whole time, with the swallowed
+    exception hiding it completely. Columns added back
+    (sync/migrations_scraper_runs_far_aim_pcg_columns.sql); this log line
+    stays so any FUTURE drift shows up in the run's own log instead of
+    vanishing the same way again.
+    """
     if not SUPABASE_URL or not SUPABASE_KEY:
         return
     try:
-        requests.post(
+        r = requests.post(
             f"{SUPABASE_URL}/rest/v1/scraper_runs",
             headers=_supa_headers({"Prefer": "return=minimal"}),
             json=run,
             timeout=10,
         )
-    except Exception:
-        pass  # Non-critical
+        if not r.ok:
+            log.error(f"log_scraper_run: insert failed ({r.status_code}): {r.text[:500]}")
+    except Exception as e:
+        log.error(f"log_scraper_run: insert raised: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

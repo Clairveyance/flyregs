@@ -1,0 +1,26 @@
+-- Night-rules content-freshness investigation, 2026-08-09.
+--
+-- scraper_runs had recorded nothing since 2026-07-27, looking like the
+-- weekly AC-sync GitHub Actions job had silently stopped running for at
+-- least one full cycle. Checked the actual GitHub Actions run history via
+-- the API: the job DID run on schedule on 2026-08-03 and every step,
+-- including "Run sync," reported success.
+--
+-- Root cause: sync/faa_scraper.py's run_incremental/run_full both add an
+-- "acs_cancelled" key to the run_record dict they POST to scraper_runs --
+-- but ONLY on the code path taken when there's real new/updated/cancelled
+-- AC work to do that week (the "nothing to do" early-return path never
+-- touches it). scraper_runs never actually had an acs_cancelled column.
+-- PostgREST rejected every one of those inserts with a 400 (unknown
+-- column), and log_scraper_run()'s old bare `except: pass` swallowed it
+-- completely -- so the table only ever recorded the boring "nothing
+-- changed" weeks and silently dropped every run that found real work,
+-- exactly backwards from what a health-monitoring table should surface.
+--
+-- Fixed at both layers: this column, and log_scraper_run() no longer
+-- swallows a failed insert silently (see that function's own updated
+-- comment in faa_scraper.py) -- so any FUTURE schema drift between that
+-- dict and this table shows up in the GitHub Actions log instead of
+-- vanishing the same way.
+
+alter table scraper_runs add column if not exists acs_cancelled integer default 0;

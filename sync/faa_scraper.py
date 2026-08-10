@@ -750,18 +750,38 @@ def mark_cancelled_acs(active_doc_nums: set) -> int:
 
 
 def log_scraper_run(run: dict) -> None:
-    """Write a scraper_runs record to Supabase."""
+    """Write a scraper_runs record to Supabase.
+
+    Non-critical to the sync itself (a monitoring-row write failing should
+    never fail the actual scrape) -- but the old bare `except: pass` here
+    made that failure completely invisible, not just non-fatal. Confirmed
+    live, 2026-08-09: run_incremental/run_full's main path adds an
+    "acs_cancelled" key to `run` that didn't exist as a column on the live
+    scraper_runs table -- PostgREST rejected every one of those inserts
+    with a 400, silently swallowed here, while the GitHub Actions job
+    itself still reported full success. Effect: scraper_runs only ever
+    recorded the boring "nothing changed this week" runs (whose run_record
+    never touches acs_cancelled at all) and systematically dropped every
+    run that actually found real work -- exactly backwards from what a
+    health-monitoring table should do. Column added back
+    (sync/migrations_scraper_runs_acs_cancelled.sql); this log line is the
+    fix for the CLASS of bug, not just this one instance -- any future
+    schema drift between this dict and the live table now shows up in the
+    GitHub Actions log instead of vanishing.
+    """
     if not SUPABASE_URL or not SUPABASE_KEY:
         return
     try:
-        requests.post(
+        r = requests.post(
             f"{SUPABASE_URL}/rest/v1/scraper_runs",
             headers=_supa_headers({"Prefer": "return=minimal"}),
             json=run,
             timeout=10,
         )
-    except Exception:
-        pass  # Non-critical
+        if not r.ok:
+            log.error(f"log_scraper_run: insert failed ({r.status_code}): {r.text[:500]}")
+    except Exception as e:
+        log.error(f"log_scraper_run: insert raised: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
