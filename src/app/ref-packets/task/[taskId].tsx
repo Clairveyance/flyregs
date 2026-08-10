@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
+import { useAuth } from '@/context/auth'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -17,6 +18,7 @@ import { highlightSpans } from '@/lib/searchHighlight'
 export default function RefPacketTaskScreen() {
   const { taskId } = useLocalSearchParams<{ taskId: string }>()
   const { tokens, redShift } = useTheme()
+  const { hasPlusAccess } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
   const [task, setTask] = useState<RefPacketTask | null>(null)
@@ -59,7 +61,7 @@ export default function RefPacketTaskScreen() {
   }
 
   useEffect(() => {
-    if (!taskId) return
+    if (!taskId || !hasPlusAccess) { setLoading(false); return }
     getRefPacketTask(taskId).then((t) => {
       setTask(t)
       // Populate BEFORE the auto-search below fires, so the very first
@@ -82,12 +84,31 @@ export default function RefPacketTaskScreen() {
         runSearch(t.title)
       }
     })
-  }, [taskId, runSearch])
+  }, [taskId, runSearch, hasPlusAccess])
 
   const handleQueryChange = (v: string) => {
     setQuery(v)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => runSearch(v), 300)
+  }
+
+  if (!hasPlusAccess) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="RefPack" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
+          <Text style={[styles.lockTitle, { color: tokens.t2, fontSize: fs(16) }]}>RefPacks are a Plus feature</Text>
+          <Text style={[styles.lockSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            Certificate and rating study guides, built from the FAA's own ACS/PTS standards — every reference
+            already linked to the real FAR, AC, and AIM text.
+          </Text>
+          <Pressable style={[styles.lockBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall?tier=plus')}>
+            <Text style={[styles.lockBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
+          </Pressable>
+        </View>
+      </View>
+    )
   }
 
   return (
@@ -319,6 +340,11 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   content: { padding: 16, paddingBottom: 48, gap: 4 },
+
+  lockTitle: { fontWeight: '600', marginTop: 6 },
+  lockSub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },
+  lockBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
+  lockBtnText: { color: '#fff', fontWeight: '700' },
 
   breadcrumbRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 10, flexWrap: 'wrap' },
   breadcrumbText: { fontWeight: '500' },
