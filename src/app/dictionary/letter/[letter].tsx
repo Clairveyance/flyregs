@@ -3,6 +3,7 @@ import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from '
 import { useLocalSearchParams, router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
+import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -23,18 +24,36 @@ interface DictTermRow {
 export default function DictionaryLetterScreen() {
   const { letter } = useLocalSearchParams<{ letter: string }>()
   const { tokens } = useTheme()
+  const { hasPlusAccess } = useAuth()
   const fs = useFS()
   const [terms, setTerms] = useState<DictTermRow[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!letter) return
+    if (!letter || !hasPlusAccess) { setLoading(false); return }
     supabase.from('dictionary_terms_gated').select('term, slug, category, senses').eq('letter', letter).order('term')
       .then(({ data }) => {
         if (data) setTerms(data as DictTermRow[])
         setLoading(false)
       })
-  }, [letter])
+  }, [letter, hasPlusAccess])
+
+  // RC, 2026-08-10: "Plus gets the A/D, not the Mnemonics." Same
+  // whole-screen lock as dictionary/index.tsx.
+  if (!hasPlusAccess) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title={`Aviation Dictionary — ${letter}`} onBack={() => router.back()} />
+        <View style={styles.center}>
+          <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
+          <Text style={[styles.lockTitle, { color: tokens.t2, fontSize: fs(16) }]}>The Aviation Dictionary is a Plus feature</Text>
+          <Pressable style={[styles.lockBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall?tier=plus' as any)}>
+            <Text style={[styles.lockBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
+          </Pressable>
+        </View>
+      </View>
+    )
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
@@ -61,10 +80,12 @@ export default function DictionaryLetterScreen() {
                 onPress={() => router.push(`/dictionary/${item.slug}` as any)}
               >
                 <Text style={[styles.term, { color: tokens.t1, fontSize: fs(14.5) }]}>{item.term}</Text>
-                {/* senses is null for a mnemonic entry when not Plus -- the
+                {/* senses is null for a mnemonic entry when not Pro -- the
                     _gated view redacts it server-side. Same lock/gold
-                    "unlock with Plus" treatment as dictionary/index.tsx's
-                    Mnemonics card, sized for a dense list row. */}
+                    "unlock with Pro" treatment as dictionary/index.tsx's
+                    Mnemonics card, sized for a dense list row. Everything
+                    else on this (already Plus-gated) screen always has
+                    senses -- only mnemonic entries can still be null here. */}
                 {item.senses ? (
                   <Text style={[styles.def, { color: tokens.t3, fontSize: fs(12.5) }]}>
                     {item.senses[0]?.definition}
@@ -73,7 +94,7 @@ export default function DictionaryLetterScreen() {
                 ) : (
                   <View style={styles.lockedRow}>
                     <Icon name="lock.fill" size={fs(11)} color={tokens.gold} />
-                    <Text style={[styles.def, { color: tokens.gold, fontSize: fs(12.5) }]}>Mnemonic — unlock with Plus</Text>
+                    <Text style={[styles.def, { color: tokens.gold, fontSize: fs(12.5) }]}>Mnemonic — unlock with Pro</Text>
                   </View>
                 )}
               </Pressable>
@@ -88,6 +109,9 @@ export default function DictionaryLetterScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  lockTitle: { fontWeight: '600', marginTop: 6, marginBottom: 14, textAlign: 'center', maxWidth: 280 },
+  lockBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11 },
+  lockBtnText: { color: '#fff', fontWeight: '700' },
   list: { padding: 12, paddingBottom: 32 },
   groupLabel: { fontWeight: '600', letterSpacing: 0.5, marginBottom: 8, paddingLeft: 2 },
   row: {

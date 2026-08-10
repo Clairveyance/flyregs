@@ -142,9 +142,11 @@ export default function DictionaryTermScreen() {
   const [seeAlsoTerm, setSeeAlsoTerm] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!slug) return
-    // _gated view redacts senses server-side for non-Plus tiers on mnemonic
-    // entries only -- see gotcha_tier_gate_client_side_only.md.
+    if (!slug || !hasPlusAccess) { setLoading(false); return }
+    // _gated view redacts senses server-side -- non-Plus gets nothing (this
+    // screen's own top-level gate below already blocks that case from ever
+    // reaching this fetch), non-Pro gets null on mnemonic entries
+    // specifically. See gotcha_tier_gate_client_side_only.md.
     supabase.from('dictionary_terms_gated').select('term, senses, source, category, pcg_term_id, pcg_terms(slug, term), see_also_slug').eq('slug', slug).single()
       .then(({ data }) => {
         // pcg_terms comes back as a plain object for this to-one relation
@@ -164,7 +166,7 @@ export default function DictionaryTermScreen() {
     // here since dictionary slugs don't need normalization the way P/CG's
     // did, but keeping the same slug-as-id convention for consistency).
     isBookmarked(slug).then(setBookmarked)
-  }, [slug])
+  }, [slug, hasPlusAccess])
 
   // "See X" cross-reference -- RC: "some (like ultralight) don't have
   // enough of a real explanation." A scripted audit found 79 entries whose
@@ -323,6 +325,25 @@ export default function DictionaryTermScreen() {
     </View>
   ) : undefined
 
+  // RC, 2026-08-10: "Plus gets the A/D, not the Mnemonics." Same
+  // whole-screen lock as the other two Dictionary screens -- the mnemonic-
+  // specific Pro gate above only matters once a Plus user is already past
+  // this one.
+  if (!hasPlusAccess) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="Aviation Dictionary" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
+          <Text style={[styles.lockTitle, { color: tokens.t2, fontSize: fs(16) }]}>The Aviation Dictionary is a Plus feature</Text>
+          <Pressable style={[styles.lockBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall?tier=plus' as any)}>
+            <Text style={[styles.lockBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
+          </Pressable>
+        </View>
+      </View>
+    )
+  }
+
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title="Aviation Dictionary" onBack={() => router.back()} right={headerRight} />
@@ -363,23 +384,25 @@ export default function DictionaryTermScreen() {
                 'map')" whenever the two briefly disagreed; branching on the
                 data itself can't ever disagree with itself. */}
             {entry.category === 'mnemonic' && !entry.senses ? (
-              // RC, 2026-08-03: "remove the Mnemonic look up and gate that
-              // at Plus." No partial reveal (unlike AC's 2-section preview)
-              // -- a mnemonic's whole value IS its letter-by-letter
-              // breakdown, so showing half of one is a worse experience
-              // than showing none. The term itself (its "moniker," e.g.
-              // "AVIATES") still shows above -- just not what it means.
+              // RC, 2026-08-10: "Pro also gets Mnemonics" -- a step above
+              // the Plus gate that now covers the rest of this screen (see
+              // this component's own top-level gate). No partial reveal
+              // (unlike AC's 2-section preview) -- a mnemonic's whole value
+              // IS its letter-by-letter breakdown, so showing half of one is
+              // a worse experience than showing none. The term itself (its
+              // "moniker," e.g. "AVIATES") still shows above -- just not
+              // what it means.
               <Pressable
                 style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
-                onPress={() => router.push('/paywall?tier=plus' as any)}
+                onPress={() => router.push('/paywall?tier=pro' as any)}
               >
                 <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
-                <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Unlock this mnemonic with Plus</Text>
+                <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Unlock this mnemonic with Pro</Text>
                 <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
                   See the full letter-by-letter breakdown for every memory aid in the Aviation Dictionary.
                 </Text>
                 <View style={[styles.proGateBtn, { backgroundColor: tokens.blu }]}>
-                  <Text style={[styles.proGateBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
+                  <Text style={[styles.proGateBtnText, { fontSize: fs(15) }]}>Unlock Pro</Text>
                 </View>
               </Pressable>
             ) : (entry.senses ?? []).map((s, i) => (
@@ -474,6 +497,9 @@ export default function DictionaryTermScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  lockTitle: { fontWeight: '600', marginTop: 6, marginBottom: 14, textAlign: 'center', maxWidth: 280 },
+  lockBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11 },
+  lockBtnText: { color: '#fff', fontWeight: '700' },
   content: { padding: 16, paddingBottom: 40 },
   term: { fontWeight: '700', marginBottom: 16 },
   senseCard: { borderRadius: 14, borderWidth: 1, padding: 16, marginBottom: 10, gap: 8 },

@@ -34,6 +34,7 @@ export const MNEMONIC_UNGROUPED = 'Other'
 // unrelated screens.
 export default function DictionaryIndexScreen() {
   const { tokens } = useTheme()
+  const { hasPlusAccess } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
   const [counts, setCounts] = useState<Record<string, number>>({})
@@ -106,6 +107,31 @@ export default function DictionaryIndexScreen() {
   const letters = Object.keys(counts).sort((a, b) => (a === '#' ? 1 : b === '#' ? -1 : a.localeCompare(b)))
   const total = Object.values(counts).reduce((a, b) => a + b, 0)
   const trimmedQuery = query.trim()
+
+  // RC, 2026-08-10: "Plus gets the A/D, not the Mnemonics. Pro also gets
+  // Mnemonics" -- reverses the earlier free-by-default call. Whole-screen
+  // lock (no partial browse/search preview), matching RefPacks' pattern --
+  // dictionary_terms_gated and search_dictionary both already redact real
+  // content server-side regardless of this client gate; this is purely the
+  // "don't even show the browse UI" layer.
+  if (!hasPlusAccess) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="Aviation Dictionary" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
+          <Text style={[styles.lockTitle, { color: tokens.t2, fontSize: fs(16) }]}>The Aviation Dictionary is a Plus feature</Text>
+          <Text style={[styles.lockSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            9,800+ terms, acronyms, and contractions from FAA/NOAA sources — searchable and cross-linked
+            to the rest of the app.
+          </Text>
+          <Pressable style={[styles.lockBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall?tier=plus' as any)}>
+            <Text style={[styles.lockBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
+          </Pressable>
+        </View>
+      </View>
+    )
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
@@ -344,16 +370,16 @@ export const MNEMONIC_GROUP_ORDER = [
   MNEMONIC_UNGROUPED,
 ]
 
-// RC, 2026-08-03: "if we did make [the Dictionary] free, at the very least
-// we'd remove the Mnemonic look up and gate that at Plus, as well as
-// DailyWord." DailyWord (DailyWordCard above) was already Plus-gated;
-// Mnemonics had no gate at all until now. Same locked-teaser pattern as
-// DailyWordCard -- the card stays visible and discoverable, tapping it
-// routes to the paywall instead of expanding, and the individual mnemonic
-// entries themselves are ALSO gated (see dictionary/[slug].tsx) so a free
-// user can't route around this card by deep-linking or search.
+// RC, 2026-08-10: "Plus gets the A/D, not the Mnemonics. Pro also gets
+// Mnemonics" -- Mnemonics need Pro specifically, a step above the Plus gate
+// that now covers the rest of the Dictionary (see the screen-level gate
+// above). Same locked-teaser pattern as DailyWordCard -- the card stays
+// visible and discoverable even to a Plus (non-Pro) user, tapping it routes
+// to the paywall instead of expanding, and the individual mnemonic entries
+// themselves are ALSO gated (see dictionary/[slug].tsx) so a Plus user
+// can't route around this card by deep-linking or search.
 function MnemonicsCard({ mnemonics, tokens, fs }: { mnemonics: MnemonicHit[]; tokens: ReturnType<typeof useTheme>['tokens']; fs: (n: number) => number }) {
-  const { hasPlusAccess } = useAuth()
+  const { hasProAccess } = useAuth()
   const [expanded, setExpanded] = useState(false)
   const byGroup = new Map<string, MnemonicHit[]>()
   for (const m of mnemonics) {
@@ -364,11 +390,11 @@ function MnemonicsCard({ mnemonics, tokens, fs }: { mnemonics: MnemonicHit[]; to
   const groups = MNEMONIC_GROUP_ORDER.filter((g) => byGroup.has(g))
   for (const g of byGroup.keys()) if (!groups.includes(g)) groups.push(g) // any future group not yet in MNEMONIC_GROUP_ORDER still shows, just at the end
 
-  if (!hasPlusAccess) {
+  if (!hasProAccess) {
     return (
       <Pressable
         style={[styles.mnemonicsCard, { backgroundColor: tokens.bg2, borderColor: tokens.blu }]}
-        onPress={() => router.push('/paywall?tier=plus' as any)}
+        onPress={() => router.push('/paywall?tier=pro' as any)}
       >
         <View style={[styles.mnemonicsHeader, styles.wordCardRow]}>
           <View style={[styles.wordCardIcon, { backgroundColor: tokens.goldlt }]}>
@@ -379,7 +405,7 @@ function MnemonicsCard({ mnemonics, tokens, fs }: { mnemonics: MnemonicHit[]; to
               MNEMONICS · {mnemonics.length}
             </Text>
             <Text style={[styles.wordCardTerm, { color: tokens.t2, fontSize: fs(13.5) }]} numberOfLines={2}>
-              Memory aids for checkride prep — unlock with Plus
+              Memory aids for checkride prep — unlock with Pro
             </Text>
           </View>
           <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
@@ -426,6 +452,11 @@ function MnemonicsCard({ mnemonics, tokens, fs }: { mnemonics: MnemonicHit[]; to
 const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+
+  lockTitle: { fontWeight: '600', marginTop: 6 },
+  lockSub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },
+  lockBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
+  lockBtnText: { color: '#fff', fontWeight: '700' },
 
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
