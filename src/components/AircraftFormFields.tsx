@@ -7,7 +7,7 @@ import { InfoPopup } from '@/components/InfoPopup'
 import { supabase } from '@/lib/supabase'
 import { useConfirm } from '@/components/ConfirmDialog'
 import {
-  suggestTypeDesignator, searchTypeDesignators, searchManufacturers, searchMarketingNames,
+  suggestTypeDesignator, suggestModelNames, searchTypeDesignators, searchManufacturers, searchMarketingNames,
   type TypeDesignatorSuggestion,
 } from '@/lib/aircraftModels'
 
@@ -39,12 +39,19 @@ export interface UserAircraft {
 // fills the designator field and, if make is still blank, the manufacturer
 // too.
 export function TypeDesignatorField({
-  label, value, onChangeText, onSelectManufacturer, tokens, fs, style,
+  label, value, onChangeText, onSelectManufacturer, onSelectModel, manufacturer, tokens, fs, style,
 }: {
   label?: string
   value: string
   onChangeText: (text: string) => void
   onSelectManufacturer?: (mfr: string) => void
+  /** Fired with the (single, unambiguous) Model name for a designator --
+   *  see suggestModelNames' own comment for why this only ever fires when
+   *  there's exactly one real candidate. */
+  onSelectModel?: (model: string) => void
+  /** Whatever's currently in the sibling Make field, if any -- scopes the
+   *  typeahead to that manufacturer (see searchTypeDesignators). */
+  manufacturer?: string
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
   style?: object
@@ -57,10 +64,20 @@ export function TypeDesignatorField({
     if (!focused || value.trim().length < 2) { setSuggestions([]); return }
     let live = true
     const t = setTimeout(() => {
-      searchTypeDesignators(value).then((rows) => { if (live) setSuggestions(rows) })
+      searchTypeDesignators(value, manufacturer).then((rows) => { if (live) setSuggestions(rows) })
     }, 250)
     return () => { live = false; clearTimeout(t) }
-  }, [value, focused])
+  }, [value, focused, manufacturer])
+
+  // Reverse of ModelField's onSelectDesignator below -- typing/selecting a
+  // Type Designator suggests a Model too when exactly one real marketing
+  // name maps to it. Runs on every keystroke, not just on suggestion-tap,
+  // matching ModelField's own live-suggest-as-you-type behavior.
+  useEffect(() => {
+    if (!onSelectModel) return
+    const candidates = suggestModelNames(value)
+    if (candidates.length === 1) onSelectModel(candidates[0])
+  }, [value, onSelectModel])
 
   const handleSelect = (s: TypeDesignatorSuggestion) => {
     onChangeText(s.type_designator)
@@ -505,6 +522,8 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: Us
               value={typeDesignator}
               onChangeText={handleTypeDesignatorChange}
               onSelectManufacturer={(mfr) => { if (!make.trim()) setMake(mfr) }}
+              onSelectModel={(m) => { if (!model.trim()) setModel(m) }}
+              manufacturer={make}
               tokens={tokens}
               fs={fs}
               style={{ marginTop: 5 }}

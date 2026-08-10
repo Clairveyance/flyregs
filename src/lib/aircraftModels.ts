@@ -76,9 +76,80 @@ export function suggestTypeDesignator(model: string): string | null {
   return null
 }
 
+// The reverse lookup -- typing/selecting a Type Designator should suggest
+// Model name(s) too, not just the other direction (RC: "filling in the
+// Type should auto suggest Model names to go with it and v/v"). One
+// designator commonly carries SEVERAL marketing names over the PA-28
+// family's own trim-name history alone (Cherokee/Warrior/Archer/Cadet/
+// Dakota all -> "PA-28") -- returns every match rather than guessing which
+// one the owner means; callers auto-fill only when there's exactly one
+// candidate and leave Model untouched when there's more than one, same "a
+// wrong guess is worse than none" stance suggestTypeDesignator's own
+// comment already takes for the forward direction.
+export function suggestModelNames(typeDesignator: string): string[] {
+  const t = typeDesignator.trim().toLowerCase()
+  if (!t) return []
+  const names = Object.entries(AIRCRAFT_MODEL_ALIASES)
+    .filter(([, designator]) => designator.toLowerCase() === t)
+    .map(([name]) => name.replace(/\b\w/g, (c) => c.toUpperCase()))
+  return names
+}
+
 export interface TypeDesignatorSuggestion {
   manufacturer: string
   type_designator: string
+}
+
+// Pure legal-entity-name drift for the SAME real manufacturer over time --
+// verified live against the aircraft_type_designators table (not guessed):
+// "182T" alone is filed under CESSNA / CESSNA AIRCRAFT CO / CESSNA AIRCRAFT
+// INC, three literally different strings for one real company, and this
+// pattern repeats across every major manufacturer below. RC: "are they all
+// nec? how is that list compiled? if diff, clarify." Deliberately does NOT
+// touch the much longer tail of one-off field-modification/STC
+// registrations ("CESSNA WREN," "PIPER/DUKE," "BEECH-PARKS," etc.) -- those
+// ARE genuinely distinct real registrations, not spelling variants of the
+// same company, and already rank far below the real manufacturer by count
+// in searchManufacturers' own popularity sort. Bounded to the
+// manufacturers a typical GA/business-aircraft owner is most likely to
+// search for -- same scoping precedent as AIRCRAFT_MODEL_ALIASES above.
+// Expand this table (from real queried data, not a guessed spelling)
+// rather than reaching for a general corporate-suffix-stripping heuristic,
+// which risks silently merging companies that were never actually the same
+// (e.g. TEXTRON AVIATION INC now builds Cessna-designed aircraft but is a
+// distinct real registrant from plain CESSNA -- left ungrouped on purpose).
+const MANUFACTURER_ALIASES: Record<string, string> = {
+  cessna: 'CESSNA', 'cessna aircraft co': 'CESSNA', 'cessna aircraft inc': 'CESSNA',
+  piper: 'PIPER', 'piper aircraft inc': 'PIPER', 'piper aircraft corp': 'PIPER',
+  'piper aircraft corporation': 'PIPER', 'new piper': 'PIPER', 'new piper aircraft inc': 'PIPER',
+  beech: 'BEECHCRAFT', beechcraft: 'BEECHCRAFT', 'beechcraft corp': 'BEECHCRAFT',
+  'beech aircraft corp': 'BEECHCRAFT', 'beech aircraft corporation': 'BEECHCRAFT',
+  'beech acft corp': 'BEECHCRAFT', 'beechcraft aircraft corp': 'BEECHCRAFT',
+  'hawker beechcraft corp': 'BEECHCRAFT', 'beechcraft hawker corp': 'BEECHCRAFT',
+  'beechcraft-hawker corp.': 'BEECHCRAFT',
+  mooney: 'MOONEY', 'mooney aircraft corp': 'MOONEY', 'mooney aircraft corp.': 'MOONEY',
+  'mooney international corp': 'MOONEY', 'mooney airplane co inc': 'MOONEY',
+  'diamond aircraft ind gmbh': 'DIAMOND AIRCRAFT', 'diamond aircraft ind inc': 'DIAMOND AIRCRAFT',
+  'diamond aircraft industries': 'DIAMOND AIRCRAFT',
+  grumman: 'GRUMMAN', 'grumman aircraft eng corp': 'GRUMMAN', 'grumman aircraft eng. corp.': 'GRUMMAN',
+  'grumman american avn. corp.': 'GRUMMAN AMERICAN', 'grumman american avn. corp': 'GRUMMAN AMERICAN',
+  'grumman american avn corp': 'GRUMMAN AMERICAN',
+  socata: 'SOCATA', 'eads socata': 'SOCATA', 'socata group aerospatiale': 'SOCATA',
+  'robinson helicopter': 'ROBINSON HELICOPTER', 'robinson helicopter company': 'ROBINSON HELICOPTER',
+  'robinson helicopter co': 'ROBINSON HELICOPTER',
+  'gulfstream aerospace': 'GULFSTREAM AEROSPACE', 'gulfstream aerospace corp': 'GULFSTREAM AEROSPACE',
+  'gulfstream aerospace lp': 'GULFSTREAM AEROSPACE', 'gulfstream aerospacecorp': 'GULFSTREAM AEROSPACE',
+  'gulfstream american corp': 'GULFSTREAM AMERICAN', 'gulfstream american corp.': 'GULFSTREAM AMERICAN',
+  'gulfstream am corp comm div': 'GULFSTREAM AMERICAN',
+  'learjet inc': 'LEARJET', 'learjet corp': 'LEARJET',
+  'gates learjet corp': 'GATES LEARJET', 'gates learjet': 'GATES LEARJET',
+  'gates learjet corp.': 'GATES LEARJET', 'gates learjet inc': 'GATES LEARJET',
+  'bombardier inc': 'BOMBARDIER', 'bombardier aerospace inc': 'BOMBARDIER', 'bombardier aerospace': 'BOMBARDIER',
+}
+
+function canonicalManufacturer(name: string): string {
+  const key = name.trim().toLowerCase()
+  return MANUFACTURER_ALIASES[key] ?? name.trim()
 }
 
 // Turns a typed query into a Postgres ILIKE pattern that matches it as a
@@ -115,17 +186,62 @@ export function subsequencePattern(query: string): string {
 // "172" surfaces every model containing it, regardless of which box the
 // pilot is typing into. Capped at 8 -- this is a typeahead dropdown, not a
 // results page.
-export async function searchTypeDesignators(query: string): Promise<TypeDesignatorSuggestion[]> {
+// `manufacturer`, when passed, is whatever's currently in the Make field --
+// scopes the search to that company (via prefix match on the raw text PLUS
+// every known alias variant, see MANUFACTURER_ALIASES) instead of the bare
+// unscoped subsequence-across-both-fields search below. RC, live: with
+// Make already set to "CIRRUS DESIGN CORP," typing "sr" into Type
+// Designator returned a page of unrelated manufacturers sorted
+// alphabetically and NOT ONE real Cirrus type (SR20/SR22/SR22T/SF50 are
+// all genuinely on file) -- the designator match was never actually
+// constrained to the selected Make at all. Two small queries run in
+// parallel and get merged/deduped client-side rather than one hand-built
+// PostgREST OR-string, so there's no filter-syntax escaping to get wrong.
+export async function searchTypeDesignators(query: string, manufacturer?: string): Promise<TypeDesignatorSuggestion[]> {
   const q = query.trim()
   if (q.length < 2) return []
   const pattern = subsequencePattern(q)
-  const { data } = await supabase
-    .from('aircraft_type_designators')
-    .select('manufacturer, type_designator')
-    .or(`manufacturer.ilike.${pattern},type_designator.ilike.${pattern}`)
-    .order('manufacturer')
-    .limit(8)
-  return (data ?? []) as TypeDesignatorSuggestion[]
+  const mfr = manufacturer?.trim()
+
+  let rows: TypeDesignatorSuggestion[]
+  if (mfr && mfr.length >= 2) {
+    const canonicalMfr = canonicalManufacturer(mfr)
+    const aliasVariants = Object.entries(MANUFACTURER_ALIASES)
+      .filter(([, canon]) => canon === canonicalMfr)
+      .map(([raw]) => raw.toUpperCase())
+    const knownVariants = [...new Set([canonicalMfr.toUpperCase(), mfr.toUpperCase(), ...aliasVariants])]
+    const [{ data: prefixRows }, { data: aliasRows }] = await Promise.all([
+      supabase.from('aircraft_type_designators').select('manufacturer, type_designator')
+        .ilike('manufacturer', `${mfr}%`).ilike('type_designator', pattern).limit(40),
+      supabase.from('aircraft_type_designators').select('manufacturer, type_designator')
+        .in('manufacturer', knownVariants).ilike('type_designator', pattern).limit(40),
+    ])
+    rows = [...(prefixRows ?? []), ...(aliasRows ?? [])] as TypeDesignatorSuggestion[]
+  } else {
+    const { data } = await supabase
+      .from('aircraft_type_designators')
+      .select('manufacturer, type_designator')
+      .or(`manufacturer.ilike.${pattern},type_designator.ilike.${pattern}`)
+      .order('manufacturer')
+      .limit(40)
+    rows = (data ?? []) as TypeDesignatorSuggestion[]
+  }
+
+  // De-dup so one real type isn't shown once per legal-entity spelling
+  // variant on file (see MANUFACTURER_ALIASES above) -- prefer the
+  // canonical/shortest spelling as the representative label, same
+  // heuristic searchManufacturers already uses for the Make field's own
+  // near-duplicate spellings.
+  const byKey = new Map<string, TypeDesignatorSuggestion>()
+  for (const r of rows) {
+    const canon = canonicalManufacturer(r.manufacturer)
+    const key = `${r.type_designator.toUpperCase()}::${canon.toLowerCase()}`
+    const existing = byKey.get(key)
+    if (!existing || canon.length < existing.manufacturer.length) {
+      byKey.set(key, { manufacturer: canon, type_designator: r.type_designator })
+    }
+  }
+  return [...byKey.values()].sort((a, b) => a.type_designator.localeCompare(b.type_designator)).slice(0, 8)
 }
 
 // Distinct manufacturer names for the Make field's own typeahead --
@@ -141,9 +257,11 @@ export async function searchTypeDesignators(query: string): Promise<TypeDesignat
 // manufacturer-code prefix (LA-4, PA-46) the way it does for type
 // designators. The source data has many near-duplicate spellings for one
 // real manufacturer (PIPER / PIPER AIRCRAFT INC / NEW PIPER AIRCRAFT INC,
-// all literally distinct strings in the FAA's own registry) -- deduped by
-// a normalized key (case/whitespace-insensitive), preferring the SHORTEST
-// spelling as the one actually worth showing.
+// all literally distinct strings in the FAA's own registry) -- canonicalized
+// through MANUFACTURER_ALIASES first (case/whitespace-only variants would
+// never have caught "NEW PIPER AIRCRAFT INC" as the same company; that
+// needs the explicit alias table above), THEN deduped by the resulting
+// name, preferring the SHORTEST spelling as the one actually worth showing.
 export async function searchManufacturers(query: string): Promise<string[]> {
   const q = query.trim()
   if (q.length < 1) return []
@@ -161,7 +279,7 @@ export async function searchManufacturers(query: string): Promise<string[]> {
     .limit(600)
   const byKey = new Map<string, { name: string; count: number }>()
   for (const row of (data ?? []) as { manufacturer: string }[]) {
-    const name = row.manufacturer.trim()
+    const name = canonicalManufacturer(row.manufacturer)
     const key = name.toLowerCase()
     const existing = byKey.get(key)
     if (!existing) byKey.set(key, { name, count: 1 })
