@@ -363,6 +363,49 @@ def scenario_declined():
         delete_user(a["id"]); delete_user(b["id"])
 
 
+def scenario_both_wrong():
+    # RC, 2026-08-10, re: a real completed duel in their own history showing
+    # "You won! 0 correct": "i suppose a person could 'win' even with 0
+    # questions answered correctly - IF both players got everything wrong,
+    # but this person answered all w/ a faster time - which is the
+    # tiebreaker." Tests that hypothesis directly against the real
+    # finalize_challenge_if_done tiebreak logic (correct_counts /
+    # qualifying_questions / tiebreak_times CTEs): a question only counts
+    # toward the tiebreak for a tied group if EVERY member of that group got
+    # it right -- so if both players get everything wrong, neither has any
+    # qualifying question at all, and speed can never separate them. Expect
+    # a genuine TIE, not a win, no matter how much faster one player was.
+    print("\n=== SCENARIO: both players get every question wrong (0 correct each) ===")
+    a = make_user("bothwrongA"); b = make_user("bothwrongB")
+    try:
+        opt_in(a); opt_in(b)
+        cid = rpc("create_challenge", a["jwt"], {"p_opponent_ids": [b["id"]], "p_question_count": 3})
+        rpc("respond_to_challenge", b["jwt"], {"p_challenge_id": cid, "p_accept": True})
+
+        na, lasta = play(a, cid, correct=False)
+        check("A answered all 3, all wrong", na == 3, f"answered {na}")
+        nb, lastb = play(b, cid, correct=False)
+        check("B answered all 3, all wrong", nb == 3, f"answered {nb}")
+        check("challenge completed", lastb and lastb["challenge_completed"] is True, str(lastb))
+
+        stand = rpc("get_challenge_standings", a["jwt"], {"p_challenge_id": cid})
+        sa = next(s for s in stand if s["user_id"] == a["id"])
+        sb = next(s for s in stand if s["user_id"] == b["id"])
+        check("A scored 0/3", sa["correct_count"] == 0, str(sa))
+        check("B scored 0/3", sb["correct_count"] == 0, str(sb))
+        check("A ranked 1st (tied)", sa["final_rank"] == 1, str(sa))
+        check("B ranked 1st too (tied)", sb["final_rank"] == 1, str(sb))
+        check("tie_group_size is 2 for both -- a genuine tie, not a speed-based win",
+              sa["tie_group_size"] == 2 and sb["tie_group_size"] == 2, f"a={sa} b={sb}")
+
+        statsa = rpc("get_duel_stats", a["jwt"], {"p_user_id": None})[0]
+        statsb = rpc("get_duel_stats", b["jwt"], {"p_user_id": None})[0]
+        check("A's stats record a tie, not a win", statsa["ties"] == 1 and statsa["wins"] == 0, str(statsa))
+        check("B's stats record a tie, not a win", statsb["ties"] == 1 and statsb["wins"] == 0, str(statsb))
+    finally:
+        delete_user(a["id"]); delete_user(b["id"])
+
+
 def scenario_group():
     print("\n=== SCENARIO: 3-player group duel, one accepts / one declines ===")
     a = make_user("grpA"); b = make_user("grpB"); c = make_user("grpC")
@@ -510,6 +553,8 @@ if __name__ == "__main__":
             scenario_premature()
         if which in ("declined", "all"):
             scenario_declined()
+        if which in ("bothwrong", "all"):
+            scenario_both_wrong()
         if which in ("group", "all"):
             scenario_group()
         if which in ("empty", "all"):
