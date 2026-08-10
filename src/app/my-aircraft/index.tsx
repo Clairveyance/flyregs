@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import Reanimated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, useReducedMotion, interpolateColor,
 } from 'react-native-reanimated'
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Modal } from 'react-native'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Modal, KeyboardAvoidingView, Platform } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import { useTheme, type ThemeTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -1148,7 +1148,13 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   const sortedAircraft = [...aircraft].sort((a, b) => urgency(a) - urgency(b))
 
   return (
-    <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+    // KeyboardAvoidingView, not a plain View -- without it, focusing any of
+    // the Add Aircraft form's TextInputs (Make/Model/Type/Nickname) let the
+    // iOS keyboard overlay the whole entry area with nothing to push it out
+    // of the way, exactly this screen's own ScrollView notwithstanding
+    // (scroll position alone doesn't account for the keyboard's height).
+    // Same fix, same pattern feedback.tsx already uses.
+    <KeyboardAvoidingView style={[styles.root, { backgroundColor: tokens.bg }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <OverlayHeader title={screenTitle} onBack={embedded ? (onClose ?? (() => {})) : () => router.back()} />
 
       {loading ? (
@@ -1512,6 +1518,8 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                       value={typeDesignator}
                       onChangeText={handleTypeDesignatorChange}
                       onSelectManufacturer={(mfr) => { if (!make.trim()) setMake(mfr) }}
+                      onSelectModel={(m) => { if (!model.trim()) setModel(m) }}
+                      manufacturer={make}
                       tokens={tokens}
                       fs={fs}
                     />
@@ -1596,7 +1604,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
           setHobbsEditing(null)
         }}
       />
-    </View>
+    </KeyboardAvoidingView>
   )
 }
 
