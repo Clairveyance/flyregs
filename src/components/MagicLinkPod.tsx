@@ -256,6 +256,7 @@ const PREVIEW_FALLBACK_HEIGHT = 180
 // term (see the fetch effect below).
 const TITLE_SOURCE: Partial<Record<string, [string, string, string]>> = {
   far: ['far_sections', 'section_number', 'title'],
+  far_part: ['far_parts', 'part', 'label'],
   aim: ['aim_paragraphs', 'paragraph_number', 'title'],
   ac: ['advisory_circulars', 'document_number', 'title'],
   ad: ['airworthiness_directives', 'ad_number', 'subject_heading'],

@@ -194,7 +194,7 @@ export default function LoiDetailScreen() {
 
   const body = loi?.body_text ?? ''
   const currentLabel = loi ? humanizeLoiTitle(loi.title) : undefined
-  const farRefs = related.filter((r) => r.cited_type === 'far')
+  const farRefs = related.filter((r) => r.cited_type === 'far' || r.cited_type === 'far_part')
 
   // LOI's own actions gate on hasProAccess, not the app-wide hasPlusAccess
   // every other content type's print/share/bookmark/folder uses -- since

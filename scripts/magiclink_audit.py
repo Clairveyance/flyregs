@@ -35,6 +35,7 @@ OWNERSHIP = {
     "sync/loi_scraper.py":       {"citing": "loi", "cited": {"far"}},
     "sync/loi_vision_cleanup.py": {"citing": "loi", "cited": {"far"}},
     "sync/loi_ac_citations.py":  {"citing": "loi", "cited": {"ac"}},
+    "sync/loi_far_part_citations.py": {"citing": "loi", "cited": {"far_part"}},
     "sync/pcg_citations.py":     {"citing": "pcg", "cited": {"far", "far_part", "ac", "aim", "ad"}},
     "sync/pcg_term_links.py":    {"citing": "*",   "cited": {"pcg"}},
 }

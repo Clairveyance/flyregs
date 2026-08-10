@@ -248,7 +248,7 @@ export default function AdScreen() {
 
   const aimRefs = related.filter((r) => r.cited_type === 'aim')
   const acRefs = related.filter((r) => r.cited_type === 'ac')
-  const farRefs = related.filter((r) => r.cited_type === 'far')
+  const farRefs = related.filter((r) => r.cited_type === 'far' || r.cited_type === 'far_part')
   const pcgRefs = related.filter((r) => r.cited_type === 'pcg')
   // AD -> AD. The pod had no bar for this at all, so the supersedes/amends
   // chain -- arguably the most important relationship an AD has, since a
