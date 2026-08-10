@@ -32,7 +32,7 @@ export function stripAdSubjectPrefix(subjectHeading: string): string {
 // Case/whitespace-insensitive, and also catches the FAR shape where the
 // title is just the number again after stripFarPrefix leaves it bare.
 export function rowTitle(documentNumber: string, title: string): string {
-  const stripped = stripFarPrefix(title ?? '')
+  const stripped = stripAdSubjectPrefix(stripFarPrefix(title ?? ''))
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
   if (!stripped.trim()) return ''
   if (norm(stripped) === norm(documentNumber ?? '')) return ''
