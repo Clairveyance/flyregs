@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { View, Text, Pressable, StyleSheet } from 'react-native'
 import { usePathname, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -53,13 +54,24 @@ const COMMUNITY_PREFIXES = [
   '/manage-subscription',
 ]
 
-function activeTabForPath(pathname: string): string {
+// Content-detail screens (pcg/[id], far/[id], ad/[id], loi/[slug], ac/[id],
+// aim/[id], dictionary/[slug], ...) are top-level routes with no tab of
+// their own -- and unlike the Community-only routes above, they're pushed
+// to from EVERY tab (Home search results, Ask FlyRegs, a Saved folder, a
+// Note's citation, a MagicLink on another detail screen...), so there's no
+// single prefix to add them under. Returning null here (instead of
+// guessing 'index') lets the caller keep whatever tab was active before
+// the push -- found live 2026-08-10, RC: tapping a P/CG answer from Ask
+// FlyRegs reset the bar to Home because the old fallback defaulted every
+// unmatched path straight to 'index'.
+function matchedTabForPath(pathname: string): string | null {
+  if (pathname === '/') return 'index'
   if (COMMUNITY_PREFIXES.some((p) => pathname.startsWith(p))) return 'search'
   if (pathname.startsWith('/saved'))   return 'saved'
   if (pathname.startsWith('/folder'))  return 'saved'
   if (pathname.startsWith('/recents')) return 'recents'
   if (pathname.startsWith('/notes'))   return 'notes'
-  return 'index'
+  return null
 }
 
 export function PersistentTabBar() {
@@ -67,7 +79,10 @@ export function PersistentTabBar() {
   const insets = useSafeAreaInsets()
   const pathname = usePathname()
   const router = useRouter()
-  const activeTab = activeTabForPath(pathname)
+  const matchedTab = matchedTabForPath(pathname)
+  const lastTabRef = useRef<string>('index')
+  if (matchedTab) lastTabRef.current = matchedTab
+  const activeTab = matchedTab ?? lastTabRef.current
   const fs = useFS()
   const iconSize = fs(22)
   // Grows with the icon so a large text-size setting doesn't clip it against
