@@ -86,14 +86,30 @@ export default function AuthScreen() {
   }
 
   // Offered once, right after a real password sign-in, only if biometric
-  // hardware exists, it isn't already enabled, and the user hasn't already
-  // said no once before (checked, not just assumed, each time -- a user who
-  // enables it on one account and later signs into a different one should
-  // still get asked, since enabling always overwrites to the current
-  // session).
-  const maybeOfferBiometricEnroll = async () => {
+  // hardware exists, it isn't already enabled FOR THIS ACCOUNT, and the
+  // user hasn't already said no once before (checked, not just assumed,
+  // each time -- a user who enables it on one account and later signs into
+  // a different one should still get asked, since enabling always
+  // overwrites to the current session).
+  //
+  // Compares against the just-signed-in email specifically, not just
+  // whether biometric is enabled at all -- the earlier version checked
+  // isBiometricSignInEnabled() globally, so signing into a DIFFERENT
+  // account on a device where a prior account still had biometric enabled
+  // silently skipped the offer (contradicting this comment's own stated
+  // intent) and left a stale "Sign in as [prior account]" button on the
+  // sign-in screen indefinitely -- a real email-disclosure risk on a
+  // shared device. Sign-out deliberately does NOT clear biometric itself
+  // (that would defeat surviving a normal sign-out/sign-in of the SAME
+  // account), so this is the actual point a mismatch can be detected and
+  // cleaned up.
+  const maybeOfferBiometricEnroll = async (signedInEmail: string) => {
     if (!(await Biometric.isHardwareAvailable())) return
-    if (await Biometric.isBiometricSignInEnabled()) return
+    const storedEmail = await Biometric.getBiometricSignInEmail()
+    if (storedEmail) {
+      if (storedEmail.toLowerCase() === signedInEmail.toLowerCase()) return
+      await Biometric.disableBiometricSignIn()
+    }
     if (await Biometric.hasDeclinedBiometricPrompt()) return
     const { data } = await supabase.auth.getSession()
     const session = data.session
@@ -122,7 +138,7 @@ export default function AuthScreen() {
     try {
       if (mode === 'signin') {
         await signIn(trimmedEmail, password)
-        await maybeOfferBiometricEnroll()
+        await maybeOfferBiometricEnroll(trimmedEmail)
         router.dismiss()
       } else {
         await signUp(trimmedEmail, password)
