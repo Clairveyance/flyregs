@@ -1573,9 +1573,9 @@ function EmptyState({
   return (
     <View style={styles.center}>
       <Icon name="bookmark" size={fs(40)} color={tokens.t4} />
-      <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No saved ACs yet</Text>
+      <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No bookmarks yet</Text>
       <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-        Tap the bookmark icon on any Advisory Circular to save it here.
+        Tap the bookmark icon on any FAR, AIM, AC, P/CG, AD, or LOI to save it here.
         {!signedIn ? ' Sign in to sync across devices.' : ''}
       </Text>
       {!signedIn && (
