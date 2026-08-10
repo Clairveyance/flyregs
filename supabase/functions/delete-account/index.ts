@@ -6,9 +6,14 @@
 //
 // Deleting the auth user cascades (ON DELETE CASCADE) to every app table
 // that references it — synced_bookmarks, synced_folders, synced_folder_items,
-// synced_notes, folder_collaborators, push_tokens, user_bookmarks — so no
-// manual per-table cleanup is needed here. Storage objects are NOT covered
-// by that cascade, so the avatar is removed explicitly first.
+// synced_notes, folder_collaborators, aircraft_collaborators, push_tokens,
+// user_bookmarks, user_aircraft, user_aircraft_reminders,
+// user_ad_notifications, callsign_registry — so no manual per-table cleanup
+// is needed here. (aircraft_collaborators.user_id was missing this FK until
+// sync/migrations_aircraft_collaborators_user_fk.sql, 2026-08-09 — before
+// that, a collaborator deleting their account left a dangling row behind.)
+// Storage objects are NOT covered by that cascade, so the avatar is removed
+// explicitly first.
 //
 // No third-party imports — plain fetch to GoTrue/Storage/PostgREST, to avoid
 // remote module resolution at cold-start (matches revenuecat-webhook).
