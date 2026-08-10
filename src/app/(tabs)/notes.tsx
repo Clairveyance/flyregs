@@ -323,8 +323,12 @@ export default function NotesScreen() {
                 )}
               </View>
               <View style={styles.syncBadgeRow}>
+                {/* Back up & sync gates on isPro (toggleSync above) -- this
+                    badge said PREMIUM, telling a Pro subscriber the toggle
+                    they'd already paid for needed a tier up. Same bug already
+                    fixed in saved.tsx's identical control; missed here. */}
                 <View style={[styles.premBadge, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
-                  <Text style={[styles.premText, { color: tokens.gold, fontSize: fs(9.5) }]}>PREMIUM</Text>
+                  <Text style={[styles.premText, { color: tokens.gold, fontSize: fs(9.5) }]}>PRO</Text>
                 </View>
                 <View style={[
                   styles.statusPill,
