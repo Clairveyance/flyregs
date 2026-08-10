@@ -47,7 +47,13 @@
 #   8. sync/refresh_pcg_levels.py -- P/CG knowledge-level classification,
 #      derived from step 7's links.
 #   9. sync/loi_ac_citations.py -- LOI -> AC MagicLinks, full corpus.
-# Steps 6-9 are full-corpus rebuilds that live here because this is the last
+#  10. sync/loi_far_part_citations.py -- LOI -> FAR Part MagicLinks (bare
+#      "Part N" mentions off DRS's own cfr_part_reference metadata), full
+#      corpus. Added 2026-08-10 alongside Step 9's sibling but never
+#      actually wired into this schedule -- the exact same "safe-to-re-run
+#      full-corpus script, never scheduled" shape as Step 3's own history
+#      two paragraphs up, caught by the same session's full-app sweep.
+# Steps 6-10 are full-corpus rebuilds that live here because this is the last
 # weekly job of the week; the ordering 6->7->8 is load-bearing (see each
 # step's own comment below).
 #
@@ -60,10 +66,10 @@
 # other sync scripts use.
 #
 # Usage:
-#   ./sync_ad.sh                      # all 9 steps (what the schedule runs)
-#   ONLY_STEPS=6,7,8,9 ./sync_ad.sh   # just those steps
+#   ./sync_ad.sh                        # all 10 steps (what the schedule runs)
+#   ONLY_STEPS=6,7,8,9,10 ./sync_ad.sh   # just those steps
 #
-# ONLY_STEPS exists so the full-corpus half of this pipeline (6-9) can be
+# ONLY_STEPS exists so the full-corpus half of this pipeline (6-10) can be
 # exercised in CI without side effects: step 2 calls Claude (costs real
 # money) and step 4 sends real push notifications to real My Aircraft
 # owners, so a verification run must be able to skip both. The weekly
@@ -108,31 +114,31 @@ cd "$APP"
 
 if want_step 1; then
   echo ""
-  echo "▶ Step 1/9 — AD incremental scrape"
+  echo "▶ Step 1/10 — AD incremental scrape"
   "$PYTHON3" sync/ad_scraper.py --mode incremental --touched-out="$TOUCHED_FILE"
 fi
 
 if want_step 2; then
   echo ""
-  echo "▶ Step 2/9 — AD parts extraction (ADs touched this run)"
+  echo "▶ Step 2/10 — AD parts extraction (ADs touched this run)"
   "$PYTHON3" sync/extract_ad_parts.py --mode full --touched-file="$TOUCHED_FILE"
 fi
 
 if want_step 3; then
   echo ""
-  echo "▶ Step 3/9 — AD figure/table page-image backfill (skips ADs already done)"
+  echo "▶ Step 3/10 — AD figure/table page-image backfill (skips ADs already done)"
   "$PYTHON3" sync/backfill_ad_figures.py
 fi
 
 if want_step 4; then
   echo ""
-  echo "▶ Step 4/9 — Targeted My Aircraft alerts (ADs touched this run)"
+  echo "▶ Step 4/10 — Targeted My Aircraft alerts (ADs touched this run)"
   "$NODE" scripts/send-ad-alerts.mjs --touched-file="$TOUCHED_FILE"
 fi
 
 echo ""
 if want_step 5; then
-  echo "▶ Step 5/9 — MagicLink citation extraction (AD -> AC/FAR/AIM/AD)"
+  echo "▶ Step 5/10 — MagicLink citation extraction (AD -> AC/FAR/AIM/AD)"
   # Order-independent as of 2026-07-31: ad_citations.py's delete used to remove
   # EVERY citing_type='ad' row, including the ~450 ad->pcg links Step 6 owns, so
   # it was only safe here by accident of ordering. Its delete is now scoped to
@@ -149,7 +155,7 @@ fi
 # quality filter (and SmartSearch expansion along with it).
 echo ""
 if want_step 6; then
-  echo "▶ Step 6/9 — SmartSearch index rebuild (vocabulary + term associations)"
+  echo "▶ Step 6/10 — SmartSearch index rebuild (vocabulary + term associations)"
   "$PYTHON3" sync/search_index_build.py
 fi
 
@@ -169,7 +175,7 @@ echo ""
 # re-run can't multiply them (document_citations has no unique constraint).
 
 if want_step 7; then
-  echo "▶ Step 7/9 — MagicLink P/CG term linking (FAR/AIM/AC/AD/LOI -> P/CG, full corpus)"
+  echo "▶ Step 7/10 — MagicLink P/CG term linking (FAR/AIM/AC/AD/LOI -> P/CG, full corpus)"
   "$PYTHON3" sync/pcg_term_links.py
 fi
 
@@ -180,7 +186,7 @@ fi
 # Duels level filters silently drift out of sync with the corpus.
 echo ""
 if want_step 8; then
-  echo "▶ Step 8/9 — P/CG knowledge-level classification"
+  echo "▶ Step 8/10 — P/CG knowledge-level classification"
   "$PYTHON3" sync/refresh_pcg_levels.py
 fi
 
@@ -192,8 +198,18 @@ fi
 # so it cannot touch either.
 echo ""
 if want_step 9; then
-  echo "▶ Step 9/9 — MagicLink LOI -> AC links (full corpus)"
+  echo "▶ Step 9/10 — MagicLink LOI -> AC links (full corpus)"
   "$PYTHON3" sync/loi_ac_citations.py
+fi
+
+# ── Step 10: LOI -> FAR Part links ───────────────────────────────────────
+# Same full-corpus-rescan reasoning as Step 9 -- built the same day
+# (2026-08-10) but never wired in. Owns citing_type='loi' AND
+# cited_type='far_part' only, so its delete can't touch Step 9's own rows.
+echo ""
+if want_step 10; then
+  echo "▶ Step 10/10 — MagicLink LOI -> FAR Part links (full corpus)"
+  "$PYTHON3" sync/loi_far_part_citations.py
 fi
 
 rm -f "$TOUCHED_FILE"

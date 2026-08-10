@@ -114,6 +114,19 @@ const PATTERNS: LinkPattern[] = [
       return subs
     },
   },
+  // Bare FAR Part mention ("Part 91", "14 CFR part 91", "FAR Part 61") with
+  // no following section number -- mirrors sync/pcg_citations.py's own
+  // FAR_PART_RE exactly (same server-side extraction that already produces
+  // a real far_part document_citations row for this text), so a mention the
+  // scraper counts is now also the mention that's actually tappable. Real
+  // gap RC originally reported: P/CG's IFR_TAKEOFF_MINIMUMS_AND_DEPARTURE_
+  // PROCEDURES definition reads "...part 91, prescribes standard takeoff
+  // rules..." — MagicLinkPod correctly counted/linked this citation in the
+  // bar below, but the same words in the body text rendered as inert plain
+  // text, since this pattern didn't exist yet. Negative lookahead avoids
+  // double-matching when a real dotted section immediately follows (the
+  // FAR-section pattern above already handles that case on its own).
+  { regex: /\b(?:14\s*CFR\s*|FAR\s+)?[Pp]art\s+(\d{1,3})\b(?!\.\d)/g, buildRoute: (m) => `/far/part/${m[1]}` },
   // P/CG glossary term mention — the exact phrase the AIM/FAR scrapers'
   // own citation regex already looks for.
   { regex: /Pilot\/Controller Glossary Term-\s*([^.]+)\.?/g, buildRoute: (m) => `/pcg/${slugifyPcgTerm(m[1].trim())}` },
