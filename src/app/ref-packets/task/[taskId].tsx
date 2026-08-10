@@ -69,8 +69,15 @@ export default function RefPacketTaskScreen() {
       // "GUIDE them directly to that info" means in practice: the moment
       // you open a task, you already see the FAR/AIM/AC hits most relevant
       // to it, before typing anything.
+      // NOTE: do NOT also setQuery(t.title) here. That used to pre-fill the
+      // visible input with the title as real, editable text -- a single tap
+      // (the normal way to start typing) dropped the cursor mid-string, so
+      // keystrokes got inserted into "Regulatory Requirements" instead of
+      // replacing it (e.g. typing "medical certificate" produced
+      // "Regulatory Requiremedical certificatemen"). The box must render
+      // its real placeholder and start with an actually-empty value; the
+      // title-seeded results still populate below via runSearch alone.
       if (t) {
-        setQuery(t.title)
         runSearch(t.title)
       }
     })
