@@ -35,7 +35,7 @@ OWNERSHIP = {
     "sync/loi_scraper.py":       {"citing": "loi", "cited": {"far"}},
     "sync/loi_vision_cleanup.py": {"citing": "loi", "cited": {"far"}},
     "sync/loi_ac_citations.py":  {"citing": "loi", "cited": {"ac"}},
-    "sync/pcg_citations.py":     {"citing": "pcg", "cited": {"far", "ac", "aim", "ad"}},
+    "sync/pcg_citations.py":     {"citing": "pcg", "cited": {"far", "far_part", "ac", "aim", "ad"}},
     "sync/pcg_term_links.py":    {"citing": "*",   "cited": {"pcg"}},
 }
 
@@ -60,6 +60,7 @@ def mgmt_query(sql):
 
 TARGET_EXISTS = {
     "far": "exists (select 1 from far_sections f where f.section_number = dc.cited_id)",
+    "far_part": "exists (select 1 from far_parts fp where fp.part = dc.cited_id)",
     "aim": "exists (select 1 from aim_paragraphs a where a.paragraph_number = dc.cited_id)",
     "ac":  "exists (select 1 from advisory_circulars c where c.document_number = dc.cited_id)",
     "ad":  "exists (select 1 from airworthiness_directives d where d.ad_number = dc.cited_id)",
@@ -140,7 +141,7 @@ def audit_ownership():
         ok = True
         for b in blocks:
             has_citing = "citing_type" in b
-            m = re.search(r"cited_type\"?\s*:\s*f?\"(?:eq|in)\.\(?([a-z,]+)\)?\"", b)
+            m = re.search(r"cited_type\"?\s*:\s*f?\"(?:eq|in)\.\(?([a-z_,]+)\)?\"", b)
             if not has_citing:
                 continue
             if not m:
@@ -177,7 +178,7 @@ def audit_ownership():
         if not os.path.exists(full) or own["citing"] == "*":
             continue
         src = open(full).read()
-        written = set(re.findall(r"[\"']cited_type[\"']\s*:\s*[\"']([a-z]+)[\"']", src))
+        written = set(re.findall(r"[\"']cited_type[\"']\s*:\s*[\"']([a-z_]+)[\"']", src))
         stray = written - own["cited"]
         if stray:
             print(f"  FAIL {path}: still writes {sorted(stray)} but no longer deletes it "

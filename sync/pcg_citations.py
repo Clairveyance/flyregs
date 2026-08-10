@@ -28,7 +28,7 @@ import sys
 import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
-from citation_validate import fetch_known_ids, filter_resolved
+from citation_validate import fetch_known_ids, filter_resolved  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
@@ -56,6 +56,22 @@ AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:/\d+)?(?:\.\d+)?[\-‐‑–]\d+[A-Za-z]*(
 FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
 AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 AD_RE = re.compile(r"\bAD\s+(\d{4}-\d{2}-\d{2})\b")
+
+# Added 2026-08-10 -- the real gap behind RC's own flagged example ("IFR
+# TAKEOFF MINIMUMS AND DEPARTURE PROCEDURES" cites "Title 14 Code of
+# Federal Regulations, part 91" with no section number). FAR_RE requires a
+# dotted section number and correctly never matches this shape -- there was
+# previously no extraction path for a bare Part reference at all. Now
+# resolvable: routeForCitedItem (src/lib/citedItems.ts) sends cited_type=
+# 'far_part' to /far/part/<part>, and citation_validate.py's _TABLE_KEY
+# validates it against far_parts.part -- both fixed the same day, in the
+# same investigation, specifically so this extraction could ship without
+# creating a new dead-link class the moment it went live. The "14 CFR"/
+# "FAR" prefix is optional (confirmed real prose omits it: "...for part 91
+# or part 107 UAS..."), but the negative lookahead excludes a part number
+# immediately followed by ".digit" -- that shape is a real section citation
+# FAR_RE already owns (e.g. "part 91.113"), not a bare Part reference.
+FAR_PART_RE = re.compile(r"\b(?:14\s*CFR\s*|FAR\s+)?[Pp]art\s+(\d{1,3})\b(?!\.\d)")
 
 # The FAA's own PDF->HTML text extraction is inconsistent about which
 # hyphen-like character it uses in a given document (confirmed live: two of
@@ -126,6 +142,13 @@ def extract_citations(term: dict) -> list[dict]:
             seen.add(key)
             citations.append({"citing_type": "pcg", "citing_id": own_id, "cited_type": "ac", "cited_id": cited_id, "label": None})
 
+    for m in FAR_PART_RE.finditer(text):
+        cited_id = m.group(1)
+        key = ("far_part", cited_id)
+        if key not in seen:
+            seen.add(key)
+            citations.append({"citing_type": "pcg", "citing_id": own_id, "cited_type": "far_part", "cited_id": cited_id, "label": None})
+
     return citations
 
 
@@ -141,7 +164,7 @@ def delete_pcg_citations() -> None:
     resp = requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**HEADERS, "Prefer": "return=minimal"},
-        params={"citing_type": "eq.pcg", "cited_type": "in.(ac,far,aim,ad)"},
+        params={"citing_type": "eq.pcg", "cited_type": "in.(ac,far,far_part,aim,ad)"},
         timeout=30,
     )
     resp.raise_for_status()

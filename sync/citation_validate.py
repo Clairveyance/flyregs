@@ -35,6 +35,7 @@ HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 
 _TABLE_KEY = {
     "far": ("far_sections", "section_number"),
+    "far_part": ("far_parts", "part"),
     "ac": ("advisory_circulars", "document_number"),
     "aim": ("aim_paragraphs", "paragraph_number"),
     "ad": ("airworthiness_directives", "ad_number"),
