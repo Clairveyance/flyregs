@@ -12,10 +12,10 @@ import { SUPPORT_EMAIL, APP_NAME, APP_VERSION } from '@/lib/appInfo'
 import { useConfirm } from '@/components/ConfirmDialog'
 
 const CATEGORIES = [
-  { key: 'bug', label: 'Report a bug', icon: 'questionmark.circle' },
-  { key: 'idea', label: 'Suggest a feature', icon: 'sparkles' },
-  { key: 'content', label: 'Content correction', icon: 'doc.text' },
-  { key: 'other', label: 'Something else', icon: 'envelope' },
+  { key: 'bug', label: 'Report a bug', icon: 'ladybug.fill' },
+  { key: 'idea', label: 'Suggest a feature', icon: 'lightbulb.fill' },
+  { key: 'content', label: 'Content correction', icon: 'pencil.and.outline' },
+  { key: 'other', label: 'Something else', icon: 'ellipsis.bubble.fill' },
 ] as const
 
 // Pro/Premium-only category -- RC, live: "we could consider adding a
