@@ -163,22 +163,59 @@ Deno.serve(async (req: Request) => {
   const matchCount = Math.min(Math.max(Math.trunc(body.matchCount ?? DEFAULT_MATCH_COUNT), 1), MAX_MATCH_COUNT)
   const contentTypes = Array.isArray(body.contentTypes) && body.contentTypes.length > 0 ? body.contentTypes : null
 
-  const rpcRes = await fetch(`${supabaseUrl}/rest/v1/rpc/hybrid_search`, {
-    method: 'POST',
-    headers: {
-      apikey: serviceRoleKey,
-      Authorization: `Bearer ${serviceRoleKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      p_query_embedding: `[${embedding.join(',')}]`,
-      p_query_text: query,
-      p_content_types: contentTypes,
-      p_match_count: matchCount * RAW_FETCH_MULTIPLIER,
-    }),
-  })
+  // One retry on a transient RPC failure -- found live 2026-08-09 via
+  // semantic_search_breadth_test.py's real-account breadth run: 2 of 25
+  // otherwise-fine queries ("can I fly drunk", "what happens if my radio
+  // dies in the clouds") hard-failed with a bare "Search failed." 500.
+  // Re-ran both directly afterward (repeatedly, and a full fresh 25-query
+  // pass) and neither reproduced -- both come back in ~1s every time, nowhere
+  // near hybrid_search's own known statement-timeout failure mode (see
+  // migrations_hybrid_search.sql's v6/v7 writeup, which needs several
+  // SECONDS of slow lexical fallback to trip, not this). Everything points
+  // to a one-off transient blip (DB briefly under load from something else
+  // that Sunday morning) rather than a deterministic per-query bug -- but
+  // a paid Pro feature hard-failing a real user's question on any transient
+  // hiccup, with zero recovery, is exactly what shouldn't happen for a
+  // regulatory-reference app. One retry costs nothing on the normal path
+  // and turns a random one-off blip into an invisible ~1s of extra latency
+  // instead of a dead-end error screen.
+  const callHybridSearch = () =>
+    fetch(`${supabaseUrl}/rest/v1/rpc/hybrid_search`, {
+      method: 'POST',
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        p_query_embedding: `[${embedding.join(',')}]`,
+        p_query_text: query,
+        p_content_types: contentTypes,
+        p_match_count: matchCount * RAW_FETCH_MULTIPLIER,
+      }),
+    })
+
+  let rpcRes: Response
+  let rpcErrText = ''
+  try {
+    rpcRes = await callHybridSearch()
+    if (!rpcRes.ok) rpcErrText = await rpcRes.text()
+  } catch (err) {
+    rpcRes = new Response(null, { status: 0 })
+    rpcErrText = String(err)
+  }
   if (!rpcRes.ok) {
-    console.error('hybrid_search RPC error', rpcRes.status, await rpcRes.text())
+    console.error('hybrid_search RPC error (attempt 1)', rpcRes.status, rpcErrText)
+    try {
+      rpcRes = await callHybridSearch()
+      if (!rpcRes.ok) rpcErrText = await rpcRes.text()
+    } catch (err) {
+      rpcRes = new Response(null, { status: 0 })
+      rpcErrText = String(err)
+    }
+  }
+  if (!rpcRes.ok) {
+    console.error('hybrid_search RPC error (attempt 2, giving up)', rpcRes.status, rpcErrText)
     return jsonResponse({ error: 'Search failed.' }, 500)
   }
   const rawResults: Array<{
