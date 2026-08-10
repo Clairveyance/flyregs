@@ -53,7 +53,22 @@ FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\
 # paragraphs that name an AC in their prose, exactly ONE was ever extracted.
 # This script already reads body_text AND reference_text, so it is the right
 # owner for both directions. Same pattern as ad_citations.py.
-AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:\.\d+)?-\d+[A-Za-z]*(?:[\-\u2013]\d+)?)\b")
+#
+# Widened 2026-08-10 (ported from pcg_citations.py's own fix, same day): the
+# old pattern couldn't match the FAA's slash-form AC numbering
+# ("AC 150/5320-12") -- confirmed real live misses in P/CG text; AIM prose
+# citing the same airport-design AC family would hit the identical gap.
+AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:/\d+)?(?:\.\d+)?[\-\u2010\u2011\u2013]\d+[A-Za-z]*(?:[\-\u2010\u2011\u2013]\d+)?)\b")
+
+# See pcg_citations.py for why: the FAA's own PDF->HTML extraction is
+# inconsistent about which hyphen-like character it uses for the same
+# number, so a cited_id has to be ASCII-normalized before comparing against
+# a real document_number, or it silently never resolves.
+_HYPHEN_VARIANTS_RE = re.compile("[\u2010\u2011\u2013]")
+
+
+def _normalize_hyphens(s: str) -> str:
+    return _HYPHEN_VARIANTS_RE.sub("-", s)
 
 
 def fetch_all_paragraphs() -> list[dict]:
@@ -90,7 +105,7 @@ def extract_citations(para: dict) -> list[dict]:
             })
 
     for m in AC_RE.finditer(text):
-        cited_id = m.group(1)
+        cited_id = _normalize_hyphens(m.group(1))
         key = ("ac", cited_id)
         if key not in seen:
             seen.add(key)
@@ -154,7 +169,7 @@ def main():
     if args.dry_run:
         log.info("Dry run — no writes made.")
         for c in all_citations[:20]:
-            log.info(f"  AIM {c['citing_id']} -> FAR {c['cited_id']}")
+            log.info(f"  AIM {c['citing_id']} -> {c['cited_type'].upper()} {c['cited_id']}")
         return
 
     delete_aim_far_citations()

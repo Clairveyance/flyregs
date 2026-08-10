@@ -1,14 +1,19 @@
 // Shared by every MagicLinkPod usage (far/aim/ad detail screens) -- routes a
 // document_citations row to its own detail screen. 'far_part' is a real
 // cited_type value alongside 'far' (a citation can point at a whole Part
-// rather than one section); both open the same /far/<id> route since
-// far/[id].tsx already resolves either shape.
+// rather than one section, e.g. a bare "part 91" mention with no section
+// number). This was a dead-end until 2026-08-10: far/[id].tsx looks up
+// far_sections.section_number = id (expects a dotted number like "91.113"),
+// so routing a bare part number like "91" there 404s every time -- the
+// real destination is far/part/[part].tsx (far_parts.part = part), a
+// separate, already-existing route this just never pointed at.
 export type CitedType = 'ac' | 'far' | 'far_part' | 'aim' | 'pcg' | 'ad' | 'loi' | 'dictionary'
 
 export function routeForCitedItem(citedType: string, citedId: string): string {
   switch (citedType) {
-    case 'far':
     case 'far_part':
+      return `/far/part/${citedId}`
+    case 'far':
       return `/far/${citedId}`
     case 'aim':
       return `/aim/${citedId}`

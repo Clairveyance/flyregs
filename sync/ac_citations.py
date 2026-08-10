@@ -44,11 +44,29 @@ HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 # different ones per source. FAR_RE also matches the "Title 14 of the Code
 # of Federal Regulations (14 CFR) part 61, § 61.56" phrasing (the § form),
 # which is the exact real-world shape confirmed missing on AC 61-98E.
-AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:\.\d+)?-\d+[A-Za-z]*(?:[\-–]\d+)?)\b")
+#
+# AC_RE widened 2026-08-10 (ported from pcg_citations.py's own fix, same
+# day): the old pattern's first segment was a bare `\d+(?:\.\d+)?` with no
+# slash option, so it could never match the FAA's slash-form AC numbering
+# used for airport-design ACs ("AC 150/5320-12"). Real live misses of this
+# exact shape were confirmed in P/CG prose; AC/FAR/AD prose reasonably cites
+# the same airport-design AC family, so the same gap likely exists here too.
+AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:/\d+)?(?:\.\d+)?[\-‐‑–]\d+[A-Za-z]*(?:[\-‐‑–]\d+)?)\b")
 FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
 AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 AD_RE = re.compile(r"\bAD\s+(\d{4}-\d{2}-\d{2})\b")
 PCG_RE = re.compile(r"Pilot/Controller Glossary Term-\s*([^.]+)\.")
+
+# The FAA's own PDF->HTML text extraction is inconsistent about which
+# hyphen-like character it uses for the same "150/5320-12" style number
+# (confirmed live in pcg_citations.py's own investigation) -- normalize
+# before comparing against a real document_number, or it silently never
+# resolves. Same fix as pcg_citations.py, ported here.
+_HYPHEN_VARIANTS_RE = re.compile("[‐‑–]")
+
+
+def _normalize_hyphens(s: str) -> str:
+    return _HYPHEN_VARIANTS_RE.sub("-", s)
 
 
 def fetch_all_acs() -> list[dict]:
@@ -94,16 +112,18 @@ def extract_citations(ac: dict) -> list[dict]:
             citations.append({"citing_type": "ac", "citing_id": ac["document_number"], "cited_type": "far", "cited_id": m.group(1), "label": None})
 
     for m in AIM_PARA_RE.finditer(text):
-        key = ("aim", m.group(1))
+        cited = _normalize_hyphens(m.group(1))
+        key = ("aim", cited)
         if key not in seen:
             seen.add(key)
-            citations.append({"citing_type": "ac", "citing_id": ac["document_number"], "cited_type": "aim", "cited_id": m.group(1), "label": None})
+            citations.append({"citing_type": "ac", "citing_id": ac["document_number"], "cited_type": "aim", "cited_id": cited, "label": None})
 
     for m in AD_RE.finditer(text):
-        key = ("ad", m.group(1))
+        cited = _normalize_hyphens(m.group(1))
+        key = ("ad", cited)
         if key not in seen:
             seen.add(key)
-            citations.append({"citing_type": "ac", "citing_id": ac["document_number"], "cited_type": "ad", "cited_id": m.group(1), "label": None})
+            citations.append({"citing_type": "ac", "citing_id": ac["document_number"], "cited_type": "ad", "cited_id": cited, "label": None})
 
     # ac->pcg is NOT written here. sync/pcg_term_links.py owns every
     # cited_type='pcg' row and rebuilds them across the whole corpus with
@@ -114,7 +134,7 @@ def extract_citations(ac: dict) -> list[dict]:
     # in turn wiped pcg_term_links' rows -- see delete_ac_citations().
 
     for m in AC_RE.finditer(text):
-        cited = m.group(1)
+        cited = _normalize_hyphens(m.group(1))
         if cited == ac["document_number"]:
             continue  # self-citation (e.g. a "cancels AC 90-66" self-reference isn't real here) -- skip
         key = ("ac", cited)

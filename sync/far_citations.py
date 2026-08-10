@@ -38,11 +38,26 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 
-AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:\.\d+)?-\d+[A-Za-z]*(?:[\-–]\d+)?)\b")
+# AC_RE widened 2026-08-10 (ported from pcg_citations.py's own fix, same
+# day): the old pattern couldn't match the FAA's slash-form AC numbering
+# ("AC 150/5320-12") or a Unicode hyphen variant seen literally in real
+# source prose -- confirmed real live misses in P/CG text; FAR text citing
+# the same airport-design AC family would hit the identical gap.
+AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:/\d+)?(?:\.\d+)?[\-‐‑–]\d+[A-Za-z]*(?:[\-‐‑–]\d+)?)\b")
 FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
 AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 AD_RE = re.compile(r"\bAD\s+(\d{4}-\d{2}-\d{2})\b")
 PCG_RE = re.compile(r"Pilot/Controller Glossary Term-\s*([^.]+)\.")
+
+# See pcg_citations.py for why: the FAA's own PDF->HTML extraction is
+# inconsistent about which hyphen-like character it uses for the same
+# number, so a cited_id has to be ASCII-normalized before comparing against
+# a real document_number, or it silently never resolves.
+_HYPHEN_VARIANTS_RE = re.compile("[‐‑–]")
+
+
+def _normalize_hyphens(s: str) -> str:
+    return _HYPHEN_VARIANTS_RE.sub("-", s)
 
 
 def fetch_all_far_sections() -> list[dict]:
@@ -86,16 +101,18 @@ def extract_citations(section: dict) -> list[dict]:
             citations.append({"citing_type": "far", "citing_id": own_id, "cited_type": "far", "cited_id": cited, "label": None})
 
     for m in AIM_PARA_RE.finditer(text):
-        key = ("aim", m.group(1))
+        cited = _normalize_hyphens(m.group(1))
+        key = ("aim", cited)
         if key not in seen:
             seen.add(key)
-            citations.append({"citing_type": "far", "citing_id": own_id, "cited_type": "aim", "cited_id": m.group(1), "label": None})
+            citations.append({"citing_type": "far", "citing_id": own_id, "cited_type": "aim", "cited_id": cited, "label": None})
 
     for m in AD_RE.finditer(text):
-        key = ("ad", m.group(1))
+        cited = _normalize_hyphens(m.group(1))
+        key = ("ad", cited)
         if key not in seen:
             seen.add(key)
-            citations.append({"citing_type": "far", "citing_id": own_id, "cited_type": "ad", "cited_id": m.group(1), "label": None})
+            citations.append({"citing_type": "far", "citing_id": own_id, "cited_type": "ad", "cited_id": cited, "label": None})
 
     # far->pcg is NOT written here -- sync/pcg_term_links.py owns every
     # cited_type='pcg' row corpus-wide. Same reasoning as ac_citations.py:
@@ -104,7 +121,7 @@ def extract_citations(section: dict) -> list[dict]:
     # from two places is what forced delete_far_citations() to be unscoped.
 
     for m in AC_RE.finditer(text):
-        cited = m.group(1)
+        cited = _normalize_hyphens(m.group(1))
         key = ("ac", cited)
         if key not in seen:
             seen.add(key)
