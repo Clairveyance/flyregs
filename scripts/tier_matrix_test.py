@@ -27,7 +27,13 @@ def call(url, data=None, headers=None, method=None):
     r = urllib.request.Request(url, data=json.dumps(data).encode() if data is not None else None,
                                headers=headers or {}, method=method)
     try:
-        with urllib.request.urlopen(r) as resp:
+        # No timeout here once hung a whole run_all_audits.sh --full
+        # invocation for 27+ hours (2026-08-10, gotcha_tabbar_reverts...'s
+        # companion writeup) -- a stalled server response froze the script
+        # with zero output, indistinguishable from "still working." 30s is
+        # generous for every real call this script makes (auth, PostgREST,
+        # the semantic-search Edge Function) but still finite.
+        with urllib.request.urlopen(r, timeout=30) as resp:
             body = resp.read().decode()
             return resp.status, (json.loads(body) if body.strip() else None)
     except urllib.error.HTTPError as e:
