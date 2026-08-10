@@ -239,7 +239,7 @@ export default function FolderDetail() {
     if (!folder) return
     confirm({
       title: 'Delete Folder',
-      message: `Delete "${folder.name}"? The ACs and notes inside will not be deleted.`,
+      message: `Delete "${folder.name}"? The bookmarks and notes inside will not be deleted.`,
       confirmLabel: 'Delete',
       destructive: true,
       twoStep: false,
