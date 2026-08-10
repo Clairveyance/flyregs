@@ -802,7 +802,15 @@ def process_ac(
     if not doc_num:
         return None
 
-    title       = row.get("TITLE", "").strip()
+    # Collapse internal whitespace runs, not just leading/trailing --
+    # sync/migrations_title_whitespace.sql found 3 real ACs with a double
+    # space straight from the FAA source ("Initial Maintenance Inspection
+    # (IMI)...") and fixed them as a one-off, 2026-08-02. That fix only
+    # touches rows already in the DB; the FAA's own source data still has
+    # the same defect, so any of those 3 ACs (or a new one) getting a real
+    # future update would silently reintroduce it on the next incremental
+    # scrape. Fixed at the source instead, so this can't recur.
+    title       = re.sub(r"\s+", " ", row.get("TITLE", "").strip())
     office      = row.get("OFFICE", "").strip()
     raw_date    = row.get("DATE", "").strip()
     raw_change  = row.get("CHANGENUMBER", "0").strip()
