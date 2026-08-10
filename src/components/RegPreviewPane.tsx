@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Modal, View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
@@ -10,9 +10,10 @@ import { parsePreviewRoute, fetchRegPreview, resolveAimFigureGlobally, RegPrevie
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { FolderPicker } from '@/components/FolderPicker'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { PlainTextBody } from '@/components/PlainTextBody'
+import { PlainTextBody, PlainTextBodyHandle } from '@/components/PlainTextBody'
 import { FigureViewer } from '@/components/FigureViewer'
 import { stripFarPrefix } from '@/lib/titleFormat'
+import { useInDocSearch } from '@/lib/useInDocSearch'
 import type { AcFigure } from '@/types'
 
 interface PreviewFigure {
@@ -27,9 +28,25 @@ interface PreviewFigure {
 // whether the caller wants it in a Modal sheet (RegPreviewPane) or a
 // persistent side pane (RegPreviewInline, for the iPad landscape
 // master-detail split -- see SplitPane.tsx callers).
-function useRegPreviewContent(route: string | null, onClose: () => void) {
+function useRegPreviewContent(route: string | null, onClose: () => void, highlightQuery?: string) {
   const { hasPlusAccess } = useAuth()
   const [data, setData] = useState<RegPreviewData | null>(null)
+  // Carries the search term the user typed into a RefPack task's "Related
+  // Regulations" box (or any other future caller) into this peek so the
+  // exact same in-doc highlight + prev/next-arrow jump the full FAR/AIM/etc
+  // detail screens already have works here too, without ever leaving the
+  // RP -- RC: "this ENTIRE process MUST take place in and STAY inside the
+  // RP." Only the TOP-level preview gets it; tapping a cross-reference
+  // inside opens a nested preview for different content, a separate
+  // context that was never what the user searched for.
+  const bodyRef = useRef<PlainTextBodyHandle>(null)
+  const scrollRef = useRef<ScrollView>(null)
+  const [viewportHeight, setViewportHeight] = useState(0)
+  const inDocSearch = useInDocSearch(bodyRef)
+  useEffect(() => {
+    inDocSearch.onQueryChange(highlightQuery ?? '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route, highlightQuery])
   const [loading, setLoading] = useState(false)
   const [notFound, setNotFound] = useState(false)
   const [bookmarked, setBookmarked] = useState(false)
@@ -120,6 +137,7 @@ function useRegPreviewContent(route: string | null, onClose: () => void) {
     hasPlusAccess, data, loading, notFound, bookmarked, folderPickerOpen, setFolderPickerOpen,
     figures, viewerFigure, setViewerFigure, confirmTick, confirmLabel, setConfirmLabel, setConfirmTick,
     childRoute, setChildRoute, handleToggleBookmark, handleOpenFolderPicker,
+    bodyRef, scrollRef, viewportHeight, setViewportHeight, inDocSearch,
   }
 }
 
@@ -131,12 +149,15 @@ interface RegPreviewChromeProps {
    *  close button -- for the persistent iPad-landscape split-view detail
    *  pane, where there's nothing to "close," only something else to select. */
   variant: 'modal' | 'pane'
+  /** The search term (if any) that led here -- see useRegPreviewContent's
+   *  own comment for why this only ever comes from the top-level caller. */
+  highlightQuery?: string
 }
 
-function RegPreviewChrome({ route, onClose, variant }: RegPreviewChromeProps) {
+function RegPreviewChrome({ route, onClose, variant, highlightQuery }: RegPreviewChromeProps) {
   const { tokens } = useTheme()
   const fs = useFS()
-  const c = useRegPreviewContent(route, onClose)
+  const c = useRegPreviewContent(route, onClose, highlightQuery)
 
   const body = (
     <>
@@ -160,6 +181,21 @@ function RegPreviewChrome({ route, onClose, variant }: RegPreviewChromeProps) {
           </Pressable>
         )}
       </View>
+      {!!highlightQuery && c.inDocSearch.matchCount > 0 && (
+        <View style={[styles.jumpRow, { borderBottomColor: tokens.bdr }]}>
+          <Text style={[styles.jumpCount, { color: tokens.t3, fontSize: fs(12.5) }]}>
+            "{highlightQuery}" · {c.inDocSearch.matchIdx + 1}/{c.inDocSearch.matchCount}
+          </Text>
+          <View style={styles.jumpNav}>
+            <Pressable hitSlop={12} onPress={c.inDocSearch.goToPrev} style={{ padding: 6 }}>
+              <Icon name="chevron.up" size={fs(16)} color={tokens.t2} />
+            </Pressable>
+            <Pressable hitSlop={12} onPress={c.inDocSearch.goToNext} style={{ padding: 6 }}>
+              <Icon name="chevron.down" size={fs(16)} color={tokens.t2} />
+            </Pressable>
+          </View>
+        </View>
+      )}
       {c.loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
@@ -169,7 +205,12 @@ function RegPreviewChrome({ route, onClose, variant }: RegPreviewChromeProps) {
           <Text style={[styles.notFound, { color: tokens.t3, fontSize: fs(14) }]}>Not found.</Text>
         </View>
       ) : c.data ? (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.body}>
+        <ScrollView
+          ref={c.scrollRef}
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.body}
+          onLayout={(e) => c.setViewportHeight(e.nativeEvent.layout.height)}
+        >
           {!!c.data.title && (
             <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16) }]}>{stripFarPrefix(c.data.title)}</Text>
           )}
@@ -179,14 +220,24 @@ function RegPreviewChrome({ route, onClose, variant }: RegPreviewChromeProps) {
               real image inline (via the nested FigureViewer below).
               onNavigate redirects every other citation link (§ 91.107,
               AC 90-67B, etc.) into a nested Modal RegPreviewPane (see
-              childRoute above) instead of navigating away. */}
+              childRoute above) instead of navigating away. highlightQuery/
+              activeMatch/onMatchCount/scrollRef/viewportHeight are the exact
+              same "IN DOC" search contract the full detail screens wire up
+              via useInDocSearch -- see the jump-row above and this hook's
+              own comment for why the peek gets it for free. */}
           <PlainTextBody
+            ref={c.bodyRef}
             text={c.data.body}
             figures={c.figures}
             onOpenFigure={(f) => c.setViewerFigure({ id: f.id, label: f.label ?? '', caption: f.caption, page: 0, image_url: f.image_url })}
             resolveFigureGlobally={c.data.kind === 'aim' ? resolveAimFigureGlobally : undefined}
             onNavigate={c.setChildRoute}
             currentLabel={c.data.label}
+            highlightQuery={c.inDocSearch.debounced}
+            activeMatch={c.inDocSearch.matchIdx}
+            onMatchCount={c.inDocSearch.setMatchCount}
+            scrollRef={c.scrollRef}
+            viewportHeight={c.viewportHeight}
           />
           {variant === 'modal' && (
             <Pressable
@@ -239,8 +290,8 @@ function RegPreviewChrome({ route, onClose, variant }: RegPreviewChromeProps) {
   )
 }
 
-export function RegPreviewPane({ route, onClose }: { route: string | null; onClose: () => void }) {
-  return <RegPreviewChrome route={route} onClose={onClose} variant="modal" />
+export function RegPreviewPane({ route, onClose, highlightQuery }: { route: string | null; onClose: () => void; highlightQuery?: string }) {
+  return <RegPreviewChrome route={route} onClose={onClose} variant="modal" highlightQuery={highlightQuery} />
 }
 
 // Persistent detail-pane variant -- no Modal, no scrim, no close button,
@@ -248,8 +299,8 @@ export function RegPreviewPane({ route, onClose }: { route: string | null; onClo
 // iPad landscape). `onClose` is only ever invoked internally for the
 // "route didn't resolve to a document, navigate instead" fallback and the
 // paywall-redirect cases above -- there's no user-facing close affordance.
-export function RegPreviewInline({ route, onClose }: { route: string | null; onClose: () => void }) {
-  return <RegPreviewChrome route={route} onClose={onClose} variant="pane" />
+export function RegPreviewInline({ route, onClose, highlightQuery }: { route: string | null; onClose: () => void; highlightQuery?: string }) {
+  return <RegPreviewChrome route={route} onClose={onClose} variant="pane" highlightQuery={highlightQuery} />
 }
 
 const styles = StyleSheet.create({
@@ -267,6 +318,12 @@ const styles = StyleSheet.create({
   },
   headerLabel: { fontWeight: '700', flex: 1, marginRight: 12 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  jumpRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  jumpCount: { fontWeight: '600', flex: 1 },
+  jumpNav: { flexDirection: 'row', gap: 6 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 8 },
   notFound: {},
   emptyPane: { fontWeight: '500' },

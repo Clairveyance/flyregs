@@ -12,10 +12,11 @@ import { getRefPacketTask, RefPacketTask, RefPacketElement } from '@/lib/refPack
 import { linkifyText } from '@/lib/crossRefLinks'
 import { searchRefPackTopic, RefPackSearchGroup } from '@/lib/refPackSearch'
 import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
+import { highlightSpans } from '@/lib/searchHighlight'
 
 export default function RefPacketTaskScreen() {
   const { taskId } = useLocalSearchParams<{ taskId: string }>()
-  const { tokens } = useTheme()
+  const { tokens, redShift } = useTheme()
   const fs = useFS()
   const ifs = useInputFS()
   const [task, setTask] = useState<RefPacketTask | null>(null)
@@ -194,14 +195,16 @@ export default function RefPacketTaskScreen() {
                           {isAc ? (
                             <>
                               <Text style={{ color: tokens.blu }}>{acPrefix}</Text>
-                              <Text style={{ color: tokens.t1 }}>{acRest}</Text>
+                              <Text style={{ color: tokens.t1 }}>{highlightSpans(acRest, query, { redShift })}</Text>
                             </>
                           ) : (
-                            <Text style={{ color: tokens.blu }}>{r.primary}</Text>
+                            <Text style={{ color: tokens.blu }}>{highlightSpans(r.primary, query, { redShift })}</Text>
                           )}
                         </Text>
                         {!!r.secondary && (
-                          <Text style={[styles.regSecondary, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={2}>{r.secondary}</Text>
+                          <Text style={[styles.regSecondary, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={2}>
+                            {highlightSpans(r.secondary, query, { redShift })}
+                          </Text>
                         )}
                       </Pressable>
                     )
@@ -230,7 +233,7 @@ export default function RefPacketTaskScreen() {
           </ScrollView>
         </TabletContainer>
       )}
-      <RegPreviewPane route={previewRoute} onClose={() => setPreviewRoute(null)} />
+      <RegPreviewPane route={previewRoute} highlightQuery={query} onClose={() => setPreviewRoute(null)} />
     </View>
   )
 }
