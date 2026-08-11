@@ -176,7 +176,7 @@ export default function FarSectionScreen() {
       // always show, "0" when empty — see the expansion plan's locked-in
       // empty-state decision.
       supabase
-        .from('document_citations')
+        .from('document_citations_gated')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.far,cited_id.eq.${id}),and(citing_type.eq.far,citing_id.eq.${id})`),
     ]).then(async ([secRes, citRes]) => {
@@ -624,6 +624,7 @@ export default function FarSectionScreen() {
               ref={bodyRef}
               text={body}
               currentLabel={currentLabel}
+              hasProAccess={hasProAccess}
               highlightQuery={inDocSearch.debounced}
               activeMatch={inDocSearch.matchIdx}
               changedIndices={changedIdx}

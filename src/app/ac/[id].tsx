@@ -374,7 +374,7 @@ export default function ACDetailScreen() {
     const docNum = ac?.document_number
     if (!docNum) return
     supabase
-      .from('document_citations')
+      .from('document_citations_gated')
       .select('citing_type, citing_id, cited_type, cited_id, label')
       .or(`and(cited_type.eq.ac,cited_id.eq.${docNum}),and(citing_type.eq.ac,citing_id.eq.${docNum})`)
       .then(({ data, error }) => {
@@ -1177,6 +1177,7 @@ export default function ACDetailScreen() {
                 ref={acBodyRef}
                 blocks={ac.pdf_blocks}
                 bodyLimit={hasPlusAccess ? undefined : previewBlockCount(ac.pdf_blocks_total_count ?? ac.pdf_blocks.length)}
+                hasProAccess={hasProAccess}
                 scrollRef={scrollRef}
                 viewportHeight={scrollViewportHeight}
                 outerOffsetYRef={fullTextSectionYRef}

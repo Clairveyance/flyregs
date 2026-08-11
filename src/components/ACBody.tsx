@@ -186,6 +186,7 @@ function linkifyCitations(
   text: string,
   tokens: ThemeTokens,
   currentLabel: string | undefined,
+  hasProAccess: boolean,
 ): React.ReactNode {
   if (!text) return text
   const segments = linkifyText(text)
@@ -197,6 +198,7 @@ function linkifyCitations(
           <Text
             key={j}
             onPress={() => {
+              if (!hasProAccess) { router.push('/paywall?tier=pro' as any); return }
               if (currentLabel) setPendingBreadcrumb(currentLabel)
               router.push(seg.route as any)
             }}
@@ -227,16 +229,17 @@ function linkifyBody(
   onOpenFigure: ((f: AcFigure) => void) | undefined,
   tokens: ThemeTokens,
   currentLabel: string | undefined,
+  hasProAccess: boolean,
 ): React.ReactNode {
   if (!text) return text
-  if (!onOpenFigure || !labelRe) return linkifyCitations(text, tokens, currentLabel)
+  if (!onOpenFigure || !labelRe) return linkifyCitations(text, tokens, currentLabel, hasProAccess)
 
   labelRe.lastIndex = 0
   const result: React.ReactNode[] = []
   let pos = 0
   let m: RegExpExecArray | null
   while ((m = labelRe.exec(text))) {
-    if (m.index > pos) result.push(<React.Fragment key={`c-${pos}`}>{linkifyCitations(text.slice(pos, m.index), tokens, currentLabel)}</React.Fragment>)
+    if (m.index > pos) result.push(<React.Fragment key={`c-${pos}`}>{linkifyCitations(text.slice(pos, m.index), tokens, currentLabel, hasProAccess)}</React.Fragment>)
     const label = m[0]
     const figure = figuresByLabel.get(normalizeMatchedLabel(label))
     if (figure) {
@@ -255,7 +258,7 @@ function linkifyBody(
     pos = m.index + label.length
     if (label.length === 0) labelRe.lastIndex++
   }
-  if (pos < text.length) result.push(<React.Fragment key={`c-${pos}`}>{linkifyCitations(text.slice(pos), tokens, currentLabel)}</React.Fragment>)
+  if (pos < text.length) result.push(<React.Fragment key={`c-${pos}`}>{linkifyCitations(text.slice(pos), tokens, currentLabel, hasProAccess)}</React.Fragment>)
   return <>{result}</>
 }
 
@@ -458,8 +461,12 @@ export const ACBody = React.forwardRef<
      * mention) jumps elsewhere, same mechanism as MagicLinkPod/PlainTextBody's
      * currentLabel prop. */
     currentLabel?: string
+    /** Required -- see PlainTextBody's identically-named, identically-
+     * required prop for the full reasoning. Gates linkifyCitations' onPress
+     * the same way. */
+    hasProAccess: boolean
   }
->(function ACBody({ text, blocks: precomputed, scrollRef, viewportHeight, outerOffsetYRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight, figures, onOpenFigure, formulaRefs, onOpenFormulaRef, currentLabel }, ref) {
+>(function ACBody({ text, blocks: precomputed, scrollRef, viewportHeight, outerOffsetYRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight, figures, onOpenFigure, formulaRefs, onOpenFormulaRef, currentLabel, hasProAccess }, ref) {
   const changedSet = useMemo(() => new Set(changedIndices ?? []), [changedIndices])
   const { tokens, redShift } = useTheme()
   const fs = useFS()
@@ -931,7 +938,7 @@ export const ACBody = React.forwardRef<
         // Only auto-link body prose (not headings/labels) — a caption never
         // legitimately appears inside a section/item label.
         const linkify = (t: string) =>
-          linkifyBody(t, figureLabelRe, figuresByLabel, onOpenFigure, tokens, currentLabel)
+          linkifyBody(t, figureLabelRe, figuresByLabel, onOpenFigure, tokens, currentLabel, hasProAccess)
         switch (b.kind) {
           case 'chapter':
             return (

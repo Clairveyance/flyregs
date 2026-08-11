@@ -148,7 +148,7 @@ export default function LoiDetailScreen() {
       // FAR sections today (see loi_citation_extract.py), but the query
       // stays symmetric so a future inbound citation type just works.
       supabase
-        .from('document_citations')
+        .from('document_citations_gated')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.loi,cited_id.eq.${slug}),and(citing_type.eq.loi,citing_id.eq.${slug})`),
     ]).then(async ([loiRes, citRes]) => {
@@ -479,6 +479,7 @@ export default function LoiDetailScreen() {
                 ref={bodyRef}
                 text={body}
                 currentLabel={currentLabel}
+                hasProAccess={hasProAccess}
                 highlightQuery={inDocSearch.debounced}
                 activeMatch={inDocSearch.matchIdx}
                 onMatchCount={inDocSearch.setMatchCount}

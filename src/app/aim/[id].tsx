@@ -181,7 +181,7 @@ export default function AimParagraphScreen() {
         .eq('paragraph_number', id)
         .order('sort_order'),
       supabase
-        .from('document_citations')
+        .from('document_citations_gated')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.aim,cited_id.eq.${id}),and(citing_type.eq.aim,citing_id.eq.${id})`),
     ]).then(async ([paraRes, figRes, citRes]) => {
@@ -602,6 +602,7 @@ export default function AimParagraphScreen() {
               onOpenFigure={(f) => setViewerFigure({ id: f.id, label: f.label ?? '', caption: f.caption, page: 0, image_url: f.image_url })}
               resolveFigureGlobally={resolveAimFigureGlobally}
               currentLabel={currentLabel}
+              hasProAccess={hasProAccess}
               highlightQuery={inDocSearch.debounced}
               activeMatch={inDocSearch.matchIdx}
               changedIndices={changedIdx}
@@ -630,7 +631,7 @@ export default function AimParagraphScreen() {
           {para.reference_text && (
             <View style={styles.refsWrap}>
               <Text style={[styles.refsLabel, { color: tokens.t1, fontSize: fs(13) }]}>References</Text>
-              <PlainTextBody text={para.reference_text.replace(/\n/g, '\n\n')} />
+              <PlainTextBody text={para.reference_text.replace(/\n/g, '\n\n')} hasProAccess={hasProAccess} />
             </View>
           )}
 

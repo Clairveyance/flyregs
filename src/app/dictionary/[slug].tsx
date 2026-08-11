@@ -76,7 +76,7 @@ const USAGE_LABELS: Record<string, string> = {
 // verbatim-FAA citations like ULTRALIGHT's "A vehicle as defined by 14
 // CFR 103.1." sitting as dead text even though FlyRegs already has that
 // section's full body available to link to.
-function LinkedParagraph({ text, style, linkColor }: { text: string; style: object; linkColor: string }) {
+function LinkedParagraph({ text, style, linkColor, hasProAccess }: { text: string; style: object; linkColor: string; hasProAccess: boolean }) {
   const segments = linkifyText(text)
   if (segments.length === 1 && segments[0].route === null) {
     return <Text style={style}>{text}</Text>
@@ -85,7 +85,13 @@ function LinkedParagraph({ text, style, linkColor }: { text: string; style: obje
     <Text style={style}>
       {segments.map((seg, i) =>
         seg.route ? (
-          <Text key={i} onPress={() => router.push(seg.route as any)} style={{ color: linkColor, fontWeight: '700' }}>
+          <Text
+            key={i}
+            onPress={() => {
+              if (!hasProAccess) { router.push('/paywall?tier=pro' as any); return }
+              router.push(seg.route as any)
+            }}
+            style={{ color: linkColor, fontWeight: '700' }}>
             {seg.text}
           </Text>
         ) : (
@@ -108,10 +114,10 @@ function LinkedParagraph({ text, style, linkColor }: { text: string; style: obje
 // resulting paragraph still runs through the same per-segment citation
 // linkification as before, just one paragraph at a time instead of the
 // whole definition as one giant Text.
-function LinkedText({ text, style, linkColor }: { text: string; style: object; linkColor: string }) {
+function LinkedText({ text, style, linkColor, hasProAccess }: { text: string; style: object; linkColor: string; hasProAccess: boolean }) {
   const paragraphs = splitIntoDisplayParagraphs(text)
   if (paragraphs.length <= 1) {
-    return <LinkedParagraph text={text} style={style} linkColor={linkColor} />
+    return <LinkedParagraph text={text} style={style} linkColor={linkColor} hasProAccess={hasProAccess} />
   }
   return (
     <View>
@@ -121,6 +127,7 @@ function LinkedText({ text, style, linkColor }: { text: string; style: object; l
           text={p}
           style={i < paragraphs.length - 1 ? [style, styles.paraSpacing] : style}
           linkColor={linkColor}
+          hasProAccess={hasProAccess}
         />
       ))}
     </View>
@@ -131,7 +138,7 @@ export default function DictionaryTermScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasPlusAccess } = useAuth()
+  const { hasPlusAccess, hasProAccess } = useAuth()
   const [entry, setEntry] = useState<DictTerm | null>(null)
   const [loading, setLoading] = useState(true)
   const [bookmarked, setBookmarked] = useState(false)
@@ -410,7 +417,7 @@ export default function DictionaryTermScreen() {
                 {(entry.senses?.length ?? 0) > 1 && (
                   <Text style={[styles.senseNum, { color: tokens.t4, fontSize: fs(11) }]}>SENSE {i + 1}</Text>
                 )}
-                <LinkedText text={s.definition} style={[styles.definition, { color: tokens.t1, fontSize: fs(16) }]} linkColor={tokens.blu} />
+                <LinkedText text={s.definition} style={[styles.definition, { color: tokens.t1, fontSize: fs(16) }]} linkColor={tokens.blu} hasProAccess={hasProAccess} />
                 {s.breakdown && s.breakdown.length > 0 && (
                   <View style={styles.breakdownList}>
                     {s.breakdown.map((b, bi) => (
@@ -419,7 +426,7 @@ export default function DictionaryTermScreen() {
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.breakdownConcept, { color: tokens.t1, fontSize: fs(15) }]}>{b.concept}</Text>
                           {b.detail ? (
-                            <LinkedText text={b.detail} style={[styles.breakdownDetail, { color: tokens.t2, fontSize: fs(13.5) }]} linkColor={tokens.blu} />
+                            <LinkedText text={b.detail} style={[styles.breakdownDetail, { color: tokens.t2, fontSize: fs(13.5) }]} linkColor={tokens.blu} hasProAccess={hasProAccess} />
                           ) : null}
                         </View>
                       </View>

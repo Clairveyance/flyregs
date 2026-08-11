@@ -332,6 +332,18 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
    * the user is in." Optional -- screens rendering PlainTextBody directly
    * (far/[id].tsx etc.) omit it and keep the normal router.push behavior. */
   onNavigate?: (route: string) => void
+  /** Required, not optional -- gates seg.route taps (inline cross-reference
+   * links matched by crossRefLinks.ts, e.g. "14 CFR section 91.123" inside
+   * ordinary AIM body text) the same way MagicLinkPod's own expand/tap
+   * already is. Confirmed live as a real gap: this is a completely
+   * separate mechanism from MagicLinkPod, reachable on every screen that
+   * renders body text at all -- even the FREE-tier FAR/AIM/PCG screens,
+   * since any of THEIR body text can contain a citation to a Plus/Pro-
+   * gated AC/AD/LOI. The convenience of a tappable cross-reference is the
+   * paywalled thing, not the destination's own tier -- required (not
+   * optional-defaulting-to-allowed) so a future caller can't add a new
+   * PlainTextBody render site and silently skip this gate by omission. */
+  hasProAccess: boolean
   /** This screen's own display label -- set as the "back to X" breadcrumb
    * right before an in-doc hyperlink jumps elsewhere, same mechanism as
    * MagicLinkPod's currentLabel prop. */
@@ -399,7 +411,7 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
    * behavior of simply never surfacing a table nav at all (no screen
    * should do that today, but keeps the prop optional/backward-safe). */
   onActiveTableChange?: (info: { ord: number; total: number; prevIndex: number | null; nextIndex: number | null } | null) => void
-}>(function PlainTextBody({ text, figures, onOpenFigure, resolveFigureGlobally, onNavigate, currentLabel, highlightQuery, activeMatch, onMatchCount, scrollRef, viewportHeight, changedIndices, mnemonicAnchors, highlightedBlockTexts, onToggleHighlight, pendingBlockText, scrollY, onActiveTableChange }, ref) {
+}>(function PlainTextBody({ text, figures, onOpenFigure, resolveFigureGlobally, onNavigate, hasProAccess, currentLabel, highlightQuery, activeMatch, onMatchCount, scrollRef, viewportHeight, changedIndices, mnemonicAnchors, highlightedBlockTexts, onToggleHighlight, pendingBlockText, scrollY, onActiveTableChange }, ref) {
   const { tokens, redShift } = useTheme()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web, so every dialog here was invisible in the Browser pane.
@@ -682,6 +694,7 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
       return
     }
     if (seg.route) {
+      if (!hasProAccess) { router.push('/paywall?tier=pro' as any); return }
       if (onNavigate) { onNavigate(seg.route); return }
       if (currentLabel) setPendingBreadcrumb(currentLabel)
       router.push(seg.route as any)

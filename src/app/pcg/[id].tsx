@@ -192,7 +192,7 @@ export default function PcgTermScreen() {
   useEffect(() => {
     if (!term) return
     supabase
-      .from('document_citations')
+      .from('document_citations_gated')
       .select('citing_type, citing_id, cited_type, cited_id, label')
       .or(`and(cited_type.eq.pcg,cited_id.eq.${term.slug}),and(citing_type.eq.pcg,citing_id.eq.${term.slug})`)
       .then(({ data, error }) => {
@@ -542,6 +542,7 @@ export default function PcgTermScreen() {
                         <Text
                           key={si}
                           onPress={() => {
+                            if (!hasProAccess) { router.push('/paywall?tier=pro' as any); return }
                             setPendingBreadcrumb(term.term)
                             router.push(seg.route as any)
                           }}

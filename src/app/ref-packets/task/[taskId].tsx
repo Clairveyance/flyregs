@@ -18,7 +18,7 @@ import { highlightSpans } from '@/lib/searchHighlight'
 export default function RefPacketTaskScreen() {
   const { taskId } = useLocalSearchParams<{ taskId: string }>()
   const { tokens, redShift } = useTheme()
-  const { hasPlusAccess } = useAuth()
+  const { hasPlusAccess, hasProAccess } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
   const [task, setTask] = useState<RefPacketTask | null>(null)
@@ -247,10 +247,10 @@ export default function RefPacketTaskScreen() {
               </Section>
             )}
 
-            <ElementGroup label="KNOWLEDGE" items={task.knowledge} tokens={tokens} fs={fs} onOpenPreview={setPreviewRoute} onTapElement={handleTapElement} />
-            <ElementGroup label="RISK MANAGEMENT" items={task.riskManagement} tokens={tokens} fs={fs} onOpenPreview={setPreviewRoute} onTapElement={handleTapElement} />
-            <ElementGroup label="SKILLS" items={task.skills} tokens={tokens} fs={fs} onOpenPreview={setPreviewRoute} onTapElement={handleTapElement} />
-            <ElementGroup label="TASK ELEMENTS" items={task.topics} tokens={tokens} fs={fs} onOpenPreview={setPreviewRoute} onTapElement={handleTapElement} />
+            <ElementGroup label="KNOWLEDGE" items={task.knowledge} tokens={tokens} fs={fs} onOpenPreview={setPreviewRoute} onTapElement={handleTapElement} hasProAccess={hasProAccess} />
+            <ElementGroup label="RISK MANAGEMENT" items={task.riskManagement} tokens={tokens} fs={fs} onOpenPreview={setPreviewRoute} onTapElement={handleTapElement} hasProAccess={hasProAccess} />
+            <ElementGroup label="SKILLS" items={task.skills} tokens={tokens} fs={fs} onOpenPreview={setPreviewRoute} onTapElement={handleTapElement} hasProAccess={hasProAccess} />
+            <ElementGroup label="TASK ELEMENTS" items={task.topics} tokens={tokens} fs={fs} onOpenPreview={setPreviewRoute} onTapElement={handleTapElement} hasProAccess={hasProAccess} />
           </ScrollView>
         </TabletContainer>
       )}
@@ -285,6 +285,7 @@ function ElementGroup({
   fs,
   onOpenPreview,
   onTapElement,
+  hasProAccess,
 }: {
   label: string
   items: RefPacketElement[]
@@ -292,6 +293,7 @@ function ElementGroup({
   fs: (n: number) => number
   onOpenPreview: (route: string) => void
   onTapElement: (bodyText: string) => void
+  hasProAccess: boolean
 }) {
   if (items.length === 0) return null
   return (
@@ -317,7 +319,11 @@ function ElementGroup({
                   seg.route ? (
                     <Text
                       key={i}
-                      onPress={(e) => { e.stopPropagation(); onOpenPreview(seg.route as string) }}
+                      onPress={(e) => {
+                        e.stopPropagation()
+                        if (!hasProAccess) { router.push('/paywall?tier=pro' as any); return }
+                        onOpenPreview(seg.route as string)
+                      }}
                       style={{ color: tokens.blu, fontWeight: '600' }}
                     >
                       {seg.text}

@@ -81,7 +81,7 @@ export function NoteEditor({
   const fs = useFS()
   const ifs = useInputFS()
   const isTablet = useIsTablet()
-  const { hasPlusAccess } = useAuth()
+  const { hasPlusAccess, hasProAccess } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const [title, setTitle] = useState(note.title)
   const [body, setBody] = useState(note.body)
@@ -509,6 +509,7 @@ export function NoteEditor({
                     <ACBody
                       blocks={paneData.pdf_blocks}
                       bodyLimit={hasPlusAccess ? undefined : previewBlockCount(paneData.pdf_blocks_total_count)}
+                      hasProAccess={hasProAccess}
                       scrollRef={paneScrollRef}
                       figures={hasPlusAccess ? (paneFigures ?? undefined) : undefined}
                       formulaRefs={hasPlusAccess ? (paneFormulaRefs ?? undefined) : undefined}

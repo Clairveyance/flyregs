@@ -29,7 +29,7 @@ interface PreviewFigure {
 // persistent side pane (RegPreviewInline, for the iPad landscape
 // master-detail split -- see SplitPane.tsx callers).
 function useRegPreviewContent(route: string | null, onClose: () => void, highlightQuery?: string) {
-  const { hasPlusAccess } = useAuth()
+  const { hasPlusAccess, hasProAccess } = useAuth()
   const [data, setData] = useState<RegPreviewData | null>(null)
   // Carries the search term the user typed into a RefPack task's "Related
   // Regulations" box (or any other future caller) into this peek so the
@@ -134,7 +134,7 @@ function useRegPreviewContent(route: string | null, onClose: () => void, highlig
   }
 
   return {
-    hasPlusAccess, data, loading, notFound, bookmarked, folderPickerOpen, setFolderPickerOpen,
+    hasPlusAccess, hasProAccess, data, loading, notFound, bookmarked, folderPickerOpen, setFolderPickerOpen,
     figures, viewerFigure, setViewerFigure, confirmTick, confirmLabel, setConfirmLabel, setConfirmTick,
     childRoute, setChildRoute, handleToggleBookmark, handleOpenFolderPicker,
     bodyRef, scrollRef, viewportHeight, setViewportHeight, inDocSearch,
@@ -231,6 +231,7 @@ function RegPreviewChrome({ route, onClose, variant, highlightQuery }: RegPrevie
             figures={c.figures}
             onOpenFigure={(f) => c.setViewerFigure({ id: f.id, label: f.label ?? '', caption: f.caption, page: 0, image_url: f.image_url })}
             resolveFigureGlobally={c.data.kind === 'aim' ? resolveAimFigureGlobally : undefined}
+            hasProAccess={c.hasProAccess}
             onNavigate={c.setChildRoute}
             currentLabel={c.data.label}
             highlightQuery={c.inDocSearch.debounced}

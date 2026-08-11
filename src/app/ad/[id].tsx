@@ -196,7 +196,7 @@ export default function AdScreen() {
       // and (this is the actual valuable direction per explicit request)
       // an AC/FAR page can show which ADs cite IT.
       supabase
-        .from('document_citations')
+        .from('document_citations_gated')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.ad,cited_id.eq.${id}),and(citing_type.eq.ad,citing_id.eq.${id})`),
     ]).then(async ([adRes, citRes]) => {
@@ -662,6 +662,7 @@ export default function AdScreen() {
               <PlainTextBody
                 ref={bodyRef}
                 text={body}
+                hasProAccess={hasProAccess}
                 // Always exactly one synthetic entry (never one per real
                 // page) when any figures exist -- see crossRefLinks.ts's own
                 // comment on why: it makes PlainTextBody's normal
