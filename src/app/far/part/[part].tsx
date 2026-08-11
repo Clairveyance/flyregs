@@ -10,21 +10,13 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { SplitPane } from '@/components/SplitPane'
 import { RegPreviewInline } from '@/components/RegPreviewPane'
 import { useIsTabletLandscape, useIsTabletPortrait } from '@/context/responsive'
+import { naturalCompare } from '@/lib/naturalSort'
 
 interface FarSectionRow {
   section_number: string
   subpart_letter: string | null
   subpart_title: string | null
   title: string | null
-}
-
-// Natural-sort section numbers ("91.3" before "91.107") the same way
-// series/[prefix].tsx sorts AC document numbers.
-function compareSectionNumbers(a: string, b: string): number {
-  const an = parseFloat(a)
-  const bn = parseFloat(b)
-  if (!isNaN(an) && !isNaN(bn) && an !== bn) return an - bn
-  return a.localeCompare(b)
 }
 
 export default function FarPartScreen() {
@@ -52,7 +44,7 @@ export default function FarPartScreen() {
       supabase.from('far_parts').select('label').eq('part', part).single(),
     ]).then(([secRes, partRes]) => {
       if (secRes.data) {
-        setSections((secRes.data as FarSectionRow[]).sort((a, b) => compareSectionNumbers(a.section_number, b.section_number)))
+        setSections((secRes.data as FarSectionRow[]).sort((a, b) => naturalCompare(a.section_number, b.section_number)))
       }
       if (partRes.data) setPartLabel((partRes.data as { label: string }).label)
       setLoading(false)

@@ -31,15 +31,7 @@ import { stripFarPrefix } from '@/lib/titleFormat'
 import { normalizeRegBody } from '@/lib/regTextFormat'
 import { fetchMnemonicAnchors, MnemonicAnchor } from '@/lib/regMnemonics'
 import { useConfirm } from '@/components/ConfirmDialog'
-
-// Natural-sort section numbers ("91.3" before "91.107") for Prev/Next --
-// same comparator far/part/[part].tsx already uses to browse a Part.
-function compareSectionNumbers(a: string, b: string): number {
-  const an = parseFloat(a)
-  const bn = parseFloat(b)
-  if (!isNaN(an) && !isNaN(bn) && an !== bn) return an - bn
-  return a.localeCompare(b)
-}
+import { naturalCompare } from '@/lib/naturalSort'
 
 // FlyRegs pricing pivot (2026-07-24): full regulation text is free to read —
 // see PROJECT_NOTES/flyregs_decisions.md, "Pricing model pivot". Paid tiers
@@ -252,7 +244,7 @@ export default function FarSectionScreen() {
               // app-wide are reserved placeholders, zero real content, so
               // this exclusion is safe everywhere, not just Part 91.
               .filter((n) => !n.includes('-'))
-              .sort(compareSectionNumbers),
+              .sort((a, b) => naturalCompare(a, b)),
           )
         }
       })
