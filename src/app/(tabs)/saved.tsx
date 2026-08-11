@@ -1179,7 +1179,15 @@ function BookmarkRow({
       translateX.value = Math.min(0, Math.max(-84, e.translationX))
     })
     .onEnd((e) => {
-      if (e.translationX < -42) {
+      // Matches SwipeToDelete.tsx's own reversing check (RC, real device: a
+      // swipe past threshold then dragged back left before release was
+      // reading as a fresh swipe off the raw endpoint, "forcing" the row
+      // open instead of letting the give-up motion just close it) -- this
+      // row duplicated the pre-fix -42px/no-reversing version instead of
+      // using the shared component, so it never picked the fix up. Found
+      // in the post-build-31 consistency sweep.
+      const reversing = e.translationX < 0 && e.velocityX > 300
+      if (!reversing && e.translationX < -48) {
         translateX.value = withSpring(-76, { damping: 18, stiffness: 280 })
         swiped.current = true
       } else {
@@ -1422,7 +1430,15 @@ function OfflineRow({
       translateX.value = Math.min(0, Math.max(-84, e.translationX))
     })
     .onEnd((e) => {
-      if (e.translationX < -42) {
+      // Matches SwipeToDelete.tsx's own reversing check (RC, real device: a
+      // swipe past threshold then dragged back left before release was
+      // reading as a fresh swipe off the raw endpoint, "forcing" the row
+      // open instead of letting the give-up motion just close it) -- this
+      // row duplicated the pre-fix -42px/no-reversing version instead of
+      // using the shared component, so it never picked the fix up. Found
+      // in the post-build-31 consistency sweep.
+      const reversing = e.translationX < 0 && e.velocityX > 300
+      if (!reversing && e.translationX < -48) {
         translateX.value = withSpring(-76, { damping: 18, stiffness: 280 })
         swiped.current = true
       } else {
