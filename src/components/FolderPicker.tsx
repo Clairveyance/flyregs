@@ -15,7 +15,7 @@ import {
   Folder,
   FolderItemType,
   DUPLICATE_FOLDER_NAME,
-  PLUS_FOLDER_CAP,
+  PRO_FOLDER_CAP,
 } from '@/lib/folders'
 import {
   getMyCollaborations,
@@ -70,7 +70,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
-  const { hasPlusAccess, isPremium } = useAuth()
+  const { hasProAccess, isPremium } = useAuth()
   const [folders, setFolders] = useState<Folder[]>([])
   const [sharedFolders, setSharedFolders] = useState<SharedFolderSummary[]>([])
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({})
@@ -92,20 +92,20 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
     // Folders are a Pro feature end-to-end, not just creation -- a user who
     // downgraded after already having folders could otherwise keep adding to
     // them via this picker (opened from Saved, Recents, and AC detail) with
-    // no gate at all, since only the "New Folder" button below checked hasPlusAccess.
+    // no gate at all, since only the "New Folder" button below checked hasProAccess.
     // This is only a backstop -- every call site should gate synchronously
     // before ever setting visible=true (see recents.tsx's handleFolder). A
     // delayed setTimeout(...) push used to live here instead of an immediate
     // one; a second tap shortly after the first, while that delayed push was
     // still pending, landed mid-close and silently no-op'd (BB-006).
-    if (!hasPlusAccess) {
+    if (!hasProAccess) {
       onClose()
-      router.push('/paywall')
+      router.push('/paywall?tier=pro')
       return
     }
     setAddedNames([])
     load()
-  }, [visible, itemId, hasPlusAccess])
+  }, [visible, itemId, hasProAccess])
 
   useEffect(() => {
     if (creating) setTimeout(() => inputRef.current?.focus(), 80)
@@ -186,16 +186,16 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   }
 
   const doCreate = async (name: string) => {
-    // Plus is capped at PLUS_FOLDER_CAP folders, Premium unlimited -- same
-    // rule saved.tsx's own "New Folder" enforces (see PLUS_FOLDER_CAP in
-    // lib/folders.ts). This picker had no cap check at all, so a Plus user
+    // Pro is capped at PRO_FOLDER_CAP folders, Premium unlimited -- same
+    // rule saved.tsx's own "New Folder" enforces (see PRO_FOLDER_CAP in
+    // lib/folders.ts). This picker had no cap check at all, so a Pro user
     // could keep creating folders past 3 from any detail screen's "Add to
     // Folder" menu, bypassing the exact upgrade lever the paywall advertises.
-    if (!isPremium && folders.length >= PLUS_FOLDER_CAP) {
+    if (!isPremium && folders.length >= PRO_FOLDER_CAP) {
       setCreating(false)
       confirm({
         title: 'Folder limit reached',
-        message: `Plus includes ${PLUS_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
+        message: `Pro includes ${PRO_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
         confirmLabel: 'Upgrade to Premium',
         onConfirm: () => { handleClose(); router.push('/paywall?tier=premium') },
       })
@@ -364,7 +364,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
             <Pressable
               style={[styles.newFolderRow, { borderTopColor: tokens.bdr }]}
               onPress={() => {
-                if (!hasPlusAccess) { handleClose(); router.push('/paywall'); return }
+                if (!hasProAccess) { handleClose(); router.push('/paywall?tier=pro'); return }
                 setCreating(true)
               }}
             >

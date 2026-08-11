@@ -51,9 +51,9 @@ export default function NotesScreen() {
   const confirm = useConfirm()
   const fs = useFS()
   const isTablet = useIsTablet()
-  // Notes creation/editing is Plus-tier now (hasPlusAccess); cloud sync of
-  // notes is Pro-tier (isPro) per the pricing pivot -- see flyregs_decisions.md.
-  const { isPro, isPremium, hasPlusAccess, session } = useAuth()
+  // Notes require Pro (RC, 2026-08-11: "back up sync is Pro" -- corrected
+  // from an earlier Plus-tier gate; see gotcha_gating_sweep_2026_08_11.md).
+  const { isPro, isPremium, hasProAccess, session } = useAuth()
   const { shareNote, shareMany } = useShareActions()
   const { openId } = useLocalSearchParams<{ openId?: string }>()
   const [notes, setNotes] = useState<Note[]>([])
@@ -86,13 +86,13 @@ export default function NotesScreen() {
   // Opening a note from outside this screen (e.g. tapping it inside a Folder,
   // which has no note-editing UI of its own) navigates here with ?openId=.
   useEffect(() => {
-    if (!hasPlusAccess || typeof openId !== 'string' || openId === openedIdRef.current) return
+    if (!hasProAccess || typeof openId !== 'string' || openId === openedIdRef.current) return
     const note = notes.find((n) => n.id === openId)
     if (note) {
       openedIdRef.current = openId
       setEditorNote({ ...note })
     }
-  }, [openId, notes, hasPlusAccess])
+  }, [openId, notes, hasProAccess])
 
   const persist = useCallback((updated: Note[]) => {
     setNotes(updated)
@@ -100,12 +100,12 @@ export default function NotesScreen() {
   }, [])
 
   const openNew = () => {
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setEditorNote({ id: '', title: '', body: '', linked_ac: null, updated_at: '' })
   }
 
   const openExisting = (note: Note) => {
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     if (selectMode) {
       setSelected((prev) => {
         const next = new Set(prev)
@@ -237,7 +237,7 @@ export default function NotesScreen() {
     // the paywall (a real navigation, not a dialog -- it worked on web even
     // back when every Alert.alert on this screen silently did nothing).
     if (v && !isPro) {
-      router.push('/paywall')
+      router.push('/paywall?tier=pro')
       return // leave the switch off
     }
     if (v && session?.user?.id) {
@@ -266,16 +266,16 @@ export default function NotesScreen() {
   // registers its own Back/Folder/Share/Delete/Done there instead (see
   // below), and re-asserts these the moment editorNote goes back to null.
   useScreenActions(
-    !hasPlusAccess || editorNote !== null
+    !hasProAccess || editorNote !== null
       ? []
       : [
           { key: 'select', label: selectMode ? 'Done' : 'Select', onPress: toggleSelect },
           ...(!selectMode ? [{ key: 'new', label: '+ New', onPress: openNew, variant: 'primary' as const }] : []),
         ],
-    [hasPlusAccess, editorNote !== null, selectMode]
+    [hasProAccess, editorNote !== null, selectMode]
   )
 
-  const rightSlot = hasPlusAccess && !isTablet ? (
+  const rightSlot = hasProAccess && !isTablet ? (
     <View style={styles.headerRight}>
       <Pressable onPress={toggleSelect} hitSlop={8}>
         <Text style={[styles.selectBtnText, { color: tokens.blu, fontSize: fs(13) }]}>
@@ -296,18 +296,18 @@ export default function NotesScreen() {
       <ScreenHeader title="Notes" right={rightSlot} />
       <TabletContainer disabled={isTablet}>
 
-      {!hasPlusAccess ? (
+      {!hasProAccess ? (
         <View style={[styles.empty, { padding: 32 }]}>
           <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
-          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Notes is a Plus feature</Text>
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Notes is a Pro feature</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-            Unlock Plus to create personal notes and link them directly to any AC.
+            Unlock Pro to create personal notes and link them directly to any AC.
           </Text>
           <Pressable
             style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]}
-            onPress={() => router.push('/paywall')}
+            onPress={() => router.push('/paywall?tier=pro')}
           >
-            <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
+            <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Pro</Text>
           </Pressable>
         </View>
       ) : (

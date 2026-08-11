@@ -68,8 +68,9 @@ export default function RecentsScreen() {
   // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
-  // Bookmarks/Folders are Plus-tier now; sharing stays Premium.
-  const { isPremium, hasPlusAccess } = useAuth()
+  // Bookmarks/Folders require Pro (RC, 2026-08-11: "back up sync is Pro" --
+  // corrected from an earlier Plus-tier gate); sharing stays Premium.
+  const { isPremium, hasProAccess } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const { shareAC, shareReg, shareMany } = useShareActions()
   const [groups, setGroups] = useState<Group[]>([])
@@ -126,7 +127,7 @@ export default function RecentsScreen() {
   useFocusEffect(load)
 
   const handleToggleBookmark = useCallback(async (item: RecentAC) => {
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     const isNowBookmarked = await toggleBookmark({
       id: item.id,
       itemType: recentItemType(item),
@@ -141,7 +142,7 @@ export default function RecentsScreen() {
       isNowBookmarked ? next.add(item.id) : next.delete(item.id)
       return next
     })
-  }, [hasPlusAccess])
+  }, [hasProAccess])
 
   const handleRemove = useCallback((item: RecentAC) => {
     setGroups((prev) =>
@@ -274,12 +275,12 @@ export default function RecentsScreen() {
   // gating the whole screen behind a ProWall first (Saved/Notes both hide
   // their entire list for non-Plus). Gate synchronously here, same pattern as
   // handleToggleBookmark/handleShare above -- FolderPicker's own internal
-  // hasPlusAccess effect (open -> close -> setTimeout-delayed router.push) was
+  // hasProAccess effect (open -> close -> setTimeout-delayed router.push) was
   // the only gate before, and a second tap shortly after the first landed
   // while that effect's queued navigation was still resolving, so it silently
   // no-op'd instead of opening the paywall again.
   const handleFolder = (item: RecentAC) => {
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setPickerItem(item)
   }
 
@@ -388,7 +389,7 @@ export default function RecentsScreen() {
           <Text style={[styles.selectCount, { color: tokens.t2, fontSize: fs(13) }]}>({selected.size})</Text>
           <View style={styles.selectIconRow}>
             <Pressable
-              onPress={() => { if (!hasPlusAccess) { router.push('/paywall'); return } setFolderSheetVisible(true) }}
+              onPress={() => { if (!hasProAccess) { router.push('/paywall?tier=pro'); return } setFolderSheetVisible(true) }}
               disabled={selected.size === 0}
               hitSlop={8}
               style={{ opacity: selected.size > 0 ? 1 : 0.4 }}

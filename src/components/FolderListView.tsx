@@ -73,7 +73,7 @@ export function FolderListView({
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
-  const { hasPlusAccess } = useAuth()
+  const { hasProAccess } = useAuth()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const listRef = useRef<FlatList<Folder>>(null)
@@ -162,7 +162,7 @@ export function FolderListView({
   }
 
   const guardPro = (action: () => void) => {
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     action()
   }
 

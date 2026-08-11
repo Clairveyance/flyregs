@@ -31,7 +31,7 @@ import {
   reorderFolders,
   Folder,
   DUPLICATE_FOLDER_NAME,
-  PLUS_FOLDER_CAP,
+  PRO_FOLDER_CAP,
   FolderItemType,
 } from '@/lib/folders'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
@@ -77,10 +77,11 @@ export default function SavedScreen() {
   // OwnerAvatar shared-rows -- and grid-ifying all of them well is a bigger
   // job than a single night-rules pass; not a call to rush unilaterally).
   const isTablet = useIsTablet()
-  // Bookmarks/Folders are Plus-tier (hasPlusAccess); cloud sync is Pro-tier
-  // (isPro); shared/collaborative folders and offline stay Premium-only --
-  // see flyregs_decisions.md's pricing pivot.
-  const { session, isPro, isPremium, hasPlusAccess } = useAuth()
+  // Bookmarks/Folders/Back up & sync all require Pro (RC, 2026-08-11:
+  // "back up sync is Pro" -- corrected from an earlier Plus-tier gate; see
+  // gotcha_gating_sweep_2026_08_11.md). Shared/collaborative folders and
+  // offline stay Premium-only, unrelated and untouched.
+  const { session, isPro, isPremium, hasProAccess } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const { shareAC, shareReg, shareMany } = useShareActions()
   const [tab, setTab] = useState<Tab>('all')
@@ -253,7 +254,7 @@ export default function SavedScreen() {
     })
     return () => { cancelled = true }
   }, []))
-  const folderCap = serverFolderCap ?? (isPremium ? Infinity : PLUS_FOLDER_CAP)
+  const folderCap = serverFolderCap ?? (isPremium ? Infinity : PRO_FOLDER_CAP)
   const visibleFolders = folderReorderMode ? folders : folders.slice(0, folderCap)
   const lockedFolderCount = folders.length - Math.min(folders.length, folderCap)
 
@@ -314,7 +315,7 @@ export default function SavedScreen() {
   }, [syncEnabled, isPro])
 
   const toggleSync = async (v: boolean) => {
-    if (v && !isPro) { router.push('/paywall'); return }
+    if (v && !isPro) { router.push('/paywall?tier=pro'); return }
     // Optimistic -- flips the Switch immediately on the user's own gesture,
     // same as every standard iOS toggle. It used to wait for the full
     // enableSync() push+pull round trip before ever updating, which made a
@@ -525,12 +526,12 @@ export default function SavedScreen() {
   }
 
   const handleCreateFolder = async (name: string): Promise<boolean> => {
-    // Plus is capped at PLUS_FOLDER_CAP folders; Premium is unlimited -- see
+    // Pro is capped at PRO_FOLDER_CAP folders; Premium is unlimited -- see
     // flyregs_decisions.md's pricing pivot.
     if (folders.length >= folderCap) {
       confirm({
         title: 'Folder limit reached',
-        message: `Plus includes ${PLUS_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
+        message: `Pro includes ${PRO_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
         confirmLabel: 'Upgrade to Premium',
         onConfirm: () => router.push('/paywall?tier=premium'),
       })
@@ -632,7 +633,7 @@ export default function SavedScreen() {
     if (folders.length >= folderCap) {
       confirm({
         title: 'Folder limit reached',
-        message: `Plus includes ${PLUS_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
+        message: `Pro includes ${PRO_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
         confirmLabel: 'Upgrade to Premium',
         onConfirm: () => router.push('/paywall?tier=premium'),
       })
@@ -698,7 +699,7 @@ export default function SavedScreen() {
       )}
       {!folderSelectMode && !folderReorderMode && (
         <Pressable
-          onPress={() => (hasPlusAccess ? setNewFolderVisible(true) : router.push('/paywall'))}
+          onPress={() => (hasProAccess ? setNewFolderVisible(true) : router.push('/paywall?tier=pro'))}
           style={[styles.addBtn, { backgroundColor: tokens.blu }]}
         >
           <Icon name="plus" size={fs(13)} color="#fff" />
@@ -712,7 +713,7 @@ export default function SavedScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <ScreenHeader
         title="Saved"
-        right={!hasPlusAccess ? undefined : tab === 'all' ? rightSlot : tab === 'folders' ? folderRightSlot : undefined}
+        right={!hasProAccess ? undefined : tab === 'all' ? rightSlot : tab === 'folders' ? folderRightSlot : undefined}
       />
       <TabletContainer>
 
@@ -742,7 +743,7 @@ export default function SavedScreen() {
       </View>
 
       {/* Back up & sync row */}
-      {tab === 'all' && hasPlusAccess && (
+      {tab === 'all' && hasProAccess && (
         <View style={styles.syncWrap}>
           <View style={[styles.syncRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}>
             <View style={styles.syncTopRow}>
@@ -785,7 +786,7 @@ export default function SavedScreen() {
       )}
 
       {tab === 'all' ? (
-        !hasPlusAccess ? (
+        !hasProAccess ? (
           <ProWall tokens={tokens} label="Bookmarks" />
         ) : (
           <>
@@ -844,7 +845,7 @@ export default function SavedScreen() {
           </>
         )
       ) : tab === 'folders' ? (
-        !hasPlusAccess ? (
+        !hasProAccess ? (
           <ProWall tokens={tokens} label="Folders" />
         ) : (
           <>
@@ -855,7 +856,7 @@ export default function SavedScreen() {
                 {lockedFolderCount} folder{lockedFolderCount === 1 ? '' : 's'} locked
               </Text>
               <Text style={[styles.folderCapBody, { color: tokens.t3, fontSize: fs(13) }]}>
-                {`Plus includes ${PLUS_FOLDER_CAP} folders. Nothing has been deleted — use ⋯ › Reorder Folders to drag the ${PLUS_FOLDER_CAP} you want to the top, or go Premium for unlimited.`}
+                {`Pro includes ${PRO_FOLDER_CAP} folders. Nothing has been deleted — use ⋯ › Reorder Folders to drag the ${PRO_FOLDER_CAP} you want to the top, or go Premium for unlimited.`}
               </Text>
               <Pressable
                 style={[styles.folderCapBtn, { backgroundColor: tokens.gold }]}
@@ -1610,15 +1611,15 @@ function ProWall({ tokens, label }: { tokens: ReturnType<typeof useTheme>['token
   return (
     <View style={styles.center}>
       <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
-      <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>{label} is a Plus feature</Text>
+      <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>{label} is a Pro feature</Text>
       <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-        Unlock Plus to use {label.toLowerCase()}.
+        Unlock Pro to use {label.toLowerCase()}.
       </Text>
       <Pressable
         style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]}
-        onPress={() => router.push('/paywall')}
+        onPress={() => router.push('/paywall?tier=pro')}
       >
-        <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
+        <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Pro</Text>
       </Pressable>
     </View>
   )

@@ -301,7 +301,7 @@ export default function FarSectionScreen() {
 
   const handleToggleBookmark = async () => {
     if (!section) return
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setBookmarked((prev) => !prev) // optimistic
     const next = await toggleBookmark({
       id: section.section_number,
@@ -323,7 +323,7 @@ export default function FarSectionScreen() {
   const lastToggleAt = useRef(0)
   const handleToggleHighlight = useCallback(async (paraText: string) => {
     if (!section) return
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     if (toggleInFlight.current) return
     if (Date.now() - lastToggleAt.current < 800) return
     lastToggleAt.current = Date.now()
@@ -353,7 +353,7 @@ export default function FarSectionScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [section, hasPlusAccess])
+  }, [section, hasProAccess])
 
   const handleCopyBlock = useCallback(async (paraText: string) => {
     await Clipboard.setStringAsync(paraText)
@@ -361,7 +361,7 @@ export default function FarSectionScreen() {
   }, [])
 
   const handleBlockLongPress = useCallback((paraText: string) => {
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     // Set BEFORE the menu opens, not after a choice -- RC: "the h/l feature
     // needs to show the h/l area in the doc before any CTA pops up w/
     // options." Cleared on every dismiss path (any choice, Cancel, or
@@ -379,11 +379,11 @@ export default function FarSectionScreen() {
       ],
       onCancel: () => setPendingHighlight(null),
     })
-  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
+  }, [hasProAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
 
   const handleOpenFolderPicker = () => {
     if (!section) return
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setFolderPickerVisible(true)
   }
 
@@ -474,7 +474,7 @@ export default function FarSectionScreen() {
         items={[
           { icon: 'printer', label: 'Print', onPress: handlePrint, disabled: !hasPlusAccess },
           { icon: 'square.and.arrow.up', label: 'Share', onPress: handleShare, disabled: !hasPlusAccess },
-          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasPlusAccess },
+          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasProAccess },
         ]}
       />
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>

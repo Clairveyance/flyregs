@@ -113,8 +113,8 @@ const FAQ: QA[] = [
     category: 'Getting Started',
     a: [
       'No — browsing the entire library and searching to find an AC are both free, with no account needed, and no limit on how many you can look up. Every AC\'s detail page shows its full Table of Contents plus the beginning of its text for free.',
-      { tier: 'plus', text: 'A one-time purchase, not a subscription:\n• Complete text of every AC and AD\n• Aviation Dictionary, RefPacks & What\'s Changed\n• In-document search, notes, highlights & bookmarks\n• Folders (up to 3)' },
-      { tier: 'pro', text: 'Everything in Plus, plus:\n• Cross-device sync\n• AD and AC update alerts, DailyReg\n• MagicLink, Ask FlyRegs & full Legal Interpretations\n• Dictionary Mnemonics, Study Mode, Challenge Coins & Ready Room\n• 1 saved aircraft, with your own reminders' },
+      { tier: 'plus', text: 'A one-time purchase, not a subscription:\n• Complete text of every AC and AD\n• Aviation Dictionary, RefPacks & What\'s Changed\n• In-document search\n• Print & export any section' },
+      { tier: 'pro', text: 'Everything in Plus, plus:\n• Notes, highlights, bookmarks & folders (up to 3), synced across devices\n• AD and AC update alerts, DailyReg\n• MagicLink, Ask FlyRegs & full Legal Interpretations\n• Dictionary Mnemonics, Study Mode, Challenge Coins & Ready Room\n• 1 saved aircraft, with your own reminders' },
       { tier: 'premium', text: 'Everything in Pro, plus:\n• Offline downloads\n• Shared folders, unlimited\n• Duels\n• Unlimited saved aircraft, with equipment tags & sharing' },
       'An account is only required when you start a subscription (Pro or Premium, either of which already includes everything Plus does) or make the one-time Plus purchase — creating an account by itself is free and doesn\'t unlock anything.',
     ],
@@ -292,14 +292,14 @@ const FAQ: QA[] = [
     q: 'How do notes and auto-linking work?',
     category: 'Notes, Folders & Highlights',
     a: [
-      { tier: 'plus', text: 'Open the Notes tab and tap + New. When you type an AC number like "61-65" or "91-74B" in a note, it is detected automatically and turned into a tappable chip that opens the current version of that AC. No suffix required.' },
+      { tier: 'pro', text: 'Open the Notes tab and tap + New. When you type an AC number like "61-65" or "91-74B" in a note, it is detected automatically and turned into a tappable chip that opens the current version of that AC. No suffix required.' },
     ],
   },
   {
     q: 'What are folders, and how does sharing work?',
     category: 'Notes, Folders & Highlights',
     a: [
-      { tier: 'plus', text: 'Folders let you organize bookmarks into your own custom collections instead of one flat Saved list — a folder per course, per aircraft, per certificate you\'re working on. Up to 3 folders.' },
+      { tier: 'pro', text: 'Folders let you organize bookmarks into your own custom collections instead of one flat Saved list — a folder per course, per aircraft, per certificate you\'re working on. Up to 3 folders.' },
       { tier: 'premium', text: 'Unlimited folders, plus sharing — giving everyone with access the same folder, kept in sync. Useful for a flight school, maintenance shop, or study group working from the same set of references. Recipients see a read-only copy that updates as the owner adds or removes items.' },
     ],
   },
@@ -307,7 +307,7 @@ const FAQ: QA[] = [
     q: 'How does highlighting work?',
     category: 'Notes, Folders & Highlights',
     a: [
-      { tier: 'plus', text: 'Long-press any paragraph or section to highlight it in yellow — it\'s saved instantly to your Saved list, no extra confirmation needed. Long-press the same spot again to remove it.' },
+      { tier: 'pro', text: 'Long-press any paragraph or section to highlight it in yellow — it\'s saved instantly to your Saved list, no extra confirmation needed. Long-press the same spot again to remove it.' },
       'Tap a highlight from Saved and the AC opens scrolled straight to that spot instead of the top of the document.',
     ],
   },

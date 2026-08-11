@@ -323,7 +323,7 @@ export default function AdScreen() {
 
   const handleToggleBookmark = async () => {
     if (!ad) return
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setBookmarked((prev) => !prev) // optimistic
     const next = await toggleBookmark({
       id: ad.ad_number,
@@ -342,7 +342,7 @@ export default function AdScreen() {
   const lastToggleAt = useRef(0)
   const handleToggleHighlight = useCallback(async (paraText: string) => {
     if (!ad) return
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     if (toggleInFlight.current) return
     if (Date.now() - lastToggleAt.current < 800) return
     lastToggleAt.current = Date.now()
@@ -372,7 +372,7 @@ export default function AdScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [ad, hasPlusAccess])
+  }, [ad, hasProAccess])
 
   const handleCopyBlock = useCallback(async (paraText: string) => {
     await Clipboard.setStringAsync(paraText)
@@ -380,7 +380,7 @@ export default function AdScreen() {
   }, [])
 
   const handleBlockLongPress = useCallback((paraText: string) => {
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setPendingHighlight(paraText)
     const isHighlighted = highlightedBlockTexts.has(paraText)
     confirm({
@@ -394,11 +394,11 @@ export default function AdScreen() {
       ],
       onCancel: () => setPendingHighlight(null),
     })
-  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
+  }, [hasProAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
 
   const handleOpenFolderPicker = () => {
     if (!ad) return
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setFolderPickerVisible(true)
   }
 
@@ -457,7 +457,7 @@ export default function AdScreen() {
         items={[
           { icon: 'printer', label: 'Print', onPress: handlePrint, disabled: !hasPlusAccess },
           { icon: 'square.and.arrow.up', label: 'Share', onPress: handleShare, disabled: !hasPlusAccess },
-          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasPlusAccess },
+          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasProAccess },
         ]}
       />
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>

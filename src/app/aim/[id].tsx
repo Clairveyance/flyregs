@@ -276,7 +276,7 @@ export default function AimParagraphScreen() {
 
   const handleToggleBookmark = async () => {
     if (!para) return
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setBookmarked((prev) => !prev) // optimistic
     const next = await toggleBookmark({
       id: para.paragraph_number,
@@ -295,7 +295,7 @@ export default function AimParagraphScreen() {
   const lastToggleAt = useRef(0)
   const handleToggleHighlight = useCallback(async (paraText: string) => {
     if (!para) return
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     if (toggleInFlight.current) return
     if (Date.now() - lastToggleAt.current < 800) return
     lastToggleAt.current = Date.now()
@@ -325,7 +325,7 @@ export default function AimParagraphScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [para, hasPlusAccess])
+  }, [para, hasProAccess])
 
   const handleCopyBlock = useCallback(async (paraText: string) => {
     await Clipboard.setStringAsync(paraText)
@@ -333,7 +333,7 @@ export default function AimParagraphScreen() {
   }, [])
 
   const handleBlockLongPress = useCallback((paraText: string) => {
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setPendingHighlight(paraText)
     const isHighlighted = highlightedBlockTexts.has(paraText)
     confirm({
@@ -347,7 +347,7 @@ export default function AimParagraphScreen() {
       ],
       onCancel: () => setPendingHighlight(null),
     })
-  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
+  }, [hasProAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
 
   // Gated synchronously here, not just relying on FolderPicker's own
   // internal backstop -- same rule as ac/[id].tsx's handleOpenFolderPicker,
@@ -355,7 +355,7 @@ export default function AimParagraphScreen() {
   // risking a silent no-op.
   const handleOpenFolderPicker = () => {
     if (!para) return
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setFolderPickerVisible(true)
   }
 
@@ -446,7 +446,7 @@ export default function AimParagraphScreen() {
         items={[
           { icon: 'printer', label: 'Print', onPress: handlePrint, disabled: !hasPlusAccess },
           { icon: 'square.and.arrow.up', label: 'Share', onPress: handleShare, disabled: !hasPlusAccess },
-          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasPlusAccess },
+          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasProAccess },
         ]}
       />
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>

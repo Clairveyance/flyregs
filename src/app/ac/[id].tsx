@@ -142,10 +142,11 @@ export default function ACDetailScreen() {
     }
     setBackTo(consumePendingBreadcrumb())
   }, [id])
-  // FlyRegs pricing pivot (2026-07-24) -- AC/LOI full text, figures, highlights,
-  // notes, bookmarks, and folders are all Plus-tier now, gated on hasPlusAccess
-  // (isUnlocked || isPro || isPremium), not raw isPro. Offline downloads and
-  // sharing stay Premium-only, unchanged from before.
+  // FlyRegs pricing pivot (2026-07-24), corrected 2026-08-11 (RC: "back up
+  // sync is Pro" -- see gotcha_gating_sweep_2026_08_11.md) -- AC/LOI full
+  // text, figures, and Print/Export stay Plus (hasPlusAccess); highlights,
+  // notes, bookmarks, and folders now require Pro (hasProAccess). Offline
+  // downloads and sharing stay Premium-only, unchanged from before.
   const { isPremium, hasPlusAccess, hasProAccess } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
@@ -428,7 +429,7 @@ export default function ACDetailScreen() {
   // sharing a highlighted passage previously only ever scrolled the
   // recipient to it without marking it yellow on their end, even though
   // that's the whole point of sharing a *highlight* specifically (as
-  // opposed to the AC generally). Gated on hasPlusAccess, same as creating any
+  // opposed to the AC generally). Gated on hasProAccess, same as creating any
   // other highlight -- this only ever adds one the recipient doesn't
   // already have; it never removes/toggles anything of theirs.
   const jumpedToHlText = useRef<string | null>(null)
@@ -441,7 +442,7 @@ export default function ACDetailScreen() {
     jumpedToHlText.current = hlText
     setTimeout(() => acBodyRef.current?.scrollToBlockIndex(idx), 250)
 
-    if (hasPlusAccess) {
+    if (hasProAccess) {
       const block = ac.pdf_blocks[idx]
       const meta = highlightMeta(block)
       const contentKey = blockText(block)
@@ -465,7 +466,7 @@ export default function ACDetailScreen() {
         })
       }
     }
-  }, [hlText, ac?.id, ac?.pdf_blocks, hasPlusAccess])
+  }, [hlText, ac?.id, ac?.pdf_blocks, hasProAccess])
 
   const handleDownload = async () => {
     if (!ac) return
@@ -593,8 +594,8 @@ export default function ACDetailScreen() {
 
   const handleToggleBookmark = async () => {
     if (!ac) return
-    if (!hasPlusAccess) {
-      router.push('/paywall')
+    if (!hasProAccess) {
+      router.push('/paywall?tier=pro')
       return
     }
     setBookmarked((prev) => !prev) // optimistic
@@ -615,7 +616,7 @@ export default function ACDetailScreen() {
   // the paywall rather than risking a silent no-op.
   const handleOpenFolderPicker = () => {
     if (!ac) return
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     setFolderPickerVisible(true)
   }
 
@@ -638,8 +639,8 @@ export default function ACDetailScreen() {
   const lastToggleAt = useRef(0)
   const handleToggleHighlight = useCallback(async (block: ACBlock) => {
     if (!ac) return
-    if (!hasPlusAccess) {
-      router.push('/paywall')
+    if (!hasProAccess) {
+      router.push('/paywall?tier=pro')
       return
     }
     if (toggleInFlight.current) return
@@ -673,7 +674,7 @@ export default function ACDetailScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [ac, hasPlusAccess])
+  }, [ac, hasProAccess])
 
   // Copy is deliberately NOT Pro-gated, unlike highlighting — it only ever
   // copies a block that's already rendered on screen for this reader (Free
@@ -691,14 +692,15 @@ export default function ACDetailScreen() {
 
   // Long-press entry point: offers Copy alongside the existing Highlight
   // toggle instead of replacing it, so the one gesture now does both without
-  // adding new on-screen buttons to every block. NOTE this comment used to
-  // claim "Pro-gated up front, same as Highlight" -- that was stale/wrong on
-  // two counts: the entry point (handleBlockLongPress) is hasPlusAccess, not
-  // Pro, and this specific action requires Premium (share.ts's branded
-  // share-card family), one tier higher than what got the user into the
-  // menu. Confirmed via audit as a real advertised-but-bounced mismatch --
-  // the menu label itself now says "(Premium)" for anyone below that tier
-  // instead of silently bouncing with no warning.
+  // adding new on-screen buttons to every block. The entry point
+  // (handleBlockLongPress) is now genuinely Pro-gated (RC, 2026-08-11:
+  // corrected from hasPlusAccess -- see gotcha_gating_sweep_2026_08_11.md),
+  // matching what this comment already argued Copy/Highlight conceptually
+  // was; handleSharePassage itself still requires Premium, one tier higher
+  // than what got the user into the menu -- confirmed via audit as a real
+  // advertised-but-bounced mismatch -- the menu label itself says
+  // "(Premium)" for anyone below that tier instead of silently bouncing
+  // with no warning.
   const handleSharePassage = useCallback(async (block: ACBlock) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     if (!ac) return
@@ -720,7 +722,7 @@ export default function ACDetailScreen() {
   const handleBlockLongPress = useCallback((block: ACBlock, index: number) => {
     const meta = highlightMeta(block)
     if (!meta) return
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     const isHighlighted = highlightedBlockTexts.has(blockText(block))
     confirm({
       title: 'Passage',
@@ -732,17 +734,17 @@ export default function ACDetailScreen() {
           label: isHighlighted ? 'Remove Highlight' : 'Highlight',
           onPress: () => handleToggleHighlight(block),
         },
-        // Reachable by any Plus+ user (the long-press entry point above only
-        // checks hasPlusAccess), but handleSharePassage itself requires
+        // Reachable by any Pro+ user (the long-press entry point above only
+        // checks hasProAccess), but handleSharePassage itself requires
         // Premium -- confirmed as a real advertised-but-bounced mismatch: a
-        // Plus/Pro user could tap this and land on the paywall with zero
+        // Pro user could tap this and land on the paywall with zero
         // warning. Labeling it up front costs nothing and matches how the
         // rest of the app discloses a higher-tier gate before the tap, not
         // after.
         { label: isPremium ? 'Share Passage' : 'Share Passage (Premium)', onPress: () => handleSharePassage(block) },
       ],
     })
-  }, [hasPlusAccess, isPremium, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, handleSharePassage])
+  }, [hasProAccess, isPremium, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, handleSharePassage])
 
   // Jump nav between the blocks the "What's New" diff flagged as changed —
   // mirrors the existing in-doc search prev/next pattern below (goToPrev/
@@ -857,7 +859,7 @@ export default function ACDetailScreen() {
         items={[
           { icon: 'printer', label: 'Print', onPress: handlePrint, disabled: !hasPlusAccess },
           { icon: 'square.and.arrow.up', label: 'Share', onPress: handleShare, disabled: !hasPlusAccess },
-          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasPlusAccess },
+          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasProAccess },
         ]}
       />
       {!isTabletSplit && (
@@ -1185,7 +1187,7 @@ export default function ACDetailScreen() {
                 onMatchCount={handleMatchCount}
                 activeMatch={matchCount > 0 ? matchIdx : -1}
                 changedIndices={ac.changed_block_indices}
-                highlightedBlockTexts={hasPlusAccess ? highlightedBlockTexts : undefined}
+                highlightedBlockTexts={hasProAccess ? highlightedBlockTexts : undefined}
                 onToggleHighlight={handleBlockLongPress}
                 figures={hasPlusAccess ? (figures ?? undefined) : undefined}
                 onOpenFigure={hasPlusAccess ? setViewerFigure : undefined}

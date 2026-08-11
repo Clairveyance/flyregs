@@ -18,13 +18,14 @@ export async function unshareFolder(folderId: string): Promise<void> {
 const FOLDERS_KEY = '@flyregs/folders'
 const FOLDER_ITEMS_KEY = '@flyregs/folder_items'
 
-// Plus is capped at this many folders; Premium is unlimited (see
-// flyregs_decisions.md's pricing pivot). Shared here so every folder-creation
+// Pro is capped at this many folders; Premium is unlimited (RC, 2026-08-11:
+// folders require Pro, corrected from an earlier Plus-tier gate -- see
+// gotcha_gating_sweep_2026_08_11.md). Shared here so every folder-creation
 // entry point (Saved tab's own "New Folder", and FolderPicker.tsx's -- opened
 // from AC/AD/LOI/etc. detail screens) enforces the same number instead of
 // each keeping its own copy that can drift, or in FolderPicker's case,
 // previously had no cap check at all.
-export const PLUS_FOLDER_CAP = 3
+export const PRO_FOLDER_CAP = 3
 
 export interface Folder {
   id: string

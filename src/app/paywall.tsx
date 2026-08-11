@@ -65,6 +65,25 @@ type Tier = 'plus' | 'pro' | 'premium'
 //   - Duels is PREMIUM (RC, 2026-07-31) -- was gated hasPlusAccess.
 //   - Parts Lookup is FREE like the AD list, with results capped for free
 //     users the same way, so it is not sold as a tier feature at all.
+// Eighth round, 2026-08-11 -- RC, direct correction after the app-wide
+// gating sweep (gotcha_gating_sweep_2026_08_11.md): "back up sync is Pro.
+// Any gating needs to be fixed to make sure only Pro and Prem have any
+// bu/s." This list's own PLUS_FEATURES line ("Highlights, Notes, Bookmarks
+// & Folders") and PRO_ADDITIONS' separate "Cross-device sync" line had
+// quietly split into two different claims about the same feature -- Plus
+// got to CREATE them, Pro got them SYNCED -- which was never RC's actual
+// intent and doesn't match how any other Plus/Pro boundary on this screen
+// works (nothing else splits "have it" from "sync it" across two tiers).
+// Moved the whole feature to PRO_ADDITIONS; PLUS_FEATURES no longer
+// mentions it at all. Gates fixed in the same pass: enforce_folder_cap(),
+// enforce_bookmark_plus_gate(), enforce_note_plus_gate(), plus every
+// client-side hasPlusAccess check gating creation of a folder/note/
+// bookmark/highlight, all moved from has_plus_access()/hasPlusAccess to
+// has_pro_access()/hasProAccess. Print & export, RefPacks, base Dictionary,
+// AC/AD full text, and everything else already in PLUS_FEATURES are
+// untouched -- this was specifically about the sync-backed organizational
+// features, not a wholesale Plus-to-Pro shift.
+//
 // A fourth correction, 2026-07-31 (later same day): MagicLink was briefly
 // listed here as PLUS_FEATURES, matching its gate at the time
 // (`if (!hasPlusAccess)`) -- RC then corrected the gate itself: "no, ML has
@@ -127,10 +146,6 @@ const PLUS_FEATURES = [
   // itself, which is now equally a real, distinct Plus-gated feature.
   { icon: 'books.vertical.fill', label: 'Aviation Dictionary — 10,000+ terms across every handbook' },
   { icon: 'square.grid.2x2',   label: 'RefPacks — certificate-specific study collections' },
-  // Audit gap: the 3-folder cap (PLUS_FOLDER_CAP in (tabs)/saved.tsx) was
-  // disclosed in the FAQ ("Folders (up to 3)") but never here, so a Plus
-  // buyer wasn't told about it until after purchase.
-  { icon: 'highlighter',       label: 'Highlights, Notes, Bookmarks & Folders (up to 3)' },
   { icon: 'printer',           label: 'Print & export any section' },
   { icon: 'magnifyingglass',   label: 'Unlimited search results' },
   { icon: 'doc.badge.clock',   label: "What's Changed — see exactly what the FAA revised" },
@@ -151,7 +166,7 @@ const PRO_ADDITIONS = [
   { icon: 'text.bubble.fill',  label: 'Ask FlyRegs — ask a real question in plain English, get the passages that answer it' },
   { icon: 'checkmark.seal.fill', label: 'Legal Interpretations — full text of every LOI' },
   { icon: 'list.bullet',       label: 'Mnemonics — memory aids for checkride prep' },
-  { icon: 'icloud',    label: 'Cross-device sync for your highlights, notes & bookmarks' },
+  { icon: 'icloud',    label: 'Highlights, Notes, Bookmarks & Folders (up to 3), synced across devices' },
   { icon: 'bell.badge', label: 'Airworthiness Directive alerts for your saved aircraft' },
   { icon: 'doc.badge.clock', label: 'Advisory Circular update alerts' },
   { icon: 'airplane',  label: '1 saved aircraft, with your own reminders for recurring maintenance' },
