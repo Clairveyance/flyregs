@@ -5,6 +5,7 @@ import * as Sentry from '@sentry/react-native'
 import * as Haptics from 'expo-haptics'
 import * as Clipboard from 'expo-clipboard'
 import { supabase } from '@/lib/supabase'
+import { resolveGatedStorageUrl } from '@/lib/gatedStorage'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
@@ -444,9 +445,15 @@ export default function LoiDetailScreen() {
               // the same legal text the Pro paywall below is guarding, and
               // every other action on this screen already checks
               // hasProAccess before this one did.
-              onOpenPdf={() => {
+              onOpenPdf={async () => {
                 if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
-                router.push({ pathname: '/pdf-viewer', params: { url: loi.pdf_url_cached!, title: loi.title } } as any)
+                // pdf_url_cached lives in the private legal-interpretations
+                // bucket now -- needs a freshly-signed URL. Falls back to
+                // source_url (the FAA DRS original, already public) if
+                // signing fails for any reason, same shape as AC's openPDF.
+                const url = (await resolveGatedStorageUrl(loi.pdf_url_cached)) ?? loi.source_url
+                if (!url) return
+                router.push({ pathname: '/pdf-viewer', params: { url, title: loi.title } } as any)
               }}
               onDownload={handleDownload}
               downloaded={downloaded}

@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Modal, View, Text, Image, Pressable, ScrollView, StyleSheet, useWindowDimensions } from 'react-native'
+import { Modal, View, Text, Image, Pressable, ScrollView, StyleSheet, ActivityIndicator, useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { useAllowRotation } from '@/lib/orientation'
-import { useCachedImage } from '@/lib/imageCache'
+import { useGatedCachedImage } from '@/lib/imageCache'
 import type { FormulaRef } from '@/types'
 
 // Full-screen viewer for a flagged formula page image. Deliberately a
@@ -30,9 +30,10 @@ export function FormulaRefViewer({
   const { width, height } = useWindowDimensions()
   useAllowRotation(!!formulaRef)
   // Local cached copy if this AC was downloaded for offline reading (see
-  // handleDownload in ac/[id].tsx) -- falls back to the live remote URL
-  // instantly if nothing's cached yet, so online viewing never regresses.
-  const imageUri = useCachedImage(formulaRef?.id ?? null, formulaRef?.image_url ?? null)
+  // handleDownload in ac/[id].tsx), otherwise a freshly-signed URL for the
+  // private ac-formula-refs bucket -- null (renders a spinner below) for
+  // the brief window before either is ready.
+  const imageUri = useGatedCachedImage(formulaRef?.id ?? null, formulaRef?.image_url ?? null)
 
   // Same fix as FigureViewer.tsx: a scraped page image can print its
   // content sideways relative to its own portrait bounding box, which
@@ -86,9 +87,9 @@ export function FormulaRefViewer({
           showsHorizontalScrollIndicator={false}
           showsVerticalScrollIndicator={false}
         >
-          {formulaRef && (
+          {formulaRef && (imageUri ? (
             <Image
-              source={{ uri: imageUri ?? formulaRef.image_url }}
+              source={{ uri: imageUri }}
               style={{
                 width: rotated90 ? boxHeight : boxWidth,
                 height: rotated90 ? boxWidth : boxHeight,
@@ -96,7 +97,9 @@ export function FormulaRefViewer({
               }}
               resizeMode="contain"
             />
-          )}
+          ) : (
+            <ActivityIndicator color="#fff" size="large" />
+          ))}
         </ScrollView>
       </View>
     </Modal>

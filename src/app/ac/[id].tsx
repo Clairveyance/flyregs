@@ -16,7 +16,8 @@ import { ACBody, ACBodyHandle } from '@/components/ACBody'
 import { addRecent } from '@/lib/recents'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
 import { getDownloads, isDownloaded, addDownload, removeDownload } from '@/lib/downloads'
-import { downloadImageToCache } from '@/lib/imageCache'
+import { downloadGatedImageToCache } from '@/lib/imageCache'
+import { resolveGatedStorageUrl } from '@/lib/gatedStorage'
 import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
 import { blockText, previewBlockCount, ACBlock } from '@/lib/acFormat'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
@@ -516,8 +517,8 @@ export default function ACDetailScreen() {
     // Promise.all version) silently aborted before addDownload ever ran,
     // leaving the button stuck on "Saving…" forever with nothing saved.
     await Promise.allSettled([
-      ...(figures ?? []).map((f) => downloadImageToCache(f.id, f.image_url)),
-      ...(formulaRefs ?? []).map((f) => downloadImageToCache(f.id, f.image_url)),
+      ...(figures ?? []).map((f) => downloadGatedImageToCache(f.id, f.image_url)),
+      ...(formulaRefs ?? []).map((f) => downloadGatedImageToCache(f.id, f.image_url)),
     ])
     // pdf_blocks is already loaded in `ac` (it's part of the main fetch above) —
     // that's also exactly what ACBody renders, so caching it here is what
@@ -792,7 +793,7 @@ export default function ACDetailScreen() {
   // explanation. Detect the truly-no-source state up front instead.
   const hasNoSourceAtAll = !ac?.pdf_url_cached && !ac?.pdf_url_faa && !(ac?.pdf_blocks && ac.pdf_blocks.length > 0)
 
-  const openPDF = () => {
+  const openPDF = async () => {
     if (!hasPlusAccess) {
       router.push('/paywall')
       return
@@ -805,8 +806,12 @@ export default function ACDetailScreen() {
       })
       return
     }
+    // pdf_url_cached lives in the private advisory-circulars bucket now --
+    // needs a freshly-signed URL to actually be fetchable. pdf_url_faa (and
+    // the guessed faa.gov fallback) are the FAA's own public URLs, already
+    // directly fetchable, no signing needed or possible.
     const url =
-      ac?.pdf_url_cached ??
+      (await resolveGatedStorageUrl(ac?.pdf_url_cached)) ??
       ac?.pdf_url_faa ??
       `https://www.faa.gov/documentLibrary/media/Advisory_Circular/AC_${ac?.document_number}.pdf`
     // Used to window.open() the raw URL on web -- found live: several real

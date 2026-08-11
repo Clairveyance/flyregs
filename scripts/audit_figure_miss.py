@@ -72,7 +72,17 @@ def main():
     still_zero = []
     for n, ac in enumerate(zero):
         try:
-            pdf_bytes = requests.get(ac["pdf_url_cached"], timeout=60).content
+            # advisory-circulars went private (2026-08-11, Storage bucket
+            # gating) -- the stored pdf_url_cached is still the old
+            # /object/public/ string (unchanged, it's just an identifier
+            # now, see gatedStorage.ts), which 404s on a plain GET
+            # regardless of headers. /object/authenticated/ is Storage's
+            # direct-fetch counterpart for a private object, checked
+            # against RLS -- the service key bypasses that RLS entirely,
+            # same as this script's other table reads already do via
+            # HEADERS.
+            fetch_url = ac["pdf_url_cached"].replace("/object/public/", "/object/authenticated/", 1)
+            pdf_bytes = requests.get(fetch_url, headers=HEADERS, timeout=60).content
             captions = list(find_captions(pdf_bytes))
         except Exception as e:
             print(f"[{n}] {ac['document_number']}: ERROR {e}")

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Platform } from 'react-native'
 import { File, Paths } from 'expo-file-system'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { resolveGatedStorageUrl } from '@/lib/gatedStorage'
 
 // Generic "download once, reuse forever until the source changes" cache for
 // remote images (avatars, shared-folder owner photos) — without this, every
@@ -51,9 +52,27 @@ function localFileFor(key: string, remoteUrl: string): File {
 // Shared by both getCachedImageUri's fire-and-forget background refresh and
 // downloadImageToCache's genuinely-awaited download below -- one real
 // download-and-bookkeeping implementation, not two copies that could drift.
-async function downloadAndCache(key: string, remoteUrl: string, local: File): Promise<string | null> {
+//
+// resolveFetchUrl is optional and LAZY (a thunk, not a pre-resolved string)
+// -- called only when a download is actually about to happen, never on a
+// cache hit. This matters for gated content (see useGatedCachedImage
+// below): resolving it eagerly would mint a fresh signed URL on every
+// single mount even when the image is already on disk and about to render
+// instantly from cache, for no reason. remoteUrl stays the STABLE
+// identifier for cache-key/freshness/versioning either way -- a signed URL
+// embeds a fresh token on every mint, so using it as the cache key would
+// make every re-resolution of the SAME object look like a new image and
+// force a redundant re-download every time.
+async function downloadAndCache(
+  key: string,
+  remoteUrl: string,
+  local: File,
+  resolveFetchUrl?: () => Promise<string | null>
+): Promise<string | null> {
   try {
-    const downloaded = await File.downloadFileAsync(remoteUrl, local, { idempotent: true })
+    const fetchUrl = resolveFetchUrl ? await resolveFetchUrl() : remoteUrl
+    if (!fetchUrl) return null
+    const downloaded = await File.downloadFileAsync(fetchUrl, local, { idempotent: true })
     const prevUrl = await setCacheEntry(key, remoteUrl)
     if (prevUrl && prevUrl !== remoteUrl) {
       try { localFileFor(key, prevUrl).delete() } catch {}
@@ -90,7 +109,8 @@ async function downloadAndCache(key: string, remoteUrl: string, local: File): Pr
 export async function getCachedImageUri(
   key: string,
   remoteUrl: string,
-  onUpdate?: (uri: string) => void
+  onUpdate?: (uri: string) => void,
+  resolveFetchUrl?: () => Promise<string | null>
 ): Promise<string | null> {
   // expo-file-system's File/Paths API has no web implementation at all —
   // confirmed live, reproducibly: opening any FigureViewer in web preview
@@ -107,7 +127,7 @@ export async function getCachedImageUri(
   const isFresh = map[key] === remoteUrl && local.exists
 
   if (!isFresh) {
-    downloadAndCache(key, remoteUrl, local).then((uri) => { if (uri) onUpdate?.(uri) })
+    downloadAndCache(key, remoteUrl, local, resolveFetchUrl).then((uri) => { if (uri) onUpdate?.(uri) })
   }
 
   return local.exists ? local.uri : null
@@ -118,12 +138,16 @@ export async function getCachedImageUri(
 // say "this is available offline" -- see that function's own comment for
 // the exact bug this exists to close. Resolves only once the download
 // genuinely finishes (or fails); never returns before the file is real.
-export async function downloadImageToCache(key: string, remoteUrl: string): Promise<string | null> {
+export async function downloadImageToCache(
+  key: string,
+  remoteUrl: string,
+  resolveFetchUrl?: () => Promise<string | null>
+): Promise<string | null> {
   if (Platform.OS === 'web') return null
   const local = localFileFor(key, remoteUrl)
   const map = await getCacheMap()
   if (map[key] === remoteUrl && local.exists) return local.uri
-  return downloadAndCache(key, remoteUrl, local)
+  return downloadAndCache(key, remoteUrl, local, resolveFetchUrl)
 }
 
 // React binding for getCachedImageUri — starts by showing `remoteUrl`
@@ -151,4 +175,52 @@ export function useCachedImage(key: string | null, remoteUrl: string | null): st
   }, [key, remoteUrl])
 
   return uri
+}
+
+// Gated counterpart to useCachedImage, for figures/formula-refs/PDFs stored
+// in a private bucket (see gatedStorage.ts) -- `publicUrl` is the stable,
+// scraper-written "public-style" URL string (still used as the cache key
+// and version identifier, unchanged), not something directly fetchable
+// anymore. Unlike useCachedImage, this deliberately does NOT initialize
+// with publicUrl itself: that string 401s against a private bucket, so
+// showing it immediately would just be a guaranteed-broken image for the
+// one render before the cache/signing resolves, instead of the loading
+// state the caller should show for that brief window.
+export function useGatedCachedImage(key: string | null, publicUrl: string | null): string | null {
+  const [uri, setUri] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setUri(null)
+    if (!key || !publicUrl) return
+    // getCachedImageUri short-circuits to null on web with no other effect
+    // (expo-file-system has no web implementation -- see its own comment) --
+    // useCachedImage papers over that by never overwriting its initial
+    // raw-url state, but this hook starts at null on purpose (see above),
+    // so without this branch web would show a permanent spinner instead of
+    // ever resolving anything. Sign and use directly, same "no cache to
+    // offer, just fetch live" fallback useCachedImage already has for web.
+    if (Platform.OS === 'web') {
+      resolveGatedStorageUrl(publicUrl).then((signed) => { if (!cancelled) setUri(signed) })
+      return () => { cancelled = true }
+    }
+    getCachedImageUri(key, publicUrl, (fresh) => {
+      if (!cancelled) setUri(fresh)
+    }, () => resolveGatedStorageUrl(publicUrl)).then((cached) => {
+      if (!cancelled && cached) setUri(cached)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [key, publicUrl])
+
+  return uri
+}
+
+// Gated counterpart to downloadImageToCache, for the offline-download path
+// (handleDownload in ac/[id].tsx) -- resolves a signed URL only if a real
+// network fetch turns out to be needed (see downloadAndCache's own comment
+// on why the resolver is lazy).
+export async function downloadGatedImageToCache(key: string, publicUrl: string): Promise<string | null> {
+  return downloadImageToCache(key, publicUrl, () => resolveGatedStorageUrl(publicUrl))
 }
