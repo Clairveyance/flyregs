@@ -567,7 +567,7 @@ export default function HomeScreen() {
     const synonymTerms = expansion.terms
     if (phraseForOther && phraseForOther.length >= 2) {
       const searchTerms = [phraseForOther, ...synonymTerms]
-      Promise.all(searchTerms.map((t) => searchOtherSources(t, 20, otherTypes, hasPlusAccess))).then((resultSets) => {
+      Promise.all(searchTerms.map((t) => searchOtherSources(t, 20, otherTypes, hasPlusAccess, hasPlusAccess))).then((resultSets) => {
         if (seq !== searchSeq.current) return
         const seen = new Set<string>()
         const merged: UnifiedResult[] = []

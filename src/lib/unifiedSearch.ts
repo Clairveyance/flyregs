@@ -101,7 +101,15 @@ export async function searchOtherSources(
   // Defaults true so every OTHER caller (RefPack task search, which is
   // already a Plus+-only area) is unaffected -- only Home's own call site
   // passes hasPlusAccess through.
-  includeAd = true
+  includeAd = true,
+  // Same reasoning, same shape, added for the 2026-08-10 Dictionary re-gate
+  // (base A/D moved from free to Plus, whole-screen lock, zero preview --
+  // same "dead end at a lock screen" problem AD already had). Before this,
+  // a free Home searcher saw a real-looking "A/D <TERM>" row (search_dictionary
+  // still returns slug/term/rank for a gated caller, only `definition` nulls
+  // out) that rendered with an effectively blank secondary line and led
+  // straight to the new whole-screen Plus lock on tap.
+  includeDictionary = true
 ): Promise<UnifiedResult[]> {
   const want = (t: 'far' | 'aim' | 'pcg') => types === undefined || types.includes(t)
   const empty = Promise.resolve({ data: [] as any[] })
@@ -117,7 +125,7 @@ export async function searchOtherSources(
     want('pcg') ? supabase.rpc('search_pcg', { query, result_limit: limitPerSource }) : empty,
     includeAd ? supabase.rpc('search_ads', { query, result_limit: limitPerSource }) : empty,
     supabase.rpc('search_figures', { query, result_limit: limitPerSource }),
-    supabase.rpc('search_dictionary', { query, result_limit: limitPerSource }),
+    includeDictionary ? supabase.rpc('search_dictionary', { query, result_limit: limitPerSource }) : empty,
   ])
 
   const results: UnifiedResult[] = []

@@ -79,10 +79,11 @@ const FAQ: QA[] = [
       '• Legal Interpretations (LOIs)',
       'Every one of them is cross-referenced together (see "What is MagicLink?" below), so a regulation, its related AIM guidance, its glossary terms, and any AC, AD, or LOI that touches it are all reachable from wherever you\'re reading.',
       'The seventh is the Aviation Dictionary — not FAA material itself, but a 9,800+ term reference (plus a curated collection of aviation mnemonics) that we built and keep current ourselves, so pilots have one place for both the official terminology and the everyday shorthand no government glossary covers. It\'s big and genuinely useful, which is why it gets its own answer below ("What is the Aviation Dictionary?") even though it\'s called out separately from the six FAA sources.',
-      'Browsing and searching all seven libraries is free. What each plan adds on top:',
+      'Browsing and searching the six FAA libraries is free. What each plan adds on top:',
       '• FAR, AIM and the P/CG are free to read in full — those never sit behind a plan.',
       '• Complete AC and AD text is Plus.',
       '• Full Legal Interpretation letters are Pro.',
+      '• The Aviation Dictionary itself is Plus; its Mnemonics are Pro.',
     ],
   },
   {
@@ -112,8 +113,8 @@ const FAQ: QA[] = [
     category: 'Getting Started',
     a: [
       'No — browsing the entire library and searching to find an AC are both free, with no account needed, and no limit on how many you can look up. Every AC\'s detail page shows its full Table of Contents plus the beginning of its text for free.',
-      { tier: 'plus', text: 'A one-time purchase, not a subscription:\n• Complete text of every AC and AD\n• In-document search, notes, highlights & bookmarks\n• Folders (up to 3)\n• Mnemonics, RefPacks & What\'s Changed' },
-      { tier: 'pro', text: 'Everything in Plus, plus:\n• Cross-device sync\n• AD and AC update alerts, DailyReg\n• MagicLink, Ask FlyRegs & full Legal Interpretations\n• Study Mode, Challenge Coins & Ready Room\n• 1 saved aircraft, with your own reminders' },
+      { tier: 'plus', text: 'A one-time purchase, not a subscription:\n• Complete text of every AC and AD\n• Aviation Dictionary, RefPacks & What\'s Changed\n• In-document search, notes, highlights & bookmarks\n• Folders (up to 3)' },
+      { tier: 'pro', text: 'Everything in Plus, plus:\n• Cross-device sync\n• AD and AC update alerts, DailyReg\n• MagicLink, Ask FlyRegs & full Legal Interpretations\n• Dictionary Mnemonics, Study Mode, Challenge Coins & Ready Room\n• 1 saved aircraft, with your own reminders' },
       { tier: 'premium', text: 'Everything in Pro, plus:\n• Offline downloads\n• Shared folders, unlimited\n• Duels\n• Unlimited saved aircraft, with equipment tags & sharing' },
       'An account is only required when you start a subscription (Pro or Premium, either of which already includes everything Plus does) or make the one-time Plus purchase — creating an account by itself is free and doesn\'t unlock anything.',
     ],
@@ -152,8 +153,8 @@ const FAQ: QA[] = [
     category: 'The Content Library',
     a: [
       'A 9,800+ term reference covering FAA contractions (radio/ATC shorthand like IMAIR or ALARM), handbook glossary terms, and informal terms pilots and mechanics actually use — separate from the official Pilot/Controller Glossary (P/CG), which only covers the FAA\'s own formal definitions.',
-      'Browsing and searching the Dictionary is free for everyone, no account needed.',
-      { tier: 'plus', text: 'The curated collection of aviation mnemonics inside the Dictionary (ARROW, GUMPS, the 5 Cs, and more), each one linked back to the regulation or concept it\'s actually grounded in.' },
+      { tier: 'plus', text: 'Browsing and searching the Dictionary.' },
+      { tier: 'pro', text: 'The curated collection of aviation mnemonics inside the Dictionary (ARROW, GUMPS, the 5 Cs, and more), each one linked back to the regulation or concept it\'s actually grounded in.' },
     ],
   },
   {

@@ -106,10 +106,26 @@ type Tier = 'plus' | 'pro' | 'premium'
 // display the 'New' list at all. That's a paid tier feature." Now
 // hasPlusAccess-gated (both the fetch and the render), matching this
 // list's own AD body-text boundary.
+//
+// Seventh round, 2026-08-11 -- found during a post-build-31 corpus-wide
+// sweep, not an RC-reported gap. `6495280` (2026-08-10) re-gated the
+// Aviation Dictionary -- base content free -> Plus, Mnemonics specifically
+// Plus -> Pro -- and updated all three Dictionary screens' own gates, but
+// never touched this list: Mnemonics was still sitting in PLUS_FEATURES
+// (a buyer paying for Plus and reading "Mnemonics" right there would hit a
+// Pro upsell on tap), and the base Dictionary had no line here at all
+// despite becoming, that same commit, a real distinct whole-screen
+// Plus-gated feature exactly like RefPacks above it. Moved Mnemonics to
+// PRO_ADDITIONS, added a Dictionary line to PLUS_FEATURES.
 const PLUS_FEATURES = [
   { icon: 'doc.text',          label: 'Complete text of every Advisory Circular' },
   { icon: 'wrench.and.screwdriver', label: 'Full text of every Airworthiness Directive' },
-  { icon: 'list.bullet',       label: 'Mnemonics — memory aids for checkride prep' },
+  // Aviation Dictionary re-gated 2026-08-10 (base content free -> Plus,
+  // Mnemonics specifically Plus -> Pro, see dictionary_terms_gated /
+  // search_dictionary()) -- this list previously had only the Mnemonics
+  // line below, with no line at all for the base 10,000+-term Dictionary
+  // itself, which is now equally a real, distinct Plus-gated feature.
+  { icon: 'books.vertical.fill', label: 'Aviation Dictionary — 10,000+ terms across every handbook' },
   { icon: 'square.grid.2x2',   label: 'RefPacks — certificate-specific study collections' },
   // Audit gap: the 3-folder cap (PLUS_FOLDER_CAP in (tabs)/saved.tsx) was
   // disclosed in the FAQ ("Folders (up to 3)") but never here, so a Plus
@@ -134,6 +150,7 @@ const PRO_ADDITIONS = [
   // moved from hasPlusAccess to hasProAccess in the same change.
   { icon: 'text.bubble.fill',  label: 'Ask FlyRegs — ask a real question in plain English, get the passages that answer it' },
   { icon: 'checkmark.seal.fill', label: 'Legal Interpretations — full text of every LOI' },
+  { icon: 'list.bullet',       label: 'Mnemonics — memory aids for checkride prep' },
   { icon: 'icloud',    label: 'Cross-device sync for your highlights, notes & bookmarks' },
   { icon: 'bell.badge', label: 'Airworthiness Directive alerts for your saved aircraft' },
   { icon: 'doc.badge.clock', label: 'Advisory Circular update alerts' },
