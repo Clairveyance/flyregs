@@ -50,6 +50,7 @@ interface LegalInterpretation {
   cfr_section_reference: string | null
   summary: string | null
   body_text: string | null
+  ocr_quality_score: number | null
 }
 
 interface RelatedItem {
@@ -141,7 +142,7 @@ export default function LoiDetailScreen() {
       // gotcha_tier_gate_client_side_only.md.
       supabase
         .from('legal_interpretations_gated')
-        .select('slug, title, addressee, year, issued_date, source_url, pdf_url_cached, cfr_part_reference, cfr_section_reference, summary, body_text')
+        .select('slug, title, addressee, year, issued_date, source_url, pdf_url_cached, cfr_part_reference, cfr_section_reference, summary, body_text, ocr_quality_score')
         .eq('slug', slug)
         .single(),
       // Same both-directions + normalize-to-"the other document" pattern
@@ -419,6 +420,25 @@ export default function LoiDetailScreen() {
             )}
           </MetaChipRow>
 
+          {/* Same pattern/style as AC's scanned-original banner
+              (ocrScannedACs.ts) -- LOIs are decades-old scanned FAA
+              correspondence, and scripts/loi_quality_scan.py's per-doc
+              ocr_quality_score (dictionary-miss ratio + spurious
+              mid-word-space detection) already exists to identify which
+              ones are notably affected. 3.0 is the same "notably garbled"
+              cutoff that script's own analysis anchored on -- not every
+              LOI has visible issues, so this only shows for the ~1/3 that
+              score at or above it, not a blanket claim on the whole corpus. */}
+          {loi.ocr_quality_score != null && loi.ocr_quality_score >= 3.0 && (
+            <View style={[styles.scanBanner, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+              <Icon name="doc.text" size={fs(14)} color={tokens.t3} style={{ marginTop: 2 }} />
+              <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
+                * This letter's source is a scanned original — some words in the extracted text may be
+                misread from the scan. The original PDF is the authoritative source.
+              </Text>
+            </View>
+          )}
+
           {loi.summary && (
             <DetailSection title="Summary" tokens={tokens}>
               {splitIntoDisplayParagraphs(loi.summary).map((para, i, arr) => (
@@ -565,6 +585,19 @@ const styles = StyleSheet.create({
   meta: { marginBottom: 4, textTransform: 'capitalize' },
   title: { fontWeight: '700', lineHeight: 24, marginBottom: 4, textTransform: 'capitalize' },
   cfrRef: { marginBottom: 4 },
+  // Same shape as ac/[id].tsx's scanBanner -- kept visually identical
+  // across content types per the feature-consistency standing rule.
+  scanBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 10,
+  },
+  scanBannerText: { flex: 1, lineHeight: 17 },
   // Breathing room around the action/MagicLink stack. These bars used to
   // butt straight up against the Download button above and the body text
   // below, so the whole block read as one cramped slab.
