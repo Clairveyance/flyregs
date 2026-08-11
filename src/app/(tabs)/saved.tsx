@@ -254,7 +254,13 @@ export default function SavedScreen() {
     })
     return () => { cancelled = true }
   }, []))
-  const folderCap = serverFolderCap ?? (isPremium ? Infinity : PRO_FOLDER_CAP)
+  // RC, 2026-08-11: folders require Pro outright now (see PRO_FOLDER_CAP's
+  // comment) -- a Free/Plus account's fallback cap must be 0, not
+  // PRO_FOLDER_CAP, or a downgraded-past-Pro account would see up to 3
+  // "kept" folders client-side during the brief window before
+  // serverFolderCap lands, same stale assumption folder_visible_cap() had
+  // server-side (see migrations_fix_downgrade_retains_over_cap_data.sql).
+  const folderCap = serverFolderCap ?? (isPremium ? Infinity : hasProAccess ? PRO_FOLDER_CAP : 0)
   const visibleFolders = folderReorderMode ? folders : folders.slice(0, folderCap)
   const lockedFolderCount = folders.length - Math.min(folders.length, folderCap)
 
