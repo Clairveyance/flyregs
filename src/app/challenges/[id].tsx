@@ -239,6 +239,17 @@ export default function ChallengeGameScreen() {
     if (!challenge || rematching) return
     const opponentIds = challenge.others.map((o) => o.userId)
     if (opponentIds.length === 0) return
+    // Same BB-006 pre-check as handleRespond above, same reason: reaching
+    // this results screen at all required being Premium when the duel was
+    // accepted, but Premium can lapse between then and tapping Rematch --
+    // without this, createChallenge()'s real server rejection ("Duels
+    // requires Premium") would surface raw inside "Could not start rematch,"
+    // no upgrade path, found in the same post-build-31 sweep that caught
+    // handleRespond's version of this gap.
+    if (!isPremium) {
+      router.push('/paywall?tier=premium' as any)
+      return
+    }
     setRematching(true)
     try {
       const newId = await createChallenge(
