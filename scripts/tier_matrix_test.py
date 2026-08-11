@@ -85,6 +85,26 @@ def probes(H):
     out["AskFlyRegs"] = f"HTTP {st}"
     st, d = call(f"{URL}/rest/v1/rpc/fleet_visible_cap", {}, {**H, "Content-Type": "application/json"})
     out["fleet cap"] = d if st == 200 else f"HTTP {st}"
+    # Added 2026-08-11, app-wide gating sweep -- these 6 were all real, live
+    # gaps found by real disposable-account testing (not the ?tier= stub)
+    # that this script's own narrower coverage never would have caught
+    # (it passed clean both before AND after each one was fixed). Extending
+    # coverage here is the actual fix for "keeps finding more gating
+    # issues" -- a one-off audit finds today's gaps, this is what stops
+    # tomorrow's regression of the SAME ones.
+    one("AD revision text","content_revisions_gated?select=added_text&doc_type=eq.ad&added_text=not.is.null&limit=1")
+    one("MagicLink cited_id","document_citations_gated?select=cited_id&cited_type=eq.far&cited_id=not.is.null&limit=1")
+    one("AD parts",        "ad_parts?select=name&status=eq.active&limit=1")
+    st, d = call(f"{URL}/rest/v1/rpc/filter_documents", {"p_content_types": ["loi"], "p_limit": 1},
+                 {**H, "Content-Type": "application/json"})
+    out["filter_documents"] = len(d) if st == 200 and isinstance(d, list) else f"HTTP {st}"
+    st, d = call(f"{URL}/rest/v1/rpc/get_study_pool_count", {}, {**H, "Content-Type": "application/json"})
+    out["Study Mode pool"] = d if st == 200 else f"HTTP {st}"
+    st, d = call(f"{URL}/rest/v1/rpc/get_reg_of_the_day", {}, {**H, "Content-Type": "application/json"})
+    out["DailyReg"] = len(d) if st == 200 and isinstance(d, list) else f"HTTP {st}"
+    st, d = call(f"{URL}/rest/v1/rpc/search_far", {"query": "aircraft", "result_limit": 200},
+                 {**H, "Content-Type": "application/json"})
+    out["search depth"] = len(d) if st == 200 and isinstance(d, list) else f"HTTP {st}"
     return out
 
 rows = {}
