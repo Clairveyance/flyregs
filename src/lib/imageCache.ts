@@ -48,6 +48,24 @@ function localFileFor(key: string, remoteUrl: string): File {
   return new File(Paths.document, `imagecache_${key}_${versionFor(remoteUrl)}.jpg`)
 }
 
+// Shared by both getCachedImageUri's fire-and-forget background refresh and
+// downloadImageToCache's genuinely-awaited download below -- one real
+// download-and-bookkeeping implementation, not two copies that could drift.
+async function downloadAndCache(key: string, remoteUrl: string, local: File): Promise<string | null> {
+  try {
+    const downloaded = await File.downloadFileAsync(remoteUrl, local, { idempotent: true })
+    const prevUrl = await setCacheEntry(key, remoteUrl)
+    if (prevUrl && prevUrl !== remoteUrl) {
+      try { localFileFor(key, prevUrl).delete() } catch {}
+    }
+    return downloaded.uri
+  } catch {
+    // Offline or the fetch failed — whatever's already cached (if anything)
+    // keeps showing; nothing worse happens.
+    return null
+  }
+}
+
 // Returns the best available local URI for `remoteUrl` right away — a
 // previously cached copy if one exists (even with no network at all) —
 // while downloading a fresh copy in the background whenever `remoteUrl`
@@ -56,6 +74,19 @@ function localFileFor(key: string, remoteUrl: string): File {
 // re-check of the same one). `idempotent: true` lets the download overwrite
 // the existing file atomically instead of throwing/needing a manual delete
 // first, so whatever's already on screen never flashes blank mid-refresh.
+//
+// Deliberately does NOT wait for that background download before
+// resolving -- the whole point for its callers (avatars, shared-folder
+// owner photos rendered inline in a list) is an instant response with a
+// later swap-in, never a blocking spinner. A caller that actually needs to
+// KNOW the bytes are on disk before proceeding (offline downloads, see
+// downloadImageToCache below) must not use this function -- confirmed live,
+// post-build-31 sweep: handleDownload() in ac/[id].tsx used to Promise.
+// allSettled over this function expecting it to wait, but it resolves in
+// single-digit milliseconds regardless of image size or network speed,
+// letting "Saved offline" fire while every figure image was still mid-
+// download in the background -- a real race if the network dropped before
+// that background download finished, with no error or placeholder shown.
 export async function getCachedImageUri(
   key: string,
   remoteUrl: string,
@@ -76,22 +107,23 @@ export async function getCachedImageUri(
   const isFresh = map[key] === remoteUrl && local.exists
 
   if (!isFresh) {
-    ;(async () => {
-      try {
-        const downloaded = await File.downloadFileAsync(remoteUrl, local, { idempotent: true })
-        const prevUrl = await setCacheEntry(key, remoteUrl)
-        onUpdate?.(downloaded.uri)
-        if (prevUrl && prevUrl !== remoteUrl) {
-          try { localFileFor(key, prevUrl).delete() } catch {}
-        }
-      } catch {
-        // Offline or the fetch failed — whatever's already cached (if
-        // anything) keeps showing; nothing worse happens.
-      }
-    })()
+    downloadAndCache(key, remoteUrl, local).then((uri) => { if (uri) onUpdate?.(uri) })
   }
 
   return local.exists ? local.uri : null
+}
+
+// The awaitable counterpart to getCachedImageUri, for the one caller that
+// actually needs to know the real bytes are on disk before it's honest to
+// say "this is available offline" -- see that function's own comment for
+// the exact bug this exists to close. Resolves only once the download
+// genuinely finishes (or fails); never returns before the file is real.
+export async function downloadImageToCache(key: string, remoteUrl: string): Promise<string | null> {
+  if (Platform.OS === 'web') return null
+  const local = localFileFor(key, remoteUrl)
+  const map = await getCacheMap()
+  if (map[key] === remoteUrl && local.exists) return local.uri
+  return downloadAndCache(key, remoteUrl, local)
 }
 
 // React binding for getCachedImageUri — starts by showing `remoteUrl`

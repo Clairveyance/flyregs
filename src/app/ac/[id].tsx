@@ -16,7 +16,7 @@ import { ACBody, ACBodyHandle } from '@/components/ACBody'
 import { addRecent } from '@/lib/recents'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
 import { getDownloads, isDownloaded, addDownload, removeDownload } from '@/lib/downloads'
-import { getCachedImageUri } from '@/lib/imageCache'
+import { downloadImageToCache } from '@/lib/imageCache'
 import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
 import { blockText, previewBlockCount, ACBlock } from '@/lib/acFormat'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
@@ -493,12 +493,21 @@ export default function ACDetailScreen() {
     // exist on disk would be a lie the moment the device loses signal.
     setDownloadBusy(true)
     // Pre-cache every image now, while there's still a network connection to
-    // fetch them with -- getCachedImageUri persists to local disk (see
+    // fetch them with -- downloadImageToCache persists to local disk (see
     // imageCache.ts) keyed by each figure/formula's own id, which is exactly
     // what FigureViewer/FormulaRefViewer now read from at render time. This
     // is what actually makes T&Fs viewable (and thus rotatable, once the
     // image loads at all) with no network -- storing just the label/caption
     // metadata below would leave the section listed but every image broken.
+    // Uses downloadImageToCache, NOT getCachedImageUri -- confirmed live,
+    // post-build-31 sweep: getCachedImageUri fires its real download in a
+    // detached background task and returns almost instantly regardless of
+    // image size, which meant this whole Promise.allSettled resolved in
+    // single-digit milliseconds while every image was still mid-download,
+    // directly contradicting the "not optimistic" comment right above --
+    // "Saved offline" could fire before the bytes existed. downloadImageToCache
+    // is the awaitable counterpart, added specifically for this call site;
+    // it doesn't resolve until the download actually finishes or fails.
     // allSettled, not all -- one image failing to cache (bad connection mid-
     // transfer, expo-file-system genuinely unsupported on this platform)
     // must never take down the whole download and lose the reliable text
@@ -506,8 +515,8 @@ export default function ACDetailScreen() {
     // Promise.all version) silently aborted before addDownload ever ran,
     // leaving the button stuck on "Saving…" forever with nothing saved.
     await Promise.allSettled([
-      ...(figures ?? []).map((f) => getCachedImageUri(f.id, f.image_url)),
-      ...(formulaRefs ?? []).map((f) => getCachedImageUri(f.id, f.image_url)),
+      ...(figures ?? []).map((f) => downloadImageToCache(f.id, f.image_url)),
+      ...(formulaRefs ?? []).map((f) => downloadImageToCache(f.id, f.image_url)),
     ])
     // pdf_blocks is already loaded in `ac` (it's part of the main fetch above) —
     // that's also exactly what ACBody renders, so caching it here is what

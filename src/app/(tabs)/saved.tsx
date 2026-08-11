@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { View, Text, Image, FlatList, Pressable, TextInput, StyleSheet, Switch, KeyboardAvoidingView, Keyboard, Platform, Share, RefreshControl } from 'react-native'
+import { View, Text, Image, FlatList, Pressable, TextInput, StyleSheet, Switch, KeyboardAvoidingView, Keyboard, Platform, Share, RefreshControl, ActivityIndicator } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
@@ -119,6 +119,15 @@ export default function SavedScreen() {
   const [folders, setFolders] = useState<Folder[]>([])
   const [collaborations, setCollaborations] = useState<SharedFolderSummary[]>([])
   const [sharedByMe, setSharedByMe] = useState<SharedByMeFolder[]>([])
+  // Unlike bookmarks/folders/downloads (AsyncStorage-first, effectively
+  // instant), collaborations/sharedByMe are genuine network round-trips --
+  // both arrays start empty, so "0 items" and "still loading" were
+  // indistinguishable, and join/[token].tsx deep-links directly into
+  // exactly this screen right after a successful join, guaranteeing the
+  // race fires on the one path most likely to make a user think their
+  // invite silently failed. challenges/index.tsx already has this guard;
+  // saved.tsx never did. Found in the post-build-31 sweep.
+  const [sharedLoading, setSharedLoading] = useState(true)
   const [sharedSubTab, setSharedSubTab] = useState<'withMe' | 'fromMe'>('withMe')
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({})
   const [pickerAC, setPickerAC] = useState<BookmarkAC | null>(null)
@@ -258,8 +267,14 @@ export default function SavedScreen() {
     // Joining a shared folder is open to any tier (only the owner needs
     // Premium to create one), so this is gated on being signed in, not Premium.
     if (session?.user?.id) {
-      getMyCollaborations().then(setCollaborations)
-      getMySharedFolders().then(setSharedByMe)
+      setSharedLoading(true)
+      Promise.all([getMyCollaborations(), getMySharedFolders()]).then(([c, s]) => {
+        setCollaborations(c)
+        setSharedByMe(s)
+        setSharedLoading(false)
+      })
+    } else {
+      setSharedLoading(false)
     }
   }, [session?.user?.id])
 
@@ -886,7 +901,11 @@ export default function SavedScreen() {
           </View>
 
           {sharedSubTab === 'withMe' ? (
-            collaborations.length === 0 ? (
+            sharedLoading ? (
+              <View style={styles.center}>
+                <ActivityIndicator color={tokens.blu} />
+              </View>
+            ) : collaborations.length === 0 ? (
               <View style={styles.center}>
                 <Icon name="person.2.fill" size={fs(40)} color={tokens.t4} />
                 <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Nothing shared with you yet</Text>
@@ -933,6 +952,10 @@ export default function SavedScreen() {
                 )}
               />
             )
+          ) : sharedLoading ? (
+            <View style={styles.center}>
+              <ActivityIndicator color={tokens.blu} />
+            </View>
           ) : sharedByMe.length === 0 ? (
             <View style={styles.center}>
               <Icon name="person.2.fill" size={fs(40)} color={tokens.t4} />
