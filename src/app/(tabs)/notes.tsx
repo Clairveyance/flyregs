@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import * as Sentry from '@sentry/react-native'
 import { View, Text, FlatList, Pressable, StyleSheet, Switch, ActivityIndicator } from 'react-native'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
@@ -126,7 +127,13 @@ export default function NotesScreen() {
     // own id rather than update the original. Plain update-by-id instead,
     // authorized by owners_manage_shared_notes.
     if (saved.authorId) {
-      updateSharedNote(saved.id, { title: saved.title, body: saved.body })
+      // Fire-and-forget by design (the optimistic local update above is
+      // what the user actually sees) -- but updateSharedNote can now throw
+      // (see its own comment: RLS can silently drop this write). This was
+      // a bare unhandled-rejection risk with no visibility at all if that
+      // ever fires here; at minimum track it, since the alternative is the
+      // exact same silent-data-loss shape this fix exists to close.
+      updateSharedNote(saved.id, { title: saved.title, body: saved.body }).catch((err) => Sentry.captureException(err))
     } else {
       syncPushNote(saved)
     }

@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import * as Sentry from '@sentry/react-native'
 import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Platform, RefreshControl, Modal, KeyboardAvoidingView, ActivityIndicator } from 'react-native'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
@@ -550,7 +551,11 @@ export default function FolderDetail() {
     await saveNotes(all.map((n) => (n.id === updated.id ? updated : n)))
     setNoteEntries((prev) => prev.map((e) => (e.data.id === updated.id ? { ...e, data: updated } : e)))
     if (updated.authorId) {
-      updateSharedNote(updated.id, { title: updated.title, body: updated.body })
+      // Fire-and-forget by design, same as notes.tsx's identical pattern --
+      // but updateSharedNote can now throw (RLS can silently drop this
+      // write, see its own comment). Track rather than let it become a
+      // bare unhandled rejection with zero visibility.
+      updateSharedNote(updated.id, { title: updated.title, body: updated.body }).catch((err) => Sentry.captureException(err))
     } else {
       syncPushNote(updated)
     }

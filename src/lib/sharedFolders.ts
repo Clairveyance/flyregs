@@ -574,17 +574,40 @@ export async function addSharedFolderNote(folderId: string, title: string, body:
   if (itemError) throw itemError
 }
 
+// Thrown by updateSharedNote specifically when RLS silently dropped the
+// write -- see that function's own comment for why this needs its own
+// error class rather than a generic throw.
+export class SharedNoteAccessLostError extends Error {
+  constructor() {
+    super('You no longer have edit access to this note.')
+    this.name = 'SharedNoteAccessLostError'
+  }
+}
+
 // Plain update-by-id -- see the section comment above for why this can't be
 // the normal syncPushNote upsert. Used for editing a note in a shared
 // folder regardless of who authored it (the owner editing a collaborator's
 // note, an editor-collaborator editing anyone's), and reused by notes.tsx
 // for the owner's own local Notes tab when the open note is authorId-tagged.
+//
+// Selects the row back and checks it actually came back, rather than just
+// checking `error` -- confirmed live (post-build-31 sweep) that PostgREST
+// returns a clean 2xx with zero rows affected when RLS's WHERE-clause
+// filter matches nothing, which is exactly what happens when an owner
+// downgrades a collaborator's collab_mode to read_only while that
+// collaborator still has an edit open: `editors_manage_shared_notes`
+// re-checks collab_mode live on every query, so the very next save from
+// that already-open screen silently writes nothing. The caller was reading
+// that as success (no `error`), updating its own local state, and telling
+// the user the edit was saved when it never reached the database.
 export async function updateSharedNote(noteId: string, updates: { title?: string; body?: string }): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('synced_notes')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', noteId)
+    .select('id')
   if (error) throw error
+  if (!data || data.length === 0) throw new SharedNoteAccessLostError()
 }
 
 // Resolves collaborator-authored (FolderItem.authorId-tagged) non-note items

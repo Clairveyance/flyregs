@@ -11,7 +11,7 @@ import {
   getSharedFolderACItems, getSharedFolderNoteItems, leaveSharedFolder, markSharedFolderViewed,
   getSharedFolderFARItems, getSharedFolderAIMItems, getSharedFolderPCGItems, getSharedFolderADItems, getSharedFolderLOIItems,
   getSharedFolderDictionaryItems, FolderCollabMode, removeSharedFolderItem, addSharedFolderNote, updateSharedNote,
-  resolveMissingAsHighlights, useFolderRealtime,
+  resolveMissingAsHighlights, useFolderRealtime, SharedNoteAccessLostError,
 } from '@/lib/sharedFolders'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
@@ -361,7 +361,18 @@ export default function SharedFolderDetail() {
       setNotes((prev) => prev.map((n) => (n.id === openNote.id ? updated : n)))
       setOpenNote(updated)
       setNoteEditing(false)
-    } catch {
+    } catch (err) {
+      // A stale "retry in a moment" message here would be actively wrong --
+      // if the owner downgraded this account to read-only while this note
+      // was open, the write can never succeed no matter how many times it's
+      // retried. Found in the post-build-31 sweep: this used to look like a
+      // real save (no error thrown), silently dropping the edit entirely.
+      if (err instanceof SharedNoteAccessLostError) {
+        confirm({ title: 'No longer editable', message: 'This folder was switched to read-only, so your changes here couldn’t be saved. Reload the folder to see the current version.', cancelLabel: null })
+        setNoteEditing(false)
+        load()
+        return
+      }
       confirm({ title: 'Error', message: 'Could not save. Try again in a moment.', cancelLabel: null })
     }
   }
