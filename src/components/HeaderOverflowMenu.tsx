@@ -86,6 +86,7 @@ export function HeaderOverflowMenu({
                   setOpen(false)
                   InteractionManager.runAfterInteractions(() => item.onPress())
                 }}
+                disabled={item.disabled}
                 style={[styles.row, i < items.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
               >
                 <Icon name={item.icon} size={fs(18)} color={item.disabled ? tokens.t4 : tokens.t2} />
