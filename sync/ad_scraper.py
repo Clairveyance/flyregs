@@ -407,6 +407,16 @@ def log_scraper_run(run: dict) -> None:
         )
         if not r.ok:
             log.error(f"log_scraper_run: insert failed ({r.status_code}): {r.text[:500]}")
+        else:
+            # Confirms the POST itself returned success -- added after a
+            # real scheduled run (2026-08-10) left no row in scraper_runs
+            # with zero errors/exceptions anywhere in the job log, an
+            # un-diagnosable silent gap because success was already silent
+            # by design here, same as failure used to be before the
+            # 2026-08-09 fixes on the sibling scrapers. If this ever fires
+            # again with still no row landing, the problem is downstream of
+            # this POST (Supabase-side), not a swallowed client exception.
+            log.info(f"log_scraper_run: inserted ({r.status_code})")
     except Exception as e:
         log.error(f"log_scraper_run: insert raised: {e}")
 

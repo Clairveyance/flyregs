@@ -296,6 +296,14 @@ def log_scraper_run(run: dict) -> None:
         )
         if not r.ok:
             log.error(f"log_scraper_run: insert failed ({r.status_code}): {r.text[:500]}")
+        else:
+            # A silently-dropped row despite a success POST and zero
+            # exceptions is what ad_scraper.py hit on a real 2026-08-10
+            # scheduled run -- this confirms the POST itself succeeded, so
+            # a repeat of that shape points downstream of this call, not at
+            # a swallowed client exception. See ad_scraper.py's own
+            # log_scraper_run() for the full incident.
+            log.info(f"log_scraper_run: inserted ({r.status_code})")
     except Exception as e:
         log.error(f"log_scraper_run: insert raised: {e}")
 
