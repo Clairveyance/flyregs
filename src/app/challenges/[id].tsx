@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
+import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
@@ -88,6 +89,7 @@ function FilterSummary({ challenge, tokens, fs }: { challenge: MyChallenge; toke
 export default function ChallengeGameScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { tokens } = useTheme()
+  const { isPremium } = useAuth()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web, so every dialog here was invisible in the Browser pane.
   // See components/ConfirmDialog.tsx.
@@ -152,6 +154,20 @@ export default function ChallengeGameScreen() {
 
   const handleRespond = async (accept: boolean) => {
     if (!id) return
+    // Duel Alerts (the push that gets someone here) are Pro+, but actually
+    // playing a Duel is Premium-only -- a Pro challenger's invite can reach
+    // a Pro (non-Premium) recipient. Gate synchronously here, same pattern
+    // as every other "tapped a gated action" spot in the app (BB-006):
+    // check first, never let a doomed respond_to_challenge call reach the
+    // server just to bounce back a raw "Duels requires Premium" string
+    // inside a dialog titled "Duel unavailable" -- confusing, and no path
+    // to actually upgrade. Decline never requires Premium (respond_to_
+    // challenge only checks entitlement when p_accept is true), so it's
+    // untouched.
+    if (accept && !isPremium) {
+      router.push('/paywall?tier=premium' as any)
+      return
+    }
     try {
       await respondToChallenge(id, accept)
     } catch (err: any) {
