@@ -1,0 +1,39 @@
+-- RC, 2026-08-11: "I'm seeing something weird happen where I'm getting
+-- zero hits with magic link on pretty much anything I look at." Confirmed:
+-- build 31 (uploaded 2026-08-08 -- the LATEST build, there is no newer
+-- one, so this is a live production issue affecting every current real
+-- user, not a stale-device artifact) predates today's earlier
+-- document_citations_gated migration (migrations_fix_document_citations_
+-- tap_through_leak.sql, part of this same session's gating sweep). That
+-- migration correctly closed a real leak (anon curl could read the full
+-- citation graph with zero auth), but its REVOKE SELECT ON
+-- document_citations FROM anon, authenticated -- followed by a re-grant of
+-- only 3 safe columns (id, citing_type, cited_type) -- broke every
+-- currently-shipped client, since build 31's compiled query still hits the
+-- raw document_citations table by name (it was built 3 days before the
+-- _gated view existed in the codebase at all) and requests citing_id/
+-- cited_id/label, columns it no longer has permission to see -- a
+-- PERMISSION DENIED, not a silent partial result, which the old client
+-- code apparently swallows as "zero citations."
+--
+-- The current, uncommitted-to-a-build codebase is NOT affected -- every
+-- real call site already queries document_citations_gated, not the raw
+-- table (confirmed by grep: every .from('document_citations...') in src/
+-- is .from('document_citations_gated')). This migration only restores
+-- functionality for the build that's ALREADY LIVE.
+--
+-- Deliberately asymmetric: authenticated gets its full original column
+-- access back (citing_id/cited_id/label), anon does not. This closes the
+-- worst half of the original leak for good (a stranger with no account at
+-- all can never again read the citation graph via raw REST) while
+-- accepting a narrower, temporary regression for the other half (a
+-- SIGNED-IN but non-Pro user on the OLD build can see full citation
+-- targets via the raw table, since raw-table column grants can't apply a
+-- per-row Pro check the way the view does -- that's the whole reason the
+-- view exists). This narrower gap closes itself, with no further server
+-- change needed, the moment users update past build 31 to any build built
+-- from this codebase, since that build queries the view, not this table.
+-- Needs a new build shipped soon -- once real-world usage has moved off
+-- build 31, this authenticated grant should be revoked again to close the
+-- gap fully.
+GRANT SELECT ON public.document_citations TO authenticated;

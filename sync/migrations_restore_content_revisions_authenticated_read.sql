@@ -1,0 +1,22 @@
+-- Same shape, same cause, same fix as
+-- migrations_restore_document_citations_authenticated_read.sql (see that
+-- file's comment for the full story) -- found while checking whether
+-- today's OTHER REVOKE-pattern migration had the identical problem. It
+-- did: migrations_fix_content_revisions_ungated_leak.sql revoked SELECT on
+-- content_revisions and re-granted only 7 safe columns to anon/
+-- authenticated, but build 31 (uploaded 2026-08-08, still the latest
+-- shipped build) selects added_text/removed_text too (the "What's
+-- Changed" diff feature's whole payload) -- neither column is in the
+-- restored grant, so build 31's What's Changed screen has been getting a
+-- permission-denied on every request since this morning's fix landed, for
+-- every current real user, not just an anon caller.
+--
+-- Same asymmetric tradeoff: authenticated gets full column access back
+-- (closes the live production breakage), anon stays restricted to the 7
+-- safe columns (keeps the worst half of the original leak -- a stranger
+-- with no account reading every AD's real regulatory diff text via curl --
+-- closed for good). Narrower residual: a signed-in but non-Plus user on
+-- build 31 can see full diff text via the raw table (no per-row Plus check
+-- possible on a column grant, that's what the _gated view is for) --
+-- self-closes once real usage moves off build 31.
+GRANT SELECT ON public.content_revisions TO authenticated;
