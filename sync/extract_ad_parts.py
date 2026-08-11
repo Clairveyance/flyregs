@@ -66,14 +66,22 @@ VALID_TYPES = {"engine", "propeller", "avionics", "airframe", "appliance", "othe
 
 PROMPT = """You are extracting NAMED PARTS/COMPONENTS from an FAA Airworthiness Directive's applicability text.
 
-The goal: find specific parts, appliances, engines, propellers, or avionics equipment this AD is keyed to -- NOT the aircraft make/model itself (that's tracked separately). Many ADs apply to a whole airframe type; those should return an empty list. Some ADs are keyed to a specific part regardless of what it's installed on (e.g. "AWI mufflers... installed on but not limited to the airplanes listed...") -- those are exactly what to extract.
+The goal: find specific parts, appliances, engines, propellers, or avionics equipment THAT ARE THE ACTUAL SUBJECT OF THE UNSAFE CONDITION -- NOT the aircraft make/model itself (that's tracked separately). Many ADs apply to a whole airframe type; those should return an empty list. Some ADs are keyed to a specific part regardless of what it's installed on (e.g. "AWI mufflers... installed on but not limited to the airplanes listed...") -- those are exactly what to extract.
+
+Three real, confirmed mistakes this exact extraction has made before -- read each carefully, they are easy to get wrong:
+
+1. NARROWEST CULPRIT ONLY, never its parent system. If the text names both a specific component AND the broader system it lives inside (e.g. "GSA 9000 yaw servo software" AND "G1000 integrated avionics system"), extract ONLY the specific component. Do not also extract the parent system as a second entry -- a plain "G1000" is installed on thousands of unrelated aircraft that this AD does not apply to, and extracting it would make this AD falsely match every one of them. Real example that was wrongly extracted before: an AD about a specific "GSA 9000 yaw servo" also got tagged with the generic "G1000 integrated avionics system" -- the second tag was wrong and had to be deleted.
+
+2. THE DEFECT, NOT WHAT SCOPES WHO'S AFFECTED. Some applicability text names equipment only to define WHICH sub-fleet is covered ("Model X helicopters WITH AN AUTOPILOT installed..."), where the autopilot itself is not defective -- its mere presence is just how the FAA identifies the affected serial-number range. Do not extract equipment that is only a scoping/qualifying condition like this. Ask: is this part actually broken/the subject of the corrective action, or is it just how the AD decides which aircraft count? Real example that was wrongly extracted before: an AD's real defect was a tail rotor control stop screw, but "Autopilot" (present only as a sub-fleet qualifier) was wrongly extracted as if it were the defective part.
+
+3. WATCH FOR EXCLUSIONS -- "except", "excluding", "other than", "not equipped with", "unless". A part named ONLY inside exclusion language is the OPPOSITE of a match criterion: having that part means an aircraft is NOT covered by this AD, not that it is. Never extract a part whose only mention is inside an exclusion clause. Real example that was wrongly extracted before: applicability text read "...except helicopters equipped with a Lycoming engine" (meaning Lycoming-equipped aircraft are EXEMPT) -- "Lycoming Engine" was wrongly extracted as if a Lycoming engine were what triggered the AD.
 
 Applicability text:
 ---
 {text}
 ---
 
-Return ONLY a JSON array (no other text), one object per distinct named part/component actually mentioned, each shaped like:
+Return ONLY a JSON array (no other text), one object per distinct named part/component that is genuinely the subject of the unsafe condition (applying the three rules above), each shaped like:
 {{"name": "<short part name, e.g. 'AWI Mufflers' or 'Lycoming O-360 Engine'>", "component_type": "<one of: engine, propeller, avionics, airframe, appliance, other>", "manufacturer": "<manufacturer name or null>"}}
 
 If no specific part is named (the AD just applies to the airframe/model generally), return an empty array: []
@@ -98,13 +106,22 @@ def anthropic_extract(text: str) -> list[dict]:
     resp.raise_for_status()
     data = resp.json()
     raw = data["content"][0]["text"].strip()
-    # Model sometimes wraps in a ```json fence despite instructions -- strip if present.
-    if raw.startswith("```"):
-        raw = raw.strip("`")
-        if raw.startswith("json"):
-            raw = raw[4:]
+    # Model sometimes wraps in a ```json fence, or -- confirmed live once the
+    # three guardrail rules above were added -- prefixes a "Reasoning:" prose
+    # explanation before an empty-array answer specifically, despite "Return
+    # ONLY a JSON array (no other text)". "Return ONLY" is a request, not a
+    # guarantee; parse defensively instead of trusting compliance. Extract
+    # the first top-level [...] block from wherever it lands in the response
+    # rather than assuming the whole string is clean JSON -- a real
+    # extraction (not just an empty array) could hit the same prose-prefix
+    # shape and get silently dropped by a parser that isn't this tolerant.
+    start = raw.find("[")
+    end = raw.rfind("]")
+    if start == -1 or end == -1 or end < start:
+        log.warning(f"  No JSON array found in model output, skipping: {raw[:200]}")
+        return []
     try:
-        parts = json.loads(raw)
+        parts = json.loads(raw[start:end + 1])
     except json.JSONDecodeError:
         log.warning(f"  Could not parse model output as JSON, skipping: {raw[:200]}")
         return []
