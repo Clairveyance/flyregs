@@ -1,0 +1,39 @@
+-- URGENT, same-day follow-up to migrations_gate_storage_buckets.sql.
+-- RC hit this live while testing: "when you try to open the pdf it opens
+-- to a blank error page." Root cause is the exact same class of mistake
+-- as gotcha_rls_fix_broke_shipped_build.md (document_citations/
+-- content_revisions, fixed earlier today) -- except worse, because Storage
+-- buckets have no column-level middle ground the way a table grant does.
+-- A bucket is either fully public (old /object/public/<bucket>/<path> URLs
+-- work for everyone) or fully private (those URLs 404 with "Bucket not
+-- found" for EVERYONE, no partial/authenticated-only restore possible --
+-- confirmed live, that endpoint doesn't even consult RLS, it's gated
+-- purely by the bucket's own public flag). Build 31 (still the only build
+-- that exists) has zero knowledge of today's new signed-URL client code --
+-- it reads pdf_url_cached directly and hands it to a WebView as a plain
+-- GET with no way to attach a per-user auth token -- so EVERY "Open PDF"
+-- action on every AC and LOI has been broken for every real user since
+-- this morning's fix landed.
+--
+-- Reverting ONLY advisory-circulars and legal-interpretations back to
+-- public -- NOT ac-figures/ac-formula-refs. This isn't a blanket undo:
+-- confirmed earlier today (see PROJECT_NOTES/flyregs_pending.md) that
+-- every single row in both these tables also has an already-public
+-- alternate source (pdf_url_faa / source_url, pointing at faa.gov/
+-- govinfo.gov/DRS) -- reverting the bucket doesn't meaningfully increase
+-- what's accessible, it was always redundant protection for these two
+-- specifically. ac-figures (4230 rows, no alternate source anywhere) and
+-- ac-formula-refs stay private -- that's where the real, non-redundant
+-- protection is, and their own build-31 breakage (broken figure thumbnails/
+-- viewer, not yet reported but equally real) is accepted until a new
+-- build ships, rather than reopening the one bucket with no public
+-- alternate.
+--
+-- The gated_read_advisory_circulars/gated_read_legal_interpretations RLS
+-- policies from this morning are left in place, untouched -- Storage
+-- ignores RLS entirely for a public bucket's /object/public/ endpoint, so
+-- they're simply dormant, not doing anything wrong, and take over
+-- automatically the moment this gets re-privatized once a new build ships
+-- and real usage has moved off build 31.
+UPDATE storage.buckets SET public = true
+WHERE id IN ('advisory-circulars', 'legal-interpretations');
