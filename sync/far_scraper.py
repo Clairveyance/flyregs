@@ -431,6 +431,79 @@ def run_test(session: requests.Session):
         log.info(f"Body:  {(s['body_text'] or '')[:200]}")
 
 
+def reconcile_removed_sections(seen_section_numbers: set[str]) -> int:
+    """Delete any far_sections row NOT seen in this full run -- eCFR's own
+    feed only ever returns what's CURRENTLY codified, so a section that
+    used to be in our table but wasn't returned this time has been
+    repealed/reserved since the last full sync. Confirmed live 2026-08-11:
+    93.101/93.103 (the NY North Shore Helicopter Route rule, self-expired
+    2026-07-29) sat serving as "current law" for 12 days, reachable by 3
+    real MagicLink citations from Legal Interpretations, because this file
+    had zero delete/reconciliation logic at all -- unlike faa_scraper.py's
+    mark_cancelled_acs(). far_sections has no status column the way
+    advisory_circulars does, so unlike that sibling this is a real DELETE,
+    not a status flip -- there's nothing else a "current federal
+    regulations" table could correctly do with a row eCFR no longer serves.
+    Only called from run_full() (a full run covers every Part, so
+    "not seen" is meaningful); never from run_test's tiny subset.
+    """
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return 0
+    try:
+        # PostgREST silently caps an unpaginated .select() at 1000 rows --
+        # far_sections alone is 4200+, so this MUST page or it would treat
+        # every section past the first 1000 as "not seen" and delete real,
+        # current regulations. Same pattern as build_embeddings.py's own
+        # fetch_rows(), which hit this exact table for this exact reason.
+        db_section_numbers: set[str] = set()
+        offset = 0
+        while True:
+            resp = requests.get(
+                f"{SUPABASE_URL}/rest/v1/far_sections",
+                headers=_supa_headers(),
+                params={"select": "section_number", "limit": "1000", "offset": str(offset)},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            page = resp.json()
+            db_section_numbers.update(row["section_number"] for row in page)
+            if len(page) < 1000:
+                break
+            offset += 1000
+    except Exception as e:
+        log.error(f"  reconcile: couldn't read current far_sections, skipping (non-fatal): {e}")
+        return 0
+
+    stale = db_section_numbers - seen_section_numbers
+    if not stale:
+        return 0
+
+    log.warning(f"  {len(stale)} section(s) no longer in eCFR's current feed, removing: {sorted(stale)}")
+    stale_list = ",".join(stale)
+    try:
+        # Dead citations first (FK-shaped cleanup, same order as the manual
+        # 2026-08-11 fix) -- both directions, a removed section can be
+        # either the citing or the cited side.
+        for col in ("cited_id", "citing_id"):
+            requests.delete(
+                f"{SUPABASE_URL}/rest/v1/document_citations",
+                headers=_supa_headers(),
+                params={"and": f"({col}.in.({stale_list}),cited_type.eq.far)" if col == "cited_id"
+                        else f"({col}.in.({stale_list}),citing_type.eq.far)"},
+                timeout=30,
+            ).raise_for_status()
+        requests.delete(
+            f"{SUPABASE_URL}/rest/v1/far_sections",
+            headers=_supa_headers(),
+            params={"section_number": f"in.({stale_list})"},
+            timeout=30,
+        ).raise_for_status()
+    except Exception as e:
+        log.error(f"  reconcile: delete failed (non-fatal, will retry next full sync): {e}")
+        return 0
+    return len(stale)
+
+
 def run_full(session: requests.Session):
     log.info("=" * 60)
     log.info("FULL SCRAPE — 14 CFR Chapter I")
@@ -452,6 +525,7 @@ def run_full(session: requests.Session):
     total_sections = 0
     errors = 0
     error_details = []
+    seen_section_numbers: set[str] = set()
 
     for i, p in enumerate(parts, 1):
         part = p["part"]
@@ -461,6 +535,7 @@ def run_full(session: requests.Session):
             now = datetime.now(timezone.utc).isoformat()
             for s in sections:
                 s["updated_at"] = now
+                seen_section_numbers.add(s["section_number"])
             if sections and upsert_sections(sections):
                 total_sections += len(sections)
                 log.info(f"  → {len(sections)} sections")
@@ -471,6 +546,16 @@ def run_full(session: requests.Session):
             errors += 1
             error_details.append({"part": part, "error": str(e)})
         time.sleep(REQUEST_DELAY)
+
+    # Only reconcile deletions if this run actually covered every part
+    # cleanly -- if any part errored, seen_section_numbers is an incomplete
+    # picture of "what eCFR currently has," and treating that gap as "these
+    # sections were repealed" would delete real, still-current sections.
+    removed = 0
+    if errors == 0:
+        removed = reconcile_removed_sections(seen_section_numbers)
+    else:
+        log.warning(f"  Skipping stale-section reconciliation: {errors} part(s) failed this run, seen-set is incomplete")
 
     # Real amendment dates, from eCFR's own version index. This has to run
     # AFTER the section upserts above, because those unconditionally rewrite
@@ -499,7 +584,7 @@ def run_full(session: requests.Session):
     log_scraper_run(run_record)
     log.info(
         f"\nDone. Parts={len(parts)} Sections={total_sections} "
-        f"Dated={amended} Errors={errors}"
+        f"Dated={amended} Removed={removed} Errors={errors}"
     )
 
 
