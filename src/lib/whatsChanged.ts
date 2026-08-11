@@ -65,8 +65,12 @@ export function splitParagraphs(text: string | null): string[] {
 }
 
 export async function getRevisions(limit = 100): Promise<ContentRevision[]> {
+  // content_revisions_gated, not the raw table -- ac/ad revisions are
+  // Plus-tier content (added_text/removed_text redact to null server-side
+  // for non-Plus); far/aim/pcg stay ungated. See
+  // migrations_fix_content_revisions_ungated_leak.sql.
   const { data } = await supabase
-    .from('content_revisions')
+    .from('content_revisions_gated')
     .select('id, doc_type, doc_key, doc_id, title, added_text, removed_text, revised_at')
     .order('revised_at', { ascending: false })
     .limit(limit)
@@ -93,7 +97,7 @@ export async function getLatestRevision(
   docKey: string,
 ): Promise<ContentRevision | null> {
   const { data } = await supabase
-    .from('content_revisions')
+    .from('content_revisions_gated')
     .select('id, doc_type, doc_key, doc_id, title, added_text, removed_text, revised_at')
     .eq('doc_type', docType)
     .eq('doc_key', docKey)
