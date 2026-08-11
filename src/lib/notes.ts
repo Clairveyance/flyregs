@@ -20,62 +20,41 @@ export interface Note {
   authorId?: string
 }
 
-const SEED_NOTES: Note[] = [
-  {
-    id: 'seed-1',
-    title: 'CFI checkride prep',
-    body: 'Re-read 61-65K on flight instructor endorsements before the ride. Confirm the §61.195 limitations and the spin-training endorsement wording.',
-    linked_ac: '61-65K',
-    updated_at: new Date(Date.now() - 172_800_000).toISOString(),
-  },
-  {
-    id: 'seed-2',
-    title: 'Icing brief for students',
-    body: 'Holdover times vs. AC 91-74B — add a slide to syllabus lesson 7. Mention the difference between known vs. forecast icing.',
-    linked_ac: '91-74B',
-    updated_at: new Date(Date.now() - 432_000_000).toISOString(),
-  },
-  {
-    id: 'seed-3',
-    title: 'DPE question',
-    body: 'Logging PIC vs. sole manipulator — re-check 61.51(e) before I answer the student. Bring up at next standardization meeting.',
-    linked_ac: null,
-    updated_at: new Date(Date.now() - 604_800_000).toISOString(),
-  },
-  {
-    id: 'seed-4',
-    title: 'Reg change to watch',
-    body: "FAA fatigue rule changes for Part 135 operations — check if our pilot schedules need updating. Follow up after the new guidance has been in effect 90 days.",
-    linked_ac: null,
-    updated_at: new Date(Date.now() - 1_209_600_000).toISOString(),
-  },
-]
-
 export function makeNoteId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 }
 
-// Example notes shown on a fresh install (id starts with "seed-") are local
-// placeholder content, not real user data — they must never be pushed to a
-// synced account, or every new Premium user's cloud notes would start out
-// polluted with the same 4 fake demo notes.
+// RC, 2026-08-11: "We shouldn't be shipping any test notes or any other
+// example type data to any other account." A fresh install used to seed
+// itself with 4 fake demo notes (id prefix "seed-") on first read, purely
+// local placeholder content meant to show what a note looks like. The
+// guard below always kept them from being pushed to a synced account, but
+// that only stopped them from LEAKING -- it never stopped them from being
+// shown at all, which is what actually caused real confusion: a beta
+// tester's fresh account and RC's own account both display the exact same
+// hardcoded "CFI checkride prep" / "Icing brief for students" text, which
+// reads exactly like a real cross-account data leak even though it isn't
+// one. No more first-run content at all now -- a genuinely empty account
+// shows notes.tsx's own "No notes yet" empty state instead.
+//
+// isSeedNote() stays: any account whose local cache or synced_notes rows
+// already have one of the old seed- ids (created before this change)
+// still needs it excluded from sharing/sync, same as always -- this only
+// stops NEW seed notes from ever being created, it doesn't retroactively
+// touch what's already out there.
 export function isSeedNote(id: string): boolean {
   return id.startsWith('seed-')
 }
 
 // Same account-mismatch guard as folders.ts's getFolders() -- see that
 // function's own comment for the leak this closes. This store is likewise
-// global/unnamespaced (see syncOwner.ts). Deliberately returns [] without
-// touching AsyncStorage on a mismatch -- writing SEED_NOTES here would
-// overwrite (and destroy) the previous account's still-cached real notes.
+// global/unnamespaced (see syncOwner.ts).
 export async function getNotes(): Promise<Note[]> {
   try {
     const userId = await currentUserId()
     if (userId && !(await localDataBelongsTo(userId))) return []
     const raw = await AsyncStorage.getItem(NOTES_KEY)
-    if (raw) return JSON.parse(raw)
-    await AsyncStorage.setItem(NOTES_KEY, JSON.stringify(SEED_NOTES))
-    return SEED_NOTES
+    return raw ? JSON.parse(raw) : []
   } catch {
     return []
   }
