@@ -229,6 +229,14 @@ def scenario_study():
     print("STUDY MODE / FLASHCARDS  —  get_study_pool_count + get_study_queue")
     print("=" * 74)
     u = make_user("study")
+    # Study Mode is Pro-gated as of the 2026-08-11 gating sweep (both RPCs
+    # used to have zero tier check at all -- see gotcha_gating_sweep_2026_08_11.md).
+    # Same fix as grant_premium's own docstring describes for Duels: without
+    # this, every pool_count/queue_ids call below now correctly returns
+    # empty for a non-Pro account, which broke this scenario's actual job
+    # (testing filter LOGIC) rather than proving the new tier gate works --
+    # that gate already has its own live-verified coverage elsewhere.
+    grant_premium(u["id"])
     try:
         total = pool_count(u["jwt"])
         print(f"\n  baseline: ALL filters off = {total} items\n")
