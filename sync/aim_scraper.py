@@ -1098,9 +1098,13 @@ def run_full(session: requests.Session):
             for p in result["paragraphs"]:
                 p["updated_at"] = now
             if result["paragraphs"]:
-                if not _upsert("aim_paragraphs", result["paragraphs"], "paragraph_number"):
+                # Only counted on real success -- same fix as aim_figures
+                # below, applied here too rather than leaving this sibling
+                # block with the identical gap.
+                if _upsert("aim_paragraphs", result["paragraphs"], "paragraph_number"):
+                    total_paragraphs += len(result["paragraphs"])
+                else:
                     upsert_failures += 1
-                total_paragraphs += len(result["paragraphs"])
             if result["figures"]:
                 # Conflict key is (paragraph_number, sort_order, caption,
                 # occurrence) — NOT label, and NOT image_url.
@@ -1145,9 +1149,42 @@ def run_full(session: requests.Session):
                 # re-touches — see sync_aim.sh, which always runs the PDF
                 # backfill immediately afterward to restore it. Never run
                 # this scraper's full mode without that following step.
-                if not _upsert("aim_figures", result["figures"], "paragraph_number,sort_order,caption,occurrence"):
+                #
+                # Deduped on that exact conflict key immediately before
+                # upsert -- confirmed live 2026-08-11 while investigating a
+                # scraper_runs log showing aim_figures_total=252 against
+                # only 246 distinct FIG rows actually in the table.
+                # _disambiguate_figure_labels() only defends against a
+                # same-(paragraph, LABEL) collision; it doesn't catch two
+                # figures landing on the same (sort_order, caption) with
+                # DIFFERENT labels (e.g. one missing its <figcaption> number
+                # where a sibling has one) -- a case PostgREST's own upsert
+                # already silently collapses to one row (same semantics as
+                # a literal SQL multi-row INSERT...ON CONFLICT). Without
+                # this, total_figures -- summed from the pre-upsert list
+                # length -- reports every attempted row as if it landed,
+                # even the ones a same-batch collision just quietly dropped.
+                figures_by_key: dict[tuple, dict] = {}
+                for fig in result["figures"]:
+                    key = (fig["paragraph_number"], fig["sort_order"], fig["caption"], fig["occurrence"])
+                    figures_by_key[key] = fig
+                deduped_figures = list(figures_by_key.values())
+                if len(deduped_figures) != len(result["figures"]):
+                    log.info(f"  {len(result['figures'])} figures parsed, {len(deduped_figures)} distinct "
+                             f"after on-conflict-key dedup — keeping the later one per collision")
+                # Only counted on real success -- this used to add
+                # len(result["figures"]) unconditionally, so a page whose
+                # upsert genuinely failed (network error, timeout) still had
+                # its figures counted into the run's final total as if they
+                # were written, the same "reported success the DB doesn't
+                # back up" shape as ad_scraper.py's pre-fix silent-failure
+                # gap. Didn't cause the specific 252-vs-246 incident above
+                # (that run logged zero upsert failures) but is a real,
+                # separate, still-live gap worth closing regardless.
+                if _upsert("aim_figures", deduped_figures, "paragraph_number,sort_order,caption,occurrence"):
+                    total_figures += len(deduped_figures)
+                else:
                     upsert_failures += 1
-                total_figures += len(result["figures"])
             if result["citations"]:
                 resolved_citations = [
                     c for c in result["citations"]
@@ -1155,8 +1192,13 @@ def run_full(session: requests.Session):
                     and not (c["cited_type"] == "pcg" and c["cited_id"] not in known_pcg_ids)
                 ]
                 if resolved_citations:
-                    insert_citations(resolved_citations)
-                    total_citations += len(resolved_citations)
+                    # Same fix as the two blocks above -- insert_citations()
+                    # already returns a real success/failure bool, it just
+                    # wasn't being checked here.
+                    if insert_citations(resolved_citations):
+                        total_citations += len(resolved_citations)
+                    else:
+                        upsert_failures += 1
             log.info(f"  → {len(result['paragraphs'])} paragraphs, "
                      f"{len(result['figures'])} figures, {len(result['citations'])} citations")
         except Exception as e:

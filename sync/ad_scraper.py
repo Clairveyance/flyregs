@@ -582,6 +582,18 @@ def main():
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "status": "success" if (ad_errors == 0 and not upsert_failed) else "partial",
             "ad_total": len(ad_summaries),
+            # NOT "net-new rows inserted" -- ADs successfully parsed and
+            # upserted this run, full stop. Confirmed live 2026-08-11: a
+            # count of 5 with only 4 fresh created_at rows in the DB looked
+            # like undercounting but wasn't -- incremental mode's `since` is
+            # `gte` on the single latest citation_publish_date already
+            # stored, which is deliberately inclusive (an exclusive `gt`
+            # would silently skip a same-day AD that hadn't landed in the FR
+            # API yet on a prior run). Every run re-fetches and re-upserts
+            # whatever's already stored for that one boundary date -- a
+            # correct, idempotent no-op for it, just not a NEW row, and its
+            # updated_at doesn't move since there's no update trigger on
+            # this column. ad_added counting it is accurate, not a bug.
             "ad_added": len(rows),
             "ad_errors": ad_errors + (1 if upsert_failed else 0),
         })
