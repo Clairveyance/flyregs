@@ -263,6 +263,29 @@ def process_one(hit: dict, mode: str, known_far_sections: set[str] | None) -> di
     year_str = _subtext(hit, "Document Issue Year")
     year = int(year_str) if year_str.isdigit() else None
 
+    cfr_section_reference = _subtext(hit, "CFR Section Reference") or None
+    # DRS's own metadata occasionally expands a stated range ("Sections
+    # 91.181 through 91.215") into every individual section number FAR
+    # past the letter's actual stated endpoint -- confirmed on one 1990
+    # letter where this field ballooned to 1,540 pipe-separated entries
+    # (22KB) reaching all the way to 91.1721, nowhere near what the letter
+    # itself discusses. This is DRS's own data, not something we compute,
+    # so there's no parsing bug on our side to fix -- but blindly storing
+    # whatever DRS returns risks silently poisoning FAR-section cross-
+    # references for hundreds of unrelated sections. No real interpretation
+    # cites more than a few dozen sections (worst normal case seen: 27) --
+    # if DRS ever hands back something this obviously wrong again, drop it
+    # to null (a normal, already-handled state) and log it loudly, rather
+    # than storing 22KB of noise silently.
+    if cfr_section_reference and cfr_section_reference.count("|") > 60:
+        print(
+            f"WARNING: {slug!r} DRS CFR Section Reference has "
+            f"{cfr_section_reference.count('|') + 1} entries "
+            f"({len(cfr_section_reference)} chars) -- discarding as almost "
+            f"certainly a DRS metadata error, not storing."
+        )
+        cfr_section_reference = None
+
     record = {
         "slug": slug,
         "doc_unique_id": doc_unique_id,
@@ -272,7 +295,7 @@ def process_one(hit: dict, mode: str, known_far_sections: set[str] | None) -> di
         "issued_date": parse_issued_date(_subtext(hit, "Document Issue Date")),
         "source_url": f"{DRS_BASE}/browse/excelExternalWindow/{doc_unique_id}",
         "cfr_part_reference": _subtext(hit, "CFR Part Reference") or None,
-        "cfr_section_reference": _subtext(hit, "CFR Section Reference") or None,
+        "cfr_section_reference": cfr_section_reference,
         "summary": parsed["summary"],
         "body_text": body_text,
         "size_bytes": len(pdf_bytes) or None,
