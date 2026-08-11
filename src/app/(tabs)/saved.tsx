@@ -221,7 +221,30 @@ export default function SavedScreen() {
   // not shown, and reorder mode deliberately shows them all again -- that's
   // how you pick which three stay live. Same "you choose, we delete
   // nothing" principle as the aircraft downgrade.
-  const folderCap = isPremium ? Infinity : PLUS_FOLDER_CAP
+  //
+  // serverFolderCap backstops isPremium itself: isPremium comes from
+  // RevenueCat's own local CustomerInfo cache, refreshed only on sign-in
+  // and Supabase's ~hourly JWT auto-refresh (confirmed live, post-build-31
+  // sweep: no AppState foreground listener, no
+  // Purchases.addCustomerInfoUpdateListener anywhere in the app) -- so a
+  // real mid-session downgrade can leave isPremium reading stale-true for
+  // up to about an hour, during which this screen would otherwise show
+  // every folder uncapped. folder_visible_cap() is a live, un-cached
+  // auth.uid() lookup with no such staleness window; fetched once per
+  // screen focus and preferred over the local flag whenever it's landed.
+  // Never blocks rendering on it -- a failed/slow fetch just falls back to
+  // the same isPremium-derived cap this screen already used, matching the
+  // "a monitoring/secondary check must never break the primary feature"
+  // pattern used elsewhere in this codebase.
+  const [serverFolderCap, setServerFolderCap] = useState<number | null>(null)
+  useFocusEffect(useCallback(() => {
+    let cancelled = false
+    supabase.rpc('folder_visible_cap').then(({ data, error }) => {
+      if (!cancelled && !error && typeof data === 'number') setServerFolderCap(data)
+    })
+    return () => { cancelled = true }
+  }, []))
+  const folderCap = serverFolderCap ?? (isPremium ? Infinity : PLUS_FOLDER_CAP)
   const visibleFolders = folderReorderMode ? folders : folders.slice(0, folderCap)
   const lockedFolderCount = folders.length - Math.min(folders.length, folderCap)
 
