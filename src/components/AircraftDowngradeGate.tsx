@@ -29,7 +29,7 @@ export function AircraftDowngradeGate() {
   const { tokens } = useTheme()
   const fs = useFS()
   const ifs = useInputFS()
-  const { session, isPremium } = useAuth()
+  const { session } = useAuth()
   const pathname = usePathname()
   const [locked, setLocked] = useState<{ aircraftId: string; make: string; model: string; nickname: string | null }[]>([])
   const [busy, setBusy] = useState(false)
@@ -40,10 +40,20 @@ export function AircraftDowngradeGate() {
   const armed = typed.trim().toUpperCase() === 'DELETE'
 
   const check = useCallback(async () => {
-    if (!session || isPremium) { setLocked([]); return }
+    if (!session) { setLocked([]); return }
     try {
       // Server count first: it's the tier-of-record answer, so a client
       // whose RevenueCat read is momentarily stale can't skip the gate.
+      // Deliberately NOT bailing out early on client-cached isPremium here
+      // (a previous version did) -- that cache only refreshes on session
+      // init or an auth-state-change event, never on app foreground, so a
+      // user who downgrades in Settings while FlyRegs is merely
+      // backgrounded (not force-quit) would keep reading isPremium=true
+      // for as long as the app stays alive, silently skipping this exact
+      // check on every single navigation. The RLS cap-gate on UPDATE
+      // already keeps the underlying data safe either way -- this was a
+      // presentation-layer gap, not a data one -- but the whole point of
+      // this component is to actually show the user the choice.
       const hidden = await getFleetHiddenCount()
       if (hidden <= 0) { setLocked([]); return }
       setLocked(await getOwnedAircraftOldestFirst())
@@ -52,7 +62,7 @@ export function AircraftDowngradeGate() {
       // appears on the next launch instead.
       setLocked([])
     }
-  }, [session, isPremium])
+  }, [session])
 
   // Re-checked on navigation as well as on tier change: the entitlement can
   // flip mid-session (a restore, a webhook landing, an expiry), and this is
