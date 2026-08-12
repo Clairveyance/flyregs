@@ -10,7 +10,7 @@ import {
   getMyChallenges, respondToChallenge, getNextChallengeQuestion, submitChallengeAnswer,
   getChallengeResults, getChallengeStandings, getDuelStats, sendDuelPush, createChallenge,
   MyChallenge, NextQuestion, AnswerResult, ChallengeResultRow, StandingRow, DuelStats, DuelItemType,
-  KNOWLEDGE_LEVEL_LABELS,
+  KNOWLEDGE_LEVEL_LABELS, markCoinsSeen,
 } from '@/lib/challenges'
 import { RATING_SHORT_LABELS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
 import { slugifyPcgTerm } from '@/lib/pcg'
@@ -23,9 +23,11 @@ type Phase = 'loading' | 'pending_response' | 'ready' | 'playing' | 'revealed' |
 
 const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC' }
 // Phrased as the ACTUAL QUESTION being asked, not as a label for the data
-// type below it. A Duel shows a title/definition and offers document numbers
-// as choices, so the implicit task is "identify the source" -- but "FAR TITLE"
-// stated that in schema terms and left the player to infer what to do with it.
+// type below it. Most questions now come from the authored study_facts bank
+// (real answer-text choices), but any item without a live fact still falls
+// back to "identify the source" (document-number choices) -- the label reads
+// naturally either way. "FAR TITLE" stated it in schema terms and left the
+// player to infer what to do with it.
 const QUESTION_LABEL: Record<DuelItemType, string> = {
   pcg: 'WHICH TERM IS THIS THE DEFINITION OF?',
   far: 'WHICH FAR SECTION IS THIS?',
@@ -216,6 +218,12 @@ export default function ChallengeGameScreen() {
       // that feedback the instant you tap an answer.
       const coin = COIN_BY_CODE[r.newCoins[0]]
       if (coin) setTimeout(() => setRevealCoin(coin), 400)
+      // Mark seen now -- otherwise get_unseen_coins() (challenges/index.tsx's
+      // catch-up check, built for the duel-win-toast-only-shown-to-finalizer
+      // bug) doesn't know this coin was already shown here, and re-reveals
+      // the same coin a second time next time the Duels hub loads. Same fix
+      // as study.tsx's identical reveal path. Best-effort, non-blocking.
+      markCoinsSeen(r.newCoins).catch(() => {})
     }
     if (r.challengeCompleted && id) sendDuelPush(id, 'completed')
   }

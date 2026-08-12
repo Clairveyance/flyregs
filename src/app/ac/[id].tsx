@@ -81,10 +81,19 @@ export default function ACDetailScreen() {
   // the real UUID.
   useEffect(() => {
     if (!id || UUID_RE.test(id)) return
-    supabase.from('advisory_circulars').select('id').eq('document_number', id).eq('status', 'active').single()
+    supabase.from('advisory_circulars').select('id').eq('document_number', id).eq('status', 'active').maybeSingle()
       .then(({ data, error }) => {
         if (data) { router.replace(`/ac/${data.id}` as any); return }
-        if (!error) return
+        // maybeSingle() (unlike single()) returns error:null on a genuine
+        // 0-row miss -- exactly the routine "cited without its revision
+        // letter" case the ilike fallback below exists for -- so only a
+        // REAL unexpected error (not "no rows") should skip it. Confirmed
+        // live: single() fired a console 406 on every one of these misses
+        // even though the fallback already recovered silently underneath
+        // it -- corpus-wide noise (this route is hit from the "Related
+        // ACs" bar on every FAR/AIM/PCG/AD/LOI/AC detail screen), not a
+        // functional bug, but still worth a clean console.
+        if (error) return
         // Regulatory text routinely cites an AC by its base number without
         // the revision letter ("AC 90-66" in running prose, real document
         // is "90-66C") — confirmed live, not a one-off: an exact match
@@ -290,7 +299,12 @@ export default function ACDetailScreen() {
       .from('advisory_circulars_gated')
       .select('id,document_number,title,date_issued,office,subject_series,description,pdf_blocks,pdf_blocks_total_count,pdf_url_cached,pdf_url_faa,change_number,status,cancels,document_id,updated_at,changed_block_indices')
       .eq('id', id)
-      .single()
+      // maybeSingle(), not single() -- a stale UUID (e.g. a bookmark
+      // pointing to a removed AC) is a real, if rare, 0-row case, and
+      // single() logged a console 406 for it even though the branch below
+      // already only acts when both `!error && data`, degrading cleanly
+      // to the offline-copy fallback either way.
+      .maybeSingle()
       .then(async ({ data, error }) => {
         if (!error && data) {
           const loaded = data as AdvisoryCircular

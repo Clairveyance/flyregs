@@ -88,6 +88,26 @@ If no specific part is named (the AD just applies to the airframe/model generall
 """
 
 
+# Haiku 4.5 SYNCHRONOUS (non-batch) rate -- 2x the $0.50/$2.50 batch rate
+# documented in author_fact_deck.py's own "batch rate = 50% of list price"
+# comment (intro pricing through 2026-08-31). This script calls the
+# synchronous /v1/messages endpoint directly, not the Batches API.
+HAIKU_SYNC_COST_PER_MTOK_IN = 1.00
+HAIKU_SYNC_COST_PER_MTOK_OUT = 5.00
+
+# Real usage.input_tokens/output_tokens summed from every actual API
+# response -- added 2026-08-12 after a real-money reconciliation question
+# ("Console shows more than I estimated") turned up that this script had
+# NEVER reported real cost, only a post-hoc guess made after the fact from
+# prompt-length math. That guess (a fixed instructional prompt of 3,271
+# chars resent uncached on every one of 3,233 calls, not accounted for at
+# all in the original "well under $10" estimate) came out meaningfully
+# higher than first assumed once actually computed -- exactly the kind of
+# gap real per-call usage tracking exists to prevent. See
+# PROJECT_NOTES/flyregs_pending.md, 2026-08-12 cost-reconciliation entry.
+usage_totals = {"input_tokens": 0, "output_tokens": 0, "calls": 0}
+
+
 def anthropic_extract(text: str) -> list[dict]:
     resp = requests.post(
         "https://api.anthropic.com/v1/messages",
@@ -105,6 +125,10 @@ def anthropic_extract(text: str) -> list[dict]:
     )
     resp.raise_for_status()
     data = resp.json()
+    usage = data.get("usage") or {}
+    usage_totals["input_tokens"] += usage.get("input_tokens", 0)
+    usage_totals["output_tokens"] += usage.get("output_tokens", 0)
+    usage_totals["calls"] += 1
     raw = data["content"][0]["text"].strip()
     # Model sometimes wraps in a ```json fence, or -- confirmed live once the
     # three guardrail rules above were added -- prefixes a "Reasoning:" prose
@@ -181,8 +205,72 @@ def fetch_ads_with_applicability(limit: int | None = None, ad_numbers: list[str]
     return out
 
 
+# Calibrated against real corpus pairs before picking this number (see
+# sync/migrations_ad_part_fuzzy_dedup.sql's own header comment for the full
+# data table): a genuinely different real part (e.g. Hartzell HC-C2Y vs
+# HC-C3Y, or Garmin GTN 650 vs GTN 750) scores 0.4-0.65; the same real part
+# under different wording (a dropped space, "O-360" vs "O-360-A") scores
+# 0.69-0.92. 0.5 sits in the gap -- low enough to catch real near-duplicate
+# wording, high enough to leave a bare short part-number pair (the riskiest
+# case) below the line. Anything at or above this is NOT auto-merged (the
+# risk of silently conflating two different real parts is real and would
+# misattribute an AD's applicability) -- it's queued for a human via
+# status='pending_review', which the app's own RLS (ad_parts_read_active,
+# status='active' required) already keeps invisible to real users for free.
+FUZZY_REVIEW_THRESHOLD = 0.5
+
+review_counts = {"exact_normalized_merged": 0, "fuzzy_flagged_for_review": 0}
+
+
+def _insert_new_part(headers: dict, name: str, component_type: str, manufacturer: str | None, status: str) -> str | None:
+    ins = requests.post(
+        f"{SUPABASE_URL}/rest/v1/ad_parts",
+        headers={**headers, "Prefer": "return=representation"},
+        json={"name": name, "component_type": component_type, "manufacturer": manufacturer, "source": "extracted", "status": status},
+        timeout=15,
+    )
+    if ins.status_code >= 400:
+        log.warning(f"  Could not insert part '{name}': {ins.text[:200]}")
+        return None
+    return ins.json()[0]["id"]
+
+
+def _add_alias(headers: dict, part_id: str, alias: str) -> None:
+    """Best-effort -- record the exact wording seen, so a future manual
+    review has the full paper trail of variants an AD actually used. Never
+    blocks the real work (linking this AD's mention) if it fails."""
+    try:
+        cur = requests.get(f"{SUPABASE_URL}/rest/v1/ad_parts", headers=headers,
+                            params={"select": "aliases", "id": f"eq.{part_id}"}, timeout=10)
+        if cur.status_code >= 400:
+            return
+        rows = cur.json()
+        if not rows:
+            return
+        aliases = rows[0].get("aliases") or []
+        if alias in aliases:
+            return
+        requests.patch(f"{SUPABASE_URL}/rest/v1/ad_parts", headers={**headers, "Prefer": "return=minimal"},
+                        params={"id": f"eq.{part_id}"}, json={"aliases": aliases + [alias]}, timeout=10)
+    except Exception:
+        pass
+
+
 def upsert_part(headers: dict, name: str, component_type: str, manufacturer: str | None) -> str | None:
-    """Upsert into ad_parts (dedup on lower(name)+component_type), return the part id."""
+    """Upsert into ad_parts. Three tiers, in order:
+      1. Exact upsert (dedup on lower(name)+component_type) -- the fast path
+         for a truly first-time-exact name.
+      2. On conflict: ask find_ad_part_match to classify what's blocking it.
+         'exact_normalized' (differs only in case/punctuation/whitespace --
+         deterministic, zero risk of conflating two different real parts)
+         auto-merges into the existing row and records this exact wording
+         as an alias.
+      3. 'fuzzy_candidate' at or above FUZZY_REVIEW_THRESHOLD is NEVER
+         auto-merged (see that constant's own comment for why) -- inserted
+         as its own new row with status='pending_review' instead, invisible
+         to real users until a human confirms it's the same part.
+      Anything matching neither is genuinely new, inserted active as before.
+    """
     resp = requests.post(
         f"{SUPABASE_URL}/rest/v1/ad_parts",
         headers={**headers, "Prefer": "resolution=merge-duplicates,return=representation"},
@@ -190,30 +278,33 @@ def upsert_part(headers: dict, name: str, component_type: str, manufacturer: str
         json={"name": name, "component_type": component_type, "manufacturer": manufacturer, "source": "extracted", "status": "active"},
         timeout=15,
     )
-    if resp.status_code >= 400:
-        # unique index is on lower(name), plain on_conflict "name,component_type"
-        # won't match it exactly -- fall back to a lookup-then-insert.
-        lookup = requests.get(
-            f"{SUPABASE_URL}/rest/v1/ad_parts",
-            headers=headers,
-            params={"select": "id", "name": f"eq.{name}", "component_type": f"eq.{component_type}"},
-            timeout=15,
-        )
-        rows = lookup.json() if lookup.status_code < 400 else []
-        if rows:
-            return rows[0]["id"]
-        ins = requests.post(
-            f"{SUPABASE_URL}/rest/v1/ad_parts",
-            headers={**headers, "Prefer": "return=representation"},
-            json={"name": name, "component_type": component_type, "manufacturer": manufacturer, "source": "extracted", "status": "active"},
-            timeout=15,
-        )
-        if ins.status_code >= 400:
-            log.warning(f"  Could not insert part '{name}': {ins.text[:200]}")
-            return None
-        return ins.json()[0]["id"]
-    rows = resp.json()
-    return rows[0]["id"] if rows else None
+    if resp.status_code < 400:
+        rows = resp.json()
+        return rows[0]["id"] if rows else None
+
+    match = requests.post(
+        f"{SUPABASE_URL}/rest/v1/rpc/find_ad_part_match",
+        headers=headers,
+        json={"p_name": name, "p_component_type": component_type},
+        timeout=15,
+    )
+    rows = match.json() if match.status_code < 400 else []
+    if rows:
+        row = rows[0]
+        if row["match_type"] == "exact_normalized":
+            _add_alias(headers, row["id"], name)
+            review_counts["exact_normalized_merged"] += 1
+            return row["id"]
+        if row["similarity"] >= FUZZY_REVIEW_THRESHOLD:
+            log.warning(
+                f"  REVIEW: '{name}' ~ existing '{row['name']}' "
+                f"(sim={row['similarity']:.2f}, {component_type}) -- inserted as pending_review, NOT merged"
+            )
+            review_counts["fuzzy_flagged_for_review"] += 1
+            return _insert_new_part(headers, name, component_type, manufacturer, status="pending_review")
+
+    # Genuinely new -- no exact or fuzzy match found.
+    return _insert_new_part(headers, name, component_type, manufacturer, status="active")
 
 
 def link_mention(headers: dict, ad_number: str, part_id: str) -> None:
@@ -287,8 +378,23 @@ def main():
     log.info(f"\nDone. {total_parts_found} part mention(s) found across {len(ads)} ADs scanned.")
     if args.mode == "full":
         log.info(f"{total_mentions} ad_part_mentions row(s) written.")
+        if review_counts["exact_normalized_merged"] or review_counts["fuzzy_flagged_for_review"]:
+            log.info(
+                f"Dedup: {review_counts['exact_normalized_merged']} matched an existing part by wording only "
+                f"(auto-merged, alias recorded), {review_counts['fuzzy_flagged_for_review']} were a plausible-but-"
+                f"uncertain match (inserted as status='pending_review', not merged, invisible to real users until "
+                f"reviewed -- see scripts/review_pending_ad_parts.py)."
+            )
     else:
         log.info("Dry run (test mode) — no DB writes.")
+    real_cost = (
+        usage_totals["input_tokens"] / 1_000_000 * HAIKU_SYNC_COST_PER_MTOK_IN
+        + usage_totals["output_tokens"] / 1_000_000 * HAIKU_SYNC_COST_PER_MTOK_OUT
+    )
+    log.info(
+        f"Real usage: {usage_totals['calls']} calls, {usage_totals['input_tokens']:,} input / "
+        f"{usage_totals['output_tokens']:,} output tokens -> ~${real_cost:.2f} at Haiku 4.5 sync rate."
+    )
 
 
 if __name__ == "__main__":

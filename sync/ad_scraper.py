@@ -304,7 +304,17 @@ def parse_ad_text(raw_text: str, document_number: str) -> dict | None:
     if m:
         superseded_ad = m.group(1)
 
-    model_match = re.search(r"[Mm]odel[s]?\s+([A-Za-z0-9,\-/\s]+?)(?:\s+airplanes|\s+helicopters|\s+gliders|\s+engines|,\s+certificated|\.)", applicability)
+    # Widened 2026-08-12: the original character class excluded parentheses,
+    # so "Model PA-60-601P (Aerostar 601P)... airplanes" (marketing name in
+    # parens -- a common modern AD phrasing) and any applicability text with
+    # a parenthetical exclusion clause before the real terminator word
+    # ("Model AS350B... (except AS350B3 helicopters with...)... helicopters")
+    # never matched at all -- confirmed live, a real backfill audit found
+    # 650 ADs with real applicability text this missed. Now allows
+    # parens/periods in the captured run, and matches the LAST occurrence
+    # of a terminator word (not the first), so a nested exclusion clause's
+    # own use of "helicopters"/etc doesn't truncate the real model list.
+    model_match = re.search(r"[Mm]odel[s]?\s+([A-Za-z0-9,\-/\s()\.]+)(?:\s+airplanes|\s+helicopters|\s+gliders|\s+engines)\b(?!\s*with)", applicability)
     model = model_match.group(1).strip() if model_match else None
 
     return {

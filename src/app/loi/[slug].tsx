@@ -28,6 +28,7 @@ import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
 import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
 import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
+import { humanizeLoiTitle } from '@/lib/titleFormat'
 import { useConfirm } from '@/components/ConfirmDialog'
 
 // LOI detail screen. Per the expansion plan's explicit priority reframe:
@@ -59,17 +60,10 @@ interface RelatedItem {
   label: string | null
 }
 
-
-// LOI titles arrive as file-style slugs ("Collins_2011_Legal_Interpretation").
-// Rendering that raw reads like a bug in a premium app. Every LOI carries
-// the same "_Legal_Interpretation" boilerplate, so drop it and space the
-// separators: "Collins 2011".
-function humanizeLoiTitle(t: string): string {
-  return t
-    .replace(/[_-]?legal[_-]interpretation$/i, '')
-    .replace(/[_-]+/g, ' ')
-    .trim()
-}
+// humanizeLoiTitle now lives in @/lib/titleFormat, shared with the LOI
+// browse/list screens (loi/index.tsx, loi/year/[year].tsx) -- see that
+// file's comment for why this needed to move out of being local to just
+// this screen.
 
 export default function LoiDetailScreen() {
   const { slug, hl } = useLocalSearchParams<{ slug: string; hl?: string }>()
@@ -146,9 +140,12 @@ export default function LoiDetailScreen() {
         .eq('slug', slug)
         .single(),
       // Same both-directions + normalize-to-"the other document" pattern
-      // as ad/[id].tsx and far/[id].tsx -- an LOI only ever CITES OUT to
-      // FAR sections today (see loi_citation_extract.py), but the query
-      // stays symmetric so a future inbound citation type just works.
+      // as ad/[id].tsx and far/[id].tsx. An LOI cites OUT to FAR sections
+      // (loi_citation_extract.py) and, since 2026-08-12, to OTHER LOIs it
+      // names by footnote (loi_loi_citations.py, name+year matched
+      // against legal_interpretations.slug) -- the query stayed symmetric
+      // from the start specifically so that second type just worked once
+      // built, no query change needed here.
       supabase
         .from('document_citations_gated')
         .select('citing_type, citing_id, cited_type, cited_id, label')
@@ -160,8 +157,8 @@ export default function LoiDetailScreen() {
         addRecent({
           id: l.slug,
           itemType: 'loi',
-          document_number: l.title,
-          title: l.summary ?? l.title,
+          document_number: humanizeLoiTitle(l.title),
+          title: l.summary ?? humanizeLoiTitle(l.title),
           date_issued: l.issued_date,
           subject_series: null,
         })
@@ -197,6 +194,7 @@ export default function LoiDetailScreen() {
   const body = loi?.body_text ?? ''
   const currentLabel = loi ? humanizeLoiTitle(loi.title) : undefined
   const farRefs = related.filter((r) => r.cited_type === 'far' || r.cited_type === 'far_part')
+  const loiRefs = related.filter((r) => r.cited_type === 'loi')
 
   // LOI's own actions gate on hasProAccess, not the app-wide hasPlusAccess
   // every other content type's print/share/bookmark/folder uses -- since
@@ -210,8 +208,8 @@ export default function LoiDetailScreen() {
     const next = await toggleBookmark({
       id: loi.slug,
       itemType: 'loi',
-      document_number: loi.title,
-      title: loi.summary ?? loi.title,
+      document_number: humanizeLoiTitle(loi.title),
+      title: loi.summary ?? humanizeLoiTitle(loi.title),
       date_issued: loi.issued_date,
       office: null,
       subject_series: null,
@@ -238,8 +236,8 @@ export default function LoiDetailScreen() {
         await addHighlight({
           acId: loi.slug,
           itemType: 'loi',
-          document_number: loi.title,
-          title: loi.summary ?? loi.title,
+          document_number: humanizeLoiTitle(loi.title),
+          title: loi.summary ?? humanizeLoiTitle(loi.title),
           date_issued: loi.issued_date,
           office: null,
           subject_series: null,
@@ -314,8 +312,8 @@ export default function LoiDetailScreen() {
     if (!loi) return
     try {
       await Share.share({
-        title: loi.title,
-        message: buildRegShareLink('loi', loi.slug, loi.title, loi.summary ?? undefined),
+        title: humanizeLoiTitle(loi.title),
+        message: buildRegShareLink('loi', loi.slug, humanizeLoiTitle(loi.title), loi.summary ?? undefined),
       })
     } catch {
       // User cancelled or share unavailable
@@ -338,7 +336,7 @@ export default function LoiDetailScreen() {
         id: loi.slug,
         type: 'loi',
         document_number: loi.slug,
-        title: loi.title,
+        title: humanizeLoiTitle(loi.title),
         subject_series: null,
         size: (loi.body_text ?? '').length,
         body_text: loi.body_text ?? null,
@@ -484,7 +482,10 @@ export default function LoiDetailScreen() {
 
           <View style={[styles.barsWrap, { marginTop: 14 }]}>
             <MagicLinkPod
-              bars={[{ icon: 'list.bullet', label: 'FAR references', items: farRefs }]}
+              bars={[
+                { icon: 'list.bullet', label: 'FAR references', items: farRefs },
+                { icon: 'checkmark.seal.fill', label: 'Related Interpretations', items: loiRefs },
+              ]}
               currentLabel={currentLabel}
               hasProAccess={hasProAccess}
             />
@@ -565,8 +566,8 @@ export default function LoiDetailScreen() {
         onClose={() => setFolderPickerVisible(false)}
         onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1) }}
         acMeta={loi ? {
-          document_number: loi.title,
-          title: loi.summary ?? loi.title,
+          document_number: humanizeLoiTitle(loi.title),
+          title: loi.summary ?? humanizeLoiTitle(loi.title),
           date_issued: loi.issued_date,
           office: null,
           subject_series: null,

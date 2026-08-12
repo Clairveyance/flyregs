@@ -8,6 +8,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getRecents, recentItemType, type RecentAC } from '@/lib/recents'
+import { humanizeLoiTitle } from '@/lib/titleFormat'
 
 interface LoiHit {
   slug: string
@@ -156,7 +157,7 @@ export default function LoiIndexScreen() {
               >
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
-                    {r.document_number.replace(/-/g, ' ')}
+                    {humanizeLoiTitle(r.document_number)}
                   </Text>
                   <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={1}>
                     {r.title}
@@ -198,7 +199,7 @@ export default function LoiIndexScreen() {
                 >
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
-                      {item.title.replace(/-/g, ' ')}
+                      {humanizeLoiTitle(item.title)}
                     </Text>
                     {item.summary && (
                       <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={2}>

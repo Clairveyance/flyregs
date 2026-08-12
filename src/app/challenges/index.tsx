@@ -8,10 +8,13 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import {
   getMyChallenges, getChallengeableUsers, createChallenge, respondToChallenge, getDuelStats, sendDuelPush,
+  getUnseenCoins, markCoinsSeen,
   MyChallenge, ChallengeableUser, DuelStats, DuelItemType, KnowledgeLevel, KNOWLEDGE_LEVEL_LABELS,
 } from '@/lib/challenges'
 import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS, StudyRating, STUDY_RATINGS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
+import { CoinRevealModal } from '@/components/CoinRevealModal'
 
 const QUESTION_COUNTS = [3, 5, 10]
 const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac']
@@ -42,6 +45,11 @@ export default function ChallengesScreen() {
   const [activeRatings, setActiveRatings] = useState<StudyRating[]>([])
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [unseenCoinQueue, setUnseenCoinQueue] = useState<string[]>([])
+  // Same "clean up the filter rows" ask, same fix as study.tsx (2026-08-12):
+  // Category/Class + Rating collapsed behind their own toggle so the New
+  // Duel sheet's common case (Content + Level) stays short.
+  const [moreFiltersExpanded, setMoreFiltersExpanded] = useState(false)
 
   // ALL and individual chips are mutually exclusive: ALL can't be "pared
   // down" (it already means everything), so picking any individual chip
@@ -83,9 +91,21 @@ export default function ChallengesScreen() {
     setLoading(true)
     getMyChallenges().then(setChallenges).finally(() => setLoading(false))
     getDuelStats().then(setMyStats)
+    // Catch-up path for the coin-toast timing bug (2026-08-11): a Duel win's
+    // coin only reveals synchronously to whichever player's submission
+    // happened to finish the challenge, not necessarily the real winner if
+    // that was the other (possibly-offline) player. Whoever that is sees it
+    // here instead, the next time they open the Duels hub.
+    getUnseenCoins().then((codes) => { if (codes.length) setUnseenCoinQueue(codes) })
   }, [])
 
   useFocusEffect(useCallback(() => { if (isPremium) load() }, [isPremium, load]))
+
+  const dismissUnseenCoin = () => {
+    const [shown, ...rest] = unseenCoinQueue
+    if (shown) markCoinsSeen([shown]).catch(() => {})
+    setUnseenCoinQueue(rest)
+  }
 
   const openPicker = () => {
     getChallengeableUsers().then(setOpponents)
@@ -304,6 +324,18 @@ export default function ChallengesScreen() {
               })}
             </View>
 
+            <Pressable
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 14 }}
+              onPress={() => setMoreFiltersExpanded((v) => !v)}
+            >
+              <Icon name={moreFiltersExpanded ? 'chevron.up' : 'chevron.down'} size={fs(11)} color={tokens.t3} />
+              <Text style={{ color: tokens.t3, fontSize: fs(11.5), fontWeight: '600' }}>
+                {moreFiltersExpanded ? 'Fewer filters' : 'More filters (Category/Class, Rating)'}
+                {!moreFiltersExpanded && (activeCategoryClasses.length > 0 || activeRatings.length > 0) ? ' •' : ''}
+              </Text>
+            </Pressable>
+            {moreFiltersExpanded && (
+            <>
             {/* Green accent, same as Study Mode's own Category/Class row --
                 keeps an ASEL-only opponent from getting quizzed on
                 glider/helicopter-specific material and vice versa. */}
@@ -366,6 +398,8 @@ export default function ChallengesScreen() {
                 )
               })}
             </View>
+            </>
+            )}
 
             <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 14 }]}>
               OPPONENTS{selectedOpponents.length > 0 ? ` (${selectedOpponents.length} of ${MAX_OPPONENTS} max)` : ''}
@@ -436,6 +470,10 @@ export default function ChallengesScreen() {
           </View>
         </View>
       </Modal>
+      <CoinRevealModal
+        coin={unseenCoinQueue[0] ? COIN_BY_CODE[unseenCoinQueue[0]] ?? null : null}
+        onClose={dismissUnseenCoin}
+      />
     </View>
   )
 }

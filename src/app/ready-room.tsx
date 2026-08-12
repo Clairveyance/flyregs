@@ -62,6 +62,15 @@ export default function ReadyRoomScreen() {
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             See how your weekly practice stacks up against other players training toward the same ratings and certifications.
           </Text>
+          {/* Same gap already found and fixed once for Duels' own lock
+              screen (challenges/index.tsx, BB-era sweep): "no CTA at all --
+              a free user who found [the feature] hit a dead end with no way
+              to unlock it." Ready Room's Pro-lock screen had the identical
+              gap -- Study Mode and Duels both have an Unlock button here,
+              Ready Room didn't. */}
+          <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall')}>
+            <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Pro</Text>
+          </Pressable>
         </View>
       </View>
     )
@@ -220,6 +229,8 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
   emptyTitle: { fontWeight: '600', marginTop: 6 },
   emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 280 },
+  upgradeBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
+  upgradeBtnText: { color: '#fff', fontWeight: '700' },
   tabPicker: {
     flexDirection: 'row', borderRadius: 10, borderWidth: 1, padding: 3, gap: 2,
     marginHorizontal: 12, marginTop: 10,

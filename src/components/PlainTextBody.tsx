@@ -290,6 +290,151 @@ function parseTableBlock(para: string): ParsedTable | null {
   }
 }
 
+/** A bare rule line: 10+ dashes, nothing else (Federal Register/eCFR
+ * plain-text table divider -- see regTextFormat.ts's TABLE_RULE_LINE,
+ * which protects this paragraph's newlines so the rule survives to reach
+ * here intact). */
+const AD_RULE_RE = /^-{10,}$/
+/** A table data row: a short label, a run of 4+ dots (the fixed-width
+ * era's "leader" convention for a value about to appear far to the
+ * right), then the value's own first physical line. 4+ specifically --
+ * shorter dot runs show up inside ordinary prose ("a partial list...
+ * etc.") and would false-positive on a normal paragraph that merely
+ * trails off. */
+const AD_ROW_RE = /^(\S.*?)\.{4,}\s*(.*)$/
+/** A SECOND run of 4+ spaces or 4+ dots inside what looks like a row's own
+ * value is the signature of a THIRD (or later) column this parser doesn't
+ * model -- confirmed live, AD 2008-15-06's real "Model | Serial Nos. |
+ * Year manufactured" table: blindly capturing "everything after the first
+ * dot-leader" as ONE value silently welds column 3's data onto column
+ * 2's. Bailing out (falls back to plain-paragraph rendering, where the
+ * dash rules still get stripped) beats guessing at a boundary with no
+ * real signal for where it is -- see regTextFormat.ts's own "Data Is
+ * King" framing; a wrong table is worse than a plain one. */
+const AD_HIDDEN_COLUMN_RE = /( {4,}|\.{4,})/
+/** No legitimate wrapped cell in the validated corpus sample came close to
+ * this -- the longest real one (a muffler's serial-number range list) was
+ * ~150 chars. A cell this long is a sign the row-continuation heuristic
+ * swallowed unrelated prose that followed the table in the source, not
+ * real tabular data -- confirmed live, AD 2015-19-02's 5-column
+ * maintenance-task table (a shape this parser doesn't attempt) produced a
+ * single "row" whose value ran thousands of characters before this guard
+ * was added. */
+const AD_MAX_CELL_LEN = 500
+
+/** Reconstructs a 2-column header from its own physical lines. Lines can
+ * be INTERLEAVED across columns -- confirmed live, AD 2018-02-04's Figure
+ * 2: column 1's entire header ("Muffler part No.") sits on the MIDDLE of
+ * 3 physical lines, sandwiched inside column 2's own 3-line-wrapped
+ * header ("Textron Aviation Inc. (type / certificate previously held by
+ * Cessna / Aircraft Company) airplanes") -- joining fragments by LINE
+ * order instead of by COLUMN produces a garbled read ("Muffler part No.
+ * Textron Aviation Inc...."). Splits each line at the real word-gap (2+
+ * spaces) nearest col2Offset rather than a blind character cut, because a
+ * header routinely does NOT start at the same column as its own data (a
+ * short numeric value vs. a longer text header) -- cutting at the data's
+ * exact offset can land mid-word: confirmed live, AD 2002-22-13's real
+ * "Affected FMC Collins part No." header split into "...Coll" / "ins..."
+ * before this search-for-a-gap approach replaced a blind offset cut. When
+ * a line can't be confidently assigned to one side (content spans the
+ * search window with no clean gap), the WHOLE header is dropped (returns
+ * null) rather than risk a wrong or word-mangled label -- TableGrid
+ * already renders a real, supported "no header" grid for exactly this,
+ * and losing a header is a smaller loss than shipping a wrong one. */
+function buildADHeader(headerLines: string[], col2Offset: number): string[] | null {
+  if (headerLines.length === 0) return null
+  if (headerLines.length === 1) {
+    const parts = headerLines[0].split(/ {2,}/).map((s) => s.trim()).filter(Boolean)
+    return parts.length === 2 ? parts : null
+  }
+  const col1Parts: string[] = []
+  const col2Parts: string[] = []
+  const window = 25
+  for (const hl of headerLines) {
+    let left: string
+    let right: string
+    let best: { start: number; end: number } | null = null
+    for (const g of hl.matchAll(/ {2,}/g)) {
+      const start = g.index!
+      const end = start + g[0].length
+      const mid = (start + end) / 2
+      if (mid < col2Offset - window || mid > col2Offset + window) continue
+      if (!best || Math.abs(mid - col2Offset) < Math.abs((best.start + best.end) / 2 - col2Offset)) {
+        best = { start, end }
+      }
+    }
+    if (best) {
+      left = hl.slice(0, best.start).trim()
+      right = hl.slice(best.end).trim()
+    } else if (hl.length <= col2Offset) {
+      left = hl.trim()
+      right = ''
+    } else if (!hl.slice(0, col2Offset).trim()) {
+      left = ''
+      right = hl.trim()
+    } else {
+      return null
+    }
+    if (left) col1Parts.push(left)
+    if (right) col2Parts.push(right)
+  }
+  return col1Parts.length > 0 || col2Parts.length > 0 ? [col1Parts.join(' '), col2Parts.join(' ')] : null
+}
+
+/** Parses the Federal-Register/eCFR fixed-width table shape AD
+ * applicability/compliance text uses (dash rules + dot-leader columns) --
+ * a completely different source convention from AIM/FAR's HTML-table-
+ * derived pipe format parseTableBlock (above) handles, so this is a
+ * separate function rather than a branch inside it. Deliberately scoped
+ * to clean 2-column tables ONLY, the dominant real shape -- validated
+ * against the full corpus of 518 AD documents carrying this pattern
+ * before shipping (210 parsed cleanly with real, sensible headers and
+ * data; every rejected case was independently confirmed to be a genuinely
+ * harder shape -- a 3+ column table, or a headerless token grid -- not a
+ * false rejection). A table this doesn't recognize falls through to the
+ * ordinary paragraph path below, which still strips the bare dash rules
+ * (regTextFormat.ts's isTabular fix means they now survive as isolated
+ * lines that reach that strip) -- so even the decline path is a strict
+ * improvement over the prior raw-dashes rendering, never a regression. */
+function parseADFigureTable(para: string): ParsedTable | null {
+  const lines = para.split('\n')
+  const ruleIdxs = lines.map((l, i) => (AD_RULE_RE.test(l.trim()) ? i : -1)).filter((i) => i >= 0)
+  if (ruleIdxs.length < 3) return null
+  const [r0, r1] = ruleIdxs
+  const rLast = ruleIdxs[ruleIdxs.length - 1]
+
+  const captionLines = lines.slice(0, r0).map((l) => l.trim()).filter(Boolean)
+  const headerLines = lines.slice(r0 + 1, r1).filter((l) => l.trim())
+  const bodyLines = lines.slice(r1 + 1, rLast)
+
+  const rows: string[][] = []
+  let col2Offset: number | null = null
+  for (const raw of bodyLines) {
+    if (!raw.trim()) continue
+    const m = raw.match(AD_ROW_RE)
+    if (m) {
+      const value = m[2]
+      if (AD_HIDDEN_COLUMN_RE.test(value)) return null
+      if (col2Offset === null) col2Offset = raw.length - value.length
+      rows.push([m[1].trim(), value.trim()])
+    } else if (rows.length > 0 && /^\s/.test(raw)) {
+      const lastRow = rows[rows.length - 1]
+      lastRow[lastRow.length - 1] = `${lastRow[lastRow.length - 1]} ${raw.trim()}`
+    } else {
+      return null
+    }
+  }
+  if (rows.length === 0 || col2Offset === null) return null
+  if (rows.some((r) => r.length !== 2 || r[0].length > AD_MAX_CELL_LEN || r[1].length > AD_MAX_CELL_LEN)) return null
+
+  return {
+    captionLines: captionLines.length > 0 ? captionLines : ['Table'],
+    headerCells: buildADHeader(headerLines, col2Offset),
+    rows,
+    footnotes: [],
+  }
+}
+
 interface CurrentFigure {
   id: string
   label: string | null
@@ -548,7 +693,7 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
   // render inline (no popup), so the equivalent is right on the table
   // itself instead of in a modal footer.
   const tableParaIndices = useMemo(
-    () => paragraphs.map((p, i) => ({ p, i })).filter(({ p }) => parseTableBlock(p) !== null).map(({ i }) => i),
+    () => paragraphs.map((p, i) => ({ p, i })).filter(({ p }) => parseTableBlock(p) !== null || parseADFigureTable(p) !== null).map(({ i }) => i),
     [paragraphs],
   )
 
@@ -747,7 +892,7 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
             </Pressable>
           )
         }
-        const table = parseTableBlock(para)
+        const table = parseTableBlock(para) ?? parseADFigureTable(para)
         if (table) {
           // Match this table's own embedded label ("TBL 6-2-6b Air Force
           // Rescue...") against the paragraph's figures so its caption can
@@ -806,14 +951,14 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
           // (long dash runs used as row/section separators in AD
           // applicability text, e.g. "----...----") -- pure visual noise
           // carried over verbatim from the raw source, never real content.
-          // Confirmed live: AD 2018-02-04's Figure 1/2 applicability
-          // tables render with 3+ of these per figure. Safe to strip
-          // broadly (FAR/AIM/AC never produce a line of bare dashes in
-          // their own body text) without needing a full table-grid
-          // reconstruction -- body_text (unlike the flattened
-          // `applicability` field) already keeps its real newlines, so
-          // the surrounding data already renders as separate, readable
-          // lines; only the rule-line noise needed removing.
+          // By the time a table paragraph reaches HERE, parseADFigureTable
+          // above has already tried and declined it (a real table renders
+          // as a TableGrid instead, never reaching this branch) -- this is
+          // just the backstop for the harder shapes that parser doesn't
+          // attempt (3+ columns, headerless token grids), so at minimum
+          // the reader gets clean prose instead of raw dashes. Safe to
+          // strip broadly -- FAR/AIM/AC never produce a line of bare
+          // dashes in their own body text.
           .replace(/^[ \t]*-{10,}[ \t]*$/gm, '')
           .replace(/\n{3,}/g, '\n\n')
           .trim()

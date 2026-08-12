@@ -6,6 +6,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { TabletContainer } from '@/components/TabletContainer'
+import { humanizeLoiTitle } from '@/lib/titleFormat'
 
 interface LoiRow {
   slug: string
@@ -69,7 +70,7 @@ export default function LoiYearScreen() {
               >
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.title, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
-                    {item.title.replace(/-/g, ' ')}
+                    {humanizeLoiTitle(item.title)}
                   </Text>
                   {item.summary && (
                     <Text style={[styles.summary, { color: tokens.t3, fontSize: fs(12.5) }]} numberOfLines={2}>

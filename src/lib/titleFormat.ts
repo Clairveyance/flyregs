@@ -38,3 +38,20 @@ export function rowTitle(documentNumber: string, title: string): string {
   if (norm(stripped) === norm(documentNumber ?? '')) return ''
   return stripped
 }
+
+// legal_interpretations.title arrives as a file-style slug
+// ("Collins_2011_Legal_Interpretation") -- every LOI carries the same
+// "_Legal_Interpretation" boilerplate suffix and underscore separators.
+// Originally lived only in loi/[slug].tsx (the detail screen); the two
+// browse/list screens (loi/index.tsx, loi/year/[year].tsx) each had their
+// own inline `.replace(/-/g, ' ')`, which only handles hyphens -- the raw
+// underscores and "_Legal_Interpretation" suffix rendered untouched on
+// every row of every year's list (confirmed corpus-wide: all 36 rows of
+// the 2018 list alone). Shared here so every LOI title renders the same
+// way everywhere, not just on the one screen this was first built for.
+export function humanizeLoiTitle(t: string): string {
+  return t
+    .replace(/[_-]?legal[_-]interpretation$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+}

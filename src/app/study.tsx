@@ -12,7 +12,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { getStudyQueue, getStudyPoolCount, recordStudyReview, getStudyMastery, getCurrency, getStudyFactsForItems, StudyCard, StudyMastery, Currency, StudyItemType, StudyFact } from '@/lib/study'
 import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
-import { KnowledgeLevel, KNOWLEDGE_LEVEL_LABELS } from '@/lib/challenges'
+import { KnowledgeLevel, KNOWLEDGE_LEVEL_LABELS, markCoinsSeen } from '@/lib/challenges'
 import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS, StudyRating, STUDY_RATINGS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { buildStudyCard, type QuizSourceType } from '@/lib/quizQuestion'
@@ -110,6 +110,14 @@ export default function StudyScreen() {
   // to be scrolled to to see"). A summary line stays visible either way so
   // the active selection is never hidden, just the chip rows themselves.
   const [filtersExpanded, setFiltersExpanded] = useState(false)
+  // RC, 2026-08-12: "clean up the study/duel filter rows" -- with all 5
+  // groups expanded, Category/Class alone wraps to 3 lines (11 chips) and
+  // the whole panel pushed the actual flashcard almost entirely below the
+  // fold. Content + Knowledge Level + Session Size are the 3 groups most
+  // people touch; Category/Class and Rating are real but secondary axes
+  // (see their own comments below) -- collapsed behind their own toggle so
+  // the common case stays short, full functionality still one tap away.
+  const [moreFiltersExpanded, setMoreFiltersExpanded] = useState(false)
   // Real content-recall Q/A, now for FAR and AIM (and opportunistically
   // P/CG/AC) -- see getStudyFactsForItems' own comment for why this used to
   // be AIM-only despite FAR/P-CG/AC facts already existing live in the same
@@ -347,6 +355,15 @@ export default function StudyScreen() {
           // moment shouldn't block or race the flip/advance flow.
           const coin = COIN_BY_CODE[result.newCoins[0]]
           if (coin) setTimeout(() => setRevealCoin(coin), 300)
+          // Mark seen right away, not on modal dismiss -- the reveal here IS
+          // the "shown to the user" moment. Without this, get_unseen_coins()
+          // (the Duels-hub catch-up check built for the duel-win-toast-only-
+          // shown-to-finalizer bug, see challenges/index.tsx) has no way to
+          // know this coin was already celebrated here, and re-shows the
+          // exact same coin a second time the next time the user opens the
+          // Duels hub. Best-effort, same as the rest of this call chain --
+          // never block the study flow on it.
+          markCoinsSeen(result.newCoins).catch(() => {})
         }
       })
       .catch(() => {}) // best-effort -- don't block the study flow on a network blip
@@ -468,6 +485,18 @@ export default function StudyScreen() {
         })}
       </View>
 
+      <Pressable
+        style={[styles.moreFiltersToggle, styles.levelFilterRow]}
+        onPress={() => setMoreFiltersExpanded((v) => !v)}
+      >
+        <Icon name={moreFiltersExpanded ? 'chevron.up' : 'chevron.down'} size={fs(11)} color={tokens.t3} />
+        <Text style={[styles.moreFiltersToggleText, { color: tokens.t3, fontSize: fs(11.5) }]}>
+          {moreFiltersExpanded ? 'Fewer filters' : 'More filters (Category/Class, Rating)'}
+          {!moreFiltersExpanded && (activeCategoryClasses.length > 0 || activeRatings.length > 0) ? ' •' : ''}
+        </Text>
+      </Pressable>
+      {moreFiltersExpanded && (
+      <>
       {/* Green accent, distinct from CONTENT (gold) and KNOWLEDGE LEVEL
           (blue) -- a third filter dimension so an ASEL student stops
           getting glider/helicopter-only questions and vice versa. Only a
@@ -543,6 +572,8 @@ export default function StudyScreen() {
           )
         })}
       </View>
+      </>
+      )}
 
       <Text style={[styles.filterGroupLabel, styles.levelFilterRow, { color: tokens.t3, fontSize: fs(10) }]}>SESSION SIZE</Text>
       <View style={styles.filterRow}>
@@ -1033,6 +1064,8 @@ const styles = StyleSheet.create({
   upgradeBtnText: { color: '#fff', fontWeight: '700' },
 
   filterGroupLabel: { fontWeight: '700', letterSpacing: 0.5, paddingHorizontal: 20, paddingTop: 14 },
+  moreFiltersToggle: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 20 },
+  moreFiltersToggleText: { fontWeight: '600' },
   filtersHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4 },
   filtersHeaderText: { fontWeight: '700' },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingTop: 8 },

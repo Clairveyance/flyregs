@@ -27,6 +27,16 @@ and document_citations rewritten (delete-then-insert, same pattern as
 loi_scraper.py) -- clean text may resolve citations the OCR-tolerant
 extractor still couldn't recover from heavily garbled originals.
 
+IMPORTANT -- this script does NOT touch ocr_quality_score. That column is
+scored independently by scripts/loi_quality_scan.py, and a doc's score
+does not auto-refresh just because body_text changed underneath it --
+confirmed live 2026-08-12: 10 of the first 24 real docs run through this
+cleanup still had a stale score >= 3.0 (the loi/[slug].tsx disclaimer
+threshold) after their text was already clean, wrongly showing "may
+contain OCR quality issues" on a document that no longer does. Always run
+`python3 scripts/loi_quality_scan.py --backfill` (free, local-only, no API
+cost) after any real (non---dry-run) run of THIS script.
+
 Usage:
   python3 loi_vision_cleanup.py --scan-only          # just report the flagged count, no spend
   python3 loi_vision_cleanup.py --dry-run --limit 3  # process 3 flagged docs, no DB writes
@@ -60,6 +70,18 @@ HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 VISION_MODEL = "claude-sonnet-5"
 VISION_RENDER_DPI = 150
 VISION_EST_COST_PER_PAGE = 0.012
+# Sonnet 5 synchronous rate (intro pricing through 2026-08-31) -- for the
+# REAL usage totals below, not the rough per-page estimate above.
+SONNET_SYNC_COST_PER_MTOK_IN = 2.00
+SONNET_SYNC_COST_PER_MTOK_OUT = 10.00
+# Real usage.input_tokens/output_tokens summed from every actual Vision
+# call -- added 2026-08-12 alongside the same fix in extract_ad_parts.py,
+# after a real-money reconciliation question turned up that neither script
+# reported real metered cost, only a fixed-rate estimate (VISION_EST_COST_
+# PER_PAGE above, itself measured on a DIFFERENT rebuild back on
+# 2026-07-13, not this run). See PROJECT_NOTES/flyregs_pending.md's
+# 2026-08-12 cost-reconciliation entry.
+usage_totals = {"input_tokens": 0, "output_tokens": 0, "calls": 0}
 # Same philosophy as faa_scraper.py's VISION_MAX_PAGES_PER_RUN -- an
 # independent hard stop so an unanticipated bug (e.g. every doc flagging)
 # can't spend real money unbounded. 153 flagged docs * ~2.4 pages ~= 367 --
@@ -150,6 +172,9 @@ def recover_via_vision(pdf_bytes: bytes, slug: str, client) -> str | None:
                     ],
                 }],
             )
+            usage_totals["input_tokens"] += message.usage.input_tokens
+            usage_totals["output_tokens"] += message.usage.output_tokens
+            usage_totals["calls"] += 1
             text = "".join(b.text for b in message.content if b.type == "text")
             pages_text.append(text)
         except Exception as e:
@@ -191,6 +216,12 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="Process flagged docs but don't write to DB")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--verify-sample", type=int, default=None, help="Spot-check N unflagged docs, report if any look garbled anyway")
+    ap.add_argument("--only-slugs-file", default=None,
+                     help="Scope to exactly these slugs (one per line), in that file's order, ignoring this "
+                          "script's own flagging for SELECTION (still runs is_garbled() on each for logging/"
+                          "before-after comparison). Added 2026-08-12 to target RC's specific 25-worst list "
+                          "from the newer, more precise severity ranking (scripts/loi_quality_scan.py-adjacent "
+                          "work) rather than this file's own older 3-signature flag set.")
     args = ap.parse_args()
 
     if not SUPABASE_URL or not SUPABASE_KEY:
@@ -207,6 +238,16 @@ def main():
         (flagged if bad else unflagged).append((r, rate))
 
     log.info(f"Flagged: {len(flagged)} ({len(flagged)/len(lois)*100:.1f}%)  Unflagged: {len(unflagged)}")
+
+    if args.only_slugs_file:
+        with open(args.only_slugs_file) as f:
+            wanted = [s.strip() for s in f if s.strip()]
+        by_slug = {r["slug"]: (r, rate) for r, rate in (flagged + unflagged)}
+        flagged = [by_slug[s] for s in wanted if s in by_slug]
+        missing = [s for s in wanted if s not in by_slug]
+        if missing:
+            log.warning(f"  {len(missing)} requested slugs not found in LOI corpus: {missing}")
+        log.info(f"Scoped to --only-slugs-file: {len(flagged)} docs (order preserved from file)")
 
     if args.verify_sample:
         import random
@@ -286,7 +327,15 @@ def main():
             errors += 1
 
     log.info(f"\nDone. {ok} processed, {errors} error(s), {pages_used} vision pages "
-             f"(~${pages_used * VISION_EST_COST_PER_PAGE:.2f}).")
+             f"(~${pages_used * VISION_EST_COST_PER_PAGE:.2f} est.).")
+    real_cost = (
+        usage_totals["input_tokens"] / 1_000_000 * SONNET_SYNC_COST_PER_MTOK_IN
+        + usage_totals["output_tokens"] / 1_000_000 * SONNET_SYNC_COST_PER_MTOK_OUT
+    )
+    log.info(
+        f"Real usage: {usage_totals['calls']} calls, {usage_totals['input_tokens']:,} input / "
+        f"{usage_totals['output_tokens']:,} output tokens -> ~${real_cost:.2f} at Sonnet 5 sync rate."
+    )
 
 
 if __name__ == "__main__":

@@ -559,7 +559,10 @@ export default function AircraftDetailScreen() {
             <InfoPopup
               id="my-aircraft-equipment-disclaimer"
               title="Equipment & Reminders"
-              body="Equipment tags and reminders are based only on what you enter here — FlyRegs doesn't verify serial numbers or maintenance records. ADs shown may apply; always confirm against your aircraft's official records."
+              body={[
+                "Equipment tags and reminders are based only on what you enter here — FlyRegs doesn't verify serial numbers or maintenance records. ADs shown may apply; always confirm against your aircraft's official records.",
+                'If you know of a part with an active AD that isn’t listed here, please send us feedback so we can get it added for everyone. Thank you!',
+              ]}
               forceOnce
               iconSize={fs(14)}
             />

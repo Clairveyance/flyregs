@@ -49,6 +49,32 @@ def sql_query(query: str):
     return json.loads(result.stdout)
 
 
+# The backlog's actual definition of "still broken" (used consistently across
+# every fix this backlog has shipped, e.g. 25.1701-1's original 53,537-char
+# single block) is a pathologically oversized INDIVIDUAL block somewhere in
+# the doc -- NOT whether the doc has 3+ headings overall. A doc can have a
+# perfectly normal top-level "1./2./3." structure (so it never shows the
+# client's "reads as a single continuous document" note, and would look
+# "already fixed" under a toc-length check) while still having one giant
+# swallowed block buried inside it -- 23-17C and 36-4D are exactly this shape
+# and are still genuinely unresolved. Checked directly against the client's
+# own real accepted range (the largest already-shipped single block this
+# backlog has accepted as fine is 33-8's ~17K-char Template blocks after its
+# fix; the worst NOT-yet-fixed blocks run 30K-200K+), so 20K is a real,
+# conservative dividing line -- comfortably above every accepted-fine block,
+# comfortably below every still-broken one seen so far.
+OVERSIZED_THRESHOLD = 20_000
+
+def max_block_size(pdf_blocks) -> int:
+    if not pdf_blocks:
+        return 0
+    sizes = []
+    for b in pdf_blocks:
+        body = b.get("body") or b.get("text") or ""
+        sizes.append(len(body))
+    return max(sizes) if sizes else 0
+
+
 def main():
     docs = []
     with open(DOCS_FILE) as f:
@@ -59,8 +85,20 @@ def main():
 
     print(f"{len(docs)} docs to triage\n")
     doc_list_sql = ",".join(f"'{d}'" for d in docs)
-    rows = sql_query(f"SELECT document_number, pdf_text FROM advisory_circulars WHERE document_number IN ({doc_list_sql})")
+    rows = sql_query(f"SELECT document_number, pdf_text, pdf_blocks FROM advisory_circulars WHERE document_number IN ({doc_list_sql})")
     by_doc = {r["document_number"]: r["pdf_text"] or "" for r in rows}
+    blocks_by_doc = {r["document_number"]: r.get("pdf_blocks") for r in rows}
+
+    already_fixed = [d for d in docs if max_block_size(blocks_by_doc.get(d)) < OVERSIZED_THRESHOLD]
+    if already_fixed:
+        print(f"=== {len(already_fixed)} doc(s) already have no block over {OVERSIZED_THRESHOLD:,} chars in their CURRENT pdf_blocks ===")
+        print("(an earlier override already fixed these -- raw pdf_text below may still look")
+        print(" like a candidate since this script's heading scan only ever looked at raw text,")
+        print(" never at whether an override already resolved the swallow; skipping them here)")
+        for d in already_fixed:
+            print(f"  {d} (max block: {max_block_size(blocks_by_doc.get(d)):,} chars)")
+        print()
+    docs = [d for d in docs if d not in already_fixed]
 
     results = []
     for doc in docs:

@@ -44,7 +44,7 @@ export function cleanGlyphs(s: string): string {
 
 // Schema version for precomputed pdf_blocks — bump when the parser output shape
 // changes so a backfill can tell which rows need reprocessing.
-export const AC_FORMAT_VERSION = 34
+export const AC_FORMAT_VERSION = 35
 
 // Free-tier body preview: just enough to show how the app is organized, not
 // a real read of the content. Was a 20%-floored-at-3 formula (let short ACs
@@ -306,7 +306,17 @@ const NUMSEC3 = /^(\d{1,2})\s+([A-Z][a-z][a-zA-Z ,/&()'-]{1,50}\.)$/
 // mid-sentence onto a new line ("...refer to section\nB.3 of this appendix.
 // Velocity accuracy may be qualified...") — that continuation starts
 // lowercase and would otherwise be misread as a new appendix subsection.
-const APPXSEC = /^([A-Z]\.\d{1,3})\s+([A-Z].+)$/
+// Trailing period after the number is optional -- some ACs write "A.1 Title"
+// (no period), others "A.1. Title" (period, e.g. 70-1B's 17 real sub-headings,
+// which without this all collapsed into one 34K-char block since the regex
+// only matched the no-period form). Corpus-wide scan before shipping: 9 ACs
+// gain new real matches (150/5220-21C, 150/5300-18B, 70-1B, etc.), all
+// genuine headings on spot-check, none false positives -- a materially safer
+// change than the sibling "Appendix N:" colon idea also considered here,
+// which a corpus scan caught producing a real false positive (20-73A's
+// "Appendix C: The 14 CFR parts 25..." is a glossary DEFINITION using a
+// colon, not a heading) and was deliberately NOT shipped as a general rule.
+const APPXSEC = /^([A-Z]\.\d{1,3})\.?\s+([A-Z].+)$/
 
 // FAA ACs often have numbered or titled tables: "TABLE 2-1. GAS LAWS...".
 // The TABLE keyword with a digit catches these reliably without false positives
@@ -611,7 +621,7 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
   //     line has no dots and would otherwise be classified as a real section.
   //     Look ahead up to 4 non-empty lines; if any is a TOC line, this line is
   //     a TOC header and should be skipped.
-  const APPXSEC_TOC_RE = /^[A-Z]\.\d{1,3}\s+[A-Za-z]/
+  const APPXSEC_TOC_RE = /^[A-Z]\.\d{1,3}\.?\s+[A-Za-z]/
   for (let k = 0; k < lines.length; k++) {
     if (!APPXSEC_TOC_RE.test(lines[k])) continue
     let nonEmpty = 0

@@ -6,6 +6,7 @@ import { useAuth } from '@/context/auth'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
 import { searchParts, getAdsForPart, bestMatchingToken, PART_TYPE_LABELS, type AdPart, type PartMentionAd, type PartComponentType } from '@/lib/adParts'
 
@@ -50,6 +51,7 @@ export default function PartsLookupScreen() {
   const [results, setResults] = useState<AdPart[]>([])
   const [relatedTo, setRelatedTo] = useState<PartComponentType | null>(null)
   const [partialMatch, setPartialMatch] = useState<{ droppedWords: string[]; usedWords: string[] } | null>(null)
+  const [fuzzyMatch, setFuzzyMatch] = useState<{ originalQuery: string } | null>(null)
   const [searching, setSearching] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [adsByPart, setAdsByPart] = useState<Record<string, PartMentionAd[]>>({})
@@ -59,14 +61,15 @@ export default function PartsLookupScreen() {
 
   const runSearch = useCallback((q: string) => {
     const trimmed = q.trim()
-    if (trimmed.length < 2) { seq.current++; setResults([]); setRelatedTo(null); setPartialMatch(null); setSearching(false); return }
+    if (trimmed.length < 2) { seq.current++; setResults([]); setRelatedTo(null); setPartialMatch(null); setFuzzyMatch(null); setSearching(false); return }
     const mySeq = ++seq.current
     setSearching(true)
-    searchParts(trimmed).then(({ results: hits, relatedTo: rel, partialMatch: partial }) => {
+    searchParts(trimmed).then(({ results: hits, relatedTo: rel, partialMatch: partial, fuzzyMatch: fuzzy }) => {
       if (mySeq !== seq.current) return
       setResults(hits)
       setRelatedTo(rel)
       setPartialMatch(partial)
+      setFuzzyMatch(fuzzy)
       setSearching(false)
     }).catch(() => setSearching(false))
   }, [])
@@ -92,7 +95,21 @@ export default function PartsLookupScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title="Parts Lookup" onBack={() => router.back()} />
+      <OverlayHeader
+        title="Parts Lookup"
+        onBack={() => router.back()}
+        right={
+          <InfoPopup
+            id="parts-lookup-scope"
+            title="What's in this catalog"
+            body={[
+              'This catalog only includes parts that have actually been named in an Airworthiness Directive — an engine model, a propeller, an avionics box, a specific appliance.',
+              "It is not a general parts catalog. A manufacturer can make many more parts, models, and variants than what's listed here — this only covers the ones an AD has ever applied to.",
+              'If you know of a part with an active AD that isn’t listed here, please send us feedback so we can get it added for everyone. Thank you!',
+            ]}
+          />
+        }
+      />
       <TabletContainer>
         {!hasPlusAccess ? (
           <Pressable
@@ -165,6 +182,13 @@ export default function PartsLookupScreen() {
                     No direct match for "{partialMatch.droppedWords.join(' ')}" — showing results for "{partialMatch.usedWords.join(' ')}" instead. Double-check the model number?
                   </Text>
                 </View>
+              ) : fuzzyMatch ? (
+                <View style={[styles.relatedNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                  <Icon name="info.circle" size={fs(14)} color={tokens.t3} />
+                  <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                    No exact match for "{fuzzyMatch.originalQuery}" — showing the closest matches instead.
+                  </Text>
+                </View>
               ) : relatedTo ? (
                 <View style={[styles.relatedNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                   <Icon name="info.circle" size={fs(14)} color={tokens.t3} />
@@ -204,7 +228,15 @@ export default function PartsLookupScreen() {
                       ) : ads.length === 0 ? (
                         <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(12.5), padding: 12 }]}>No ADs found.</Text>
                       ) : (
-                        ads.map((ad) => (
+                        <>
+                          {/* Previously the count was only visible by counting
+                              rows -- found during a 2026-08-12 parts-lookup
+                              review as a real gap for an owner scanning many
+                              parts quickly. */}
+                          <Text style={[styles.adCount, { color: tokens.t3, fontSize: fs(11.5) }]}>
+                            {ads.length} {ads.length === 1 ? 'AD references' : 'ADs reference'} this part
+                          </Text>
+                          {ads.map((ad) => (
                           <Pressable
                             key={ad.adNumber}
                             style={[styles.adRow, { borderTopColor: tokens.bdr }]}
@@ -215,7 +247,8 @@ export default function PartsLookupScreen() {
                               {ad.subjectHeading}
                             </Text>
                           </Pressable>
-                        ))
+                          ))}
+                        </>
                       )}
                     </View>
                   )}
@@ -277,6 +310,7 @@ const styles = StyleSheet.create({
   partName: { fontWeight: '600' },
   partMeta: { marginTop: 2 },
   adList: { borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderBottomLeftRadius: 12, borderBottomRightRadius: 12, marginBottom: 8, marginTop: -1 },
+  adCount: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 2, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: '600' },
   adRow: { paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, gap: 2 },
   adNum: { fontWeight: '700' },
   adTitle: {},

@@ -63,8 +63,19 @@ function endsThought(line: string): boolean {
  * character straight to the screen (confirmed live 2026-08-02, RC-reported
  * glyph artifact in a What's Changed diff row). */
 export const TABLE_HEADER_MARK = '\ue000'
+/** A bare "----...----" rule line (10+ dashes, nothing else) -- the
+ * Federal Register/eCFR plain-text convention for a table's row/section
+ * divider (see PlainTextBody.tsx's parseADFigureTable). Needs the same
+ * newline-preserving treatment as the pipe check below: a bare dash line
+ * doesn't end in terminal punctuation, so by this file's own hard-wrap
+ * rule it reads as just another wrapped fragment and gets silently glued
+ * onto the caption line above it -- confirmed live, AD 2018-02-04's
+ * Figure 1/2 tables rendered raw dashes because of exactly this, despite
+ * an existing stripping regex downstream that assumed the rule would
+ * still be alone on its own line by the time it ran. */
+const TABLE_RULE_LINE = /^[ \t]*-{10,}[ \t]*$/m
 function isTabular(para: string): boolean {
-  return para.includes(' | ') || para.includes(TABLE_HEADER_MARK)
+  return para.includes(' | ') || para.includes(TABLE_HEADER_MARK) || TABLE_RULE_LINE.test(para)
 }
 
 function normalizeParagraph(para: string): string {

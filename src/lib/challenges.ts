@@ -174,6 +174,23 @@ export async function getDuelStats(userId?: string): Promise<DuelStats> {
   return { wins: row?.wins ?? 0, losses: row?.losses ?? 0, ties: row?.ties ?? 0 }
 }
 
+// A Duel win's coin is only shown synchronously to whichever player's
+// submission happened to trigger finalize_challenge_if_done -- the actual
+// winner, if that was the OTHER player, never got a reveal. This is the
+// catch-up path: any screen the winner opens later checks for coins they
+// haven't been shown yet and reveals them then, independent of timing.
+export async function getUnseenCoins(): Promise<string[]> {
+  const { data, error } = await supabase.rpc('get_unseen_coins')
+  if (error) throw error
+  return (data ?? []).map((r: any) => r.coin_code)
+}
+
+export async function markCoinsSeen(coinCodes: string[]): Promise<void> {
+  if (!coinCodes.length) return
+  const { error } = await supabase.rpc('mark_coins_seen', { p_coin_codes: coinCodes })
+  if (error) throw error
+}
+
 export async function getNextChallengeQuestion(challengeId: string): Promise<NextQuestion | null> {
   const { data, error } = await supabase.rpc('get_next_challenge_question', { p_challenge_id: challengeId })
   if (error) throw error

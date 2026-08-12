@@ -44,6 +44,17 @@ export interface PartSearchResult {
   // `relatedTo` (which is a component-TYPE family fallback, not a
   // dropped-word one).
   partialMatch: { droppedWords: string[]; usedWords: string[] } | null
+  // Set when every literal-match strategy above (exact/substring, drop-a-
+  // word, component-type family) found nothing, but pg_trgm trigram
+  // similarity did -- a genuine MISSPELLING, not a missing/wrong word.
+  // Confirmed live as a real gap 2026-08-12: "Lycomming" (one extra
+  // letter, a completely realistic typo) returned nothing at all even
+  // though "Lycoming" has 10+ real rows -- partialMatch's drop-a-word
+  // retry never applies to a single-word query, and a garbled
+  // manufacturer name isn't common-English vocabulary the component-type
+  // bridge recognizes either. Last resort in the chain, same "only after
+  // every literal strategy has failed" posture as relatedTo.
+  fuzzyMatch: { originalQuery: string } | null
 }
 
 function mapPartRows(data: any[] | null): AdPart[] {
@@ -166,7 +177,7 @@ function scorePartRow(words: string[], row: { name: string; manufacturer: string
 
 export async function searchParts(query: string, limit = 25): Promise<PartSearchResult> {
   const trimmed = query.trim()
-  const EMPTY: PartSearchResult = { results: [], relatedTo: null, partialMatch: null }
+  const EMPTY: PartSearchResult = { results: [], relatedTo: null, partialMatch: null, fuzzyMatch: null }
   if (trimmed.length < 2) return EMPTY
   // Each WORD must appear somewhere across name/manufacturer/component_type
   // -- not required as one consecutive phrase, and the old version only
@@ -243,7 +254,7 @@ export async function searchParts(query: string, limit = 25): Promise<PartSearch
   const strong = scored.filter((r) => r.score > 0)
   const pool = strong.length > 0 ? strong : scored
   const exact = mapPartRows(pool.slice(0, limit).map((r) => r.row))
-  if (exact.length > 0) return { results: exact, relatedTo: null, partialMatch: null }
+  if (exact.length > 0) return { results: exact, relatedTo: null, partialMatch: null, fuzzyMatch: null }
 
   // No literal match on the FULL query. Before falling all the way back to
   // a generic component-type family, check whether this is really a
@@ -268,7 +279,7 @@ export async function searchParts(query: string, limit = 25): Promise<PartSearch
       if (usedWords.length === 0) continue
       const partial = await searchParts(usedWords.join(' '), limit)
       if (partial.results.length > 0 && !partial.partialMatch) {
-        return { results: partial.results, relatedTo: null, partialMatch: { droppedWords: [dropped], usedWords } }
+        return { results: partial.results, relatedTo: null, partialMatch: { droppedWords: [dropped], usedWords }, fuzzyMatch: null }
       }
     }
   }
@@ -283,23 +294,47 @@ export async function searchParts(query: string, limit = 25): Promise<PartSearch
   // to increase the SS capability to understand common language as well as
   // aviation language and make comparisons to help users find their parts."
   const type = relatedComponentType(words)
-  if (!type) return EMPTY
-  const { data: relData, error: relErr } = await supabase
-    .from('ad_parts')
-    .select('id, name, component_type, manufacturer')
-    .eq('status', 'active')
-    .eq('component_type', type)
-    .order('name')
-    .limit(limit)
-  if (relErr) throw relErr
-  return { results: mapPartRows(relData), relatedTo: type, partialMatch: null }
+  if (type) {
+    const { data: relData, error: relErr } = await supabase
+      .from('ad_parts')
+      .select('id, name, component_type, manufacturer')
+      .eq('status', 'active')
+      .eq('component_type', type)
+      .order('name')
+      .limit(limit)
+    if (relErr) throw relErr
+    if (relData && relData.length > 0) return { results: mapPartRows(relData), relatedTo: type, partialMatch: null, fuzzyMatch: null }
+  }
+
+  // Last resort: trigram similarity (pg_trgm, see migrations_ad_parts_
+  // fuzzy_search.sql) against the FULL original query -- catches a genuine
+  // misspelling ("Lycomming" for "Lycoming") that no strategy above can,
+  // since drop-a-word only fires on a multi-word query and a garbled
+  // manufacturer name isn't common-English vocabulary the component-type
+  // bridge above recognizes. Only tried after every literal strategy has
+  // failed, matching this whole chain's "last resort, not first choice"
+  // posture -- a real substring/subsequence match should always win over
+  // a fuzzy guess.
+  const { data: fuzzyData, error: fuzzyErr } = await supabase.rpc('search_ad_parts_fuzzy', { p_query: trimmed, p_limit: limit })
+  if (fuzzyErr) throw fuzzyErr
+  if (fuzzyData && fuzzyData.length > 0) {
+    return { results: mapPartRows(fuzzyData), relatedTo: null, partialMatch: null, fuzzyMatch: { originalQuery: trimmed } }
+  }
+
+  return EMPTY
 }
 
 export async function getAdsForPart(partId: string): Promise<PartMentionAd[]> {
+  // Ordered descending by AD number -- the FAA's own "YYYY-NN-NN" numbering
+  // is chronological, so this also puts the most recent AD first, matching
+  // what an owner scanning for the newest applicable directive would want.
+  // Previously had no order() at all (arbitrary Postgres/PostgREST return
+  // order) -- found during a 2026-08-12 parts-lookup review.
   const { data, error } = await supabase
     .from('ad_part_mentions')
     .select('ad_number, airworthiness_directives!inner(subject_heading)')
     .eq('part_id', partId)
+    .order('ad_number', { ascending: false })
   if (error) throw error
   return (data ?? []).map((r: any) => ({ adNumber: r.ad_number, subjectHeading: r.airworthiness_directives?.subject_heading ?? '' }))
 }

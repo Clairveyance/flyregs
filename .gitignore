@@ -82,6 +82,13 @@ scripts/.fact_deck_batch_state*.json
 scripts/.fact_deck_id_map*.json
 scripts/.fact_deck_verify_state.json
 
+# question-bank authoring (Anthropic Batches API) — same resumable
+# checkpoint-state pattern as fact-deck above; author_question_bank.py
+# regenerates these on each run
+scripts/.question_bank_batch_state*.json
+scripts/.question_bank_id_map*.json
+scripts/.question_bank_verify_state.json
+
 # Aviation Dictionary sourcing scratch — raw scraped/OCR'd source text and
 # batch-job checkpoint state the load_dictionary_*.py scripts consume and
 # regenerate; not source of truth
