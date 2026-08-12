@@ -378,6 +378,12 @@ export default function FolderDetail() {
     }
     if (sentCount > 0) {
       confirm({ title: 'Invites Sent', message: `Sent to ${sentCount} contact${sentCount === 1 ? '' : 's'}.`, cancelLabel: null })
+    } else {
+      // Every native compose sheet in the queue got cancelled -- without
+      // this the picker just closed with zero feedback, indistinguishable
+      // from "did that actually work?" (BB-0xx-adjacent gap, found during
+      // the 2026-08-11 app-wide cleanup pass, not a real-device report).
+      confirm({ title: 'No Invites Sent', message: 'Every message was cancelled before sending. Nothing was shared.', cancelLabel: null })
     }
   }
 
