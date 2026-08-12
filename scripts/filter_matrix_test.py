@@ -128,11 +128,24 @@ def category_counts():
     with items as (
       -- FAR uses far_category_classes(part, title): whole FAA parts that
       -- exist for one aircraft category (23/25 airplanes, 27/29 rotorcraft,
-      -- 31 balloons) plus the title match. Must mirror the RPCs exactly.
-      select far_category_classes(part, title) c from far_sections
-        where title is not null and title <> '' and body_text is not null and body_text <> ''
+      -- 31 balloons) plus the title match. Must mirror the RPCs exactly --
+      -- including the not_applicable knowledge-level exclusion, which the
+      -- RPC applies unconditionally (not just when p_levels is set). Found
+      -- 2026-08-12: omitting it let ~30 not_applicable-but-POWLIFT-tagged
+      -- FAR sections (administrative/definitional content that happens to
+      -- match the rare POWLIFT title pattern) inflate this query's own
+      -- "_any"/neutral math by exactly the same amount POWLIFT's own count
+      -- was inflated -- the two errors canceled for the POWLIFT check
+      -- itself (accidentally passing) but left every OTHER category's
+      -- shared "neutral" baseline permanently undercounted, producing a
+      -- uniform false FAIL across all 9 non-POWLIFT categories on an
+      -- otherwise-correct RPC. Confirmed via direct raw-SQL reconstruction
+      -- of the RPC's exact defined behavior matching its real live output.
+      select far_category_classes(f.part, f.title) c from far_sections f
+        where f.title is not null and f.title <> '' and f.body_text is not null and f.body_text <> ''
           -- mirror get_study_*'s membership: within-part-unique titles only
-          and section_number in (select section_number from study_far_sections)
+          and f.section_number in (select section_number from study_far_sections)
+          and not (far_knowledge_levels(f.part, f.subpart_letter) && ARRAY['not_applicable'])
       union all
       -- Must call the SAME specialized function get_study_pool_count uses
       -- (aim_category_classes(chapter, title), which also weighs chapter --
@@ -152,9 +165,11 @@ def category_counts():
       -- the generic text-only function vs. this one (which also weighs
       -- subject_series ranges like 20-/23-/25-/27-/29-/31-), which was the
       -- entire root cause of every "CATEGORY EXCLUSION IS EXACT" FAIL below.
-      select ac_category_classes(subject_series, title) from advisory_circulars
-        where status='active' and title is not null and title <> ''
-          and description is not null and description <> ''
+      -- Same not_applicable exclusion as FAR above, same reasoning.
+      select ac_category_classes(c.subject_series, c.title) from advisory_circulars c
+        where c.status='active' and c.title is not null and c.title <> ''
+          and c.description is not null and c.description <> ''
+          and not (ac_knowledge_levels(c.subject_series) && ARRAY['not_applicable'])
     )
     select coalesce(x.cat,'_none') as cat, count(*) as n
     from items left join lateral unnest(items.c) as x(cat) on true
@@ -430,6 +445,19 @@ def grant_premium(uid):
          headers={"Prefer": "resolution=merge-duplicates,return=minimal"})
 
 
+def opt_into_leaderboard(uid):
+    """create_challenge's own definition requires every opponent to have a
+    user_streaks row with leaderboard_opt_in=true ('One or more selected
+    opponents are not available to challenge' otherwise) -- correct real
+    app behavior (Ready Room only lists opted-in users), but a fresh
+    admin-API account has no user_streaks row at all. Without this the
+    duel scenario's very first create_challenge call throws before testing
+    anything, same failure class grant_premium's own docstring describes."""
+    http("POST", "/rest/v1/user_streaks", key=SERVICE,
+         body={"user_id": uid, "leaderboard_opt_in": True},
+         headers={"Prefer": "resolution=merge-duplicates,return=minimal"})
+
+
 def scenario_duel():
     print("\n" + "=" * 74)
     print("DUELS  —  create_challenge question pool (quizzable_* views)")
@@ -438,6 +466,7 @@ def scenario_duel():
     b = make_user("duelfB")
     grant_premium(a["id"])
     grant_premium(b["id"])
+    opt_into_leaderboard(b["id"])
     try:
         def try_create(types=None, levels=None, cats=None, n=10):
             try:
