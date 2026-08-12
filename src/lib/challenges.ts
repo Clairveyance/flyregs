@@ -219,41 +219,48 @@ export async function submitChallengeAnswer(
 // the client performing the action (creating/accepting/finishing a duel)
 // is already online, so there's no need for a deployed edge function just
 // to relay one HTTP call. Swallows all errors -- a failed/missing push
-// must never block the actual Duel action it's attached to. Note: for a
-// group duel this only pushes to ONE other participant server-side
-// (get_duel_push_target resolves a single "other" relative to the caller,
-// a holdover from the 1:1 design) -- fanning a group invite/accept/
-// completion out to every other participant is tracked as a fast-follow,
-// not done in this pass.
+// must never block the actual Duel action it's attached to.
 //
 // 2026-08-05: get_duel_push_target itself was reading challenges.opponent_id,
 // a column that no longer exists since Duels moved to the multi-participant
 // challenge_participants model -- every single call raised "column
 // opponent_id does not exist", swallowed silently by the try/catch below.
 // Every Duel push notification (invite/accept/complete) had been completely
-// non-functional, not just limited to one recipient as the note above
-// describes. Rewritten against challenge_participants, same single-
-// recipient scope preserved (still `limit 1`) -- confirmed live via direct
-// RPC call (was a hard error, now a clean no-op when no matching push
-// token exists) and by hand-verifying the recipient-selection filter picks
-// the right participant for each of the three events.
+// non-functional. Rewritten against challenge_participants.
+//
+// 2026-08-11: that rewrite kept a `limit 1` on the RPC (matching the
+// pre-existing 1:1-era scope, tracked at the time as a fast-follow, not
+// fixed in that pass) -- a group duel (3+ people) only ever pushed to ONE
+// other participant even when several qualified (e.g. several still-
+// pending invitees on 'invited', several still-active participants on
+// 'completed'; 'accepted' was accidentally fine already since is_creator
+// naturally matches exactly one row). Removed the limit server-side and
+// fan out to every returned row client-side.
 export async function sendDuelPush(challengeId: string, event: 'invited' | 'accepted' | 'completed'): Promise<void> {
   try {
     const { data, error } = await supabase.rpc('get_duel_push_target', { p_challenge_id: challengeId, p_event: event })
     if (error) return
-    const row = (data ?? [])[0]
-    if (!row?.expo_push_token) return
-    await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        to: row.expo_push_token,
-        sound: 'default',
-        title: row.title,
-        body: row.body,
-        data: { type: 'duel', challengeId },
-      }),
-    })
+    const rows = (data ?? []).filter((r: any) => r?.expo_push_token)
+    if (rows.length === 0) return
+    // Fans out to every qualifying participant, not just one -- a group
+    // duel (3+ people) can have several pending invitees or several still-
+    // active participants for the same event. The Expo push API accepts a
+    // single POST per message; Promise.all rather than a sequential loop
+    // since these are independent sends to different recipients, and one
+    // recipient's failure shouldn't block another's notification.
+    await Promise.all(rows.map((row: any) =>
+      fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          to: row.expo_push_token,
+          sound: 'default',
+          title: row.title,
+          body: row.body,
+          data: { type: 'duel', challengeId },
+        }),
+      }).catch(() => {})
+    ))
   } catch (_) { /* best-effort */ }
 }
 
