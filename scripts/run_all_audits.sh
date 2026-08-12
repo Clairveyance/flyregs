@@ -8,9 +8,11 @@
 # splice_*.mjs, llm_*.py, ocr_*.py -- these mutate specific historical data
 # issues and are not re-runnable diagnostics), and the E2E scripts that spin
 # up real disposable test accounts (aircraft_e2e_test.py, duel_e2e_test.py,
-# folders_e2e_test.py, game_scenarios_test.py, study_lifecycle_test.py) --
-# those are slower and account-mutating, meant to be run deliberately when
-# touching that subsystem, not as part of every quick health check.
+# folders_e2e_test.py, game_scenarios_test.py, study_lifecycle_test.py,
+# rls_write_path_fuzzer.py) -- those are slower and account-mutating, meant
+# to be run deliberately when touching that subsystem (or periodically for
+# rls_write_path_fuzzer.py specifically -- see PROJECT_NOTES's 2026-08-11
+# app-wide cleanup entry), not as part of every quick health check.
 #
 # Usage: ./scripts/run_all_audits.sh [--full]
 #   (no args)  Layer 1 (data integrity) + Layer 2 (tier gating) only -- fast.
