@@ -101,3 +101,9 @@ sync/.phak_appendix_b_outline.txt
 sync/.weather_appendix_e_raw.txt
 supabase/.temp/
 scripts/audit_reports/
+
+# flagged-fact repair pass (Anthropic Batches API) — same resumable
+# checkpoint-state pattern as the authoring passes above;
+# repair_flagged_facts.py regenerates these on each run
+scripts/.repair_flagged_batch_state.json
+scripts/.repair_flagged_id_map.json
