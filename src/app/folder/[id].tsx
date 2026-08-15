@@ -681,7 +681,11 @@ export default function FolderDetail() {
         <OverlayHeader
           title={folder?.name ?? 'Folder'}
           onBack={() => router.back()}
-          right={rightSlot}
+          // Invite/Rename/Delete all guard on `folder` internally, so
+          // showing them before it resolves was tappable-but-silently-inert
+          // dead chrome -- matches my-aircraft/[id].tsx's not-found state,
+          // which falls back to the default drawer icon the same way.
+          right={folder ? rightSlot : undefined}
         />
 
         {/* Inline rename bar */}

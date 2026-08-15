@@ -162,6 +162,14 @@ const styles = StyleSheet.create({
   },
   center: {
     flex: 1,
+    // Without this, a flex child's default min-width is its own content
+    // width on web -- so a long title (folder/[id].tsx's folder?.name, etc)
+    // never actually shrinks to make room for the right slot, and just
+    // overlaps it instead of truncating cleanly. RC, real device: a 25-char
+    // folder name overlapped the header's Invite icon by 15px on a 3-icon
+    // right slot (Invite/Rename/Delete) -- numberOfLines={1} below was
+    // already correct, it just never got a bounded width to truncate against.
+    minWidth: 0,
     alignItems: 'center',
     paddingHorizontal: 4,
   },
