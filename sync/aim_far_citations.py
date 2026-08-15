@@ -60,6 +60,13 @@ FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\
 # citing the same airport-design AC family would hit the identical gap.
 AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:/\d+)?(?:\.\d+)?[\-\u2010\u2011\u2013]\d+[A-Za-z]*(?:[\-\u2010\u2011\u2013]\d+)?)\b")
 
+# See far_citations.py's identical constant -- always explicitly prefixed
+# "49 CFR" in real AIM text, never bare "\u00a7 N.N", so no collision with FAR_RE
+# above. Low yield in AIM specifically (2 real paragraphs corpus-wide), but
+# built for consistency with every other citing type this session added it
+# to.
+CFR49_RE = re.compile(r"\b49\s*CFR\s*(?:part\s+)?(\d+\.\d+)\b", re.IGNORECASE)
+
 # See pcg_citations.py for why: the FAA's own PDF->HTML extraction is
 # inconsistent about which hyphen-like character it uses for the same
 # number, so a cited_id has to be ASCII-normalized before comparing against
@@ -114,6 +121,16 @@ def extract_citations(para: dict) -> list[dict]:
                 "cited_type": "ac", "cited_id": cited_id, "label": None,
             })
 
+    for m in CFR49_RE.finditer(text):
+        cited_id = m.group(1)
+        key = ("cfr49", cited_id)
+        if key not in seen:
+            seen.add(key)
+            citations.append({
+                "citing_type": "aim", "citing_id": para["paragraph_number"],
+                "cited_type": "cfr49", "cited_id": cited_id, "label": None,
+            })
+
     return citations
 
 
@@ -121,7 +138,7 @@ def delete_aim_far_citations() -> None:
     resp = requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**HEADERS, "Prefer": "return=minimal"},
-        params={"citing_type": "eq.aim", "cited_type": "in.(far,ac)"},
+        params={"citing_type": "eq.aim", "cited_type": "in.(far,ac,cfr49)"},
         timeout=30,
     )
     resp.raise_for_status()

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, ActivityIndicator, Modal } from 'react-native'
+import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, ActivityIndicator, Modal, Keyboard } from 'react-native'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
@@ -17,6 +17,23 @@ import {
 // editing takes place once inside the a/c page." The list screen used to
 // have its own copy of EditAircraftModal; now only the detail screen
 // triggers it.
+
+// TextInput blur fires for two situations RN can't tell apart at the event
+// level -- they're the same native resignFirstResponder call: (1) the user
+// tapped/swiped the keyboard away while still meaning to use this field,
+// and (2) focus genuinely moved to a different field. RC, live: dismissing
+// the keyboard was ALSO closing the suggestion dropdown below, even though
+// the user just wanted the keyboard out of the way to see more of the list
+// before tapping an entry. Keyboard.isVisible() resolves the ambiguity --
+// checked after a delay long enough for a real keyboard-hide animation to
+// finish (keyboardDidHide, ~250-300ms on iOS) but that still catches a
+// same-moment focus shift to a different field (the keyboard never goes
+// down in that case, so isVisible() stays true the whole time). Keyboard
+// still up at check-time -> focus really did move elsewhere, close. Down
+// -> this was just a keyboard dismiss, leave the list open.
+function deferredBlurClose(setFocused: (v: boolean) => void) {
+  setTimeout(() => { if (Keyboard.isVisible()) setFocused(false) }, 400)
+}
 
 export interface UserAircraft {
   id: string
@@ -93,9 +110,7 @@ export function TypeDesignatorField({
         value={value}
         onChangeText={onChangeText}
         onFocus={() => setFocused(true)}
-        // Deferred so a suggestion tap's own touch event lands before the
-        // list unmounts -- an immediate onBlur hide would swallow the tap.
-        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        onBlur={() => deferredBlurClose(setFocused)}
         placeholder="Type designator (required, e.g. PA-28-181)"
         placeholderTextColor={tokens.t3}
         // NOT autoCapitalize="characters" -- that forced every keystroke to
@@ -167,7 +182,7 @@ export function MakeField({
         value={value}
         onChangeText={onChangeText}
         onFocus={() => setFocused(true)}
-        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        onBlur={() => deferredBlurClose(setFocused)}
         placeholder="Make (e.g. Cessna)"
         placeholderTextColor={tokens.t3}
         style={[styles.input, { color: tokens.t1, fontSize: ifs(14.5), borderColor: tokens.bdr }, label ? undefined : style]}
@@ -231,7 +246,7 @@ export function ModelField({
         value={value}
         onChangeText={onChangeText}
         onFocus={() => setFocused(true)}
-        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        onBlur={() => deferredBlurClose(setFocused)}
         placeholder="Model name (e.g. Skyhawk) — leave blank if none"
         placeholderTextColor={tokens.t3}
         style={[styles.input, { color: tokens.t1, fontSize: ifs(14.5), borderColor: tokens.bdr }, label ? undefined : style]}

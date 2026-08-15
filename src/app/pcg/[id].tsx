@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Keyboard } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import * as Haptics from 'expo-haptics'
@@ -24,6 +24,7 @@ import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
 import { linkifyText } from '@/lib/crossRefLinks'
 import { setPendingBreadcrumb, consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
+import { getSemanticRelated, mergeRelated } from '@/lib/relatedContent'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch, InDocSearchTarget } from '@/lib/useInDocSearch'
 import { searchPhrase, countOcc, highlightSpans } from '@/lib/searchHighlight'
@@ -191,20 +192,22 @@ export default function PcgTermScreen() {
   // bookmark effect above.
   useEffect(() => {
     if (!term) return
-    supabase
-      .from('document_citations_gated')
-      .select('citing_type, citing_id, cited_type, cited_id, label')
-      .or(`and(cited_type.eq.pcg,cited_id.eq.${term.slug}),and(citing_type.eq.pcg,citing_id.eq.${term.slug})`)
-      .then(({ data, error }) => {
-        if (error || !data) return
-        const rows = data as { citing_type: string; citing_id: string; cited_type: string; cited_id: string; label: string | null }[]
-        const other = rows
-          .map((r) => (r.citing_type === 'pcg' && r.citing_id === term.slug
-            ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
-            : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
-          .filter((r) => !(r.cited_type === 'pcg' && r.cited_id === term.slug))
-        setRelated(other)
-      })
+    Promise.all([
+      supabase
+        .from('document_citations_gated')
+        .select('citing_type, citing_id, cited_type, cited_id, label')
+        .or(`and(cited_type.eq.pcg,cited_id.eq.${term.slug}),and(citing_type.eq.pcg,citing_id.eq.${term.slug})`),
+      getSemanticRelated('pcg', term.slug),
+    ]).then(([{ data, error }, semantic]) => {
+      if (error || !data) return
+      const rows = data as { citing_type: string; citing_id: string; cited_type: string; cited_id: string; label: string | null }[]
+      const other = rows
+        .map((r) => (r.citing_type === 'pcg' && r.citing_id === term.slug
+          ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
+          : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
+        .filter((r) => !(r.cited_type === 'pcg' && r.cited_id === term.slug))
+      setRelated(mergeRelated(other, semantic))
+    })
   }, [term])
 
   // Alphabetical Prev/Next -- confirmed a real gap: unlike FAR/AIM (which
@@ -291,10 +294,11 @@ export default function PcgTermScreen() {
   const aimRefs = related.filter((r) => r.cited_type === 'aim')
   const adRefs = related.filter((r) => r.cited_type === 'ad')
   const loiRefs = related.filter((r) => r.cited_type === 'loi')
+  const cfr49Refs = related.filter((r) => r.cited_type === 'cfr49')
 
   const handleToggleBookmark = async () => {
     if (!term) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     setBookmarked((prev) => !prev) // optimistic
     const next = await toggleBookmark({
       id: term.slug,
@@ -313,7 +317,7 @@ export default function PcgTermScreen() {
   const lastToggleAt = useRef(0)
   const handleToggleHighlight = useCallback(async (paraText: string) => {
     if (!term) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     if (toggleInFlight.current) return
     if (Date.now() - lastToggleAt.current < 800) return
     lastToggleAt.current = Date.now()
@@ -343,7 +347,7 @@ export default function PcgTermScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [term, hasProAccess])
+  }, [term, hasPlusAccess])
 
   const handleCopyBlock = useCallback(async (paraText: string) => {
     await Clipboard.setStringAsync(paraText)
@@ -351,7 +355,7 @@ export default function PcgTermScreen() {
   }, [])
 
   const handleBlockLongPress = useCallback((paraText: string) => {
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     setPendingHighlight(paraText)
     const isHighlighted = highlightedBlockTexts.has(paraText)
     confirm({
@@ -365,11 +369,11 @@ export default function PcgTermScreen() {
       ],
       onCancel: () => setPendingHighlight(null),
     })
-  }, [hasProAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
+  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
 
   const handleOpenFolderPicker = () => {
     if (!term) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     setFolderPickerVisible(true)
   }
 
@@ -457,7 +461,7 @@ export default function PcgTermScreen() {
         items={[
           { icon: 'printer', label: 'Print', onPress: handlePrint, disabled: !hasPlusAccess },
           { icon: 'square.and.arrow.up', label: 'Share', onPress: handleShare, disabled: !hasPlusAccess },
-          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasProAccess },
+          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasPlusAccess },
         ]}
       />
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
@@ -499,6 +503,16 @@ export default function PcgTermScreen() {
           contentContainerStyle={styles.content}
           onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
           scrollEventThrottle={100}
+          // Matches ac/[id].tsx's own ScrollView -- was missing here (and on
+          // far/aim/ad's identical setup), so dragging the doc content down
+          // while the in-doc search keyboard was up did nothing; the native
+          // interactive-dismiss gesture only exists when this prop is set.
+          // keyboardShouldPersistTaps alongside it for the same reason
+          // BB-092 needed it elsewhere: without it a tap on the search bar's
+          // prev/next buttons just dismisses the keyboard instead of firing.
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={() => Keyboard.dismiss()}
         >
           <Text style={[styles.term, { color: tokens.t1, fontSize: fs(19) }]}>{term.term}</Text>
           {term.frequently_used && (
@@ -579,11 +593,12 @@ export default function PcgTermScreen() {
           <View style={styles.barsWrap}>
             <MagicLinkPod
               bars={[
-                { icon: 'doc.text', label: 'Related ACs', items: acRefs },
-                { icon: 'list.bullet', label: 'FAR references', items: farRefs },
-                { icon: 'arrow.up.right.square', label: 'AIM references', items: aimRefs },
-                { icon: 'wrench.and.screwdriver', label: 'Related ADs', items: adRefs },
-                { icon: 'checkmark.seal.fill', label: 'Related LOIs', items: loiRefs },
+                { icon: 'megaphone.fill', label: 'Related ACs', items: acRefs },
+                { icon: 'book.closed.fill', label: 'FAR references', items: farRefs },
+                { icon: 'map.fill', label: 'AIM references', items: aimRefs },
+                { icon: 'wrench.and.screwdriver.fill', label: 'Related ADs', items: adRefs },
+                { icon: 'envelope.open.fill', label: 'Related LOIs', items: loiRefs },
+                { icon: 'building.columns.fill', label: 'Related 49 CFR', items: cfr49Refs },
               ]}
               currentLabel={term.term}
               hasProAccess={hasProAccess}

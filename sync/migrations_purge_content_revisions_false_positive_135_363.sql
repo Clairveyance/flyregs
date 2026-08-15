@@ -1,0 +1,30 @@
+-- RC, 2026-08-13: "confirm that 16 diff FARs ACTUALLY did have real changes
+-- made recently... it seems to be that FARs take a long time to update b/c
+-- of gov red tape, so seeing all those come in is surprising."
+--
+-- Cross-checked all 16 live content_revisions FAR rows directly against the
+-- FAA's own eCFR versioner API (GET .../api/versioner/v1/versions/
+-- title-14.json?part=N -- see memory ecfr_versions_api_real_far_dates.md),
+-- not just our own cached far_sections.last_amended column. 15 of 16 check
+-- out: eCFR's own amendment_date for those sections is 2026-07-24,
+-- substantive=true -- a real, recent, FAA-confirmed amendment (our own
+-- revision_log ran ~10 days later, exactly the lag you'd expect between the
+-- FAA publishing and our own periodic sync catching it).
+--
+-- §135.363 (id 74c9b4b2-3bfd-4b19-90f6-552cd0533271, revised_at 2026-08-10)
+-- did NOT check out: eCFR's live record shows amendment_date 2017-01-01,
+-- and both more recent issue_dates (2025-04-24, 2026-08-05) are explicitly
+-- substantive=false -- zero real text change since 2017. Read the actual
+-- stored added_text/removed_text to find out why revision_log.py logged a
+-- diff anyway: a PDF line-wrap hyphenation artifact -- "author- ize" vs
+-- "authorize", "observ- ance" vs "observance" (hyphen+space from where the
+-- word wrapped across a line in the source PDF, rejoined correctly on only
+-- one of the two extraction passes). Same root-cause FAMILY as the
+-- 2026-08-12 purge (migrations_purge_content_revisions_false_positives.sql)
+-- but a genuinely different artifact shape that pass's 3 doc-type-specific
+-- bugs didn't cover -- fixed at the source in revision_log.py's
+-- _normalize_for_diff() (this same commit) so it can't recur.
+--
+-- The other 15 rows are untouched -- independently reconfirmed genuine via
+-- live eCFR fetch, not just trusted from the 2026-08-12 pass.
+delete from content_revisions where id = '74c9b4b2-3bfd-4b19-90f6-552cd0533271';

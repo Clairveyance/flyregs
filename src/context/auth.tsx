@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react'
+import { AppState } from 'react-native'
 import { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { initRevenueCat, getSubscriptionStatus, logOutRevenueCat, syncEntitlements } from '@/lib/revenuecat'
@@ -119,6 +120,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
 
     return () => subscription.unsubscribe()
+  }, [])
+
+  // isPro/isPremium/isUnlocked above only ever refresh on session-restore
+  // and onAuthStateChange (sign-in/out, and Supabase's own token-refresh
+  // events, which fire roughly hourly) -- there is no foreground hook, and
+  // nothing anywhere in the app calls Purchases.addCustomerInfoUpdateListener
+  // either. A real subscription change (an Apple-side downgrade/lapse
+  // processed while FlyRegs is merely backgrounded, not force-quit) leaves
+  // every consumer of these three flags reading the PRE-change tier for as
+  // long as the app stays alive and the JWT hasn't happened to refresh yet
+  // -- up to about an hour. Individual screens have had to work around this
+  // one at a time (saved.tsx's own serverFolderCap live RPC re-check, this
+  // file's own comment on that fix explains the exact same staleness
+  // window) rather than it being closed at the source. Closing it here
+  // fixes every consumer at once, the moment the app is foregrounded again,
+  // without waiting on a token refresh -- matching AircraftDowngradeGate's
+  // own reasoning for never trusting a merely-cached isPremium read.
+  //
+  // A ref (not the `session` state closed over at mount) is load-bearing:
+  // AppState's listener is registered once, and this codebase has already
+  // been bitten once by a stale closure silently freezing behavior across
+  // later state changes (see gotcha_stale_closure_runsearch.md) -- reading
+  // session.user.id through a ref sidesteps that class of bug entirely
+  // rather than re-relying on a dependency array to keep the closure fresh.
+  const sessionUserIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    sessionUserIdRef.current = session?.user?.id ?? null
+  }, [session?.user?.id])
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') return
+      if (!sessionUserIdRef.current) return
+      getSubscriptionStatus().then((status) => {
+        // Session could have been signed out while this was in flight --
+        // re-check rather than blindly applying a result that may no
+        // longer belong to anyone.
+        if (!sessionUserIdRef.current) return
+        setIsPro(status.isPro)
+        setIsPremium(status.isPremium)
+        setIsUnlocked(status.isUnlocked)
+      })
+    })
+    return () => sub.remove()
   }, [])
 
   const signIn = async (email: string, password: string) => {

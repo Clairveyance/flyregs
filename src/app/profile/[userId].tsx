@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, type ComponentType, type ComponentProps } from 'react'
 import Reanimated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, useReducedMotion,
 } from 'react-native-reanimated'
 import { View, Text, Image, ScrollView, Pressable, TextInput, Switch, StyleSheet, ActivityIndicator, Modal } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
-import { useTheme } from '@/context/theme'
+import { useTheme, darkTokens } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
@@ -16,13 +16,18 @@ import { useIsTablet } from '@/context/responsive'
 import { getDuelStats, type DuelStats } from '@/lib/challenges'
 import { getStudyMastery, type StudyMastery } from '@/lib/study'
 import { getMyRatings, RATING_SHORT_LABELS, type RatingCode } from '@/lib/profileRatings'
-import { getCoinsForUser, COIN_BY_CODE, COIN_CATALOG, type EarnedCoin, type CoinDef } from '@/lib/coins'
+import { getCoinsForUser, COIN_BY_CODE, COIN_CATALOG, TROPHY_CATALOG, RE_EARNABLE_CODES, type EarnedCoin, type CoinDef } from '@/lib/coins'
 import { CoinMedal } from '@/components/CoinMedal'
+import { TrophyBadge } from '@/components/TrophyBadge'
+import type { AceGem3D as AceGem3DType } from '@/components/AceGem3D'
+import type { MasterGlobe3D as MasterGlobe3DType } from '@/components/MasterGlobe3D'
 import { NameTag } from '@/components/NameTag'
 import { getStatsVisible, setStatsVisible, getCurrentAircraft, setCurrentAircraft } from '@/lib/leaderboard'
 import { getAvatarUrl, resolveAvatarPresetId, getDisplayName, getConnectedProfileAvatar, type ConnectedProfileAvatar } from '@/lib/avatar'
 import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // The Community "bragging page" -- badges, ratings, Duel record, current
 // aircraft. Duel record is unconditionally public (get_duel_stats() has no
@@ -303,6 +308,35 @@ export default function ProfileScreen() {
   const [aircraftDirty, setAircraftDirty] = useState(false)
   const [aircraftSaving, setAircraftSaving] = useState(false)
   const [coinDetail, setCoinDetail] = useState<CoinDef | null>(null)
+  // AceGem3D/MasterGlobe3D (expo-gl/expo-three/three) are dynamically
+  // imported, not top-level -- confirmed live via Sentry as the app's
+  // highest-volume unresolved fatal crash (38 occurrences): GLView calls
+  // requireNativeModule('ExpoGL') at IMPORT time, not render time, so a
+  // static top-level import here crashed this entire screen the instant
+  // its module loaded -- before the trophy popup was ever opened, before
+  // any tap -- on any build whose native side hasn't been rebuilt with
+  // these (new this session) dependencies linked in. Same bug shape, same
+  // fix, as contactMatch.ts's expo-contacts deferral: only touch the
+  // native-module-backed import at the moment it's actually needed (the
+  // user opening one of these two specific trophy popups), not merely by
+  // opening Profile. Doesn't eliminate the need for a real native rebuild
+  // to link the module in -- it shrinks the blast radius from "the whole
+  // Profile screen" to "just this popup, only if actually opened."
+  const [AceGem3DComp, setAceGem3DComp] = useState<ComponentType<ComponentProps<typeof AceGem3DType>> | null>(null)
+  const [MasterGlobe3DComp, setMasterGlobe3DComp] = useState<ComponentType<ComponentProps<typeof MasterGlobe3DType>> | null>(null)
+  useEffect(() => {
+    if (!coinDetail) return
+    if (coinDetail.code === 'DUEL_100_WINS' && !AceGem3DComp) {
+      import('@/components/AceGem3D').then((m) => setAceGem3DComp(() => m.AceGem3D))
+    } else if (coinDetail.code === 'MASTERY_FULL' && !MasterGlobe3DComp) {
+      import('@/components/MasterGlobe3D').then((m) => setMasterGlobe3DComp(() => m.MasterGlobe3D))
+    }
+  }, [coinDetail, AceGem3DComp, MasterGlobe3DComp])
+  // Challenge Coin names can run long ("30-Day Currency" etc., per the
+  // coinNameSlot layout comment below) and get cut off the same way FAR
+  // Part titles do -- same hook/card pair as far/index.tsx's own long-press
+  // preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   const load = useCallback(async () => {
     if (!userId) return
@@ -591,30 +625,37 @@ export default function ProfileScreen() {
                     // "bragging page" the coins are for.
                     <View style={styles.coinGrid}>
                       {COIN_CATALOG.map((coin) => {
-                        const earned = coins.some((c) => c.code === coin.code)
+                        const count = coins.filter((c) => c.code === coin.code).length
+                        const earned = count > 0
                         return (
                           <Pressable
                             key={coin.code}
                             style={styles.coinCard}
-                            onPress={() => setCoinDetail(coin)}
+                            onPress={() => {
+                              if (consumeLongPress()) return
+                              setCoinDetail(coin)
+                            }}
+                            onLongPress={(e) => showPreview(coin.name, e)}
+                            onPressOut={hidePreview}
+                            delayLongPress={350}
                           >
                             <View style={styles.coinMedalWrap}>
                               <CoinMedal tier={coin.tier} icon={coin.icon} earned={earned} />
-                              {/* Same "subscript circle" tally treatment as
-                                  NameTag's per-tier badge up in the header --
-                                  RC: "the number of each coin a user has,
-                                  should also be shown on these larger coins
-                                  down in this area, like they are up top."
-                                  Every catalog coin is a one-time milestone
-                                  today (count is always 1 once earned, never
-                                  higher), but the badge itself is what makes
-                                  an earned coin visually match the tally
-                                  style shown elsewhere -- and it's already
-                                  the right shape if a coin ever becomes
-                                  re-earnable. */}
-                              {earned && (
+                              {/* RC, 2026-08-12: asked whether the "1" here
+                                  was ever wrong -- it wasn't (every award
+                                  path was NOT-EXISTS-gated, one row per
+                                  coin, forever), but a badge that can only
+                                  ever say "1" isn't telling anyone
+                                  anything. Now split by whether the coin is
+                                  actually re-earnable (RE_EARNABLE_CODES,
+                                  the 3 currency coins -- real running
+                                  count) or a genuine one-time milestone (no
+                                  badge at all, matching RC's "the rest, i
+                                  suppose, you can remove their badges
+                                  altogether"). */}
+                              {earned && RE_EARNABLE_CODES.has(coin.code) && (
                                 <View style={[styles.coinCountBadge, { backgroundColor: tokens.gold }]}>
-                                  <Text style={styles.coinCountBadgeText}>1</Text>
+                                  <Text style={styles.coinCountBadgeText}>{count}</Text>
                                 </View>
                               )}
                             </View>
@@ -631,21 +672,56 @@ export default function ProfileScreen() {
                     <Text style={[styles.emptySub, { color: tokens.t4, fontSize: fs(12.5) }]}>No coins earned yet.</Text>
                   ) : (
                     <View style={styles.coinGrid}>
-                      {coins.map((c) => {
-                        const def = COIN_BY_CODE[c.code]
+                      {/* Distinct codes, not one card per row -- a
+                          re-earnable currency coin can now have more than
+                          one user_coins row, which used to render as
+                          duplicate cards for the same coin here. */}
+                      {[...new Set(coins.map((c) => c.code))].map((code) => {
+                        const def = COIN_BY_CODE[code]
                         if (!def) return null
+                        const count = coins.filter((c) => c.code === code).length
                         return (
-                          <View key={c.code} style={styles.coinCard}>
+                          <View key={code} style={styles.coinCard}>
                             <View style={styles.coinMedalWrap}>
                               <CoinMedal tier={def.tier} icon={def.icon} earned />
-                              <View style={[styles.coinCountBadge, { backgroundColor: tokens.gold }]}>
-                                <Text style={styles.coinCountBadgeText}>1</Text>
-                              </View>
+                              {RE_EARNABLE_CODES.has(code) && (
+                                <View style={[styles.coinCountBadge, { backgroundColor: tokens.gold }]}>
+                                  <Text style={styles.coinCountBadgeText}>{count}</Text>
+                                </View>
+                              )}
                             </View>
-                            <View style={styles.coinNameSlot}>
+                            <Pressable
+                              style={styles.coinNameSlot}
+                              onLongPress={(e) => showPreview(def.name, e)}
+                              onPressOut={hidePreview}
+                              delayLongPress={350}
+                            >
                               <Text style={[styles.coinName, { color: tokens.t1, fontSize: fs(12) }]} numberOfLines={2}>{def.name}</Text>
-                            </View>
+                            </Pressable>
                           </View>
+                        )
+                      })}
+                    </View>
+                  )}
+                  {/* "Trophy case" -- The Ace (100 Duel wins) and The
+                      Master (100% overall mastery), RC's own "two big
+                      ticket items... side by side, both slowly spinning,
+                      like trophies in a case." Self always sees both
+                      (locked or earned, same aspirational-grid convention
+                      as CHALLENGE COINS above); other users only see this
+                      row at all once they've earned at least one, matching
+                      how the regular grid never shows another user locked
+                      slots either. */}
+                  {(isSelf || TROPHY_CATALOG.some((t) => coins.some((c) => c.code === t.code))) && (
+                    <View style={styles.trophyCase}>
+                      {TROPHY_CATALOG.map((trophy) => {
+                        const earned = coins.some((c) => c.code === trophy.code)
+                        if (!isSelf && !earned) return null
+                        return (
+                          <Pressable key={trophy.code} style={styles.trophyCard} onPress={() => setCoinDetail(trophy)}>
+                            <TrophyBadge variant={trophy.code === 'DUEL_100_WINS' ? 'ace' : 'master'} icon={trophy.icon} earned={earned} />
+                            <Text style={[styles.trophyName, { color: earned ? tokens.t1 : tokens.t4, fontSize: fs(13) }]}>{trophy.name}</Text>
+                          </Pressable>
                         )
                       })}
                     </View>
@@ -661,10 +737,155 @@ export default function ProfileScreen() {
         <Pressable style={styles.coinScrim} onPress={() => setCoinDetail(null)}>
           {coinDetail && (() => {
             const earned = coins.some((c) => c.code === coinDetail.code)
+            const trophyVariant = coinDetail.code === 'DUEL_100_WINS' ? 'ace' : coinDetail.code === 'MASTERY_FULL' ? 'master' : null
             return (
               <Pressable style={[styles.coinDetailCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]} onPress={() => {}}>
-                <CoinMedal tier={coinDetail.tier} icon={coinDetail.icon} earned={earned} size={64} />
-                <Text style={[styles.coinDetailName, { color: tokens.t1, fontSize: fs(16), marginTop: 8 }]}>{coinDetail.name}</Text>
+                {/* RC: "these go on the pop up cards which display when a
+                    user clicks on the locked image to see what they get
+                    when they reach that goal" -- the real WebGL diamond/
+                    globe (trophy_3d.html, tuned live with RC over this
+                    whole session) replaces the flat Reanimated TrophyBadge
+                    specifically here, in the reveal/preview popup. The
+                    grid tile version further up this file (TrophyBadge at
+                    line ~678) is untouched -- RC scoped this to the popup
+                    only, not every place a trophy renders. Always shows
+                    the real vivid render, earned or not: the whole point
+                    of this popup is to preview what you GET, not to gate
+                    the preview behind having it already. */}
+                {trophyVariant === 'ace' ? (
+                  // RC, Light Mode: "the black diamond is completely
+                  // ruined... make the top portion of that pop up card our
+                  // standard dark mode b/g color." The gem's transmission
+                  // genuinely needs a dark surround -- it's a translucent
+                  // material that shows its backdrop THROUGH its facets, so
+                  // a light backdrop makes the whole gem read as washed-out
+                  // white/grey instead of a black diamond. This stage
+                  // always uses `darkTokens.bg2` (not the active theme's
+                  // `tokens.bg2`) on both the surrounding View and the
+                  // `backdropColor` prop, in every theme, not just Light
+                  // Mode. RC round 7: "extend the dark area all the way to
+                  // the edges of this CTA box" -- the negative margin
+                  // canceled the card's own padding, but `coinDetailCard`'s
+                  // `alignItems:'center'` sizes children to their own
+                  // content width instead of stretching them, so this box
+                  // was only ever as wide as the circular render inside it,
+                  // not the full card -- `alignSelf:'stretch'` is the fix,
+                  // not more margin.
+                  <View
+                    style={{
+                      backgroundColor: darkTokens.bg2,
+                      marginTop: -10,
+                      marginHorizontal: -10,
+                      alignSelf: 'stretch',
+                      borderTopLeftRadius: 18,
+                      borderTopRightRadius: 18,
+                      paddingVertical: 12,
+                      alignItems: 'center',
+                    }}
+                  >
+                    {/* RC round 9: "the glow around the diamond needs to
+                        fade out into the dark blue of the actual app
+                        background." Every clip tried so far (square, then
+                        circular) was solving the wrong problem -- measured
+                        directly with gl.readPixels (the same technique
+                        that root-caused the globe's white-rim issue):
+                        the backdrop plane's own far-corner color is
+                        (12,24,38), an EXACT bit-for-bit match to
+                        darkTokens.bg2. There was never a color seam to
+                        fade -- the "hard edge" was always just the CLIP
+                        ITSELF, a geometric cutout drawn on top of a
+                        background that already matches perfectly. No clip
+                        at all, on a color-matched backdrop, IS the fade --
+                        removed the wrapper entirely. */}
+                    {AceGem3DComp ? (
+                      <AceGem3DComp size={268} backdropColor={darkTokens.bg2} />
+                    ) : (
+                      <View style={{ width: 268, height: 268, borderRadius: 134, backgroundColor: 'rgba(79,209,255,0.12)' }} />
+                    )}
+                  </View>
+                ) : trophyVariant === 'master' ? (
+                  // RC round 7: "the globe is solid, and gold, so it
+                  // doesn't need this dark b/g. remove it." Correct, and
+                  // the reason the Light-Mode dark-stage trick was ever
+                  // applied here was scoping consistency with the gem, not
+                  // a real need of its own -- unlike the gem, the globe's
+                  // material is fully opaque metal (metalness 0.88, no
+                  // transmission), so nothing behind it ever shows through
+                  // its surface. The only place a backdrop color could even
+                  // matter is the square canvas's corners outside the
+                  // sphere's own circular silhouette, and the circular clip
+                  // below already crops those away almost entirely. So:
+                  // no stage box, no forced dark color -- just the real
+                  // active-theme `tokens.bg2`, same circular clip as the
+                  // gem for the square-edge fix.
+                  <View style={{ width: 268, height: 268, borderRadius: 134, overflow: 'hidden', alignSelf: 'center' }}>
+                    {MasterGlobe3DComp ? (
+                      <MasterGlobe3DComp size={268} backdropColor={tokens.bg2} />
+                    ) : (
+                      <View style={{ width: 268, height: 268, borderRadius: 134, backgroundColor: 'rgba(79,209,255,0.12)' }} />
+                    )}
+                  </View>
+                ) : (
+                  <CoinMedal tier={coinDetail.tier} icon={coinDetail.icon} earned={earned} size={64} />
+                )}
+                {/* RC: "The text should say 'The Ace's Black Diamond'...
+                    'black diamond' on the next line, below The Ace's --
+                    and the 'BD' words should be black with a white glow
+                    behind them" (same pattern for Master: "Golden Globe"
+                    in gold). A real nickname for each trophy object, not
+                    just its catalog name -- two-line stack, second line
+                    carries the color+glow treatment. Regular (non-trophy)
+                    coins are untouched, still just coinDetail.name.
+                    RC, later: "remove the 's' from The Ace and The
+                    Master" -- first line is now the bare name, no
+                    possessive. */}
+                {trophyVariant === 'ace' ? (
+                  <>
+                    <Text style={[styles.coinDetailName, { color: tokens.t1, fontSize: fs(16), marginTop: 8 }]}>The Ace</Text>
+                    <Text
+                      style={[
+                        styles.coinDetailName,
+                        {
+                          color: '#000000',
+                          fontSize: fs(16),
+                          textShadowColor: '#ffffff',
+                          textShadowOffset: { width: 0, height: 0 },
+                          textShadowRadius: 8,
+                        },
+                      ]}
+                    >
+                      Black Diamond
+                    </Text>
+                  </>
+                ) : trophyVariant === 'master' ? (
+                  <>
+                    <Text style={[styles.coinDetailName, { color: tokens.t1, fontSize: fs(16), marginTop: 8 }]}>The Master</Text>
+                    <Text
+                      style={[
+                        styles.coinDetailName,
+                        {
+                          // RC: "make 'golden globe' a bit brighter and
+                          // 'golden' looking." `tokens.gold` is the shared
+                          // app-wide gold token (badges, EARNED status,
+                          // etc.) -- muted on purpose for those uses, but
+                          // reads dull/olive for a headline trophy label.
+                          // A dedicated brighter gold here, scoped to just
+                          // this line, doesn't touch the shared token or
+                          // any other gold-colored UI in the app.
+                          color: '#FFCB47',
+                          fontSize: fs(16),
+                          textShadowColor: '#ffffff',
+                          textShadowOffset: { width: 0, height: 0 },
+                          textShadowRadius: 8,
+                        },
+                      ]}
+                    >
+                      Golden Globe
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={[styles.coinDetailName, { color: tokens.t1, fontSize: fs(16), marginTop: 8 }]}>{coinDetail.name}</Text>
+                )}
                 <Text style={[styles.coinDetailStatus, { color: earned ? tokens.gold : tokens.t3, fontSize: fs(12) }]}>
                   {earned ? 'EARNED' : 'LOCKED — HOW TO UNLOCK'}
                 </Text>
@@ -686,6 +907,12 @@ export default function ProfileScreen() {
           onChange={setRatings}
         />
       )}
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }
@@ -754,7 +981,13 @@ const styles = StyleSheet.create({
   ratingChip: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 11, paddingVertical: 6 },
   ratingChipText: { fontWeight: '700' },
 
-  coinGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  // justifyContent: 'center' -- RC: "make sure they're all centered on any
+  // phone screen." Without it, coinCard's own width: '26%' (3 per row) left
+  // the grid's own rows flush against the container's LEFT edge, out of
+  // alignment with trophyCase below (already justifyContent: 'center'),
+  // so the whole "trophy case" row read as off-center under the grid above
+  // it rather than the two visually lining up.
+  coinGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' },
   // alignItems: 'flex-start' (not 'center') is load-bearing -- RC, real
   // device: "coins aren't aligned." Root cause, confirmed via direct DOM
   // measurement: numberOfLines={2} lets a card's label render as 1 line
@@ -767,8 +1000,13 @@ const styles = StyleSheet.create({
   // shifting; coinNameSlot's fixed height (below) removes the OTHER half
   // of the cause by giving every label the same reserved space regardless
   // of its own actual line count.
+  // gap bumped from 6 -- RC, real device: "the words got pulled up right
+  // under the coins." Correct fixed-footprint math (see CoinMedal.tsx's
+  // own wrap comment) meant the label now sits exactly `gap` below the
+  // coin's TRUE edge for the first time, instead of behind extra invisible
+  // padding that used to read as breathing room by accident.
   coinCard: {
-    width: '26%', gap: 6, alignItems: 'center', justifyContent: 'flex-start',
+    width: '26%', gap: 10, alignItems: 'center', justifyContent: 'flex-start',
   },
   coinMedalWrap: { position: 'relative' },
   coinCountBadge: {
@@ -777,13 +1015,37 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   coinCountBadgeText: { color: '#000', fontWeight: '800', fontSize: 10 },
-  // Fixed 2-line height (lineHeight 14 * 2) regardless of how many lines
-  // THIS coin's own name actually needs -- see coinCard's own comment.
-  coinNameSlot: { height: 28, justifyContent: 'flex-start' },
-  coinName: { fontWeight: '600', textAlign: 'center', lineHeight: 14 },
+  // Fixed 2-line height, regardless of how many lines THIS coin's own name
+  // actually needs -- see coinCard's own comment for why the box has to be
+  // fixed at all. RC, real device: "wording still cut off" -- the box was
+  // sized to the exact mathematical minimum (lineHeight 14 * 2 = 28), with
+  // zero slack for how iOS actually renders a bold 2-line label (real font
+  // metrics reserve a little more vertical room per line than the raw
+  // lineHeight number implies -- this app has hit that exact "exact-fit
+  // math looks right, clips glyphs on a real device" class of bug before,
+  // see CoinMedal.tsx's shadow/glow comment). Both the box and the
+  // line-height itself now have real headroom instead of a razor-exact fit.
+  coinNameSlot: { height: 34, justifyContent: 'flex-start', overflow: 'visible' },
+  coinName: { fontWeight: '600', textAlign: 'center', lineHeight: 16 },
+  // "Trophy case" -- The Ace / The Master, deliberately its own row below
+  // the regular coinGrid, not a 3rd/4th column squeezed into it: RC's own
+  // spec was "side by side," just the two of them, bigger than the rest.
+  trophyCase: { flexDirection: 'row', justifyContent: 'center', gap: 28, marginTop: 20 },
+  trophyCard: { alignItems: 'center', gap: 8, width: 130 },
+  trophyName: { fontWeight: '700', textAlign: 'center' },
 
-  coinScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 32 },
-  coinDetailCard: { width: '100%', maxWidth: 320, borderRadius: 18, borderWidth: 1, padding: 24, alignItems: 'center', gap: 8 },
+  // RC, round 2: still "not centered at all" (real bug, fixed in
+  // AceGem3D/MasterGlobe3D -- see their setPixelRatio comment) and wanted
+  // another 2x from 300. A literal 2x (600) physically cannot fit a
+  // 375pt-wide iPhone screen inside a padded modal card -- this is the
+  // practical ceiling for THIS layout (335px render, scrim padding
+  // 20->10, card padding 16->10, maxWidth loosened to let the card use
+  // nearly the full screen width). Going bigger than this specifically
+  // means changing the popup from a centered card into a full-screen
+  // takeover instead, which is a real design option but a bigger change
+  // than a number -- flagged to RC rather than done silently.
+  coinScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 10 },
+  coinDetailCard: { width: '100%', maxWidth: 400, borderRadius: 18, borderWidth: 1, padding: 10, alignItems: 'center', gap: 8 },
   coinDetailName: { fontWeight: '700' },
   coinDetailStatus: { fontWeight: '700', letterSpacing: 0.6 },
   coinDetailDesc: { textAlign: 'center', lineHeight: 20, marginTop: 4, marginBottom: 8 },

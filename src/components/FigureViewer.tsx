@@ -7,6 +7,8 @@ import { Icon } from '@/components/Icon'
 import { useAllowRotation } from '@/lib/orientation'
 import { useGatedCachedImage } from '@/lib/imageCache'
 import type { AcFigure } from '@/types'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // Full-screen viewer for a rendered Figure/Table page image. Pinch-zoom is a
 // native ScrollView capability on iOS (minimumZoomScale/maximumZoomScale) —
@@ -61,6 +63,10 @@ export function FigureViewer({
   // mis-rotates the NEXT figure, which is likely already right-side-up.
   const [manualRotation, setManualRotation] = useState(0)
   useEffect(() => { setManualRotation(0) }, [figure?.id])
+  // Figure label + caption can run long and get cut off the same way FAR
+  // Part titles do -- same hook/card pair as far/index.tsx's own long-press
+  // preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview } = useLongPressPreview()
   const rotated90 = manualRotation === 90 || manualRotation === 270
   const showNav = !!figures && figures.length > 1
   const boxWidth = width
@@ -83,10 +89,17 @@ export function FigureViewer({
     >
       <View style={[styles.root, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <Text style={[styles.headerText, { fontSize: fs(13.5) }]} numberOfLines={1}>
-            {figure?.label}
-            {figure?.caption ? ` — ${figure.caption}` : ''}
-          </Text>
+          <Pressable
+            style={{ flex: 1 }}
+            onLongPress={(e) => showPreview(`${figure?.label ?? ''}${figure?.caption ? ` — ${figure.caption}` : ''}`, e)}
+            onPressOut={hidePreview}
+            delayLongPress={350}
+          >
+            <Text style={[styles.headerText, { fontSize: fs(13.5) }]} numberOfLines={1}>
+              {figure?.label}
+              {figure?.caption ? ` — ${figure.caption}` : ''}
+            </Text>
+          </Pressable>
           <Pressable
             onPress={() => setManualRotation((r) => (r + 90) % 360)}
             hitSlop={14}
@@ -146,6 +159,12 @@ export function FigureViewer({
           </View>
         )}
       </View>
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </Modal>
   )
 }

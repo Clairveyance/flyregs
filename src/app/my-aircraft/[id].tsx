@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Modal, Share, KeyboardAvoidingView, Platform } from 'react-native'
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Modal, Share, KeyboardAvoidingView, Platform, Keyboard } from 'react-native'
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -12,6 +13,8 @@ import { SwipeToDelete } from '@/components/SwipeToDelete'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { EditAircraftModal, type UserAircraft } from '@/components/AircraftFormFields'
 import { HobbsUpdateModal } from '@/components/HobbsUpdateModal'
+import { FindFriendsPickerBody } from '@/components/FindFriendsSheet'
+import { BulkInviteContactPicker } from '@/components/BulkInviteContactPicker'
 import { supabase } from '@/lib/supabase'
 import {
   searchParts, getAircraftEquipment, addAircraftEquipment, removeAircraftEquipment, updateAircraftEquipmentTracking,
@@ -24,17 +27,20 @@ import {
 } from '@/lib/adNotifications'
 import {
   getMyAircraftRole, getAircraftCollaborators, removeCollaborator, leaveSharedAircraft,
-  inviteCollaboratorByCallsign, buildAircraftShareLink,
+  inviteCollaboratorByCallsign, buildAircraftShareLink, getOrCreateShareLink,
   type CollaboratorRole, type AircraftCollaborator, type FleetRole,
 } from '@/lib/aircraftSharing'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
-// Equipment tags + reminders are both Premium (personalized-tracking
-// depth on top of the free/Pro basics) -- see flyregs_decisions.md's AD
-// Compliance-Tracking Scope Decision. Everything here is either (a) a
-// suggestion off a part the user themselves tagged, or (b) a date the
-// user themselves entered -- the app verifies none of it independently,
-// which is what keeps this low-liability regardless of depth. "May
-// apply" / "reminder", never "applies" / "is due" as a fact.
+// Equipment tags are Premium; reminders are Pro+ (see openAddReminder's own
+// comment below -- this used to say both were Premium, but that was wrong
+// and got fixed without this header comment being updated to match, found
+// during the 2026-08-14 gating re-audit). Everything here is either (a) a
+// suggestion off a part the user themselves tagged, or (b) a date the user
+// themselves entered -- the app verifies none of it independently, which is
+// what keeps this low-liability regardless of depth. "May apply" /
+// "reminder", never "applies" / "is due" as a fact.
 
 function daysUntil(dateStr: string): number {
   const due = new Date(dateStr + 'T00:00:00')
@@ -107,12 +113,17 @@ export default function AircraftDetailScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
   const ifs = useInputFS()
+  const insets = useSafeAreaInsets()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web (silently, no throw, no log), so every dialog on this
   // screen was invisible during Browser-pane QA and the actions behind
   // them untestable. See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const { session, isPremium, hasProAccess } = useAuth()
+  // Collaborator display names on this screen can run long and get cut off
+  // the same way FAR Part titles do -- same hook/card pair as far/index.tsx's
+  // own long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
   const [aircraft, setAircraft] = useState<UserAircraft | null>(null)
   const [adNotifications, setAdNotifications] = useState<AircraftAdNotification[]>([])
   const [adRange, setAdRange] = useState<AdRangeFilter>('all')
@@ -157,13 +168,29 @@ export default function AircraftDetailScreen() {
   const [collaborators, setCollaborators] = useState<AircraftCollaborator[]>([])
   const [sharingBusy, setSharingBusy] = useState(false)
   // Drives the share modal below. 'role' shows the Viewer/Editor choice,
-  // 'callsign' shows the Callsign field -- both are steps of the SAME
-  // <Modal>, never two separate ones (see shareStep's own comment at the
-  // modal for why that split used to freeze the screen on native).
-  const [shareStep, setShareStep] = useState<'closed' | 'role' | 'callsign'>('closed')
+  // 'callsign' shows the Callsign field, 'findFriends' shows the contacts
+  // picker -- all three are steps of the SAME <Modal>, never two separate
+  // ones (see shareStep's own comment at the modal for why that split used
+  // to freeze the screen on native -- Find Friends briefly reintroduced the
+  // identical bug as its own separate <Modal> before this).
+  const [shareStep, setShareStep] = useState<'closed' | 'role' | 'callsign' | 'findFriends'>('closed')
   const [inviteRole, setInviteRole] = useState<CollaboratorRole | null>(null)
   const [inviteCallsign, setInviteCallsign] = useState('')
   const [inviteError, setInviteError] = useState<string | null>(null)
+  // RC: "the a/c invite area should also be able to invite new people (of
+  // course that invite comes with the Prem paywall to sub)." The Callsign
+  // flow only ever worked for someone who already has a FlyRegs account --
+  // aircraftSharing.ts already had a complete, working anonymous-link path
+  // (getOrCreateShareLink + join_shared_aircraft's own share_code branch,
+  // matching folder's identical dual-path design and already paywalling
+  // the joiner correctly in join/[token].tsx's needs_premium state) that
+  // this screen's own invite UI simply never called. Chosen BEFORE the
+  // role step (unlike folder, aircraft's link needs a role baked in, so
+  // every method has to pass through 'role' regardless) so pickRole below
+  // knows which of the 3 real actions to take once a role is picked.
+  const [inviteMethod, setInviteMethod] = useState<'callsign' | 'link' | 'multiple'>('callsign')
+  const [bulkInviteVisible, setBulkInviteVisible] = useState(false)
+  const bulkInviteTokenRef = useRef<string | null>(null)
   // RC: "the editing takes place once inside the a/c page. Make sure
   // editing IS available inside for all things." Owner+editor can both
   // update user_aircraft per the live RLS (editors_update_shared_aircraft).
@@ -225,19 +252,66 @@ export default function AircraftDetailScreen() {
   const handleShare = () => {
     if (!aircraft) return
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
-    setShareStep('role')
+    confirm({
+      title: 'Share this aircraft',
+      choices: [
+        { label: 'Invite by Callsign', onPress: () => { setInviteMethod('callsign'); setShareStep('role') } },
+        { label: 'Invite by Link', onPress: () => { setInviteMethod('link'); setShareStep('role') } },
+        { label: 'Invite Multiple (Contacts)', onPress: () => { setInviteMethod('multiple'); setShareStep('role') } },
+      ],
+    })
   }
 
-  const pickRole = (r: CollaboratorRole) => {
+  const pickRole = async (r: CollaboratorRole) => {
     setInviteError(null)
     setInviteCallsign('')
     setInviteRole(r)
-    setShareStep('callsign')
+    if (inviteMethod === 'callsign') {
+      setShareStep('callsign')
+      return
+    }
+    if (!aircraft) return
+    setSharingBusy(true)
+    let link: string, token: string
+    try {
+      ;({ link, token } = await getOrCreateShareLink(aircraft.id, r))
+    } catch {
+      setSharingBusy(false)
+      closeShareModal()
+      confirm({ title: 'Error', message: 'Could not create an invite link. Try again in a moment.', cancelLabel: null })
+      return
+    }
+    setSharingBusy(false)
+    if (inviteMethod === 'link') {
+      closeShareModal()
+      try {
+        await Share.share({ message: link })
+      } catch {
+        // Link is already live either way -- a cancelled/unavailable share
+        // sheet isn't a real failure, same reasoning as submitInvite below.
+        confirm({ title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
+      }
+      return
+    }
+    // 'multiple' -- hand the same link's token to the real multi-select
+    // contact picker, same as folder's own openBulkInvite.
+    bulkInviteTokenRef.current = token
+    closeShareModal()
+    setBulkInviteVisible(true)
   }
 
   const closeShareModal = () => {
     setShareStep('closed')
     setInviteRole(null)
+  }
+
+  const handleBulkInviteSent = (sentCount: number) => {
+    setBulkInviteVisible(false)
+    if (sentCount > 0) {
+      confirm({ title: 'Invites Sent', message: `Sent to ${sentCount} contact${sentCount === 1 ? '' : 's'}.`, cancelLabel: null })
+    } else {
+      confirm({ title: 'No Invites Sent', message: 'Every message was cancelled before sending. Nothing was shared.', cancelLabel: null })
+    }
   }
 
   // RC: "we still need to track/log when an a/c is being shared" -- and
@@ -628,9 +702,16 @@ export default function AircraftDetailScreen() {
                     size={fs(13)}
                     color={c.accepted ? (c.lastViewedAt ? tokens.grn : tokens.t4) : tokens.t4}
                   />
-                  <Text style={[styles.collabName, { color: c.accepted ? tokens.t1 : tokens.t3, fontSize: fs(13.5) }]} numberOfLines={1}>
-                    {c.displayLabel}
-                  </Text>
+                  <Pressable
+                    style={{ flex: 1 }}
+                    onLongPress={(e) => showPreview(c.displayLabel, e)}
+                    onPressOut={hidePreview}
+                    delayLongPress={350}
+                  >
+                    <Text style={[styles.collabName, { color: c.accepted ? tokens.t1 : tokens.t3, fontSize: fs(13.5) }]} numberOfLines={1}>
+                      {c.displayLabel}
+                    </Text>
+                  </Pressable>
                   <View style={[styles.roleBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
                     <Text style={[styles.roleBadgeText, { color: tokens.t3, fontSize: fs(10) }]}>
                       {c.accepted ? c.role.toUpperCase() : 'INVITED'}
@@ -1063,7 +1144,16 @@ export default function AircraftDetailScreen() {
       />
       <Modal visible={shareStep !== 'closed'} animationType="slide" transparent onRequestClose={closeShareModal}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+          {/* RC, real device: "move the whole 'invite' box up more off the
+              bottom of the phone screen. it's so low it's getting buried and
+              competing w/ the phone's slider bar down there." This card had
+              no bottom safe-area padding at all -- on an iPhone with a home
+              indicator, its last row (the Find Friends link) sat right in
+              the gesture-bar's own hit zone. `insets.bottom` alone isn't
+              enough breathing room on its own (it's sized for a hairline
+              gesture bar, not a comfortable gap above it), so this adds a
+              deliberate 16px on top of it. */}
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: insets.bottom + 16 }]}>
             {shareStep === 'role' ? (
               <>
                 <View style={styles.modalHeader}>
@@ -1089,6 +1179,17 @@ export default function AircraftDetailScreen() {
                   <Text style={styles.shareRoleBtnText}>Invite as Editor</Text>
                 </Pressable>
               </>
+            ) : shareStep === 'findFriends' ? (
+              // Bounded so a long contact match list scrolls WITHIN the
+              // card instead of growing it past the screen -- modalCard
+              // itself has no height cap since every other step's content
+              // is short and fixed.
+              <View style={{ maxHeight: 420 }}>
+                <FindFriendsPickerBody
+                  onClose={() => setShareStep('callsign')}
+                  onSelect={(callsign) => { setInviteCallsign(callsign); setInviteError(null); setShareStep('callsign') }}
+                />
+              </View>
             ) : (
               <>
                 <View style={styles.modalHeader}>
@@ -1117,11 +1218,31 @@ export default function AircraftDetailScreen() {
                   style={[styles.inviteInput, { color: tokens.t1, borderColor: inviteError ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
                 />
                 {inviteError && <Text style={{ color: tokens.red, fontSize: fs(12.5) }}>{inviteError}</Text>}
+                <Pressable
+                  style={styles.findFriendsLink}
+                  hitSlop={10}
+                  onPress={() => { Keyboard.dismiss(); setShareStep('findFriends') }}
+                >
+                  <Icon name="person.2.fill" size={fs(13)} color={tokens.blu} />
+                  <Text style={{ color: tokens.blu, fontSize: fs(12.5), fontWeight: '600' }}>Find Friends from Contacts</Text>
+                </Pressable>
               </>
             )}
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      <BulkInviteContactPicker
+        visible={bulkInviteVisible}
+        onClose={() => setBulkInviteVisible(false)}
+        message={bulkInviteTokenRef.current ? buildAircraftShareLink(bulkInviteTokenRef.current) : ''}
+        onSent={handleBulkInviteSent}
+      />
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }
@@ -1403,6 +1524,12 @@ function ReminderFormModal({
   const [datePickerVisible, setDatePickerVisible] = useState(false)
   const [adPickerVisible, setAdPickerVisible] = useState(false)
   const [saving, setSaving] = useState(false)
+  // AD subject headings in the "link an AD" picker below can run long and
+  // get cut off the same way FAR Part titles do -- same hook/card pair as
+  // far/index.tsx's own long-press preview. Self-contained here (not
+  // threaded from the parent screen) since this modal is its own
+  // self-fetching, self-contained unit.
+  const { preview: adPickerPreview, previewHeight: adPickerPreviewHeight, setPreviewHeight: setAdPickerPreviewHeight, showPreview: showAdPickerPreview, hidePreview: hideAdPickerPreview, consumeLongPress: consumeAdPickerLongPress } = useLongPressPreview()
 
   useEffect(() => {
     // RC, real device: tapping a reminder to edit it sometimes did nothing,
@@ -1655,7 +1782,13 @@ function ReminderFormModal({
                   <Pressable
                     key={ad.id}
                     style={[styles.row, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
-                    onPress={() => { setLinkedAdNumber(ad.adNumber); setAdPickerVisible(false) }}
+                    onPress={() => {
+                      if (consumeAdPickerLongPress()) return
+                      setLinkedAdNumber(ad.adNumber); setAdPickerVisible(false)
+                    }}
+                    onLongPress={(e) => showAdPickerPreview(ad.subjectHeading, e)}
+                    onPressOut={hideAdPickerPreview}
+                    delayLongPress={350}
                   >
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.rowTitle, { color: tokens.blu, fontSize: fs(14) }]}>AD {ad.adNumber}</Text>
@@ -1667,6 +1800,12 @@ function ReminderFormModal({
             )}
           </View>
         </View>
+        <LongPressPreviewCard
+          preview={adPickerPreview}
+          previewHeight={adPickerPreviewHeight}
+          onLayoutHeight={setAdPickerPreviewHeight}
+          onDismiss={hideAdPickerPreview}
+        />
       </Modal>
     </>
   )
@@ -1859,6 +1998,7 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   modalTitle: { fontWeight: '700' },
   inviteInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontWeight: '600' },
+  findFriendsLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 4, paddingVertical: 6 },
   shareRoleBtn: { borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
   shareRoleBtnText: { color: '#fff', fontWeight: '700' },
   formLabel: { fontWeight: '700', letterSpacing: 0.5, marginTop: 2 },

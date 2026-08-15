@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useEffect, useImperativeHandle, RefObject } from 'react'
-import { Text, View, ScrollView, Pressable, Platform, StyleSheet, useWindowDimensions } from 'react-native'
+import { Text, View, ScrollView, Pressable, Platform, StyleSheet, useWindowDimensions, Keyboard } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { normalizeRegBody } from '@/lib/regTextFormat'
@@ -100,6 +100,16 @@ interface ParsedTable {
  * fragment does -- and glued the ENTIRE footnote block onto the last row's
  * last cell as run-on text. */
 const FOOTNOTE_LINE_RE = /^\d{1,2}\s+[A-Z]/
+/** 49 CFR's own footnote-intro convention -- "Note 1 to § 175.75(f):" on its
+ * own line, followed by the footnote's body text -- a different shape from
+ * FOOTNOTE_LINE_RE above (confirmed: zero far_sections rows match this
+ * pattern, so it's genuinely cfr49-specific, not a FAR/AIM convention this
+ * should already have covered). Without this, § 175.75's real table (2
+ * footnotes, 7 lettered sub-items) fell through to the row-continuation
+ * branch below -- "a. Class 3, PG III..." etc. all matched LEADING_MARKER_RE
+ * and got glued onto the table's LAST data row's last cell as one giant
+ * run-on block, rendering as a mostly-blank oversized cell. */
+const NOTE_TO_SECTION_RE = /^Note\s+\d+\s+to\s+§/
 
 /** True when a table's captionLines[0] reads like a genuine standalone
  * title ("SPECI Issuance Table", "Icing Types") rather than a fragment of
@@ -256,7 +266,7 @@ function parseTableBlock(para: string): ParsedTable | null {
       // numbered marker this file already bolds at a real paragraph's own
       // start) reliably identifies a sub-list item regardless of its
       // closing punctuation.
-      if (FOOTNOTE_LINE_RE.test(raw)) {
+      if (FOOTNOTE_LINE_RE.test(raw) || NOTE_TO_SECTION_RE.test(raw)) {
         footnotes.push(raw)
         inFootnoteBlock = true
       } else if (inFootnoteBlock) {
@@ -880,6 +890,20 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
               onLayout={(e) => { paraRelY.current[i] = e.nativeEvent.layout.y; paraHeight.current[i] = e.nativeEvent.layout.height }}
               onLongPress={onToggleHighlight ? () => onToggleHighlight(paraKey, i) : undefined}
               delayLongPress={450}
+              // This branch only renders while in-doc search is active (hq
+              // set, see this render's own `hq` derivation above) -- RC,
+              // real device: "tap to dismiss stopped working... when using
+              // indoc search." Root cause: this Pressable's onLongPress
+              // alone was enough to make the ScrollView's own
+              // keyboardShouldPersistTaps="handled" treat every tap here as
+              // "a Touchable handled this," which correctly lets the
+              // search bar's own prev/next buttons keep working with the
+              // keyboard up -- but a PLAIN tap on ordinary body text used
+              // to do nothing at all, silently eating the tap instead of
+              // ever reaching the native "tap outside dismisses keyboard"
+              // behavior it used to fall through to before this Pressable
+              // wrapper existed. An explicit onPress restores that.
+              onPress={() => Keyboard.dismiss()}
               style={isHl ? styles.highlightWrap : isPending ? styles.pendingWrap : undefined}
             >
               {isHl && <Text style={[styles.highlightTag, { fontSize: fs(9.5) }]}> HIGHLIGHTED </Text>}

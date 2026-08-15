@@ -7,6 +7,8 @@ import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 interface AimParagraphRow {
   paragraph_number: string
@@ -35,6 +37,10 @@ export default function AimChapterScreen() {
   const [paragraphs, setParagraphs] = useState<AimParagraphRow[]>([])
   const [chapterTitle, setChapterTitle] = useState('')
   const [loading, setLoading] = useState(true)
+  // AIM paragraph titles get cut off the same way FAR Part titles do -- same
+  // hook/card pair as far/index.tsx's own long-press preview, see
+  // useLongPressPreview.ts's header comment.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   useEffect(() => {
     if (!chapter) return
@@ -87,7 +93,13 @@ export default function AimChapterScreen() {
                 <Pressable
                   key={p.paragraph_number}
                   style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                  onPress={() => router.push(`/aim/${p.paragraph_number}` as any)}
+                  onPress={() => {
+                    if (consumeLongPress()) return
+                    router.push(`/aim/${p.paragraph_number}` as any)
+                  }}
+                  onLongPress={(e) => showPreview(p.title ?? '', e)}
+                  onPressOut={hidePreview}
+                  delayLongPress={350}
                 >
                   <Text style={[styles.paraNum, { color: tokens.blu, fontSize: fs(13.5) }]}>{p.paragraph_number}</Text>
                   <Text style={[styles.paraTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
@@ -101,6 +113,12 @@ export default function AimChapterScreen() {
         />
         </TabletContainer>
       )}
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }

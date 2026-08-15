@@ -503,7 +503,21 @@ def main():
     parser.add_argument("--mode", choices=["test", "full", "incremental"], default="test")
     parser.add_argument("--limit", type=int, default=None, help="cap the number of ADs processed (test mode default: 10)")
     parser.add_argument("--touched-out", default=None, help="write every touched ad_number to this file, one per line (for send-ad-alerts.mjs)")
+    parser.add_argument(
+        "--no-revision-log", action="store_true",
+        help=(
+            "Skip content_revisions logging for this run (sets SKIP_REVISION_LOG=1, "
+            "read by revision_log.log_revisions()). Use for a manual backfill/repair "
+            "run over already-known data -- e.g. a one-off `--mode full` to backfill "
+            "a newly-added column -- so it can't log bogus What's Changed entries the "
+            "way the 2026-08-06 effective_date backfill did (72 false positives, "
+            "purged in sync/migrations_purge_content_revisions_false_positives.sql). "
+            "Leave unset for the real weekly incremental cron sync."
+        ),
+    )
     args = parser.parse_args()
+    if args.no_revision_log:
+        os.environ["SKIP_REVISION_LOG"] = "1"
 
     if args.mode in ("full", "incremental") and (not SUPABASE_URL or not SUPABASE_KEY):
         log.error("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set for full/incremental mode.")

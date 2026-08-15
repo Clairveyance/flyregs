@@ -39,6 +39,7 @@ _TABLE_KEY = {
     "ac": ("advisory_circulars", "document_number"),
     "aim": ("aim_paragraphs", "paragraph_number"),
     "ad": ("airworthiness_directives", "ad_number"),
+    "cfr49": ("cfr49_sections", "section_number"),
 }
 
 

@@ -8,6 +8,8 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getRecents, recentItemType, type RecentAC } from '@/lib/recents'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // AIM's natural browse structure: by Chapter, matching the printed manual's
 // own table of contents. aim_chapters is a small reference table (chapter,
@@ -31,6 +33,9 @@ export default function AimIndexScreen() {
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [recentAim, setRecentAim] = useState<RecentAC[]>([])
+  // AIM Chapter titles get cut off the same way FAR Part titles do -- same
+  // hook/card pair as far/index.tsx's own long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   useEffect(() => {
     // Server-side GROUP BY RPC, not client-side counting -- see far/index.tsx's
@@ -107,7 +112,7 @@ export default function AimIndexScreen() {
         {!trimmedQuery && recentAim.length > 0 && (
           <View style={styles.recentWrap}>
             <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>RECENTLY VIEWED</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentRow}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.recentScroll} contentContainerStyle={styles.recentRow}>
               {recentAim.map((r) => (
                 <Pressable
                   key={r.id}
@@ -145,7 +150,13 @@ export default function AimIndexScreen() {
             return (
               <Pressable
                 style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => router.push(`/aim/chapter/${item.chapter}` as any)}
+                onPress={() => {
+                  if (consumeLongPress()) return
+                  router.push(`/aim/chapter/${item.chapter}` as any)
+                }}
+                onLongPress={(e) => showPreview(item.title, e)}
+                onPressOut={hidePreview}
+                delayLongPress={350}
               >
                 <Text style={[styles.chapNum, { color: tokens.blu, fontSize: fs(15) }]}>
                   {isAppendix ? item.chapter.toUpperCase() : item.chapter}
@@ -163,6 +174,12 @@ export default function AimIndexScreen() {
         />
         </TabletContainer>
       )}
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }
@@ -186,6 +203,11 @@ const styles = StyleSheet.create({
   jumpText: { fontWeight: '600' },
 
   recentWrap: { marginTop: 14, paddingLeft: 12 },
+  // Same root cause as updates.tsx's filter chips (see that file's
+  // comment): a horizontal ScrollView with no explicit `style` collapses
+  // its own cross-axis height on web, clipping the row's content. Sized
+  // generously for a 2-line chip up to max font scale (1.75x).
+  recentScroll: { flexGrow: 0, flexShrink: 0, height: 84 },
   recentRow: { paddingRight: 12, gap: 8 },
   recentChip: {
     width: 130, borderRadius: 12, borderWidth: 1, padding: 10, gap: 3,

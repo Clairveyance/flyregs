@@ -53,7 +53,20 @@ async function currentUserId(force = false): Promise<string | null> {
   // flyregs_decisions.md -- but shared-folder force-pushes stay Premium-
   // gated, since collaboration itself is still Premium-only and unchanged.
   const { isPro, isPremium } = await getSubscriptionStatus()
-  if (!(force ? isPremium : isPro)) return null
+  // hasProAccess (isPro || isPremium), not bare isPro -- found in the
+  // 2026-08-14 gating re-audit: this read RevenueCat's two entitlements
+  // independently, so a genuine Premium subscriber whose account only has
+  // the 'premium' entitlement active (isPro: false, isPremium: true -- a
+  // real shape for an admin/comp-granted entitlement, same class of bug
+  // already found and fixed in saved.tsx/notes.tsx/study.tsx/my-aircraft/
+  // index.tsx/(tabs)/index.tsx/ad/index.tsx) would silently fail this
+  // check on every single push call. Worse than those UI-level bugs: there
+  // was no paywall redirect and no error anywhere -- currentUserId just
+  // returned null and every syncPush* function no-ops on `if (!userId)
+  // return`, so "Back up & sync" would show as ON in the UI (saved.tsx's
+  // own toggle already correctly gates display on hasProAccess) while
+  // silently never actually pushing anything to the cloud.
+  if (!(force ? isPremium : (isPro || isPremium))) return null
   const { data } = await supabase.auth.getSession()
   return data.session?.user?.id ?? null
 }

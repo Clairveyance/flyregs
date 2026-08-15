@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import { relatedComponentType, matchesModelAlias, aliasNameIncludesForWord } from '@/lib/partSynonyms'
 import { subsequencePattern } from '@/lib/aircraftModels'
+import { matchSpan, bestTokenTightness } from '@/lib/fuzzyMatch'
 
 // AD parts/components catalog -- deliberately bounded to parts that have
 // actually been named in a real AD's applicability text (see
@@ -61,68 +62,27 @@ function mapPartRows(data: any[] | null): AdPart[] {
   return (data ?? []).map((r: any) => ({ id: r.id, name: r.name, componentType: r.component_type, manufacturer: r.manufacturer }))
 }
 
-// Relevance ranking for the filtered result set below. RC, live, on a
-// "52241" search surfacing unrelated CF34/CF6 turbofan engine rows ahead
-// of clean matches: "what's the idea here? how is this useful? ... Here
-// we're looking for parts, not ADs" -- turned out the deeper bug wasn't
-// those rows being wrong to INCLUDE (a real query-digit sequence can
-// legitimately recur inside a long multi-variant engine listing purely by
-// chance -- confirmed live, "CF34-8C5A2, ... CF34-8E2A1" contains 5,2,2,4,1
-// scattered across it), it's that the query had NO relevance ranking at
-// all -- results were plain `.order('name')`, alphabetical, with a literal
-// substring match and a coincidental 100-character-spread match sorted
-// identically. Literal-substring-vs-not isn't a strong enough signal
-// either: the correct real match for "52241" is itself "52A241" (a
-// SUBSEQUENCE match, one inserted letter, not a literal substring) --
-// exactly the same match TYPE as the false positive, just far tighter.
-// The real signal is SPAN: how many characters of the target string sit
-// between the first and last matched query character. "52A241" matches
-// "52241" across a 6-character span (queryLen 5 / span 6 = 0.83, almost as
-// tight as a literal substring); the CF34 listing matches across 80+
-// characters of an unrelated multi-variant string (score near 0). Greedy
-// leftmost-match span, not a true minimal-window search -- cheap, and
-// good enough for short structured queries like part numbers.
-function matchSpan(target: string, query: string): { first: number; last: number } | null {
-  if (query.length === 0) return null
-  let qi = 0
-  let first = -1
-  let last = -1
-  for (let ti = 0; ti < target.length && qi < query.length; ti++) {
-    if (target[ti] === query[qi]) {
-      if (first === -1) first = ti
-      last = ti
-      qi++
-    }
-  }
-  if (qi < query.length) return null // not even a subsequence match
-  return { first, last }
-}
+// Relevance-ranking primitives (matchSpan, subsequenceTightness,
+// bestTokenTightness) moved to lib/fuzzyMatch.ts 2026-08-14 so
+// aircraftModels.ts's type-designator search could reuse the exact same
+// fix without a circular import -- see that file's header for the full
+// "52241" false-positive story this scoring approach was built to solve.
 
-function subsequenceTightness(target: string, query: string): number {
-  const span = matchSpan(target, query)
-  if (!span) return 0
-  return query.length / (span.last - span.first + 1)
-}
-
-// `name` is frequently a single comma/semicolon-separated LIST of a dozen+
-// part numbers or engine model variants (a real row here lists 18 GEnx
-// sub-variants in one string). Every one of those variants is itself
-// digit-dense, so a digit-shaped query can land a deceptively tight
-// subsequence span by scattering across SEVERAL different list entries
-// (confirmed live: "52241" scored a tight-looking span inside
-// "RB211-524B-02; -524B2-19..." despite matching no real part there) --
-// splitting the field into its individual comma/semicolon-separated
-// tokens and scoring each independently (rather than the field as a
-// whole) keeps a match honest to a single real part/model number, the
-// same way it already naturally is for a short, undelimited field.
-function bestTokenTightness(field: string, query: string): number {
-  // Some multi-variant listings separate with "/" instead of "," (e.g.
-  // "CF6-80C2 A1/A2/A3/A5/A8/A5F..."), same false-positive shape as the
-  // comma-separated case -- split on both.
-  const tokens = field.split(/[,;/]/)
-  let best = 0
-  for (const token of tokens) best = Math.max(best, subsequenceTightness(token, query))
-  return best
+// A query word containing "&" is almost always a manufacturer abbreviation
+// a pilot/mechanic actually types this way ("P&W", "GmbH & Co") -- but the
+// catalog's own text always has real spaces around the ampersand ("Pratt &
+// Whitney Canada", "BRP-Rotax GmbH & Co. KG"). A literal-substring pattern
+// can never bridge that -- "p&w" is not a substring of "pratt & whitney"
+// no matter how the rest of the word is cleaned, so this manufacturer was
+// unreachable by its single most common real-world abbreviation. Only the
+// gap AROUND the "&" needs wildcarding, not every character (that would be
+// blanket subsequencePattern-style looseness, which this file's own header
+// comment already found to be too permissive for ordinary prose fields) --
+// the letters on each side of the "&" stay literal, so "p&w" only ever
+// matches text shaped like "p...&...w", not any coincidental scatter.
+function ampersandPattern(word: string): string {
+  const parts = word.split('&').map((p) => p.replace(/[,()%_]/g, ''))
+  return `%${parts.join('%&%')}%`
 }
 
 // UI-facing counterpart to bestTokenTightness -- a result row's `name` is
@@ -221,7 +181,11 @@ export async function searchParts(query: string, limit = 25): Promise<PartSearch
     .select('id, name, component_type, manufacturer')
     .eq('status', 'active')
   for (const word of words) {
-    const pattern = /\d/.test(word) ? subsequencePattern(word) : `%${word.replace(/[,()%_]/g, '')}%`
+    const pattern = /\d/.test(word)
+      ? subsequencePattern(word)
+      : word.includes('&')
+        ? ampersandPattern(word)
+        : `%${word.replace(/[,()%_]/g, '')}%`
     let orClause = `name.ilike.${pattern},manufacturer.ilike.${pattern},component_type.ilike.${pattern}`
     // Widen the DB-level fetch for a known model-number alias -- otherwise
     // a row like "Garmin GNS- or GTN-series GPS" (no digit anywhere in its

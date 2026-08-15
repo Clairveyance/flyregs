@@ -11,7 +11,7 @@ import { TABLE_HEADER_MARK } from '@/lib/regTextFormat'
 // retained before this table existed, so each type's timeline starts from
 // whenever its own logging shipped, not retroactively.
 
-export type RevisionDocType = 'ac' | 'far' | 'aim' | 'pcg' | 'ad'
+export type RevisionDocType = 'ac' | 'far' | 'aim' | 'pcg' | 'ad' | 'cfr49'
 
 export interface ContentRevision {
   id: string
@@ -31,6 +31,7 @@ export function routeForRevision(r: ContentRevision): string {
     case 'aim': return `/aim/${r.docKey}`
     case 'pcg': return `/pcg/${r.docKey}`
     case 'ad': return `/ad/${r.docKey}`
+    case 'cfr49': return `/cfr49/${r.docKey}`
     default: return `/ac/${key}`
   }
 }
@@ -41,6 +42,7 @@ export function labelForDocType(t: RevisionDocType): string {
     case 'aim': return 'AIM'
     case 'pcg': return 'P/CG'
     case 'ad': return 'AD'
+    case 'cfr49': return '49 CFR'
     default: return 'AC'
   }
 }
@@ -64,16 +66,30 @@ export function splitParagraphs(text: string | null): string[] {
     .filter((p) => p.trim())
 }
 
-export async function getRevisions(limit = 100): Promise<ContentRevision[]> {
+// RC: "I can't believe all that is new in the last 6 months... go through
+// this whole setup meticulously." getRevisions() used to have NO time
+// window at all (just the 100 most recent ever) and the screen gave no
+// indication of how far back that went -- unlike What's New, which is
+// always scoped to the user's own Badge Duration setting. sinceDate scopes
+// it the same way, so "Changed" reads as "recent, bounded" instead of
+// "however far back logging happens to go."
+export async function getRevisions(sinceDate?: string, limit = 100): Promise<ContentRevision[]> {
   // content_revisions_gated, not the raw table -- ac/ad revisions are
   // Plus-tier content (added_text/removed_text redact to null server-side
   // for non-Plus); far/aim/pcg stay ungated. See
   // migrations_fix_content_revisions_ungated_leak.sql.
-  const { data } = await supabase
+  let query = supabase
     .from('content_revisions_gated')
     .select('id, doc_type, doc_key, doc_id, title, added_text, removed_text, revised_at')
     .order('revised_at', { ascending: false })
     .limit(limit)
+  if (sinceDate) query = query.gte('revised_at', sinceDate)
+  // Flagged in the 2026-08-14 night-rules QA sweep: dropping `error` here
+  // meant a real network/RLS failure rendered identically to "genuinely
+  // no revisions" -- the Updates screen's Changed tab would show a quiet
+  // empty state instead of surfacing that something actually went wrong.
+  const { data, error } = await query
+  if (error) throw error
   return ((data ?? []) as any[]).map((r) => ({
     id: r.id,
     docType: r.doc_type,
@@ -96,13 +112,18 @@ export async function getLatestRevision(
   docType: RevisionDocType,
   docKey: string,
 ): Promise<ContentRevision | null> {
-  const { data } = await supabase
+  // Same error-dropping gap as getRevisions() above -- a real fetch
+  // failure here would have silently rendered as "no revision," hiding
+  // the FAR/AIM detail page's "updated" banner instead of surfacing that
+  // something actually went wrong.
+  const { data, error } = await supabase
     .from('content_revisions_gated')
     .select('id, doc_type, doc_key, doc_id, title, added_text, removed_text, revised_at')
     .eq('doc_type', docType)
     .eq('doc_key', docKey)
     .order('revised_at', { ascending: false })
     .limit(1)
+  if (error) throw error
   const r = (data ?? [])[0] as any
   if (!r) return null
   return {

@@ -29,6 +29,7 @@ export function routeForRecent(r: RecentAC): string {
   if (type === 'ad') return `/ad/${r.id}`
   if (type === 'loi') return `/loi/${r.id}`
   if (type === 'dictionary') return `/dictionary/${r.id}`
+  if (type === 'cfr49') return `/cfr49/${r.id}`
   return `/ac/${r.id}`
 }
 

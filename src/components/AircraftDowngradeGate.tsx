@@ -6,6 +6,8 @@ import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
 import { getFleetHiddenCount, getOwnedAircraftOldestFirst, keepOnlyAircraft } from '@/lib/aircraftSharing'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // The Premium -> Pro landing pad, mounted at the root so it finds the user
 // WHEREVER they are in the app.
@@ -38,6 +40,12 @@ export function AircraftDowngradeGate() {
   const [error, setError] = useState<string | null>(null)
   const [typed, setTyped] = useState('')
   const armed = typed.trim().toUpperCase() === 'DELETE'
+  // Aircraft labels (nickname or make/model) can run long and get cut off
+  // the same way FAR Part titles do -- same hook/card pair as
+  // far/index.tsx's own long-press preview. Called unconditionally here
+  // (before either early return below) per the rules of hooks; both
+  // possible render branches share this one instance.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   const check = useCallback(async () => {
     if (!session) { setLocked([]); return }
@@ -113,9 +121,16 @@ export function AircraftDowngradeGate() {
               {going.map((a) => (
                 <View key={a.aircraftId} style={[styles.goingRow, { borderColor: tokens.bdr }]}>
                   <Icon name="trash" size={fs(12)} color={tokens.red} />
-                  <Text style={[styles.goingText, { color: tokens.t2, fontSize: fs(13) }]} numberOfLines={1}>
-                    {label(a)}
-                  </Text>
+                  <Pressable
+                    style={{ flex: 1 }}
+                    onLongPress={(e) => showPreview(label(a), e)}
+                    onPressOut={hidePreview}
+                    delayLongPress={350}
+                  >
+                    <Text style={[styles.goingText, { color: tokens.t2, fontSize: fs(13) }]} numberOfLines={1}>
+                      {label(a)}
+                    </Text>
+                  </Pressable>
                 </View>
               ))}
             </View>
@@ -164,6 +179,12 @@ export function AircraftDowngradeGate() {
             )}
           </View>
         </View>
+        <LongPressPreviewCard
+          preview={preview}
+          previewHeight={previewHeight}
+          onLayoutHeight={setPreviewHeight}
+          onDismiss={hidePreview}
+        />
       </Modal>
     )
   }
@@ -193,7 +214,13 @@ export function AircraftDowngradeGate() {
               <Pressable
                 key={a.aircraftId}
                 style={[styles.row, { borderColor: tokens.bdr }]}
-                onPress={() => { setTyped(''); setPending(a) }}
+                onPress={() => {
+                  if (consumeLongPress()) return
+                  setTyped(''); setPending(a)
+                }}
+                onLongPress={(e) => showPreview(label(a), e)}
+                onPressOut={hidePreview}
+                delayLongPress={350}
               >
                 <Icon name="airplane" size={fs(13)} color={tokens.t3} />
                 <Text style={[styles.rowText, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
@@ -209,6 +236,12 @@ export function AircraftDowngradeGate() {
           </Text>
         </View>
       </View>
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </Modal>
   )
 }

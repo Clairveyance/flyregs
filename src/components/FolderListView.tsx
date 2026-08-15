@@ -17,6 +17,8 @@ import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
 import { renameFolder, Folder, DUPLICATE_FOLDER_NAME } from '@/lib/folders'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // Fallback only for the one frame before a row's real height is measured via
 // onLayout -- every row uses that measured height once known, since actual
@@ -73,7 +75,7 @@ export function FolderListView({
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
-  const { hasProAccess } = useAuth()
+  const { hasPlusAccess } = useAuth()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const listRef = useRef<FlatList<Folder>>(null)
@@ -90,6 +92,11 @@ export function FolderListView({
   const [dragStartIndex, setDragStartIndex] = useState(0)
   const [dragHoverIndex, setDragHoverIndex] = useState(0)
   const dragY = useSharedValue(0)
+  // Folder names (user-created) can run long and get cut off the same way
+  // FAR Part titles do -- same hook/card pair as far/index.tsx's own
+  // long-press preview. Called unconditionally here (before the empty-state
+  // early return below) per the rules of hooks.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   const onRowLayout = (h: number) => {
     if (!rowHeightMeasured.current && h > 0) {
@@ -161,8 +168,8 @@ export function FolderListView({
     action()
   }
 
-  const guardPro = (action: () => void) => {
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+  const guardPlus = (action: () => void) => {
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     action()
   }
 
@@ -177,7 +184,7 @@ export function FolderListView({
         </Text>
         <Pressable
           style={[styles.createCta, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr, borderWidth: 1 }]}
-          onPress={() => guardPro(onCreateFolder)}
+          onPress={() => guardPlus(onCreateFolder)}
         >
           <Icon name="folder.badge.plus" size={fs(16)} color={tokens.blu} />
           <Text style={[styles.createCtaText, { color: tokens.blu, fontSize: fs(14) }]}>New Folder</Text>
@@ -276,9 +283,18 @@ export function FolderListView({
               // drag ... to the very top, not anyplace in between."
               onDragUpdate={(translationY: number) => handleDragUpdate(translationY, dragStartIndex, displayFolders.length)}
               onDragEnd={handleDragEnd}
+              showPreview={showPreview}
+              hidePreview={hidePreview}
+              consumeLongPress={consumeLongPress}
             />
           )
         }}
+      />
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
       />
     </KeyboardAvoidingView>
   )
@@ -288,6 +304,7 @@ function SwipeableFolderRow({
   folder, count, tokens, selectMode, selected, onPress, onRename, onShare, onDuplicate, onDelete,
   reorderMode = false, isDragging = false, dragY, dragIndexDelta = 0, rowHeight = FALLBACK_ROW_HEIGHT,
   onLayoutHeight, onDragStart, onDragUpdate, onDragEnd,
+  showPreview, hidePreview, consumeLongPress,
 }: {
   folder: Folder
   count: number
@@ -308,6 +325,9 @@ function SwipeableFolderRow({
   onDragStart?: () => void
   onDragUpdate?: (translationY: number) => void
   onDragEnd?: () => void
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
@@ -435,7 +455,13 @@ function SwipeableFolderRow({
               styles.folderCard,
               { backgroundColor: tokens.bg2, borderColor: isDragging ? tokens.blu : tokens.bdr },
             ]}
-            onPress={reorderMode ? undefined : handlePress}
+            onPress={reorderMode ? undefined : () => {
+              if (consumeLongPress()) return
+              handlePress()
+            }}
+            onLongPress={reorderMode ? undefined : (e) => showPreview(folder.name, e)}
+            onPressOut={hidePreview}
+            delayLongPress={350}
           >
             {selectMode && !reorderMode && (
               <View style={[

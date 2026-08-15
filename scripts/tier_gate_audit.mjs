@@ -26,7 +26,7 @@ const FEATURES = [
   ['Study Mode',            'src/app/study.tsx',                 'isPro',        'pro'],
   ['Duels',                 'src/app/challenges/index.tsx',      'isPremium',    'premium'],
   ['Ready Room leaderboard','src/app/ready-room.tsx',            'isPro',        'pro'],
-  ["What's Changed",        'src/app/whats-changed.tsx',         'hasPlusAccess','plus'],
+  ['Updates (New/Changed)', 'src/app/updates.tsx',               'hasPlusAccess','plus'],
   ['RefPacks',              'src/app/ref-packets/[code].tsx',    'hasPlusAccess','plus'],
   ['My Aircraft',           'src/app/my-aircraft/index.tsx',     'isPro',        'pro'],
   ['Back up & sync',        'src/app/(tabs)/saved.tsx',          'isPro',        'pro'],
@@ -35,7 +35,16 @@ const FEATURES = [
   ['Print',                 'src/app/far/[id].tsx',              'hasPlusAccess','plus'],
   ['Share a folder',        'src/app/folder/[id].tsx',           'isPremium',    'premium'],
   ['Community tab',         'src/app/(tabs)/search.tsx',         'hasPlusAccess','plus'],
-  ['DailyReg card',         'src/app/(tabs)/index.tsx',          'hasPlusAccess','plus'],
+  // Was 'hasPlusAccess'/'plus' -- stale since 2026-08-03's "daily reg is Pro
+  // gated, not Plus" move (DailyRegCard in (tabs)/index.tsx actually reads
+  // `isPro`). The .includes(flag) check below never caught this because
+  // 'hasPlusAccess' legitimately appears elsewhere in this large file (the
+  // search-results cap), so the string match passed even though it wasn't
+  // testing DailyReg's own gate. Confirmed against the live
+  // get_reg_of_the_day() RPC too (has_pro_access(), not has_plus_access())
+  // during the pre-build-32 gating audit -- both client and server agree on
+  // Pro; only this table entry had drifted.
+  ['DailyReg card',         'src/app/(tabs)/index.tsx',          'isPro',        'pro'],
   ['Ask FlyRegs',           'src/app/semantic-search.tsx',       'hasProAccess', 'pro'],
   ['MagicLink expand',      'src/components/MagicLinkPod.tsx',   'hasProAccess', 'pro'],
 ]

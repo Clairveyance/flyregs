@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { subsequenceTightness } from '@/lib/fuzzyMatch'
 
 // Common marketing-name -> FAA type-certificate designator bridge for My
 // Aircraft.
@@ -27,6 +28,21 @@ export const AIRCRAFT_MODEL_ALIASES: Record<string, string> = {
   // Cessna
   skyhawk: '172', skylane: '182', stationair: '206', centurion: '210',
   skymaster: '337', cardinal: '177', skywagon: '180', skylark: '175',
+  caravan: '208',
+  // RC pushed back on dropping this one, correctly -- the Skycatcher is a
+  // real Cessna model, "162" is its real FAA type-certificate designator
+  // (notable in its own right: Cessna pursued a full Part 23 TC for it
+  // rather than the ASTM-only path most other LSAs took). It came back
+  // empty against `aircraft_type_designators` because that table is the
+  // Releasable AIRCRAFT REGISTRY -- currently N-registered airframes, not
+  // every type ever certificated -- and very few 162s are still on the US
+  // registry after the 2014 wing-rib-defect recall grounded/scrapped much
+  // of the ~200-unit production run. Absence from a registry of what's
+  // FLYING today isn't evidence the designator itself is wrong, just that
+  // this app's typeahead won't offer it as a suggestion (a separate,
+  // harmless gap) -- restored on the strength of the designator being real,
+  // well-documented public knowledge, not a guess.
+  skycatcher: '162',
 
   // Piper (PA-28 family carries the most trim names)
   cherokee: 'PA-28', warrior: 'PA-28', archer: 'PA-28', cadet: 'PA-28',
@@ -34,13 +50,29 @@ export const AIRCRAFT_MODEL_ALIASES: Record<string, string> = {
   saratoga: 'PA-32', lance: 'PA-32', 'cherokee six': 'PA-32',
   seneca: 'PA-34', seminole: 'PA-44', malibu: 'PA-46', mirage: 'PA-46',
   matrix: 'PA-46', meridian: 'PA-46', aztec: 'PA-23', apache: 'PA-23',
-  comanche: 'PA-24', pawnee: 'PA-25', tomahawk: 'PA-38', 'super cub': 'PA-18',
+  comanche: 'PA-24', 'twin comanche': 'PA-30', pawnee: 'PA-25', tomahawk: 'PA-38', 'super cub': 'PA-18',
   'cherokee 140': 'PA-28-140', 'cherokee 180': 'PA-28-180',
+  // RC, 2026-08-14: "do the small [lookup] work by hand for the TCDS, keep
+  // cost down" -- added post-launch after confirming TCDS itself carries
+  // zero marketing names (only 2 of 365 distinct AD `model` strings do
+  // either), so this table's own hand-curated approach is the only real
+  // source; expanded it, not replaced it. Real, common gaps a GA
+  // owner/renter plausibly has: Piper's pre-Cherokee tube-and-fabric line
+  // (Pacer/Tri-Pacer/Colt/Vagabond, all still flying and commonly
+  // rented/owned) and the Navajo-family cabin twins.
+  pacer: 'PA-20', 'tri-pacer': 'PA-22', colt: 'PA-22-108', vagabond: 'PA-15',
+  navajo: 'PA-31', chieftain: 'PA-31-350', 'navajo chieftain': 'PA-31-350',
 
   // Beechcraft
   bonanza: '36', debonair: '33', baron: '58', duchess: '76',
   'travel air': '95', musketeer: '23', sundowner: '23', sierra: '24',
-  sport: '19', duke: '60', 'queen air': '65', 'king air': '90',
+  sport: '19', duke: '60', 'queen air': '65', 'king air': '90', skipper: '77',
+
+  // Champion / Bellanca / American Champion tailwheel trainers -- still a
+  // common rental/owner fleet, and (unlike most of the rest of this table)
+  // genuinely different technical designators per trim name, not just a
+  // shared family prefix.
+  champ: '7AC', citabria: '7GCAA', decathlon: '8KCAB', scout: '8GCBC',
 
   // Mooney (M20 series, many trim names over the years)
   ranger: 'M20', chaparral: 'M20', executive: 'M20', statesman: 'M20',
@@ -241,7 +273,27 @@ export async function searchTypeDesignators(query: string, manufacturer?: string
       byKey.set(key, { manufacturer: canon, type_designator: r.type_designator })
     }
   }
-  return [...byKey.values()].sort((a, b) => a.type_designator.localeCompare(b.type_designator)).slice(0, 8)
+  // Rank by match TIGHTNESS before the top-8 cap, not plain alphabetical --
+  // same fix already shipped for parts search (see fuzzyMatch.ts's header),
+  // now confirmed as a real gap here too. Live-verified before this fix:
+  // searching "SR22" with no manufacturer put "DHC-1 SERIES 22" and
+  // "JETSTREAM 3212" (loose, wide-span subsequence coincidences) ahead of
+  // the actual "SR22"/"SR22T" rows in the alphabetical top 8 -- the exact
+  // match a pilot is looking for was pushed OUT of the visible window by
+  // unrelated types that merely happen to sort earlier. Same shape with
+  // "28" under Piper: "PA 28-180"/"PA 28-181" (an inconsistent space-not-
+  // hyphen spelling variant) and unrelated "PA-22-108"/"PA-24-180" (contain
+  // 2 and 8 as a loose subsequence) crowded out "PA-28"/"PA-28-140" and
+  // its real, common variants. Query is uppercased once, matching how
+  // subsequencePattern() built the DB-level fetch pattern in the first
+  // place, so tightness scoring compares against the same normalized form.
+  const qUpper = q.toUpperCase()
+  return [...byKey.values()]
+    .sort((a, b) => {
+      const scoreDiff = subsequenceTightness(b.type_designator.toUpperCase(), qUpper) - subsequenceTightness(a.type_designator.toUpperCase(), qUpper)
+      return scoreDiff !== 0 ? scoreDiff : a.type_designator.localeCompare(b.type_designator)
+    })
+    .slice(0, 8)
 }
 
 // Distinct manufacturer names for the Make field's own typeahead --

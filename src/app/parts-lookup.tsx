@@ -9,6 +9,8 @@ import { Icon } from '@/components/Icon'
 import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
 import { searchParts, getAdsForPart, bestMatchingToken, PART_TYPE_LABELS, type AdPart, type PartMentionAd, type PartComponentType } from '@/lib/adParts'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // Tier boundary (revised 2026-08-08, see flyregs_decisions.md): a specialized
 // parts/component search gates to Plus, with NO free preview at all -- RC:
@@ -58,6 +60,10 @@ export default function PartsLookupScreen() {
   const [loadingAds, setLoadingAds] = useState<string | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const seq = useRef(0)
+  // AD subject headings in the expanded parts list run long and get cut off
+  // the same way FAR Part titles do -- same hook/card pair as far/index.tsx's
+  // own long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   const runSearch = useCallback((q: string) => {
     const trimmed = q.trim()
@@ -240,7 +246,13 @@ export default function PartsLookupScreen() {
                           <Pressable
                             key={ad.adNumber}
                             style={[styles.adRow, { borderTopColor: tokens.bdr }]}
-                            onPress={() => router.push(`/ad/${ad.adNumber}` as any)}
+                            onPress={() => {
+                              if (consumeLongPress()) return
+                              router.push(`/ad/${ad.adNumber}` as any)
+                            }}
+                            onLongPress={(e) => showPreview(ad.subjectHeading, e)}
+                            onPressOut={hidePreview}
+                            delayLongPress={350}
                           >
                             <Text style={[styles.adNum, { color: tokens.blu, fontSize: fs(13) }]}>AD {ad.adNumber}</Text>
                             <Text style={[styles.adTitle, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={1}>
@@ -260,6 +272,12 @@ export default function PartsLookupScreen() {
         </>
         )}
       </TabletContainer>
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }

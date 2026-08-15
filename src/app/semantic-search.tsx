@@ -11,6 +11,8 @@ import { semanticSearch, type SemanticSearchResult } from '@/lib/semanticSearch'
 import { routeForCitedItem } from '@/lib/citedItems'
 import { REG_TYPE } from '@/lib/regTypes'
 import { getRecentSearches, addRecentSearch, removeRecentSearch, clearRecentSearches } from '@/lib/recentSearches'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // "Ask FlyRegs" (task #114) -- the query-UI half of the semantic search
 // infrastructure; see src/lib/semanticSearch.ts's own comment for why this
@@ -107,6 +109,9 @@ export default function SemanticSearchScreen() {
   // crashed on web ("not a function"; RN-web's TextInput ref doesn't expose
   // it) and isn't guaranteed on native either under RN's New Architecture.
   const [resetKey, setResetKey] = useState(0)
+  // Result titles run long and get cut off the same way FAR Part titles do
+  // -- same hook/card pair as far/index.tsx's own long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
   const setQueryText = useCallback((text: string) => {
     setQuery(text)
     setResetKey((k) => k + 1)
@@ -304,7 +309,13 @@ export default function SemanticSearchScreen() {
                   <Pressable
                     key={`${r.sourceType}-${r.sourceId}-${i}`}
                     style={[styles.resultCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                    onPress={() => router.push(routeForCitedItem(r.sourceType, r.sourceId) as any)}
+                    onPress={() => {
+                      if (consumeLongPress()) return
+                      router.push(routeForCitedItem(r.sourceType, r.sourceId) as any)
+                    }}
+                    onLongPress={(e) => showPreview(formatResultTitle(r.sourceType, r.title) || formatSourceLabel(r.sourceType, r.sourceId) || meta.label, e)}
+                    onPressOut={hidePreview}
+                    delayLongPress={350}
                   >
                     <View style={styles.resultHeader}>
                       <Icon name={meta.icon} size={fs(13)} color={tokens.blu} />
@@ -329,6 +340,12 @@ export default function SemanticSearchScreen() {
           )}
         </View>
       </TabletContainer>
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }

@@ -43,7 +43,7 @@ export default function ManageSubscriptionScreen() {
 
   const handleManage = () => {
     if (Platform.OS === 'web') {
-      confirm({ title: 'Available on iOS & Android', message: 'Manage your subscription from the FlyRegs mobile app.', cancelLabel: null })
+      confirm({ title: 'Available on iOS', message: 'Manage your subscription from the FlyRegs iOS app.', cancelLabel: null })
       return
     }
     // Cancelling drops the subscriber to whatever they separately own
@@ -77,7 +77,7 @@ export default function ManageSubscriptionScreen() {
 
   const handleRestore = async () => {
     if (Platform.OS === 'web') {
-      confirm({ title: 'Available on iOS & Android', message: 'Restore purchases from the FlyRegs mobile app.', cancelLabel: null })
+      confirm({ title: 'Available on iOS', message: 'Restore purchases from the FlyRegs iOS app.', cancelLabel: null })
       return
     }
     // This screen is only ever navigated to from Account (which already

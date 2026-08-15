@@ -10,7 +10,7 @@ import {
   getMyChallenges, respondToChallenge, getNextChallengeQuestion, submitChallengeAnswer,
   getChallengeResults, getChallengeStandings, getDuelStats, sendDuelPush, createChallenge,
   MyChallenge, NextQuestion, AnswerResult, ChallengeResultRow, StandingRow, DuelStats, DuelItemType,
-  KNOWLEDGE_LEVEL_LABELS, markCoinsSeen,
+  STUDY_LEVEL_LABELS, markCoinsSeen,
 } from '@/lib/challenges'
 import { RATING_SHORT_LABELS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
 import { slugifyPcgTerm } from '@/lib/pcg'
@@ -18,8 +18,10 @@ import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { ConfettiBurst } from '@/components/Confetti'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
-type Phase = 'loading' | 'pending_response' | 'ready' | 'playing' | 'revealed' | 'waiting_opponent' | 'results' | 'declined'
+type Phase = 'loading' | 'pending_response' | 'ready' | 'playing' | 'revealed' | 'waiting_opponent' | 'results' | 'declined' | 'not_found' | 'error'
 
 const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC' }
 // Phrased as the ACTUAL QUESTION being asked, not as a label for the data
@@ -71,7 +73,7 @@ function FilterSummary({ challenge, tokens, fs }: { challenge: MyChallenge; toke
       ))}
       {(challenge.levels ?? []).map((l) => (
         <View key={l} style={[styles.filterPill, { backgroundColor: tokens.bdim, borderColor: tokens.blu }]}>
-          <Text style={[styles.filterPillText, { color: tokens.blu, fontSize: fs(10.5) }]}>{KNOWLEDGE_LEVEL_LABELS[l]}</Text>
+          <Text style={[styles.filterPillText, { color: tokens.blu, fontSize: fs(10.5) }]}>{STUDY_LEVEL_LABELS[l]}</Text>
         </View>
       ))}
       {(challenge.categoryClasses ?? []).map((c) => (
@@ -109,30 +111,50 @@ export default function ChallengeGameScreen() {
   const [revealCoin, setRevealCoin] = useState<CoinDef | null>(null)
   const [liveMs, setLiveMs] = useState(0)
   const [rematching, setRematching] = useState(false)
+  // getMyChallenges() (or any of the follow-up fetches below) can genuinely
+  // fail -- transient network blip, a 500, signed-out mid-session -- same
+  // class of gap as the semantic-search "transient 500, no retry" bug found
+  // elsewhere in this project. Before this fix, an exception here was an
+  // unhandled promise rejection: phase stayed 'loading' forever with no way
+  // to tell "still fetching" apart from "will never resolve." Surfaced as an
+  // actual error state with a Retry button instead.
+  const [loadError, setLoadError] = useState<string | null>(null)
   const startedAt = useRef(0)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const loadState = useCallback(async () => {
     if (!id) return
-    const list = await getMyChallenges()
-    const c = list.find((x) => x.challengeId === id) ?? null
-    setChallenge(c)
-    if (c) getDuelStats().then(setMyStats)
-    if (!c) { setPhase('loading'); return }
-    if (c.status === 'cancelled' || c.myStatus === 'declined') { setPhase('declined'); return }
-    if (c.myStatus === 'pending') { setPhase('pending_response'); return }
-    if (c.status === 'completed') {
-      const [r, s] = await Promise.all([getChallengeResults(id), getChallengeStandings(id)])
-      setResults(r)
-      setStandings(s)
-      setPhase('results')
-      return
+    setLoadError(null)
+    try {
+      const list = await getMyChallenges()
+      const c = list.find((x) => x.challengeId === id) ?? null
+      setChallenge(c)
+      if (c) getDuelStats().then(setMyStats)
+      // Previously fell back to 'loading' here, which is indistinguishable
+      // from a still-in-flight fetch -- a stale deep link, an old push
+      // notification pointing at an already-purged duel, or a genuine data
+      // desync all rendered as a spinner that would never resolve. This is
+      // a real, distinguishable terminal state now (see phase === 'not_found'
+      // below), not a loading state.
+      if (!c) { setPhase('not_found'); return }
+      if (c.status === 'cancelled' || c.myStatus === 'declined') { setPhase('declined'); return }
+      if (c.myStatus === 'pending') { setPhase('pending_response'); return }
+      if (c.status === 'completed') {
+        const [r, s] = await Promise.all([getChallengeResults(id), getChallengeStandings(id)])
+        setResults(r)
+        setStandings(s)
+        setPhase('results')
+        return
+      }
+      // active
+      const q = await getNextChallengeQuestion(id)
+      if (!q) { setPhase('waiting_opponent'); return }
+      setQuestion(q)
+      setPhase('ready')
+    } catch (err: any) {
+      setLoadError(err?.message ?? 'Could not load this duel.')
+      setPhase('error')
     }
-    // active
-    const q = await getNextChallengeQuestion(id)
-    if (!q) { setPhase('waiting_opponent'); return }
-    setQuestion(q)
-    setPhase('ready')
   }, [id])
 
   useEffect(() => { loadState() }, [loadState])
@@ -264,9 +286,13 @@ export default function ChallengeGameScreen() {
         opponentIds,
         challenge.questionCount,
         challenge.itemTypes ?? undefined,
-        challenge.levels ?? undefined,
-        challenge.categoryClasses ?? undefined,
-        challenge.ratings ?? undefined
+        // Ratings folded into levels now (see StudyLevel's own comment) --
+        // merge both here too, so a rematch of an OLD duel (created before
+        // this change, whose rating values still live in the separate
+        // `ratings` column) carries its full original filter forward
+        // instead of silently dropping the rating half.
+        [...(challenge.levels ?? []), ...(challenge.ratings ?? [])],
+        challenge.categoryClasses ?? undefined
       )
       sendDuelPush(newId, 'invited')
       router.replace(`/challenges/${newId}` as any)
@@ -313,6 +339,28 @@ export default function ChallengeGameScreen() {
 
       {phase === 'loading' ? (
         <View style={styles.center}><ActivityIndicator color={tokens.blu} /></View>
+      ) : phase === 'not_found' ? (
+        <View style={styles.center}>
+          <Icon name="questionmark.circle" size={fs(36)} color={tokens.t4} />
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Duel not found</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            This duel may have been deleted, or the link is out of date.
+          </Text>
+          <Pressable style={[styles.goBtnSmall, { backgroundColor: tokens.bg2, borderWidth: 1, borderColor: tokens.bdr, marginTop: 14 }]} onPress={() => router.back()}>
+            <Text style={[styles.goBtnSmallText, { color: tokens.t2, fontSize: fs(14) }]}>Go Back</Text>
+          </Pressable>
+        </View>
+      ) : phase === 'error' ? (
+        <View style={styles.center}>
+          <Icon name="exclamationmark.triangle" size={fs(36)} color={tokens.red} />
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Couldn't load this duel</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            {loadError ?? 'Something went wrong. Check your connection and try again.'}
+          </Text>
+          <Pressable style={[styles.goBtnSmall, { backgroundColor: tokens.gold, marginTop: 14 }]} onPress={() => loadState()}>
+            <Text style={[styles.goBtnSmallText, { fontSize: fs(14) }]}>Retry</Text>
+          </Pressable>
+        </View>
       ) : phase === 'declined' ? (
         // 'cancelled' now has a distinct cause from 'I declined': the DB
         // cancels a duel when nobody is left to play it (every invitee
@@ -333,7 +381,7 @@ export default function ChallengeGameScreen() {
         </View>
       ) : phase === 'pending_response' ? (
         <View style={styles.center}>
-          <Icon name="bolt.fill" size={fs(36)} color={tokens.gold} />
+          <Icon name="trophy" size={fs(36)} color={tokens.gold} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>
             {otherCount === 1 ? `${challenge?.others[0].label} wants to duel you` : `You've been invited to a ${otherCount + 1}-player duel`}
           </Text>
@@ -483,12 +531,18 @@ function ResultsView({
   const me = standings.find((s) => s.isMe)
   const winner = standings.find((s) => s.finalRank === 1)
   const outcome = !me ? 'lost' : me.finalRank !== 1 ? 'lost' : me.tieGroupSize > 1 ? 'tied' : 'won'
+  // A standings row's display label (a duel opponent's chosen name) can run
+  // long and get cut off the same way FAR Part titles do -- same hook/card
+  // pair as far/index.tsx's own long-press preview. ResultsView renders once
+  // per screen (not once per row), so the hook lives here rather than being
+  // threaded down from the top-level screen component.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   return (
     <View style={styles.resultsWrap}>
       {outcome === 'won' && <ConfettiBurst />}
       <View style={styles.resultsSummary}>
-        <Icon name={outcome === 'won' ? 'rosette' : 'bolt.fill'} size={fs(32)} color={tokens.gold} />
+        <Icon name={outcome === 'won' ? 'rosette' : 'trophy'} size={fs(32)} color={tokens.gold} />
         <Text style={[styles.readyTitle, { color: tokens.t1, fontSize: fs(18) }]}>
           {outcome === 'won' ? 'You won!' : outcome === 'tied' ? "It's a tie for first!" : `${winner?.label ?? 'Someone'} won this one`}
         </Text>
@@ -523,9 +577,16 @@ function ResultsView({
             <Text style={[styles.standingRank, { color: s.finalRank === 1 ? tokens.gold : tokens.t3, fontSize: fs(15) }]}>
               #{s.finalRank}
             </Text>
-            <Text style={[styles.standingLabel, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
-              {s.isMe ? 'You' : s.label}
-            </Text>
+            <Pressable
+              style={{ flex: 1 }}
+              onLongPress={(e) => showPreview(s.isMe ? 'You' : s.label, e)}
+              onPressOut={hidePreview}
+              delayLongPress={350}
+            >
+              <Text style={[styles.standingLabel, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
+                {s.isMe ? 'You' : s.label}
+              </Text>
+            </Pressable>
             <Text style={[styles.standingScore, { color: tokens.t2, fontSize: fs(13) }]}>
               {s.correctCount} correct
               {s.tieGroupSize > 1 ? ` · ${formatDuelSecondsLabel(s.tiebreakMs)}` : ''}
@@ -572,6 +633,12 @@ function ResultsView({
           ))}
         </Pressable>
       ))}
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }

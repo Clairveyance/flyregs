@@ -254,13 +254,29 @@ const PREVIEW_FALLBACK_HEIGHT = 180
 // (table, key column, title column) for every cited_type that has one --
 // pcg deliberately excluded, its cited_id is already the human-readable
 // term (see the fetch effect below).
+// Found 2026-08-12 during the post-create_challenge-fix QA re-sweep: ac/ad/
+// loi were pointed at their RAW tables, but (per the Storage Buckets Gated
+// security fix) those raw tables have zero SELECT grant for anon/
+// authenticated -- only their _gated views do. Not a leak (access was
+// correctly blocked both directions), but every AC/AD/LOI citation's
+// title-enrichment 403'd silently for every tier, including paying Pro/
+// Premium users, and fell back to displaying the raw document_number/
+// ad_number/slug instead of a human title. far/far_part/aim were never
+// affected -- those raw tables ARE publicly grant-accessible (no gated
+// view exists or is needed for them). Confirmed live: the _gated views
+// below expose the same id+title columns and leave title/subject_heading
+// un-redacted at every tier (only body_text is redacted), so this is a
+// pure fix with no gating behavior change.
 const TITLE_SOURCE: Partial<Record<string, [string, string, string]>> = {
   far: ['far_sections', 'section_number', 'title'],
   far_part: ['far_parts', 'part', 'label'],
   aim: ['aim_paragraphs', 'paragraph_number', 'title'],
-  ac: ['advisory_circulars', 'document_number', 'title'],
-  ad: ['airworthiness_directives', 'ad_number', 'subject_heading'],
-  loi: ['legal_interpretations', 'slug', 'title'],
+  ac: ['advisory_circulars_gated', 'document_number', 'title'],
+  ad: ['airworthiness_directives_gated', 'ad_number', 'subject_heading'],
+  loi: ['legal_interpretations_gated', 'slug', 'title'],
+  // Free tier, same as far/aim above -- no _gated view needed (see
+  // migrations_cfr49_schema.sql's own tier-decision comment).
+  cfr49: ['cfr49_sections', 'section_number', 'title'],
 }
 
 function PodRow({

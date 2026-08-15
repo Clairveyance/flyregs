@@ -27,15 +27,29 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # is owned corpus-wide by sync/pcg_term_links.py and must appear in exactly
 # one owner.
 OWNERSHIP = {
-    "sync/ac_citations.py":      {"citing": "ac",  "cited": {"ac", "far", "aim", "ad"}},
-    "sync/far_citations.py":     {"citing": "far", "cited": {"ac", "far", "aim", "ad"}},
+    "sync/ac_citations.py":      {"citing": "ac",  "cited": {"ac", "far", "aim", "ad", "cfr49"}},
+    "sync/far_citations.py":     {"citing": "far", "cited": {"ac", "far", "aim", "ad", "cfr49"}},
     "sync/ad_citations.py":      {"citing": "ad",  "cited": {"ac", "far", "aim", "ad"}},
     "sync/aim_scraper.py":       {"citing": "aim", "cited": {"ac", "far", "aim", "ad"}},
-    "sync/aim_far_citations.py": {"citing": "aim", "cited": {"far", "ac"}},
+    "sync/aim_far_citations.py": {"citing": "aim", "cited": {"far", "ac", "cfr49"}},
     "sync/loi_scraper.py":       {"citing": "loi", "cited": {"far"}},
     "sync/loi_vision_cleanup.py": {"citing": "loi", "cited": {"far"}},
     "sync/loi_ac_citations.py":  {"citing": "loi", "cited": {"ac"}},
     "sync/loi_far_part_citations.py": {"citing": "loi", "cited": {"far_part"}},
+    # Added 2026-08-14 alongside this file's own TARGET_EXISTS['cfr49'] fix --
+    # sync/cfr49_citations.py shipped this session, was silently unchecked by
+    # --ownership. Its own delete_cfr49_citations() scopes to
+    # citing_type=eq.cfr49, cited_type=in.(ac,far,aim,ad,cfr49) -- confirmed
+    # by reading sync/cfr49_citations.py directly. Same shape as the
+    # loi_loi_citations.py gap noted below.
+    "sync/cfr49_citations.py":   {"citing": "cfr49", "cited": {"ac", "far", "aim", "ad", "cfr49"}},
+    # Added 2026-08-12 alongside this file's own TARGET_EXISTS['loi'] fix --
+    # shipped today, was silently unchecked by --ownership (not a false
+    # FAIL like TARGET_EXISTS was, just never verified at all). Its own
+    # write_citations() scopes the delete to
+    # citing_type=eq.loi&citing_id=eq.<slug>&cited_type=eq.loi -- confirmed
+    # by reading sync/loi_loi_citations.py directly.
+    "sync/loi_loi_citations.py": {"citing": "loi", "cited": {"loi"}},
     "sync/pcg_citations.py":     {"citing": "pcg", "cited": {"far", "far_part", "ac", "aim", "ad"}},
     "sync/pcg_term_links.py":    {"citing": "*",   "cited": {"pcg"}},
 }
@@ -66,6 +80,22 @@ TARGET_EXISTS = {
     "ac":  "exists (select 1 from advisory_circulars c where c.document_number = dc.cited_id)",
     "ad":  "exists (select 1 from airworthiness_directives d where d.ad_number = dc.cited_id)",
     "pcg": "exists (select 1 from pcg_terms p where p.slug = dc.cited_id or p.term = dc.cited_id)",
+    # Found 2026-08-12: missing entirely until sync/loi_loi_citations.py
+    # shipped today and made 'loi' a legitimate cited_type for the first
+    # time (previously loi only ever appeared as citing_type, which
+    # SOURCE_EXISTS below already covered). Without this key the target_case
+    # SQL's CASE...ELSE true fallthrough marked all 58 real loi->loi rows
+    # "dead" -- confirmed via direct query all 58 cited_ids genuinely
+    # resolve against legal_interpretations.slug (0 actually dead). Test-
+    # tooling gap, not a real corpus/app bug -- same class as this file's
+    # other historical false-positive fixes.
+    "loi": "exists (select 1 from legal_interpretations l where l.slug = dc.cited_id)",
+    # Added 2026-08-14 alongside sync/cfr49_citations.py shipping this
+    # session -- same "missing key -> CASE...ELSE true fallthrough marks
+    # every row dead" shape as the 'loi' fix above. Confirmed via direct
+    # query before this fix: all cfr49->* cited_ids genuinely resolve
+    # against cfr49_sections.section_number (0 actually dead).
+    "cfr49": "exists (select 1 from cfr49_sections f where f.section_number = dc.cited_id)",
 }
 
 SOURCE_EXISTS = {
@@ -75,6 +105,7 @@ SOURCE_EXISTS = {
     "ad":  "exists (select 1 from airworthiness_directives d where d.ad_number = dc.citing_id)",
     "pcg": "exists (select 1 from pcg_terms p where p.slug = dc.citing_id or p.term = dc.citing_id)",
     "loi": "exists (select 1 from legal_interpretations l where l.slug = dc.citing_id)",
+    "cfr49": "exists (select 1 from cfr49_sections f where f.section_number = dc.citing_id)",
 }
 
 problems = []
@@ -142,7 +173,12 @@ def audit_ownership():
         ok = True
         for b in blocks:
             has_citing = "citing_type" in b
-            m = re.search(r"cited_type\"?\s*:\s*f?\"(?:eq|in)\.\(?([a-z_,]+)\)?\"", b)
+            # [a-z0-9_,]+, not [a-z_,]+ -- 'cfr49' is the first cited_type
+            # value in this codebase with a digit in it, and the narrower
+            # class silently failed to match its whole in.(...) list the
+            # moment it shipped this session, misreporting 3 correctly-
+            # scoped deletes (ac/far/aim_far_citations.py) as "unscoped."
+            m = re.search(r"cited_type\"?\s*:\s*f?\"(?:eq|in)\.\(?([a-z0-9_,]+)\)?\"", b)
             if not has_citing:
                 continue
             if not m:
@@ -179,7 +215,7 @@ def audit_ownership():
         if not os.path.exists(full) or own["citing"] == "*":
             continue
         src = open(full).read()
-        written = set(re.findall(r"[\"']cited_type[\"']\s*:\s*[\"']([a-z_]+)[\"']", src))
+        written = set(re.findall(r"[\"']cited_type[\"']\s*:\s*[\"']([a-z0-9_]+)[\"']", src))
         stray = written - own["cited"]
         if stray:
             print(f"  FAIL {path}: still writes {sorted(stray)} but no longer deletes it "

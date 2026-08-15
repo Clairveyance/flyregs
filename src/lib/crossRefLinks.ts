@@ -86,22 +86,32 @@ const PATTERNS: LinkPattern[] = [
   // "section" between "14 CFR" and the number wasn't accounted for.
   { regex: /(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b/g, buildRoute: (m) => `/far/${m[1]}` },
   // FAR section ENUMERATION ("§§ 133.19, 133.21, and 133.23", "§§ 133.41
-  // and 133.43") -- confirmed live, RC: "in FAR 133, in the text body,
-  // there are 3 other FARs referenced. only the first one has a
-  // hyperlink." Root cause: the single-citation pattern above only
-  // recognizes a number immediately preceded by its own "§"/"FAR"/"14
-  // CFR" marker -- legal-citation lists conventionally carry that marker
-  // ONCE, up front ("§§ A, B, and C"), leaving every number after the
-  // first with nothing for that pattern to match on. This pattern instead
-  // matches the WHOLE list as one span (so a `(b)`-style subparagraph
-  // between numbers like "27.865(b) and 29.865(b)" doesn't break the
-  // scan), then hands back one sub-candidate per bare X.X number found
-  // inside it via buildSubMatches -- each becomes its own tappable link,
-  // with the connecting ", "/" and " left as plain text between them,
-  // exactly like the single-citation pattern already leaves surrounding
-  // prose alone.
+  // and 133.43", "§§ 91.1 through 91.21") -- confirmed live, RC: "in FAR
+  // 133, in the text body, there are 3 other FARs referenced. only the
+  // first one has a hyperlink." Root cause: the single-citation pattern
+  // above only recognizes a number immediately preceded by its own
+  // "§"/"FAR"/"14 CFR" marker -- legal-citation lists conventionally carry
+  // that marker ONCE, up front ("§§ A, B, and C" / "§§ A through B"),
+  // leaving every number after the first with nothing for that pattern to
+  // match on. This pattern instead matches the WHOLE list as one span (so
+  // a `(b)`-style subparagraph between numbers like "27.865(b) and
+  // 29.865(b)" doesn't break the scan), then hands back one sub-candidate
+  // per bare X.X number found inside it via buildSubMatches -- each
+  // becomes its own tappable link, with the connecting ", "/" and "/"
+  // through " left as plain text between them, exactly like the
+  // single-citation pattern already leaves surrounding prose alone.
+  //
+  // "through" added 2026-08-13 (RC screenshot, FAR 91.1(b)): a real,
+  // corpus-wide-affecting gap distinct from the and/or case above --
+  // "§§ 91.1 through 91.21" only ever linked 91.1, leaving 91.21 (the
+  // RANGE's own second endpoint, a real, separately citable section)
+  // permanently inert. This links the two endpoints actually named in the
+  // text, same "link what's mentioned, don't try to be exhaustive"
+  // posture as the and/or list case -- it does not attempt to enumerate
+  // every section the range implies, which isn't knowable from FAR
+  // section numbers alone (they aren't sequential integers).
   {
-    regex: /(?:§§?\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+(?:\([a-zA-Z0-9]+\))?(?:(?:\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or)\s+)\d+\.\d+(?:\([a-zA-Z0-9]+\))?)+)/g,
+    regex: /(?:§§?\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+(?:\([a-zA-Z0-9]+\))?(?:(?:\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or|through)\s+)\d+\.\d+(?:\([a-zA-Z0-9]+\))?)+)/g,
     buildSubMatches: (m) => {
       const list = m[1]
       const offset = m[0].length - list.length

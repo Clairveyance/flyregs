@@ -12,19 +12,25 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { getStudyQueue, getStudyPoolCount, recordStudyReview, getStudyMastery, getCurrency, getStudyFactsForItems, StudyCard, StudyMastery, Currency, StudyItemType, StudyFact } from '@/lib/study'
 import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
-import { KnowledgeLevel, KNOWLEDGE_LEVEL_LABELS, markCoinsSeen } from '@/lib/challenges'
-import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS, StudyRating, STUDY_RATINGS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
+import { StudyLevel, ALL_STUDY_LEVELS, STUDY_LEVEL_LABELS, markCoinsSeen } from '@/lib/challenges'
+import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS } from '@/lib/profileRatings'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { buildStudyCard, type QuizSourceType } from '@/lib/quizQuestion'
 import { normalizeRegBody } from '@/lib/regTextFormat'
 
 const TYPE_LABEL: Record<StudyItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC' }
 const ALL_TYPES: StudyItemType[] = ['far', 'aim', 'pcg', 'ac']
-const ALL_LEVELS: KnowledgeLevel[] = ['student', 'private', 'commercial', 'atp', 'cfi', 'mechanic']
 
 // Neutral starting tone for the mastery ring at 0% -- interpolated toward
 // tokens.gold as mastery % rises (see masteryGlow above).
 const MASTERY_RING_DULL = '#5a5a62'
+
+// pcg_terms.term is stored shouting-case ("CLEARED AS FILED") -- the source
+// citation line reads better title-cased, matching how every other citation
+// (§ section, AIM paragraph, AC number) already reads as normal prose.
+function toTitleCase(s: string): string {
+  return s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+}
 
 function lerpColor(a: string, b: string, t: number): string {
   const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16)
@@ -64,9 +70,14 @@ const SESSION_SIZE_KEY = '@flyregs/study-session-size'
 const FLIP_DURATION = 420
 
 export default function StudyScreen() {
-  const { tokens } = useTheme()
+  const { tokens, resolved, redShift } = useTheme()
   const fs = useFS()
-  const { isPro } = useAuth()
+  // hasProAccess (isPro || isPremium), not bare isPro -- found during the
+  // Plus/Pro folder audit (2026-08-14): a real Premium subscriber (isPro:
+  // false, isPremium: true) hit this exact bug elsewhere (saved.tsx/
+  // notes.tsx's Back up & sync toggle) and it was present here too, locking
+  // a paying Premium customer out of Study Mode entirely.
+  const { hasProAccess } = useAuth()
   // Entry point from a RefPack's "Study This Rating" button (see
   // refPackKnowledgeLevel() in refPackets.ts) -- pre-scopes the Knowledge
   // Level filter to that rating so the user lands in an already-relevant
@@ -157,17 +168,26 @@ export default function StudyScreen() {
   // both could render as selected at once (every individual chip lit up
   // gold *because* ALL was active) -- confirmed confusing live.
   const [activeTypes, setActiveTypes] = useState<StudyItemType[]>([])
-  const [activeLevels, setActiveLevels] = useState<KnowledgeLevel[]>(() =>
-    levelParam && (ALL_LEVELS as string[]).includes(levelParam) ? [levelParam as KnowledgeLevel] : []
+  const [activeLevels, setActiveLevels] = useState<StudyLevel[]>(() =>
+    levelParam && (ALL_STUDY_LEVELS as string[]).includes(levelParam) ? [levelParam as StudyLevel] : []
   )
   const [activeCategoryClasses, setActiveCategoryClasses] = useState<CategoryClass[]>([])
-  const [activeRatings, setActiveRatings] = useState<StudyRating[]>([])
 
   // True when the deck is narrowed at all. Used to relabel the mastery
   // counter, which always reports the WHOLE corpus and otherwise appears to
   // contradict the "N items match the filters" line directly beneath it.
   const filtersActive =
-    activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0 || activeRatings.length > 0
+    activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0
+
+  // Same "how many dimensions are narrowed" count Home's own filter button
+  // badge uses (tabs)/index.tsx's activeFilterCount) -- counts active
+  // GROUPS (content/level/category-class), not total individual chips
+  // selected within them, for consistency app-wide.
+  const activeFilterCount = [
+    activeTypes.length > 0,
+    activeLevels.length > 0,
+    activeCategoryClasses.length > 0,
+  ].filter(Boolean).length
 
   const toggleType = (t: StudyItemType) => {
     setActiveTypes((prev) =>
@@ -175,7 +195,7 @@ export default function StudyScreen() {
     )
   }
 
-  const toggleLevel = (l: KnowledgeLevel) => {
+  const toggleLevel = (l: StudyLevel) => {
     setActiveLevels((prev) =>
       prev.includes(l) ? prev.filter((x) => x !== l) : [...prev, l]
     )
@@ -187,19 +207,13 @@ export default function StudyScreen() {
     )
   }
 
-  const toggleRating = (r: StudyRating) => {
-    setActiveRatings((prev) =>
-      prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]
-    )
-  }
-
   const load = useCallback(() => {
     setLoading(true)
     Promise.all([
-      getStudyQueue(sessionSize, activeTypes, activeLevels, activeCategoryClasses, activeRatings),
+      getStudyQueue(sessionSize, activeTypes, activeLevels, activeCategoryClasses),
       getStudyMastery(),
       getCurrency(),
-      getStudyPoolCount(activeTypes, activeLevels, activeCategoryClasses, activeRatings),
+      getStudyPoolCount(activeTypes, activeLevels, activeCategoryClasses),
     ])
       .then(([queue, m, c, pool]) =>
         // Facts are fetched AFTER the deck (not in the same Promise.all --
@@ -233,11 +247,11 @@ export default function StudyScreen() {
         })
       )
       .finally(() => setLoading(false))
-  }, [activeTypes, activeLevels, activeCategoryClasses, activeRatings, sessionSize])
+  }, [activeTypes, activeLevels, activeCategoryClasses, sessionSize])
 
   useEffect(() => {
-    if (isPro) load()
-  }, [isPro, load])
+    if (hasProAccess) load()
+  }, [hasProAccess, load])
 
   const current = deck[index]
 
@@ -259,6 +273,12 @@ export default function StudyScreen() {
 
   const handleToggleBookmark = async () => {
     if (!current) return
+    // Already indirectly gated by the whole screen's hasProAccess check
+    // below (a non-Pro user can never reach this handler at all) -- this
+    // synchronous re-check is just the same defensive backstop every other
+    // bookmark handler in the app has (see FolderPicker.tsx's matching
+    // comment), in case that ever changes.
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     // document_number/title must match what each type's OWN detail screen
     // writes (far/[id].tsx, aim/[id].tsx, pcg/[id].tsx, ac/[id].tsx), or
     // the same document bookmarked from two places renders differently in
@@ -370,7 +390,7 @@ export default function StudyScreen() {
     getCurrency().then(setCurrency).catch(() => {})
   }
 
-  if (!isPro) {
+  if (!hasProAccess) {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>
         <OverlayHeader title="Study Mode" onBack={() => router.back()} />
@@ -388,9 +408,15 @@ export default function StudyScreen() {
     )
   }
 
+  // RC: "RR needs a diff icon, it's not really about 'Groups'... change it
+  // in SM screen to be the same thing" -- matches The Wing's own header
+  // icon for this exact link now (search.tsx), see that file's comment.
+  // Round 2: RC asked for the lightning bolt specifically -- free to reuse
+  // it here now that Duels moved off it (first onto 'figure.fencing',
+  // then onto 'trophy' per RC's round-2 ask -- see Icon.tsx).
   const headerRight = (
     <Pressable onPress={() => router.push('/ready-room')} hitSlop={12} style={{ padding: 4 }}>
-      <Icon name="person.2.fill" size={fs(20)} color={tokens.gold} />
+      <Icon name="bolt.fill" size={fs(20)} color={tokens.gold} />
     </Pressable>
   )
 
@@ -414,11 +440,27 @@ export default function StudyScreen() {
             aligned (filtersHeader's justifyContent) to match Home's filter
             button sitting on the right of its own row -- RC flagged the
             mismatch (left here, right on Home) as an inconsistency. */}
-        <Icon
-          name="slider.horizontal.3"
-          size={fs(24)}
-          color={activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0 || activeRatings.length > 0 ? tokens.blu : tokens.t3}
-        />
+        <View style={styles.filtersIconWrap}>
+          <Icon
+            name="slider.horizontal.3"
+            size={fs(24)}
+            color={activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0 ? tokens.blu : tokens.t3}
+          />
+          {activeFilterCount > 0 && (
+            <View style={[styles.filterBadge, { backgroundColor: tokens.blu, borderColor: tokens.bg }]}>
+              {/* Hardcoded black text (styles.filterBadgeText) only has real
+                  contrast against Dark's bright tokens.blu (#4B8EF5, ~6.5:1).
+                  Light's tokens.blu (#1A50CC) and Red Shift's (#BC4824) are
+                  both notably darker/more saturated -- black-on-them measures
+                  ~3:1 and ~4:1, under WCAG AA's 4.5:1 for text this small.
+                  White clears AA on both of those (~6.9:1, ~5.1:1) while only
+                  dropping Dark to ~3.2:1 -- so pick per-theme instead of one
+                  fixed color, same "each theme is a real render, not a tint"
+                  principle the rest of theme.tsx already follows. */}
+              <Text style={[styles.filterBadgeText, { fontSize: fs(9.5), color: resolved === 'dark' && !redShift ? '#000' : '#fff' }]}>{activeFilterCount}</Text>
+            </View>
+          )}
+        </View>
         <Text style={[styles.filtersHeaderText, { color: tokens.t2, fontSize: fs(13.5) }]}>Filters</Text>
       </Pressable>
       {filtersExpanded && (
@@ -455,6 +497,11 @@ export default function StudyScreen() {
       {/* Blue accent (vs. content's gold) so the two filter groups read as
           visually distinct dimensions at a glance, not one long ambiguous
           chip row. */}
+      {/* RC, 2026-08-13: folded Instrument/Airframe/Powerplant into this
+          same row/state instead of a separate RATING group -- see
+          StudyLevel's own comment in challenges.ts for the full "why."
+          One shared multi-select, one strict-intersection filter; every
+          value (cert level or rating) can now genuinely be turned off. */}
       <Text style={[styles.filterGroupLabel, styles.levelFilterRow, { color: tokens.blu, fontSize: fs(10) }]}>KNOWLEDGE LEVEL</Text>
       <View style={styles.filterRow}>
         <Pressable
@@ -466,7 +513,7 @@ export default function StudyScreen() {
         >
           <Text style={[styles.filterChipText, { color: activeLevels.length === 0 ? tokens.blu : tokens.t3, fontSize: fs(11.5) }]}>ALL</Text>
         </Pressable>
-        {ALL_LEVELS.map((l) => {
+        {ALL_STUDY_LEVELS.map((l) => {
           const active = activeLevels.includes(l)
           return (
             <Pressable
@@ -478,7 +525,7 @@ export default function StudyScreen() {
               onPress={() => toggleLevel(l)}
             >
               <Text style={[styles.filterChipText, { color: active ? tokens.blu : tokens.t3, fontSize: fs(11.5) }]}>
-                {KNOWLEDGE_LEVEL_LABELS[l]}
+                {STUDY_LEVEL_LABELS[l]}
               </Text>
             </Pressable>
           )
@@ -491,8 +538,8 @@ export default function StudyScreen() {
       >
         <Icon name={moreFiltersExpanded ? 'chevron.up' : 'chevron.down'} size={fs(11)} color={tokens.t3} />
         <Text style={[styles.moreFiltersToggleText, { color: tokens.t3, fontSize: fs(11.5) }]}>
-          {moreFiltersExpanded ? 'Fewer filters' : 'More filters (Category/Class, Rating)'}
-          {!moreFiltersExpanded && (activeCategoryClasses.length > 0 || activeRatings.length > 0) ? ' •' : ''}
+          {moreFiltersExpanded ? 'Fewer filters' : 'More filters (Category/Class)'}
+          {!moreFiltersExpanded && activeCategoryClasses.length > 0 ? ' •' : ''}
         </Text>
       </Pressable>
       {moreFiltersExpanded && (
@@ -528,45 +575,6 @@ export default function StudyScreen() {
             >
               <Text style={[styles.filterChipText, { color: active ? tokens.grn : tokens.t3, fontSize: fs(11.5) }]}>
                 {RATING_SHORT_LABELS[c]}
-              </Text>
-            </Pressable>
-          )
-        })}
-      </View>
-
-      {/* Amber accent, a fourth distinct color alongside CONTENT (gold),
-          KNOWLEDGE LEVEL (blue), and CATEGORY/CLASS (green) -- Instrument/
-          Airframe/Powerplant is its own axis, same reasoning as Category/
-          Class: a private pilot can be instrument-rated or not regardless
-          of certificate level, and A&P's Airframe/Powerplant split doesn't
-          fit the Mechanic level bucket either. See migrations_ratings.sql.
-          Same "NULL means universal" convention as Category/Class -- most
-          content isn't rating-specific and stays visible under any
-          selection. */}
-      <Text style={[styles.filterGroupLabel, styles.levelFilterRow, { color: tokens.amb, fontSize: fs(10) }]}>RATING</Text>
-      <View style={styles.filterRow}>
-        <Pressable
-          style={[
-            styles.filterChip,
-            { backgroundColor: activeRatings.length === 0 ? tokens.bdim : tokens.bg2, borderColor: activeRatings.length === 0 ? tokens.amb : tokens.bdr },
-          ]}
-          onPress={() => setActiveRatings([])}
-        >
-          <Text style={[styles.filterChipText, { color: activeRatings.length === 0 ? tokens.amb : tokens.t3, fontSize: fs(11.5) }]}>ALL</Text>
-        </Pressable>
-        {STUDY_RATINGS.map((r) => {
-          const active = activeRatings.includes(r)
-          return (
-            <Pressable
-              key={r}
-              style={[
-                styles.filterChip,
-                { backgroundColor: active ? tokens.bdim : tokens.bg2, borderColor: active ? tokens.amb : tokens.bdr },
-              ]}
-              onPress={() => toggleRating(r)}
-            >
-              <Text style={[styles.filterChipText, { color: active ? tokens.amb : tokens.t3, fontSize: fs(11.5) }]}>
-                {STUDY_RATING_LABELS[r]}
               </Text>
             </Pressable>
           )
@@ -700,9 +708,8 @@ export default function StudyScreen() {
               you're using"). */}
           <Text style={[styles.activeFilters, { color: tokens.t3, fontSize: fs(11) }]}>
             Studying: {activeTypes.length === 0 ? 'All content' : activeTypes.map((t) => TYPE_LABEL[t]).join(', ')}
-            {activeLevels.length > 0 ? ` · ${activeLevels.map((l) => KNOWLEDGE_LEVEL_LABELS[l]).join(', ')}` : ''}
+            {activeLevels.length > 0 ? ` · ${activeLevels.map((l) => STUDY_LEVEL_LABELS[l]).join(', ')}` : ''}
             {activeCategoryClasses.length > 0 ? ` · ${activeCategoryClasses.map((c) => RATING_SHORT_LABELS[c]).join(', ')}` : ''}
-            {activeRatings.length > 0 ? ` · ${activeRatings.map((r) => STUDY_RATING_LABELS[r]).join(', ')}` : ''}
           </Text>
           <View style={styles.progressRow}>
             <Text style={[styles.progress, { color: tokens.t4, fontSize: fs(11.5) }]}>
@@ -988,11 +995,23 @@ function FlashCard({
   // section/part that the answer came from (even though it's not part of
   // our official answer) we still want to show it for ref." `docNumber`
   // above is already the real source citation (§ section / AIM paragraph /
-  // AC number) -- P/CG excluded since its `term` IS the citation already,
-  // nothing separate to point to. Attached to whichever face is actually
-  // rendering `faces.answer` (front in reversed direction, back normally),
-  // not a fixed side, so it travels with the real answer either way.
-  const showCitation = itemType === 'far' || itemType === 'aim' || itemType === 'ac'
+  // AC number) -- P/CG was excluded on the reasoning that its `term` IS the
+  // citation already, nothing separate to point to.
+  //
+  // RC, 2026-08-13, real example: that reasoning only holds when there's NO
+  // authored `fact` -- without one, buildStudyCard's P/CG card genuinely
+  // does put the term on one face and the definition on the other, so the
+  // term is always already visible. But once a `fact` exists, `faces`
+  // above is built entirely from fact.question/fact.answer -- neither of
+  // which is the glossary term itself (e.g. a "what three items are NOT
+  // included" question whose answer is the three items, not "CLEARED AS
+  // FILED") -- so the term silently disappeared with nothing telling the
+  // user which glossary entry the question came from. Same citation-line
+  // treatment as FAR/AIM/AC now applies here too, specifically for this
+  // fact-backed case, using the term itself (title-cased -- pcg_terms
+  // stores it shouting-case, "CLEARED AS FILED") as the citation text.
+  const showCitation = itemType === 'far' || itemType === 'aim' || itemType === 'ac' || (itemType === 'pcg' && !!fact)
+  const citationText = itemType === 'pcg' ? toTitleCase(term) : docNumber
 
   return (
     <Pressable style={styles.cardOuter} onPress={onPress}>
@@ -1012,7 +1031,7 @@ function FlashCard({
         {/* Sized in here too, or a citation line pushes the real content
             past the sizer's own height and has to scroll for the extra
             ~20px instead of just fitting. */}
-        {showCitation && <Text style={[styles.cardCitation, { fontSize: fs(11), opacity: 0 }]}>{docNumber}</Text>}
+        {showCitation && <Text style={[styles.cardCitation, itemType === 'pcg' && styles.cardCitationItalic, { fontSize: fs(11), opacity: 0 }]}>{citationText}</Text>}
         <Text style={[backStyleText, { fontSize: backFs, opacity: 0 }]}>{backText}</Text>
       </View>
       <Reanimated.View
@@ -1027,7 +1046,7 @@ function FlashCard({
         <ScrollView style={styles.cardTextScroll} contentContainerStyle={styles.cardTextScrollContent}>
           <Text style={[frontStyleText, { color: frontColor, fontSize: frontFs }]}>{frontText}</Text>
           {showCitation && frontText === faces.answer && (
-            <Text style={[styles.cardCitation, { color: tokens.t4, fontSize: fs(11) }]}>{docNumber}</Text>
+            <Text style={[styles.cardCitation, itemType === 'pcg' && styles.cardCitationItalic, { color: tokens.t4, fontSize: fs(11) }]}>{citationText}</Text>
           )}
         </ScrollView>
         <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>Tap to reveal</Text>
@@ -1038,7 +1057,7 @@ function FlashCard({
         <ScrollView style={styles.cardTextScroll} contentContainerStyle={styles.cardTextScrollContent}>
           <Text style={[backStyleText, { color: backColor, fontSize: backFs }]}>{backText}</Text>
           {showCitation && backText === faces.answer && (
-            <Text style={[styles.cardCitation, { color: tokens.t4, fontSize: fs(11) }]}>{docNumber}</Text>
+            <Text style={[styles.cardCitation, itemType === 'pcg' && styles.cardCitationItalic, { color: tokens.t4, fontSize: fs(11) }]}>{citationText}</Text>
           )}
         </ScrollView>
         <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>Tap to flip back</Text>
@@ -1068,6 +1087,18 @@ const styles = StyleSheet.create({
   moreFiltersToggleText: { fontWeight: '600' },
   filtersHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4 },
   filtersHeaderText: { fontWeight: '700' },
+  // Same shape/position as Home's own filterBadge ((tabs)/index.tsx) --
+  // top-right of the icon, a bg-colored ring so it reads as a distinct
+  // dot rather than clipping into the glyph underneath.
+  filtersIconWrap: { position: 'relative' },
+  filterBadge: {
+    position: 'absolute', top: -6, right: -8, minWidth: 16, height: 16, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3, borderWidth: 1.5,
+  },
+  // RC, live: white-on-blue at this size didn't show up well -- black reads
+  // clearer against tokens.blu's mid-brightness. Matches Home's own badge
+  // (tabs)/index.tsx, same fix applied there too.
+  filterBadgeText: { color: '#000', fontSize: 9.5, fontWeight: '800' },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingTop: 8 },
   levelFilterRow: { marginTop: 10 },
   filterChip: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6 },
@@ -1168,6 +1199,11 @@ const styles = StyleSheet.create({
   cardTerm: { fontWeight: '700', textAlign: 'center', width: '100%' },
   cardDef: { textAlign: 'center', lineHeight: 22, width: '100%' },
   cardCitation: { textAlign: 'center', marginTop: 10, fontWeight: '600', letterSpacing: 0.3 },
+  // RC, 2026-08-13: "maybe in italics, if that helps" -- for the P/CG
+  // source term specifically, distinguishing "this is the glossary entry
+  // the question came from" from FAR/AIM/AC's plain-style section/doc
+  // citation just above it.
+  cardCitationItalic: { fontStyle: 'italic' },
   cardHint: { position: 'absolute', bottom: 14 },
   answerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 20, width: '100%' },
   answerBtn: {

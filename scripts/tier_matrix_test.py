@@ -100,6 +100,30 @@ def probes(H):
     out["filter_documents"] = len(d) if st == 200 and isinstance(d, list) else f"HTTP {st}"
     st, d = call(f"{URL}/rest/v1/rpc/get_study_pool_count", {}, {**H, "Content-Type": "application/json"})
     out["Study Mode pool"] = d if st == 200 else f"HTTP {st}"
+    # Added 2026-08-12, post-create_challenge-fix re-sweep -- a real, live,
+    # SEVERE gap this file's own coverage never caught: get_study_pool_count
+    # (the line above) has always had the has_pro_access() gate, but its
+    # sibling get_study_queue() -- the RPC that actually returns real card
+    # CONTENT (far/aim body_text, pcg definitions) -- had NONE, for every
+    # tier, and this harness never once called it. Confirmed and fixed same
+    # session (sync/migrations_fix_get_study_queue_missing_pro_gate.sql);
+    # this probe is the actual regression guard going forward, same
+    # "extend coverage, don't just fix today's instance" reasoning as the
+    # 2026-08-11 block above.
+    st, d = call(f"{URL}/rest/v1/rpc/get_study_queue", {"p_limit": 5}, {**H, "Content-Type": "application/json"})
+    out["Study Mode queue"] = len(d) if st == 200 and isinstance(d, list) else f"HTTP {st}"
+    # Same session, same re-sweep: study_facts (the authored Study Mode/
+    # Duels question+answer bank, incl. the 393 live Opus-repaired rows)
+    # had SELECT granted directly to anon+authenticated with only a
+    # status='live' RLS filter -- no tier check at all, exploitable via a
+    # single unauthenticated REST call. Fixed alongside get_study_queue in
+    # the same migration (raw table grant revoked, study_facts_gated added
+    # redacting question/answer/distractors/source_quote for non-Pro,
+    # src/lib/study.ts switched to the gated view). This probe checks the
+    # raw table is actually locked down -- expect "HTTP 401"/"HTTP 403" for
+    # every tier including anon, never a real column length.
+    one("study_facts RAW (should be blocked)", "study_facts?select=question&question=not.is.null&limit=1")
+    one("study_facts_gated question", "study_facts_gated?select=question&question=not.is.null&limit=1")
     st, d = call(f"{URL}/rest/v1/rpc/get_reg_of_the_day", {}, {**H, "Content-Type": "application/json"})
     out["DailyReg"] = len(d) if st == 200 and isinstance(d, list) else f"HTTP {st}"
     st, d = call(f"{URL}/rest/v1/rpc/search_far", {"query": "aircraft", "result_limit": 200},

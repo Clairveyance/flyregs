@@ -3,6 +3,7 @@ import { useColorScheme } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 const REDSHIFT_KEY = '@flyregs/redshift'
+const MODE_KEY = '@flyregs/thememode'
 
 export type ThemeMode = 'dark' | 'light' | 'auto'
 export type ResolvedTheme = 'dark' | 'light'
@@ -143,10 +144,23 @@ export const redshiftTokens: ThemeTokens = {
   // Ordered least-to-most "attention" the same way the four semantic
   // colors are normally read (grn=calm < blu=neutral/interactive <
   // amb=caution < red=alarm), via brightness/saturation instead of hue.
-  blu: '#E0562E',
-  bdim: 'rgba(224,86,46,0.12)',
-  bbdr: 'rgba(224,86,46,0.30)',
-  blt: '#FF8F63',
+  //
+  // RC, 2026-08-13, real device: the "I Understand" primary-action button
+  // (this color) read as too close to the overdue/danger red -- confirmed
+  // why: blu/amb/red all sat at nearly the SAME lightness (53-54%), so grn
+  // was the only color actually separated by lightness (35%) the way this
+  // comment's own rule intends; blu and red could only be told apart by a
+  // 26-point saturation gap at otherwise-identical brightness, too subtle
+  // in the low-light conditions Red Shift exists for. Fixed the same way
+  // this file's own rule already works for grn -- moved blu's lightness to
+  // sit evenly BETWEEN grn (35%) and amb/red's shared 53-54% plateau,
+  // rather than sharing it. Hue is untouched (13->14 is rounding noise,
+  // not a deliberate shift) -- this stays a brightness/saturation fix, per
+  // the rule above, not a hue one.
+  blu: '#BC4824',
+  bdim: 'rgba(188,72,36,0.12)',
+  bbdr: 'rgba(188,72,36,0.30)',
+  blt: '#E06B3F',
   grn: '#8A4028',
   gdim: 'rgba(138,64,40,0.10)',
   gbdr: 'rgba(138,64,40,0.26)',
@@ -184,12 +198,20 @@ const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme() ?? 'dark'
-  const [mode, setMode] = useState<ThemeMode>('dark')
+  const [mode, setModeState] = useState<ThemeMode>('dark')
   const [redShift, setRedShiftState] = useState(false)
 
   useEffect(() => {
     AsyncStorage.getItem(REDSHIFT_KEY).then((raw) => {
       if (raw === '1') setRedShiftState(true)
+    })
+    // Appearance (Dark/Light/Auto) had no persistence at all -- unlike
+    // redShift just above, setMode never wrote to AsyncStorage, so picking
+    // Light or Auto in the drawer silently reverted to Dark on every app
+    // restart. Confirmed live 2026-08-13: selected Light, reloaded, back to
+    // Dark. Same key-per-setting pattern as REDSHIFT_KEY.
+    AsyncStorage.getItem(MODE_KEY).then((raw) => {
+      if (raw === 'dark' || raw === 'light' || raw === 'auto') setModeState(raw)
     })
   }, [])
 
@@ -198,8 +220,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const tokens = redShift ? redshiftTokens : resolved === 'dark' ? darkTokens : lightTokens
 
+  const setMode = (m: ThemeMode) => {
+    setModeState(m)
+    AsyncStorage.setItem(MODE_KEY, m)
+  }
+
   // RC: "anytime it gets toggled ON/OFF, the default mode w/o it is Dark" --
-  // normalize mode on both transitions, not just when turning on.
+  // normalize mode on both transitions, not just when turning on. Goes
+  // through setMode (not setModeState) so this normalization persists too --
+  // otherwise turning Red Shift on/off while on Light would flip the
+  // *displayed* mode to Dark without saving it, so the very next reload
+  // would silently pop back to whatever Light/Auto was last actually saved.
   const setRedShift = (v: boolean) => {
     setRedShiftState(v)
     setMode('dark')

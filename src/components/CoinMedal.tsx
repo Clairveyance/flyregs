@@ -51,6 +51,11 @@ const TIER_GLOW: Record<CoinTier, string | null> = {
   gold: 'rgba(255,201,64,0.6)',
 }
 const LOCKED_GRADIENT: readonly [string, string, string] = ['#4a4a52', '#2a2a30', '#4a4a52']
+// Concentric circles standing in for a soft radial blur -- see the glow
+// layer's own comment for why a real shadow can't be used here. Ordered
+// largest+faintest first so each smaller, more-opaque ring paints on top.
+const GLOW_RING_SCALES = [1.0, 0.72, 0.48] as const
+const GLOW_RING_OPACITIES = [0.22, 0.35, 0.5] as const
 
 // Red Shift equivalents. Silver's near-white/grey (R=G=B) and gold's pale
 // yellow (G nearly as high as R) are the two least night-vision-safe things
@@ -110,21 +115,39 @@ export function CoinMedal({
   const glow = earned ? glows[tier] : null
 
   return (
-    <View
-      style={[
-        styles.wrap,
-        // Silver/gold's glow -- shadowColor/shadowRadius with no offset --
-        // casts its soft halo in the exact shape of THIS view's own box.
-        // `wrap` had no borderRadius, so the glow rendered as a square
-        // around the circular coin instead of a matching circular glow --
-        // confirmed live via DOM inspection (not assumed): the coin itself
-        // is circular border-radius at every layer, only this outer
-        // shadow-casting box wasn't. RC: "can we get rid of the square b/g
-        // box behind all these coins? just have the round coin."
-        { width: size * 1.3, height: size * 1.3, borderRadius: size * 0.65 },
-        glow ? { shadowColor: glow, shadowOpacity: 1, shadowRadius: size * 0.22, shadowOffset: { width: 0, height: 0 } } : null,
-      ]}
-    >
+    <View style={[styles.wrap, { width: size, height: size }]}>
+      {/* Silver/gold's glow, as its own absolutely-positioned layer, not a
+          bigger `wrap` (see wrap's own sizing below for the layout-
+          footprint half of this fix). RC, real device, round 2: "i still
+          see the bottom line of the square cutting them off." Root cause:
+          this used to be a shadowColor/shadowRadius "shadow" on a
+          transparent (no fill) View -- on iOS, a layer's shadow is
+          computed from its actual rendered alpha shape, and a fully
+          transparent view has none, so the OS falls back to shadowing the
+          layer's plain rectangular bounds instead of the circle its
+          borderRadius describes. Invisible on web (CSS box-shadow always
+          respects border-radius, which is why this passed browser preview
+          clean both times), but a real square edge on device. Fixed by
+          painting the glow as actual concentric circles (real alpha
+          content, so there's a real shape for the renderer to follow)
+          instead of asking a shadow to fake one.  */}
+      {glow && (
+        <View pointerEvents="none" style={[styles.glowLayer, { width: size * 1.5, height: size * 1.5, top: -size * 0.25, left: -size * 0.25 }]}>
+          {GLOW_RING_SCALES.map((scale, i) => (
+            <View
+              key={i}
+              style={{
+                position: 'absolute',
+                width: size * 1.5 * scale, height: size * 1.5 * scale,
+                borderRadius: size * 0.75 * scale,
+                top: size * 0.75 * (1 - scale), left: size * 0.75 * (1 - scale),
+                backgroundColor: glow,
+                opacity: GLOW_RING_OPACITIES[i],
+              }}
+            />
+          ))}
+        </View>
+      )}
       <LinearGradient
         colors={colors}
         start={{ x: 0.15, y: 0.15 }}
@@ -194,6 +217,9 @@ const styles = StyleSheet.create({
   wrap: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  glowLayer: {
+    position: 'absolute',
   },
   rim: {
     alignItems: 'center',

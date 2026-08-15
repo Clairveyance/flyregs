@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { View, Text, Modal, Pressable, TextInput, FlatList, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native'
-import * as Contacts from 'expo-contacts'
-import * as SMS from 'expo-sms'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
@@ -22,6 +20,22 @@ interface PickableContact {
 // (no OS lets an app silently fire off texts), so this is "queue up N sends
 // quickly" rather than "one tap, N messages gone" -- an honest description
 // of what's actually possible, not a promise the platform can't keep.
+//
+// expo-contacts/expo-sms are dynamically imported (not top-level) -- RC,
+// real device, Sentry-confirmed: "Uncaught Error: Cannot find native
+// module 'ExpoContactsNext'" thrown from THIS file's own old top-level
+// `import * as Contacts from 'expo-contacts'`. Same root cause already
+// found and fixed once in contactMatch.ts (requireNativeModule throws
+// immediately at IMPORT time, not call time, on a dev-client build that
+// predates the dependency) -- missed here because this file wasn't part
+// of that pass. folder/[id].tsx imports this component statically at its
+// own top level, and Expo Router's file-based routing evaluates every
+// route file's import graph up front to build the navigator -- so this
+// crashed on ANY screen, including aircraft, the moment the app's route
+// table itself was built, not merely when a folder screen was opened or
+// this component was ever rendered. Deferring both imports to inside the
+// functions that actually use them closes that gap the same way
+// contactMatch.ts's fix did.
 export function BulkInviteContactPicker({
   visible,
   onClose,
@@ -52,6 +66,7 @@ export function BulkInviteContactPicker({
     setSending(null)
     setPermissionState('checking')
     ;(async () => {
+      const Contacts = await import('expo-contacts')
       const existing = await Contacts.getPermissionsAsync()
       const perm = existing.granted ? existing : await Contacts.requestPermissionsAsync()
       if (!perm.granted) { setPermissionState('denied'); return }
@@ -86,6 +101,7 @@ export function BulkInviteContactPicker({
   const handleSend = async () => {
     const targets = contacts.filter((c) => selected.has(c.id))
     if (targets.length === 0) return
+    const SMS = await import('expo-sms')
     const available = await SMS.isAvailableAsync()
     if (!available) {
       confirm({ title: 'No Messaging Available', message: "This device can't send text messages, so a bulk invite can't go out this way. Use \"Invite by Link\" instead and share it however works.", cancelLabel: null })

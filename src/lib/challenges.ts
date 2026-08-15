@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import type { CategoryClass, StudyRating } from '@/lib/profileRatings'
+import { STUDY_RATINGS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
 
 // "Duels" -- async free-for-all quizzes, 2-8 participants (the creator plus
 // 1-7 invitees). Everyone gets the same question set and plays at their own
@@ -38,8 +39,14 @@ export interface MyChallenge {
   // means "ALL" for that dimension, same convention the filter chips use.
   // Both players see the same values since it's read off the shared row.
   itemTypes: DuelItemType[] | null
-  levels: KnowledgeLevel[] | null
+  // Widened from KnowledgeLevel[] to also carry the folded-in rating
+  // values (see StudyLevel below) -- old rows created before this change
+  // only ever have KnowledgeLevel values here, which is a valid subset.
+  levels: StudyLevel[] | null
   categoryClasses: CategoryClass[] | null
+  // No longer written by create_challenge (ratings are folded into
+  // `levels` now) -- kept readable for any pre-existing row that still has
+  // real values here, so old duels' filter-summary chips keep working.
   ratings: StudyRating[] | null
   others: ChallengeParticipant[]
 }
@@ -67,6 +74,36 @@ export const KNOWLEDGE_LEVEL_LABELS: Record<KnowledgeLevel, string> = {
   atp: 'ATP',
   cfi: 'CFI',
   mechanic: 'Mechanic (A&P)',
+}
+
+// RC, 2026-08-13, Study Mode screenshot: "in Rating, selecting ALL will
+// allow questions covering all those other topics, Instrument, A/P, etc.
+// But for students, PVT, etc that isn't helpful... can't we just fold
+// those 3 items into the Knowledge area? that's really what we're testing
+// anyway... this is needed, b/c otherwise, there's no way to 'turn off'
+// those 3 elements from the filter system." Root cause: Rating used a
+// PERMISSIVE filter (an item with no rating tag always passed, so "ALL"
+// meant zero restriction, not "exclude rating-specific content") while
+// Knowledge Level used a strict intersection (item's own levels must
+// overlap the selection). There was no way to express "only Student-level,
+// and specifically NOT Instrument-only material" because unchecking every
+// Rating chip still left Rating filtering out entirely.
+//
+// Fix: Instrument/Airframe/Powerplant become 3 more selectable values in
+// the SAME array/chip-group as Student/Private/.../Mechanic, filtered with
+// Knowledge Level's own strict-intersection rule (see xxx_all_levels() in
+// sync/migrations_fold_ratings_into_knowledge_levels.sql) -- a section
+// tagged only 'instrument' (no cert-level tag) now only surfaces when
+// 'instrument' itself is selected, while general content keeps its own
+// existing cert-level tags untouched. StudyRating/STUDY_RATING_LABELS
+// (profileRatings.ts) still exist as their own narrow type -- this is
+// just where they're combined for the one shared filter axis.
+export type StudyLevel = KnowledgeLevel | StudyRating
+export const ALL_KNOWLEDGE_LEVELS: KnowledgeLevel[] = ['student', 'private', 'commercial', 'atp', 'cfi', 'mechanic']
+export const ALL_STUDY_LEVELS: StudyLevel[] = [...ALL_KNOWLEDGE_LEVELS, ...STUDY_RATINGS]
+export const STUDY_LEVEL_LABELS: Record<StudyLevel, string> = {
+  ...KNOWLEDGE_LEVEL_LABELS,
+  ...STUDY_RATING_LABELS,
 }
 
 export interface NextQuestion {
@@ -121,13 +158,14 @@ export async function getChallengeableUsers(): Promise<ChallengeableUser[]> {
 }
 
 // opponentIds: 1-7 invitees (2-8 total participants including the caller).
+// `levels` carries both cert-level and rating values now -- create_challenge
+// itself dropped p_ratings, see STUDY_LEVEL_LABELS' own comment for why.
 export async function createChallenge(
   opponentIds: string[],
   questionCount = 5,
   itemTypes?: DuelItemType[],
-  levels?: KnowledgeLevel[],
-  categoryClasses?: CategoryClass[],
-  ratings?: StudyRating[]
+  levels?: StudyLevel[],
+  categoryClasses?: CategoryClass[]
 ): Promise<string> {
   const { data, error } = await supabase.rpc('create_challenge', {
     p_opponent_ids: opponentIds,
@@ -135,7 +173,6 @@ export async function createChallenge(
     p_item_types: itemTypes && itemTypes.length > 0 ? itemTypes : null,
     p_levels: levels && levels.length > 0 ? levels : null,
     p_category_classes: categoryClasses && categoryClasses.length > 0 ? categoryClasses : null,
-    p_ratings: ratings && ratings.length > 0 ? ratings : null,
   })
   if (error) throw error
   return data as string

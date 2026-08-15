@@ -24,7 +24,7 @@ function formatAimParagraphNumber(raw: string): string {
   return raw
 }
 
-export type UnifiedResultType = 'far' | 'aim' | 'pcg' | 'ad' | 'figure_ac' | 'figure_aim' | 'dictionary'
+export type UnifiedResultType = 'far' | 'aim' | 'pcg' | 'ad' | 'figure_ac' | 'figure_aim' | 'dictionary' | 'cfr49'
 
 export interface UnifiedResult {
   type: UnifiedResultType
@@ -54,6 +54,7 @@ export interface UnifiedResult {
 }
 
 interface FarRow { section_number: string; part: string; title: string | null; out_rank: number; is_anchor?: boolean }
+interface Cfr49Row { section_number: string; part: string; family: string; title: string | null; out_rank: number; is_anchor?: boolean }
 interface AimRow { paragraph_number: string; title: string | null; out_rank: number; is_anchor?: boolean }
 interface PcgRow { slug: string; term: string; definition: string | null; out_rank: number }
 interface DictRow { slug: string; term: string; definition: string | null; out_rank: number }
@@ -119,13 +120,17 @@ export async function searchOtherSources(
   // is on top of it and smartly sorts and combines searches." AD is a
   // separate, tier-driven exclusion (see `includeAd` above), not tied to
   // that scoping either.
-  const [farRes, aimRes, pcgRes, adRes, figRes, dictRes] = await Promise.all([
+  const [farRes, aimRes, pcgRes, adRes, figRes, dictRes, cfr49Res] = await Promise.all([
     want('far') ? supabase.rpc('search_far', { query, result_limit: limitPerSource }) : empty,
     want('aim') ? supabase.rpc('search_aim', { query, result_limit: limitPerSource }) : empty,
     want('pcg') ? supabase.rpc('search_pcg', { query, result_limit: limitPerSource }) : empty,
     includeAd ? supabase.rpc('search_ads', { query, result_limit: limitPerSource }) : empty,
     supabase.rpc('search_figures', { query, result_limit: limitPerSource }),
     includeDictionary ? supabase.rpc('search_dictionary', { query, result_limit: limitPerSource }) : empty,
+    // Not a FilterableType dimension yet (same reasoning as AD/figures above
+    // -- the Filter sheet has no 49 CFR chip), so this always searches
+    // regardless of `types`.
+    supabase.rpc('search_cfr49', { query, result_limit: limitPerSource }),
   ])
 
   const results: UnifiedResult[] = []
@@ -139,6 +144,9 @@ export async function searchOtherSources(
   // happens to mention the topic.
   for (const r of (farRes.data ?? []) as FarRow[]) {
     results.push({ type: 'far', id: r.section_number, primary: `FAR ${r.section_number}`, secondary: r.title ?? '', rank: r.out_rank, anchored: r.is_anchor === true })
+  }
+  for (const r of (cfr49Res.data ?? []) as Cfr49Row[]) {
+    results.push({ type: 'cfr49', id: r.section_number, primary: `${r.family} ${r.section_number}`, secondary: r.title ?? '', rank: r.out_rank, anchored: r.is_anchor === true })
   }
   for (const r of (aimRes.data ?? []) as AimRow[]) {
     results.push({ type: 'aim', id: r.paragraph_number, primary: `AIM ${formatAimParagraphNumber(r.paragraph_number)}`, secondary: r.title ?? '', rank: r.out_rank, anchored: r.is_anchor === true })
@@ -187,6 +195,7 @@ export function routeForUnifiedResult(r: UnifiedResult): string {
     case 'figure_ac': return `/ac/${r.id}`
     case 'figure_aim': return `/aim/${r.id}`
     case 'dictionary': return `/dictionary/${r.id}`
+    case 'cfr49': return `/cfr49/${r.id}`
   }
 }
 
@@ -199,5 +208,6 @@ export function labelForUnifiedType(t: UnifiedResultType): string {
     case 'figure_ac': return 'T&F'
     case 'figure_aim': return 'T&F'
     case 'dictionary': return 'A/D'
+    case 'cfr49': return '49 CFR'
   }
 }

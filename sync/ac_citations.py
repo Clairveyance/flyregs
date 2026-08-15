@@ -56,6 +56,10 @@ FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\
 AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 AD_RE = re.compile(r"\bAD\s+(\d{4}-\d{2}-\d{2})\b")
 PCG_RE = re.compile(r"Pilot/Controller Glossary Term-\s*([^.]+)\.")
+# See far_citations.py's identical constant -- always explicitly prefixed
+# "49 CFR" in real AC text (confirmed live: 80 real advisory_circulars rows
+# contain it), never bare "§ N.N", so no collision with FAR_RE above.
+CFR49_RE = re.compile(r"\b49\s*CFR\s*(?:part\s+)?(\d+\.\d+)\b", re.IGNORECASE)
 
 # The FAA's own PDF->HTML text extraction is inconsistent about which
 # hyphen-like character it uses for the same "150/5320-12" style number
@@ -142,6 +146,13 @@ def extract_citations(ac: dict) -> list[dict]:
             seen.add(key)
             citations.append({"citing_type": "ac", "citing_id": ac["document_number"], "cited_type": "ac", "cited_id": cited, "label": None})
 
+    for m in CFR49_RE.finditer(text):
+        cited = m.group(1)
+        key = ("cfr49", cited)
+        if key not in seen:
+            seen.add(key)
+            citations.append({"citing_type": "ac", "citing_id": ac["document_number"], "cited_type": "cfr49", "cited_id": cited, "label": None})
+
     return citations
 
 
@@ -159,7 +170,7 @@ def delete_ac_citations() -> None:
     resp = requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**HEADERS, "Prefer": "return=minimal"},
-        params={"citing_type": "eq.ac", "cited_type": "in.(ac,far,aim,ad)"},
+        params={"citing_type": "eq.ac", "cited_type": "in.(ac,far,aim,ad,cfr49)"},
         timeout=30,
     )
     resp.raise_for_status()

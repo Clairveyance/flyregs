@@ -26,10 +26,39 @@ Usage (called BEFORE the real upsert, so the "old" text is still live):
         key_field="section_number", text_field="body_text", title_field="title",
         new_rows=records,
     )
+
+Opt-out for manual/backfill/dev-repair runs (SKIP_REVISION_LOG): added
+2026-08-12 after a real production incident -- a manual, ad-hoc
+`ad_scraper.py --mode full` run on 2026-08-06, backfilling the newly-added
+effective_date column across the whole AD corpus (see commit 927fd34),
+logged 72 bogus content_revisions rows. None were real FAA content changes
+-- root cause was `ad_number` collisions (a base AD and its own later "R1"/
+"R2" revision, or two textually-unrelated ADs the FAA happens to have
+assigned the same number, both a real, separate, pre-existing gap in
+ad_scraper.py's AD-number parsing, NOT something this opt-out fixes) that
+made a single full-corpus re-scrape's own internal write-then-overwrite
+sequence look like a live "revision" to log_revisions(), even though
+nothing the FAA published had actually changed that week. log_revisions()
+has no way to distinguish "the real weekly cron sync found genuinely new
+FAA content" from "someone re-ran the scraper locally to backfill/repair
+already-known data" -- both call the exact same `_upsert()` path in every
+scraper. This env var is that distinction, made explicit by whoever's
+running the command instead of guessed at afterward.
+
+Checked once, at the top of log_revisions() itself (not duplicated in each
+scraper) so every current AND future caller is covered automatically.
+Defaults OFF (unset/empty = still logs, i.e. nothing changes for the real
+cron-triggered production runs) -- must be deliberately opted into for a
+known backfill/repair run:
+    SKIP_REVISION_LOG=1 python sync/ad_scraper.py --mode full
+Each scraper's CLI also exposes this as --no-revision-log (sets the same
+env var right before the run starts) so a human doesn't have to remember
+the raw variable name -- see each scraper's own main().
 """
 from __future__ import annotations
 
 import logging
+import os
 import re
 
 import requests
@@ -59,9 +88,70 @@ def _split_paragraphs(text: str | None) -> list[str]:
 # diff while a real content change still triggers it normally.
 _LABEL_PREFIX_RE = re.compile(r"^(TBL|FIG)\s+[\d\-]+[A-Za-z]?\.?\s*")
 
+# Confirmed live 2026-08-10: AIM TBL 3-1-1 -> TBL 3-1-4 (Basic VFR Weather
+# Minimums) logged as a "revision" even after the label-prefix strip above,
+# because the table renumber came bundled with a pure reformat of the SAME
+# unchanged cell content -- a row header like "Class E:" followed by a real
+# newline and its sub-row on the next line in one extraction pass became
+# "Class E ; " (colon swapped for a semicolon, newline collapsed to a
+# space) joined onto the same line in the other, and a handful of row-
+# ending periods appeared/disappeared right at those same collapsed-
+# newline points ("...10,000 feet MSL" vs "...10,000 feet MSL."). Same
+# numbers, same words, same table -- zero substantive difference, just the
+# AIM PDF-table-to-text extraction serializing a cell/row boundary
+# differently between passes. Two additional normalizations, comparison-
+# only exactly like the label-prefix strip above (the ORIGINAL text is
+# still what gets stored/shown if a paragraph has a genuine difference
+# elsewhere):
+#   1. Whitespace-run collapsing -- a mid-paragraph "\n" vs " " at the same
+#      logical row/cell boundary is the same reformat artifact, not a
+#      wording change.
+#   2. ":" and ";" treated as equivalent at a clause boundary (i.e.
+#      followed by whitespace) -- the row-header colon-vs-semicolon swap
+#      above, and a generalization of it: neither carries substantive
+#      meaning at that position, only which typographic convention that
+#      extraction pass used.
+# A bare "." immediately before whitespace is ALSO dropped -- confirmed
+# from the same real case (2 separate spots where a sentence/row-ending
+# period appeared on one side and not the other, immediately at a
+# collapsed-newline boundary, with the surrounding words byte-identical).
+# Deliberately narrow: only a period directly followed by whitespace is
+# affected, so this can't quietly eat a decimal point ("10.5") or an
+# abbreviation mid-word -- and per the module's own diff granularity, any
+# REAL wording change anywhere else in the same paragraph still leaves a
+# residual difference after this normalization and still triggers a
+# revision normally (verified against the real §36.1501 MOSAIC rewrite,
+# which is genuine FAR content, not noise -- still registers as different
+# after all of the above).
+_CLAUSE_PUNCT_RE = re.compile(r"\s*[:;]\s*")
+_TRAILING_PERIOD_RE = re.compile(r"\.(?=\s)")
+_WHITESPACE_RUN_RE = re.compile(r"\s+")
+
+# Confirmed live 2026-08-13 (RC asked to verify the 16 logged FAR revisions
+# against the FAA's own eCFR record -- 135.363 came back as NOT a real
+# amendment: eCFR's versioner API shows amendment_date 2017-01-01 with the
+# two more recent issue_dates both substantive=false, meaning zero real
+# text change since 2017, yet content_revisions had a diff logged for it).
+# Root cause, found by reading the actual added_text/removed_text: a PDF
+# line-wrap hyphenation artifact -- one extraction pass kept the literal
+# "author- ize" / "observ- ance" (hyphen + space, from where the word
+# wrapped across a line in the source PDF), the other correctly rejoined it
+# to "authorize" / "observance". Same word, same meaning, pure extraction
+# noise -- same family as the label-prefix and whitespace/punctuation
+# normalizations above, just a different artifact shape. Comparison-only,
+# same as those: the ORIGINAL text (hyphen included or not) is still what
+# gets stored/shown if a paragraph has a genuine difference elsewhere.
+_LINEBREAK_HYPHEN_RE = re.compile(r"(\w)-\s+(\w)")
+
 
 def _normalize_for_diff(paragraph: str) -> str:
-    return _LABEL_PREFIX_RE.sub("", paragraph, count=1)
+    p = _LABEL_PREFIX_RE.sub("", paragraph, count=1)
+    p = _WHITESPACE_RUN_RE.sub(" ", p).strip()
+    p = _CLAUSE_PUNCT_RE.sub(" ; ", p)
+    p = _TRAILING_PERIOD_RE.sub("", p)
+    p = _LINEBREAK_HYPHEN_RE.sub(r"\1\2", p)
+    p = _WHITESPACE_RUN_RE.sub(" ", p).strip()
+    return p
 
 
 def _fetch_existing(
@@ -114,6 +204,16 @@ def log_revisions(
     diff against) is deliberately NOT added -- "first time we've seen
     this" isn't the same claim as "this changed on this date."
     """
+    if os.environ.get("SKIP_REVISION_LOG"):
+        # Opt-out for a known manual/backfill/dev-repair run -- see this
+        # module's own docstring for the 2026-08-06 incident that motivated
+        # it. changed_keys is deliberately left untouched (not populated)
+        # too: a backfill/repair run re-storing already-known data isn't a
+        # genuine content change, so nothing here should get a new
+        # last_amended stamp either, for the same reason.
+        log.info(f"  revision_log: SKIP_REVISION_LOG set, skipping revision logging for doc_type={doc_type!r} ({len(new_rows)} row(s) not diffed)")
+        return 0
+
     candidates = [r for r in new_rows if r.get(key_field) and r.get(text_field)]
     if not candidates:
         return 0

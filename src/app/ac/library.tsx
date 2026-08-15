@@ -8,6 +8,8 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import type { ACSeries } from '@/types'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // AC's natural browse structure: by series -- this used to live directly on
 // Home (the FlatList's primary content, pre-redesign). Redesign step 5 moved
@@ -20,6 +22,9 @@ export default function AcLibraryScreen() {
   const [series, setSeries] = useState<ACSeries[]>([])
   const [totalCount, setTotalCount] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
+  // AC series display names get cut off the same way FAR Part titles do --
+  // same hook/card pair as far/index.tsx's own long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   useEffect(() => {
     Promise.all([
@@ -59,7 +64,13 @@ export default function AcLibraryScreen() {
             return (
               <Pressable
                 style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => router.push(`/series/${item.series_prefix}`)}
+                onPress={() => {
+                  if (consumeLongPress()) return
+                  router.push(`/series/${item.series_prefix}`)
+                }}
+                onLongPress={(e) => showPreview(item.display_name, e)}
+                onPressOut={hidePreview}
+                delayLongPress={350}
               >
                 <Text style={[styles.seriesNum, { color: tokens.blu, fontSize: fs(numSize) }]} numberOfLines={1}>{item.series_prefix}</Text>
                 <Text style={[styles.seriesName, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
@@ -75,6 +86,12 @@ export default function AcLibraryScreen() {
         />
         </TabletContainer>
       )}
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }

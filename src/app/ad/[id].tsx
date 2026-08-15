@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text, Image, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
+import { View, Text, Image, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Keyboard } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import * as Haptics from 'expo-haptics'
@@ -26,6 +26,7 @@ import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHig
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
+import { getSemanticRelated, mergeRelated } from '@/lib/relatedContent'
 import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
 import { condenseAdSummary, adSummaryWasCondensed, stripAdArtifacts } from '@/lib/adSummary'
 import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
@@ -199,7 +200,8 @@ export default function AdScreen() {
         .from('document_citations_gated')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.ad,cited_id.eq.${id}),and(citing_type.eq.ad,citing_id.eq.${id})`),
-    ]).then(async ([adRes, citRes]) => {
+      getSemanticRelated('ad', id),
+    ]).then(async ([adRes, citRes, semantic]) => {
       if (!adRes.error && adRes.data) {
         const a = adRes.data as AirworthinessDirective
         setAd(a)
@@ -238,7 +240,7 @@ export default function AdScreen() {
             ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
             : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
           .filter((r) => !(r.cited_type === 'ad' && r.cited_id === id))
-        setRelated(other)
+        setRelated(mergeRelated(other, semantic))
       }
       setLoading(false)
     })
@@ -258,6 +260,7 @@ export default function AdScreen() {
   // one references AND ADs that reference it.
   const adRefs = related.filter((r) => r.cited_type === 'ad')
   const loiRefs = related.filter((r) => r.cited_type === 'loi')
+  const cfr49Refs = related.filter((r) => r.cited_type === 'cfr49')
 
   // Each AD is its own short (2-10 page), complete government PDF — unlike
   // AC/AIM's giant multi-hundred-page combined documents, there's no "which
@@ -323,7 +326,7 @@ export default function AdScreen() {
 
   const handleToggleBookmark = async () => {
     if (!ad) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     setBookmarked((prev) => !prev) // optimistic
     const next = await toggleBookmark({
       id: ad.ad_number,
@@ -342,7 +345,7 @@ export default function AdScreen() {
   const lastToggleAt = useRef(0)
   const handleToggleHighlight = useCallback(async (paraText: string) => {
     if (!ad) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     if (toggleInFlight.current) return
     if (Date.now() - lastToggleAt.current < 800) return
     lastToggleAt.current = Date.now()
@@ -372,7 +375,7 @@ export default function AdScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [ad, hasProAccess])
+  }, [ad, hasPlusAccess])
 
   const handleCopyBlock = useCallback(async (paraText: string) => {
     await Clipboard.setStringAsync(paraText)
@@ -380,7 +383,7 @@ export default function AdScreen() {
   }, [])
 
   const handleBlockLongPress = useCallback((paraText: string) => {
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     setPendingHighlight(paraText)
     const isHighlighted = highlightedBlockTexts.has(paraText)
     confirm({
@@ -394,11 +397,11 @@ export default function AdScreen() {
       ],
       onCancel: () => setPendingHighlight(null),
     })
-  }, [hasProAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
+  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
 
   const handleOpenFolderPicker = () => {
     if (!ad) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     setFolderPickerVisible(true)
   }
 
@@ -457,7 +460,7 @@ export default function AdScreen() {
         items={[
           { icon: 'printer', label: 'Print', onPress: handlePrint, disabled: !hasPlusAccess },
           { icon: 'square.and.arrow.up', label: 'Share', onPress: handleShare, disabled: !hasPlusAccess },
-          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasProAccess },
+          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasPlusAccess },
         ]}
       />
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
@@ -474,7 +477,15 @@ export default function AdScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title="Airworthiness Directive" onBack={() => router.back()} right={headerRight} />
       {backTo && <BackToBreadcrumb label={backTo} onPress={() => router.back()} />}
-      {!loading && ad && (
+      {/* Plus-gated, matching ac/[id].tsx's own sticky search -- AD body
+          text has NO free preview at all (unlike AC's 2-block preview), so
+          a free user previously saw a live, typable "IN DOC" search bar
+          above a locked document: harmless (nothing renders for it to
+          match against, body_text is redacted server-side), but a
+          confusing dead control that undercut the screen's own "no preview
+          at all" messaging right below it. Found in the 2026-08-14
+          comprehensive gating re-audit. */}
+      {!loading && ad && hasPlusAccess && (
         <InDocSearchBar
           query={inDocSearch.query}
           onQueryChange={inDocSearch.onQueryChange}
@@ -505,6 +516,16 @@ export default function AdScreen() {
           onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
           onLayout={(e) => setScrollViewportHeight(e.nativeEvent.layout.height)}
           scrollEventThrottle={100}
+          // Matches ac/[id].tsx's own ScrollView -- was missing here (and on
+          // far/aim/pcg's identical setup), so dragging the doc content down
+          // while the in-doc search keyboard was up did nothing; the native
+          // interactive-dismiss gesture only exists when this prop is set.
+          // keyboardShouldPersistTaps alongside it for the same reason
+          // BB-092 needed it elsewhere: without it a tap on the search bar's
+          // prev/next buttons just dismisses the keyboard instead of firing.
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={() => Keyboard.dismiss()}
         >
           <View style={styles.headerRow}>
             <Text style={[styles.adNum, { color: tokens.blu, fontSize: fs(17) }]}>AD {ad.ad_number}</Text>
@@ -617,7 +638,7 @@ export default function AdScreen() {
             </Pressable>
             {figuresExpanded && figures.length > 0 && (
               <View style={styles.figuresWrap}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.figScroll}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.figScrollBox} contentContainerStyle={styles.figScroll}>
                   {figures.map((f, i) => (
                     <Pressable
                       key={f.id}
@@ -634,11 +655,12 @@ export default function AdScreen() {
             <MagicLinkPod
               bars={[
                 { icon: 'wrench.and.screwdriver.fill', label: 'Related ADs', items: adRefs },
-                { icon: 'doc.text', label: 'Related ACs', items: acRefs },
-                { icon: 'doc.plaintext', label: 'FAR references', items: farRefs },
-                { icon: 'list.bullet', label: 'AIM references', items: aimRefs },
-                { icon: 'questionmark.circle', label: 'P/CG terms', items: pcgRefs },
-                { icon: 'checkmark.seal.fill', label: 'Related LOIs', items: loiRefs },
+                { icon: 'megaphone.fill', label: 'Related ACs', items: acRefs },
+                { icon: 'book.closed.fill', label: 'FAR references', items: farRefs },
+                { icon: 'map.fill', label: 'AIM references', items: aimRefs },
+                { icon: 'headset', label: 'P/CG terms', items: pcgRefs },
+                { icon: 'envelope.open.fill', label: 'Related LOIs', items: loiRefs },
+                { icon: 'building.columns.fill', label: 'Related 49 CFR', items: cfr49Refs },
               ]}
               currentLabel={`AD ${ad.ad_number}`}
               hasProAccess={hasProAccess}
@@ -792,6 +814,11 @@ const styles = StyleSheet.create({
   tablesBarLabel: { fontWeight: '600' },
   tablesBarCount: { fontWeight: '500' },
   figuresWrap: { marginTop: 2 },
+  // Same root cause as updates.tsx's filter chips (see that file's
+  // comment): a horizontal ScrollView with no explicit `style` collapses
+  // its own cross-axis height on web, clipping the row's content. Sized
+  // for the fixed 90px thumbnail plus label at up to max font scale.
+  figScrollBox: { flexGrow: 0, flexShrink: 0, height: 145 },
   figScroll: { gap: 10 },
   figCard: { width: 130, borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
   figThumb: { width: '100%', height: 90 },

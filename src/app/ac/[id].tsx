@@ -9,7 +9,7 @@ import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
-import { BackToBreadcrumb } from '@/components/DocNavBar'
+import { BackToBreadcrumb, ChangedBanner } from '@/components/DocNavBar'
 import { Icon } from '@/components/Icon'
 import { printReg } from '@/lib/printReg'
 import { ACBody, ACBodyHandle } from '@/components/ACBody'
@@ -35,6 +35,7 @@ import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { consumePendingBreadcrumb, setPendingBreadcrumb } from '@/lib/navBreadcrumb'
+import { getSemanticRelated, mergeRelated } from '@/lib/relatedContent'
 import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { TabletContainer } from '@/components/TabletContainer'
 import type { AdvisoryCircular, AcFigure, FormulaRef } from '@/types'
@@ -152,11 +153,14 @@ export default function ACDetailScreen() {
     }
     setBackTo(consumePendingBreadcrumb())
   }, [id])
-  // FlyRegs pricing pivot (2026-07-24), corrected 2026-08-11 (RC: "back up
-  // sync is Pro" -- see gotcha_gating_sweep_2026_08_11.md) -- AC/LOI full
-  // text, figures, and Print/Export stay Plus (hasPlusAccess); highlights,
-  // notes, bookmarks, and folders now require Pro (hasProAccess). Offline
-  // downloads and sharing stay Premium-only, unchanged from before.
+  // FlyRegs pricing pivot (2026-07-24). RC, 2026-08-14, direct correction to
+  // the 2026-08-11 pass (which had moved highlights/notes/bookmarks/folders
+  // to Pro on a misreading of "back up sync is Pro" -- see
+  // gotcha_gating_sweep_2026_08_11.md): AC full text, figures, Print/Export,
+  // AND highlights/notes/bookmarks/folders are all Plus (hasPlusAccess).
+  // Only the separate "Back up & sync" toggle (cross-device sync, in
+  // saved.tsx/notes.tsx) requires Pro. Offline downloads and sharing stay
+  // Premium-only, unchanged from before.
   const { isPremium, hasPlusAccess, hasProAccess } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
@@ -389,22 +393,24 @@ export default function ACDetailScreen() {
   useEffect(() => {
     const docNum = ac?.document_number
     if (!docNum) return
-    supabase
-      .from('document_citations_gated')
-      .select('citing_type, citing_id, cited_type, cited_id, label')
-      .or(`and(cited_type.eq.ac,cited_id.eq.${docNum}),and(citing_type.eq.ac,citing_id.eq.${docNum})`)
-      .then(({ data, error }) => {
-        if (error || !data) return
-        // Normalize to "the OTHER document" regardless of which side of the
-        // row this AC is on -- same pattern as far/aim/ad's fixed queries.
-        const rows = data as { citing_type: string; citing_id: string; cited_type: string; cited_id: string; label: string | null }[]
-        const other = rows
-          .map((r) => (r.citing_type === 'ac' && r.citing_id === docNum
-            ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
-            : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
-          .filter((r) => !(r.cited_type === 'ac' && r.cited_id === docNum))
-        setRelated(other)
-      })
+    Promise.all([
+      supabase
+        .from('document_citations_gated')
+        .select('citing_type, citing_id, cited_type, cited_id, label')
+        .or(`and(cited_type.eq.ac,cited_id.eq.${docNum}),and(citing_type.eq.ac,citing_id.eq.${docNum})`),
+      getSemanticRelated('ac', docNum),
+    ]).then(([{ data, error }, semantic]) => {
+      if (error || !data) return
+      // Normalize to "the OTHER document" regardless of which side of the
+      // row this AC is on -- same pattern as far/aim/ad's fixed queries.
+      const rows = data as { citing_type: string; citing_id: string; cited_type: string; cited_id: string; label: string | null }[]
+      const other = rows
+        .map((r) => (r.citing_type === 'ac' && r.citing_id === docNum
+          ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
+          : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
+        .filter((r) => !(r.cited_type === 'ac' && r.cited_id === docNum))
+      setRelated(mergeRelated(other, semantic))
+    })
   }, [ac?.document_number])
 
   const farRefs = related.filter((r) => r.cited_type === 'far' || r.cited_type === 'far_part')
@@ -412,6 +418,7 @@ export default function ACDetailScreen() {
   const pcgRefs = related.filter((r) => r.cited_type === 'pcg')
   const adRefs = related.filter((r) => r.cited_type === 'ad')
   const otherAcRefs = related.filter((r) => r.cited_type === 'ac')
+  const cfr49Refs = related.filter((r) => r.cited_type === 'cfr49')
   // Confirmed a real gap live: far/[id].tsx already builds a "Related LOIs"
   // bar off this same bidirectional citation fetch, but AC/P-CG/AIM/AD never
   // did -- an LOI interpreting an AC or P/CG term (33 + 24 real citation
@@ -444,7 +451,7 @@ export default function ACDetailScreen() {
   // sharing a highlighted passage previously only ever scrolled the
   // recipient to it without marking it yellow on their end, even though
   // that's the whole point of sharing a *highlight* specifically (as
-  // opposed to the AC generally). Gated on hasProAccess, same as creating any
+  // opposed to the AC generally). Gated on hasPlusAccess, same as creating any
   // other highlight -- this only ever adds one the recipient doesn't
   // already have; it never removes/toggles anything of theirs.
   const jumpedToHlText = useRef<string | null>(null)
@@ -457,7 +464,7 @@ export default function ACDetailScreen() {
     jumpedToHlText.current = hlText
     setTimeout(() => acBodyRef.current?.scrollToBlockIndex(idx), 250)
 
-    if (hasProAccess) {
+    if (hasPlusAccess) {
       const block = ac.pdf_blocks[idx]
       const meta = highlightMeta(block)
       const contentKey = blockText(block)
@@ -481,7 +488,7 @@ export default function ACDetailScreen() {
         })
       }
     }
-  }, [hlText, ac?.id, ac?.pdf_blocks, hasProAccess])
+  }, [hlText, ac?.id, ac?.pdf_blocks, hasPlusAccess])
 
   const handleDownload = async () => {
     if (!ac) return
@@ -609,8 +616,8 @@ export default function ACDetailScreen() {
 
   const handleToggleBookmark = async () => {
     if (!ac) return
-    if (!hasProAccess) {
-      router.push('/paywall?tier=pro')
+    if (!hasPlusAccess) {
+      router.push('/paywall?tier=plus')
       return
     }
     setBookmarked((prev) => !prev) // optimistic
@@ -631,7 +638,7 @@ export default function ACDetailScreen() {
   // the paywall rather than risking a silent no-op.
   const handleOpenFolderPicker = () => {
     if (!ac) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     setFolderPickerVisible(true)
   }
 
@@ -654,8 +661,8 @@ export default function ACDetailScreen() {
   const lastToggleAt = useRef(0)
   const handleToggleHighlight = useCallback(async (block: ACBlock) => {
     if (!ac) return
-    if (!hasProAccess) {
-      router.push('/paywall?tier=pro')
+    if (!hasPlusAccess) {
+      router.push('/paywall?tier=plus')
       return
     }
     if (toggleInFlight.current) return
@@ -689,13 +696,13 @@ export default function ACDetailScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [ac, hasProAccess])
+  }, [ac, hasPlusAccess])
 
-  // Copy is deliberately NOT Pro-gated, unlike highlighting — it only ever
+  // Copy is deliberately NOT gated, unlike highlighting — it only ever
   // copies a block that's already rendered on screen for this reader (Free
-  // Copy/Highlight is a Pro feature as a whole — gated at the long-press entry
-  // point below, not per-action, so Copy can't be used as a back door around
-  // the Highlight paywall.
+  // preview blocks included). Copy/Highlight is a Plus feature as a whole —
+  // gated at the long-press entry point below, not per-action, so Copy can't
+  // be used as a back door around the Highlight paywall.
   const handleCopyBlock = useCallback(async (block: ACBlock) => {
     const meta = highlightMeta(block)
     if (!meta) return
@@ -708,14 +715,14 @@ export default function ACDetailScreen() {
   // Long-press entry point: offers Copy alongside the existing Highlight
   // toggle instead of replacing it, so the one gesture now does both without
   // adding new on-screen buttons to every block. The entry point
-  // (handleBlockLongPress) is now genuinely Pro-gated (RC, 2026-08-11:
-  // corrected from hasPlusAccess -- see gotcha_gating_sweep_2026_08_11.md),
-  // matching what this comment already argued Copy/Highlight conceptually
-  // was; handleSharePassage itself still requires Premium, one tier higher
-  // than what got the user into the menu -- confirmed via audit as a real
-  // advertised-but-bounced mismatch -- the menu label itself says
-  // "(Premium)" for anyone below that tier instead of silently bouncing
-  // with no warning.
+  // (handleBlockLongPress) is Plus-gated (RC, 2026-08-14: reverted the
+  // 2026-08-11 Pro gate -- see gotcha_gating_sweep_2026_08_11.md and
+  // migrations_fix_folders_are_plus_not_pro.sql), matching what this comment
+  // already argued Copy/Highlight conceptually was; handleSharePassage
+  // itself still requires Premium, one tier higher than what got the user
+  // into the menu -- confirmed via audit as a real advertised-but-bounced
+  // mismatch -- the menu label itself says "(Premium)" for anyone below that
+  // tier instead of silently bouncing with no warning.
   const handleSharePassage = useCallback(async (block: ACBlock) => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     if (!ac) return
@@ -737,7 +744,7 @@ export default function ACDetailScreen() {
   const handleBlockLongPress = useCallback((block: ACBlock, index: number) => {
     const meta = highlightMeta(block)
     if (!meta) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     const isHighlighted = highlightedBlockTexts.has(blockText(block))
     confirm({
       title: 'Passage',
@@ -749,17 +756,17 @@ export default function ACDetailScreen() {
           label: isHighlighted ? 'Remove Highlight' : 'Highlight',
           onPress: () => handleToggleHighlight(block),
         },
-        // Reachable by any Pro+ user (the long-press entry point above only
-        // checks hasProAccess), but handleSharePassage itself requires
+        // Reachable by any Plus+ user (the long-press entry point above only
+        // checks hasPlusAccess), but handleSharePassage itself requires
         // Premium -- confirmed as a real advertised-but-bounced mismatch: a
-        // Pro user could tap this and land on the paywall with zero
+        // Plus/Pro user could tap this and land on the paywall with zero
         // warning. Labeling it up front costs nothing and matches how the
         // rest of the app discloses a higher-tier gate before the tap, not
         // after.
         { label: isPremium ? 'Share Passage' : 'Share Passage (Premium)', onPress: () => handleSharePassage(block) },
       ],
     })
-  }, [hasProAccess, isPremium, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, handleSharePassage])
+  }, [hasPlusAccess, isPremium, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, handleSharePassage])
 
   // Jump nav between the blocks the "What's New" diff flagged as changed —
   // mirrors the existing in-doc search prev/next pattern below (goToPrev/
@@ -878,7 +885,7 @@ export default function ACDetailScreen() {
         items={[
           { icon: 'printer', label: 'Print', onPress: handlePrint, disabled: !hasPlusAccess },
           { icon: 'square.and.arrow.up', label: 'Share', onPress: handleShare, disabled: !hasPlusAccess },
-          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasProAccess },
+          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasPlusAccess },
         ]}
       />
       {!isTabletSplit && (
@@ -964,6 +971,15 @@ export default function ACDetailScreen() {
           </View>
         </View>
       )}
+      {!loading && ac && changedList.length > 0 && (
+        <ChangedBanner
+          count={changedList.length}
+          currentIdx={changedIdx}
+          onPrev={goToPrevChanged}
+          onNext={goToNextChanged}
+          label={`This AC was updated — ${changedList.length} section${changedList.length === 1 ? '' : 's'} changed${changedLabels.length > 0 ? ` (${changedLabels.join(', ')})` : ''}.`}
+        />
+      )}
 
       {loading ? (
         <View style={styles.center}>
@@ -983,6 +999,7 @@ export default function ACDetailScreen() {
           scrollEventThrottle={100}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={() => Keyboard.dismiss()}
         >
           {/* Badge row */}
           <View style={styles.badgeRow}>
@@ -1020,32 +1037,6 @@ export default function ACDetailScreen() {
               <MetaChip label="Series" value={ac.subject_series} tokens={tokens} />
             )}
           </View>
-
-          {/* Updated-content banner */}
-          {changedList.length > 0 && (
-            <View style={[styles.updateBanner, { backgroundColor: tokens.bdim, borderColor: tokens.blu }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                <Icon name="bell.badge" size={fs(14)} color={tokens.blu} style={{ marginTop: 2 }} />
-                <Text style={[styles.updateBannerText, { color: tokens.t1, fontSize: fs(12.5) }]}>
-                  This AC was updated — {changedList.length} section{changedList.length === 1 ? '' : 's'} changed
-                  {changedLabels.length > 0 ? ` (${changedLabels.join(', ')})` : ''}.
-                </Text>
-              </View>
-              {changedList.length > 1 && (
-                <View style={styles.updateBannerNav}>
-                  <Text style={[styles.updateBannerNavCount, { color: tokens.t2, fontSize: fs(11.5) }]}>
-                    {changedIdx + 1}/{changedList.length}
-                  </Text>
-                  <Pressable onPress={goToPrevChanged} hitSlop={10} style={{ padding: 4 }}>
-                    <Icon name="chevron.up" size={fs(16)} color={tokens.blu} />
-                  </Pressable>
-                  <Pressable onPress={goToNextChanged} hitSlop={10} style={{ padding: 4 }}>
-                    <Icon name="chevron.down" size={fs(16)} color={tokens.blu} />
-                  </Pressable>
-                </View>
-              )}
-            </View>
-          )}
 
           {/* Scanned-original disclaimer -- sets expectations for old ACs
               whose source is a scanned paper original with an OCR text layer,
@@ -1173,12 +1164,13 @@ export default function ACDetailScreen() {
           <View style={styles.barsWrap}>
             <MagicLinkPod
               bars={[
-                { icon: 'doc.text', label: 'Related ACs', items: otherAcRefs },
-                { icon: 'list.bullet', label: 'FAR references', items: farRefs },
-                { icon: 'arrow.up.right.square', label: 'AIM references', items: aimRefs },
-                { icon: 'questionmark.circle', label: 'P/CG terms', items: pcgRefs },
-                { icon: 'wrench.and.screwdriver', label: 'Related ADs', items: adRefs },
-                { icon: 'checkmark.seal.fill', label: 'Related LOIs', items: loiRefs },
+                { icon: 'megaphone.fill', label: 'Related ACs', items: otherAcRefs },
+                { icon: 'book.closed.fill', label: 'FAR references', items: farRefs },
+                { icon: 'map.fill', label: 'AIM references', items: aimRefs },
+                { icon: 'headset', label: 'P/CG terms', items: pcgRefs },
+                { icon: 'wrench.and.screwdriver.fill', label: 'Related ADs', items: adRefs },
+                { icon: 'envelope.open.fill', label: 'Related LOIs', items: loiRefs },
+                { icon: 'building.columns.fill', label: 'Related 49 CFR', items: cfr49Refs },
               ]}
               currentLabel={`AC ${ac.document_number}`}
               hasProAccess={hasProAccess}
@@ -1206,7 +1198,7 @@ export default function ACDetailScreen() {
                 onMatchCount={handleMatchCount}
                 activeMatch={matchCount > 0 ? matchIdx : -1}
                 changedIndices={ac.changed_block_indices}
-                highlightedBlockTexts={hasProAccess ? highlightedBlockTexts : undefined}
+                highlightedBlockTexts={hasPlusAccess ? highlightedBlockTexts : undefined}
                 onToggleHighlight={handleBlockLongPress}
                 figures={hasPlusAccess ? (figures ?? undefined) : undefined}
                 onOpenFigure={hasPlusAccess ? setViewerFigure : undefined}
@@ -1369,17 +1361,6 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   changePillText: { fontSize: 11, fontWeight: '500' },
-  updateBanner: {
-    flexDirection: 'column',
-    gap: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginTop: 4,
-  },
-  updateBannerText: { flex: 1, fontWeight: '600', lineHeight: 17 },
-  updateBannerNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
   scanBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -1392,7 +1373,6 @@ const styles = StyleSheet.create({
   },
   scanBannerText: { flex: 1, lineHeight: 17 },
   scanBannerSeq: { marginTop: 4, fontWeight: '600' },
-  updateBannerNavCount: { fontWeight: '600', marginRight: 4 },
 
   acNum: { fontWeight: '800', fontSize: 17, marginTop: 4 },
   title: { fontWeight: '600', fontSize: 19, lineHeight: 26, marginTop: 4 },

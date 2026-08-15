@@ -25,6 +25,8 @@ import { toRegShareType } from '@/lib/regShare'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { stripFarPrefix, rowTitle } from '@/lib/titleFormat'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 interface Group {
   title: string
@@ -70,7 +72,7 @@ export default function RecentsScreen() {
   const fs = useFS()
   // Bookmarks/Folders require Pro (RC, 2026-08-11: "back up sync is Pro" --
   // corrected from an earlier Plus-tier gate); sharing stays Premium.
-  const { isPremium, hasProAccess } = useAuth()
+  const { isPremium, hasPlusAccess } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const { shareAC, shareReg, shareMany } = useShareActions()
   const [groups, setGroups] = useState<Group[]>([])
@@ -92,6 +94,10 @@ export default function RecentsScreen() {
   const [folderSheetVisible, setFolderSheetVisible] = useState(false)
   const [confirmTick, setConfirmTick] = useState(0)
   const [confirmLabel, setConfirmLabel] = useState('')
+  // Recent-item titles can run long and get cut off the same way FAR Part
+  // titles do -- same hook/card pair as far/index.tsx's own long-press
+  // preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   const load = useCallback(() => {
     Promise.all([getRecents(), getBookmarks()]).then(([recents, bookmarks]) => {
@@ -127,7 +133,7 @@ export default function RecentsScreen() {
   useFocusEffect(load)
 
   const handleToggleBookmark = useCallback(async (item: RecentAC) => {
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     const isNowBookmarked = await toggleBookmark({
       id: item.id,
       itemType: recentItemType(item),
@@ -142,7 +148,7 @@ export default function RecentsScreen() {
       isNowBookmarked ? next.add(item.id) : next.delete(item.id)
       return next
     })
-  }, [hasProAccess])
+  }, [hasPlusAccess])
 
   const handleRemove = useCallback((item: RecentAC) => {
     setGroups((prev) =>
@@ -275,12 +281,12 @@ export default function RecentsScreen() {
   // gating the whole screen behind a ProWall first (Saved/Notes both hide
   // their entire list for non-Plus). Gate synchronously here, same pattern as
   // handleToggleBookmark/handleShare above -- FolderPicker's own internal
-  // hasProAccess effect (open -> close -> setTimeout-delayed router.push) was
+  // hasPlusAccess effect (open -> close -> setTimeout-delayed router.push) was
   // the only gate before, and a second tap shortly after the first landed
   // while that effect's queued navigation was still resolving, so it silently
   // no-op'd instead of opening the paywall again.
   const handleFolder = (item: RecentAC) => {
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     setPickerItem(item)
   }
 
@@ -311,6 +317,9 @@ export default function RecentsScreen() {
       onFolder={() => handleFolder(item)}
       onRemove={() => handleRemove(item)}
       onShare={() => handleShare(item)}
+      showPreview={showPreview}
+      hidePreview={hidePreview}
+      consumeLongPress={consumeLongPress}
     />
   )
 
@@ -389,7 +398,7 @@ export default function RecentsScreen() {
           <Text style={[styles.selectCount, { color: tokens.t2, fontSize: fs(13) }]}>({selected.size})</Text>
           <View style={styles.selectIconRow}>
             <Pressable
-              onPress={() => { if (!hasProAccess) { router.push('/paywall?tier=pro'); return } setFolderSheetVisible(true) }}
+              onPress={() => { if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return } setFolderSheetVisible(true) }}
               disabled={selected.size === 0}
               hitSlop={8}
               style={{ opacity: selected.size > 0 ? 1 : 0.4 }}
@@ -439,6 +448,12 @@ export default function RecentsScreen() {
       />
 
       <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
       </TabletContainer>
     </View>
   )
@@ -457,6 +472,9 @@ function SwipeableRecentRow({
   onFolder,
   onRemove,
   onShare,
+  showPreview,
+  hidePreview,
+  consumeLongPress,
 }: {
   item: RecentAC
   tokens: ReturnType<typeof useTheme>['tokens']
@@ -470,6 +488,9 @@ function SwipeableRecentRow({
   onFolder: () => void
   onRemove: () => void
   onShare: () => void
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
   const translateX = useSharedValue(0)
@@ -529,7 +550,13 @@ function SwipeableRecentRow({
         <Reanimated.View style={cardStyle}>
           <Pressable
             style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-            onPress={handlePress}
+            onPress={() => {
+              if (consumeLongPress()) return
+              handlePress()
+            }}
+            onLongPress={(e) => showPreview(rowTitle(item.document_number, item.title), e)}
+            onPressOut={hidePreview}
+            delayLongPress={350}
           >
             <View style={styles.rowTop}>
               {selectMode && (

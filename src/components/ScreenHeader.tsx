@@ -6,6 +6,8 @@ import { useFS } from '@/context/fontScale'
 import { useDrawer } from '@/context/drawer'
 import { Icon } from '@/components/Icon'
 import { WORDMARK_FONT, wordmarkGoldFor } from '@/lib/brand'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 interface ScreenHeaderProps {
   /** Show the gold FlyRegs wordmark instead of a text title */
@@ -72,6 +74,16 @@ export function OverlayHeader({ title, onBack, right }: OverlayHeaderProps) {
   const fs = useFS()
   const { open } = useDrawer()
   const insets = useSafeAreaInsets()
+  // Most screens pass a short, deliberately-chosen title that always fits --
+  // but a handful pass real user content instead (folder/[id].tsx's
+  // folder?.name, folder/shared/[id].tsx's folderName, my-aircraft/[id].tsx's
+  // aircraft nickname/make/model), which can genuinely run long and get cut
+  // off the same way FAR Part titles do. Fixed once here, in the shared
+  // header every screen renders, rather than patched per screen -- same
+  // hook/card pair as far/index.tsx's own long-press preview. Harmless on
+  // the many screens with a short static title: nothing to see that isn't
+  // already fully visible.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview } = useLongPressPreview()
 
   return (
     <View
@@ -91,9 +103,15 @@ export function OverlayHeader({ title, onBack, right }: OverlayHeaderProps) {
 
         <View style={styles.center}>
           {title ? (
-            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]} numberOfLines={1}>
-              {title}
-            </Text>
+            <Pressable
+              onLongPress={(e) => showPreview(title, e)}
+              onPressOut={hidePreview}
+              delayLongPress={350}
+            >
+              <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]} numberOfLines={1}>
+                {title}
+              </Text>
+            </Pressable>
           ) : null}
         </View>
 
@@ -105,6 +123,12 @@ export function OverlayHeader({ title, onBack, right }: OverlayHeaderProps) {
           </Pressable>
         )}
       </View>
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }

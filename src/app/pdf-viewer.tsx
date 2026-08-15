@@ -7,6 +7,8 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { useAllowRotation } from '@/lib/orientation'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // Renders the AC's original PDF fully in-app instead of handing the raw URL
 // to an external/system browser sheet. That used to go through
@@ -24,6 +26,10 @@ export default function PDFViewerScreen() {
   const insets = useSafeAreaInsets()
   const { url, title } = useLocalSearchParams<{ url: string; title?: string }>()
   const [loading, setLoading] = useState(true)
+  // The PDF's real document title can run long and get cut off the same way
+  // FAR Part titles do -- same hook/card pair as far/index.tsx's own
+  // long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview } = useLongPressPreview()
   // Rotation is normally locked app-wide (app.json) -- allowed here only,
   // and only while this screen is actually open, so leaving (however the
   // user leaves -- the close button, a system back gesture, etc.) always
@@ -33,13 +39,25 @@ export default function PDFViewerScreen() {
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 14), borderBottomColor: tokens.bdr }]}>
-        <Text style={[styles.title, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={1}>
-          {title || 'Original PDF'}
-        </Text>
+        <Pressable
+          onLongPress={(e) => showPreview(title || 'Original PDF', e)}
+          onPressOut={hidePreview}
+          delayLongPress={350}
+        >
+          <Text style={[styles.title, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={1}>
+            {title || 'Original PDF'}
+          </Text>
+        </Pressable>
         <Pressable onPress={() => router.dismiss()} hitSlop={10} style={styles.closeBtn}>
           <Icon name="xmark" size={fs(18)} color={tokens.t3} />
         </Pressable>
       </View>
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
 
       {Platform.OS === 'web' ? (
         <View style={styles.center}>

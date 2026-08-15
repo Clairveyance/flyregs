@@ -7,6 +7,8 @@ import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { TabletContainer } from '@/components/TabletContainer'
 import { humanizeLoiTitle } from '@/lib/titleFormat'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 interface LoiRow {
   slug: string
@@ -30,6 +32,9 @@ export default function LoiYearScreen() {
   const fs = useFS()
   const [rows, setRows] = useState<LoiRow[]>([])
   const [loading, setLoading] = useState(true)
+  // LOI titles run long and get cut off the same way FAR Part titles do --
+  // same hook/card pair as far/index.tsx's own long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   useEffect(() => {
     if (!year) return
@@ -66,7 +71,13 @@ export default function LoiYearScreen() {
             renderItem={({ item }) => (
               <Pressable
                 style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => router.push(`/loi/${item.slug}` as any)}
+                onPress={() => {
+                  if (consumeLongPress()) return
+                  router.push(`/loi/${item.slug}` as any)
+                }}
+                onLongPress={(e) => showPreview(humanizeLoiTitle(item.title), e)}
+                onPressOut={hidePreview}
+                delayLongPress={350}
               >
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.title, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
@@ -93,6 +104,12 @@ export default function LoiYearScreen() {
           />
         </TabletContainer>
       )}
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }

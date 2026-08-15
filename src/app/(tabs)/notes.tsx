@@ -23,6 +23,8 @@ import { useScreenActions } from '@/context/screenActions'
 import { useIsTablet } from '@/context/responsive'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { NoteEditor } from '@/components/NoteEditor'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -51,12 +53,21 @@ export default function NotesScreen() {
   const confirm = useConfirm()
   const fs = useFS()
   const isTablet = useIsTablet()
-  // Notes require Pro (RC, 2026-08-11: "back up sync is Pro" -- corrected
-  // from an earlier Plus-tier gate; see gotcha_gating_sweep_2026_08_11.md).
-  const { isPro, isPremium, hasProAccess, session } = useAuth()
+  // Notes (create/use, local-first) are a Plus feature; only pushing them to
+  // Supabase via "Back up & sync" requires Pro. RC, 2026-08-14, direct
+  // correction to the 2026-08-11 pass above, which wrongly moved the whole
+  // family to Pro -- see migrations_fix_folders_are_plus_not_pro.sql.
+  const { isPro, isPremium, hasPlusAccess, hasProAccess, session } = useAuth()
   const { shareNote, shareMany } = useShareActions()
   const { openId } = useLocalSearchParams<{ openId?: string }>()
   const [notes, setNotes] = useState<Note[]>([])
+  // `notes` starts empty and only fills in once getNotes() (async
+  // AsyncStorage read) resolves -- without a loading flag, "haven't loaded
+  // yet" and "genuinely no notes" were indistinguishable, so a real note
+  // list could flash "No notes yet" for a moment on mount. Same gap already
+  // found and fixed for saved.tsx's Shared tabs (gotcha_saved_shared_empty_
+  // state_flash) -- identical pattern, just unnoticed here until now.
+  const [notesLoading, setNotesLoading] = useState(true)
   const [syncEnabled, setSyncEnabled] = useState(false)
   const [syncBusy, setSyncBusy] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
@@ -69,9 +80,13 @@ export default function NotesScreen() {
   // Guards the auto-open-from-navigation effect below so it fires once per
   // distinct openId, not every time `notes` re-renders for an unrelated reason.
   const openedIdRef = useRef<string | null>(null)
+  // Note titles (user-authored) can run long and get cut off the same way
+  // FAR Part titles do -- same hook/card pair as far/index.tsx's own
+  // long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   useEffect(() => {
-    getNotes().then(setNotes)
+    getNotes().then(setNotes).finally(() => setNotesLoading(false))
     isSyncEnabled().then(setSyncEnabled)
   }, [])
 
@@ -86,13 +101,13 @@ export default function NotesScreen() {
   // Opening a note from outside this screen (e.g. tapping it inside a Folder,
   // which has no note-editing UI of its own) navigates here with ?openId=.
   useEffect(() => {
-    if (!hasProAccess || typeof openId !== 'string' || openId === openedIdRef.current) return
+    if (!hasPlusAccess || typeof openId !== 'string' || openId === openedIdRef.current) return
     const note = notes.find((n) => n.id === openId)
     if (note) {
       openedIdRef.current = openId
       setEditorNote({ ...note })
     }
-  }, [openId, notes, hasProAccess])
+  }, [openId, notes, hasPlusAccess])
 
   const persist = useCallback((updated: Note[]) => {
     setNotes(updated)
@@ -100,12 +115,12 @@ export default function NotesScreen() {
   }, [])
 
   const openNew = () => {
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     setEditorNote({ id: '', title: '', body: '', linked_ac: null, updated_at: '' })
   }
 
   const openExisting = (note: Note) => {
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     if (selectMode) {
       setSelected((prev) => {
         const next = new Set(prev)
@@ -224,19 +239,22 @@ export default function NotesScreen() {
   // own live isPro check) both agree with reality instead of the row
   // claiming "Synced" forever off a stale local flag. Sync moved from Premium
   // to Pro in the pricing pivot -- see flyregs_decisions.md.
-  const displaySyncEnabled = syncEnabled && isPro
+  // hasProAccess (isPro || isPremium), not bare isPro -- matches saved.tsx's
+  // fix: a genuine Premium subscriber (isPro: false, isPremium: true) hit
+  // this exact bug, since bare `isPro` is false for them.
+  const displaySyncEnabled = syncEnabled && hasProAccess
   useEffect(() => {
-    if (syncEnabled && !isPro) {
+    if (syncEnabled && !hasProAccess) {
       disableSync()
       setSyncEnabled(false)
     }
-  }, [syncEnabled, isPro])
+  }, [syncEnabled, hasProAccess])
 
   const toggleSync = async (v: boolean) => {
     // Cross-device sync is a Pro feature — turning it on without Pro opens
     // the paywall (a real navigation, not a dialog -- it worked on web even
     // back when every Alert.alert on this screen silently did nothing).
-    if (v && !isPro) {
+    if (v && !hasProAccess) {
       router.push('/paywall?tier=pro')
       return // leave the switch off
     }
@@ -266,16 +284,16 @@ export default function NotesScreen() {
   // registers its own Back/Folder/Share/Delete/Done there instead (see
   // below), and re-asserts these the moment editorNote goes back to null.
   useScreenActions(
-    !hasProAccess || editorNote !== null
+    !hasPlusAccess || editorNote !== null
       ? []
       : [
           { key: 'select', label: selectMode ? 'Done' : 'Select', onPress: toggleSelect },
           ...(!selectMode ? [{ key: 'new', label: '+ New', onPress: openNew, variant: 'primary' as const }] : []),
         ],
-    [hasProAccess, editorNote !== null, selectMode]
+    [hasPlusAccess, editorNote !== null, selectMode]
   )
 
-  const rightSlot = hasProAccess && !isTablet ? (
+  const rightSlot = hasPlusAccess && !isTablet ? (
     <View style={styles.headerRight}>
       <Pressable onPress={toggleSelect} hitSlop={8}>
         <Text style={[styles.selectBtnText, { color: tokens.blu, fontSize: fs(13) }]}>
@@ -296,18 +314,18 @@ export default function NotesScreen() {
       <ScreenHeader title="Notes" right={rightSlot} />
       <TabletContainer disabled={isTablet}>
 
-      {!hasProAccess ? (
+      {!hasPlusAccess ? (
         <View style={[styles.empty, { padding: 32 }]}>
           <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
-          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Notes is a Pro feature</Text>
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Notes is a Plus feature</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-            Unlock Pro to create personal notes and link them directly to any AC.
+            Unlock Plus to create personal notes and link them directly to any AC.
           </Text>
           <Pressable
             style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]}
-            onPress={() => router.push('/paywall?tier=pro')}
+            onPress={() => router.push('/paywall?tier=plus')}
           >
-            <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Pro</Text>
+            <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
           </Pressable>
         </View>
       ) : (
@@ -352,7 +370,11 @@ export default function NotesScreen() {
           </View>
 
           {/* Notes list */}
-          {notes.length === 0 ? (
+          {notesLoading ? (
+            <View style={styles.empty}>
+              <ActivityIndicator color={tokens.blu} />
+            </View>
+          ) : notes.length === 0 ? (
             <View style={styles.empty}>
               <Icon name="square.and.pencil" size={fs(36)} color={tokens.t4} />
               <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No notes yet</Text>
@@ -387,6 +409,9 @@ export default function NotesScreen() {
                     onDelete={() => confirmDelete(item.id)}
                     onFolder={() => setPickerNote(item)}
                     onShare={() => handleShare(item)}
+                    showPreview={showPreview}
+                    hidePreview={hidePreview}
+                    consumeLongPress={consumeLongPress}
                   />
                 </View>
               )}
@@ -474,6 +499,12 @@ export default function NotesScreen() {
       />
 
       <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
       </TabletContainer>
     </View>
   )
@@ -483,6 +514,7 @@ export default function NotesScreen() {
 
 function SwipeableNoteCard({
   note, tokens, selectMode, selected, onPress, onDelete, onFolder, onShare,
+  showPreview, hidePreview, consumeLongPress,
 }: {
   note: Note
   tokens: ReturnType<typeof useTheme>['tokens']
@@ -492,6 +524,9 @@ function SwipeableNoteCard({
   onDelete: () => void
   onFolder?: () => void
   onShare?: () => void
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
   const translateX = useSharedValue(0)
@@ -551,6 +586,9 @@ function SwipeableNoteCard({
             onPress={handlePress}
             onFolder={onFolder}
             onShare={onShare}
+            showPreview={showPreview}
+            hidePreview={hidePreview}
+            consumeLongPress={consumeLongPress}
           />
         </Reanimated.View>
       </GestureDetector>
@@ -562,6 +600,7 @@ function SwipeableNoteCard({
 
 function NoteCard({
   note, tokens, selectMode, selected, onPress, onFolder, onShare,
+  showPreview, hidePreview, consumeLongPress,
 }: {
   note: Note
   tokens: ReturnType<typeof useTheme>['tokens']
@@ -570,12 +609,21 @@ function NoteCard({
   onPress: () => void
   onFolder?: () => void
   onShare?: () => void
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
   return (
     <Pressable
       style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-      onPress={onPress}
+      onPress={() => {
+        if (consumeLongPress()) return
+        onPress()
+      }}
+      onLongPress={(e) => showPreview(note.title || 'Untitled', e)}
+      onPressOut={hidePreview}
+      delayLongPress={350}
     >
       {selectMode && (
         <View style={[

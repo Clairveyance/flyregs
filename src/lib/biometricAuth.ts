@@ -1,9 +1,19 @@
 import { Platform } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SecureStore from 'expo-secure-store'
-import * as LocalAuthentication from 'expo-local-authentication'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+
+// expo-local-authentication dynamically imported (not top-level) inside
+// each function below -- Sentry-confirmed, same root cause as
+// BulkInviteContactPicker.tsx's own fix (see that file's comment):
+// "Cannot find native module 'ExpoLocalAuthentication'," 29 occurrences
+// since 2026-08-09, culprit account.tsx -- a static top-level import
+// throws immediately at IMPORT time on a dev-client build that predates
+// this dependency, and Expo Router evaluates every route file's import
+// graph up front, so this fired regardless of whether biometric sign-in
+// was ever actually used on a given screen. SecureStore is untouched --
+// no evidence of the same failure, and it predates this Face ID feature.
 
 // BB-008/#422 revisit -- RC's chosen scope: Face ID/Touch ID as a faster
 // alternative to typing email+password on the sign-in screen, opt-in, one
@@ -31,6 +41,7 @@ interface StoredBiometricSession {
 export async function isHardwareAvailable(): Promise<boolean> {
   if (Platform.OS === 'web') return false
   try {
+    const LocalAuthentication = await import('expo-local-authentication')
     const [hasHardware, isEnrolled] = await Promise.all([
       LocalAuthentication.hasHardwareAsync(),
       LocalAuthentication.isEnrolledAsync(),
@@ -47,6 +58,7 @@ export async function isHardwareAvailable(): Promise<boolean> {
 // report it; older iPhones/iPads with only Touch ID don't).
 export async function biometricLabel(): Promise<string> {
   try {
+    const LocalAuthentication = await import('expo-local-authentication')
     const types = await LocalAuthentication.supportedAuthenticationTypesAsync()
     return types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION) ? 'Face ID' : 'Touch ID'
   } catch {
@@ -94,6 +106,7 @@ export async function markBiometricPromptDeclined(): Promise<void> {
 // gate once up front, the same way enabling it should feel as deliberate as
 // using it later.
 export async function enableBiometricSignIn(session: Session): Promise<boolean> {
+  const LocalAuthentication = await import('expo-local-authentication')
   const result = await LocalAuthentication.authenticateAsync({
     promptMessage: 'Confirm to enable biometric sign-in',
   })
@@ -126,6 +139,7 @@ export async function signInWithBiometric(): Promise<string | null> {
   const { access_token, refresh_token, email } = JSON.parse(stored) as StoredBiometricSession
 
   const label = await biometricLabel()
+  const LocalAuthentication = await import('expo-local-authentication')
   const result = await LocalAuthentication.authenticateAsync({
     promptMessage: `Sign in as ${email} with ${label}`,
   })

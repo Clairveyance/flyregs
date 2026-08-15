@@ -127,10 +127,61 @@ def parse_letter_page(html: str, letter: str) -> list[dict]:
             if not raw_term:
                 continue
 
-            # Definition is everything in the <p> after the <dfn> tag.
+            # Definition is everything in the <p> after the <dfn> tag --
+            # except the FAA's own source HTML is inconsistent about where
+            # the </dfn> boundary actually falls relative to the visible
+            # term label. Confirmed live 2026-08-12 by fetching the real
+            # glossary-a.html/glossary-g.html pages and reading the raw
+            # markup directly: most terms wrap their ENTIRE label,
+            # including any trailing parenthetical acronym expansion, in
+            # <dfn> (e.g. "<dfn>AUTOMATIC DEPENDENT SURVEILLANCE-CONTRACT
+            # (ADS-C)</dfn>- A data link..."), but a few close </dfn> mid-
+            # parenthetical instead, e.g.:
+            #   <dfn>AUTOMATIC DEPENDENT SURVEILLANCE-BROADCAST IN (ADS</dfn>-B In)- Aircraft avionics...
+            #   <dfn>GROUND-BASED INTERVAL MANAGEMENT-SPACING (GIM</dfn>-S), SPEED ADVISORY- A calculated speed...
+            # The old code sliced full_text at exactly len(dfn_text), so on
+            # these terms the leftover label fragment ("B In)-", "S),
+            # SPEED ADVISORY-") got glued onto the front of the stored
+            # definition instead of being recognized as still part of the
+            # term -- confirmed as the root cause of 3 false-positive
+            # "revision" rows purged from content_revisions the same day
+            # (sync/migrations_purge_content_revisions_false_positives.sql)
+            # and, live in pcg_terms right now, a 4th term (AUTOMATIC
+            # DEPENDENT SURVEILLANCE, the base ADS-B entry) whose
+            # definition has apparently been corrupted this way since it
+            # was first scraped -- it never showed up as a "revision"
+            # because there was never a clean version to diff against.
+            #
+            # This isn't actually run-to-run non-determinism (the same
+            # fixed HTML re-parsed with the same code always produces the
+            # same, consistently wrong, result) -- it just looked that way
+            # in content_revisions because the OLD stored value predated
+            # whatever last touched this parsing path, and diffed clean
+            # against a freshly-broken re-scrape.
+            #
+            # Fix: don't trust the <dfn> boundary as the real split point.
+            # Every case checked -- both the broken-boundary terms above
+            # and the hundreds of normal ones -- is consistent about ONE
+            # thing: the actual definition prose always starts right after
+            # the FIRST literal "-" + whitespace that appears at or after
+            # the <dfn> boundary. That's the FAA's own term/definition
+            # separator, present whether or not <dfn> already swallowed
+            # the whole label, and it reliably survives being searched for
+            # instead of assumed. Verified against the full live corpus
+            # (all 23 letter pages, 1,332 terms fetched fresh and re-
+            # parsed): only these same 4 terms' definitions change versus
+            # the old slice-based logic, zero regressions elsewhere.
             full_text = p.get_text(separator=" ", strip=True)
             dfn_text = dfn.get_text(strip=True)
-            definition = full_text[len(dfn_text):].lstrip("- ").strip()
+            remainder = full_text[len(dfn_text):]
+            sep_match = re.search(r"-\s", remainder)
+            if sep_match:
+                definition = remainder[sep_match.end():].strip()
+            else:
+                # No "-<whitespace>" separator found at all (e.g. a term
+                # with no definition of its own, only cross-references) --
+                # fall back to the old lstrip behavior rather than assume.
+                definition = remainder.lstrip("- ").strip()
 
             current = {
                 "term": raw_term,
@@ -417,7 +468,18 @@ def main():
         default=10,
         help="Number of terms to print in test mode (default: 10)",
     )
+    parser.add_argument(
+        "--no-revision-log", action="store_true",
+        help=(
+            "Skip content_revisions logging for this run (sets SKIP_REVISION_LOG=1, "
+            "read by revision_log.log_revisions()). Use for a manual backfill/repair "
+            "run over already-known data, so it can't log bogus What's Changed "
+            "entries. Leave unset for the real scheduled cron sync."
+        ),
+    )
     args = parser.parse_args()
+    if args.no_revision_log:
+        os.environ["SKIP_REVISION_LOG"] = "1"
 
     if args.mode == "full" and (not SUPABASE_URL or not SUPABASE_KEY):
         log.error(

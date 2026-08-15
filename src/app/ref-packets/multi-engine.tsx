@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
-import { router } from 'expo-router'
+import { router, useLocalSearchParams } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
@@ -8,6 +8,8 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getRefPacket, RefPacketArea } from '@/lib/refPackets'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // Multiengine (AMEL/AMES) isn't its own ACS/PTS document -- the FAA covers
 // it as "Area of Operation X: Multiengine Operations" appended to BOTH the
@@ -29,12 +31,32 @@ export default function MultiEngineRefPackScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
   const { hasPlusAccess } = useAuth()
-  const [cert, setCert] = useState<(typeof CERTS)[number]['code']>(CERTS[0].code)
+  // RC: two separate RefPack cards now (Private / Commercial), each
+  // deep-linking here with `?cert=` so the right one opens directly --
+  // falls back to Private if the param's missing or doesn't match either
+  // real doc_code (e.g. someone navigates here without the param).
+  const { cert: certParam } = useLocalSearchParams<{ cert?: string }>()
+  const initialCert = CERTS.find((c) => c.code === certParam)?.code ?? CERTS[0].code
+  const [cert, setCert] = useState<(typeof CERTS)[number]['code']>(initialCert)
   const [areas, setAreas] = useState<Record<string, RefPacketArea | null>>({})
   const [loading, setLoading] = useState(true)
+  // ACS task titles run long and get cut off the same way FAR Part titles do
+  // -- same hook/card pair as far/index.tsx's own long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   useEffect(() => {
     if (!hasPlusAccess) { setLoading(false); return }
+    // RC's account gates (isPro/isPremium/isUnlocked) resolve asynchronously
+    // after this screen's first render -- hasPlusAccess starts false, so the
+    // early-return above already fired once and left `loading` false before
+    // this effect ever re-runs with the real value. Without resetting it back
+    // to true here, the moment hasPlusAccess flips true this component skips
+    // straight past the spinner and renders "AREA X · 0 TASKS" (the still-
+    // empty initial `areas` state) for the full round-trip of the real
+    // fetch below -- confirmed live. ref-packets/[code].tsx's own identical
+    // effect already gets this right (its own `setLoading(true)` right here);
+    // this screen was missing the same line.
+    setLoading(true)
     Promise.all(CERTS.map((c) => getRefPacket(c.code))).then(([priv, comm]) => {
       setAreas({
         [CERTS[0].code]: priv?.areas.find((a) => a.areaNumber === 'X') ?? null,
@@ -110,7 +132,13 @@ export default function MultiEngineRefPackScreen() {
               <Pressable
                 key={task.id}
                 style={[styles.taskRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => router.push(`/ref-packets/task/${task.id}` as any)}
+                onPress={() => {
+                  if (consumeLongPress()) return
+                  router.push(`/ref-packets/task/${task.id}` as any)
+                }}
+                onLongPress={(e) => showPreview(task.title, e)}
+                onPressOut={hidePreview}
+                delayLongPress={350}
               >
                 <Text style={[styles.taskLetter, { color: tokens.blu, fontSize: fs(13) }]}>{task.taskLetter}</Text>
                 <Text style={[styles.taskTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={2}>
@@ -122,6 +150,12 @@ export default function MultiEngineRefPackScreen() {
           </ScrollView>
         </TabletContainer>
       )}
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }

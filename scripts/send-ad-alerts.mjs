@@ -239,20 +239,27 @@ for (const ad of ads) {
     // match on EITHER the marketing model or the type designator counts.
     const userType = (a.type_designator ?? '').trim().toLowerCase()
     const userModel = a.model.trim().toLowerCase()
-    if (adModel) {
-      // Structured model column populated -- most precise, unchanged.
-      if (!adModel.includes(userModel) && !(userType && adModel.includes(userType))) continue
-    } else if (adFallbackText) {
-      // REVISED 2026-08-01 (see this file's own header + flyregs_decisions.md
-      // for the full measured scope: 1,592/5,023 ADs corpus-wide, and
-      // ~75% of Cessna's specifically, have model = NULL -- "occasional"
-      // was the original premise for matching on make alone here, and it
-      // was wrong). Check the fallback text before assuming a match.
-      if (!adFallbackText.includes(userModel) && !(userType && adFallbackText.includes(userType))) continue
-    }
-    // else: genuinely no model text ANYWHERE on this AD -- true last
-    // resort, make-only match (the original behavior, now scoped to only
-    // the rows that actually need it).
+    // REVISED 2026-08-14 (RC, live Cirrus SR22 test aircraft, cross-ref
+    // against backfill_aircraft_ad_notifications() finding the identical
+    // shape of bug in the SQL RPC -- see
+    // sync/migrations_fix_ad_model_exclusivity.sql for the full story and
+    // the corpus-wide scope of affected rows). `if (adModel) {...} else if
+    // (adFallbackText) {...}` treated a populated model as fully
+    // exclusive of the fallback text -- so a garbled/incomplete model
+    // value (e.g. a real one found live: "and serial number", an
+    // extraction fragment) both fails its own match AND blocks the
+    // correct, complete applicability text sitting right next to it from
+    // ever being checked. Model match and fallback-text match are now
+    // independent OR conditions, not either/or -- every match that worked
+    // before still works (Case 1's own condition is unchanged), this only
+    // adds matches a populated-but-unhelpful model was silently blocking.
+    const modelMatches = adModel && (adModel.includes(userModel) || (userType && adModel.includes(userType)))
+    const fallbackMatches = adFallbackText && (adFallbackText.includes(userModel) || (userType && adFallbackText.includes(userType)))
+    // genuinely no model text ANYWHERE on this AD -- true last resort,
+    // make-only match (the original behavior, now scoped to only the rows
+    // that actually need it).
+    const hasAnyModelText = Boolean(adModel || adFallbackText)
+    if (hasAnyModelText && !modelMatches && !fallbackMatches) continue
     addMatch(a.user_id, a.id, ad, 'airframe')
   }
 }

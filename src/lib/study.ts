@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase'
-import type { KnowledgeLevel } from '@/lib/challenges'
-import type { CategoryClass, StudyRating } from '@/lib/profileRatings'
+import type { StudyLevel } from '@/lib/challenges'
+import type { CategoryClass } from '@/lib/profileRatings'
 export type { CategoryClass, StudyRating } from '@/lib/profileRatings'
 
 export type StudyItemType = 'pcg' | 'far' | 'aim' | 'ac'
@@ -27,16 +27,14 @@ export interface StudyMastery {
 export async function getStudyQueue(
   limit = 20,
   itemTypes?: StudyItemType[],
-  levels?: KnowledgeLevel[],
-  categoryClasses?: CategoryClass[],
-  ratings?: StudyRating[]
+  levels?: StudyLevel[],
+  categoryClasses?: CategoryClass[]
 ): Promise<StudyCard[]> {
   const { data, error } = await supabase.rpc('get_study_queue', {
     p_limit: limit,
     p_item_types: itemTypes && itemTypes.length > 0 ? itemTypes : null,
     p_levels: levels && levels.length > 0 ? levels : null,
     p_category_classes: categoryClasses && categoryClasses.length > 0 ? categoryClasses : null,
-    p_ratings: ratings && ratings.length > 0 ? ratings : null,
   })
   if (error) throw error
   return (data ?? []) as StudyCard[]
@@ -49,15 +47,13 @@ export async function getStudyQueue(
 // pool (selecting ALL can mean thousands of items, not 20).
 export async function getStudyPoolCount(
   itemTypes?: StudyItemType[],
-  levels?: KnowledgeLevel[],
-  categoryClasses?: CategoryClass[],
-  ratings?: StudyRating[]
+  levels?: StudyLevel[],
+  categoryClasses?: CategoryClass[]
 ): Promise<number> {
   const { data, error } = await supabase.rpc('get_study_pool_count', {
     p_item_types: itemTypes && itemTypes.length > 0 ? itemTypes : null,
     p_levels: levels && levels.length > 0 ? levels : null,
     p_category_classes: categoryClasses && categoryClasses.length > 0 ? categoryClasses : null,
-    p_ratings: ratings && ratings.length > 0 ? ratings : null,
   })
   if (error) throw error
   return (data as number) ?? 0
@@ -158,11 +154,23 @@ export async function getStudyFactsForItems(
   }
   await Promise.all(
     [...idsByType.entries()].map(async ([itemType, ids]) => {
+      // study_facts_gated, not the raw table -- found 2026-08-12 during the
+      // QA re-sweep: the raw study_facts table had SELECT granted directly
+      // to anon+authenticated (only a status='live' RLS filter, no tier
+      // check), so this call was serving real, live, verified quiz
+      // question/answer content to every tier including a fully anonymous
+      // request. Same root cause and same fix shape as
+      // gotcha_tier_gate_client_side_only.md's other entries -- the raw
+      // GRANT has been revoked server-side and study_facts_gated added,
+      // redacting question/answer/distractors/source_quote to NULL for
+      // non-Pro (see sync/migrations_fix_study_facts_anonymous_leak.sql).
+      // A non-Pro caller now gets real rows back with null question/
+      // answer, which the reservoir-sampling logic below already handles
+      // correctly by never populating the map for a null pair.
       const { data, error } = await supabase
-        .from('study_facts')
+        .from('study_facts_gated')
         .select('item_id, question, answer')
         .eq('item_type', itemType)
-        .eq('status', 'live')
         .in('item_id', ids)
       if (error) throw error
       const counts = new Map<string, number>()

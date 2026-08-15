@@ -7,6 +7,8 @@ import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
 import { getFolders, getFolderItemCounts, createFolder, Folder, DUPLICATE_FOLDER_NAME } from '@/lib/folders'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // Multi-select folder sheet for bulk operations (adding several items at
 // once). Tapping a folder toggles a checkmark WITHOUT closing or writing to
@@ -34,9 +36,13 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
-  const { hasProAccess } = useAuth()
+  const { hasPlusAccess } = useAuth()
   const [folders, setFolders] = useState<Folder[]>([])
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({})
+  // Folder names (user-created) can run long and get cut off the same way
+  // FAR Part titles do -- same hook/card pair as far/index.tsx's own
+  // long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -44,14 +50,14 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
 
   useEffect(() => {
     if (!visible) return
-    // Same Pro-gating gap as FolderPicker: folders are Pro end-to-end, not
+    // Same Plus-gating gap as FolderPicker: folders are Plus end-to-end, not
     // just creation -- gate here too, not only on the "New Folder" row below.
     // Backstop only -- every call site should gate synchronously before ever
     // setting visible=true. Immediate push, not delayed -- see FolderPicker's
     // matching comment for why a delayed push here is fragile (BB-006).
-    if (!hasProAccess) {
+    if (!hasPlusAccess) {
       onClose()
-      router.push('/paywall?tier=pro')
+      router.push('/paywall?tier=plus')
       return
     }
     getFolders().then((all) => setFolders(excludeFolderId ? all.filter((f) => f.id !== excludeFolderId) : all))
@@ -59,7 +65,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
     setSelected(new Set())
     setCreating(false)
     setNewName('')
-  }, [visible, hasProAccess, excludeFolderId])
+  }, [visible, hasPlusAccess, excludeFolderId])
 
   useEffect(() => {
     if (creating) setTimeout(() => inputRef.current?.focus(), 80)
@@ -145,7 +151,13 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
                 return (
                   <Pressable
                     style={[styles.folderRow, { borderBottomColor: tokens.bdr }]}
-                    onPress={() => toggle(item.id)}
+                    onPress={() => {
+                      if (consumeLongPress()) return
+                      toggle(item.id)
+                    }}
+                    onLongPress={(e) => showPreview(item.name, e)}
+                    onPressOut={hidePreview}
+                    delayLongPress={350}
                   >
                     <Icon
                       name={isSelected ? 'folder.fill' : 'folder'}
@@ -204,7 +216,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
             <Pressable
               style={[styles.newFolderRow, { borderTopColor: tokens.bdr }]}
               onPress={() => {
-                if (!hasProAccess) { onClose(); router.push('/paywall?tier=pro'); return }
+                if (!hasPlusAccess) { onClose(); router.push('/paywall?tier=plus'); return }
                 setCreating(true)
               }}
             >
@@ -214,6 +226,12 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
           )}
         </View>
       </KeyboardAvoidingView>
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </Modal>
   )
 }

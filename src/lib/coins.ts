@@ -37,16 +37,60 @@ export const COIN_CATALOG: CoinDef[] = [
   { code: 'STREAK_90', name: '90-Day Currency', description: '90 consecutive days — real aviation currency, matched', icon: 'airplane.circle.fill', tier: 'gold' },
   { code: 'MASTERY_25', name: 'Quarter Century', description: '25 P/CG terms mastered', icon: 'graduationcap.fill', tier: 'bronze' },
   { code: 'MASTERY_100', name: 'Century', description: '100 P/CG terms mastered', icon: 'trophy.fill', tier: 'silver' },
-  // 'target' not 'bolt.fill' -- the bolt is Duels' own icon everywhere else
-  // in the app (ready-room, account, search, challenges); reusing it here
-  // made this coin look like a generic Duels badge instead of its own
-  // achievement. Confirmed live: "use a diff icon for this one."
+  // 'target' not 'trophy' -- the outline trophy is Duels' own icon
+  // everywhere else in the app (ready-room, account, search, challenges);
+  // reusing it here made this coin look like a generic Duels badge
+  // instead of its own achievement. Confirmed live: "use a diff icon for
+  // this one." (Was 'bolt.fill', then 'figure.fencing' before landing on
+  // 'trophy' -- Duels' icon has moved twice since, same reasoning holds
+  // each time. Also note: this coin's neighbor MASTERY_100 below uses
+  // 'trophy.fill' -- the FILLED variant -- deliberately distinct from
+  // Duels' outline 'trophy' so the two don't collide either.)
   { code: 'DUEL_FIRST_WIN', name: 'First Blood', description: 'Won your first Duel', icon: 'target', tier: 'bronze' },
   { code: 'DUEL_5_WINS', name: 'Squadron Leader', description: '5 Duel wins', icon: 'shield.fill', tier: 'silver' },
   { code: 'DUEL_25_WINS', name: 'Top Gun', description: '25 Duel wins', icon: 'rosette', tier: 'gold' },
 ]
 
+// The 3 "currency" coins alone are re-earnable -- STREAK_90's own comment
+// above already frames them as mirroring real FAA flight currency, and real
+// currency lapses and gets re-established. RC, 2026-08-12, after asking
+// what the coin badges should actually show: "all the currency coins are
+// re-earnable. if you get one, then break currency and start a new streak,
+// you get new coins when reaching those goals again." Every other coin
+// stays a genuine one-time milestone -- see sync/migrations_coin_rework.sql
+// for the award-logic side of this (record_study_review awards on the
+// exact day current_streak CROSSES 7/30/90, not merely "is >=", so it can
+// fire again after a real break+rebuild without ever double-firing on a
+// second same-day review).
+export const RE_EARNABLE_CODES: ReadonlySet<string> = new Set(['STREAK_7', 'STREAK_30', 'STREAK_90'])
+
 export const COIN_BY_CODE: Record<string, CoinDef> = Object.fromEntries(COIN_CATALOG.map((c) => [c.code, c]))
+
+// "Trophy case" coins -- deliberately NOT part of COIN_CATALOG/the regular
+// 3-per-row grid. RC, same 2026-08-12 conversation, unprompted: wanted two
+// new top-tier milestones "below all of them," bigger, glowing, slowly
+// spinning "like trophies in a case."
+//
+// The Ace (100 Duel wins) -- RC named the diamond himself. Icy blue-white
+// rather than the warm gold/bronze/silver language the regular tiers use,
+// so it reads as its own register entirely, not just a 4th tier bolted onto
+// DUEL_FIRST_WIN/5_WINS/25_WINS' progression.
+//
+// The Master (100% overall mastery, every item type -- the same
+// cross-type total get_study_mastery() already reports) -- RC asked for
+// "something great," his own words, for reaching this. Real FAA aviation
+// already has a direct namesake worth borrowing from, the same move
+// STREAK_90 already makes for currency: the Wright Brothers Master Pilot
+// Award, given for 50 years of safe flying, whose own medal is a laurel
+// wreath. 'medal.fill' (a real SF Symbol) reads as exactly that -- warm
+// gold-white, distinct from Ace's cool diamond blue, and it's the one
+// coin in this file whose real-world reference is a laurel medal rather
+// than a tier color, matching how big a "big step" 100% genuinely is.
+export const TROPHY_CATALOG: CoinDef[] = [
+  { code: 'DUEL_100_WINS', name: 'The Ace', description: '100 Duel wins', icon: 'diamond.fill', tier: 'gold' },
+  { code: 'MASTERY_FULL', name: 'The Master', description: '100% overall mastery', icon: 'medal.fill', tier: 'gold' },
+]
+export const TROPHY_BY_CODE: Record<string, CoinDef> = Object.fromEntries(TROPHY_CATALOG.map((c) => [c.code, c]))
 
 export interface EarnedCoin {
   code: string

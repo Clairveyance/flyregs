@@ -48,6 +48,13 @@ FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\
 AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 AD_RE = re.compile(r"\bAD\s+(\d{4}-\d{2}-\d{2})\b")
 PCG_RE = re.compile(r"Pilot/Controller Glossary Term-\s*([^.]+)\.")
+# 49 CFR (DOT-wide -- NTSB/TSA/HMR, see cfr49_scraper.py) is always
+# EXPLICITLY prefixed "49 CFR" in FAR prose (confirmed live: 91 real
+# far_sections rows contain it, e.g. "49 CFR 175.31", "49 CFR 1.83") --
+# never bare "§ N.N" the way an internal FAR self-reference is, so this
+# pattern can't collide with FAR_RE above (that one only fires on
+# "14 CFR"/bare §/"FAR", never "49").
+CFR49_RE = re.compile(r"\b49\s*CFR\s*(?:part\s+)?(\d+\.\d+)\b", re.IGNORECASE)
 
 # See pcg_citations.py for why: the FAA's own PDF->HTML extraction is
 # inconsistent about which hyphen-like character it uses for the same
@@ -127,6 +134,13 @@ def extract_citations(section: dict) -> list[dict]:
             seen.add(key)
             citations.append({"citing_type": "far", "citing_id": own_id, "cited_type": "ac", "cited_id": cited, "label": None})
 
+    for m in CFR49_RE.finditer(text):
+        cited = m.group(1)
+        key = ("cfr49", cited)
+        if key not in seen:
+            seen.add(key)
+            citations.append({"citing_type": "far", "citing_id": own_id, "cited_type": "cfr49", "cited_id": cited, "label": None})
+
     return citations
 
 
@@ -144,7 +158,7 @@ def delete_far_citations() -> None:
     resp = requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**HEADERS, "Prefer": "return=minimal"},
-        params={"citing_type": "eq.far", "cited_type": "in.(ac,far,aim,ad)"},
+        params={"citing_type": "eq.far", "cited_type": "in.(ac,far,aim,ad,cfr49)"},
         timeout=30,
     )
     resp.raise_for_status()

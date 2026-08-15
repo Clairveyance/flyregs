@@ -31,6 +31,15 @@ export default function DictionaryLetterScreen() {
 
   useEffect(() => {
     if (!letter || !hasPlusAccess) { setLoading(false); return }
+    // hasPlusAccess resolves asynchronously after mount (AuthContext's
+    // isPro/isPremium/isUnlocked all start false) -- without this, the guard
+    // above already set loading false on the first (hasPlusAccess=false)
+    // run, so the re-fire once access resolves true would skip the spinner
+    // and show an empty list for the length of the real fetch below. Same
+    // gap found+fixed in ref-packets/multi-engine.tsx and task/[taskId].tsx
+    // this session -- ref-packets/[code].tsx's identical effect already has
+    // this line.
+    setLoading(true)
     supabase.from('dictionary_terms_gated').select('term, slug, category, senses').eq('letter', letter).order('term')
       .then(({ data }) => {
         if (data) setTerms(data as DictTermRow[])

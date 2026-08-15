@@ -56,6 +56,8 @@ import {
   getFarPartOptions, getAcSeriesOptions, AUDIENCE_OPTIONS,
   type FilterParams, type FilterResultRow, type FilterableType, type FilterOption, type CitableDoc,
 } from '@/lib/filterSearch'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // AC search results now use the exact same two-line row shape as every
 // other result type (see dropOtherPrimary/dropTitle below) — one line for
@@ -133,7 +135,7 @@ interface SearchResult {
 // ─── Home Screen ─────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
-  const { tokens } = useTheme()
+  const { tokens, resolved, redShift } = useTheme()
   const { hasPlusAccess } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
@@ -153,6 +155,11 @@ export default function HomeScreen() {
   const [dailyReg, setDailyReg] = useState<DailyReg | null>(null)
   const [loading, setLoading] = useState(true)
   const { badgeDays } = useBadgeLifespan()
+  // What's New card titles and the Filter sheet's "cites this document" chip
+  // can run long and get cut off the same way FAR Part titles do -- one
+  // shared hook/card pair for the whole screen, same as far/index.tsx's own
+  // long-press preview, threaded down into HomeHeader/WhatsNewCard below.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   // One-time "Welcome to FlyRegs" banner right after a fresh signup
   // confirmation auto-signs someone in (see src/app/confirm.tsx +
@@ -928,6 +935,9 @@ export default function HomeScreen() {
         dailyReg={dailyReg}
         showBrowseLabel={false}
         isTablet
+        showPreview={showPreview}
+        hidePreview={hidePreview}
+        consumeLongPress={consumeLongPress}
       />
     </ScrollView>
   )
@@ -1025,7 +1035,11 @@ export default function HomeScreen() {
             <Icon name="slider.horizontal.3" size={fs(16)} color={activeFilterCount > 0 ? tokens.blu : tokens.t3} />
             {activeFilterCount > 0 && (
               <View style={[styles.filterBadge, { backgroundColor: tokens.blu }]}>
-                <Text style={[styles.filterBadgeText, { fontSize: fs(9.5) }]}>{activeFilterCount}</Text>
+                {/* Same fixed-black-text-on-tokens.blu contrast gap as
+                    study.tsx's identical filter badge -- see that file's
+                    comment for the measured contrast ratios per theme.
+                    Black only reads well against Dark's bright blu. */}
+                <Text style={[styles.filterBadgeText, { fontSize: fs(9.5), color: resolved === 'dark' && !redShift ? '#000' : '#fff' }]}>{activeFilterCount}</Text>
               </View>
             )}
           </Pressable>
@@ -1095,6 +1109,9 @@ export default function HomeScreen() {
               badgeDays={badgeDays}
               hasPlusAccess={hasPlusAccess}
               dailyReg={dailyReg}
+              showPreview={showPreview}
+              hidePreview={hidePreview}
+              consumeLongPress={consumeLongPress}
             />
           }
           renderItem={({ item }) => <RegBodyCard item={item} tokens={tokens} />}
@@ -1197,7 +1214,13 @@ export default function HomeScreen() {
           {filterCitesDoc ? (
             <Pressable
               style={[styles.filterCitesChip, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}
-              onPress={() => setFilterCitesDoc(null)}
+              onPress={() => {
+                if (consumeLongPress()) return
+                setFilterCitesDoc(null)
+              }}
+              onLongPress={(e) => showPreview(filterCitesDoc.label, e)}
+              onPressOut={hidePreview}
+              delayLongPress={350}
             >
               <Text style={[styles.filterCitesChipText, { color: tokens.gold, fontSize: fs(12.5) }]} numberOfLines={1}>
                 {filterCitesDoc.label}
@@ -1223,7 +1246,13 @@ export default function HomeScreen() {
                 <Pressable
                   key={`${c.type}-${c.id}`}
                   style={[styles.citesCandidateRow, { borderTopColor: tokens.bdr }]}
-                  onPress={() => { setFilterCitesDoc(c); setCitesQuery(''); setCitesCandidates([]) }}
+                  onPress={() => {
+                    if (consumeLongPress()) return
+                    setFilterCitesDoc(c); setCitesQuery(''); setCitesCandidates([])
+                  }}
+                  onLongPress={(e) => showPreview(c.label, e)}
+                  onPressOut={hidePreview}
+                  delayLongPress={350}
                 >
                   <Text style={[styles.citesCandidateText, { color: tokens.t1, fontSize: fs(12.5) }]} numberOfLines={1}>{c.label}</Text>
                 </Pressable>
@@ -1420,6 +1449,12 @@ export default function HomeScreen() {
 
       <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
       </TabletContainer>
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }
@@ -1580,6 +1615,9 @@ function HomeHeader({
   dailyReg,
   showBrowseLabel = true,
   isTablet = false,
+  showPreview,
+  hidePreview,
+  consumeLongPress,
 }: {
   tokens: ReturnType<typeof useTheme>['tokens']
   whatsNew: WhatsNewAC[]
@@ -1600,6 +1638,9 @@ function HomeHeader({
    * strip untouched (isTablet defaults false, and the phone call site
    * below never passes it). */
   isTablet?: boolean
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
 
@@ -1665,9 +1706,10 @@ function HomeHeader({
           something. Now spans AC + AD + LOI (each has a real, genuinely-
           varied FAA-side date) -- FAR/AIM/PCG still can't join honestly
           until they get real incremental revision-detection of their own
-          (see WhatsNewOther's header comment); content_revisions exists in
-          schema but is confirmed empty for every doc type right now, so
-          it isn't a usable source yet either. */}
+          issue date (see WhatsNewOther's header comment); content_revisions
+          (a real, separate thing -- per-paragraph DIFFS, not new-document
+          dates, see /updates's own "Changed" tab) now logs FAR/AIM/PCG/AD
+          revisions too, but that's not the same signal WN needs here. */}
       <View style={[styles.sectionLabel, { justifyContent: 'flex-start', gap: 8 }]}>
         <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(16.5) }]}>What's New</Text>
         {/* RC: "you had fixed these, then they went back" -- checked git
@@ -1677,7 +1719,7 @@ function HomeHeader({
             bump now rather than a revert. */}
         <Text style={[styles.sectionSub, { color: tokens.t3, fontSize: fs(13) }]}>{badgeDays}d</Text>
         <View style={{ flex: 1 }} />
-        <Pressable onPress={() => router.push('/whats-changed' as any)} hitSlop={8}>
+        <Pressable onPress={() => router.push('/updates' as any)} hitSlop={8}>
           <Text style={[styles.sectionSub, { color: tokens.blu, fontWeight: '600', fontSize: fs(13) }]}>
             All ›
           </Text>
@@ -1688,9 +1730,24 @@ function HomeHeader({
           <View style={styles.wnGrid}>
             {mergedWhatsNew.map((entry) =>
               entry.kind === 'ac' ? (
-                <WhatsNewCard key={`ac-${entry.item.id}`} ac={entry.item} tokens={tokens} badgeDays={badgeDays} />
+                <WhatsNewCard
+                  key={`ac-${entry.item.id}`}
+                  ac={entry.item}
+                  tokens={tokens}
+                  badgeDays={badgeDays}
+                  showPreview={showPreview}
+                  hidePreview={hidePreview}
+                  consumeLongPress={consumeLongPress}
+                />
               ) : (
-                <OtherWhatsNewCard key={`${entry.item.type}-${entry.item.id}`} item={entry.item} tokens={tokens} />
+                <OtherWhatsNewCard
+                  key={`${entry.item.type}-${entry.item.id}`}
+                  item={entry.item}
+                  tokens={tokens}
+                  showPreview={showPreview}
+                  hidePreview={hidePreview}
+                  consumeLongPress={consumeLongPress}
+                />
               )
             )}
           </View>
@@ -1702,9 +1759,24 @@ function HomeHeader({
           >
             {mergedWhatsNew.map((entry) =>
               entry.kind === 'ac' ? (
-                <WhatsNewCard key={`ac-${entry.item.id}`} ac={entry.item} tokens={tokens} badgeDays={badgeDays} />
+                <WhatsNewCard
+                  key={`ac-${entry.item.id}`}
+                  ac={entry.item}
+                  tokens={tokens}
+                  badgeDays={badgeDays}
+                  showPreview={showPreview}
+                  hidePreview={hidePreview}
+                  consumeLongPress={consumeLongPress}
+                />
               ) : (
-                <OtherWhatsNewCard key={`${entry.item.type}-${entry.item.id}`} item={entry.item} tokens={tokens} />
+                <OtherWhatsNewCard
+                  key={`${entry.item.type}-${entry.item.id}`}
+                  item={entry.item}
+                  tokens={tokens}
+                  showPreview={showPreview}
+                  hidePreview={hidePreview}
+                  consumeLongPress={consumeLongPress}
+                />
               )
             )}
           </ScrollView>
@@ -1759,7 +1831,13 @@ function DailyRegLabel({ color, fs, suffix }: { color: string; fs: (n: number) =
 
 function DailyRegCard({ dailyReg, tokens }: { dailyReg: DailyReg | null; tokens: ReturnType<typeof useTheme>['tokens'] }) {
   const fs = useFS()
-  const { isPro } = useAuth()
+  // hasProAccess (isPro || isPremium), not bare isPro -- found in the
+  // 2026-08-14 gating re-audit: this used bare isPro, which would show a
+  // genuine Premium subscriber (isPro:false/isPremium:true, a real shape
+  // for an admin/comp-granted entitlement) a permanently-locked "unlock
+  // with Pro" card on the Home tab despite already owning Pro-tier access.
+  // Same bug class as saved.tsx/notes.tsx/study.tsx/my-aircraft/index.tsx.
+  const { hasProAccess } = useAuth()
   const [expanded, setExpanded] = useState(false)
   if (!dailyReg) return null
   // Brushed-silver shimmer frame -- RC, 2026-08-05, after seeing a static
@@ -1772,7 +1850,7 @@ function DailyRegCard({ dailyReg, tokens }: { dailyReg: DailyReg | null; tokens:
   // subtle" -- tokens.slvlt (10% alpha) instead of ML's solid tokens.bg2.
   // The gold star/lock badge stays gold on purpose -- it's the one accent
   // inside the frame, not competing with it.
-  if (!isPro) {
+  if (!hasProAccess) {
     return (
       <Pressable onPress={() => router.push('/paywall?tier=pro')}>
         <SilverShimmerFrame tokens={tokens}>
@@ -1998,10 +2076,16 @@ function WhatsNewCard({
   ac,
   tokens,
   badgeDays,
+  showPreview,
+  hidePreview,
+  consumeLongPress,
 }: {
   ac: WhatsNewAC
   tokens: ReturnType<typeof useTheme>['tokens']
   badgeDays: number
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
   const showBadge = isWithinBadgeLifespan(ac.date_issued, badgeDays)
@@ -2016,7 +2100,13 @@ function WhatsNewCard({
   return (
     <Pressable
       style={[styles.wnCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-      onPress={() => router.push(`/ac/${ac.id}`)}
+      onPress={() => {
+        if (consumeLongPress()) return
+        router.push(`/ac/${ac.id}`)
+      }}
+      onLongPress={(e) => showPreview(ac.title, e)}
+      onPressOut={hidePreview}
+      delayLongPress={350}
     >
       <View style={styles.wnTop}>
         {showBadge && <Badge kind={getBadgeKind(ac)} tokens={tokens} />}
@@ -2046,19 +2136,32 @@ function WhatsNewCard({
 function OtherWhatsNewCard({
   item,
   tokens,
+  showPreview,
+  hidePreview,
+  consumeLongPress,
 }: {
   item: WhatsNewOther
   tokens: ReturnType<typeof useTheme>['tokens']
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
   const dateStr = new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   const route = item.type === 'ad' ? `/ad/${item.documentNumber}` : `/loi/${item.id}`
   const meta = item.type === 'ad' ? REG_TYPE.ad : REG_TYPE.loi
+  const title = item.type === 'ad' ? stripAdSubjectPrefix(item.title) : item.title
 
   return (
     <Pressable
       style={[styles.wnCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-      onPress={() => router.push(route as any)}
+      onPress={() => {
+        if (consumeLongPress()) return
+        router.push(route as any)
+      }}
+      onLongPress={(e) => showPreview(title, e)}
+      onPressOut={hidePreview}
+      delayLongPress={350}
     >
       <View style={styles.wnTop}>
         <Badge kind="new" tokens={tokens} />
@@ -2075,7 +2178,7 @@ function OtherWhatsNewCard({
         </Text>
       </View>
       <Text style={[styles.wnTitle, { color: tokens.t2, fontSize: fs(11.5) }]} numberOfLines={2}>
-        {item.type === 'ad' ? stripAdSubjectPrefix(item.title) : item.title}
+        {title}
       </Text>
     </Pressable>
   )
@@ -2209,7 +2312,10 @@ const styles = StyleSheet.create({
     position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8,
     alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
   },
-  filterBadgeText: { color: '#fff', fontSize: 9.5, fontWeight: '800' },
+  // RC, live: white-on-blue at this size didn't show up well -- black reads
+  // clearer against tokens.blu's mid-brightness. Same fix in study.tsx's
+  // own copy of this badge.
+  filterBadgeText: { color: '#000', fontSize: 9.5, fontWeight: '800' },
 
   filterStatusBar: {
     flexDirection: 'row', alignItems: 'center', gap: 14,

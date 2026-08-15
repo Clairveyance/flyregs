@@ -150,6 +150,13 @@ export default function DictionaryTermScreen() {
 
   useEffect(() => {
     if (!slug || !hasPlusAccess) { setLoading(false); return }
+    // hasPlusAccess resolves asynchronously after mount -- without this, the
+    // guard above already set loading false on the first (hasPlusAccess=
+    // false) run, so the re-fire once access resolves true would skip the
+    // spinner and show a blank entry for the length of the real fetch below.
+    // Same gap found+fixed in ref-packets/multi-engine.tsx, ref-packets/
+    // task/[taskId].tsx, and dictionary/letter/[letter].tsx this session.
+    setLoading(true)
     // _gated view redacts senses server-side -- non-Plus gets nothing (this
     // screen's own top-level gate below already blocks that case from ever
     // reaching this fetch), non-Pro gets null on mnemonic entries

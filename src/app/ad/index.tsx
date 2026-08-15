@@ -12,6 +12,8 @@ import { getRecents, recentItemType, type RecentAC } from '@/lib/recents'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { buildAdSearchPlan } from '@/lib/aircraftSearch'
 import { stripAdSubjectPrefix } from '@/lib/titleFormat'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 interface AdHit {
   ad_number: string
@@ -37,7 +39,7 @@ const AD_NUM_RE = /^\d{4}-\d{2}-\d{2}$/
 
 export default function AdIndexScreen() {
   const { tokens } = useTheme()
-  const { hasPlusAccess } = useAuth()
+  const { hasPlusAccess, hasProAccess } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
   // `q` -- deep-link from My Aircraft's "widen your search" prompt
@@ -55,6 +57,10 @@ export default function AdIndexScreen() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchSeq = useRef(0)
   const { badgeDays } = useBadgeLifespan()
+  // AD subject headings run long and get cut off the same way FAR Part
+  // titles do -- same hook/card pair as far/index.tsx's own long-press
+  // preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   // BB-081, RC real-device beta report: "we need pull-down-to-refresh for
   // all updatable screens." Shared by the mount effect below and the
@@ -245,7 +251,24 @@ export default function AdIndexScreen() {
               </Pressable>
               <Pressable
                 style={[styles.hubCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, marginTop: 8 }]}
-                onPress={() => router.push('/my-aircraft' as any)}
+                onPress={() => {
+                  // Live audit, 2026-08-13: this was the one entry point into
+                  // /my-aircraft with no pre-tap tier check -- account.tsx's
+                  // own "My Aircraft" row already redirects straight to
+                  // /paywall for non-Pro instead of pushing the real screen
+                  // (RC: "Free/Plus go straight to the paywall instead of
+                  // into a screen that would only block them once they try
+                  // to add an aircraft"). Matches that same pattern here;
+                  // my-aircraft/index.tsx also now self-guards regardless.
+                  // hasProAccess, not bare isPro -- found in the 2026-08-14
+                  // gating re-audit: this entry point was still gating on
+                  // bare isPro, which would wrongly bounce a genuine Premium
+                  // subscriber (isPro:false/isPremium:true) to the paywall
+                  // before ever reaching the screen, even after
+                  // my-aircraft/index.tsx's own self-guard was fixed.
+                  if (!hasProAccess) { router.push('/paywall'); return }
+                  router.push('/my-aircraft' as any)
+                }}
               >
                 <View style={[styles.hubIconWrap, { backgroundColor: tokens.bdim }]}>
                   <Icon name="doc.plaintext" size={fs(19)} color={tokens.blu} />
@@ -262,7 +285,7 @@ export default function AdIndexScreen() {
               {recentAd.length > 0 && (
                 <View style={styles.recentWrap}>
                   <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>RECENTLY VIEWED</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentRow}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.recentScroll} contentContainerStyle={styles.recentRow}>
                     {recentAd.map((r) => (
                       <Pressable
                         key={r.id}
@@ -288,7 +311,13 @@ export default function AdIndexScreen() {
                     <Pressable
                       key={item.ad_number}
                       style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                      onPress={() => router.push(`/ad/${item.ad_number}` as any)}
+                      onPress={() => {
+                        if (consumeLongPress()) return
+                        router.push(`/ad/${item.ad_number}` as any)
+                      }}
+                      onLongPress={(e) => showPreview(stripAdSubjectPrefix(item.subject_heading), e)}
+                      onPressOut={hidePreview}
+                      delayLongPress={350}
                     >
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.adNum, { color: tokens.blu, fontSize: fs(13) }]}>AD {item.ad_number}</Text>
@@ -328,7 +357,13 @@ export default function AdIndexScreen() {
                           <Pressable
                             key={item.ad_number}
                             style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                            onPress={() => router.push(`/ad/${item.ad_number}` as any)}
+                            onPress={() => {
+                              if (consumeLongPress()) return
+                              router.push(`/ad/${item.ad_number}` as any)
+                            }}
+                            onLongPress={(e) => showPreview(stripAdSubjectPrefix(item.subject_heading), e)}
+                            onPressOut={hidePreview}
+                            delayLongPress={350}
                           >
                             <View style={{ flex: 1 }}>
                               <Text style={[styles.adNum, { color: tokens.blu, fontSize: fs(13) }]}>AD {item.ad_number}</Text>
@@ -347,7 +382,13 @@ export default function AdIndexScreen() {
                     <Pressable
                       key={item.ad_number}
                       style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                      onPress={() => router.push(`/ad/${item.ad_number}` as any)}
+                      onPress={() => {
+                        if (consumeLongPress()) return
+                        router.push(`/ad/${item.ad_number}` as any)
+                      }}
+                      onLongPress={(e) => showPreview(stripAdSubjectPrefix(item.subject_heading), e)}
+                      onPressOut={hidePreview}
+                      delayLongPress={350}
                     >
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.adNum, { color: tokens.blu, fontSize: fs(13) }]}>AD {item.ad_number}</Text>
@@ -364,6 +405,12 @@ export default function AdIndexScreen() {
           )}
         </ScrollView>
       </TabletContainer>
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }
@@ -400,6 +447,11 @@ const styles = StyleSheet.create({
   hubSub: { marginTop: 2, lineHeight: 17 },
 
   recentWrap: { marginTop: 18 },
+  // Same root cause as updates.tsx's filter chips (see that file's
+  // comment): a horizontal ScrollView with no explicit `style` collapses
+  // its own cross-axis height on web, clipping the row's content. Sized
+  // generously for a 2-line chip up to max font scale (1.75x).
+  recentScroll: { flexGrow: 0, flexShrink: 0, height: 84 },
   recentRow: { gap: 8 },
   recentChip: { borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, maxWidth: 160 },
   recentChipNum: { fontWeight: '700' },

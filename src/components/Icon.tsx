@@ -18,6 +18,7 @@ const SF_TO_IONICONS: Record<string, string> = {
   'arrow.up.arrow.down': 'swap-vertical-outline',
   'xmark': 'close-outline',
   'chevron.right': 'chevron-forward-outline',
+  'chart.bar.fill': 'bar-chart',
   'chevron.left': 'chevron-back-outline',
   'chevron.up': 'chevron-up-outline',
   'chevron.down': 'chevron-down-outline',
@@ -59,7 +60,11 @@ const SF_TO_IONICONS: Record<string, string> = {
   'faceid': 'finger-print-outline', // Ionicons has no Face ID glyph -- native iOS resolves the real SF Symbol directly, this is web/Android-web-preview only
 
   'person.crop.circle': 'person-circle-outline',
+  'person.crop.circle.badge.exclamationmark': 'person-circle-outline',
   'person.2.fill': 'people',
+  'person.fill': 'person',
+  'person.2': 'people-outline',
+  'iphone': 'phone-portrait-outline',
   'icloud': 'cloud-outline',
   'gearshape': 'settings-outline',
   'slider.horizontal.3': 'options-outline',
@@ -130,6 +135,17 @@ const SF_TO_IONICONS: Record<string, string> = {
   // "use a diff icon for this one. the lightning bolt is used elsewhere."
   // A crosshair reads as "scored a hit" without colliding with anything.
   'target': 'locate-outline',
+  // Duels' own icon everywhere it appears (ready-room, account, search,
+  // challenges) -- moved off 'bolt.fill' once that glyph became Ready
+  // Room's entry-point icon instead. First swap was 'figure.fencing' (a
+  // literal duel/head-to-head read); RC's round-2 ask: "let's change the
+  // Duel icon to a trophy." Deliberately the OUTLINE 'trophy' here, not
+  // 'trophy.fill' -- that filled glyph is already coins.ts's MASTERY_100
+  // "Century" achievement, and reusing it for Duels' general icon would
+  // repeat the exact confusion RC already flagged and fixed once before
+  // (First Blood vs. Duels both on 'bolt.fill', see the 'target' entry
+  // above). Same trophy family, visually distinguishable, no collision.
+  'trophy': 'trophy-outline',
   'exclamationmark.triangle.fill': 'warning',
   'envelope.open.fill': 'mail-open',
   'megaphone.fill': 'megaphone',
@@ -146,6 +162,9 @@ const SF_TO_IONICONS: Record<string, string> = {
   // in use), a stack of books reads as a broader reference/lookup source
   // than a single regulation volume. See flyregs_decisions.md.
   'books.vertical.fill': 'library',
+  // 49 CFR MagicLink bar (regTypes.ts's own REG_TYPE.cfr49) -- real SF
+  // Symbol on native, needs the explicit web-fallback mapping here.
+  'building.columns.fill': 'business',
   // "See X" dictionary cross-reference card (dictionary/[slug].tsx) -- a
   // real SF Symbol on native, needs the explicit web-fallback mapping here.
   'arrow.turn.down.right': 'return-down-forward-outline',
@@ -154,6 +173,10 @@ const SF_TO_IONICONS: Record<string, string> = {
   // same screen) and 'arrow.clockwise' (-> refresh-outline, used
   // elsewhere for reloading a deck), so it doesn't collide with either.
   'arrow.triangle.2.circlepath': 'sync-outline',
+  // Trophy-case coins (src/lib/coins.ts's TROPHY_CATALOG) -- both real SF
+  // Symbols on native; Ionicons has direct namesake glyphs for both.
+  'diamond.fill': 'diamond',
+  'medal.fill': 'medal',
 }
 
 export function Icon({ name, size = 22, color, style }: IconProps) {

@@ -84,6 +84,26 @@ type Tier = 'plus' | 'pro' | 'premium'
 // untouched -- this was specifically about the sync-backed organizational
 // features, not a wholesale Plus-to-Pro shift.
 //
+// Ninth round, 2026-08-14 -- RC, direct correction to the eighth round
+// above: "my quote has nothing to do with folders, h/l, etc. -- ONLY the
+// 'bu/s' feature itself. that feature is a separate thing from
+// folders/notes/bookmarks/highlights. All of those things are supposed to
+// be part of Plus. It's just the bu/s feature that gets gated to Pro/Prem."
+// The eighth round had read "back up sync is Pro" as covering base
+// creation too, and moved the whole feature to PRO_ADDITIONS -- it didn't;
+// only the literal "Back up & sync" toggle (cross-device push, in
+// notes.tsx/saved.tsx) is Pro. Creating and using folders/notes/bookmarks/
+// highlights locally is Plus, same as before the eighth round ever
+// happened. Reverted: PLUS_FEATURES gets its own line back (the folder cap
+// wording moved here too, since Plus and Pro now share the same numeric
+// cap -- see PRO_FOLDER_CAP's comment in lib/folders.ts); PRO_ADDITIONS'
+// line is reworded to describe ONLY the sync capability, not the base
+// feature. Every gate reverted in the same pass -- see
+// migrations_fix_folders_are_plus_not_pro.sql (server) and each detail
+// screen's own hasProAccess -> hasPlusAccess fix (client) -- except the
+// literal sync toggle itself (toggleSync in notes.tsx/saved.tsx), which
+// stays hasProAccess, matching this list's own PRO_ADDITIONS line below.
+//
 // A fourth correction, 2026-07-31 (later same day): MagicLink was briefly
 // listed here as PLUS_FEATURES, matching its gate at the time
 // (`if (!hasPlusAccess)`) -- RC then corrected the gate itself: "no, ML has
@@ -150,6 +170,10 @@ const PLUS_FEATURES = [
   { icon: 'magnifyingglass',   label: 'Unlimited search results' },
   { icon: 'doc.badge.clock',   label: "What's Changed — see exactly what the FAA revised" },
   { icon: 'wrench',            label: 'Parts Lookup — find ADs by a specific engine, propeller, or avionics part' },
+  // Restored in the ninth-round correction above -- creating/using these
+  // locally (not synced) is Plus, same as the folder cap itself
+  // (PRO_FOLDER_CAP in lib/folders.ts, shared by Plus and Pro).
+  { icon: 'highlighter',       label: 'Highlights, Notes, Bookmarks & Folders (up to 3)' },
 ]
 
 const PRO_ADDITIONS = [
@@ -166,7 +190,16 @@ const PRO_ADDITIONS = [
   { icon: 'text.bubble.fill',  label: 'Ask FlyRegs — ask a real question in plain English, get the passages that answer it' },
   { icon: 'checkmark.seal.fill', label: 'Legal Interpretations — full text of every LOI' },
   { icon: 'list.bullet',       label: 'Mnemonics — memory aids for checkride prep' },
-  { icon: 'icloud',    label: 'Highlights, Notes, Bookmarks & Folders (up to 3), synced across devices' },
+  // RC, 2026-08-14 (first message): "back up and sync... doesn't show on
+  // any of the paywalls" -- reworded to lead with the toggle's own real
+  // name (notes.tsx/saved.tsx's literal "Back up & sync" label) so a reader
+  // who knows the toggle by name has something to visually match it to.
+  // Ninth-round correction (same day, second message, see above): this line
+  // originally described the whole feature ("...Highlights, Notes,
+  // Bookmarks & Folders (up to 3)") because the eighth round had wrongly
+  // moved base creation here too. Only the sync capability itself belongs
+  // in PRO_ADDITIONS now -- the base feature moved back to PLUS_FEATURES.
+  { icon: 'icloud',    label: 'Back up & sync — access your Highlights, Notes, Bookmarks & Folders across devices' },
   { icon: 'bell.badge', label: 'Airworthiness Directive alerts for your saved aircraft' },
   { icon: 'doc.badge.clock', label: 'Advisory Circular update alerts' },
   { icon: 'airplane',  label: '1 saved aircraft, with your own reminders for recurring maintenance' },
@@ -179,7 +212,7 @@ const PRO_ADDITIONS = [
 const PREMIUM_ADDITIONS = [
   { icon: 'person.2.fill',     label: 'Shared, collaborative folders for CFIs, schools, and shops' },
   { icon: 'arrow.down.circle', label: 'Offline downloads — no internet required' },
-  { icon: 'bolt.fill',         label: 'Duels — challenge other players to a reg quiz' },
+  { icon: 'trophy',            label: 'Duels — challenge other players to a reg quiz' },
   { icon: 'airplane',          label: 'Unlimited saved aircraft (up from 1 on Pro)' },
   // Found undocumented on this screen during the 2026-08-03 chart audit --
   // my-aircraft/[id].tsx already gated this on isPremium (not just isPro,
@@ -313,7 +346,7 @@ export default function PaywallScreen() {
 
   const handleSubscribe = async () => {
     if (Platform.OS === 'web') {
-      confirm({ title: 'Available on iOS & Android', message: 'Download the FlyRegs app to subscribe.', cancelLabel: null })
+      confirm({ title: 'Available on iOS', message: 'Download the FlyRegs iOS app to subscribe.', cancelLabel: null })
       return
     }
     if (!session) {

@@ -66,6 +66,24 @@ export async function currentUserId(): Promise<string | null> {
 // for-everyone caches like the AC/FAR/AIM index or Home's What's New feed,
 // and identityStatsCache/home-fleetsummary-cache, which are namespaced by
 // uid at their own call sites instead.)
+//
+// '@flyregs/sync-enabled' (syncPush.ts's SYNC_ENABLED_KEY) belongs here too,
+// found 2026-08-14 during a cross-account QA pass: it's a plain device-level
+// flag, not a per-user cache, so it survived every mismatch wipe above it.
+// Chain that exposed it -- User A turns on "Back up & sync" (sets this to
+// 'true'), signs out. User B, a DIFFERENT real account who has NEVER touched
+// sync, signs in on the same device. sync.ts's applyRemoteSyncPreference runs
+// on every sign-in for a Premium/Pro account and reads this flag as "local";
+// its `remoteSyncEnabled == null && local` branch reads that stale 'true' and
+// silently calls supabase.auth.updateUser({ sync_enabled: true }) -- writing
+// "sync enabled" into B's own REAL account metadata, permanently, with zero
+// action from B. Confirmed live: a fresh disposable account picked up
+// sync_enabled: true in its own user_metadata purely from a previous
+// account's leftover local flag. Including this key here means a genuine
+// mismatch resets it to "unset" (isSyncEnabled() reads null -> false) before
+// applyRemoteSyncPreference ever runs for the new account, so that branch
+// only fires when the SIGNED-IN account's own remote preference is what's
+// actually null -- the honest "never configured, leave it off" case.
 const ALL_LOCAL_KEYS = [
   '@flyregs/folders',
   '@flyregs/folder_items',
@@ -75,6 +93,7 @@ const ALL_LOCAL_KEYS = [
   '@flyregs/downloads',
   '@flyregs/recent-searches',
   '@flyregs/recent-searches:afr',
+  '@flyregs/sync-enabled',
 ]
 
 // Call once per confirmed session -- both a fresh sign-in and an app-launch

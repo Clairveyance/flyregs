@@ -183,7 +183,7 @@ function DrawerContent({
 
   const handleRestore = async () => {
     if (Platform.OS === 'web') {
-      confirm({ title: 'Available on iOS & Android', message: 'Restore purchases from the FlyRegs mobile app.', cancelLabel: null })
+      confirm({ title: 'Available on iOS', message: 'Restore purchases from the FlyRegs iOS app.', cancelLabel: null })
       return
     }
     // Pro/Premium require a FlyRegs account as part of the plan -- without

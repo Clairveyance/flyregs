@@ -143,12 +143,29 @@ FACT_FORMAT = {
 
 
 def fetch_sources(only_types=None):
+    # Real, corpus-wide bug found 2026-08-13: this function had no exclusion
+    # for items that already have a live/pending fact, so any authoring run
+    # whose item set overlapped a PREVIOUS run's (which every pass so far
+    # has, at least partially) re-generated fresh near-paraphrase facts for
+    # already-covered material instead of skipping it -- confirmed live via
+    # AIM 4-7-3 (6 facts, 3 exact-duplicate pairs) and corpus-wide (~37,000
+    # duplicate rows total across FAR/AIM/AC/PCG, cleaned up in
+    # sync/migrations_dedupe_study_facts_exact_answer.sql). Every pool query
+    # below now excludes items already covered by a live/pending fact.
+    # 'flagged' items are deliberately still eligible -- a rejected fact
+    # SHOULD get a fresh attempt, that's the repair-pass model this table
+    # already assumes elsewhere (see repair_flagged_facts.py) -- only
+    # live/pending block re-authoring.
     pools = {}
     if only_types is None or "far" in only_types:
         pools["far"] = mgmt_sql("""
             select f.section_number as item_id, f.title, f.body_text
             from far_sections f
             join study_far_sections s on s.section_number = f.section_number
+            where f.section_number not in (
+                select item_id from study_facts
+                where item_type = 'far' and status in ('live', 'pending')
+            )
             order by f.section_number
         """)
     if only_types is None or "aim" in only_types:
@@ -157,6 +174,10 @@ def fetch_sources(only_types=None):
             from aim_paragraphs
             where body_text is not null and body_text <> ''
               and title is not null and title <> '' and title not ilike '%[reserved%'
+              and paragraph_number not in (
+                select item_id from study_facts
+                where item_type = 'aim' and status in ('live', 'pending')
+              )
             order by paragraph_number
         """)
     # AC/P-CG extension (2026-08-01, RC: "yes redo the quiz gen sample... then
@@ -173,6 +194,10 @@ def fetch_sources(only_types=None):
             select document_number as item_id, title, description as body_text
             from advisory_circulars
             where status = 'active' and description is not null and description <> ''
+              and document_number not in (
+                select item_id from study_facts
+                where item_type = 'ac' and status in ('live', 'pending')
+              )
             order by document_number
         """)
     if only_types is None or "pcg" in only_types:
@@ -180,6 +205,10 @@ def fetch_sources(only_types=None):
             select slug as item_id, term as title, definition as body_text
             from pcg_terms
             where definition is not null and definition <> ''
+              and slug not in (
+                select item_id from study_facts
+                where item_type = 'pcg' and status in ('live', 'pending')
+              )
             order by slug
         """)
     out = []

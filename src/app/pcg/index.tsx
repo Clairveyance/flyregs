@@ -8,6 +8,8 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getRecents, recentItemType, type RecentAC } from '@/lib/recents'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 interface TermHit {
   slug: string
@@ -29,6 +31,10 @@ export default function PcgIndexScreen() {
   const [recentPcg, setRecentPcg] = useState<RecentAC[]>([])
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchSeq = useRef(0)
+  // Some P/CG terms run long (equipment names with a parenthetical
+  // abbreviation, etc.) and get cut off the same way FAR Part titles do --
+  // same hook/card pair as far/index.tsx's own long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   useEffect(() => {
     // Server-side GROUP BY RPC, not client-side counting -- confirmed live
@@ -114,7 +120,7 @@ export default function PcgIndexScreen() {
         {!trimmedQuery && recentPcg.length > 0 && (
           <View style={styles.recentWrap}>
             <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>RECENTLY VIEWED</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentRow}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.recentScroll} contentContainerStyle={styles.recentRow}>
               {recentPcg.map((r) => (
                 <Pressable
                   key={r.id}
@@ -153,7 +159,13 @@ export default function PcgIndexScreen() {
               renderItem={({ item }) => (
                 <Pressable
                   style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                  onPress={() => router.push(`/pcg/${item.slug}` as any)}
+                  onPress={() => {
+                    if (consumeLongPress()) return
+                    router.push(`/pcg/${item.slug}` as any)
+                  }}
+                  onLongPress={(e) => showPreview(item.term, e)}
+                  onPressOut={hidePreview}
+                  delayLongPress={350}
                 >
                   <Text style={[styles.termText, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
                     {item.term}
@@ -192,6 +204,12 @@ export default function PcgIndexScreen() {
         )}
         </TabletContainer>
       )}
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }
@@ -208,6 +226,10 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1 },
 
   recentWrap: { marginTop: 14, paddingLeft: 12 },
+  // Same root cause as updates.tsx's filter chips (see that file's
+  // comment): a horizontal ScrollView with no explicit `style` collapses
+  // its own cross-axis height on web, clipping the row's content.
+  recentScroll: { flexGrow: 0, flexShrink: 0, height: 52 },
   recentRow: { paddingRight: 12, gap: 8 },
   recentChip: {
     borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, maxWidth: 160,

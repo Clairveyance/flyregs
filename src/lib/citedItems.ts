@@ -7,7 +7,7 @@
 // so routing a bare part number like "91" there 404s every time -- the
 // real destination is far/part/[part].tsx (far_parts.part = part), a
 // separate, already-existing route this just never pointed at.
-export type CitedType = 'ac' | 'far' | 'far_part' | 'aim' | 'pcg' | 'ad' | 'loi' | 'dictionary'
+export type CitedType = 'ac' | 'far' | 'far_part' | 'aim' | 'pcg' | 'ad' | 'loi' | 'dictionary' | 'cfr49'
 
 export function routeForCitedItem(citedType: string, citedId: string): string {
   switch (citedType) {
@@ -15,6 +15,8 @@ export function routeForCitedItem(citedType: string, citedId: string): string {
       return `/far/part/${citedId}`
     case 'far':
       return `/far/${citedId}`
+    case 'cfr49':
+      return `/cfr49/${citedId}`
     case 'aim':
       return `/aim/${citedId}`
     case 'pcg':

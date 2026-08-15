@@ -50,6 +50,14 @@ example
 
 # local scratch output (downloaded PDFs, rendered page images, pilot transcripts)
 scratch/
+scratchpad/
+
+# background-agent isolated worktrees (each is a full nested clone with its
+# own .git) -- transient tooling state, never source of truth. A worktree's
+# real output is either merged back into the main tree by whoever dispatched
+# it, or it was a dead end; either way this directory itself is not meant to
+# be committed.
+.claude/worktrees/
 
 # AIM sync scratch — large re-downloaded source PDF and its regenerated
 # caption->page lookup (rebuilt fresh every sync_aim.sh run by
@@ -74,6 +82,8 @@ heading_gaps_categorized.json
 heading_gaps_report.json
 inline_lists_report.json
 ocr_scans_report.json
+sync/ad_parts_generic_risk_flagged.json
+sync/superseded_engine_mentions_preview.json
 
 # fact-deck authoring (Anthropic Batches API) — resumable batch-id/id-map
 # checkpoint state, not source of truth; author_fact_deck.py regenerates

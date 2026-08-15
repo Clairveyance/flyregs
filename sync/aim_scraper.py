@@ -1239,7 +1239,18 @@ def run_full(session: requests.Session):
 def main():
     parser = argparse.ArgumentParser(description="AIM Scraper")
     parser.add_argument("--mode", choices=["test", "full"], default="test")
+    parser.add_argument(
+        "--no-revision-log", action="store_true",
+        help=(
+            "Skip content_revisions logging for this run (sets SKIP_REVISION_LOG=1, "
+            "read by revision_log.log_revisions()). Use for a manual backfill/repair "
+            "run over already-known data, so it can't log bogus What's Changed "
+            "entries. Leave unset for the real scheduled cron sync."
+        ),
+    )
     args = parser.parse_args()
+    if args.no_revision_log:
+        os.environ["SKIP_REVISION_LOG"] = "1"
 
     if args.mode == "full" and (not SUPABASE_URL or not SUPABASE_KEY):
         log.error("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set for full mode.")

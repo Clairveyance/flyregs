@@ -8,6 +8,8 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getRefPacket, getRefPackets, splitPacketTitle, refPackKnowledgeLevel, RefPacketArea, RefPacket } from '@/lib/refPackets'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 export default function RefPacketDetailScreen() {
   const { code: routeCode } = useLocalSearchParams<{ code: string }>()
@@ -23,6 +25,9 @@ export default function RefPacketDetailScreen() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [siblings, setSiblings] = useState<RefPacket[]>([])
+  // ACS task titles run long and get cut off the same way FAR Part titles do
+  // -- same hook/card pair as far/index.tsx's own long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   useEffect(() => { setActiveCode(routeCode) }, [routeCode])
 
@@ -155,7 +160,13 @@ export default function RefPacketDetailScreen() {
                         <Pressable
                           key={task.id}
                           style={[styles.taskRow, { borderTopColor: tokens.bdr }]}
-                          onPress={() => router.push(`/ref-packets/task/${task.id}` as any)}
+                          onPress={() => {
+                            if (consumeLongPress()) return
+                            router.push(`/ref-packets/task/${task.id}` as any)
+                          }}
+                          onLongPress={(e) => showPreview(task.title, e)}
+                          onPressOut={hidePreview}
+                          delayLongPress={350}
                         >
                           <Text style={[styles.taskLetter, { color: tokens.blu, fontSize: fs(13) }]}>{task.taskLetter}</Text>
                           <Text style={[styles.taskTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={2}>
@@ -172,6 +183,12 @@ export default function RefPacketDetailScreen() {
           </ScrollView>
         </TabletContainer>
       )}
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }

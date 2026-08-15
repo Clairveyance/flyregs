@@ -2,6 +2,8 @@ import { View, Text, Pressable, StyleSheet } from 'react-native'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // Thin strip directly under a reg detail screen's OverlayHeader, shown only
 // when the user arrived here via a cross-reference jump (MagicLink tap or
@@ -27,6 +29,52 @@ export function BackToBreadcrumb({ label, onPress }: { label: string; onPress: (
   )
 }
 
+// Fixed strip (sibling of the ScrollView, not inside it) flagging that this
+// document has recent revisions, with up/down chevrons to jump between the
+// changed paragraphs. RC, real device: "you have the box that says how many
+// paragraphs are changed, but the up/down chevrons don't stay available as
+// you scroll, so once you go to one, you lose access to the rest and have
+// to go back to the top." Every one of FAR/AIM/cfr49/AC's own detail
+// screens used to render this INLINE in the ScrollView's own content
+// (right after the MagicLink bars), so scrolling past it lost the chevrons
+// entirely — same fixed-strip treatment as BackToBreadcrumb above (a
+// per-screen render, not a global overlay, so it only ever occupies space
+// on a screen that actually has changes to show).
+export function ChangedBanner({
+  count,
+  currentIdx,
+  onPrev,
+  onNext,
+  label,
+}: {
+  count: number
+  currentIdx: number
+  onPrev: () => void
+  onNext: () => void
+  label: string
+}) {
+  const { tokens } = useTheme()
+  const fs = useFS()
+  if (count === 0) return null
+  return (
+    <View style={[styles.changedWrap, { backgroundColor: tokens.bdim, borderBottomColor: tokens.bbdr }]}>
+      <Icon name="doc.badge.clock" size={fs(13)} color={tokens.blu} />
+      <Text style={[styles.changedText, { color: tokens.blu, fontSize: fs(12.5) }]} numberOfLines={1}>
+        {label}
+      </Text>
+      {count > 1 && (
+        <Text style={[styles.changedCount, { color: tokens.t2, fontSize: fs(11.5) }]}>{currentIdx + 1}/{count}</Text>
+      )}
+      <Pressable onPress={onPrev} hitSlop={8}>
+        <Icon name="chevron.up" size={fs(14)} color={tokens.blu} />
+      </Pressable>
+      <Pressable onPress={onNext} hitSlop={8}>
+        <Icon name="chevron.down" size={fs(14)} color={tokens.blu} />
+      </Pressable>
+    </View>
+  )
+}
+
 // Prev/Next footer for browsing sequentially through a document's own
 // natural order (FAR section within a Part, AIM paragraph within a
 // chapter) -- independent of the breadcrumb above, which is only about
@@ -44,12 +92,24 @@ export function PrevNextFooter({
 }) {
   const { tokens } = useTheme()
   const fs = useFS()
+  // Prev/next document titles can run long and get cut off the same way FAR
+  // Part titles do -- same hook/card pair as far/index.tsx's own long-press
+  // preview. Self-contained here (one PrevNextFooter instance per document
+  // screen, not a repeating list row) rather than threaded from each of the
+  // FAR/AIM/AD/LOI screens that render this shared component.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
   if (!prevLabel && !nextLabel) return null
   return (
     <View style={[styles.footerWrap, { borderTopColor: tokens.bdr, backgroundColor: tokens.bg }]}>
       <Pressable
         style={[styles.footerBtn, !prevLabel && styles.footerBtnDisabled]}
-        onPress={onPrev}
+        onPress={() => {
+          if (consumeLongPress()) return
+          onPrev()
+        }}
+        onLongPress={(e) => { if (prevLabel) showPreview(prevLabel, e) }}
+        onPressOut={hidePreview}
+        delayLongPress={350}
         disabled={!prevLabel}
       >
         <Icon name="chevron.left" size={fs(14)} color={prevLabel ? tokens.blu : tokens.t4} />
@@ -60,7 +120,13 @@ export function PrevNextFooter({
       <View style={[styles.footerDivider, { backgroundColor: tokens.bdr }]} />
       <Pressable
         style={[styles.footerBtn, styles.footerBtnRight, !nextLabel && styles.footerBtnDisabled]}
-        onPress={onNext}
+        onPress={() => {
+          if (consumeLongPress()) return
+          onNext()
+        }}
+        onLongPress={(e) => { if (nextLabel) showPreview(nextLabel, e) }}
+        onPressOut={hidePreview}
+        delayLongPress={350}
         disabled={!nextLabel}
       >
         <Text style={[styles.footerText, { color: nextLabel ? tokens.t1 : tokens.t4, fontSize: fs(12.5) }]} numberOfLines={1}>
@@ -68,6 +134,12 @@ export function PrevNextFooter({
         </Text>
         <Icon name="chevron.right" size={fs(14)} color={nextLabel ? tokens.blu : tokens.t4} />
       </Pressable>
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }
@@ -131,6 +203,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth,
   },
   text: { fontWeight: '600', flex: 1 },
+
+  changedWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  changedText: { fontWeight: '700', flex: 1 },
+  changedCount: { fontWeight: '500' },
 
   footerWrap: {
     flexDirection: 'row', alignItems: 'stretch', borderTopWidth: StyleSheet.hairlineWidth,

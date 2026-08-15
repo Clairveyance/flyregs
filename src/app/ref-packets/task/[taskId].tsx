@@ -62,6 +62,16 @@ export default function RefPacketTaskScreen() {
 
   useEffect(() => {
     if (!taskId || !hasPlusAccess) { setLoading(false); return }
+    // hasPlusAccess resolves asynchronously after this screen's first mount
+    // (isPro/isPremium/isUnlocked all start false in AuthContext) -- without
+    // resetting loading back to true here, the guard above already set it
+    // false on the first (hasPlusAccess=false) run, so the moment access
+    // resolves true this effect re-fires but the screen skips straight past
+    // the spinner and renders a blank/null task for the length of the real
+    // fetch below. Same gap found+fixed in ref-packets/multi-engine.tsx
+    // (which showed "AREA X · 0 TASKS" for the same reason) -- ref-packets/
+    // [code].tsx's own identical effect already has this line.
+    setLoading(true)
     getRefPacketTask(taskId).then((t) => {
       setTask(t)
       // Populate BEFORE the auto-search below fires, so the very first
@@ -117,9 +127,25 @@ export default function RefPacketTaskScreen() {
         title={task ? `Task ${task.taskLetter}` : 'Task'}
         onBack={() => router.back()}
       />
-      {loading || !task ? (
+      {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
+        </View>
+      ) : !task ? (
+        // getRefPacketTask() resolves to null both when the task genuinely
+        // doesn't exist AND on a real fetch error (it swallows Supabase
+        // errors into a plain null return, same pattern as getRefPacket()
+        // in this same lib) -- either way, `loading` finishes but `task`
+        // never does. Before this fix, `loading || !task` kept showing the
+        // spinner forever with no way to tell "still loading" from "never
+        // going to load" -- a real infinite-spinner dead end, only escapable
+        // via the header's back button.
+        <View style={styles.center}>
+          <Icon name="questionmark.circle" size={fs(36)} color={tokens.t4} />
+          <Text style={[styles.lockTitle, { color: tokens.t2, fontSize: fs(16) }]}>Task not found</Text>
+          <Text style={[styles.lockSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            This task couldn't be loaded. Check your connection and go back to try again.
+          </Text>
         </View>
       ) : (
         <TabletContainer>

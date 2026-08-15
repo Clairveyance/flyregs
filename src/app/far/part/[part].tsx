@@ -11,6 +11,8 @@ import { SplitPane } from '@/components/SplitPane'
 import { RegPreviewInline } from '@/components/RegPreviewPane'
 import { useIsTabletLandscape, useIsTabletPortrait } from '@/context/responsive'
 import { naturalCompare } from '@/lib/naturalSort'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 interface FarSectionRow {
   section_number: string
@@ -36,6 +38,10 @@ export default function FarPartScreen() {
   // Part 61).
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null)
   useEffect(() => { setSelectedRoute(null) }, [part])
+  // Section titles here can run just as long as FAR Part titles do (same
+  // corpus-wide ask that produced far/index.tsx's own long-press preview) --
+  // same hook/card pair, see useLongPressPreview.ts's header comment.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   useEffect(() => {
     if (!part) return
@@ -78,6 +84,7 @@ export default function FarPartScreen() {
           {group.items.map((s) => {
             const route = `/far/${s.section_number}`
             const isSelected = isSplit && selectedRoute === route
+            const cleanTitle = (s.title ?? '').replace(/^§\s*[\d.]+\s*/, '')
             return (
               <Pressable
                 key={s.section_number}
@@ -85,7 +92,14 @@ export default function FarPartScreen() {
                   styles.row,
                   { backgroundColor: isSelected ? tokens.bdim : tokens.bg2, borderColor: isSelected ? tokens.bbdr : tokens.bdr },
                 ]}
-                onPress={() => (isSplit ? setSelectedRoute(route) : router.push(route as any))}
+                onPress={() => {
+                  if (consumeLongPress()) return
+                  if (isSplit) setSelectedRoute(route)
+                  else router.push(route as any)
+                }}
+                onLongPress={(e) => showPreview(cleanTitle, e)}
+                onPressOut={hidePreview}
+                delayLongPress={350}
               >
                 {/* minWidth (not the old fixed width: 62) scales with the
                     text-size slider via fs() -- BB-072, real device beta
@@ -96,7 +110,7 @@ export default function FarPartScreen() {
                     flex:1 from squeezing this column back down. */}
                 <Text style={[styles.secNum, { color: tokens.blu, fontSize: fs(13.5), minWidth: fs(64), flexShrink: 0 }]}>§ {s.section_number}</Text>
                 <Text style={[styles.secTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
-                  {(s.title ?? '').replace(/^§\s*[\d.]+\s*/, '')}
+                  {cleanTitle}
                 </Text>
                 <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
               </Pressable>
@@ -130,6 +144,12 @@ export default function FarPartScreen() {
       ) : (
         <TabletContainer>{sectionList}</TabletContainer>
       )}
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }

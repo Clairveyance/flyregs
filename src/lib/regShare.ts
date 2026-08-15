@@ -56,6 +56,12 @@ export function toRegShareType(t: FolderItemType): RegShareType | null {
     // with no public URL to hand off to.
     case 'note':
       return null
+    // Not yet in RegShareType/the website's VALID_TYPES -- adding 'cfr49'
+    // there is a real website deploy, deliberately not bundled into this
+    // pass. Share disabled for cfr49 until that lands (Print/bookmark/
+    // highlight/folder/download all work independently of this).
+    case 'cfr49':
+      return null
     default: {
       const _exhaustive: never = t
       return _exhaustive

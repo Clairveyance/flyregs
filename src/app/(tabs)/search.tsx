@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { View, Text, Image, ScrollView, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router } from 'expo-router'
-import { useTheme, redshiftTokens } from '@/context/theme'
+import { useTheme, redshiftTokens, lightTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { ScreenHeader } from '@/components/ScreenHeader'
@@ -19,6 +19,8 @@ import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
 import { NameTag } from '@/components/NameTag'
 import { NEON_SIGN_FONT } from '@/lib/brand'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // IA redesign (2026-07-28): this file used to be the Search tab. Search now
 // lives entirely on Home (see (tabs)/index.tsx's inline search bar +
@@ -80,10 +82,43 @@ function WingSign() {
   // other lit/glowing element in the app. redshiftTokens.t1 is the palette's
   // own bright red-orange "lit text" tone, so a neon tube reads as switched
   // to red-safe lighting the same way everything else does.
-  const { redShift } = useTheme()
+  const { redShift, resolved } = useTheme()
   const neonColor = redShift ? redshiftTokens.t1 : '#fff'
+  // RC, 2026-08-13: "our 'The Wing' white neon kind of disappears in the b/g
+  // when in Light mode." True bug -- white glyphs + a white glow read fine
+  // against the dark app background but vanish into lightTokens.bg (#E6EDF8,
+  // itself nearly white). Real neon signs are still legible in daylight
+  // because the tube sits on a darker physical backing board, not because
+  // the glow itself changes color -- same fix here instead of tinting the
+  // letters (which would actually change the sign's look, the thing RC
+  // explicitly didn't want): one extra Text layer, same glyphs, same (0,0)
+  // position, painted furthest back, using a dark shadow instead of a white
+  // one. The opaque white front layer still fully covers its glyphs, so all
+  // that reads is the blurred edge bleeding out past the white letters -- a
+  // soft dark halo that gives the white script something to contrast
+  // against, exactly the "glow to help it stand out" RC asked for. Dark
+  // mode and Red Shift are untouched (lightHalo is false for both).
+  const lightHalo = !redShift && resolved === 'light'
   return (
     <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+      {lightHalo && (
+        <Text
+          style={[
+            styles.neonText,
+            {
+              position: 'absolute',
+              fontSize: size,
+              color: lightTokens.t1,
+              textShadowColor: lightTokens.t1,
+              textShadowOffset: { width: 0, height: 0 },
+              textShadowRadius: 10,
+              opacity: 0.4,
+            },
+          ]}
+        >
+          The Wing
+        </Text>
+      )}
       <Text
         style={[
           styles.neonText,
@@ -121,7 +156,7 @@ function WingSign() {
 export default function TheWingScreen() {
   const { tokens, redShift } = useTheme()
   const fs = useFS()
-  const { session, isPro, isPremium, hasPlusAccess, avatarOverride } = useAuth()
+  const { session, isPremium, hasPlusAccess, hasProAccess, avatarOverride } = useAuth()
   // RC, iPad: "our community screen is a great place for an ipad redesign.
   // all kinds of cool stuff to place and sort and divide up on a big
   // screen. be creative." Phone keeps the exact original stacked-list hub
@@ -147,6 +182,11 @@ export default function TheWingScreen() {
   const [duelStats, setDuelStats] = useState<DuelStats | null>(null)
   const [ratings, setRatings] = useState<RatingCode[]>([])
   const [coins, setCoins] = useState<EarnedCoin[]>([])
+  // Display names and RefPack titles on this screen can run long and get cut
+  // off the same way FAR Part titles do -- same hook/card pair as
+  // far/index.tsx's own long-press preview, threaded down into
+  // RefPacketGrid below.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   useEffect(() => {
     getRefPackets().then(setRefPackets)
@@ -205,7 +245,13 @@ export default function TheWingScreen() {
   )
 
   const openStudy = () => {
-    if (!isPro) { router.push('/paywall'); return }
+    // hasProAccess (isPro || isPremium), not bare isPro -- same bug pattern
+    // fixed in study.tsx itself (2026-08-14): a genuine Premium subscriber
+    // shaped isPro:false/isPremium:true would pass study.tsx's own gate
+    // fine (it uses hasProAccess) but never reach it, because THIS second
+    // entry point into Study Mode was still bouncing them to the paywall
+    // first. Found during the corpus-wide sweep for the same pattern.
+    if (!hasProAccess) { router.push('/paywall'); return }
     router.push('/study')
   }
 
@@ -214,8 +260,10 @@ export default function TheWingScreen() {
   // own lock icon and this check were still `isPro`, so a Pro (not
   // Premium) account saw NO lock here, tapped through, and only hit the
   // real gate two navigations later inside /challenges (which correctly
-  // checks isPremium) -- Ready Room's OWN isPro gate is genuinely correct
-  // (it's a separate, Pro-tier leaderboard per PRO_ADDITIONS) and stays;
+  // checks isPremium) -- Ready Room's OWN tier requirement is genuinely
+  // correct (it's a separate, Pro-tier-and-above leaderboard per
+  // PRO_ADDITIONS, gated on hasProAccess -- see ready-room.tsx, fixed
+  // 2026-08-14 for the same bare-isPro pattern found here) and stays;
   // only THIS card's promise was wrong.
   const openDuels = () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
@@ -253,9 +301,28 @@ export default function TheWingScreen() {
     )
   }
 
+  // RC: "RR needs a diff icon, it's not really about 'Groups' so it needs
+  // something diff... put it up in the right corner of The Wing (same as
+  // it is inside SM now)." First swap (`medal.fill`) still read too much
+  // like the Challenge Coins/trophy iconography already used elsewhere on
+  // this same screen. `chart.bar.fill` reads as standings/leaderboard --
+  // visually and conceptually distinct from both "a group of people" and
+  // "an award," which is what Ready Room's 3 tabs (Study Activity, Duels,
+  // Mastery) actually rank. Also changed to match on Study Mode's own
+  // header (its longer-standing entry point into Ready Room), per RC's
+  // explicit ask to keep both consistent.
+  // Round 2: RC asked for the lightning bolt specifically -- free to reuse
+  // it here now that Duels moved off it (first onto 'figure.fencing',
+  // then onto 'trophy' per RC's round-2 ask -- see Icon.tsx).
+  const readyRoomHeaderRight = (
+    <Pressable onPress={() => router.push('/ready-room')} hitSlop={12} style={{ padding: 4 }}>
+      <Icon name="bolt.fill" size={fs(20)} color={tokens.gold} />
+    </Pressable>
+  )
+
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <ScreenHeader titleElement={<WingSign />} />
+      <ScreenHeader titleElement={<WingSign />} right={readyRoomHeaderRight} />
       <TabletContainer>
         <ScrollView contentContainerStyle={styles.content}>
           {session ? (
@@ -267,7 +334,13 @@ export default function TheWingScreen() {
             // lives on the profile screen itself, reached by tapping this.
             <Pressable
               style={[styles.identityCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-              onPress={() => router.push(`/profile/${session.user.id}` as any)}
+              onPress={() => {
+                if (consumeLongPress()) return
+                router.push(`/profile/${session.user.id}` as any)
+              }}
+              onLongPress={(e) => showPreview(displayName, e)}
+              onPressOut={hidePreview}
+              delayLongPress={350}
             >
               <View style={[styles.identityAvatar, { backgroundColor: avatarPreset ? avatarColorFor(avatarPreset, redShift) : tokens.goldlt, borderColor: tokens.goldbdr }]}>
                 {avatarUrl ? (
@@ -343,7 +416,7 @@ export default function TheWingScreen() {
                   style={[styles.hubTile, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
                   onPress={openStudy}
                 >
-                  {!isPro && <Icon name="lock.fill" size={fs(12)} color={tokens.t4} style={styles.hubTileLock} />}
+                  {!hasProAccess && <Icon name="lock.fill" size={fs(12)} color={tokens.t4} style={styles.hubTileLock} />}
                   <View style={[styles.hubTileIconWrap, { backgroundColor: tokens.bdim }]}>
                     <Icon name="rectangle.stack" size={fs(26)} color={tokens.blu} />
                   </View>
@@ -361,7 +434,7 @@ export default function TheWingScreen() {
                 >
                   {!isPremium && <Icon name="lock.fill" size={fs(12)} color={tokens.t4} style={styles.hubTileLock} />}
                   <View style={[styles.hubTileIconWrap, { backgroundColor: tokens.goldlt }]}>
-                    <Icon name="bolt.fill" size={fs(26)} color={tokens.gold} />
+                    <Icon name="trophy" size={fs(26)} color={tokens.gold} />
                   </View>
                   <Text style={[styles.hubTileTitle, { color: tokens.t1, fontSize: fs(15) }]}>Challenge a friend</Text>
                   <Text style={[styles.hubTileSub, { color: tokens.t3, fontSize: fs(12) }]}>
@@ -404,7 +477,7 @@ export default function TheWingScreen() {
                       : 'Spaced-repetition flashcards across FAR, AIM, P/CG, and ACs'}
                   </Text>
                 </View>
-                {!isPro && <Icon name="lock.fill" size={fs(13)} color={tokens.t4} />}
+                {!hasProAccess && <Icon name="lock.fill" size={fs(13)} color={tokens.t4} />}
               </Pressable>
 
               <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 18 }]}>DUELS</Text>
@@ -413,7 +486,7 @@ export default function TheWingScreen() {
                 onPress={openDuels}
               >
                 <View style={[styles.hubIconWrap, { backgroundColor: tokens.goldlt }]}>
-                  <Icon name="bolt.fill" size={fs(19)} color={tokens.gold} />
+                  <Icon name="trophy" size={fs(19)} color={tokens.gold} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Challenge a friend</Text>
@@ -437,10 +510,19 @@ export default function TheWingScreen() {
               hasPlusAccess={hasPlusAccess}
               category={packetCat}
               onSelectCategory={setPacketCat}
+              showPreview={showPreview}
+              hidePreview={hidePreview}
+              consumeLongPress={consumeLongPress}
             />
           )}
         </ScrollView>
       </TabletContainer>
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }
@@ -466,7 +548,8 @@ function IdentityStats({
   // below"). NameTag is now the single place coins show on this card.
   // RC: "this area looks too congested... let's build/use icons for
   // Mastery, Streak, and W-L so we can get rid of the words up there."
-  // Streak (flame) and W-L (bolt) already had their own distinct icon;
+  // Streak (flame) and W-L (trophy, Duels' own icon) already had their
+  // own distinct icon;
   // Mastery's `star.fill` didn't -- star is already doing double duty for
   // ratings/Premium/DailyReg elsewhere in the app, so it read ambiguous
   // here. `graduationcap.fill` is unique to Mastery, applied everywhere
@@ -482,7 +565,7 @@ function IdentityStats({
       out.push({ icon: 'flame.fill', value: `${currency.currentStreak}d`, color: tokens.amb })
     }
     if (duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0)) {
-      out.push({ icon: 'bolt.fill', value: `${duelStats.wins}-${duelStats.losses}`, color: tokens.grn })
+      out.push({ icon: 'trophy', value: `${duelStats.wins}-${duelStats.losses}`, color: tokens.grn })
     }
     return out
   }, [mastery, currency, duelStats, tokens])
@@ -513,12 +596,18 @@ function RefPacketGrid({
   hasPlusAccess,
   category,
   onSelectCategory,
+  showPreview,
+  hidePreview,
+  consumeLongPress,
 }: {
   refPackets: RefPacket[]
   tokens: ReturnType<typeof useTheme>['tokens']
   hasPlusAccess: boolean
   category: RefPacket['category'] | 'All'
   onSelectCategory: (c: RefPacket['category'] | 'All') => void
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
   const filtered = category === 'All' ? refPackets : refPackets.filter((p) => p.category === category)
@@ -564,7 +653,16 @@ function RefPacketGrid({
         </Text>
         {!hasPlusAccess && <Icon name="lock.fill" size={fs(11)} color={tokens.t4} />}
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.packetCatRow}>
+      {/* RC, live, real 13 mini: "the Powered Lift chip is running off
+          screen to the right." A horizontal ScrollView with no visible
+          scrollbar (showsHorizontalScrollIndicator={false}) and no edge
+          fade gave zero affordance that "Powered-Lift" -- the longest of
+          the 4 labels -- was swipeable rather than just cut off; on a
+          375pt-wide device the 4 chips plus their gaps don't all fit in
+          one screen-width row. Only 4 categories total, so wrapping to a
+          second line is a cleaner fix than a scroll hint: every chip is
+          always fully visible on any device width, no gesture required. */}
+      <View style={[styles.packetCatRow, styles.packetCatWrap]}>
         {PACKET_CATS.map((c) => {
           const active = category === c
           return (
@@ -580,7 +678,7 @@ function RefPacketGrid({
             </Pressable>
           )
         })}
-      </ScrollView>
+      </View>
       <View style={styles.packetGrid}>
         {groups.map(({ mainTitle, members }) => {
           const primary = members[0]
@@ -591,7 +689,13 @@ function RefPacketGrid({
             <Pressable
               key={mainTitle}
               style={[styles.packetCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
-              onPress={() => openPacket(primary)}
+              onPress={() => {
+                if (consumeLongPress()) return
+                openPacket(primary)
+              }}
+              onLongPress={(e) => showPreview(mainTitle, e)}
+              onPressOut={hidePreview}
+              delayLongPress={350}
             >
               <Icon name="rosette" size={fs(18)} color={tokens.gold} />
               {multi && (
@@ -613,21 +717,52 @@ function RefPacketGrid({
         {/* Not a real acs_documents row -- Multiengine is Area X *within*
             both the Private and Commercial Airplane ACS docs above, not its
             own document, so it can't come from getRefPackets()'s doc-map.
-            Hand-added card routing to its own toggle screen instead. */}
+            RC, after the single-card-with-a-toggle version shipped: "just
+            make two RPs, one pvt multi and one COM multi... you could build
+            the toggle inside one if you can easily parse out the proper
+            material for each." Two hand-added cards now (was one) so the
+            right certificate's real standard is one tap away, not hidden
+            behind a toggle the user has to already know exists -- both
+            still route into the same multi-engine.tsx screen (the toggle
+            stays there too, for a user who wants to compare), just with a
+            `cert` param so each card opens straight to its own material. */}
         {(category === 'All' || category === 'Airplane') && (
-          <Pressable
-            style={[styles.packetCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
-            onPress={() => {
-              if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
-              router.push('/ref-packets/multi-engine' as any)
-            }}
-          >
-            <Icon name="rosette" size={fs(18)} color={tokens.gold} />
-            <Text style={[styles.packetTitle, { color: tokens.t1, fontSize: fs(13) }]} numberOfLines={3}>
-              Multiengine Operations
-            </Text>
-            <Text style={[styles.packetMeta, { color: tokens.t4, fontSize: fs(10.5) }]}>Private · Commercial</Text>
-          </Pressable>
+          <>
+            <Pressable
+              style={[styles.packetCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
+              onPress={() => {
+                if (consumeLongPress()) return
+                if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+                router.push('/ref-packets/multi-engine?cert=FAA-S-ACS-6C' as any)
+              }}
+              onLongPress={(e) => showPreview('Multiengine Operations — Private', e)}
+              onPressOut={hidePreview}
+              delayLongPress={350}
+            >
+              <Icon name="rosette" size={fs(18)} color={tokens.gold} />
+              <Text style={[styles.packetTitle, { color: tokens.t1, fontSize: fs(13) }]} numberOfLines={3}>
+                Multiengine Operations — Private
+              </Text>
+              <Text style={[styles.packetMeta, { color: tokens.t4, fontSize: fs(10.5) }]}>AMEL · AMES</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.packetCard, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
+              onPress={() => {
+                if (consumeLongPress()) return
+                if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+                router.push('/ref-packets/multi-engine?cert=FAA-S-ACS-7B' as any)
+              }}
+              onLongPress={(e) => showPreview('Multiengine Operations — Commercial', e)}
+              onPressOut={hidePreview}
+              delayLongPress={350}
+            >
+              <Icon name="rosette" size={fs(18)} color={tokens.gold} />
+              <Text style={[styles.packetTitle, { color: tokens.t1, fontSize: fs(13) }]} numberOfLines={3}>
+                Multiengine Operations — Commercial
+              </Text>
+              <Text style={[styles.packetMeta, { color: tokens.t4, fontSize: fs(10.5) }]}>AMEL · AMES</Text>
+            </Pressable>
+          </>
         )}
       </View>
     </View>
@@ -709,8 +844,11 @@ const styles = StyleSheet.create({
   // Ref Packet grid
   packetHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8, paddingLeft: 2 },
   packetCatRow: { marginBottom: 10 },
+  // gap handles spacing between chips now (both directions, since this
+  // wraps) -- packetCatChip no longer needs its own marginRight.
+  packetCatWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   packetCatChip: {
-    borderRadius: 16, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8,
+    borderRadius: 16, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6,
   },
   packetCatText: { fontWeight: '600' },
   packetGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

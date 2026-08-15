@@ -48,6 +48,8 @@ import { stripFarPrefix, rowTitle } from '@/lib/titleFormat'
 import { useCachedImage } from '@/lib/imageCache'
 import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 type Tab = 'all' | 'folders' | 'shared' | 'offline'
 
@@ -57,13 +59,20 @@ type Tab = 'all' | 'folders' | 'shared' | 'offline'
 // yellow (R+G both high, exactly what red-shift needs to avoid).
 const HIGHLIGHT_BG = 'rgba(255, 213, 0, 0.12)'
 const HIGHLIGHT_BDR = 'rgba(255, 213, 0, 0.4)'
+// #8a6d00 (dark mustard) was the only non-Red-Shift text color -- fine
+// against Light's near-white background (~4.9:1) but measured ~3:1 against
+// Dark's near-black bg, under WCAG AA's 4.5:1 for text this small. Never
+// noticed because nothing had checked Dark mode specifically for this tag.
+// Same shape as tokens.gold's own dark/light split, just not reusing that
+// token directly since this tag's yellow is deliberately its own hue.
 const HIGHLIGHT_TEXT = '#8a6d00'
+const HIGHLIGHT_TEXT_DARK = '#E0C040'
 const HIGHLIGHT_BG_REDSHIFT = 'rgba(224, 86, 46, 0.16)'
 const HIGHLIGHT_BDR_REDSHIFT = 'rgba(224, 86, 46, 0.45)'
 const HIGHLIGHT_TEXT_REDSHIFT = '#FF9A6B'
 
 export default function SavedScreen() {
-  const { tokens, redShift } = useTheme()
+  const { tokens, redShift, resolved } = useTheme()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web, so these confirms (and the deletes behind them) were
   // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
@@ -77,11 +86,14 @@ export default function SavedScreen() {
   // OwnerAvatar shared-rows -- and grid-ifying all of them well is a bigger
   // job than a single night-rules pass; not a call to rush unilaterally).
   const isTablet = useIsTablet()
-  // Bookmarks/Folders/Back up & sync all require Pro (RC, 2026-08-11:
-  // "back up sync is Pro" -- corrected from an earlier Plus-tier gate; see
-  // gotcha_gating_sweep_2026_08_11.md). Shared/collaborative folders and
-  // offline stay Premium-only, unrelated and untouched.
-  const { session, isPro, isPremium, hasProAccess } = useAuth()
+  // Bookmarks/Folders/Notes/Highlights themselves are Plus (RC, 2026-08-14,
+  // direct correction of the 2026-08-11 pass below: "my quote has nothing
+  // to do with folders, h/l, etc... All of those things are supposed to be
+  // part of Plus. It's just the bu/s feature that gets gated to Pro/Prem.").
+  // Only "Back up & sync" -- the literal toggle further down this screen --
+  // requires Pro. Shared/collaborative folders and offline stay
+  // Premium-only, unrelated and untouched.
+  const { session, isPro, isPremium, hasPlusAccess, hasProAccess } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const { shareAC, shareReg, shareMany } = useShareActions()
   const [tab, setTab] = useState<Tab>('all')
@@ -162,9 +174,22 @@ export default function SavedScreen() {
     date_issued: string | null
     document_number: string
   }>>({})
+  // Bookmark/folder/note/download titles across every tab on this screen run
+  // long and get cut off the same way FAR Part titles do -- one shared
+  // hook/card pair for the whole screen, same as far/index.tsx's own
+  // long-press preview, threaded down into BookmarkRow/OfflineListView below.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   useEffect(() => {
-    const ids = [...new Set(bookmarks.map((b) => b.acId ?? b.id))]
+    // AC-only -- advisory_circulars.id is a uuid column, and a FAR/AIM/P-CG/AD
+    // bookmark's id (e.g. "91.13", "AAM") isn't one. Passing a non-uuid string
+    // into .in('id', ...) throws a Postgres error for the WHOLE query, not
+    // just a no-match for that one id -- which was silently zeroing out
+    // badge data for real AC bookmarks too, the moment any non-AC item was
+    // also saved. Same bug, same fix as recents.tsx's own badge-fetch effect.
+    const ids = [...new Set(
+      bookmarks.filter((b) => bookmarkItemType(b) === 'ac').map((b) => b.acId ?? b.id)
+    )]
     if (ids.length === 0) { setBadgeDataById({}); return }
     supabase
       .from('advisory_circulars')
@@ -254,13 +279,16 @@ export default function SavedScreen() {
     })
     return () => { cancelled = true }
   }, []))
-  // RC, 2026-08-11: folders require Pro outright now (see PRO_FOLDER_CAP's
-  // comment) -- a Free/Plus account's fallback cap must be 0, not
-  // PRO_FOLDER_CAP, or a downgraded-past-Pro account would see up to 3
-  // "kept" folders client-side during the brief window before
-  // serverFolderCap lands, same stale assumption folder_visible_cap() had
-  // server-side (see migrations_fix_downgrade_retains_over_cap_data.sql).
-  const folderCap = serverFolderCap ?? (isPremium ? Infinity : hasProAccess ? PRO_FOLDER_CAP : 0)
+  // Folders are a Plus feature (see PRO_FOLDER_CAP's comment) -- a Free
+  // account's fallback cap must be 0 so it can never show a stale nonzero
+  // cap client-side during the brief window before serverFolderCap lands,
+  // matching folder_visible_cap()'s own server-side fail-safe shape.
+  const folderCap = serverFolderCap ?? (isPremium ? Infinity : hasPlusAccess ? PRO_FOLDER_CAP : 0)
+  // Plus and Pro share the same folder cap -- see PRO_FOLDER_CAP's comment
+  // -- so the "you've hit the cap" messaging below needs the reader's OWN
+  // current plan name, not a hardcoded "Pro" that would misname it for a
+  // Plus subscriber hitting the identical limit.
+  const planName = hasProAccess ? 'Pro' : 'Plus'
   const visibleFolders = folderReorderMode ? folders : folders.slice(0, folderCap)
   const lockedFolderCount = folders.length - Math.min(folders.length, folderCap)
 
@@ -312,16 +340,24 @@ export default function SavedScreen() {
   // Pro/Premium subscription lapses -- self-correct so the UI (and syncPush.ts's
   // own live isPro check) both agree with reality instead of the row claiming
   // "Synced" forever off a stale local flag. Sync moved from Premium to Pro.
-  const displaySyncEnabled = syncEnabled && isPro
+  //
+  // hasProAccess (isPro || isPremium), not bare isPro -- found while fixing
+  // the separate Plus-vs-Pro folder/sync split above: a real PREMIUM
+  // subscriber (isPro: false, isPremium: true) hit this exact bug, since
+  // bare `isPro` is false for them. Back up & sync would show permanently
+  // OFF regardless of the real synced state, and tapping the toggle routed
+  // a paying Premium customer to a Pro upsell for a feature their tier
+  // already includes.
+  const displaySyncEnabled = syncEnabled && hasProAccess
   useEffect(() => {
-    if (syncEnabled && !isPro) {
+    if (syncEnabled && !hasProAccess) {
       disableSync()
       setSyncEnabled(false)
     }
-  }, [syncEnabled, isPro])
+  }, [syncEnabled, hasProAccess])
 
   const toggleSync = async (v: boolean) => {
-    if (v && !isPro) { router.push('/paywall?tier=pro'); return }
+    if (v && !hasProAccess) { router.push('/paywall?tier=pro'); return }
     // Optimistic -- flips the Switch immediately on the user's own gesture,
     // same as every standard iOS toggle. It used to wait for the full
     // enableSync() push+pull round trip before ever updating, which made a
@@ -532,12 +568,12 @@ export default function SavedScreen() {
   }
 
   const handleCreateFolder = async (name: string): Promise<boolean> => {
-    // Pro is capped at PRO_FOLDER_CAP folders; Premium is unlimited -- see
-    // flyregs_decisions.md's pricing pivot.
+    // Plus and Pro are both capped at PRO_FOLDER_CAP folders; Premium is
+    // unlimited -- see flyregs_decisions.md's pricing pivot.
     if (folders.length >= folderCap) {
       confirm({
         title: 'Folder limit reached',
-        message: `Pro includes ${PRO_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
+        message: `${planName} includes ${PRO_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
         confirmLabel: 'Upgrade to Premium',
         onConfirm: () => router.push('/paywall?tier=premium'),
       })
@@ -639,7 +675,7 @@ export default function SavedScreen() {
     if (folders.length >= folderCap) {
       confirm({
         title: 'Folder limit reached',
-        message: `Pro includes ${PRO_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
+        message: `${planName} includes ${PRO_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
         confirmLabel: 'Upgrade to Premium',
         onConfirm: () => router.push('/paywall?tier=premium'),
       })
@@ -705,7 +741,7 @@ export default function SavedScreen() {
       )}
       {!folderSelectMode && !folderReorderMode && (
         <Pressable
-          onPress={() => (hasProAccess ? setNewFolderVisible(true) : router.push('/paywall?tier=pro'))}
+          onPress={() => (hasPlusAccess ? setNewFolderVisible(true) : router.push('/paywall?tier=plus'))}
           style={[styles.addBtn, { backgroundColor: tokens.blu }]}
         >
           <Icon name="plus" size={fs(13)} color="#fff" />
@@ -719,7 +755,7 @@ export default function SavedScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <ScreenHeader
         title="Saved"
-        right={!hasProAccess ? undefined : tab === 'all' ? rightSlot : tab === 'folders' ? folderRightSlot : undefined}
+        right={!hasPlusAccess ? undefined : tab === 'all' ? rightSlot : tab === 'folders' ? folderRightSlot : undefined}
       />
       <TabletContainer>
 
@@ -748,8 +784,11 @@ export default function SavedScreen() {
         </View>
       </View>
 
-      {/* Back up & sync row */}
-      {tab === 'all' && hasProAccess && (
+      {/* Back up & sync row -- visible to any Plus+ user (folders/notes/
+          bookmarks/highlights are Plus features) as an upsell nudge for
+          Plus subscribers; the toggle itself stays Pro-gated via
+          toggleSync's own hasProAccess check below. */}
+      {tab === 'all' && hasPlusAccess && (
         <View style={styles.syncWrap}>
           <View style={[styles.syncRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}>
             <View style={styles.syncTopRow}>
@@ -792,8 +831,8 @@ export default function SavedScreen() {
       )}
 
       {tab === 'all' ? (
-        !hasProAccess ? (
-          <ProWall tokens={tokens} label="Bookmarks" />
+        !hasPlusAccess ? (
+          <ProWall tokens={tokens} label="Bookmarks" tierLabel="Plus" />
         ) : (
           <>
             {bookmarks.length === 0 ? (
@@ -832,6 +871,7 @@ export default function SavedScreen() {
                         item={item}
                         tokens={tokens}
                         redShift={redShift}
+                        isDark={resolved === 'dark'}
                         selectMode={selectMode}
                         selected={selected.has(item.id)}
                         stale={staleHighlightIds.has(item.id)}
@@ -842,6 +882,9 @@ export default function SavedScreen() {
                         onRemove={() => handleRemove(item)}
                         onFolder={() => setPickerAC(item)}
                         onShare={() => handleShare(item)}
+                        showPreview={showPreview}
+                        hidePreview={hidePreview}
+                        consumeLongPress={consumeLongPress}
                       />
                     </View>
                   )
@@ -851,8 +894,8 @@ export default function SavedScreen() {
           </>
         )
       ) : tab === 'folders' ? (
-        !hasProAccess ? (
-          <ProWall tokens={tokens} label="Folders" />
+        !hasPlusAccess ? (
+          <ProWall tokens={tokens} label="Folders" tierLabel="Plus" />
         ) : (
           <>
           {lockedFolderCount > 0 && !folderReorderMode && (
@@ -862,7 +905,7 @@ export default function SavedScreen() {
                 {lockedFolderCount} folder{lockedFolderCount === 1 ? '' : 's'} locked
               </Text>
               <Text style={[styles.folderCapBody, { color: tokens.t3, fontSize: fs(13) }]}>
-                {`Pro includes ${PRO_FOLDER_CAP} folders. Nothing has been deleted — use ⋯ › Reorder Folders to drag the ${PRO_FOLDER_CAP} you want to the top, or go Premium for unlimited.`}
+                {`${planName} includes ${PRO_FOLDER_CAP} folders. Nothing has been deleted — use ⋯ › Reorder Folders to drag the ${PRO_FOLDER_CAP} you want to the top, or go Premium for unlimited.`}
               </Text>
               <Pressable
                 style={[styles.folderCapBtn, { backgroundColor: tokens.gold }]}
@@ -930,7 +973,13 @@ export default function SavedScreen() {
                 renderItem={({ item }) => (
                   <Pressable
                     style={[styles.sharedRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
-                    onPress={() => router.push(`/folder/shared/${item.folder_id}`)}
+                    onPress={() => {
+                      if (consumeLongPress()) return
+                      router.push(`/folder/shared/${item.folder_id}`)
+                    }}
+                    onLongPress={(e) => showPreview(item.folder_name, e)}
+                    onPressOut={hidePreview}
+                    delayLongPress={350}
                   >
                     <OwnerAvatar
                       cacheKey={item.folder_id}
@@ -981,7 +1030,13 @@ export default function SavedScreen() {
               renderItem={({ item }) => (
                 <Pressable
                   style={[styles.sharedRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
-                  onPress={() => router.push(`/folder/${item.folder_id}`)}
+                  onPress={() => {
+                    if (consumeLongPress()) return
+                    router.push(`/folder/${item.folder_id}`)
+                  }}
+                  onLongPress={(e) => showPreview(item.folder_name, e)}
+                  onPressOut={hidePreview}
+                  delayLongPress={350}
                 >
                   <Icon name="folder" size={fs(18)} color={tokens.t2} />
                   <View style={{ flex: 1 }}>
@@ -1009,6 +1064,9 @@ export default function SavedScreen() {
           onRemove={handleRemoveDownload}
           onShare={shareDownload}
           onRefresh={load}
+          showPreview={showPreview}
+          hidePreview={hidePreview}
+          consumeLongPress={consumeLongPress}
         />
       )}
 
@@ -1114,6 +1172,12 @@ export default function SavedScreen() {
       />
 
       <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
       </TabletContainer>
     </View>
   )
@@ -1195,6 +1259,7 @@ function BookmarkRow({
   item,
   tokens,
   redShift,
+  isDark,
   selectMode,
   selected,
   stale,
@@ -1205,10 +1270,14 @@ function BookmarkRow({
   onRemove,
   onFolder,
   onShare,
+  showPreview,
+  hidePreview,
+  consumeLongPress,
 }: {
   item: BookmarkAC
   tokens: ReturnType<typeof useTheme>['tokens']
   redShift: boolean
+  isDark: boolean
   selectMode: boolean
   selected: boolean
   stale?: boolean
@@ -1219,6 +1288,9 @@ function BookmarkRow({
   onRemove: () => void
   onFolder: () => void
   onShare: () => void
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
   const translateX = useSharedValue(0)
@@ -1280,7 +1352,16 @@ function BookmarkRow({
         <Reanimated.View style={cardStyle}>
           <Pressable
             style={[styles.bookmarkRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-            onPress={handlePress}
+            onPress={() => {
+              if (consumeLongPress()) return
+              handlePress()
+            }}
+            onLongPress={(e) => {
+              const title = rowTitle(item.document_number, item.title)
+              if (title) showPreview(title, e)
+            }}
+            onPressOut={hidePreview}
+            delayLongPress={350}
           >
             <View style={styles.rowTop}>
               {selectMode && (
@@ -1315,7 +1396,7 @@ function BookmarkRow({
                 {item.blockText ? (
                   <>
                     <View style={[styles.highlightTag, { backgroundColor: redShift ? HIGHLIGHT_BG_REDSHIFT : HIGHLIGHT_BG, borderColor: redShift ? HIGHLIGHT_BDR_REDSHIFT : HIGHLIGHT_BDR }]}>
-                      <Text style={{ color: redShift ? HIGHLIGHT_TEXT_REDSHIFT : HIGHLIGHT_TEXT, fontWeight: '700', fontSize: fs(10.5) }}>
+                      <Text style={{ color: redShift ? HIGHLIGHT_TEXT_REDSHIFT : isDark ? HIGHLIGHT_TEXT_DARK : HIGHLIGHT_TEXT, fontWeight: '700', fontSize: fs(10.5) }}>
                         {item.blockLabel ? `§ ${item.blockLabel} ` : 'HIGHLIGHT '}
                       </Text>
                       <Text numberOfLines={1} style={{ color: tokens.t2, fontSize: fs(11.5), flex: 1 }}>
@@ -1333,8 +1414,8 @@ function BookmarkRow({
                   </>
                 ) : hasHighlight ? (
                   <View style={[styles.highlightTag, { backgroundColor: redShift ? HIGHLIGHT_BG_REDSHIFT : HIGHLIGHT_BG, borderColor: redShift ? HIGHLIGHT_BDR_REDSHIFT : HIGHLIGHT_BDR }]}>
-                    <Icon name="highlighter" size={fs(11)} color={redShift ? HIGHLIGHT_TEXT_REDSHIFT : HIGHLIGHT_TEXT} />
-                    <Text style={{ color: redShift ? HIGHLIGHT_TEXT_REDSHIFT : HIGHLIGHT_TEXT, fontWeight: '700', fontSize: fs(10.5), marginLeft: 4 }}>
+                    <Icon name="highlighter" size={fs(11)} color={redShift ? HIGHLIGHT_TEXT_REDSHIFT : isDark ? HIGHLIGHT_TEXT_DARK : HIGHLIGHT_TEXT} />
+                    <Text style={{ color: redShift ? HIGHLIGHT_TEXT_REDSHIFT : isDark ? HIGHLIGHT_TEXT_DARK : HIGHLIGHT_TEXT, fontWeight: '700', fontSize: fs(10.5), marginLeft: 4 }}>
                       Tap to view highlighted section
                     </Text>
                   </View>
@@ -1382,6 +1463,9 @@ function OfflineListView({
   onRemove,
   onShare,
   onRefresh,
+  showPreview,
+  hidePreview,
+  consumeLongPress,
 }: {
   downloads: DownloadedAC[]
   tokens: ReturnType<typeof useTheme>['tokens']
@@ -1390,6 +1474,9 @@ function OfflineListView({
   onRemove: (item: DownloadedAC) => void
   onShare: (item: DownloadedAC) => void
   onRefresh: () => void
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
   const [sort, setSort] = useState<OfflineSort>('recent')
@@ -1451,6 +1538,9 @@ function OfflineListView({
           onFolder={() => onFolder(item)}
           onRemove={() => onRemove(item)}
           onShare={() => onShare(item)}
+          showPreview={showPreview}
+          hidePreview={hidePreview}
+          consumeLongPress={consumeLongPress}
         />
       )}
     />
@@ -1464,6 +1554,9 @@ function OfflineRow({
   onFolder,
   onRemove,
   onShare,
+  showPreview,
+  hidePreview,
+  consumeLongPress,
 }: {
   item: DownloadedAC
   tokens: ReturnType<typeof useTheme>['tokens']
@@ -1471,6 +1564,9 @@ function OfflineRow({
   onFolder: () => void
   onRemove: () => void
   onShare: () => void
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
   const translateX = useSharedValue(0)
@@ -1531,7 +1627,16 @@ function OfflineRow({
         <Reanimated.View style={cardStyle}>
           <Pressable
             style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-            onPress={handlePress}
+            onPress={() => {
+              if (consumeLongPress()) return
+              handlePress()
+            }}
+            onLongPress={(e) => {
+              const title = rowTitle(item.document_number, item.title)
+              if (title) showPreview(title, e)
+            }}
+            onPressOut={hidePreview}
+            delayLongPress={350}
           >
             <View style={[styles.offlineIcon, { backgroundColor: tokens.bdim }]}>
               <Icon name={REG_TYPE[downloadItemType(item) as RegType].icon} size={fs(18)} color={tokens.blu} />
@@ -1612,20 +1717,32 @@ function OwnerAvatar({
 // bookmarks or folders is the Pro feature just as much as creating new ones,
 // so a downgraded user gets the same "upgrade to see this" treatment here
 // instead of free continued access to whatever they saved while still Pro.
-function ProWall({ tokens, label }: { tokens: ReturnType<typeof useTheme>['tokens']; label: string }) {
+function ProWall({
+  tokens,
+  label,
+  tierLabel = 'Pro',
+}: {
+  tokens: ReturnType<typeof useTheme>['tokens']
+  label: string
+  // Folders/Bookmarks/Notes/Highlights are Plus (see PRO_FOLDER_CAP's
+  // comment); this component's name and paywall-route default stay "Pro"
+  // for anything else that still genuinely requires it.
+  tierLabel?: 'Plus' | 'Pro'
+}) {
   const fs = useFS()
+  const tierParam = tierLabel.toLowerCase()
   return (
     <View style={styles.center}>
       <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
-      <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>{label} is a Pro feature</Text>
+      <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>{label} is a {tierLabel} feature</Text>
       <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-        Unlock Pro to use {label.toLowerCase()}.
+        Unlock {tierLabel} to use {label.toLowerCase()}.
       </Text>
       <Pressable
         style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]}
-        onPress={() => router.push('/paywall?tier=pro')}
+        onPress={() => router.push(`/paywall?tier=${tierParam}` as any)}
       >
-        <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Pro</Text>
+        <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock {tierLabel}</Text>
       </Pressable>
     </View>
   )

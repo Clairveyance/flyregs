@@ -279,6 +279,13 @@ export const getSharedFolderAIMItems = (folderId: string) => getSharedFolderItem
 export const getSharedFolderPCGItems = (folderId: string) => getSharedFolderItemsByType(folderId, 'pcg')
 export const getSharedFolderADItems = (folderId: string) => getSharedFolderItemsByType(folderId, 'ad')
 export const getSharedFolderLOIItems = (folderId: string) => getSharedFolderItemsByType(folderId, 'loi')
+// 49 CFR (NTSB 830/TSA 1544+1552/HMR 175) shipped as a folderable type after
+// the #154/dictionary fix above, and would have silently reintroduced the
+// exact same gap if this file weren't touched: synced_folder_items' CHECK
+// constraint and RLS already cover 'cfr49' (verified live), but nothing here
+// fetched it -- confirmed via a fresh B32-readiness audit before this content
+// type had any real usage to expose the gap in production.
+export const getSharedFolderCfr49Items = (folderId: string) => getSharedFolderItemsByType(folderId, 'cfr49')
 // Aviation Dictionary terms (incl. mnemonics) shipped as a folderable type
 // AFTER the #154 fix above, and reintroduced the exact bug that comment
 // describes: synced_folder_items' CHECK constraint accepts 'dictionary'
@@ -665,6 +672,9 @@ export async function resolveMissingAsHighlights(itemType: FolderItemType, misse
   } else if (itemType === 'loi') {
     const { data } = await supabase.from('legal_interpretations').select('slug, title').in('slug', docIds)
     docs = (data ?? []).map((r) => ({ id: r.slug, document_number: r.slug, title: r.title }))
+  } else if (itemType === 'cfr49') {
+    const { data } = await supabase.from('cfr49_sections').select('section_number, title').in('section_number', docIds)
+    docs = (data ?? []).map((r) => ({ id: r.section_number, document_number: r.section_number, title: r.title }))
   }
   const docMap = new Map(docs.map((d) => [d.id, d]))
 
@@ -781,6 +791,18 @@ export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<
       results.push({ id: r.slug, itemType: 'loi', document_number: r.slug, title: r.title, date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(loiItems, r.slug) })
     }
     results.push(...await resolveMissingAsHighlights('loi', loiIds.filter((id) => !matched.has(id)), (id) => savedAtFor(loiItems, id)))
+  }
+
+  const cfr49Items = byType.get('cfr49') ?? []
+  if (cfr49Items.length) {
+    const cfr49Ids = cfr49Items.map((i) => i.item_id)
+    const { data } = await supabase.from('cfr49_sections').select('section_number, title').in('section_number', cfr49Ids)
+    const matched = new Set<string>()
+    for (const r of data ?? []) {
+      matched.add(r.section_number)
+      results.push({ id: r.section_number, itemType: 'cfr49', document_number: r.section_number, title: r.title, date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(cfr49Items, r.section_number) })
+    }
+    results.push(...await resolveMissingAsHighlights('cfr49', cfr49Ids.filter((id) => !matched.has(id)), (id) => savedAtFor(cfr49Items, id)))
   }
 
   const dictItems = byType.get('dictionary') ?? []

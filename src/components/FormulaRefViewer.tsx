@@ -7,6 +7,8 @@ import { Icon } from '@/components/Icon'
 import { useAllowRotation } from '@/lib/orientation'
 import { useGatedCachedImage } from '@/lib/imageCache'
 import type { FormulaRef } from '@/types'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // Full-screen viewer for a flagged formula page image. Deliberately a
 // standalone copy of FigureViewer.tsx rather than a shared component -- this
@@ -41,6 +43,11 @@ export function FormulaRefViewer({
   // counter-rotation, reset on every formulaRef change/close.
   const [manualRotation, setManualRotation] = useState(0)
   useEffect(() => { setManualRotation(0) }, [formulaRef?.id])
+  // Label and note text can run long and get cut off the same way FAR Part
+  // titles do -- same hook/card pair as far/index.tsx's own long-press
+  // preview. This viewer is the only place the note is shown, so a
+  // truncated note here has no other tap-through to read the rest.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview } = useLongPressPreview()
   const rotated90 = manualRotation === 90 || manualRotation === 270
   const boxWidth = width
   const boxHeight = height - insets.top - 90
@@ -58,9 +65,16 @@ export function FormulaRefViewer({
     >
       <View style={[styles.root, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <Text style={[styles.headerText, { fontSize: fs(13.5) }]} numberOfLines={1}>
-            {formulaRef?.label}
-          </Text>
+          <Pressable
+            style={{ flex: 1 }}
+            onLongPress={(e) => { if (formulaRef?.label) showPreview(formulaRef.label, e) }}
+            onPressOut={hidePreview}
+            delayLongPress={350}
+          >
+            <Text style={[styles.headerText, { fontSize: fs(13.5) }]} numberOfLines={1}>
+              {formulaRef?.label}
+            </Text>
+          </Pressable>
           <Pressable
             onPress={() => setManualRotation((r) => (r + 90) % 360)}
             hitSlop={14}
@@ -74,9 +88,15 @@ export function FormulaRefViewer({
           </Pressable>
         </View>
         {formulaRef?.note && (
-          <Text style={[styles.noteText, { fontSize: fs(12.5) }, redShift && { color: '#D6553A' }]} numberOfLines={3}>
-            {formulaRef.note}
-          </Text>
+          <Pressable
+            onLongPress={(e) => showPreview(formulaRef.note!, e)}
+            onPressOut={hidePreview}
+            delayLongPress={350}
+          >
+            <Text style={[styles.noteText, { fontSize: fs(12.5) }, redShift && { color: '#D6553A' }]} numberOfLines={3}>
+              {formulaRef.note}
+            </Text>
+          </Pressable>
         )}
         <ScrollView
           style={styles.scroll}
@@ -102,6 +122,12 @@ export function FormulaRefViewer({
           ))}
         </ScrollView>
       </View>
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </Modal>
   )
 }

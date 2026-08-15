@@ -55,7 +55,7 @@ export default function AccountScreen() {
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
-  const { session, isPro, setIsPro, isPremium, setIsPremium, isUnlocked, setIsUnlocked, signOut, avatarOverride, setAvatarOverride, clearAvatarOverride } = useAuth()
+  const { session, isPro, setIsPro, isPremium, setIsPremium, isUnlocked, setIsUnlocked, hasProAccess, signOut, avatarOverride, setAvatarOverride, clearAvatarOverride } = useAuth()
   const insets = useSafeAreaInsets()
   const backToMenu = useReturnToMenu()
   // iPad: RC, "there's plenty of room for Account to open fully to the
@@ -216,9 +216,13 @@ export default function AccountScreen() {
   }
 
   // AC update alerts moved from Premium to Pro in the pricing pivot -- see
-  // flyregs_decisions.md.
+  // flyregs_decisions.md. hasProAccess (not bare isPro): Premium subscribers
+  // get everything Pro offers, so a Premium account whose entitlement shape
+  // happens to be isPro:false/isPremium:true (comp-granted, see
+  // context/auth.tsx's hasProAccess comment) must still see its real
+  // AC-alert/DailyReg/Duel-notification status here, not a false "off".
   useEffect(() => {
-    if (session?.user?.id && isPro) {
+    if (session?.user?.id && hasProAccess) {
       isAcUpdateAlertsEnabled(session.user.id).then(setAlertsEnabled)
       isDailyRegEnabled(session.user.id).then(setDailyRegEnabled)
       isDuelNotificationsEnabled(session.user.id).then(setDuelNotifEnabled)
@@ -227,7 +231,7 @@ export default function AccountScreen() {
       setDailyRegEnabled(false)
       setDuelNotifEnabled(false)
     }
-  }, [session?.user?.id, isPro])
+  }, [session?.user?.id, hasProAccess])
 
   // RC: "let's put a small version of the color wheel on the actual
   // Account bar for them. this will let them see at a glance if they have
@@ -264,7 +268,7 @@ export default function AccountScreen() {
 
   const handleToggleLeaderboard = async (v: boolean) => {
     if (!session?.user?.id) return
-    if (v && !isPro) { router.push('/paywall'); return }
+    if (v && !hasProAccess) { router.push('/paywall'); return }
     // Every leaderboard RPC's display name falls back to a generic "Pilot"
     // when no Callsign is set (see sync/migrations_fix_leaderboard_email_
     // exposure.sql) -- safe, but not personalized. Require a real Callsign
@@ -290,7 +294,7 @@ export default function AccountScreen() {
   const handleToggleRating = async (code: RatingCode) => {
     if (!session?.user?.id) return
     const has = myRatings.includes(code)
-    if (!has && !isPro) { router.push('/paywall'); return }
+    if (!has && !hasProAccess) { router.push('/paywall'); return }
     setRatingBusy(code)
     try {
       if (has) {
@@ -307,7 +311,7 @@ export default function AccountScreen() {
   }
 
   const handleToggleAlerts = async (v: boolean) => {
-    if (!isPro) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall'); return }
     if (!session?.user?.id) return
     setAlertsBusy(true)
     try {
@@ -335,7 +339,7 @@ export default function AccountScreen() {
   }
 
   const handleToggleDailyReg = async (v: boolean) => {
-    if (!isPro) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall'); return }
     if (!session?.user?.id) return
     setDailyRegBusy(true)
     try {
@@ -480,7 +484,7 @@ export default function AccountScreen() {
 
   const handleRestore = async () => {
     if (Platform.OS === 'web') {
-      confirm({ title: 'Available on iOS & Android', message: 'Restore purchases from the FlyRegs mobile app.', cancelLabel: null })
+      confirm({ title: 'Available on iOS', message: 'Restore purchases from the FlyRegs iOS app.', cancelLabel: null })
       return
     }
     // This screen's own early-return above already blocks the whole
@@ -718,7 +722,7 @@ export default function AccountScreen() {
         {/* Subscription group */}
         <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>SUBSCRIPTION</Text>
         <View style={[styles.group, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-          {!isPro && (
+          {!hasProAccess && (
             <Row
               icon="crown"
               label="Upgrade to Pro"
@@ -789,7 +793,7 @@ export default function AccountScreen() {
               // straight into the real screen; Free/Plus go straight to
               // the paywall instead of into a screen that would only
               // block them once they try to add an aircraft.
-              if (!isPro) { router.push('/paywall'); return }
+              if (!hasProAccess) { router.push('/paywall'); return }
               // iPad: open beside Account as a 3rd rail pane instead of
               // pushing full-screen over it. Phone has no rail to extend,
               // so it keeps the original push.
@@ -797,7 +801,7 @@ export default function AccountScreen() {
               router.push('/my-aircraft' as any)
             }}
             trailing={
-              !isPro ? (
+              !hasProAccess ? (
                 <Icon name="lock.fill" size={fs(14)} color={tokens.t4} />
               ) : fleetStatus ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
@@ -823,7 +827,7 @@ export default function AccountScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>AC Update Alerts</Text>
-              {!isPro && (
+              {!hasProAccess && (
                 <View style={[styles.premBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
                   <Text style={[styles.premBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>PRO</Text>
                 </View>
@@ -845,7 +849,7 @@ export default function AccountScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>DailyReg</Text>
-              {!isPro && (
+              {!hasProAccess && (
                 <View style={[styles.premBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
                   <Text style={[styles.premBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>PRO</Text>
                 </View>
@@ -863,7 +867,7 @@ export default function AccountScreen() {
           </View>
           <View style={[styles.row, { borderBottomWidth: 0 }]}>
             <View style={styles.rowIcon}>
-              <Icon name="bolt.fill" size={fs(17)} color={tokens.t2} />
+              <Icon name="trophy" size={fs(17)} color={tokens.t2} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>Duel Alerts</Text>
@@ -897,7 +901,7 @@ export default function AccountScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>Show me on the Ready Room leaderboard</Text>
-              {!isPro && (
+              {!hasProAccess && (
                 <View style={[styles.premBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
                   <Text style={[styles.premBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>PRO</Text>
                 </View>

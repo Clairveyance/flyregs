@@ -18,13 +18,19 @@ export async function unshareFolder(folderId: string): Promise<void> {
 const FOLDERS_KEY = '@flyregs/folders'
 const FOLDER_ITEMS_KEY = '@flyregs/folder_items'
 
-// Pro is capped at this many folders; Premium is unlimited (RC, 2026-08-11:
-// folders require Pro, corrected from an earlier Plus-tier gate -- see
-// gotcha_gating_sweep_2026_08_11.md). Shared here so every folder-creation
-// entry point (Saved tab's own "New Folder", and FolderPicker.tsx's -- opened
-// from AC/AD/LOI/etc. detail screens) enforces the same number instead of
-// each keeping its own copy that can drift, or in FolderPicker's case,
-// previously had no cap check at all.
+// Plus and Pro are both capped at this many folders; Premium is unlimited.
+// RC, 2026-08-14, direct correction: "my quote has nothing to do with
+// folders, h/l, etc. -- ONLY the 'bu/s' feature itself... All of those
+// things are supposed to be part of Plus. It's just the bu/s feature that
+// gets gated to Pro/Prem." A prior pass (2026-08-11, gotcha_gating_sweep_
+// 2026_08_11.md) had moved folder/note/bookmark/highlight CREATION itself
+// to Pro on a misreading of that same quote -- reverted here. This constant
+// keeps its historical "PRO_" name (matching this codebase's own precedent
+// of not renaming a symbol for a name-only change, see enforce_bookmark_
+// plus_gate()'s comment) even though Plus now uses the same value -- Pro's
+// only real difference is that its folders can also be synced across
+// devices via the separate "Back up & sync" toggle (hasProAccess-gated,
+// unchanged by this correction).
 export const PRO_FOLDER_CAP = 3
 
 export interface Folder {
@@ -53,7 +59,7 @@ export interface Folder {
 // 'far'/'aim'/'pcg'/'ad'/'dictionary' item_ids are the section_number/
 // paragraph_number/slug/id/slug string each type's own detail route keys
 // on (not necessarily a uuid) -- same shape AC ids already had.
-export type FolderItemType = 'ac' | 'far' | 'aim' | 'pcg' | 'ad' | 'loi' | 'dictionary' | 'note'
+export type FolderItemType = 'ac' | 'far' | 'aim' | 'pcg' | 'ad' | 'loi' | 'dictionary' | 'note' | 'cfr49'
 
 export interface FolderItem {
   id: string

@@ -7,6 +7,11 @@ import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
+import { FindFriendsSheet } from '@/components/FindFriendsSheet'
+import { resolveCallsignToUserId } from '@/lib/contactMatch'
+import { useConfirm } from '@/components/ConfirmDialog'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 import {
   getReadyRoomLeaderboard, getDuelsLeaderboard, getMasteryLeaderboard,
   LeaderboardRow, DuelsLeaderboardRow, MasteryLeaderboardRow,
@@ -27,12 +32,42 @@ type LbTab = 'study' | 'duels' | 'mastery'
 export default function ReadyRoomScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { isPro, isPremium } = useAuth()
+  // hasProAccess (isPro || isPremium), not bare isPro -- same bug pattern
+  // found and fixed in study.tsx and search.tsx's openStudy (2026-08-14): a
+  // genuine Premium subscriber shaped isPro:false/isPremium:true (a real
+  // shape for admin/comp-granted entitlements) would be locked out of Ready
+  // Room entirely even though it's a Pro-tier-and-above feature they're
+  // fully entitled to. isPremium itself stays bare below (the Duels button)
+  // since Duels really is Premium-only, not Pro-and-above.
+  const { isPremium, hasProAccess } = useAuth()
+  const confirm = useConfirm()
   const [tab, setTab] = useState<LbTab>('study')
   const [loading, setLoading] = useState(true)
   const [studyRows, setStudyRows] = useState<LeaderboardRow[]>([])
   const [duelsRows, setDuelsRows] = useState<DuelsLeaderboardRow[]>([])
   const [masteryRows, setMasteryRows] = useState<MasteryLeaderboardRow[]>([])
+  const [findFriendsVisible, setFindFriendsVisible] = useState(false)
+  // A leaderboard row's display name can run long and get cut off the same
+  // way FAR Part titles do -- same hook/card pair as far/index.tsx's own
+  // long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
+
+  // A matched contact is real (their account exists) but may not be
+  // opted into the leaderboard this screen otherwise only shows --
+  // resolve straight to their profile rather than silently requiring
+  // them to also be leaderboard-visible just to be found this way.
+  const handleFriendSelected = async (callsign: string) => {
+    try {
+      const userId = await resolveCallsignToUserId(callsign)
+      if (!userId) {
+        confirm({ title: 'Not Found', message: `${callsign} couldn't be found right now.`, cancelLabel: null })
+        return
+      }
+      router.push(`/profile/${userId}?label=${encodeURIComponent(callsign)}` as any)
+    } catch (e: any) {
+      confirm({ title: 'Something Went Wrong', message: e?.message ?? 'Please try again.', cancelLabel: null })
+    }
+  }
 
   const load = useCallback((t: LbTab) => {
     setLoading(true)
@@ -49,10 +84,10 @@ export default function ReadyRoomScreen() {
   }, [])
 
   useEffect(() => {
-    if (isPro) load(tab)
-  }, [isPro, tab, load])
+    if (hasProAccess) load(tab)
+  }, [hasProAccess, tab, load])
 
-  if (!isPro) {
+  if (!hasProAccess) {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>
         <OverlayHeader title="Ready Room" onBack={() => router.back()} />
@@ -81,17 +116,22 @@ export default function ReadyRoomScreen() {
   // a Pro user got a surprise paywall one tap after arriving here with no
   // upfront signal. Same fix as the Community hub card's own Duels entry.
   const headerRight = (
-    <Pressable
-      onPress={() => router.push(isPremium ? '/challenges' : ('/paywall?tier=premium' as any))}
-      hitSlop={12}
-      style={{ padding: 4 }}
-    >
-      {isPremium ? (
-        <Icon name="bolt.fill" size={fs(20)} color={tokens.gold} />
-      ) : (
-        <Icon name="lock.fill" size={fs(18)} color={tokens.t4} />
-      )}
-    </Pressable>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+      <Pressable onPress={() => setFindFriendsVisible(true)} hitSlop={12} style={{ padding: 4 }}>
+        <Icon name="person.2" size={fs(20)} color={tokens.blu} />
+      </Pressable>
+      <Pressable
+        onPress={() => router.push(isPremium ? '/challenges' : ('/paywall?tier=premium' as any))}
+        hitSlop={12}
+        style={{ padding: 4 }}
+      >
+        {isPremium ? (
+          <Icon name="trophy" size={fs(20)} color={tokens.gold} />
+        ) : (
+          <Icon name="lock.fill" size={fs(18)} color={tokens.t4} />
+        )}
+      </Pressable>
+    </View>
   )
 
   const openProfile = (userId: string, displayLabel: string) =>
@@ -103,7 +143,7 @@ export default function ReadyRoomScreen() {
       sub: 'Turn on "Show me on the Ready Room leaderboard" in Account > The Wing, then study this week to be the first name on the board.',
     },
     duels: {
-      icon: 'bolt.fill', title: 'No duels yet',
+      icon: 'trophy', title: 'No duels yet',
       sub: 'Turn on "Show me on the Ready Room leaderboard" in Account > The Wing, then challenge another player to be the first name on the board.',
     },
     mastery: {
@@ -124,7 +164,12 @@ export default function ReadyRoomScreen() {
             style={[styles.tabBtn, tab === t && { backgroundColor: tokens.blu }]}
             onPress={() => setTab(t)}
           >
-            <Text style={[styles.tabBtnText, { color: tab === t ? '#fff' : tokens.t3, fontSize: fs(13) }]}>
+            <Text
+              style={[styles.tabBtnText, { color: tab === t ? '#fff' : tokens.t3, fontSize: fs(13) }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+            >
               {t === 'study' ? 'Study Activity' : t === 'duels' ? 'Duels' : 'Mastery'}
             </Text>
           </Pressable>
@@ -154,9 +199,15 @@ export default function ReadyRoomScreen() {
             renderItem={({ item, index }) => (
               <Pressable
                 style={[styles.row, { backgroundColor: item.isMe ? tokens.goldlt : tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => openProfile(item.userId, item.displayLabel)}
+                onPress={() => {
+                  if (consumeLongPress()) return
+                  openProfile(item.userId, item.displayLabel)
+                }}
+                onLongPress={(e) => showPreview(item.isMe ? 'You' : item.displayLabel, e)}
+                onPressOut={hidePreview}
+                delayLongPress={350}
               >
-                <Text style={[styles.rank, { color: item.isMe ? tokens.gold : tokens.t4, fontSize: fs(11.5) }]}>
+                <Text numberOfLines={1} style={[styles.rank, { color: item.isMe ? tokens.gold : tokens.t4, fontSize: fs(11.5) }]}>
                   {String(index + 1).padStart(2, '0')}
                 </Text>
                 <Text style={[styles.name, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
@@ -179,9 +230,15 @@ export default function ReadyRoomScreen() {
             renderItem={({ item, index }) => (
               <Pressable
                 style={[styles.row, { backgroundColor: item.isMe ? tokens.goldlt : tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => openProfile(item.userId, item.displayLabel)}
+                onPress={() => {
+                  if (consumeLongPress()) return
+                  openProfile(item.userId, item.displayLabel)
+                }}
+                onLongPress={(e) => showPreview(item.isMe ? 'You' : item.displayLabel, e)}
+                onPressOut={hidePreview}
+                delayLongPress={350}
               >
-                <Text style={[styles.rank, { color: item.isMe ? tokens.gold : tokens.t4, fontSize: fs(11.5) }]}>
+                <Text numberOfLines={1} style={[styles.rank, { color: item.isMe ? tokens.gold : tokens.t4, fontSize: fs(11.5) }]}>
                   {String(index + 1).padStart(2, '0')}
                 </Text>
                 <Text style={[styles.name, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
@@ -205,9 +262,15 @@ export default function ReadyRoomScreen() {
             renderItem={({ item, index }) => (
               <Pressable
                 style={[styles.row, { backgroundColor: item.isMe ? tokens.goldlt : tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => openProfile(item.userId, item.displayLabel)}
+                onPress={() => {
+                  if (consumeLongPress()) return
+                  openProfile(item.userId, item.displayLabel)
+                }}
+                onLongPress={(e) => showPreview(item.isMe ? 'You' : item.displayLabel, e)}
+                onPressOut={hidePreview}
+                delayLongPress={350}
               >
-                <Text style={[styles.rank, { color: item.isMe ? tokens.gold : tokens.t4, fontSize: fs(11.5) }]}>
+                <Text numberOfLines={1} style={[styles.rank, { color: item.isMe ? tokens.gold : tokens.t4, fontSize: fs(11.5) }]}>
                   {String(index + 1).padStart(2, '0')}
                 </Text>
                 <Text style={[styles.name, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
@@ -220,6 +283,17 @@ export default function ReadyRoomScreen() {
         )}
         </TabletContainer>
       )}
+      <FindFriendsSheet
+        visible={findFriendsVisible}
+        onClose={() => setFindFriendsVisible(false)}
+        onSelect={handleFriendSelected}
+      />
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }
@@ -243,7 +317,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 10,
     borderRadius: 10, borderWidth: 1, paddingVertical: 11, paddingHorizontal: 14, marginBottom: 6,
   },
-  rank: { fontWeight: '700', width: 22, fontVariant: ['tabular-nums'] },
+  rank: { fontWeight: '700', minWidth: 22, fontVariant: ['tabular-nums'] },
   name: { flex: 1, fontWeight: '500' },
   score: { fontWeight: '600', fontVariant: ['tabular-nums'] },
 })

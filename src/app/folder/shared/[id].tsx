@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, Modal, ScrollView, TextInput, RefreshControl, KeyboardAvoidingView, Platform } from 'react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
+import { useAuth } from '@/context/auth'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
@@ -10,7 +11,7 @@ import { supabase } from '@/lib/supabase'
 import {
   getSharedFolderACItems, getSharedFolderNoteItems, leaveSharedFolder, markSharedFolderViewed,
   getSharedFolderFARItems, getSharedFolderAIMItems, getSharedFolderPCGItems, getSharedFolderADItems, getSharedFolderLOIItems,
-  getSharedFolderDictionaryItems, FolderCollabMode, removeSharedFolderItem, addSharedFolderNote, updateSharedNote,
+  getSharedFolderDictionaryItems, getSharedFolderCfr49Items, FolderCollabMode, removeSharedFolderItem, addSharedFolderNote, updateSharedNote,
   resolveMissingAsHighlights, useFolderRealtime, SharedNoteAccessLostError,
 } from '@/lib/sharedFolders'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
@@ -21,6 +22,8 @@ import { stripFarPrefix } from '@/lib/titleFormat'
 import { getACIndex, detectACs, ACIndexEntry } from '@/lib/acIndex'
 import { getFarIndex, getAimIndex, getAdIndex, getPcgIndex, detectFARs, detectAIMs, detectADs, detectPCGs, PcgIndexEntry } from '@/lib/regIndex'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 interface ACRow {
   id: string
@@ -57,7 +60,11 @@ interface NoteRow {
 // shows up.
 const HIGHLIGHT_BG = 'rgba(255, 213, 0, 0.12)'
 const HIGHLIGHT_BDR = 'rgba(255, 213, 0, 0.4)'
+// #8a6d00 (dark mustard) reads fine against Light's near-white bg (~4.9:1)
+// but measured ~3:1 against Dark's near-black bg -- under WCAG AA's 4.5:1
+// for text this small. Same gap and same fix as saved.tsx's identical tag.
 const HIGHLIGHT_TEXT = '#8a6d00'
+const HIGHLIGHT_TEXT_DARK = '#E0C040'
 const HIGHLIGHT_BG_REDSHIFT = 'rgba(224, 86, 46, 0.16)'
 const HIGHLIGHT_BDR_REDSHIFT = 'rgba(224, 86, 46, 0.45)'
 const HIGHLIGHT_TEXT_REDSHIFT = '#FF9A6B'
@@ -72,7 +79,7 @@ const HIGHLIGHT_TEXT_REDSHIFT = '#FF9A6B'
 interface RegRow {
   id: string
   itemRowId: string
-  regType: 'far' | 'aim' | 'pcg' | 'ad' | 'loi' | 'dictionary'
+  regType: 'far' | 'aim' | 'pcg' | 'ad' | 'loi' | 'dictionary' | 'cfr49'
   label: string
   title: string
   route: string
@@ -90,6 +97,7 @@ const REG_SECTION_TITLE: Record<RegRow['regType'], string> = {
   ad: 'AIRWORTHINESS DIRECTIVES',
   loi: 'LEGAL INTERPRETATIONS',
   dictionary: 'AVIATION DICTIONARY',
+  cfr49: '49 CFR',
 }
 
 function timeAgo(iso: string): string {
@@ -107,7 +115,7 @@ function timeAgo(iso: string): string {
 // gated the same as anywhere else in the app: full text needs your OWN
 // Pro/Premium subscription, being invited here doesn't unlock it).
 export default function SharedFolderDetail() {
-  const { tokens, redShift } = useTheme()
+  const { tokens, redShift, resolved } = useTheme()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web, so these confirms (and the deletes behind them) were
   // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
@@ -115,6 +123,7 @@ export default function SharedFolderDetail() {
   const fs = useFS()
   const ifs = useInputFS()
   const { id } = useLocalSearchParams<{ id: string }>()
+  const { session } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const [folderName, setFolderName] = useState('')
   const [ownerName, setOwnerName] = useState<string | null>(null)
@@ -125,6 +134,10 @@ export default function SharedFolderDetail() {
   const [loading, setLoading] = useState(true)
   const [removed, setRemoved] = useState(false)
   const [openNote, setOpenNote] = useState<NoteRow | null>(null)
+  // Item titles on this screen can run long and get cut off the same way
+  // FAR Part titles do -- same hook/card pair as far/index.tsx's own
+  // long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
   const [noteEditing, setNoteEditing] = useState(false)
   const [noteEditTitle, setNoteEditTitle] = useState('')
   const [noteEditBody, setNoteEditBody] = useState('')
@@ -154,8 +167,23 @@ export default function SharedFolderDetail() {
   const load = useCallback(async () => {
     if (typeof id !== 'string') return
     setLoading(true)
-    const [{ data: folder }, acItems, noteItems, farItems, aimItems, pcgItems, adItems, loiItems, dictItems] = await Promise.all([
+    // Per-invitee mode, not the folder's owner-set default (BB-077 added a
+    // per-collaborator collab_mode specifically so one person can have
+    // write access and another read-only on the same folder -- reading
+    // synced_folders.collab_mode here instead showed every collaborator
+    // the OWNER's current "new invites get..." default, which drifts from
+    // an already-accepted collaborator's real access the moment the owner
+    // changes that default afterward (invite_folder_collaborator/
+    // join_shared_folder both freeze collab_mode on the folder_collaborators
+    // row at invite/accept time, they never retroactively update it). A
+    // collaborator can read their own row -- confirmed live, RLS scopes it
+    // to auth.uid() -- so this is safe without a new policy.
+    const myId = session?.user.id
+    const [{ data: folder }, { data: myCollab }, acItems, noteItems, farItems, aimItems, pcgItems, adItems, loiItems, dictItems, cfr49Items] = await Promise.all([
       supabase.from('synced_folders').select('name, collab_mode').eq('id', id).eq('deleted', false).maybeSingle(),
+      myId
+        ? supabase.from('folder_collaborators').select('collab_mode').eq('folder_id', id).eq('user_id', myId).is('left_at', null).maybeSingle()
+        : Promise.resolve({ data: null }),
       getSharedFolderACItems(id),
       getSharedFolderNoteItems(id),
       getSharedFolderFARItems(id),
@@ -164,6 +192,7 @@ export default function SharedFolderDetail() {
       getSharedFolderADItems(id),
       getSharedFolderLOIItems(id),
       getSharedFolderDictionaryItems(id),
+      getSharedFolderCfr49Items(id),
     ])
     if (!folder) {
       setRemoved(true)
@@ -171,7 +200,11 @@ export default function SharedFolderDetail() {
       return
     }
     setFolderName(folder.name)
-    setCollabMode((folder.collab_mode as FolderCollabMode) ?? 'read_only')
+    // Falls back to the folder default only if my own collaborator row
+    // somehow didn't resolve (e.g. RLS/network hiccup) -- never the other
+    // way around, since the per-invitee value is the one the backend
+    // actually enforces on every write.
+    setCollabMode(((myCollab?.collab_mode ?? folder.collab_mode) as FolderCollabMode) ?? 'read_only')
 
     // Best-effort -- owner name is a nice-to-have, not load-bearing.
     try {
@@ -235,7 +268,8 @@ export default function SharedFolderDetail() {
     const adIds = adItems.map((i) => i.item_id)
     const loiIds = loiItems.map((i) => i.item_id)
     const dictIds = dictItems.map((i) => i.item_id)
-    const [farRows, aimRows, pcgRows, adRows, loiRows, dictRows] = await Promise.all([
+    const cfr49Ids = cfr49Items.map((i) => i.item_id)
+    const [farRows, aimRows, pcgRows, adRows, loiRows, dictRows, cfr49Rows] = await Promise.all([
       farIds.length
         ? supabase.from('far_sections').select('section_number, title').in('section_number', farIds)
         : Promise.resolve({ data: [] }),
@@ -256,6 +290,9 @@ export default function SharedFolderDetail() {
       dictIds.length
         ? supabase.from('dictionary_terms').select('slug, term').in('slug', dictIds)
         : Promise.resolve({ data: [] }),
+      cfr49Ids.length
+        ? supabase.from('cfr49_sections').select('section_number, title').in('section_number', cfr49Ids)
+        : Promise.resolve({ data: [] }),
     ])
     const rowIdFor = (list: { id: string; item_id: string }[], itemId: string) => list.find((i) => i.item_id === itemId)?.id ?? ''
 
@@ -268,12 +305,14 @@ export default function SharedFolderDetail() {
     const pcgMatched = new Set((pcgRows.data ?? []).map((r: any) => r.slug))
     const adMatched = new Set((adRows.data ?? []).map((r: any) => r.ad_number))
     const loiMatched = new Set((loiRows.data ?? []).map((r: any) => r.slug))
-    const [farHl, aimHl, pcgHl, adHl, loiHl] = await Promise.all([
+    const cfr49Matched = new Set((cfr49Rows.data ?? []).map((r: any) => r.section_number))
+    const [farHl, aimHl, pcgHl, adHl, loiHl, cfr49Hl] = await Promise.all([
       resolveMissingAsHighlights('far', farIds.filter((i) => !farMatched.has(i)), () => ''),
       resolveMissingAsHighlights('aim', aimIds.filter((i) => !aimMatched.has(i)), () => ''),
       resolveMissingAsHighlights('pcg', pcgIds.filter((i) => !pcgMatched.has(i)), () => ''),
       resolveMissingAsHighlights('ad', adIds.filter((i) => !adMatched.has(i)), () => ''),
       resolveMissingAsHighlights('loi', loiIds.filter((i) => !loiMatched.has(i)), () => ''),
+      resolveMissingAsHighlights('cfr49', cfr49Ids.filter((i) => !cfr49Matched.has(i)), () => ''),
     ])
     // Routes use acId (the real section/paragraph/slug/ad number the
     // highlight points back to), never document_number -- for P/CG those
@@ -287,11 +326,13 @@ export default function SharedFolderDetail() {
       ...(adRows.data ?? []).map((r: any): RegRow => ({ id: r.ad_number, itemRowId: rowIdFor(adItems, r.ad_number), regType: 'ad', label: r.ad_number, title: r.subject_heading, route: `/ad/${r.ad_number}` })),
       ...(loiRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, itemRowId: rowIdFor(loiItems, r.slug), regType: 'loi', label: r.slug, title: r.title, route: `/loi/${r.slug}` })),
       ...(dictRows.data ?? []).map((r: any): RegRow => ({ id: r.slug, itemRowId: rowIdFor(dictItems, r.slug), regType: 'dictionary', label: r.term, title: r.term, route: `/dictionary/${r.slug}` })),
+      ...(cfr49Rows.data ?? []).map((r: any): RegRow => ({ id: r.section_number, itemRowId: rowIdFor(cfr49Items, r.section_number), regType: 'cfr49', label: `§ ${r.section_number}`, title: r.title, route: `/cfr49/${r.section_number}` })),
       ...farHl.map((h): RegRow => ({ id: h.id, itemRowId: rowIdFor(farItems, h.id), regType: 'far', label: `§ ${h.document_number}`, title: h.title, route: hlRoute('/far', h), blockText: h.blockText, blockLabel: h.blockLabel, blockSnippet: h.blockSnippet })),
       ...aimHl.map((h): RegRow => ({ id: h.id, itemRowId: rowIdFor(aimItems, h.id), regType: 'aim', label: h.document_number, title: h.title, route: hlRoute('/aim', h), blockText: h.blockText, blockLabel: h.blockLabel, blockSnippet: h.blockSnippet })),
       ...pcgHl.map((h): RegRow => ({ id: h.id, itemRowId: rowIdFor(pcgItems, h.id), regType: 'pcg', label: h.document_number, title: h.title, route: hlRoute('/pcg', h), blockText: h.blockText, blockLabel: h.blockLabel, blockSnippet: h.blockSnippet })),
       ...adHl.map((h): RegRow => ({ id: h.id, itemRowId: rowIdFor(adItems, h.id), regType: 'ad', label: h.document_number, title: h.title, route: hlRoute('/ad', h), blockText: h.blockText, blockLabel: h.blockLabel, blockSnippet: h.blockSnippet })),
       ...loiHl.map((h): RegRow => ({ id: h.id, itemRowId: rowIdFor(loiItems, h.id), regType: 'loi', label: h.document_number, title: h.title, route: hlRoute('/loi', h), blockText: h.blockText, blockLabel: h.blockLabel, blockSnippet: h.blockSnippet })),
+      ...cfr49Hl.map((h): RegRow => ({ id: h.id, itemRowId: rowIdFor(cfr49Items, h.id), regType: 'cfr49', label: `§ ${h.document_number}`, title: h.title, route: hlRoute('/cfr49', h), blockText: h.blockText, blockLabel: h.blockLabel, blockSnippet: h.blockSnippet })),
     ])
 
     setLoading(false)
@@ -394,7 +435,7 @@ export default function SharedFolderDetail() {
 
   const sections: { title: string; data: (ACRow | NoteRow | RegRow)[] }[] = [
     ...(acs.length ? [{ title: 'ADVISORY CIRCULARS', data: acs as (ACRow | NoteRow | RegRow)[] }] : []),
-    ...(['far', 'aim', 'pcg', 'ad', 'loi', 'dictionary'] as const)
+    ...(['far', 'aim', 'pcg', 'ad', 'loi', 'dictionary', 'cfr49'] as const)
       .map((regType) => ({ title: REG_SECTION_TITLE[regType], data: regs.filter((r) => r.regType === regType) as (ACRow | NoteRow | RegRow)[] }))
       .filter((s) => s.data.length > 0),
     ...(notes.length ? [{ title: 'NOTES', data: notes as (ACRow | NoteRow | RegRow)[] }] : []),
@@ -459,14 +500,22 @@ export default function SharedFolderDetail() {
             'regType' in item ? (
               <Pressable
                 style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => router.push(item.route as any)}
+                onPress={() => {
+                  if (consumeLongPress()) return
+                  router.push(item.route as any)
+                }}
+                onLongPress={(e) => {
+                  if (!item.blockText && item.regType !== 'pcg') showPreview(stripFarPrefix(item.title), e)
+                }}
+                onPressOut={hidePreview}
+                delayLongPress={350}
               >
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.rowDoc, { color: tokens.blu, fontSize: fs(13) }]}>{item.label}</Text>
                   {item.blockText ? (
                     <View style={[styles.highlightTag, { backgroundColor: redShift ? HIGHLIGHT_BG_REDSHIFT : HIGHLIGHT_BG, borderColor: redShift ? HIGHLIGHT_BDR_REDSHIFT : HIGHLIGHT_BDR }]}>
-                      <Icon name="highlighter" size={fs(11)} color={redShift ? HIGHLIGHT_TEXT_REDSHIFT : HIGHLIGHT_TEXT} />
-                      <Text style={[styles.highlightTagText, { color: redShift ? HIGHLIGHT_TEXT_REDSHIFT : HIGHLIGHT_TEXT, fontSize: fs(10.5) }]} numberOfLines={1}>
+                      <Icon name="highlighter" size={fs(11)} color={redShift ? HIGHLIGHT_TEXT_REDSHIFT : resolved === 'dark' ? HIGHLIGHT_TEXT_DARK : HIGHLIGHT_TEXT} />
+                      <Text style={[styles.highlightTagText, { color: redShift ? HIGHLIGHT_TEXT_REDSHIFT : resolved === 'dark' ? HIGHLIGHT_TEXT_DARK : HIGHLIGHT_TEXT, fontSize: fs(10.5) }]} numberOfLines={1}>
                         {item.blockLabel ? `§ ${item.blockLabel} ` : ''}{item.blockSnippet}
                       </Text>
                     </View>
@@ -487,10 +536,16 @@ export default function SharedFolderDetail() {
               <Pressable
                 style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
                 onPress={() => {
+                  if (consumeLongPress()) return
                   const acId = item.acId ?? item.id
                   const hlText = item.blockText ? `?hlText=${encodeURIComponent(item.blockText.slice(0, 120))}` : ''
                   router.push(`/ac/${acId}${hlText}` as any)
                 }}
+                onLongPress={(e) => {
+                  if (!item.blockText) showPreview(stripFarPrefix(item.title), e)
+                }}
+                onPressOut={hidePreview}
+                delayLongPress={350}
               >
                 <View style={{ flex: 1 }}>
                   <View style={styles.rowNumBadgeWrap}>
@@ -508,8 +563,8 @@ export default function SharedFolderDetail() {
                   </View>
                   {item.blockText ? (
                     <View style={[styles.highlightTag, { backgroundColor: redShift ? HIGHLIGHT_BG_REDSHIFT : HIGHLIGHT_BG, borderColor: redShift ? HIGHLIGHT_BDR_REDSHIFT : HIGHLIGHT_BDR }]}>
-                      <Icon name="highlighter" size={fs(11)} color={redShift ? HIGHLIGHT_TEXT_REDSHIFT : HIGHLIGHT_TEXT} />
-                      <Text style={[styles.highlightTagText, { color: redShift ? HIGHLIGHT_TEXT_REDSHIFT : HIGHLIGHT_TEXT, fontSize: fs(10.5) }]} numberOfLines={1}>
+                      <Icon name="highlighter" size={fs(11)} color={redShift ? HIGHLIGHT_TEXT_REDSHIFT : resolved === 'dark' ? HIGHLIGHT_TEXT_DARK : HIGHLIGHT_TEXT} />
+                      <Text style={[styles.highlightTagText, { color: redShift ? HIGHLIGHT_TEXT_REDSHIFT : resolved === 'dark' ? HIGHLIGHT_TEXT_DARK : HIGHLIGHT_TEXT, fontSize: fs(10.5) }]} numberOfLines={1}>
                         {item.blockLabel ? `§ ${item.blockLabel} ` : ''}{item.blockSnippet}
                       </Text>
                     </View>
@@ -529,7 +584,13 @@ export default function SharedFolderDetail() {
             ) : (
               <Pressable
                 style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                onPress={() => handleOpenNote(item)}
+                onPress={() => {
+                  if (consumeLongPress()) return
+                  handleOpenNote(item)
+                }}
+                onLongPress={(e) => showPreview(item.title || 'Untitled', e)}
+                onPressOut={hidePreview}
+                delayLongPress={350}
               >
                 <View style={[styles.typeBadge, { backgroundColor: tokens.gdim, borderColor: tokens.gbdr }]}>
                   <Text style={[styles.typeBadgeText, { color: tokens.grn, fontSize: fs(9.5) }]}>NOTE</Text>
@@ -789,6 +850,12 @@ export default function SharedFolderDetail() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }

@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, RefObject } from 'react'
+import { Keyboard } from 'react-native'
 
 export interface InDocSearchTarget {
   scrollToMatch: (idx: number) => void
@@ -30,8 +31,16 @@ export function useInDocSearch(bodyRef: RefObject<InDocSearchTarget | null>) {
     if (debounceRef.current) clearTimeout(debounceRef.current)
   }, [])
 
+  // Keyboard.dismiss() before jumping -- ac/[id].tsx's own original (pre-
+  // extraction) version of this hook had this; it got dropped when this
+  // logic was pulled out into a shared hook for FAR/AIM/PCG/AD/LOI, a real
+  // regression RC caught live ("tap to dismiss stopped working... when
+  // using indoc search"). Without it, a "centered" match can land behind
+  // the still-open keyboard, which covers the bottom of the screen while
+  // the search TextInput still has focus.
   const goToPrev = useCallback(() => {
     if (matchCount === 0) return
+    Keyboard.dismiss()
     const next = (matchIdx - 1 + matchCount) % matchCount
     setMatchIdx(next)
     setTimeout(() => bodyRef.current?.scrollToMatch(next), 50)
@@ -39,6 +48,7 @@ export function useInDocSearch(bodyRef: RefObject<InDocSearchTarget | null>) {
 
   const goToNext = useCallback(() => {
     if (matchCount === 0) return
+    Keyboard.dismiss()
     const next = (matchIdx + 1) % matchCount
     setMatchIdx(next)
     setTimeout(() => bodyRef.current?.scrollToMatch(next), 50)

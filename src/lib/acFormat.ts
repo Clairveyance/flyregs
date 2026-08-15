@@ -10,7 +10,7 @@ import { needsOcrArtifactRepair } from './ocrScannedACs'
 
 export type ACBlock =
   | { kind: 'chapter'; id: string; text: string }
-  | { kind: 'section'; id: string; label: string; title: string; body: string }
+  | { kind: 'section'; id: string; label: string; title: string; body: string; isChangeNotice?: boolean }
   | { kind: 'item'; level: number; label: string; title: string; body: string }
   | { kind: 'para'; text: string }
 
@@ -44,7 +44,7 @@ export function cleanGlyphs(s: string): string {
 
 // Schema version for precomputed pdf_blocks — bump when the parser output shape
 // changes so a backfill can tell which rows need reprocessing.
-export const AC_FORMAT_VERSION = 35
+export const AC_FORMAT_VERSION = 39
 
 // Free-tier body preview: just enough to show how the app is organized, not
 // a real read of the content. Was a 20%-floored-at-3 formula (let short ACs
@@ -327,16 +327,43 @@ const ITEM_A = /^([a-z]\.)\s+(.*)$/ // a. ...
 const ITEM_N = /^(\(\d+\))\s+(.*)$/ // (1) ...
 const ITEM_L = /^(\([a-z]\))\s+(.*)$/ // (a) ...
 
-function isPageMarker(l: string): boolean {
+// Escapes regex metacharacters so a document's own number (which can contain
+// "/" and "." — e.g. "150/5300-13B") is safe to embed literally in a pattern.
+function escapeRegExpLiteral(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function isPageMarker(l: string, documentNumber?: string): boolean {
   if (l.length > 44) return false
   const hasDate = /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(l)
   const hasAC = /\bAC\s+[\dA-Z][\dA-Z-]*/i.test(l)
   if (hasDate && hasAC) return true
   if (/^Page\s+[\divxlc]+\b/i.test(l)) return true
+  // A bare self-citation of THIS document's own number, alone on its own
+  // line, optionally with a "CHG N"/"Change N" revision suffix -- e.g. "AC
+  // 00-31A" or "AC 20-146A CHG 1". Confirmed real and corpus-wide, not a
+  // one-off: 49 ACs / 1187 occurrences carry this exact running
+  // page-header/footer shape (found while checking the rest of the corpus
+  // for footer patterns similar to the "Page N Par M" and "<ref> Change N"
+  // bugs fixed earlier this session). PDF text extraction sometimes splits
+  // what's really a single-line footer ("9/20/82    AC 00-31A", already
+  // caught by hasDate && hasAC above) onto two separate lines depending on
+  // the page's column layout -- this catches the split-off "AC ..." half.
+  // Scoped to THIS document's own number specifically (not any bare "AC
+  // ..." line) so a legitimate references list citing a DIFFERENT AC by
+  // number, one per line, is never mistaken for a footer -- a real running
+  // footer is always self-referential, so this loses no real matches.
+  if (documentNumber) {
+    const selfRE = new RegExp(
+      `^AC\\s+${escapeRegExpLiteral(documentNumber)}(?:\\s*,?\\s*(?:CHG|Change)\\s*\\d*)?$`,
+      'i'
+    )
+    if (selfRE.test(l)) return true
+  }
   return false
 }
 
-function isNoise(l: string): boolean {
+function isNoise(l: string, documentNumber?: string): boolean {
   return (
     l === '' ||
     /^\d{1,4}$/.test(l) || // bare page number
@@ -344,10 +371,152 @@ function isNoise(l: string): boolean {
     /^\d+\.\d+$/.test(l) || // standalone decimal (chart axis labels: 0.9, 1.3)
     /^[A-Z]\d{0,1}-\d{1,3}$/.test(l) || // appendix page numbers: "A-8", "A3-1"
     /^Appendix\s+[A-Z]$/.test(l) || // bare "Appendix A" page-header fragment (no period/title)
+    /^Appendix\s+\d{1,3}$/.test(l) || // same, numbered appendices ("Appendix 1") -- confirmed corpus-wide: 44 ACs / 593 occurrences, same running-header shape as the lettered form just above, split across page columns the same way "AC <doc>" is (see isPageMarker's comment)
+    /^Chap\s+\d{1,3}$/i.test(l) || // FAA footer "Chap 2" (paired with the already-handled "Par N" footer on the next line) -- 7 ACs / 176 occurrences
     /^Par\b/.test(l) || // FAA footer "Par 1-1"
-    isPageMarker(l) ||
+    isPageMarker(l, documentNumber) ||
     /^(CONTENTS|TABLE OF CONTENTS|LIST OF (FIGURES|TABLES|EFFECTIVE PAGES))\s*$/i.test(l)
   )
+}
+
+// Capture each numbered "Change N" revision-notice cover page found in the
+// document's preamble as its own clearly-labeled block, instead of silently
+// discarding all of it (parseAC's Step 1 used to just slice the whole
+// preamble away and drop it on the floor). RC: "make sure those 'Change 1'
+// 'Change 2' etc are properly formatted and identified (this goes for all
+// similar situations corpus wide)."
+//
+// These are APPENDED after the real document body (see the two return
+// statements at the bottom of parseAC), not prepended -- even though the
+// FAA prints these transmittal cover pages FIRST in the source PDF. RC's own
+// mental model of how amendment history should read: "the original text is
+// listed, then the Changes are placed in seq after that original body of
+// text (almost like separate chapters)" -- a reader opening an AC wants the
+// current regulatory content first, with amendment history available after,
+// not 2-9 revision blurbs standing between them and "1. PURPOSE." Each is
+// also flagged isChangeNotice: true so ACBody can render it as a visually
+// distinct card instead of a plain section heading indistinguishable from
+// real body content -- RC: "as a user scrolls through the body of a reg,
+// these areas [need to] stand out clearly."
+//
+// `markers` reuses Step 1's own marker regex verbatim so the boundaries
+// this function finds are guaranteed identical to the ones Step 1 uses to
+// decide where the real body starts -- no risk of the two disagreeing.
+// Every marker (numbered OR the undigited "Change:" baseline header) is
+// tracked as a boundary; only the numbered ones get emitted as blocks. This
+// matters for the LAST numbered marker specifically: its body must stop at
+// the very next marker (which is usually the ORIGINAL document's own bare
+// "Change:" header), not run all the way to the end of the preamble --
+// otherwise the original document's own real "1. PURPOSE..." opening would
+// get captured as if it were part of the last Change notice's body, then
+// shown AGAIN when the main body parse renders the real section right
+// after. Verified against multiple real multi-Change ACs (61-67C, 90-100A)
+// before shipping, not just one example -- the letterhead/Subject/Date/
+// Initiated-by shape is consistent across both despite different job
+// titles, signers, and minor line-wrap differences in "U.S." itself.
+// A bare "Change N" or "Change:" match (see markerRE below and chgRE further
+// down) can ALSO be a running page-footer/header artifact repeated on every
+// page of a long document -- e.g. "32 Change 2", "This page intentionally
+// left blank. Change 1", "................ 85 Change 2" -- not a real
+// transmittal-header marker at all. Confirmed real and corpus-wide, not
+// hypothetical: AC 20-138D alone had 43 "matches" in its first 25% by the
+// bare regex, but only 2 were genuine (the rest were a "<page-ref> Change 2"
+// footer repeating throughout its long front matter) -- treating every
+// footer occurrence as a real marker corrupted BOTH ends of the pipeline at
+// once: Step 1 mis-located the preamble/body boundary on the LAST such
+// "match" (a footer sitting deep in real Chapter 5 content), silently
+// discarding everything before it -- including the actual PURPOSE,
+// APPLICABILITY, and Chapters 1 through 5.2 -- and extractChangeNotices
+// (below) chopped every genuine notice's body short at the very next footer
+// occurrence instead of its real boundary.
+//
+// A genuine marker always follows "Initiated by:" (or "Initiated By:") --
+// part of the FAA's standard transmittal-letterhead line ("Subject: ...
+// Date: ... AC No: ... Initiated by: ... Change: N") -- within a short
+// distance. Verified corpus-wide before relying on this: across 528 markers
+// confirmed genuine by manual inspection, the max observed distance was 116
+// characters; footer-artifact occurrences have no such text nearby at all.
+// 250 chars (2x+ that margin) is used for the lookback.
+//
+// Proximity alone isn't sufficient, though -- caught live on AC 20-138D: its
+// real "Change 2" notice's own PURPOSE paragraph reads "...adds additional
+// information and clarifications to AC 20-138D, Change 1" -- a mid-sentence
+// CITATION to the prior version, ending in a real PDF line-wrap, which
+// satisfies the marker shape AND sits within 250 chars of the SAME
+// "Initiated by:" that precedes the genuine "Change: 2" marker just before
+// it. Accepting it as its own marker silently stole the rest of Change 2's
+// real body (truncating it right at that citation) and shadowed the actual
+// "Change: 1" transmittal marker further down (which then computed an empty
+// body against this bogus one and silently dropped). Fixed by requiring
+// this be the FIRST "Change" occurrence after the nearest preceding
+// "Initiated by:" -- a genuine letterhead has exactly one; anything after a
+// second is downstream prose, not a marker. Confirmed this still accepts
+// the multi-line letterhead layout (a lone "AC No: ..." line often sits
+// between "Initiated by:" and "Change:") since that gap never itself
+// contains the word "Change".
+function hasNearbyInitiatedBy(text: string, matchIndex: number): boolean {
+  const before = text.slice(Math.max(0, matchIndex - 250), matchIndex)
+  const idx = before.toLowerCase().lastIndexOf('initiated by')
+  if (idx === -1) return false
+  return !/change/i.test(before.slice(idx + 'initiated by'.length))
+}
+
+function extractChangeNotices(preamble: string): ACBlock[] {
+  const markerRE = /\bChange(?:\s*:\s*(\d*)|\s+(\d+))\s*[\r\n]/g
+  const markers: { start: number; end: number; num: string }[] = []
+  let mm
+  while ((mm = markerRE.exec(preamble)) !== null) {
+    if (!hasNearbyInitiatedBy(preamble, mm.index)) continue
+    markers.push({ start: mm.index, end: mm.index + mm[0].length, num: mm[1] || mm[2] || '' })
+  }
+  const notices: ACBlock[] = []
+  let cid = 0
+  for (let i = 0; i < markers.length; i++) {
+    if (!markers[i].num) continue // undigited "Change:" baseline header -- boundary only, not a notice
+    const bodyEnd = i + 1 < markers.length ? markers[i + 1].start : preamble.length
+    let body = preamble.slice(markers[i].end, bodyEnd)
+    // Cut the PAGE CONTROL CHART table + signature block that follows the
+    // real PURPOSE/PRINCIPAL CHANGES summary on every notice that has one —
+    // it's real content, not an extraction artifact, but it's the exact
+    // shape of "clutter at the end" RC separately flagged (task 145): a raw
+    // remove/insert page-swap table plus a signature name, neither
+    // meaningful once split out of its original page-layout context. Cut
+    // BEFORE the letterhead/header strip below, since the table always sits
+    // after the real summary text and before the NEXT notice's letterhead —
+    // stripping it first keeps the two cleanup passes independent instead
+    // of one needing to know the other already ran. Confirmed present in
+    // 63 of 77 ACs with real revision history; when absent, this is a
+    // harmless no-op (nothing to cut) rather than a required marker.
+    const pcc = body.search(/PAGE CONTROL CHART/i)
+    if (pcc >= 0) body = body.slice(0, pcc)
+    // Strip the FAA letterhead block (its exact line-wrap position varies —
+    // "U.S." itself is sometimes split mid-word — so this matches on the
+    // words themselves, not fixed line boundaries) and the Subject/Date/AC
+    // No/Initiated-by/Change header line that precedes the NEXT notice (or
+    // the original doc's own baseline header), which would otherwise bleed
+    // onto the tail of THIS notice's body.
+    body = body
+      .replace(/U\.?\s*S\.?\s*\.?\s*Department\s+of\s+Transportation\s+Federal\s+Aviation\s+Administration\s+(Advisory\s+Circular|Circular\s+Advisory|Circular|Advisory)/gi, ' ')
+      .replace(/Subject:.*?Date:\s*\d{1,2}\/\d{1,2}\/\d{2,4}.*?(?:AC No:[^\n]*?)?Initiated by:[^\n]*?(?:Change\s*:?\s*\d*)?\s*/gis, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!body) continue
+    // The date for THIS marker's own notice always sits on the line just
+    // before it ("Date: MM/DD/YY ... Initiated by: ... Change: N") --
+    // search a bounded window backward rather than forward, since forward
+    // text belongs to the NEXT notice.
+    const before = preamble.slice(Math.max(0, markers[i].start - 400), markers[i].start)
+    const dateM = before.match(/Date:\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/)
+    notices.push({
+      kind: 'section',
+      id: `chg${cid++}`,
+      label: `Change ${markers[i].num}`,
+      title: dateM ? `(${dateM[1]})` : '',
+      body,
+      isChangeNotice: true,
+    })
+  }
+  return notices
 }
 
 // Pull a short leading "heading term" (e.g. "PURPOSE." / "Adiabatic Cooling.")
@@ -396,6 +565,42 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
   if (!raw) return []
   const ocrScanned = documentNumber ? needsOcrArtifactRepair(documentNumber) : false
 
+  // 0. Cut the standardized FAA "Advisory Circular Feedback Form" boilerplate
+  //    that trails many ACs — a blank comment/suggestion template (checkbox
+  //    or fill-in-blank fields, underscore rule-lines for handwritten
+  //    responses, "Submitted by: Date: ______") with zero regulatory
+  //    content. RC: "check all the clutter, and dashes and spacing at the
+  //    end of the doc." Corpus-wide scope: 250 of 779 active ACs carry this
+  //    exact heading (a broader "I would like to discuss the above"/
+  //    "Submitted by:...Date:" body-content check found 334 -- ~84 ACs use
+  //    the same form with a differently-worded heading this pass doesn't
+  //    catch; flagged, not chased further this round).
+  //    A REAL false positive was caught testing this against the live
+  //    corpus, not assumed safe from one example: AC 450.169-1's body has
+  //    an earlier, casual, lowercase, mid-sentence reference ("...you may
+  //    use the Advisory Circular Feedback form at the end of this AC.") in
+  //    ADDITION to the real heading later — taking the FIRST occurrence
+  //    (as an initial version of this fix did) truncated the document at
+  //    2.6% through, destroying all 70 of its real content blocks down to
+  //    1. Fixed to take the LAST occurrence instead, with a positional
+  //    safety guard (must land in the final 20% of the document) so a
+  //    document that references the form more than once even near the end
+  //    fails safe (skips the cut) rather than guessing. Verified corpus-
+  //    wide before shipping: 11 of the 250 ACs have multiple occurrences
+  //    (450.169-1 among them); in all 11, the LAST occurrence already
+  //    lands at 80%+ through the document, so the guard never actually
+  //    triggers a skip on real data -- it's there for documents not yet in
+  //    the corpus, not a currently-active code path.
+  {
+    const feedbackRE = /Advisory\s+Circular\s+Feedback\s+Form/gi
+    let lastFeedbackMatch: RegExpExecArray | null = null
+    let fbm
+    while ((fbm = feedbackRE.exec(raw)) !== null) lastFeedbackMatch = fbm
+    if (lastFeedbackMatch && lastFeedbackMatch.index > raw.length * 0.8) {
+      raw = raw.slice(0, lastFeedbackMatch.index)
+    }
+  }
+
   // 1. Strip all change-revision preamble blocks. FAA ACs with multiple
   //    revisions embed older change notices before the original body. Find the
   //    LAST "Change:" or "Change N" header in the first 25% of the document
@@ -413,9 +618,37 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
   const chgRE = /\bChange(?:\s*:\s*\d*|\s+\d+)\s*[\r\n]/g
   let cm
   while ((cm = chgRE.exec(raw)) !== null && cm.index < preambleLimit) {
+    if (!hasNearbyInitiatedBy(raw, cm.index)) continue
     lastChgEnd = cm.index + cm[0].length
   }
+  // Capture the preamble BEFORE discarding it -- see extractChangeNotices'
+  // own header for why this now becomes labeled blocks instead of silently
+  // vanishing.
+  const changeNotices = lastChgEnd > -1 ? extractChangeNotices(raw.slice(0, lastChgEnd)) : []
   if (lastChgEnd > -1) raw = raw.slice(lastChgEnd)
+
+  // 1b. Strip an inline running-footer artifact ("Page 4 Par 102", "Page 2
+  //      Par 1-2") that the PDF extraction sometimes glues DIRECTLY onto real
+  //      body text at a page-break boundary, with no newline separating the
+  //      two. A standalone footer that lands on its OWN line is already
+  //      caught by isPageMarker/isNoise below -- this is specifically the
+  //      case where it doesn't, because it isn't its own line at all.
+  //      Confirmed real, live, on AC 61-67C: "...decreasing the angle of
+  //      bank. \nPage 4 Par 102 104. TYPES OF STALLS. Stalls can be..." --
+  //      the glued footer sat directly in front of a real section header
+  //      ("104. TYPES OF STALLS."), which broke every classifier below (all
+  //      of them anchor on the line literally STARTING with the section
+  //      number), silently merging that entire section's content into the
+  //      PRECEDING section (103) instead of giving it its own heading.
+  //      Corpus-wide scope check before shipping: 33 ACs, 157 instances of
+  //      this exact inline-glued shape (distinct from 61 ACs that have the
+  //      pattern only in the already-handled standalone-line form). "Page N
+  //      Par M" is a distinctive machine-generated footer signature -- real
+  //      AC prose never writes a page/paragraph cross-reference in this
+  //      exact terse, punctuation-free shape -- so a global strip is safe.
+  //      Replaced with a single space (not deleted outright) so the words
+  //      on either side of the artifact don't get glued to each other.
+  raw = raw.replace(/\bPage\s+\d{1,4}\s+Par\s+[\d-]{1,10}\b\s*/g, ' ')
 
   // 2. Normalize whitespace; one trimmed line per source line. cleanGlyphs maps
   //    Symbol/Wingdings PUA glyphs to real Unicode first so bullet TOC leaders
@@ -568,7 +801,7 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
     let last = -1
     let count = 0
     for (let i = tocHdr + 1; i < lines.length; i++) {
-      if (lines[i] === '' || isNoise(lines[i])) continue // skip blanks + page markers
+      if (lines[i] === '' || isNoise(lines[i], documentNumber)) continue // skip blanks + page markers
       if (looksTocEntry(lines[i])) { last = i; count++ } else break // body starts
     }
     if (count >= 4) for (let i = tocHdr; i <= last; i++) lines[i] = ''
@@ -598,7 +831,7 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
       let prevWasHeadingOrWrap = false
       let sawFirstHeading = false
       for (let i = tocHdr2 + 1; i < lines.length; i++) {
-        if (lines[i] === '' || isNoise(lines[i])) continue
+        if (lines[i] === '' || isNoise(lines[i], documentNumber)) continue
         if (bareHeadingLine.test(lines[i])) {
           last = i
           count++
@@ -630,7 +863,7 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
       // Skip blank lines, recognized noise, and short header/page-marker lines
       // (like "Appendix A" or "A-6") that appear in mid-TOC page breaks and
       // would otherwise exhaust the look-ahead before reaching a dotted line.
-      if (lj === '' || isNoise(lj) || lj.length < 15) continue
+      if (lj === '' || isNoise(lj, documentNumber) || lj.length < 15) continue
       nonEmpty++
       if (isTOC(lj)) { lines[k] = ''; break }
     }
@@ -751,7 +984,7 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
       if (cur?.kind === 'para') flush()
       continue
     }
-    if (isNoise(line) || isTOC(line)) continue
+    if (isNoise(line, documentNumber) || isTOC(line)) continue
 
     // OCR artifact repair: old scanned PDFs (pre-~2005) sometimes have spaces
     // inserted within words at extraction time. Fix the two most common patterns:
@@ -1198,8 +1431,9 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
         ...trimmed.slice(0, appxAIdx + 1),
         ...trimmed.slice(appxAIdx + 1, firstAppxSec).filter((b) => b.kind !== 'para'),
         ...trimmed.slice(firstAppxSec),
+        ...changeNotices,
       ]
     }
   }
-  return trimmed
+  return [...trimmed, ...changeNotices]
 }

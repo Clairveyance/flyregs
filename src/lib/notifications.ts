@@ -157,8 +157,12 @@ export type DailyRegSource = 'far' | 'aim' | 'ac'
 
 export interface DailyReg {
   slug: string
-  term: string
-  definition: string
+  // null for non-Pro viewers -- get_reg_of_the_day() redacts both server-side
+  // now (see gotcha_tier_gate_client_side_only.md); DailyRegCard already
+  // shows its own locked-teaser UI when !isPro, so these should never
+  // actually render in practice, but the type has to admit reality.
+  term: string | null
+  definition: string | null
   sourceType: DailyRegSource
 }
 

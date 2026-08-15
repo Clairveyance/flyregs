@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Image, Share } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Image, Share, Keyboard } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import * as Haptics from 'expo-haptics'
@@ -19,7 +19,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { BackToBreadcrumb, PrevNextFooter, TableNavBar } from '@/components/DocNavBar'
+import { BackToBreadcrumb, PrevNextFooter, TableNavBar, ChangedBanner } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
@@ -28,6 +28,7 @@ import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
+import { getSemanticRelated, mergeRelated } from '@/lib/relatedContent'
 import { getLatestRevision, changedParagraphIndices, splitParagraphs, type ContentRevision } from '@/lib/whatsChanged'
 import { useConfirm } from '@/components/ConfirmDialog'
 import type { AcFigure } from '@/types'
@@ -184,7 +185,8 @@ export default function AimParagraphScreen() {
         .from('document_citations_gated')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.aim,cited_id.eq.${id}),and(citing_type.eq.aim,citing_id.eq.${id})`),
-    ]).then(async ([paraRes, figRes, citRes]) => {
+      getSemanticRelated('aim', id),
+    ]).then(async ([paraRes, figRes, citRes, semantic]) => {
       if (!paraRes.error && paraRes.data) {
         const p = paraRes.data as AimParagraph
         setPara(p)
@@ -232,7 +234,7 @@ export default function AimParagraphScreen() {
             ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
             : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
           .filter((r) => !(r.cited_type === 'aim' && r.cited_id === id))
-        setRelated(other)
+        setRelated(mergeRelated(other, semantic))
       }
       setLoading(false)
     })
@@ -271,12 +273,13 @@ export default function AimParagraphScreen() {
   // rows) but previously had no bar to surface in at all -- confirmed live,
   // a real coverage gap, not correctly-empty data.
   const aimRefs = related.filter((r) => r.cited_type === 'aim')
+  const cfr49Refs = related.filter((r) => r.cited_type === 'cfr49')
   const adRefs = related.filter((r) => r.cited_type === 'ad')
   const loiRefs = related.filter((r) => r.cited_type === 'loi')
 
   const handleToggleBookmark = async () => {
     if (!para) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     setBookmarked((prev) => !prev) // optimistic
     const next = await toggleBookmark({
       id: para.paragraph_number,
@@ -295,7 +298,7 @@ export default function AimParagraphScreen() {
   const lastToggleAt = useRef(0)
   const handleToggleHighlight = useCallback(async (paraText: string) => {
     if (!para) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     if (toggleInFlight.current) return
     if (Date.now() - lastToggleAt.current < 800) return
     lastToggleAt.current = Date.now()
@@ -325,7 +328,7 @@ export default function AimParagraphScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [para, hasProAccess])
+  }, [para, hasPlusAccess])
 
   const handleCopyBlock = useCallback(async (paraText: string) => {
     await Clipboard.setStringAsync(paraText)
@@ -333,7 +336,7 @@ export default function AimParagraphScreen() {
   }, [])
 
   const handleBlockLongPress = useCallback((paraText: string) => {
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     setPendingHighlight(paraText)
     const isHighlighted = highlightedBlockTexts.has(paraText)
     confirm({
@@ -347,7 +350,7 @@ export default function AimParagraphScreen() {
       ],
       onCancel: () => setPendingHighlight(null),
     })
-  }, [hasProAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
+  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
 
   // Gated synchronously here, not just relying on FolderPicker's own
   // internal backstop -- same rule as ac/[id].tsx's handleOpenFolderPicker,
@@ -355,7 +358,7 @@ export default function AimParagraphScreen() {
   // risking a silent no-op.
   const handleOpenFolderPicker = () => {
     if (!para) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     setFolderPickerVisible(true)
   }
 
@@ -446,7 +449,7 @@ export default function AimParagraphScreen() {
         items={[
           { icon: 'printer', label: 'Print', onPress: handlePrint, disabled: !hasPlusAccess },
           { icon: 'square.and.arrow.up', label: 'Share', onPress: handleShare, disabled: !hasPlusAccess },
-          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasProAccess },
+          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasPlusAccess },
         ]}
       />
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
@@ -484,6 +487,15 @@ export default function AimParagraphScreen() {
           onNext={inDocSearch.goToNext}
         />
       )}
+      {!loading && para && (
+        <ChangedBanner
+          count={changedIdx.length}
+          currentIdx={changedCursor}
+          onPrev={() => jumpToChanged(-1)}
+          onNext={() => jumpToChanged(1)}
+          label={`Updated — ${changedIdx.length} paragraph${changedIdx.length === 1 ? '' : 's'} changed`}
+        />
+      )}
 
       {loading ? (
         <View style={styles.center}>
@@ -501,6 +513,16 @@ export default function AimParagraphScreen() {
           onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
           onLayout={(e) => setScrollViewportHeight(e.nativeEvent.layout.height)}
           scrollEventThrottle={100}
+          // Matches ac/[id].tsx's own ScrollView -- was missing here (and on
+          // far/ad/pcg's identical setup), so dragging the doc content down
+          // while the in-doc search keyboard was up did nothing; the native
+          // interactive-dismiss gesture only exists when this prop is set.
+          // keyboardShouldPersistTaps alongside it for the same reason
+          // BB-092 needed it elsewhere: without it a tap on the search bar's
+          // prev/next buttons just dismisses the keyboard instead of firing.
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={() => Keyboard.dismiss()}
         >
           {para.section_title && (
             <Text style={[styles.section, { color: tokens.t3, fontSize: fs(12) }]}>{para.section_title}</Text>
@@ -543,12 +565,13 @@ export default function AimParagraphScreen() {
             </Pressable>
             <MagicLinkPod
               bars={[
-                { icon: 'arrow.up.right.square', label: 'Related AIM', items: aimRefs },
-                { icon: 'doc.text', label: 'Related ACs', items: acRefs },
-                { icon: 'list.bullet', label: 'FAR references', items: farRefs },
-                { icon: 'questionmark.circle', label: 'P/CG terms', items: pcgRefs },
-                { icon: 'wrench.and.screwdriver', label: 'Related ADs', items: adRefs },
-                { icon: 'checkmark.seal.fill', label: 'Related LOIs', items: loiRefs },
+                { icon: 'map.fill', label: 'Related AIM', items: aimRefs },
+                { icon: 'megaphone.fill', label: 'Related ACs', items: acRefs },
+                { icon: 'book.closed.fill', label: 'FAR references', items: farRefs },
+                { icon: 'headset', label: 'P/CG terms', items: pcgRefs },
+                { icon: 'wrench.and.screwdriver.fill', label: 'Related ADs', items: adRefs },
+                { icon: 'envelope.open.fill', label: 'Related LOIs', items: loiRefs },
+                { icon: 'building.columns.fill', label: 'Related 49 CFR', items: cfr49Refs },
               ]}
               currentLabel={currentLabel}
               hasProAccess={hasProAccess}
@@ -565,7 +588,7 @@ export default function AimParagraphScreen() {
               expected to show its result. */}
           {figuresExpanded && figures.length > 0 && (
             <View style={styles.figuresWrap}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.figScroll}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.figScrollBox} contentContainerStyle={styles.figScroll}>
                 {figures.map((f) => (
                   <Pressable
                     key={f.id}
@@ -580,20 +603,6 @@ export default function AimParagraphScreen() {
             </View>
           )}
 
-            {changedIdx.length > 0 && (
-              <View style={[styles.changedBanner, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
-                <Icon name="doc.badge.clock" size={fs(13)} color={tokens.blu} />
-                <Text style={[styles.changedBannerText, { color: tokens.blu, fontSize: fs(12.5) }]}>
-                  Updated — {changedIdx.length} paragraph{changedIdx.length === 1 ? '' : 's'} changed
-                </Text>
-                <Pressable onPress={() => jumpToChanged(-1)} hitSlop={8}>
-                  <Icon name="chevron.up" size={fs(14)} color={tokens.blu} />
-                </Pressable>
-                <Pressable onPress={() => jumpToChanged(1)} hitSlop={8}>
-                  <Icon name="chevron.down" size={fs(14)} color={tokens.blu} />
-                </Pressable>
-              </View>
-            )}
           {body ? (
             <PlainTextBody
               ref={bodyRef}
@@ -676,9 +685,6 @@ export default function AimParagraphScreen() {
 }
 
 const styles = StyleSheet.create({
-  changedBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 12 },
-  changedBannerText: { fontWeight: '700', flex: 1 },
-
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   empty: { fontSize: 15, textAlign: 'center' },
@@ -706,6 +712,11 @@ const styles = StyleSheet.create({
   refsLabel: { fontWeight: '600', fontSize: 13, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.3 },
   figuresWrap: { marginTop: 22 },
   figuresLabel: { fontWeight: '600', fontSize: 14, marginBottom: 10 },
+  // Same root cause as updates.tsx's filter chips (see that file's
+  // comment): a horizontal ScrollView with no explicit `style` collapses
+  // its own cross-axis height on web, clipping the row's content. Sized
+  // for the fixed 90px thumbnail plus label at up to max font scale.
+  figScrollBox: { flexGrow: 0, flexShrink: 0, height: 145 },
   figScroll: { gap: 10 },
   figCard: { width: 130, borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
   figThumb: { width: '100%', height: 90 },

@@ -38,14 +38,16 @@ export function buildAircraftShareLink(token: string): string {
 // token for that role. Regenerating changes the role for FUTURE joiners
 // only -- it never touches collaborators who already joined under the
 // previous link.
-export async function getOrCreateShareLink(aircraftId: string, role: CollaboratorRole): Promise<string> {
+export async function getOrCreateShareLink(aircraftId: string, role: CollaboratorRole): Promise<{ link: string; token: string }> {
   const { data: existing } = await supabase
     .from('user_aircraft')
     .select('share_code, share_code_role')
     .eq('id', aircraftId)
     .maybeSingle()
 
-  if (existing?.share_code && existing.share_code_role === role) return buildAircraftShareLink(existing.share_code)
+  if (existing?.share_code && existing.share_code_role === role) {
+    return { link: buildAircraftShareLink(existing.share_code), token: existing.share_code }
+  }
 
   const token = makeShareToken()
   const { error } = await supabase
@@ -53,7 +55,7 @@ export async function getOrCreateShareLink(aircraftId: string, role: Collaborato
     .update({ share_code: token, share_code_role: role })
     .eq('id', aircraftId)
   if (error) throw error
-  return buildAircraftShareLink(token)
+  return { link: buildAircraftShareLink(token), token }
 }
 
 export interface JoinedAircraft {

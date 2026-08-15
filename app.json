@@ -76,6 +76,7 @@
         }
       ],
       "expo-file-system",
+      "expo-asset",
       [
         "@sentry/react-native/expo",
         {
@@ -87,7 +88,7 @@
       [
         "expo-contacts",
         {
-          "contactsPermission": "FlyRegs uses your contacts to let you pick who to invite to a shared folder — nothing is read or stored beyond the names/numbers you select."
+          "contactsPermission": "FlyRegs checks your contacts against FlyRegs users so you can invite friends to a shared folder or aircraft — your contacts stay on your device and are never sent to FlyRegs or shown to anyone else."
         }
       ],
       [

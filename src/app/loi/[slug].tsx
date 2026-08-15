@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Keyboard } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import * as Haptics from 'expo-haptics'
@@ -25,6 +25,7 @@ import { MetaChip, MetaChipRow, DetailSection, DetailActionRow } from '@/compone
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
+import { getSemanticRelated, mergeRelated } from '@/lib/relatedContent'
 import { buildRegShareLink } from '@/lib/regShare'
 import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
 import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
@@ -141,16 +142,23 @@ export default function LoiDetailScreen() {
         .single(),
       // Same both-directions + normalize-to-"the other document" pattern
       // as ad/[id].tsx and far/[id].tsx. An LOI cites OUT to FAR sections
-      // (loi_citation_extract.py) and, since 2026-08-12, to OTHER LOIs it
-      // names by footnote (loi_loi_citations.py, name+year matched
-      // against legal_interpretations.slug) -- the query stayed symmetric
-      // from the start specifically so that second type just worked once
-      // built, no query change needed here.
+      // (loi_citation_extract.py, owns loi->far), to ACs it names in prose
+      // (loi_ac_citations.py, owns loi->ac), to P/CG terms it references
+      // (pcg_term_links.py, owns loi->pcg), and, since 2026-08-12, to OTHER
+      // LOIs it names by footnote (loi_loi_citations.py, name+year matched
+      // against legal_interpretations.slug). The query stayed symmetric
+      // from the start so each new citation type just worked once its
+      // extractor shipped -- but the UI side didn't keep up: found
+      // 2026-08-12 that this screen only ever rendered farRefs (and, after
+      // that day's own fix, loiRefs) -- the real loi->ac (33 rows) and
+      // loi->pcg (24 rows) data was being fetched into `related` the whole
+      // time and silently dropped on the floor, never reaching a bar.
       supabase
         .from('document_citations_gated')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.loi,cited_id.eq.${slug}),and(citing_type.eq.loi,citing_id.eq.${slug})`),
-    ]).then(async ([loiRes, citRes]) => {
+      getSemanticRelated('loi', slug),
+    ]).then(async ([loiRes, citRes, semantic]) => {
       if (!loiRes.error && loiRes.data) {
         const l = loiRes.data as LegalInterpretation
         setLoi(l)
@@ -185,7 +193,7 @@ export default function LoiDetailScreen() {
             ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
             : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
           .filter((r) => !(r.cited_type === 'loi' && r.cited_id === slug))
-        setRelated(other)
+        setRelated(mergeRelated(other, semantic))
       }
       setLoading(false)
     })
@@ -195,6 +203,9 @@ export default function LoiDetailScreen() {
   const currentLabel = loi ? humanizeLoiTitle(loi.title) : undefined
   const farRefs = related.filter((r) => r.cited_type === 'far' || r.cited_type === 'far_part')
   const loiRefs = related.filter((r) => r.cited_type === 'loi')
+  const acRefs = related.filter((r) => r.cited_type === 'ac')
+  const pcgRefs = related.filter((r) => r.cited_type === 'pcg')
+  const cfr49Refs = related.filter((r) => r.cited_type === 'cfr49')
 
   // LOI's own actions gate on hasProAccess, not the app-wide hasPlusAccess
   // every other content type's print/share/bookmark/folder uses -- since
@@ -372,7 +383,14 @@ export default function LoiDetailScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title="Legal Interpretation" onBack={() => router.back()} right={headerRight} />
       {backTo && <BackToBreadcrumb label={backTo} onPress={() => router.back()} />}
-      {!loading && loi && (
+      {/* Pro-gated, matching ac/[id].tsx's own sticky search -- LOI body
+          text has NO free preview at all, so a lower-tier user previously
+          saw a live, typable "IN DOC" search bar above a locked document:
+          harmless (nothing renders for it to match against, body_text is
+          redacted server-side), but a confusing dead control that
+          undercut the screen's own "no preview at all" messaging right
+          below it. Found in the 2026-08-14 comprehensive gating re-audit. */}
+      {!loading && loi && hasProAccess && (
         <InDocSearchBar
           query={inDocSearch.query}
           onQueryChange={inDocSearch.onQueryChange}
@@ -400,6 +418,16 @@ export default function LoiDetailScreen() {
           onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
           onLayout={(e) => setScrollViewportHeight(e.nativeEvent.layout.height)}
           scrollEventThrottle={100}
+          // Matches ac/[id].tsx's own ScrollView -- was missing here (and on
+          // far/aim/ad/pcg's identical setup), so dragging the doc content
+          // down while the in-doc search keyboard was up did nothing; the
+          // native interactive-dismiss gesture only exists when this prop is
+          // set. keyboardShouldPersistTaps alongside it for the same reason
+          // BB-092 needed it elsewhere: without it a tap on the search bar's
+          // prev/next buttons just dismisses the keyboard instead of firing.
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={() => Keyboard.dismiss()}
         >
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>{humanizeLoiTitle(loi.title)}</Text>
 
@@ -483,8 +511,11 @@ export default function LoiDetailScreen() {
           <View style={[styles.barsWrap, { marginTop: 14 }]}>
             <MagicLinkPod
               bars={[
-                { icon: 'list.bullet', label: 'FAR references', items: farRefs },
-                { icon: 'checkmark.seal.fill', label: 'Related Interpretations', items: loiRefs },
+                { icon: 'book.closed.fill', label: 'FAR references', items: farRefs },
+                { icon: 'megaphone.fill', label: 'Related ACs', items: acRefs },
+                { icon: 'headset', label: 'P/CG terms', items: pcgRefs },
+                { icon: 'envelope.open.fill', label: 'Related Interpretations', items: loiRefs },
+                { icon: 'building.columns.fill', label: 'Related 49 CFR', items: cfr49Refs },
               ]}
               currentLabel={currentLabel}
               hasProAccess={hasProAccess}

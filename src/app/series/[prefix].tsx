@@ -18,6 +18,8 @@ import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 interface SeriesAC {
   id: string
@@ -60,6 +62,11 @@ export default function SeriesScreen() {
   const [seriesName, setSeriesName] = useState('')
   const [loading, setLoading] = useState(true)
   const { badgeDays } = useBadgeLifespan()
+  // AC titles in this series list get cut off the same way FAR Part titles
+  // do -- same hook/card pair as far/index.tsx's own long-press preview.
+  // Lives at the screen level (one hook/card per screen, not per row) and
+  // is passed down to ACRow below.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   useEffect(() => {
     Promise.all([
@@ -117,11 +124,25 @@ export default function SeriesScreen() {
             </View>
           }
           renderItem={({ item }) => (
-            <ACRow item={item} tokens={tokens} badgeDays={badgeDays} figureCount={figureCounts[item.id]} />
+            <ACRow
+              item={item}
+              tokens={tokens}
+              badgeDays={badgeDays}
+              figureCount={figureCounts[item.id]}
+              showPreview={showPreview}
+              hidePreview={hidePreview}
+              consumeLongPress={consumeLongPress}
+            />
           )}
         />
         </TabletContainer>
       )}
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }
@@ -133,11 +154,17 @@ function ACRow({
   tokens,
   badgeDays,
   figureCount,
+  showPreview,
+  hidePreview,
+  consumeLongPress,
 }: {
   item: SeriesAC
   tokens: ReturnType<typeof useTheme>['tokens']
   badgeDays: number
   figureCount?: number
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
   const showBadge = isWithinBadgeLifespan(item.date_issued, badgeDays)
@@ -153,7 +180,13 @@ function ACRow({
   return (
     <Pressable
       style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-      onPress={() => router.push(`/ac/${item.id}`)}
+      onPress={() => {
+        if (consumeLongPress()) return
+        router.push(`/ac/${item.id}`)
+      }}
+      onLongPress={(e) => showPreview(item.title, e)}
+      onPressOut={hidePreview}
+      delayLongPress={350}
     >
       <View style={styles.cardTop}>
         {showBadge && (

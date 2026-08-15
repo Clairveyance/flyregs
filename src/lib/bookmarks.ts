@@ -98,6 +98,7 @@ export function routeForBookmark(item: BookmarkAC, opts?: { hlId?: string }): st
   if (type === 'aim') return `/aim/${docId}${hl}`
   if (type === 'pcg') return `/pcg/${docId}${hl}`
   if (type === 'ad') return `/ad/${docId}${hl}`
+  if (type === 'cfr49') return `/cfr49/${docId}${hl}`
   // LOI bookmarks store the LOI's own slug as `id` (see loi/[slug].tsx's
   // toggleBookmark call), matching /loi/[slug]'s route param directly --
   // was missing entirely, so a synced LOI bookmark silently mis-routed to

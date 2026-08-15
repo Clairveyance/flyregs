@@ -9,19 +9,18 @@ import { Icon } from '@/components/Icon'
 import {
   getMyChallenges, getChallengeableUsers, createChallenge, respondToChallenge, getDuelStats, sendDuelPush,
   getUnseenCoins, markCoinsSeen,
-  MyChallenge, ChallengeableUser, DuelStats, DuelItemType, KnowledgeLevel, KNOWLEDGE_LEVEL_LABELS,
+  MyChallenge, ChallengeableUser, DuelStats, DuelItemType, StudyLevel, ALL_STUDY_LEVELS, STUDY_LEVEL_LABELS,
 } from '@/lib/challenges'
-import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS, StudyRating, STUDY_RATINGS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
+import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS } from '@/lib/profileRatings'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 const QUESTION_COUNTS = [3, 5, 10]
 const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac']
 const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC' }
-// Pilot levels first (the common case), Mechanic last -- a mechanic duel
-// is a deliberately separate use case, not "one more pilot level."
-const ALL_LEVELS: KnowledgeLevel[] = ['student', 'private', 'commercial', 'atp', 'cfi', 'mechanic']
 const MAX_OPPONENTS = 7
 
 export default function ChallengesScreen() {
@@ -40,9 +39,8 @@ export default function ChallengesScreen() {
   const [selectedOpponents, setSelectedOpponents] = useState<string[]>([])
   const [questionCount, setQuestionCount] = useState(5)
   const [activeTypes, setActiveTypes] = useState<DuelItemType[]>([])
-  const [activeLevels, setActiveLevels] = useState<KnowledgeLevel[]>([])
+  const [activeLevels, setActiveLevels] = useState<StudyLevel[]>([])
   const [activeCategoryClasses, setActiveCategoryClasses] = useState<CategoryClass[]>([])
-  const [activeRatings, setActiveRatings] = useState<StudyRating[]>([])
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [unseenCoinQueue, setUnseenCoinQueue] = useState<string[]>([])
@@ -50,6 +48,10 @@ export default function ChallengesScreen() {
   // Category/Class + Rating collapsed behind their own toggle so the New
   // Duel sheet's common case (Content + Level) stays short.
   const [moreFiltersExpanded, setMoreFiltersExpanded] = useState(false)
+  // A duel row's opponent-list label can run long (multiple names) and get
+  // cut off the same way FAR Part titles do -- same hook/card pair as
+  // far/index.tsx's own long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   // ALL and individual chips are mutually exclusive: ALL can't be "pared
   // down" (it already means everything), so picking any individual chip
@@ -66,7 +68,7 @@ export default function ChallengesScreen() {
     )
   }
 
-  const toggleLevel = (l: KnowledgeLevel) => {
+  const toggleLevel = (l: StudyLevel) => {
     setCreateError(null)
     setActiveLevels((prev) =>
       prev.includes(l) ? prev.filter((x) => x !== l) : [...prev, l]
@@ -77,13 +79,6 @@ export default function ChallengesScreen() {
     setCreateError(null)
     setActiveCategoryClasses((prev) =>
       prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
-    )
-  }
-
-  const toggleRating = (r: StudyRating) => {
-    setCreateError(null)
-    setActiveRatings((prev) =>
-      prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]
     )
   }
 
@@ -134,7 +129,7 @@ export default function ChallengesScreen() {
     setCreating(true)
     setCreateError(null)
     try {
-      const id = await createChallenge(selectedOpponents, questionCount, activeTypes, activeLevels, activeCategoryClasses, activeRatings)
+      const id = await createChallenge(selectedOpponents, questionCount, activeTypes, activeLevels, activeCategoryClasses)
       setPickerVisible(false)
       sendDuelPush(id, 'invited')
       router.push(`/challenges/${id}` as any)
@@ -210,7 +205,7 @@ export default function ChallengesScreen() {
         </View>
       ) : challenges.length === 0 ? (
         <View style={styles.center}>
-          <Icon name="bolt.fill" size={fs(36)} color={tokens.t4} />
+          <Icon name="trophy" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No duels yet</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             Tap + to challenge one or more players from Ready Room.
@@ -222,7 +217,15 @@ export default function ChallengesScreen() {
           keyExtractor={(c) => c.challengeId}
           contentContainerStyle={styles.list}
           renderItem={({ item }) => (
-            <ChallengeRow item={item} tokens={tokens} fs={fs} onRespond={handleRespond} />
+            <ChallengeRow
+              item={item}
+              tokens={tokens}
+              fs={fs}
+              onRespond={handleRespond}
+              showPreview={showPreview}
+              hidePreview={hidePreview}
+              consumeLongPress={consumeLongPress}
+            />
           )}
         />
       )}
@@ -307,7 +310,7 @@ export default function ChallengesScreen() {
               >
                 <Text style={[styles.countChipText, { color: activeLevels.length === 0 ? tokens.blu : tokens.t3, fontSize: fs(13) }]}>ALL</Text>
               </Pressable>
-              {ALL_LEVELS.map((l) => {
+              {ALL_STUDY_LEVELS.map((l) => {
                 const active = activeLevels.includes(l)
                 return (
                   <Pressable
@@ -318,7 +321,7 @@ export default function ChallengesScreen() {
                     ]}
                     onPress={() => toggleLevel(l)}
                   >
-                    <Text style={[styles.countChipText, { color: active ? tokens.blu : tokens.t3, fontSize: fs(13) }]}>{KNOWLEDGE_LEVEL_LABELS[l]}</Text>
+                    <Text style={[styles.countChipText, { color: active ? tokens.blu : tokens.t3, fontSize: fs(13) }]}>{STUDY_LEVEL_LABELS[l]}</Text>
                   </Pressable>
                 )
               })}
@@ -330,8 +333,8 @@ export default function ChallengesScreen() {
             >
               <Icon name={moreFiltersExpanded ? 'chevron.up' : 'chevron.down'} size={fs(11)} color={tokens.t3} />
               <Text style={{ color: tokens.t3, fontSize: fs(11.5), fontWeight: '600' }}>
-                {moreFiltersExpanded ? 'Fewer filters' : 'More filters (Category/Class, Rating)'}
-                {!moreFiltersExpanded && (activeCategoryClasses.length > 0 || activeRatings.length > 0) ? ' •' : ''}
+                {moreFiltersExpanded ? 'Fewer filters' : 'More filters (Category/Class)'}
+                {!moreFiltersExpanded && activeCategoryClasses.length > 0 ? ' •' : ''}
               </Text>
             </Pressable>
             {moreFiltersExpanded && (
@@ -362,38 +365,6 @@ export default function ChallengesScreen() {
                     onPress={() => toggleCategoryClass(c)}
                   >
                     <Text style={[styles.countChipText, { color: active ? tokens.grn : tokens.t3, fontSize: fs(13) }]}>{RATING_SHORT_LABELS[c]}</Text>
-                  </Pressable>
-                )
-              })}
-            </View>
-
-            {/* Amber accent, same as Study Mode's own Rating row -- keeps a
-                non-instrument-rated opponent from getting quizzed on
-                Instrument/Airframe/Powerplant-specific material and vice
-                versa. */}
-            <Text style={[styles.modalLabel, { color: tokens.amb, fontSize: fs(11), marginTop: 14 }]}>RATING</Text>
-            <View style={styles.countRow}>
-              <Pressable
-                style={[
-                  styles.countChip,
-                  { backgroundColor: activeRatings.length === 0 ? tokens.bdim : tokens.bg2, borderColor: activeRatings.length === 0 ? tokens.amb : tokens.bdr },
-                ]}
-                onPress={() => { setCreateError(null); setActiveRatings([]) }}
-              >
-                <Text style={[styles.countChipText, { color: activeRatings.length === 0 ? tokens.amb : tokens.t3, fontSize: fs(13) }]}>ALL</Text>
-              </Pressable>
-              {STUDY_RATINGS.map((r) => {
-                const active = activeRatings.includes(r)
-                return (
-                  <Pressable
-                    key={r}
-                    style={[
-                      styles.countChip,
-                      { backgroundColor: active ? tokens.bdim : tokens.bg2, borderColor: active ? tokens.amb : tokens.bdr },
-                    ]}
-                    onPress={() => toggleRating(r)}
-                  >
-                    <Text style={[styles.countChipText, { color: active ? tokens.amb : tokens.t3, fontSize: fs(13) }]}>{STUDY_RATING_LABELS[r]}</Text>
                   </Pressable>
                 )
               })}
@@ -474,17 +445,26 @@ export default function ChallengesScreen() {
         coin={unseenCoinQueue[0] ? COIN_BY_CODE[unseenCoinQueue[0]] ?? null : null}
         onClose={dismissUnseenCoin}
       />
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }
 
 function ChallengeRow({
-  item, tokens, fs, onRespond,
+  item, tokens, fs, onRespond, showPreview, hidePreview, consumeLongPress,
 }: {
   item: MyChallenge
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
   onRespond: (c: MyChallenge, accept: boolean) => void
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const isPendingForMe = item.myStatus === 'pending'
   const acceptedOthers = item.others.filter((o) => o.status === 'active')
@@ -506,7 +486,13 @@ function ChallengeRow({
   return (
     <Pressable
       style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-      onPress={() => { if (!isPendingForMe) router.push(`/challenges/${item.challengeId}` as any) }}
+      onPress={() => {
+        if (consumeLongPress()) return
+        if (!isPendingForMe) router.push(`/challenges/${item.challengeId}` as any)
+      }}
+      onLongPress={(e) => showPreview(othersLabel, e)}
+      onPressOut={hidePreview}
+      delayLongPress={350}
     >
       <Pressable
         style={[styles.avatarDot, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}
@@ -518,7 +504,7 @@ function ChallengeRow({
         }}
         hitSlop={6}
       >
-        <Icon name="bolt.fill" size={fs(14)} color={tokens.gold} />
+        <Icon name="trophy" size={fs(14)} color={tokens.gold} />
       </Pressable>
       <View style={{ flex: 1 }}>
         <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>{othersLabel}</Text>

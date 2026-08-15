@@ -17,7 +17,7 @@ const KEY = '@flyregs/downloads'
 // regulation sets made "offline access" a Premium feature that didn't
 // cover the FARs. Availability of a PDF and availability of offline are
 // now two independent questions; see DetailActionRow.
-export type DownloadedItemType = 'ac' | 'ad' | 'loi' | 'far' | 'aim' | 'pcg'
+export type DownloadedItemType = 'ac' | 'ad' | 'loi' | 'far' | 'aim' | 'pcg' | 'cfr49'
 
 export interface DownloadedAC {
   id: string
@@ -69,6 +69,7 @@ export function routeForDownload(item: DownloadedAC): string {
   if (type === 'pcg') return `/pcg/${item.id}`
   if (type === 'ad') return `/ad/${item.id}`
   if (type === 'loi') return `/loi/${item.id}`
+  if (type === 'cfr49') return `/cfr49/${item.id}`
   return `/ac/${item.id}`
 }
 

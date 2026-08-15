@@ -776,7 +776,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   const { tokens } = useTheme()
   const fs = useFS()
   const ifs = useInputFS()
-  const { session, isPro, isPremium } = useAuth()
+  const { session, isPro, isPremium, hasProAccess } = useAuth()
   const confirm = useConfirm()
   const [aircraft, setAircraft] = useState<FleetAircraftSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -1012,7 +1012,12 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
       router.push('/auth')
       return
     }
-    if (!isPro) {
+    // hasProAccess (isPro || isPremium), not bare isPro -- found during the
+    // 2026-08-14 gating re-audit: a real Premium subscriber (isPro: false,
+    // isPremium: true, the shape an admin/comp-granted account can have)
+    // hit this exact bug, matching saved.tsx/notes.tsx/study.tsx's own
+    // earlier-caught instances of the same class.
+    if (!hasProAccess) {
       router.push('/paywall')
       return
     }
@@ -1162,6 +1167,43 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   const urgency = (a: FleetAircraftSummary) => (a.overdueReminderCount > 0 ? 0 : a.openAdCount > 0 ? 1 : 2)
   const sortedAircraft = [...aircraft].sort((a, b) => urgency(a) - urgency(b))
 
+  // Destination-level guard, added after a live audit found this screen is
+  // directly reachable (ad/index.tsx's "My Aircraft" hub card, and any
+  // direct URL/deep link) without going through account.tsx's own
+  // hasProAccess check first. account.tsx's Row onPress already redirects
+  // straight to /paywall before ever pushing this route ("Free and Plus
+  // don't have a My Aircraft bar... Free/Plus go straight to the paywall
+  // instead of into a screen that would only block them once they try to
+  // add an aircraft" -- RC's own stated design), but that only protects
+  // THAT one entry point. No data was ever exposed (aircraftCap already
+  // caps the list to 0 for non-Pro, and handleAdd already blocked the
+  // write), but the screen itself rendered fully -- header, "How this
+  // works", empty state, Add Aircraft button -- with zero indication it's
+  // paid, exactly the confusing-dead-end anti-pattern already fixed
+  // elsewhere in this app (see gotcha_duel_accept_missing_client_paywall.md).
+  // Mirrors study.tsx's own lock screen, including embedded (iPad rail)
+  // mode -- and, like study.tsx, this was ALSO found gated on bare `isPro`
+  // (2026-08-14 gating re-audit) which would wrongly lock out a real
+  // Premium subscriber shaped isPro:false/isPremium:true. Fixed to
+  // hasProAccess to match.
+  if (!hasProAccess) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="My Aircraft" onBack={embedded ? (onClose ?? (() => {})) : () => router.back()} />
+        <View style={styles.lockCenter}>
+          <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>My Aircraft is a Pro feature</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            Save your aircraft to get AD alerts, maintenance reminders, and part lookups matched to what you actually fly.
+          </Text>
+          <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall')}>
+            <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Pro</Text>
+          </Pressable>
+        </View>
+      </View>
+    )
+  }
+
   return (
     // KeyboardAvoidingView, not a plain View -- without it, focusing any of
     // the Add Aircraft form's TextInputs (Make/Model/Type/Nickname) let the
@@ -1184,7 +1226,22 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
             row's onPress, since the keyboard is always up while the user
             is mid-typeahead. BB-092, real device beta report: "none of
             them are selectable... this COMPLETELY defeats the point." */}
-        <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled">
+        {/* automaticallyAdjustKeyboardInsets -- RC: "the search boxes need
+            to be moved up the screen a bit so the box itself isn't hidden
+            by the k/b when it's present." The root KeyboardAvoidingView
+            above only shrinks the available height by the keyboard's size;
+            it doesn't know WHERE on screen the focused field is, so a field
+            that's already low (e.g. this form opened after an existing
+            fleet list, or Nickname/Year near the form's bottom) can still
+            end up right under or behind the keyboard. This is iOS's own
+            native auto-scroll-focused-input-into-view behavior (same
+            mechanism UIScrollView keyboard avoidance uses) -- no manual
+            measure/scrollTo logic needed, and it composes with the existing
+            KeyboardAvoidingView rather than replacing it (that one still
+            owns "keyboard blocks the whole entry area," fixed separately,
+            see gotcha_addaircraft_keyboard_covers_form). iOS only, matching
+            every other keyboard-behavior prop already on this ScrollView. */}
+        <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}>
           <View style={styles.introRow}>
             <Text style={[styles.intro, { color: tokens.t3, fontSize: fs(13) }]}>How this works</Text>
             <InfoPopup
@@ -1587,8 +1644,10 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                 // Pro-specific "One aircraft at a time on Pro... upgrade to
                 // Premium" copy despite never having had Pro access at all.
                 // Route them to the real paywall instead of opening a form
-                // (or a Pro-flavored CTA) they can't use.
-                if (!isPro) {
+                // (or a Pro-flavored CTA) they can't use. hasProAccess, not
+                // bare isPro -- same class of bug as the two other isPro
+                // checks in this file, fixed together (2026-08-14 audit).
+                if (!hasProAccess) {
                   router.push('/paywall')
                   return
                 }
@@ -1633,6 +1692,14 @@ export default function MyAircraftScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  // Lock-screen guard styles (hasProAccess), matching study.tsx's own copy. Own
+  // `lockCenter` (not the shared `center` above, used by the loading
+  // spinner) so adding padding/gap here can't shift that unrelated view.
+  lockCenter: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
+  emptyTitle: { fontWeight: '600', marginTop: 6 },
+  emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 300, paddingHorizontal: 24 },
+  upgradeBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
+  upgradeBtnText: { color: '#fff', fontWeight: '700' },
   content: { padding: 16, paddingBottom: 40 },
   introRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 },
   intro: { lineHeight: 18 },

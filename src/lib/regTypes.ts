@@ -5,7 +5,7 @@
 // expo-symbols; Icon.tsx's SF_TO_IONICONS map supplies the web fallback --
 // add an entry there for any symbol introduced here that isn't already
 // mapped).
-export type RegType = 'far' | 'aim' | 'pcg' | 'ad' | 'loi' | 'ac' | 'dictionary'
+export type RegType = 'far' | 'aim' | 'pcg' | 'ad' | 'loi' | 'ac' | 'dictionary' | 'cfr49'
 
 export interface RegTypeMeta {
   label: string
@@ -39,4 +39,11 @@ export const REG_TYPE: Record<RegType, RegTypeMeta> = {
   // single closed book, since A/D is a broad cross-corpus reference source
   // rather than one regulation body.
   dictionary: { label: 'A/D', icon: 'books.vertical.fill' },
+  // 49 CFR spans 3 families (NTSB/TSA/HMR, see cfr49_scraper.py) shown
+  // together in one MagicLink bar -- a federal building reads as "DOT-wide
+  // regulation" generically, deliberately distinct from FAR's own single
+  // closed book (same reasoning as dictionary's own comment above: A/D
+  // needed a visually different icon from FAR despite both being
+  // "regulatory reference" in a loose sense).
+  cfr49: { label: '49 CFR', icon: 'building.columns.fill' },
 }

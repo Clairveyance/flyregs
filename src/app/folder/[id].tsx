@@ -1,10 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import * as Sentry from '@sentry/react-native'
-import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Platform, RefreshControl, Modal, KeyboardAvoidingView, ActivityIndicator } from 'react-native'
+import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Platform, RefreshControl, Modal, KeyboardAvoidingView, ActivityIndicator, Keyboard } from 'react-native'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import * as Clipboard from 'expo-clipboard'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
@@ -48,6 +49,9 @@ import { getNotes, saveNotes, type Note } from '@/lib/notes'
 import { syncPushNote, syncPushNoteDeletes } from '@/lib/syncPush'
 import { NoteEditor } from '@/components/NoteEditor'
 import { BulkInviteContactPicker } from '@/components/BulkInviteContactPicker'
+import { FindFriendsPickerBody } from '@/components/FindFriendsSheet'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // ── Unified entry for the mixed-content list ──────────────────────────────────
 type ACEntry  = { kind: 'ac';   data: BookmarkAC;  folderItem: FolderItem }
@@ -61,6 +65,7 @@ export default function FolderDetail() {
   // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  const insets = useSafeAreaInsets()
   const ifs = useInputFS()
   const { isPremium } = useAuth()
   const { badgeDays } = useBadgeLifespan()
@@ -85,6 +90,11 @@ export default function FolderDetail() {
   const [collaborators, setCollaborators] = useState<FolderCollaborator[]>([])
   const [collabExpanded, setCollabExpanded] = useState(false)
   const [collabMode, setCollabMode] = useState<FolderCollabMode>('read_only')
+  // Item titles and collaborator names on this screen can run long and get
+  // cut off the same way FAR Part titles do -- one shared hook/card pair for
+  // the whole screen, same as far/index.tsx's own long-press preview,
+  // threaded down into SwipeableACRow/SwipeableNoteRow below.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   // Renders local-first data immediately, no network round-trip in the way
   // of first paint. BB-076, RC real-device beta report: "all general folder
@@ -200,7 +210,18 @@ export default function FolderDetail() {
   useFolderRealtime(typeof id === 'string' ? id : undefined, load)
 
   useEffect(() => {
-    const ids = [...new Set(acEntries.map((e) => e.data.acId ?? e.data.id))]
+    // AC-only -- advisory_circulars.id is a uuid column, and a FAR/AIM/P-CG/AD
+    // folder item's id (e.g. "91.13", "AAM") isn't one. Passing a non-uuid
+    // string into .in('id', ...) throws a Postgres error for the WHOLE
+    // query, not just a no-match for that one id -- which was silently
+    // zeroing out badge data for real AC entries too, the moment any
+    // non-AC item was also saved in the folder. Same bug, same fix as
+    // recents.tsx's own badge-fetch effect (acEntries' `kind: 'ac'` is a
+    // generic "resolves through bookmarks" label, not a guarantee every
+    // entry is actually an AC -- see loadLocal's own comment above).
+    const ids = [...new Set(
+      acEntries.filter((e) => e.folderItem.item_type === 'ac').map((e) => e.data.acId ?? e.data.id)
+    )]
     if (ids.length === 0) { setBadgeDataById({}); return }
     supabase
       .from('advisory_circulars')
@@ -333,6 +354,16 @@ export default function FolderDetail() {
   // link one person at a time via the plain OS share sheet.
   const [bulkInviteVisible, setBulkInviteVisible] = useState(false)
   const bulkInviteTokenRef = useRef<string | null>(null)
+  // RC: "build out the rest of the contact/invite path" -- a third way
+  // into the same Callsign field above, for when the inviter doesn't
+  // already know the exact Callsign but knows the person's in their phone.
+  // A step WITHIN the callsign modal, not a second <Modal> -- two RN
+  // <Modal>s both wanting to be visible at once is a known iOS
+  // presentation deadlock (see my-aircraft/[id].tsx's shareStep comment);
+  // Find Friends briefly reintroduced exactly that bug as its own always-
+  // separate Modal before this (RC, real device: "find friends doesn't do
+  // anyting. won't tap").
+  const [findFriendsStep, setFindFriendsStep] = useState(false)
 
   // The header's own "Invite" icon -- offers both invite methods up front
   // (link vs. named Callsign) rather than always defaulting to the
@@ -391,6 +422,7 @@ export default function FolderDetail() {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     setInviteCallsign('')
     setInviteError(null)
+    setFindFriendsStep(false)
     setCallsignModalVisible(true)
   }
 
@@ -722,9 +754,16 @@ export default function FolderDetail() {
                     size={fs(13)}
                     color={c.accepted && c.lastViewedAt ? tokens.grn : tokens.t4}
                   />
-                  <Text style={[styles.collabEmail, { color: c.accepted ? tokens.t1 : tokens.t3, fontSize: fs(13.5) }]} numberOfLines={1}>
-                    {c.displayLabel}
-                  </Text>
+                  <Pressable
+                    style={{ flex: 1 }}
+                    onLongPress={(e) => showPreview(c.displayLabel, e)}
+                    onPressOut={hidePreview}
+                    delayLongPress={350}
+                  >
+                    <Text style={[styles.collabEmail, { color: c.accepted ? tokens.t1 : tokens.t3, fontSize: fs(13.5) }]} numberOfLines={1}>
+                      {c.displayLabel}
+                    </Text>
+                  </Pressable>
                   {c.accepted ? (
                     // BB-077: this specific person's own access --
                     // independent of the "new invites get" default above and
@@ -762,9 +801,16 @@ export default function FolderDetail() {
                   </View>
                   {leftCollaborators.map((c) => (
                     <View key={c.userId} style={[styles.collabRow, { borderTopColor: tokens.bdr }]}>
-                      <Text style={[styles.collabEmail, { color: tokens.red, fontSize: fs(13.5) }]} numberOfLines={1}>
-                        {c.displayLabel}
-                      </Text>
+                      <Pressable
+                        style={{ flex: 1 }}
+                        onLongPress={(e) => showPreview(c.displayLabel, e)}
+                        onPressOut={hidePreview}
+                        delayLongPress={350}
+                      >
+                        <Text style={[styles.collabEmail, { color: tokens.red, fontSize: fs(13.5) }]} numberOfLines={1}>
+                          {c.displayLabel}
+                        </Text>
+                      </Pressable>
                       <Pressable onPress={() => handleRemoveCollaborator(c)} hitSlop={8}>
                         <Icon name="xmark.circle" size={fs(18)} color={tokens.red} />
                       </Pressable>
@@ -812,6 +858,9 @@ export default function FolderDetail() {
                 onRemove={() => handleRemove(item.folderItem)}
                 onMove={() => handleMove(item.folderItem)}
                 onShare={() => handleShareAC(item.data)}
+                showPreview={showPreview}
+                hidePreview={hidePreview}
+                consumeLongPress={consumeLongPress}
               />
             ) : (
               <SwipeableNoteRow
@@ -824,6 +873,9 @@ export default function FolderDetail() {
                 onRemove={() => handleRemove(item.folderItem)}
                 onMove={() => handleMove(item.folderItem)}
                 onShare={() => handleShareNote(item.data)}
+                showPreview={showPreview}
+                hidePreview={hidePreview}
+                consumeLongPress={consumeLongPress}
               />
             )
           }
@@ -868,31 +920,58 @@ export default function FolderDetail() {
           after they join), unlike aircraft's viewer/editor choice. */}
       <Modal visible={callsignModalVisible} animationType="slide" transparent onRequestClose={() => setCallsignModalVisible(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
-            <View style={styles.modalHeader}>
-              <Pressable onPress={() => setCallsignModalVisible(false)} hitSlop={10}>
-                <Text style={{ color: tokens.t3, fontSize: fs(14.5) }}>Cancel</Text>
-              </Pressable>
-              <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Invite by Callsign</Text>
-              <Pressable onPress={submitCallsignInvite} hitSlop={10} disabled={callsignBusy || !inviteCallsign.trim()}>
-                {callsignBusy ? <ActivityIndicator color={tokens.blu} /> : (
-                  <Text style={{ color: inviteCallsign.trim() ? tokens.blu : tokens.t4, fontWeight: '700', fontSize: fs(14.5) }}>Invite</Text>
-                )}
-              </Pressable>
-            </View>
-            <Text style={{ color: tokens.t3, fontSize: fs(13) }}>
-              Their Callsign, exactly as it appears in FlyRegs. They'll need their own Premium subscription and a Callsign set to join.
-            </Text>
-            <TextInput
-              value={inviteCallsign}
-              onChangeText={setInviteCallsign}
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder="Callsign"
-              placeholderTextColor={tokens.t4}
-              style={[styles.inviteInput, { color: tokens.t1, borderColor: inviteError ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
-            />
-            {inviteError && <Text style={{ color: tokens.red, fontSize: fs(12.5) }}>{inviteError}</Text>}
+          {/* RC, real device: same "invite box sits too low, competing with
+              the home-indicator gesture bar" fix as the aircraft screen's
+              identical modal -- see that file's comment for the full
+              reasoning. */}
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: insets.bottom + 16 }]}>
+            {findFriendsStep ? (
+              // Bounded so a long contact match list scrolls WITHIN the
+              // card instead of growing it past the screen -- modalCard
+              // itself has no height cap since the callsign form's own
+              // content is short and fixed.
+              <View style={{ maxHeight: 420 }}>
+                <FindFriendsPickerBody
+                  onClose={() => setFindFriendsStep(false)}
+                  onSelect={(callsign) => { setInviteCallsign(callsign); setInviteError(null); setFindFriendsStep(false) }}
+                />
+              </View>
+            ) : (
+              <>
+                <View style={styles.modalHeader}>
+                  <Pressable onPress={() => setCallsignModalVisible(false)} hitSlop={10}>
+                    <Text style={{ color: tokens.t3, fontSize: fs(14.5) }}>Cancel</Text>
+                  </Pressable>
+                  <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Invite by Callsign</Text>
+                  <Pressable onPress={submitCallsignInvite} hitSlop={10} disabled={callsignBusy || !inviteCallsign.trim()}>
+                    {callsignBusy ? <ActivityIndicator color={tokens.blu} /> : (
+                      <Text style={{ color: inviteCallsign.trim() ? tokens.blu : tokens.t4, fontWeight: '700', fontSize: fs(14.5) }}>Invite</Text>
+                    )}
+                  </Pressable>
+                </View>
+                <Text style={{ color: tokens.t3, fontSize: fs(13) }}>
+                  Their Callsign, exactly as it appears in FlyRegs. They'll need their own Premium subscription and a Callsign set to join.
+                </Text>
+                <TextInput
+                  value={inviteCallsign}
+                  onChangeText={setInviteCallsign}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="Callsign"
+                  placeholderTextColor={tokens.t4}
+                  style={[styles.inviteInput, { color: tokens.t1, borderColor: inviteError ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
+                />
+                {inviteError && <Text style={{ color: tokens.red, fontSize: fs(12.5) }}>{inviteError}</Text>}
+                <Pressable
+                  style={styles.findFriendsLink}
+                  hitSlop={10}
+                  onPress={() => { Keyboard.dismiss(); setFindFriendsStep(true) }}
+                >
+                  <Icon name="person.2.fill" size={fs(13)} color={tokens.blu} />
+                  <Text style={{ color: tokens.blu, fontSize: fs(12.5), fontWeight: '600' }}>Find Friends from Contacts</Text>
+                </Pressable>
+              </>
+            )}
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -903,6 +982,12 @@ export default function FolderDetail() {
         onSent={handleBulkInviteSent}
       />
       <ConfirmCheck trigger={confirmTick} label={confirmLabel} />
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }
@@ -911,6 +996,7 @@ export default function FolderDetail() {
 
 function SwipeableACRow({
   entry, tokens, badgeData, badgeDays, isOpen, onSwipeOpen, onSwipeClose, onPress, onRemove, onMove, onShare,
+  showPreview, hidePreview, consumeLongPress,
 }: {
   entry: ACEntry
   tokens: ReturnType<typeof useTheme>['tokens']
@@ -925,6 +1011,9 @@ function SwipeableACRow({
   onRemove: () => void
   onMove: () => void
   onShare: () => void
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
   const translateX = useSharedValue(0)
@@ -990,7 +1079,16 @@ function SwipeableACRow({
         <Reanimated.View style={rowStyle}>
         <Pressable
           style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-          onPress={handlePress}
+          onPress={() => {
+            if (consumeLongPress()) return
+            handlePress()
+          }}
+          onLongPress={(e) => {
+            const title = rowTitle(item.document_number, item.title)
+            if (title) showPreview(title, e)
+          }}
+          onPressOut={hidePreview}
+          delayLongPress={350}
         >
           <View style={[styles.typeBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
             <Text style={[styles.typeBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>
@@ -1035,6 +1133,7 @@ function SwipeableACRow({
 
 function SwipeableNoteRow({
   entry, tokens, isOpen, onSwipeOpen, onSwipeClose, onPress, onRemove, onMove, onShare,
+  showPreview, hidePreview, consumeLongPress,
 }: {
   entry: NoteEntry
   tokens: ReturnType<typeof useTheme>['tokens']
@@ -1045,6 +1144,9 @@ function SwipeableNoteRow({
   onRemove: () => void
   onMove: () => void
   onShare: () => void
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
   const translateX = useSharedValue(0)
@@ -1116,7 +1218,13 @@ function SwipeableNoteRow({
         <Reanimated.View style={rowStyle}>
         <Pressable
           style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-          onPress={handlePress}
+          onPress={() => {
+            if (consumeLongPress()) return
+            handlePress()
+          }}
+          onLongPress={(e) => showPreview(note.title || 'Untitled', e)}
+          onPressOut={hidePreview}
+          delayLongPress={350}
         >
           <View style={[styles.typeBadge, { backgroundColor: tokens.gdim ?? 'rgba(52,211,153,.10)', borderColor: tokens.gbdr ?? 'rgba(52,211,153,.24)' }]}>
             <Text style={[styles.typeBadgeText, { color: tokens.grn, fontSize: fs(9.5) }]}>NOTE</Text>
@@ -1180,6 +1288,7 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   modalTitle: { fontWeight: '700' },
   inviteInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontWeight: '600' },
+  findFriendsLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 4, paddingVertical: 6 },
   collabRow: {
     flexDirection: 'row',
     alignItems: 'center',

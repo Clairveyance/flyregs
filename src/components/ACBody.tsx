@@ -17,6 +17,8 @@ import type { AcFigure, FormulaRef } from '@/types'
 import { softWrapParagraph } from '@/lib/softWrap'
 import { linkifyText } from '@/lib/crossRefLinks'
 import { setPendingBreadcrumb } from '@/lib/navBreadcrumb'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 type Heading = Extract<ACBlock, { id: string }>
 
@@ -260,6 +262,117 @@ function linkifyBody(
   }
   if (pos < text.length) result.push(<React.Fragment key={`c-${pos}`}>{linkifyCitations(text.slice(pos), tokens, currentLabel, hasProAccess)}</React.Fragment>)
   return <>{result}</>
+}
+
+// Detects the FAA's own revision-notice convention -- confirmed on AC
+// 61-67C's "Change 3" notice, "This change to the AC incorporates new
+// language into subparagraphs 301a and 301b..." -- of naming a numbered
+// section's own lettered sub-item by concatenating the section number and
+// item letter with no separator ("301a" = item "a." under section "301.").
+// Walks the already-parsed blocks once, tracking the most recent bare-number
+// section label, and records every level-1 lettered item that immediately
+// follows it (deeper-nested items, e.g. "(1)"/"(a)", are skipped without
+// resetting the tracked section -- "301a" only ever names a top-level
+// lettered subparagraph, never something nested further). Also indexes the
+// bare section number on its own, for a reference with no trailing letter.
+// Keyed on the exact "301a"/"301" string so a render-time lookup is a single
+// Map.get with no per-reference re-parsing -- and, just as importantly, a
+// reference that DOESN'T resolve (RC's own example: "...and removes
+// subparagraph 301c" -- 301c no longer exists in the current revision) is
+// distinguishable from one that does, so removed subparagraphs correctly
+// stay plain text instead of becoming a dangling link.
+function buildParagraphRefIndex(blocks: ACBlock[]): Map<string, number> {
+  const index = new Map<string, number>()
+  let curNum: string | null = null
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i]
+    if (b.kind === 'section') {
+      const bare = /^(\d{1,4})\.?$/.exec(b.label)
+      curNum = bare ? bare[1] : null
+      if (curNum) index.set(curNum, i)
+      continue
+    }
+    if (b.kind === 'chapter') {
+      curNum = null
+      continue
+    }
+    if (b.kind === 'item' && curNum && b.level === 1) {
+      const letter = /^([a-z])\.?$/.exec(b.label)
+      if (letter) index.set(curNum + letter[1], i)
+    }
+  }
+  return index
+}
+
+// Matches a bare "301a"-shaped in-prose reference: 1-4 digits immediately
+// followed by a single lowercase letter, no space. Deliberately loose on its
+// own (no attempt to also require e.g. a preceding "subparagraph" word,
+// since the FAA's own phrasing isn't consistent enough to anchor on) --
+// safe regardless, because a match only ever becomes a link when it resolves
+// against THIS document's own paragraphRefIndex (built above from the same
+// document's real block structure), and this only ever runs over the
+// leftover plain-text gaps AFTER linkifyText's own citation scan has already
+// claimed FAR/AC/AD/etc mentions -- so a dotted citation like "61.167" (already
+// linked as its own FAR citation) is never re-touched or double-matched here.
+const PARA_REF_RE = /\b(\d{1,4})([a-z])\b/g
+
+// Renders a Change Notice's own body text: same citation linkification as
+// every other AC body (linkifyCitations), plus this AC-Change-Notice-
+// specific pass that turns a resolved "301a"/"301b" reference into a
+// same-document jump (via the same scrollToBlockIndex mechanism the
+// "changed paragraphs" nav already uses) instead of a router navigation --
+// this is the reader jumping back up to a section already open in front of
+// them, not a cross-document citation, so no route push, no Pro-gate.
+function linkifyChangeNoticeText(
+  text: string,
+  paragraphRefIndex: Map<string, number>,
+  tokens: ThemeTokens,
+  onJump: (blockIndex: number) => void,
+  currentLabel: string | undefined,
+  hasProAccess: boolean,
+): React.ReactNode {
+  if (!text) return text
+  const segments = linkifyText(text)
+  return (
+    <>
+      {segments.map((seg, j) => {
+        if (seg.route) {
+          return (
+            <Text
+              key={j}
+              onPress={() => {
+                if (!hasProAccess) { router.push('/paywall?tier=pro' as any); return }
+                if (currentLabel) setPendingBreadcrumb(currentLabel)
+                router.push(seg.route as any)
+              }}
+              style={{ color: tokens.blu, fontWeight: '600' }}
+            >
+              {seg.text}
+            </Text>
+          )
+        }
+        if (!paragraphRefIndex.size) return seg.text
+        PARA_REF_RE.lastIndex = 0
+        const parts: React.ReactNode[] = []
+        let pos = 0
+        let m: RegExpExecArray | null
+        while ((m = PARA_REF_RE.exec(seg.text))) {
+          const blockIndex = paragraphRefIndex.get(m[1] + m[2])
+          if (blockIndex == null) continue
+          if (m.index > pos) parts.push(seg.text.slice(pos, m.index))
+          parts.push(
+            <Text key={m.index} onPress={() => onJump(blockIndex)} style={{ color: tokens.blu, fontWeight: '600' }}>
+              {m[0]}
+            </Text>
+          )
+          pos = m.index + m[0].length
+        }
+        if (!parts.length) return seg.text
+        if (pos < seg.text.length) parts.push(seg.text.slice(pos))
+        return <React.Fragment key={j}>{parts}</React.Fragment>
+      })}
+    </>
+  )
 }
 
 // Repairs a PDF line-break mid-word split stored in block data.
@@ -514,6 +627,18 @@ export const ACBody = React.forwardRef<
     [blocks]
   )
 
+  // Index of the first "Change N" revision-notice block (see acFormat.ts's
+  // extractChangeNotices) -- these are appended after the real document
+  // body, so a one-time "Amendment History" divider right before the first
+  // one marks the transition. Without it, the FIRST change notice's own card
+  // styling is the only signal a reader gets that they've left the current
+  // regulatory text and moved into revision history -- easy to miss on a
+  // fast scroll.
+  const firstChangeNoticeIdx = useMemo(
+    () => blocks.findIndex((b) => b.kind === 'section' && b.isChangeNotice),
+    [blocks]
+  )
+
   // Longest-label-first so "Figure C-10" matches before "Figure C-1" would
   // otherwise grab its first few characters.
   const figuresByLabel = useMemo(() => {
@@ -527,9 +652,19 @@ export const ACBody = React.forwardRef<
     return new RegExp(labels.map(toTolerantLabelPattern).join('|'), 'gi')
   }, [figures])
 
+  // For Change Notice bodies' "301a"/"301b"-style references -- see
+  // buildParagraphRefIndex's own comment.
+  const paragraphRefIndex = useMemo(() => buildParagraphRefIndex(blocks), [blocks])
+
   const [showToc, setShowToc] = useState(false)
   const [showFigures, setShowFigures] = useState(false)
   const [showFormulaRefs, setShowFormulaRefs] = useState(false)
+  // TOC/Figures/Formula-ref entry titles can run long and get cut off the
+  // same way FAR Part titles do -- same hook/card pair as far/index.tsx's
+  // own long-press preview. Distinct from onToggleHighlight's own
+  // long-press-on-body-blocks feature above -- these rows are the
+  // Contents/Figures & Tables jump-lists, not body content.
+  const { preview: tocPreview, previewHeight: tocPreviewHeight, setPreviewHeight: setTocPreviewHeight, showPreview: showTocPreview, hidePreview: hideTocPreview, consumeLongPress: consumeTocLongPress } = useLongPressPreview()
   const headingRefs = useRef<Record<string, View | null>>({})
   // Populated for EVERY block (web only reads this on demand in
   // scrollToBlockIndex, so capturing it for all blocks costs nothing extra)
@@ -544,6 +679,20 @@ export const ACBody = React.forwardRef<
   // landed at section 1.1, never at the saved passage). Capturing the ref
   // for every block up front removes that race entirely.
   const jumpRefs = useRef<Record<number, View | null>>({})
+  // Web-only: each highlighted match <span>, keyed by its GLOBAL ordinal --
+  // the same ordinal `occurrences` (below) assigns, so this stays correct
+  // even when Change-notice matches are reordered to the front (see
+  // `occurrences`'s own comment). Populated via highlightSpans' onOccRef.
+  // Without this, scrollToMatch's web path (below) had no way to target a
+  // specific occurrence and fell back to querying the DOM for every
+  // highlighted <span> in raw visual top-to-bottom order -- which silently
+  // ignored `occurrences`' order entirely. Confirmed live: reordering
+  // `occurrences` alone changed which match got the "active" highlight
+  // color, but pressing search still auto-scrolled to the first match in
+  // DOCUMENT order (e.g. AC 61-67C's "3. BACKGROUND." prose), never the
+  // prioritized Change-notice card -- this ref map is what actually makes
+  // the jump go to the right place.
+  const occRefs = useRef<Record<number, HTMLElement | null>>({})
   //
   // blockRelY / headingRelY: each block's Y position relative to ACBody's
   // OWN root view (from its own onLayout) -- keyed by block index and, for
@@ -654,9 +803,28 @@ export const ACBody = React.forwardRef<
   // data we already have, not another native measurement attempt.
   const occurrences = useMemo(() => {
     if (!phrase || phrase.length < 2) return []
-    const result: { blockIndex: number; fraction: number }[] = []
+    // Searching "change" is how a reader looks for the AMENDMENT HISTORY
+    // cards specifically (see acFormat.ts's extractChangeNotices) -- but in
+    // document order those matches sit dead last, behind every incidental
+    // "change"/"changes"/"changed" in the AC's own prose. Confirmed how bad
+    // this was before promoting them: on AC 20-138D "change" matches 274
+    // times total, with the real Change-notice card not reached until the
+    // 271st occurrence -- 20-138D also happens to be the doc whose Change
+    // notices sit at the very end because of this session's earlier reorder
+    // fix (RC: "the original text is listed, then the Changes are placed in
+    // seq after"), which made this specific search problem worse, not
+    // better. Scoped to queries starting with "change" (covers "change",
+    // "changes", "changed", "change 1", "change 2") so an unrelated search
+    // that happens to also match text inside a Change-notice card's body
+    // keeps its normal document-order behavior -- this only reorders when
+    // the reader is plausibly looking for the cards themselves.
+    const prioritizeChangeNotices = phrase.startsWith('change')
+    const primary: { blockIndex: number; fraction: number }[] = []
+    const rest: { blockIndex: number; fraction: number }[] = []
     for (let i = 0; i < blocks.length; i++) {
-      const segs = blockSegments(blocks[i])
+      const b = blocks[i]
+      const bucket = prioritizeChangeNotices && b.kind === 'section' && b.isChangeNotice ? primary : rest
+      const segs = blockSegments(b)
       const totalLen = segs.reduce((s, seg) => s + seg.length, 0) || 1
       let consumed = 0
       for (const seg of segs) {
@@ -665,14 +833,14 @@ export const ACBody = React.forwardRef<
         let pos = 0
         let idx = lower.indexOf(phrase, pos)
         while (idx !== -1) {
-          result.push({ blockIndex: i, fraction: (consumed + idx) / totalLen })
+          bucket.push({ blockIndex: i, fraction: (consumed + idx) / totalLen })
           pos = idx + phrase.length
           idx = lower.indexOf(phrase, pos)
         }
         consumed += seg.length
       }
     }
-    return result
+    return prioritizeChangeNotices ? [...primary, ...rest] : rest
   }, [blocks, phrase])
 
   // Global ordinal of each block's FIRST occurrence (occurrences are grouped by
@@ -692,6 +860,25 @@ export const ACBody = React.forwardRef<
     onMatchCount?.(occurrences.length)
   }, [occurrences, onMatchCount])
 
+  // Factored out of the imperative handle's scrollToBlockIndex below so an
+  // in-body tap (a resolved "301a" reference inside a Change Notice, see
+  // linkifyChangeNoticeText) can jump the SAME way as an external caller
+  // (ac/[id].tsx's changed-paragraphs nav) -- both are "land on this exact
+  // block", just triggered from different places.
+  const goToBlockIndex = (blockIndex: number) => {
+    const node = jumpRefs.current[blockIndex]
+    if (Platform.OS === 'web') {
+      const el = node as unknown as HTMLElement
+      el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+      return
+    }
+    const scroller = scrollRef?.current
+    if (!scroller) return
+    const y = absoluteBlockY(blockIndex)
+    if (y == null) return
+    scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true })
+  }
+
   useImperativeHandle(ref, () => ({
     scrollToMatch(n: number) {
       if (Platform.OS === 'web') {
@@ -700,7 +887,26 @@ export const ACBody = React.forwardRef<
         // ScrollView as an overflow:auto div, so window.scrollTo has no effect.
         // Retry across a few frames: on a cold mount the highlight spans may not be
         // painted yet when an auto-scroll-to-first-match fires.
+        //
+        // Prefer occRefs (populated by highlightSpans' onOccRef, keyed by the
+        // SAME global ordinal `occurrences` assigns) over a raw DOM query --
+        // confirmed as a real, live bug without this: reordering `occurrences`
+        // to put Change-notice matches first (see its own comment) correctly
+        // changed which occurrence got the "active" highlight color, but the
+        // OLD DOM-query approach below re-derives its own order from
+        // `document.querySelectorAll('span')`, i.e. raw top-to-bottom visual
+        // position -- completely independent of `occurrences`' order. Search
+        // still auto-scrolled to the first "change" match in plain body prose
+        // on AC 61-67C instead of the prioritized Change-notice card. Falls
+        // back to the old DOM-query approach if a ref isn't populated yet
+        // (e.g. a cold-mount race before that occurrence's block has laid
+        // out) so this never regresses into a silent no-op.
         const tryScroll = (attempt: number) => {
+          const refTarget = occRefs.current[n] as unknown as HTMLElement | undefined
+          if (refTarget) {
+            refTarget.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            return
+          }
           const spans = Array.from(
             (document as any).querySelectorAll('span') as HTMLSpanElement[]
           )
@@ -743,17 +949,7 @@ export const ACBody = React.forwardRef<
       scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true })
     },
     scrollToBlockIndex(blockIndex: number) {
-      const node = jumpRefs.current[blockIndex]
-      if (Platform.OS === 'web') {
-        const el = node as unknown as HTMLElement
-        el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
-        return
-      }
-      const scroller = scrollRef?.current
-      if (!scroller) return
-      const y = absoluteBlockY(blockIndex)
-      if (y == null) return
-      scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true })
+      goToBlockIndex(blockIndex)
     },
   }), [occurrences, scrollRef, hq, centerOffset])
 
@@ -799,22 +995,35 @@ export const ACBody = React.forwardRef<
           </Pressable>
           {showToc && (
             <View style={[styles.tocList, { borderTopColor: tokens.bdr }]}>
-              {toc.map((h) => (
-                <Pressable key={h.id} style={styles.tocRow} onPress={() => jumpTo(h.id)}>
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.tocEntry,
-                      { fontSize: fs(13) },
-                      h.kind === 'chapter'
-                        ? { color: tokens.t1, fontWeight: '700' }
-                        : { color: tokens.t2, paddingLeft: 14 },
-                    ]}
+              {toc.map((h) => {
+                const entryText = h.kind === 'chapter' ? h.text : `${h.label} ${repairSplitTitle(h.title, h.body).title}`.trim()
+                return (
+                  <Pressable
+                    key={h.id}
+                    style={styles.tocRow}
+                    onPress={() => {
+                      if (consumeTocLongPress()) return
+                      jumpTo(h.id)
+                    }}
+                    onLongPress={(e) => showTocPreview(entryText, e)}
+                    onPressOut={hideTocPreview}
+                    delayLongPress={350}
                   >
-                    {h.kind === 'chapter' ? h.text : `${h.label} ${repairSplitTitle(h.title, h.body).title}`.trim()}
-                  </Text>
-                </Pressable>
-              ))}
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.tocEntry,
+                        { fontSize: fs(13) },
+                        h.kind === 'chapter'
+                          ? { color: tokens.t1, fontWeight: '700' }
+                          : { color: tokens.t2, paddingLeft: 14 },
+                      ]}
+                    >
+                      {entryText}
+                    </Text>
+                  </Pressable>
+                )
+              })}
             </View>
           )}
         </View>
@@ -855,7 +1064,17 @@ export const ACBody = React.forwardRef<
               {showFigures && (
                 <View style={[styles.tocList, { borderTopColor: tokens.bdr }]}>
                   {figures.map((f) => (
-                    <Pressable key={f.id} style={styles.tocRow} onPress={() => onOpenFigure?.(f)}>
+                    <Pressable
+                      key={f.id}
+                      style={styles.tocRow}
+                      onPress={() => {
+                        if (consumeTocLongPress()) return
+                        onOpenFigure?.(f)
+                      }}
+                      onLongPress={(e) => showTocPreview(f.caption ? `${f.label} ${f.caption}` : f.label, e)}
+                      onPressOut={hideTocPreview}
+                      delayLongPress={350}
+                    >
                       <Text numberOfLines={1} style={[styles.tocEntry, { color: tokens.t2, fontSize: fs(13) }]}>
                         <Text style={{ color: tokens.t1, fontWeight: '700' }}>{f.label}</Text>
                         {f.caption ? (
@@ -893,7 +1112,17 @@ export const ACBody = React.forwardRef<
               {showFormulaRefs && (
                 <View style={[styles.tocList, { borderTopColor: tokens.bdr }]}>
                   {formulaRefs.map((r) => (
-                    <Pressable key={r.id} style={styles.tocRow} onPress={() => onOpenFormulaRef?.(r)}>
+                    <Pressable
+                      key={r.id}
+                      style={styles.tocRow}
+                      onPress={() => {
+                        if (consumeTocLongPress()) return
+                        onOpenFormulaRef?.(r)
+                      }}
+                      onLongPress={(e) => showTocPreview(r.note ? `${r.label} — ${r.note}` : r.label, e)}
+                      onPressOut={hideTocPreview}
+                      delayLongPress={350}
+                    >
                       <Text numberOfLines={2} style={[styles.tocEntry, { color: tokens.t2, fontSize: fs(13) }]}>
                         <Text style={{ color: tokens.t1, fontWeight: '700' }}>{r.label}</Text>
                         {r.note ? ` — ${r.note}` : ''}
@@ -934,11 +1163,21 @@ export const ACBody = React.forwardRef<
           base: segBase,
           active: activeMatch,
           redShift,
+          onOccRef: Platform.OS === 'web'
+            ? (globalOrdinal: number, node: any) => { occRefs.current[globalOrdinal] = node }
+            : undefined,
         })
         // Only auto-link body prose (not headings/labels) — a caption never
         // legitimately appears inside a section/item label.
         const linkify = (t: string) =>
           linkifyBody(t, figureLabelRe, figuresByLabel, onOpenFigure, tokens, currentLabel, hasProAccess)
+        // Change Notice bodies specifically (see linkifyChangeNoticeText) also
+        // get "301a"/"301b"-style same-document jump links — scoped to just
+        // this block kind since that's the FAA's own convention for revision
+        // notices, not general AC prose (a bare "N + letter" elsewhere in a
+        // document's real body isn't reliably a paragraph reference).
+        const linkifyChange = (t: string) =>
+          linkifyChangeNoticeText(t, paragraphRefIndex, tokens, goToBlockIndex, currentLabel, hasProAccess)
         switch (b.kind) {
           case 'chapter':
             return (
@@ -958,6 +1197,75 @@ export const ACBody = React.forwardRef<
               </View>
             )
           case 'section': {
+            // "Change N" revision notices (see acFormat.ts's extractChangeNotices)
+            // render as their own visually distinct card instead of falling
+            // through to the generic numbered-section styling below, which
+            // would make them indistinguishable from real body content while
+            // scrolling. RC: "these Change sections need to be treated like
+            // another document, inside the original... emboldened and
+            // clearly show... so as a user scrolls through the body of a
+            // reg, these areas stand out clearly."
+            if (b.isChangeNotice) {
+              const { title: rawTitle, body: rawBody } = repairSplitTitle(b.title, b.body)
+              const headingText = `${b.label}${rawTitle ? ` ${rawTitle}` : ''}`
+              const bodyBase = base + (phrase ? countOcc(headingText, phrase) : 0)
+              return (
+                <React.Fragment key={i}>
+                  {i === firstChangeNoticeIdx && (
+                    <View style={styles.amendmentDivider}>
+                      <View style={[styles.amendmentDividerLine, { backgroundColor: tokens.bdr }]} />
+                      <Text style={[styles.amendmentDividerText, { color: tokens.t3, fontSize: fs(11) }]}>
+                        AMENDMENT HISTORY
+                      </Text>
+                      <View style={[styles.amendmentDividerLine, { backgroundColor: tokens.bdr }]} />
+                    </View>
+                  )}
+                  <Pressable
+                    ref={(el) => {
+                      headingRefs.current[b.id] = el as any
+                      jumpRefs.current[i] = el as any
+                    }}
+                    onLayout={(e) => cacheBlockLayout(i, e.nativeEvent.layout.y, e.nativeEvent.layout.height, b.id)}
+                    onLongPress={longPress}
+                    delayLongPress={450}
+                    style={[styles.changeCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }, highlightStyle]}
+                  >
+                    {HighlightTag}
+                    {activeHq ? (
+                      <Text style={[styles.sectionLabel, { color: tokens.t1, fontWeight: '700', fontSize: fs(13.5) }]}>
+                        {highlightSpans(headingText, activeHq, hOpts(base))}
+                      </Text>
+                    ) : (
+                      <View style={styles.changeCardHead}>
+                        <Text style={[styles.changeChip, { backgroundColor: tokens.blu, fontSize: fs(11) }]}>
+                          {b.label.toUpperCase()}
+                        </Text>
+                        {rawTitle ? (
+                          <Text style={[styles.changeDate, { color: tokens.t3, fontSize: fs(11.5) }]}>{rawTitle}</Text>
+                        ) : null}
+                      </View>
+                    )}
+                    {rawBody ? (
+                      activeHq ? (
+                        <Text selectable style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13) }]}>
+                          {highlightSpans(rawBody, activeHq, hOpts(bodyBase))}
+                        </Text>
+                      ) : (
+                        softWrapParagraph(rawBody).map((chunk, ci) => (
+                          <Text
+                            key={ci}
+                            selectable
+                            style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13) }, ci > 0 && { marginTop: 8 }]}
+                          >
+                            {linkifyChange(chunk)}
+                          </Text>
+                        ))
+                      )
+                    ) : null}
+                  </Pressable>
+                </React.Fragment>
+              )
+            }
             const depth = (b.label.replace(/\.$/, '').match(/\./g) || []).length
             const paddingLeft = Math.max(0, depth - 1) * 16
             const fontSize = fs(depth >= 3 ? 12.5 : depth >= 2 ? 13 : 13.5)
@@ -1099,6 +1407,12 @@ export const ACBody = React.forwardRef<
             )
         }
       })}
+      <LongPressPreviewCard
+        preview={tocPreview}
+        previewHeight={tocPreviewHeight}
+        onLayoutHeight={setTocPreviewHeight}
+        onDismiss={hideTocPreview}
+      />
     </View>
   )
 })
@@ -1115,6 +1429,13 @@ const styles = StyleSheet.create({
 
   chapter: { fontSize: 14.5, fontWeight: '800', letterSpacing: 0.3, marginTop: 20, marginBottom: 8 },
   sectionLabel: { lineHeight: 20 },
+  amendmentDivider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 26, marginBottom: 10 },
+  amendmentDividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  amendmentDividerText: { fontWeight: '700', letterSpacing: 1.2 },
+  changeCard: { borderWidth: 1, borderRadius: 10, padding: 12, marginTop: 10 },
+  changeCardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  changeChip: { color: '#fff', fontWeight: '800', letterSpacing: 0.4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 5, overflow: 'hidden' },
+  changeDate: { fontWeight: '500' },
   sectionBody: { fontSize: 13.5, lineHeight: 21, marginTop: 4 },
   item: { fontSize: 13, lineHeight: 20, marginTop: 8 },
   autoListRow: { flexDirection: 'row', marginTop: 6, paddingLeft: 4 },

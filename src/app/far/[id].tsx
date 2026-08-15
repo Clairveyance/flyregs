@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Keyboard } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import * as Haptics from 'expo-haptics'
@@ -17,7 +17,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { BackToBreadcrumb, PrevNextFooter, TableNavBar } from '@/components/DocNavBar'
+import { BackToBreadcrumb, PrevNextFooter, TableNavBar, ChangedBanner } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
@@ -26,6 +26,7 @@ import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
+import { getSemanticRelated, mergeRelated } from '@/lib/relatedContent'
 import { getLatestRevision, changedParagraphIndices, splitParagraphs, type ContentRevision } from '@/lib/whatsChanged'
 import { stripFarPrefix } from '@/lib/titleFormat'
 import { normalizeRegBody } from '@/lib/regTextFormat'
@@ -171,7 +172,8 @@ export default function FarSectionScreen() {
         .from('document_citations_gated')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.far,cited_id.eq.${id}),and(citing_type.eq.far,citing_id.eq.${id})`),
-    ]).then(async ([secRes, citRes]) => {
+      getSemanticRelated('far', id),
+    ]).then(async ([secRes, citRes, semantic]) => {
       if (!secRes.error && secRes.data) {
         const s = secRes.data as FarSection
         setSection(s)
@@ -216,7 +218,7 @@ export default function FarSectionScreen() {
             ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
             : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
           .filter((r) => !(r.cited_type === 'far' && r.cited_id === id))
-        setRelated(other)
+        setRelated(mergeRelated(other, semantic))
       }
       setLoading(false)
     })
@@ -290,10 +292,12 @@ export default function FarSectionScreen() {
   const pcgRefs = related.filter((r) => r.cited_type === 'pcg')
   const adRefs = related.filter((r) => r.cited_type === 'ad')
   const loiRefs = related.filter((r) => r.cited_type === 'loi')
+  const otherFarRefs = related.filter((r) => r.cited_type === 'far')
+  const cfr49Refs = related.filter((r) => r.cited_type === 'cfr49')
 
   const handleToggleBookmark = async () => {
     if (!section) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     setBookmarked((prev) => !prev) // optimistic
     const next = await toggleBookmark({
       id: section.section_number,
@@ -315,7 +319,7 @@ export default function FarSectionScreen() {
   const lastToggleAt = useRef(0)
   const handleToggleHighlight = useCallback(async (paraText: string) => {
     if (!section) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     if (toggleInFlight.current) return
     if (Date.now() - lastToggleAt.current < 800) return
     lastToggleAt.current = Date.now()
@@ -345,7 +349,7 @@ export default function FarSectionScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [section, hasProAccess])
+  }, [section, hasPlusAccess])
 
   const handleCopyBlock = useCallback(async (paraText: string) => {
     await Clipboard.setStringAsync(paraText)
@@ -353,7 +357,7 @@ export default function FarSectionScreen() {
   }, [])
 
   const handleBlockLongPress = useCallback((paraText: string) => {
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     // Set BEFORE the menu opens, not after a choice -- RC: "the h/l feature
     // needs to show the h/l area in the doc before any CTA pops up w/
     // options." Cleared on every dismiss path (any choice, Cancel, or
@@ -371,11 +375,11 @@ export default function FarSectionScreen() {
       ],
       onCancel: () => setPendingHighlight(null),
     })
-  }, [hasProAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
+  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
 
   const handleOpenFolderPicker = () => {
     if (!section) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     setFolderPickerVisible(true)
   }
 
@@ -466,7 +470,7 @@ export default function FarSectionScreen() {
         items={[
           { icon: 'printer', label: 'Print', onPress: handlePrint, disabled: !hasPlusAccess },
           { icon: 'square.and.arrow.up', label: 'Share', onPress: handleShare, disabled: !hasPlusAccess },
-          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasProAccess },
+          { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasPlusAccess },
         ]}
       />
       <Pressable onPress={handleToggleBookmark} hitSlop={12} style={{ padding: 4 }}>
@@ -496,6 +500,15 @@ export default function FarSectionScreen() {
           onNext={inDocSearch.goToNext}
         />
       )}
+      {!loading && section && (
+        <ChangedBanner
+          count={changedIdx.length}
+          currentIdx={changedCursor}
+          onPrev={() => jumpToChanged(-1)}
+          onNext={() => jumpToChanged(1)}
+          label={`Updated — ${changedIdx.length} paragraph${changedIdx.length === 1 ? '' : 's'} changed`}
+        />
+      )}
 
       {loading ? (
         <View style={styles.center}>
@@ -513,6 +526,22 @@ export default function FarSectionScreen() {
           onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
           onLayout={(e) => setScrollViewportHeight(e.nativeEvent.layout.height)}
           scrollEventThrottle={100}
+          // Matches ac/[id].tsx's own ScrollView -- was missing here (and on
+          // aim/ad/pcg's identical setup), so dragging the doc content down
+          // while the in-doc search keyboard was up did nothing; the native
+          // interactive-dismiss gesture only exists when this prop is set.
+          // keyboardShouldPersistTaps alongside it for the same reason
+          // BB-092 needed it elsewhere: without it a tap on the search bar's
+          // prev/next buttons just dismisses the keyboard instead of firing.
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          // Belt-and-suspenders alongside keyboardDismissMode="interactive"
+          // above -- RC, real device: "drag to hide for k/b isn't there."
+          // The native interactive-drag-sync gesture is a real but
+          // documented-flaky RN/iOS behavior (facebook/react-native#31394,
+          // #29524); this fires a plain, reliable dismiss the instant a
+          // drag starts rather than depending on that sync gesture working.
+          onScrollBeginDrag={() => Keyboard.dismiss()}
         >
           {section.subpart_title && (
             <Text style={[styles.subpart, { color: tokens.t3, fontSize: fs(12) }]}>{section.subpart_title}</Text>
@@ -586,31 +615,19 @@ export default function FarSectionScreen() {
             )}
             <MagicLinkPod
               bars={[
-                { icon: 'doc.text', label: 'Related ACs', items: acRefs },
-                { icon: 'list.bullet', label: 'AIM references', items: aimRefs },
-                { icon: 'questionmark.circle', label: 'P/CG terms', items: pcgRefs },
-                { icon: 'wrench.and.screwdriver', label: 'Related ADs', items: adRefs },
-                { icon: 'checkmark.seal.fill', label: 'Related LOIs', items: loiRefs },
+                { icon: 'book.closed.fill', label: 'Related FARs', items: otherFarRefs },
+                { icon: 'megaphone.fill', label: 'Related ACs', items: acRefs },
+                { icon: 'map.fill', label: 'AIM references', items: aimRefs },
+                { icon: 'headset', label: 'P/CG terms', items: pcgRefs },
+                { icon: 'wrench.and.screwdriver.fill', label: 'Related ADs', items: adRefs },
+                { icon: 'envelope.open.fill', label: 'Related LOIs', items: loiRefs },
+                { icon: 'building.columns.fill', label: 'Related 49 CFR', items: cfr49Refs },
               ]}
               currentLabel={currentLabel}
               hasProAccess={hasProAccess}
             />
           </View>
 
-            {changedIdx.length > 0 && (
-              <View style={[styles.changedBanner, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
-                <Icon name="doc.badge.clock" size={fs(13)} color={tokens.blu} />
-                <Text style={[styles.changedBannerText, { color: tokens.blu, fontSize: fs(12.5) }]}>
-                  Updated — {changedIdx.length} paragraph{changedIdx.length === 1 ? '' : 's'} changed
-                </Text>
-                <Pressable onPress={() => jumpToChanged(-1)} hitSlop={8}>
-                  <Icon name="chevron.up" size={fs(14)} color={tokens.blu} />
-                </Pressable>
-                <Pressable onPress={() => jumpToChanged(1)} hitSlop={8}>
-                  <Icon name="chevron.down" size={fs(14)} color={tokens.blu} />
-                </Pressable>
-              </View>
-            )}
           {body ? (
             <PlainTextBody
               ref={bodyRef}
@@ -678,9 +695,6 @@ export default function FarSectionScreen() {
 }
 
 const styles = StyleSheet.create({
-  changedBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 12 },
-  changedBannerText: { fontWeight: '700', flex: 1 },
-
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   empty: { fontSize: 15, textAlign: 'center' },

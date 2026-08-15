@@ -9,6 +9,8 @@ import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getRecents, recentItemType, type RecentAC } from '@/lib/recents'
 import { humanizeLoiTitle } from '@/lib/titleFormat'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 interface LoiHit {
   slug: string
@@ -49,6 +51,10 @@ export default function LoiIndexScreen() {
   const [searchWrapHeight, setSearchWrapHeight] = useState(0)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchSeq = useRef(0)
+  // LOI titles (humanized addressee/subject names) run long and get cut off
+  // the same way FAR Part titles do -- same hook/card pair as far/index.tsx's
+  // own long-press preview.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   useEffect(() => {
     getRecents().then((rs) => setRecentLoi(rs.filter((r) => recentItemType(r) === 'loi').slice(0, 10)))
@@ -195,7 +201,13 @@ export default function LoiIndexScreen() {
               renderItem={({ item }) => (
                 <Pressable
                   style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                  onPress={() => router.push(`/loi/${item.slug}` as any)}
+                  onPress={() => {
+                    if (consumeLongPress()) return
+                    router.push(`/loi/${item.slug}` as any)
+                  }}
+                  onLongPress={(e) => showPreview(humanizeLoiTitle(item.title), e)}
+                  onPressOut={hidePreview}
+                  delayLongPress={350}
                 >
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
@@ -250,6 +262,12 @@ export default function LoiIndexScreen() {
           />
         )}
       </TabletContainer>
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }
