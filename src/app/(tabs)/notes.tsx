@@ -202,6 +202,16 @@ export default function NotesScreen() {
     else setSelectMode(true)
   }
 
+  // RC, real device: "once on this page [select mode], let's add an 'All'
+  // button in that same spot [next to Done], so user can select/deselect
+  // all items at once if desired." Toggles rather than a one-way "select
+  // all" -- if everything's already selected, tapping again is the obvious
+  // way to clear the selection without a second, separate control.
+  const allSelected = notes.length > 0 && selected.size === notes.length
+  const toggleSelectAll = () => {
+    setSelected(allSelected ? new Set() : new Set(notes.map((n) => n.id)))
+  }
+
   const handleBulkAddToFolder = async (folderIds: string[]) => {
     const ids = [...selected]
     // Sequential, not Promise.all -- addManyToFolder does its own read-modify-
@@ -295,6 +305,13 @@ export default function NotesScreen() {
 
   const rightSlot = hasPlusAccess && !isTablet ? (
     <View style={styles.headerRight}>
+      {selectMode && (
+        <Pressable onPress={toggleSelectAll} hitSlop={8}>
+          <Text style={[styles.selectBtnText, { color: tokens.blu, fontSize: fs(13) }]}>
+            {allSelected ? 'None' : 'All'}
+          </Text>
+        </Pressable>
+      )}
       <Pressable onPress={toggleSelect} hitSlop={8}>
         <Text style={[styles.selectBtnText, { color: tokens.blu, fontSize: fs(13) }]}>
           {selectMode ? 'Done' : 'Select'}

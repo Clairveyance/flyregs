@@ -521,9 +521,9 @@ function RingTick({
   )
 }
 
-function LegendRow({ color, label, count, tokens, fs }: { color: string; label: string; count: number; tokens: ThemeTokens; fs: (n: number) => number }) {
+function LegendRow({ color, label, count, tokens, fs, divider, borderColor }: { color: string; label: string; count: number; tokens: ThemeTokens; fs: (n: number) => number; divider?: boolean; borderColor?: string }) {
   return (
-    <View style={styles.legendRow}>
+    <View style={[styles.legendRow, divider && [styles.legendRowDivider, { borderTopColor: borderColor }]]}>
       <View style={[styles.legendDot, { backgroundColor: color }]} />
       <Text style={[styles.legendLabel, { color: tokens.t2, fontSize: fs(13) }]}>{label}</Text>
       <Text style={[styles.legendCount, { color: tokens.t1, fontSize: fs(13.5) }]}>{count}</Text>
@@ -1388,14 +1388,25 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                       fs={fs}
                     />
                     <View style={styles.legend}>
-                      <LegendRow color={tokens.grn} label="Compliant" count={totalCompliantAds} tokens={tokens} fs={fs} />
+                      {/* RC, real device: "yes, the Red overdue is probably
+                          only assoc. w/ Reminders. but Open and Compliant
+                          are clearly just for ADs, and should reflect
+                          that." All 3 rows read as one flat scale even
+                          though they span two unrelated counts (AD
+                          compliance state vs. reminder due-state) -- fixed
+                          both ways RC suggested: labels now name their own
+                          domain ("AD" / "Reminder"), and the Overdue row
+                          gets its own top border + extra spacing so it
+                          visually reads as a second, separate group rather
+                          than a third bucket of the same thing. */}
+                      <LegendRow color={tokens.grn} label="Compliant AD" count={totalCompliantAds} tokens={tokens} fs={fs} />
                       <LegendRow color={tokens.amb} label="Open AD" count={totalOpenAds} tokens={tokens} fs={fs} />
-                      <LegendRow color={tokens.red} label="Overdue" count={totalOverdue} tokens={tokens} fs={fs} />
+                      <LegendRow color={tokens.red} label="Overdue Reminder" count={totalOverdue} tokens={tokens} fs={fs} divider borderColor={tokens.bdr} />
                     </View>
                   </View>
                   <View style={styles.statBoxRow}>
                     <StatBox value={totalOverdue} label="OVERDUE" color={tokens.red} tokens={tokens} fs={fs} />
-                    <StatBox value={totalOpenAds} label="OPEN ITEMS" color={tokens.amb} tokens={tokens} fs={fs} />
+                    <StatBox value={totalOpenAds} label="OPEN ADS" color={tokens.amb} tokens={tokens} fs={fs} />
                     <StatBox value={nextDueDays !== null ? `${nextDueDays}d` : '—'} label="NEXT DUE" color={tokens.grn} tokens={tokens} fs={fs} />
                   </View>
                 </View>
@@ -1795,6 +1806,11 @@ const styles = StyleSheet.create({
   ringCenterUnit: { letterSpacing: 0.8, marginTop: -2, fontWeight: '600' },
   legend: { flex: 1, gap: 10 },
   legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  // Sits only on the Overdue row (a Reminder-domain count) to visually
+  // break it away from the two AD-domain rows above it -- see the "AD
+  // Compliant"/"Open AD"/"Overdue Reminder" labeling comment at this
+  // component's call site.
+  legendRowDivider: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, marginTop: 2 },
   legendDot: { width: 9, height: 9, borderRadius: 4.5 },
   legendLabel: { flex: 1 },
   legendCount: { fontWeight: '700' },
