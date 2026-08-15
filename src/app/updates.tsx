@@ -170,8 +170,7 @@ export default function UpdatesScreen() {
 // let's make those others separately sortable. So, chips are All, AC, AD,
 // Other" -- a fixed 3-bucket model (everything that isn't AC/AD groups
 // into "Other") instead of one chip per raw type, shared between both
-// tabs. Only shows a bucket's chip when it actually has at least one item
-// right now, so a quiet week doesn't show dead buttons.
+// tabs.
 type ChipFilter = 'ac' | 'ad' | 'other'
 const CHIP_LABELS: Record<ChipFilter, string> = { ac: 'AC', ad: 'AD', other: 'Other' }
 const CHIP_ORDER: ChipFilter[] = ['ac', 'ad', 'other']
@@ -189,18 +188,13 @@ function TypeFilterChips({
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
 }) {
-  // RC, real device: "there are several FARs that show active under
-  // 'Changed' so that 'Other' chip should be see those." Root cause: this
-  // used to hide the WHOLE chip row (not just an individual empty chip)
-  // whenever fewer than 2 of the 3 buckets had any items -- reasonable
-  // when the list is genuinely empty (nothing to filter), wrong whenever
-  // everything present happens to fall into a single bucket (confirmed
-  // live: a 90-day Changed window with 15 real FAR revisions and 0 AC/AD
-  // ones hid "All" + "Other · 15" both, even though Other was fully
-  // populated and exactly what RC wanted to tap). Now only hides the row
-  // when there's truly nothing to show at all.
-  const present = CHIP_ORDER.filter((t) => counts[t] > 0)
-  if (present.length < 1) return null
+  // RC, real device: first fixed to hide the whole chip row only when
+  // truly nothing existed anywhere (was hiding a fully-populated "Other"
+  // chip whenever AC/AD both happened to be 0). RC's own follow-up
+  // clarified further: "all four need to be on both pages. they all need
+  // to visible all the time, even w/o current contents. empty ones can
+  // display a 0." No visibility logic left at all now -- always render
+  // every chip, count included.
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterRow}>
       <Pressable
@@ -213,7 +207,7 @@ function TypeFilterChips({
       >
         <Text numberOfLines={1} style={[styles.filterChipText, { color: active === null ? '#fff' : tokens.blu, fontSize: fs(12) }]}>All</Text>
       </Pressable>
-      {present.map((t) => (
+      {CHIP_ORDER.map((t) => (
         <Pressable
           key={t}
           style={[
