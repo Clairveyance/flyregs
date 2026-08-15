@@ -186,6 +186,23 @@ for (const tag of equipTags ?? []) {
 
 const adsByNumber = new Map(ads.map((ad) => [ad.ad_number, ad]))
 
+// Mirrors sync/migrations_general_aircraft_designator_normalization.sql's
+// normalize_aircraft_designator() exactly -- this script is a SEPARATE JS
+// implementation of the same match, not a caller of the SQL RPC, so it has
+// to carry the identical fix or the two silently diverge (a real AD-owner
+// would get an in-app match from backfill_aircraft_ad_notifications() but
+// never a push alert here, or vice versa). RC: "our aircraft matching...
+// has to be much fuzzier... expanded now because there are several other
+// manufacturers." Confirmed live against the corpus first (Diamond "DA 40"
+// vs owner-typed "DA40"; Piper PDF-artifact "PA-28- 161") before building --
+// see the SQL migration's header comment for the full investigation and for
+// why a pg_trgm fuzzy fallback was deliberately NOT added here (adjacent
+// real variants like PA-28-180/181 and 172R/172RG score too close to real
+// typos to threshold safely).
+const normalizeDesignator = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+const stripCessnaPrefix = (make, normalized) =>
+  make.includes('cessna') && /^c[0-9]/.test(normalized) ? normalized.slice(1) : normalized
+
 // Every real match, aircraft-level (not just user-level) -- this is what
 // the user_ad_notifications table exists for: the in-app "new AD in
 // your aircraft folder" marker needs to know WHICH aircraft matched, not
@@ -204,7 +221,7 @@ const addMatch = (userId, userAircraftId, ad, matchedVia) => {
 for (const ad of ads) {
   if (!ad.make) continue
   const adMake = ad.make.trim().toLowerCase()
-  const adModel = (ad.model ?? '').toLowerCase()
+  const adModel = normalizeDesignator(ad.model ?? '')
   // Fallback text checked when ad.model is null -- see the block below for
   // why (RC, live, screenshot: a Cessna 172S showed 65 Applicable ADs,
   // most for entirely different Cessna models). applicability is full,
@@ -213,7 +230,7 @@ for (const ad of ads) {
   // that happens to land in the title's first ~65 characters -- still
   // strictly better than no check at all, which is what this used to fall
   // straight through to.
-  const adFallbackText = (ad.applicability ?? ad.subject_heading ?? '').toLowerCase()
+  const adFallbackText = normalizeDesignator(ad.applicability ?? ad.subject_heading ?? '')
   for (const a of aircraft) {
     // Confirmed a real, severe bug live (2026-07-29): this was an EXACT
     // string equality check, but airworthiness_directives.make is the
@@ -237,8 +254,8 @@ for (const ad of ads) {
     // type_designator (src/lib/aircraftModels.ts's alias bridge, entered
     // via My Aircraft) is an alternate value to check for the same AD; a
     // match on EITHER the marketing model or the type designator counts.
-    const userType = (a.type_designator ?? '').trim().toLowerCase()
-    const userModel = a.model.trim().toLowerCase()
+    const userType = stripCessnaPrefix(userMake, normalizeDesignator(a.type_designator ?? ''))
+    const userModel = stripCessnaPrefix(userMake, normalizeDesignator(a.model))
     // REVISED 2026-08-14 (RC, live Cirrus SR22 test aircraft, cross-ref
     // against backfill_aircraft_ad_notifications() finding the identical
     // shape of bug in the SQL RPC -- see
