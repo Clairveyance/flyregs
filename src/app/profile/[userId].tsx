@@ -510,7 +510,17 @@ export default function ProfileScreen() {
                 ratings/coins/aircraft are (RC: "your total Overall Mastery
                 %. plus the nametag. all the things to really brag about"). */}
             {(() => {
-              const showDuel = duelStats && (duelStats.wins > 0 || duelStats.losses > 0 || duelStats.ties > 0)
+              // RC, real device: "not sure if the 'orbit' duels feature is
+              // only set to show up once duels W/L/T are counted, but we
+              // want this cool graphic feature to be displayed all the
+              // time. even with a 0/0/0 count. we want users to see that
+              // it exists, which should entice them to play more." It was
+              // -- DuelOrbit itself already lays out an all-zero record
+              // deterministically (see its own comment), so the only
+              // change needed is not hiding the section at 0/0/0. Still
+              // gated on `duelStats` itself (not `!!duelStats`) so this
+              // doesn't flash an empty ring before the real record loads.
+              const showDuel = !!duelStats
               const showMastery = mastery && mastery.mastered > 0
               // RC, iPad: "we can make big separate boxes for all of this
               // and give real, good, visual sep bet all of it." Phone keeps
