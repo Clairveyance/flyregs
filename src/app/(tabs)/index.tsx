@@ -17,6 +17,7 @@ import {
   RefreshControl,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient'
 import Reanimated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated'
 import { router, useFocusEffect } from 'expo-router'
@@ -1472,6 +1473,7 @@ function HobbsHeaderButton() {
   const { tokens } = useTheme()
   const fs = useFS()
   const { hasProAccess, loading: authLoading, session } = useAuth()
+  const insets = useSafeAreaInsets()
   const [fleet, setFleet] = useState<FleetAircraftSummary[] | null>(null)
   const [pickerVisible, setPickerVisible] = useState(false)
   const [editing, setEditing] = useState<FleetAircraftSummary | null>(null)
@@ -1563,7 +1565,14 @@ function HobbsHeaderButton() {
           </KeyboardAvoidingView>
         ) : (
           <View style={styles.hobbsPickerBackdrop}>
-            <View style={[styles.hobbsPickerCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+            {/* RC, real device: "move this box up a bit, off the very
+                bottom of the screen." The card's own padding (18) was flat
+                on every edge, so on a device with a home-indicator inset
+                the "Manage" bar sat right against it with no real
+                breathing room. Same fix/pattern as ChipFilterSheet's own
+                bottom-sheet footer -- Math.max keeps a sane minimum gap on
+                devices with no inset (e.g. web) instead of collapsing to 0. */}
+            <View style={[styles.hobbsPickerCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: Math.max(18, insets.bottom + 8) }]}>
               <View style={styles.hobbsPickerHeader}>
                 <Text style={[styles.hobbsPickerTitle, { color: tokens.t1, fontSize: fs(16) }]}>{isFleet ? 'My Fleet' : 'My Aircraft'}</Text>
                 <Pressable onPress={() => setPickerVisible(false)} hitSlop={10}>

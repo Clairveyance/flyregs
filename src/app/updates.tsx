@@ -609,7 +609,17 @@ const styles = StyleSheet.create({
   // own `overflow-y: hidden`. `filterScroll` gives it a real, fixed
   // height so that can't happen regardless of content/font-scale.
   filterScroll: { flexGrow: 0, flexShrink: 0, height: 46 },
-  filterRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
+  // RC, real device: "center these chips" -- at most 4 short chips (All/AC/
+  // AD/Other) rarely fill a phone-width row, and left-aligned inside the
+  // ScrollView they read as stranded against the left edge with a dead gap
+  // on the right. flexGrow:1 on the content container stretches it to at
+  // least the ScrollView's own width whenever content is narrower (the
+  // usual case here), which is what lets justifyContent:'center' actually
+  // center the row instead of being a no-op -- content container width is
+  // otherwise just the intrinsic sum of its children. If the chip set ever
+  // grows enough to overflow, this still scrolls correctly; centering only
+  // has a visible effect on the non-overflowing case it's meant for.
+  filterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 8, flexGrow: 1 },
   filterChip: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
   filterChipText: { fontWeight: '600' },
 
