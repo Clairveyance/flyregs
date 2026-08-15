@@ -1509,16 +1509,18 @@ function PartTrackingModal({
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
+        {/* Child of THIS Modal, not a sibling after it -- see
+            DatePickerModal's own comment for why nesting a second <Modal>
+            broke the Pressable that opens it. */}
+        <DatePickerModal
+          visible={datePickerVisible}
+          initialDate={dueDate}
+          onClose={() => setDatePickerVisible(false)}
+          onSelect={setDueDate}
+          tokens={tokens}
+          fs={fs}
+        />
       </Modal>
-
-      <DatePickerModal
-        visible={datePickerVisible}
-        initialDate={dueDate}
-        onClose={() => setDatePickerVisible(false)}
-        onSelect={setDueDate}
-        tokens={tokens}
-        fs={fs}
-      />
     </>
   )
 }
@@ -1786,16 +1788,18 @@ function ReminderFormModal({
             </Pressable>
           </View>
         </KeyboardAvoidingView>
+        {/* Child of THIS Modal, not a sibling after it -- see
+            DatePickerModal's own comment for why nesting a second <Modal>
+            broke the Pressable that opens it. */}
+        <DatePickerModal
+          visible={datePickerVisible}
+          initialDate={dueDate}
+          onClose={() => setDatePickerVisible(false)}
+          onSelect={setDueDate}
+          tokens={tokens}
+          fs={fs}
+        />
       </Modal>
-
-      <DatePickerModal
-        visible={datePickerVisible}
-        initialDate={dueDate}
-        onClose={() => setDatePickerVisible(false)}
-        onSelect={setDueDate}
-        tokens={tokens}
-        fs={fs}
-      />
 
       <Modal visible={adPickerVisible} animationType="slide" transparent onRequestClose={() => setAdPickerVisible(false)}>
         <View style={styles.modalBackdrop}>
@@ -1950,8 +1954,23 @@ function DatePickerModal({
     </View>
   )
 
+  // RC, real device (reproduced twice): "Due Date does not function. no tap
+  // response at all" -- everything else in the same form works. Root cause:
+  // this used to be its own <Modal>, rendered as a JSX SIBLING of the
+  // parent form's <Modal> (both PartTrackingModal and ReminderFormModal
+  // call it that way). React Native's <Modal> renders into a separate
+  // native layer regardless of where it sits in the JSX tree, so having a
+  // second <Modal> mounted at all -- even permanently visible=false --
+  // is a known iOS touch-interception hazard for the one Pressable whose
+  // whole job is to reveal it (nothing else in the form goes anywhere near
+  // a second Modal, which is exactly the "only Due Date is dead" symptom).
+  // Fixed by dropping the nested <Modal> entirely: this is now a plain
+  // absolutely-positioned overlay, and both call sites now render it as a
+  // CHILD inside their own single <Modal> instead of a sibling after it --
+  // one real native modal layer, this just stacks on top within it.
+  if (!visible) return null
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <View style={styles.datePickerOverlay}>
       <View style={styles.modalBackdrop}>
         <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
           <View style={styles.modalHeader}>
@@ -1977,7 +1996,7 @@ function DatePickerModal({
           </View>
         </View>
       </View>
-    </Modal>
+    </View>
   )
 }
 
@@ -2028,6 +2047,9 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1 },
 
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
+  // DatePickerModal's own full-screen overlay -- see its own comment for
+  // why this is a plain View instead of a second nested <Modal>.
+  datePickerOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, elevation: 1000 },
   modalCard: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, padding: 18, gap: 10 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   modalTitle: { fontWeight: '700' },
