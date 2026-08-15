@@ -900,17 +900,22 @@ export default function AccountScreen() {
               <Icon name="person.2.fill" size={fs(17)} color={tokens.t2} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>Show me on the Ready Room leaderboard</Text>
-              {/* RC, 2026-08-15, on whether Find Friends should require this
-                  same toggle: "once a user is on FR, and they've elected to
-                  'show up publicly'... then yes, they should be findable
-                  even w/o being inside the Duels area." Confirms the
-                  existing single-flag design is correct -- this text was
-                  the missing piece, since the toggle predates Find Friends
-                  and never said it now covers both. */}
-              <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(11.5) }]}>
-                Also lets friends find you by contact when inviting to a folder or aircraft.
-              </Text>
+              {/* RC: "just have the toggle say 'Show Me'. then add an info
+                  icon and inside that, you can explain the RR board, FF
+                  area, etc. Keep thing tidy and uncluttered." Same
+                  label+InfoPopup pattern as the Callsign row above. */}
+              <View style={styles.callsignLabelRow}>
+                <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>Show Me</Text>
+                <InfoPopup
+                  id="account-show-me"
+                  title="Show Me"
+                  body={[
+                    'Puts your Callsign and weekly study activity on the Ready Room leaderboard, visible to other opted-in pilots.',
+                    'Also lets friends find you by contact when inviting you to a shared folder or aircraft (Find Friends).',
+                  ]}
+                  iconSize={fs(15)}
+                />
+              </View>
               {!hasProAccess && (
                 <View style={[styles.premBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
                   <Text style={[styles.premBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>PRO</Text>
@@ -1090,7 +1095,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 14, gap: 12 },
   rowIcon: { width: 22, alignItems: 'center' },
   rowLabel: { flex: 1, fontSize: 14.5, fontWeight: '500' },
-  rowSub: { marginTop: 2 },
   premBadge: { alignSelf: 'flex-start', borderRadius: 6, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 2, marginTop: 3 },
   premBadgeText: { fontSize: 9.5, fontWeight: '700', letterSpacing: 0.4 },
   callsignLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
