@@ -676,7 +676,7 @@ function ProHero({
       <Text style={[styles.proHeroLabel, { color: tokens.t1, fontSize: fs(16) }]}>{label}</Text>
       <View style={styles.statBoxRow}>
         <StatBox value={aircraft.overdueReminderCount} label="OVERDUE" color={tokens.red} tokens={tokens} fs={fs} />
-        <StatBox value={aircraft.openAdCount} label="OPEN ITEMS" color={tokens.amb} tokens={tokens} fs={fs} />
+        <StatBox value={aircraft.openAdCount} label="OPEN ADS" color={tokens.amb} tokens={tokens} fs={fs} />
         <StatBox value={nextDueDays !== null ? `${nextDueDays}d` : '—'} label="NEXT DUE" color={tokens.grn} tokens={tokens} fs={fs} />
       </View>
     </View>
