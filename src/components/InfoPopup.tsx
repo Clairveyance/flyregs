@@ -72,8 +72,21 @@ export function InfoPopup({ id, title, body, footer, forceOnce = false, iconSize
     return () => { cancelled = true }
   }, [forceOnce, id])
 
-  const acknowledge = () => {
-    AsyncStorage.setItem(SEEN_KEY_PREFIX + id, '1')
+  // RC, real device: "this is popping up multiple times. stop that from
+  // happening." (aircraft-model-vs-type, re-shown across separate edit
+  // sessions on the same/different aircraft). The write below used to be
+  // fire-and-forget -- setForcing/setVisible flipped the popup closed
+  // immediately, without waiting for the AsyncStorage write to actually
+  // land. my-aircraft/[id].tsx is a dynamic route: navigating between two
+  // different aircraft (or backgrounding/relaunching the app) remounts
+  // this component fresh, which re-reads AsyncStorage on mount (the
+  // effect above) -- if that read ever raced ahead of the PREVIOUS
+  // session's still-in-flight write, the flag would read as unset and
+  // force the popup again, even though the user had already dismissed it.
+  // Awaiting the write removes that race outright: dismissal can't
+  // complete until the flag is actually persisted.
+  const acknowledge = async () => {
+    await AsyncStorage.setItem(SEEN_KEY_PREFIX + id, '1')
     // Durable, server-side proof of acknowledgment -- the AsyncStorage flag
     // above only proves this device saw it, which is worthless if the
     // device is lost, reset, or the app is reinstalled. RC: "by them
