@@ -1,0 +1,47 @@
+diff --git a/node_modules/three/build/three.cjs b/node_modules/three/build/three.cjs
+index d6f842a..86b9f80 100644
+--- a/node_modules/three/build/three.cjs
++++ b/node_modules/three/build/three.cjs
+@@ -28576,7 +28576,14 @@ class WebGLRenderer {
+ 
+ 		if ( context !== null ) {
+ 
+-			if ( typeof WebGLRenderingContext !== 'undefined' && context instanceof WebGLRenderingContext ) {
++			// See build/three.module.js's identical guard for the full explanation --
++			// expo-gl (React Native) makes WebGL2RenderingContext extend
++			// WebGLRenderingContext, so a genuine WebGL2 context there is ALSO
++			// `instanceof WebGLRenderingContext`, unlike in real browsers where the two
++			// are sibling classes. Excluding WebGL2RenderingContext instances restores
++			// the original "reject true WebGL1" intent without the false positive.
++			if ( typeof WebGLRenderingContext !== 'undefined' && context instanceof WebGLRenderingContext &&
++				! ( typeof WebGL2RenderingContext !== 'undefined' && context instanceof WebGL2RenderingContext ) ) {
+ 
+ 				throw new Error( 'THREE.WebGLRenderer: WebGL 1 is not supported since r163.' );
+ 
+diff --git a/node_modules/three/build/three.module.js b/node_modules/three/build/three.module.js
+index d33f9c3..c4a5cb0 100644
+--- a/node_modules/three/build/three.module.js
++++ b/node_modules/three/build/three.module.js
+@@ -28574,7 +28574,21 @@ class WebGLRenderer {
+ 
+ 		if ( context !== null ) {
+ 
+-			if ( typeof WebGLRenderingContext !== 'undefined' && context instanceof WebGLRenderingContext ) {
++			// expo-gl (React Native) installs WebGLRenderingContext/WebGL2RenderingContext
++			// globals where WebGL2RenderingContext EXTENDS WebGLRenderingContext (matching
++			// the WebGL spec's prototype chain, per expo-gl's own CHANGELOG) -- unlike real
++			// browsers, where the two are sibling classes and a WebGL2 context is never
++			// `instanceof WebGLRenderingContext`. This makes every expo-gl context (WebGL1
++			// AND WebGL2 alike) satisfy the bare `instanceof WebGLRenderingContext` check
++			// below, so this guard threw for a genuine WebGL2 context on every real device,
++			// permanently blanking FlyRegs' two 3D trophy previews (confirmed via Sentry:
++			// THREE.WebGLRenderer#constructor <- expo-three Renderer <- expo-gl GLView, on
++			// build 32, iPhone14,4/iOS 18.7.8). Excluding anything that's ALSO an instanceof
++			// WebGL2RenderingContext restores the original intent (reject a true WebGL1-only
++			// context) without the false positive -- a no-op in real browsers, where WebGL2
++			// was never instanceof WebGLRenderingContext to begin with.
++			if ( typeof WebGLRenderingContext !== 'undefined' && context instanceof WebGLRenderingContext &&
++				! ( typeof WebGL2RenderingContext !== 'undefined' && context instanceof WebGL2RenderingContext ) ) {
+ 
+ 				throw new Error( 'THREE.WebGLRenderer: WebGL 1 is not supported since r163.' );
+ 

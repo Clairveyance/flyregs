@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, type ComponentType, type ComponentProps } from 'react'
+import * as Sentry from '@sentry/react-native'
 import Reanimated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, useReducedMotion,
 } from 'react-native-reanimated'
@@ -326,10 +327,20 @@ export default function ProfileScreen() {
   const [MasterGlobe3DComp, setMasterGlobe3DComp] = useState<ComponentType<ComponentProps<typeof MasterGlobe3DType>> | null>(null)
   useEffect(() => {
     if (!coinDetail) return
+    // .catch() matters here independently of any one root cause -- without
+    // it, ANY future failure in this dynamic import (module eval throwing,
+    // a bundler/codesplit issue, a future native-module regression) leaves
+    // AceGem3DComp/MasterGlobe3DComp permanently null with zero signal
+    // anywhere: no crash, no Sentry event, just the placeholder circle
+    // forever. Confirmed exactly this happened on B32 (see AceGem3D.tsx's
+    // own onContextCreate try/catch for the actual root cause this time,
+    // a three.js/expo-gl WebGL1-vs-2 detection mismatch) -- the popup
+    // itself never even got a chance to report it because nothing here
+    // was listening for the rejection.
     if (coinDetail.code === 'DUEL_100_WINS' && !AceGem3DComp) {
-      import('@/components/AceGem3D').then((m) => setAceGem3DComp(() => m.AceGem3D))
+      import('@/components/AceGem3D').then((m) => setAceGem3DComp(() => m.AceGem3D)).catch((err) => Sentry.captureException(err))
     } else if (coinDetail.code === 'MASTERY_FULL' && !MasterGlobe3DComp) {
-      import('@/components/MasterGlobe3D').then((m) => setMasterGlobe3DComp(() => m.MasterGlobe3D))
+      import('@/components/MasterGlobe3D').then((m) => setMasterGlobe3DComp(() => m.MasterGlobe3D)).catch((err) => Sentry.captureException(err))
     }
   }, [coinDetail, AceGem3DComp, MasterGlobe3DComp])
   // Challenge Coin names can run long ("30-Day Currency" etc., per the
