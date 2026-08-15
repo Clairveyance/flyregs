@@ -780,6 +780,214 @@ function PopupRingSwatchRow({ items, tokens }: { items: React.ReactNode[]; token
   )
 }
 
+// RC, real device: "something is 'sluggish' when entering info into all
+// these boxes. it's like it takes two taps to get it to respond." This
+// form's fields used to be state on MyAircraftBody itself -- every
+// keystroke re-rendered that entire screen (FleetRing's Reanimated ticks,
+// the full aircraft list, stat boxes, everything), none of it memoized.
+// A standalone component with its own local state means typing here only
+// re-renders THIS small subtree; MyAircraftBody only hears about it via
+// onAdded/onCancel, and only once, on submit or cancel -- not per
+// keystroke. Owns the full add flow (validation, cap check, the insert
+// itself) that used to live in MyAircraftBody's handleAdd; only the
+// post-add side effects that genuinely belong to the parent (closing this
+// form, refreshing the list, the AD backfill) stayed there, reached via
+// onAdded.
+function AddAircraftForm({
+  aircraftCount, onAdded, onCancel, tokens, fs,
+}: {
+  aircraftCount: number
+  onAdded: (insertedId: string) => void
+  onCancel: () => void
+  tokens: ThemeTokens
+  fs: (n: number) => number
+}) {
+  const ifs = useInputFS()
+  const { session, isPremium, hasProAccess } = useAuth()
+  const confirm = useConfirm()
+  const [make, setMake] = useState('')
+  const [model, setModel] = useState('')
+  const [nickname, setNickname] = useState('')
+  const [typeDesignator, setTypeDesignator] = useState('')
+  const [year, setYear] = useState<number | null>(null)
+  const [yearPickerOpen, setYearPickerOpen] = useState(false)
+  const typeDesignatorEdited = useRef(false)
+  const [saving, setSaving] = useState(false)
+
+  const handleModelChange = (text: string) => {
+    setModel(text)
+    if (!typeDesignatorEdited.current) setTypeDesignator(suggestTypeDesignator(text) ?? '')
+  }
+
+  const handleTypeDesignatorChange = (text: string) => {
+    typeDesignatorEdited.current = true
+    setTypeDesignator(text)
+  }
+
+  // RC: "the add a/c box also needs a cancel option." Collapsing the
+  // trigger alone (onCancel) would leave whatever the user had already
+  // typed sitting in state, silently reappearing pre-filled the next time
+  // they tapped "+ Add Aircraft" -- same reset the real Add Aircraft
+  // success path below does, just without saving.
+  const handleCancelAdd = () => {
+    setMake('')
+    setModel('')
+    setNickname('')
+    setTypeDesignator('')
+    setYear(null)
+    typeDesignatorEdited.current = false
+    onCancel()
+  }
+
+  const handleAdd = async () => {
+    if (!session) {
+      router.push('/auth')
+      return
+    }
+    // hasProAccess (isPro || isPremium), not bare isPro -- found during the
+    // 2026-08-14 gating re-audit: a real Premium subscriber (isPro: false,
+    // isPremium: true, the shape an admin/comp-granted account can have)
+    // hit this exact bug, matching saved.tsx/notes.tsx/study.tsx's own
+    // earlier-caught instances of the same class.
+    if (!hasProAccess) {
+      router.push('/paywall')
+      return
+    }
+    // Pro is capped at 1 saved aircraft (most owners have exactly one);
+    // Premium is unlimited -- see flyregs_decisions.md's pricing pivot.
+    if (!isPremium && aircraftCount >= PRO_AIRCRAFT_CAP) {
+      confirm({
+        title: 'Aircraft limit reached',
+        message: `Pro includes ${PRO_AIRCRAFT_CAP} saved aircraft. Upgrade to Premium for unlimited.`,
+        confirmLabel: 'Upgrade to Premium',
+        onConfirm: () => router.push('/paywall?tier=premium'),
+      })
+      return
+    }
+    const trimmedMake = make.trim()
+    // Uppercased at save, not while typing -- see AircraftFormFields.tsx's
+    // TypeDesignatorField (BB-074, real device beta report).
+    const trimmedType = typeDesignator.trim().toUpperCase()
+    // Some aircraft have no separate marketing name (a Pilatus PC-12 isn't
+    // "known by" anything other than its own type designator) -- RC, live:
+    // "i don't think that a/c has a 'name', i think it's just known by
+    // that model/type designator." Rather than force a fake distinct Model
+    // value in that case, fall back to the type designator itself.
+    const trimmedModel = model.trim() || trimmedType
+    if (!trimmedMake || !trimmedModel) {
+      confirm({ title: 'Make and model required', message: 'Enter both the aircraft make and model.', cancelLabel: null })
+      return
+    }
+    // Type designator is what AD applicability is actually matched against
+    // (see the type-hint copy below and adNotifications.ts) -- a saved
+    // aircraft with no designator can silently never match a real
+    // applicable AD, so this is no longer a skippable field. RC, live:
+    // "the type designator probably shouldn't be 'optional' if we expect
+    // to find the actual a/c since that is the field FR uses to hunt for
+    // it."
+    if (!trimmedType) {
+      confirm({ title: 'Type designator required', message: 'Enter the FAA type designator (e.g. PA-28-181, 172S) so we can match Airworthiness Directives correctly.', cancelLabel: null })
+      return
+    }
+    setSaving(true)
+    const { data: inserted, error } = await supabase
+      .from('user_aircraft')
+      .insert({
+        user_id: session.user.id, make: trimmedMake, model: trimmedModel,
+        nickname: nickname.trim() || null, type_designator: trimmedType,
+        year,
+      })
+      .select('id')
+      .single()
+    setSaving(false)
+    if (error) {
+      confirm({ title: 'Could not add aircraft', message: error.message, cancelLabel: null })
+      return
+    }
+    setMake('')
+    setModel('')
+    setNickname('')
+    setTypeDesignator('')
+    setYear(null)
+    typeDesignatorEdited.current = false
+    onAdded(inserted.id)
+  }
+
+  return (
+    <>
+      <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 20 }]}>
+        ADD AIRCRAFT{!isPremium ? ` (${aircraftCount}/${PRO_AIRCRAFT_CAP} — Premium for unlimited)` : ''}
+      </Text>
+      <View style={[styles.formCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+        <MakeField value={make} onChangeText={setMake} tokens={tokens} fs={fs} />
+        <ModelField
+          value={model}
+          onChangeText={handleModelChange}
+          onSelectDesignator={(d) => { if (!typeDesignatorEdited.current) setTypeDesignator(d) }}
+          tokens={tokens}
+          fs={fs}
+        />
+        <View style={styles.typeDesignatorRow}>
+          <View style={{ flex: 1 }}>
+            <TypeDesignatorField
+              value={typeDesignator}
+              onChangeText={handleTypeDesignatorChange}
+              onSelectManufacturer={(mfr) => { if (!make.trim()) setMake(mfr) }}
+              onSelectModel={(m) => { if (!model.trim()) setModel(m) }}
+              manufacturer={make}
+              tokens={tokens}
+              fs={fs}
+            />
+          </View>
+          {/* RC: "let's turn this text into just an info icon. we
+              can show once as CTA if nec, but after that, icon
+              only" -- was an always-visible paragraph explaining
+              Model vs. Type Designator; same tap-to-reveal pattern
+              as "How this works" above, just no label text at all
+              this time, matching "icon only" literally. */}
+          <InfoPopup
+            id="my-aircraft-model-type-hint"
+            title="Model vs. Type Designator"
+            body="Model is the marketing name (Skyhawk, Warrior) if it has one — Type designator is the FAA's technical code (172S, PA-28-181) that Airworthiness Directives are actually filed under. We auto-suggest a type from common model names; some aircraft (e.g. Pilatus PC-12) aren't known by any name besides their type — just enter it in both fields."
+            forceOnce
+            iconSize={fs(17)}
+          />
+        </View>
+        <YearField value={year} onPress={() => setYearPickerOpen(true)} tokens={tokens} fs={fs} />
+        <TextInput
+          value={nickname}
+          onChangeText={setNickname}
+          placeholder="Nickname (optional, e.g. N12345)"
+          placeholderTextColor={tokens.t3}
+          style={[styles.input, { color: tokens.t1, fontSize: ifs(14.5), borderColor: tokens.bdr }]}
+        />
+        <Pressable
+          style={[styles.addButton, { backgroundColor: tokens.blu }]}
+          onPress={handleAdd}
+          disabled={saving}
+        >
+          {saving ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Add Aircraft</Text>
+          )}
+        </Pressable>
+        <Pressable onPress={handleCancelAdd} disabled={saving} style={styles.cancelAddBtn} hitSlop={8}>
+          <Text style={[styles.capDismiss, { color: tokens.t3, fontSize: fs(13) }]}>Cancel</Text>
+        </Pressable>
+      </View>
+      <YearPickerModal
+        visible={yearPickerOpen}
+        initialYear={year}
+        onClose={() => setYearPickerOpen(false)}
+        onSelect={setYear}
+        tokens={tokens}
+        fs={fs}
+      />
+    </>
+  )
+}
+
 // RC, iPad: "let's figure out how to build the 3 pane slide out" (Account
 // beside the drawer already shipped; My Aircraft/My Fleet as a genuine 3rd
 // pane was deliberately deferred pending this). Splitting the body out from
@@ -815,14 +1023,6 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   // for why this needs to be a real 3-state value, not just the RPC's
   // overdueReminderCount, to catch "due soon" too).
   const [reminderUrgency, setReminderUrgency] = useState<Record<string, 'overdue' | 'soon' | 'clear'>>({})
-  const [make, setMake] = useState('')
-  const [model, setModel] = useState('')
-  const [nickname, setNickname] = useState('')
-  const [typeDesignator, setTypeDesignator] = useState('')
-  const [year, setYear] = useState<number | null>(null)
-  const [yearPickerOpen, setYearPickerOpen] = useState(false)
-  const typeDesignatorEdited = useRef(false)
-  const [saving, setSaving] = useState(false)
   // RC: "let's keep this whole 'add a/c' area collapsed. just a small
   // 'Add Aircraft +' which can expand when needed... this screen will have
   // status wheel, a/c dropdowns, etc. It's busy enough w/o this Add feature
@@ -960,16 +1160,6 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
     })
   }
 
-  const handleModelChange = (text: string) => {
-    setModel(text)
-    if (!typeDesignatorEdited.current) setTypeDesignator(suggestTypeDesignator(text) ?? '')
-  }
-
-  const handleTypeDesignatorChange = (text: string) => {
-    typeDesignatorEdited.current = true
-    setTypeDesignator(text)
-  }
-
   const load = useCallback(() => {
     if (!session) {
       setLoading(false)
@@ -1036,92 +1226,21 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aircraft])
 
-  // RC: "the add a/c box also needs a cancel option." Collapsing the
-  // trigger alone (setAddFormOpen(false)) would leave whatever the user
-  // had already typed sitting in state, silently reappearing pre-filled
-  // the next time they tapped "+ Add Aircraft" -- same reset the real
-  // Add Aircraft success path already does below, just without saving.
-  const handleCancelAdd = () => {
-    setMake('')
-    setModel('')
-    setNickname('')
-    setTypeDesignator('')
-    setYear(null)
-    typeDesignatorEdited.current = false
-    setAddFormOpen(false)
-  }
-
-  const handleAdd = async () => {
-    if (!session) {
-      router.push('/auth')
-      return
-    }
-    // hasProAccess (isPro || isPremium), not bare isPro -- found during the
-    // 2026-08-14 gating re-audit: a real Premium subscriber (isPro: false,
-    // isPremium: true, the shape an admin/comp-granted account can have)
-    // hit this exact bug, matching saved.tsx/notes.tsx/study.tsx's own
-    // earlier-caught instances of the same class.
-    if (!hasProAccess) {
-      router.push('/paywall')
-      return
-    }
-    // Pro is capped at 1 saved aircraft (most owners have exactly one);
-    // Premium is unlimited -- see flyregs_decisions.md's pricing pivot.
-    if (!isPremium && aircraft.length >= PRO_AIRCRAFT_CAP) {
-      confirm({
-        title: 'Aircraft limit reached',
-        message: `Pro includes ${PRO_AIRCRAFT_CAP} saved aircraft. Upgrade to Premium for unlimited.`,
-        confirmLabel: 'Upgrade to Premium',
-        onConfirm: () => router.push('/paywall?tier=premium'),
-      })
-      return
-    }
-    const trimmedMake = make.trim()
-    // Uppercased at save, not while typing -- see AircraftFormFields.tsx's
-    // TypeDesignatorField (BB-074, real device beta report).
-    const trimmedType = typeDesignator.trim().toUpperCase()
-    // Some aircraft have no separate marketing name (a Pilatus PC-12 isn't
-    // "known by" anything other than its own type designator) -- RC, live:
-    // "i don't think that a/c has a 'name', i think it's just known by
-    // that model/type designator." Rather than force a fake distinct Model
-    // value in that case, fall back to the type designator itself.
-    const trimmedModel = model.trim() || trimmedType
-    if (!trimmedMake || !trimmedModel) {
-      confirm({ title: 'Make and model required', message: 'Enter both the aircraft make and model.', cancelLabel: null })
-      return
-    }
-    // Type designator is what AD applicability is actually matched against
-    // (see the type-hint copy below and adNotifications.ts) -- a saved
-    // aircraft with no designator can silently never match a real
-    // applicable AD, so this is no longer a skippable field. RC, live:
-    // "the type designator probably shouldn't be 'optional' if we expect
-    // to find the actual a/c since that is the field FR uses to hunt for
-    // it."
-    if (!trimmedType) {
-      confirm({ title: 'Type designator required', message: 'Enter the FAA type designator (e.g. PA-28-181, 172S) so we can match Airworthiness Directives correctly.', cancelLabel: null })
-      return
-    }
-    setSaving(true)
-    const { data: inserted, error } = await supabase
-      .from('user_aircraft')
-      .insert({
-        user_id: session.user.id, make: trimmedMake, model: trimmedModel,
-        nickname: nickname.trim() || null, type_designator: trimmedType,
-        year,
-      })
-      .select('id')
-      .single()
-    setSaving(false)
-    if (error) {
-      confirm({ title: 'Could not add aircraft', message: error.message, cancelLabel: null })
-      return
-    }
-    setMake('')
-    setModel('')
-    setNickname('')
-    setTypeDesignator('')
-    setYear(null)
-    typeDesignatorEdited.current = false
+  // RC, real device: "something is 'sluggish' when entering info into all
+  // these boxes. it's like it takes two taps to get it to respond." The
+  // Add Aircraft form's fields (make/model/typeDesignator/nickname/year)
+  // used to be state on THIS component -- every keystroke re-rendered the
+  // entire screen (ring, legend, stat boxes, the full aircraft list) along
+  // with it, since none of that is memoized. On a real device that's
+  // enough dropped frames per keystroke to feel like the first tap didn't
+  // register. Moved the whole form (state, validation, insert) into its
+  // own AddAircraftForm component below -- typing in it no longer touches
+  // this component's state at all, only the two callbacks below fire, and
+  // only on submit/cancel. This function is what AddAircraftForm calls
+  // after a successful insert; everything below is the same post-add
+  // sequence handleAdd used to run inline (close the form, refresh, then
+  // the full-AD-corpus backfill + its own follow-up refresh).
+  const handleAircraftAdded = (insertedId: string) => {
     setAddFormOpen(false)
     load()
     // Backfill against the FULL AD corpus, not just future ones -- a
@@ -1129,36 +1248,34 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
     // list even if real ADs already exist for it. See adNotifications.ts's
     // own comment. Fires after the list already reloaded above so this
     // never blocks the aircraft itself from saving.
-    if (inserted) {
-      backfillAircraftAds(inserted.id)
-        .then((count) => {
-          if (count > 0) {
-            confirm({
-              title: 'Aircraft added',
-              message: `Found ${count} existing Airworthiness Directive${count === 1 ? '' : 's'} that may apply — see its Applicable ADs list.`,
-              cancelLabel: null,
-            })
-            // RC, real device: "when i input this info initially it didn't
-            // update, it wasn't until this morning that i saw that counts
-            // had populated." Root cause: this whole backfill deliberately
-            // fires AFTER the load() above (so it never blocks the aircraft
-            // itself from saving) -- but nothing ever called load() again
-            // once it actually finished. The confirm() above told the user
-            // real ADs were found; the ring/legend/stat-boxes/row badge
-            // stayed frozen on their PRE-backfill (zero) snapshot regardless,
-            // correct only the next time something else happened to
-            // refocus this screen -- which could genuinely be way later,
-            // since a same-screen background completion has no natural
-            // refocus event of its own.
-            load()
-          }
-        })
-        .catch((e) => {
-          // Best-effort, but not silent -- the aircraft itself saved fine,
-          // this only affects whether its AD list is pre-populated yet.
-          console.error('AD backfill failed for new aircraft:', e?.message ?? e)
-        })
-    }
+    backfillAircraftAds(insertedId)
+      .then((count) => {
+        if (count > 0) {
+          confirm({
+            title: 'Aircraft added',
+            message: `Found ${count} existing Airworthiness Directive${count === 1 ? '' : 's'} that may apply — see its Applicable ADs list.`,
+            cancelLabel: null,
+          })
+          // RC, real device: "when i input this info initially it didn't
+          // update, it wasn't until this morning that i saw that counts
+          // had populated." Root cause: this whole backfill deliberately
+          // fires AFTER the load() above (so it never blocks the aircraft
+          // itself from saving) -- but nothing ever called load() again
+          // once it actually finished. The confirm() above told the user
+          // real ADs were found; the ring/legend/stat-boxes/row badge
+          // stayed frozen on their PRE-backfill (zero) snapshot regardless,
+          // correct only the next time something else happened to
+          // refocus this screen -- which could genuinely be way later,
+          // since a same-screen background completion has no natural
+          // refocus event of its own.
+          load()
+        }
+      })
+      .catch((e) => {
+        // Best-effort, but not silent -- the aircraft itself saved fine,
+        // this only affects whether its AD list is pre-populated yet.
+        console.error('AD backfill failed for new aircraft:', e?.message ?? e)
+      })
   }
 
   // RC: swipe-to-delete "with two step CTA popup verification explaining
@@ -1642,69 +1759,13 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
               </Pressable>
             </View>
           ) : addFormOpen ? (
-            <>
-              <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 20 }]}>
-                ADD AIRCRAFT{!isPremium ? ` (${aircraft.length}/${PRO_AIRCRAFT_CAP} — Premium for unlimited)` : ''}
-              </Text>
-              <View style={[styles.formCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-                <MakeField value={make} onChangeText={setMake} tokens={tokens} fs={fs} />
-                <ModelField
-                  value={model}
-                  onChangeText={handleModelChange}
-                  onSelectDesignator={(d) => { if (!typeDesignatorEdited.current) setTypeDesignator(d) }}
-                  tokens={tokens}
-                  fs={fs}
-                />
-                <View style={styles.typeDesignatorRow}>
-                  <View style={{ flex: 1 }}>
-                    <TypeDesignatorField
-                      value={typeDesignator}
-                      onChangeText={handleTypeDesignatorChange}
-                      onSelectManufacturer={(mfr) => { if (!make.trim()) setMake(mfr) }}
-                      onSelectModel={(m) => { if (!model.trim()) setModel(m) }}
-                      manufacturer={make}
-                      tokens={tokens}
-                      fs={fs}
-                    />
-                  </View>
-                  {/* RC: "let's turn this text into just an info icon. we
-                      can show once as CTA if nec, but after that, icon
-                      only" -- was an always-visible paragraph explaining
-                      Model vs. Type Designator; same tap-to-reveal pattern
-                      as "How this works" above, just no label text at all
-                      this time, matching "icon only" literally. */}
-                  <InfoPopup
-                    id="my-aircraft-model-type-hint"
-                    title="Model vs. Type Designator"
-                    body="Model is the marketing name (Skyhawk, Warrior) if it has one — Type designator is the FAA's technical code (172S, PA-28-181) that Airworthiness Directives are actually filed under. We auto-suggest a type from common model names; some aircraft (e.g. Pilatus PC-12) aren't known by any name besides their type — just enter it in both fields."
-                    forceOnce
-                    iconSize={fs(17)}
-                  />
-                </View>
-                <YearField value={year} onPress={() => setYearPickerOpen(true)} tokens={tokens} fs={fs} />
-                <TextInput
-                  value={nickname}
-                  onChangeText={setNickname}
-                  placeholder="Nickname (optional, e.g. N12345)"
-                  placeholderTextColor={tokens.t3}
-                  style={[styles.input, { color: tokens.t1, fontSize: ifs(14.5), borderColor: tokens.bdr }]}
-                />
-                <Pressable
-                  style={[styles.addButton, { backgroundColor: tokens.blu }]}
-                  onPress={handleAdd}
-                  disabled={saving}
-                >
-                  {saving ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Add Aircraft</Text>
-                  )}
-                </Pressable>
-                <Pressable onPress={handleCancelAdd} disabled={saving} style={styles.cancelAddBtn} hitSlop={8}>
-                  <Text style={[styles.capDismiss, { color: tokens.t3, fontSize: fs(13) }]}>Cancel</Text>
-                </Pressable>
-              </View>
-            </>
+            <AddAircraftForm
+              aircraftCount={aircraft.length}
+              onAdded={handleAircraftAdded}
+              onCancel={() => setAddFormOpen(false)}
+              tokens={tokens}
+              fs={fs}
+            />
           ) : (
             <Pressable
               style={[styles.addTrigger, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, marginTop: 20 }]}
@@ -1733,14 +1794,6 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
         </TabletContainer>
       )}
 
-      <YearPickerModal
-        visible={yearPickerOpen}
-        initialYear={year}
-        onClose={() => setYearPickerOpen(false)}
-        onSelect={setYear}
-        tokens={tokens}
-        fs={fs}
-      />
       <HobbsUpdateModal
         visible={!!hobbsEditing}
         aircraftId={hobbsEditing?.aircraftId ?? ''}
