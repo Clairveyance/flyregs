@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, Modal, ScrollView } from 'react-native'
+import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, Modal, ScrollView, TextInput, Keyboard } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
-import { useFS } from '@/context/fontScale'
+import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
@@ -18,6 +18,8 @@ import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { resolveCallsignToUserId } from '@/lib/contactMatch'
+import { FindFriendsPickerBody } from '@/components/FindFriendsSheet'
 
 const QUESTION_COUNTS = [3, 5, 10]
 const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac']
@@ -32,6 +34,7 @@ export default function ChallengesScreen() {
   // See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  const ifs = useInputFS()
   const { isPremium } = useAuth()
   const [challenges, setChallenges] = useState<MyChallenge[]>([])
   const [myStats, setMyStats] = useState<DuelStats | null>(null)
@@ -44,9 +47,31 @@ export default function ChallengesScreen() {
   // anybody new"), because picking a filter chip didn't visibly DO
   // anything -- there was no button to press to move forward. Split into
   // an explicit 2-step wizard: filters -> Continue -> opponents -> Start.
-  const [step, setStep] = useState<'filters' | 'opponents'>('filters')
+  // RC, real device, on the opponents step: "the choose opp screen only has
+  // people already there, it needs to have a way to select new oppos too
+  // (search, callsign, text invite, groups, etc). from this screen. this is
+  // the main way to start a duel." 'findFriends' is a 3rd sub-step of this
+  // same step (not a separate modal -- stacking a second native <Modal>
+  // is the exact bug already fixed elsewhere in this app), Back from it
+  // returns to 'opponents', not all the way to 'filters'.
+  const [step, setStep] = useState<'filters' | 'opponents' | 'findFriends'>('filters')
   const [opponents, setOpponents] = useState<ChallengeableUser[]>([])
   const [selectedOpponents, setSelectedOpponents] = useState<string[]>([])
+  // Callsign search, same debounced validate-as-you-type pattern already
+  // proven in the aircraft/folder Invite by Callsign flows.
+  const [newOppCallsign, setNewOppCallsign] = useState('')
+  const [callsignCheck, setCallsignCheck] = useState<'idle' | 'checking' | 'found' | 'not_found'>('idle')
+  useEffect(() => {
+    const trimmed = newOppCallsign.trim()
+    if (!trimmed) { setCallsignCheck('idle'); return }
+    setCallsignCheck('checking')
+    const t = setTimeout(() => {
+      resolveCallsignToUserId(trimmed)
+        .then((userId) => setCallsignCheck(userId ? 'found' : 'not_found'))
+        .catch(() => setCallsignCheck('idle'))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [newOppCallsign])
   const [questionCount, setQuestionCount] = useState(5)
   const [activeTypes, setActiveTypes] = useState<DuelItemType[]>([])
   const [activeLevels, setActiveLevels] = useState<StudyLevel[]>([])
@@ -129,6 +154,24 @@ export default function ChallengesScreen() {
       }
       return [...prev, userId]
     })
+  }
+
+  // Adds someone found via Callsign search or Find Friends who ISN'T
+  // already in the getChallengeableUsers() list -- e.g. a real friend who
+  // hasn't opted into the Ready Room leaderboard, or simply someone not
+  // duelled before. Folded into the SAME list/selection state as the
+  // existing opponents rather than a separate "new" section, so the cap
+  // check and Start Duel button both just work unchanged.
+  const addOpponent = (userId: string, displayLabel: string) => {
+    if (selectedOpponents.length >= MAX_OPPONENTS && !selectedOpponents.includes(userId)) {
+      confirm({ title: 'Duel is full', message: `Duels support up to ${MAX_OPPONENTS + 1} total participants.`, cancelLabel: null })
+      return
+    }
+    setOpponents((prev) => (prev.some((o) => o.userId === userId) ? prev : [...prev, { userId, displayLabel }]))
+    setSelectedOpponents((prev) => (prev.includes(userId) ? prev : [...prev, userId]))
+    setNewOppCallsign('')
+    setCallsignCheck('idle')
+    Keyboard.dismiss()
   }
 
   // Shown INLINE in the sheet rather than via Alert.alert: the only failure
@@ -244,9 +287,15 @@ export default function ChallengesScreen() {
       <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
         <View style={[styles.modalBackdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
           <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: Math.max(18, insets.bottom + 8) }]}>
+            {/* Suppressed for the findFriends sub-step -- FindFriendsPickerBody
+                renders its own header (Close + "Find Friends" title), same
+                convention already used everywhere else this component is
+                embedded (aircraft/folder invite flows) rather than
+                stacking two headers. */}
+            {step !== 'findFriends' && (
             <View style={styles.modalHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                {step === 'opponents' && (
+                {step !== 'filters' && (
                   <Pressable onPress={() => setStep('filters')} hitSlop={10}>
                     <Icon name="chevron.left" size={fs(18)} color={tokens.blu} />
                   </Pressable>
@@ -259,6 +308,19 @@ export default function ChallengesScreen() {
                 <Icon name="xmark" size={fs(18)} color={tokens.t3} />
               </Pressable>
             </View>
+            )}
+
+            {step === 'findFriends' && (
+              <View style={{ maxHeight: 420 }}>
+                <FindFriendsPickerBody
+                  onClose={() => setStep('opponents')}
+                  onSelect={(callsign) => {
+                    resolveCallsignToUserId(callsign).then((id) => { if (id) addOpponent(id, callsign) })
+                    setStep('opponents')
+                  }}
+                />
+              </View>
+            )}
 
             {/* BB-091 corpus-wide audit ("checks to all other CTA and popups
                 app wide"): `modalCard` had a `maxHeight: '85%'` but no
@@ -268,6 +330,7 @@ export default function ChallengesScreen() {
                 with no way to reach whatever fell past it. Same pattern
                 already fixed for my-aircraft/[id].tsx's ReminderFormModal
                 and AvatarEditModal -- header stays pinned outside. */}
+            {step !== 'findFriends' && (
             <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             {step === 'filters' && (<>
             <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11) }]}>QUESTIONS</Text>
@@ -348,9 +411,17 @@ export default function ChallengesScreen() {
               })}
             </View>
 
+            {/* RC, real device: "give this 'more filters' some space, it's
+                hard to click, it's so close" -- this toggle's tap target
+                was just the bare text/icon height, sitting right above the
+                Next button with only 16px between them. Real padding (not
+                just hitSlop) both enlarges the touch area AND pushes the
+                Next button further away, so a slightly-off tap doesn't
+                clip the other control. */}
             <Pressable
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 14 }}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 14, paddingVertical: 10 }}
               onPress={() => setMoreFiltersExpanded((v) => !v)}
+              hitSlop={8}
             >
               <Icon name={moreFiltersExpanded ? 'chevron.up' : 'chevron.down'} size={fs(11)} color={tokens.t3} />
               <Text style={{ color: tokens.t3, fontSize: fs(11.5), fontWeight: '600' }}>
@@ -411,30 +482,65 @@ export default function ChallengesScreen() {
             )}
 
             {step === 'opponents' && (<>
-            <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11) }]}>
+            {/* RC, real device: "the choose opp screen only has people
+                already there, it needs to have a way to select new oppos
+                too (search, callsign, text invite, groups, etc). from this
+                screen. this is the main way to start a duel." Same
+                debounced Callsign search already proven in the aircraft/
+                folder Invite by Callsign flows, plus the same Find Friends
+                (contacts) component reused as another step in this same
+                sheet -- both feed the same addOpponent(), so a match from
+                either path just appears in the list below, pre-selected. */}
+            <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11) }]}>ADD SOMEONE NEW</Text>
+            <TextInput
+              value={newOppCallsign}
+              onChangeText={setNewOppCallsign}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="Their Callsign"
+              placeholderTextColor={tokens.t4}
+              style={[styles.inviteInput, { color: tokens.t1, borderColor: callsignCheck === 'not_found' ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
+              onSubmitEditing={() => {
+                if (callsignCheck === 'found') resolveCallsignToUserId(newOppCallsign.trim()).then((id) => id && addOpponent(id, newOppCallsign.trim()))
+              }}
+            />
+            {callsignCheck === 'checking' && <Text style={{ color: tokens.t3, fontSize: fs(12.5), marginTop: 4 }}>Checking…</Text>}
+            {callsignCheck === 'not_found' && <Text style={{ color: tokens.red, fontSize: fs(12.5), marginTop: 4 }}>No FlyRegs user with this Callsign</Text>}
+            {callsignCheck === 'found' && (
+              <Pressable
+                style={[styles.addByCallsignBtn, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}
+                onPress={() => resolveCallsignToUserId(newOppCallsign.trim()).then((id) => id && addOpponent(id, newOppCallsign.trim()))}
+              >
+                <Icon name="plus" size={fs(13)} color={tokens.gold} />
+                <Text style={{ color: tokens.gold, fontSize: fs(13), fontWeight: '700' }}>Add {newOppCallsign.trim()}</Text>
+              </Pressable>
+            )}
+            <Pressable
+              style={styles.findFriendsLink}
+              hitSlop={10}
+              onPress={() => { Keyboard.dismiss(); setStep('findFriends') }}
+            >
+              <Icon name="person.2.fill" size={fs(13)} color={tokens.blu} />
+              <Text style={{ color: tokens.blu, fontSize: fs(12.5), fontWeight: '600' }}>Find Friends from Contacts</Text>
+            </Pressable>
+
+            <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 16 }]}>
               OPPONENTS{selectedOpponents.length > 0 ? ` (${selectedOpponents.length} of ${MAX_OPPONENTS} max)` : ''}
             </Text>
             {opponents.length === 0 ? (
               // Confirmed the actual opt-in/challengeable-user mechanism has
-              // no bug (verified live with a second account): this is a
-              // real cold-start state, not broken -- a friend needs their
-              // own FlyRegs account AND to flip "Show me on the Ready Room
-              // leaderboard" (Account > Community) before they'll show up
-              // here. There's no in-app invite path for someone who doesn't
-              // have the app yet -- that's tracked separately. RC, real
-              // device, looking at exactly this state: "how do you hit 'go'
-              // or start the game?" -- a plain paragraph here read like
-              // filler text rather than a real stopping point, so this is
-              // now a bordered notice with an icon, matching the app's other
-              // empty-state treatments, to read clearly as "this is expected,
-              // here's what to do" instead of looking unfinished.
+              // no bug (verified live with a second account): a friend who
+              // hasn't flipped "Show me on the Ready Room leaderboard" just
+              // won't show up in this pre-populated list on its own -- but
+              // now that ADD SOMEONE NEW above exists, that's no longer a
+              // dead end, so this empty state points there instead of
+              // reading like "nothing you can do."
               <View style={[styles.noOpponentsCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                 <Icon name="person.2.fill" size={fs(20)} color={tokens.t3} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.noOpponentsTitle, { color: tokens.t2, fontSize: fs(13.5) }]}>No one to challenge yet</Text>
+                  <Text style={[styles.noOpponentsTitle, { color: tokens.t2, fontSize: fs(13.5) }]}>No recent opponents</Text>
                   <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(12.5), textAlign: 'left', marginTop: 3 }]}>
-                    A friend needs their own FlyRegs account, with "Show me on the Ready Room leaderboard"
-                    turned on in Account &gt; The Wing, before they'll show up here.
+                    Use Callsign search or Find Friends above to add someone.
                   </Text>
                 </View>
               </View>
@@ -479,6 +585,7 @@ export default function ChallengesScreen() {
             </>
             )}
             </ScrollView>
+            )}
           </View>
         </View>
       </Modal>
@@ -613,6 +720,12 @@ const styles = StyleSheet.create({
   },
   checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   opponentText: { fontWeight: '500', flex: 1 },
+  inviteInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontWeight: '600' },
+  findFriendsLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 8, paddingVertical: 6 },
+  addByCallsignBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderRadius: 10, borderWidth: 1, paddingVertical: 9, marginTop: 8,
+  },
   createError: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     borderRadius: 12, borderWidth: 1, padding: 11, marginTop: 14,
