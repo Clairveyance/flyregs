@@ -35,6 +35,14 @@ export default function ChallengesScreen() {
   const [myStats, setMyStats] = useState<DuelStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [pickerVisible, setPickerVisible] = useState(false)
+  // RC: the New Duel sheet used to be one long scroll -- filters, then
+  // opponents, then Start -- with nothing marking the handoff between
+  // "choosing what to duel on" and "choosing who to duel." He read that as
+  // opponent selection not working at all ("that doesn't help you select
+  // anybody new"), because picking a filter chip didn't visibly DO
+  // anything -- there was no button to press to move forward. Split into
+  // an explicit 2-step wizard: filters -> Continue -> opponents -> Start.
+  const [step, setStep] = useState<'filters' | 'opponents'>('filters')
   const [opponents, setOpponents] = useState<ChallengeableUser[]>([])
   const [selectedOpponents, setSelectedOpponents] = useState<string[]>([])
   const [questionCount, setQuestionCount] = useState(5)
@@ -106,6 +114,7 @@ export default function ChallengesScreen() {
     getChallengeableUsers().then(setOpponents)
     setSelectedOpponents([])
     setCreateError(null)
+    setStep('filters')
     setPickerVisible(true)
   }
 
@@ -234,7 +243,16 @@ export default function ChallengesScreen() {
         <View style={[styles.modalBackdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
           <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>New Duel</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                {step === 'opponents' && (
+                  <Pressable onPress={() => setStep('filters')} hitSlop={10}>
+                    <Icon name="chevron.left" size={fs(18)} color={tokens.blu} />
+                  </Pressable>
+                )}
+                <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>
+                  {step === 'filters' ? 'New Duel' : 'Choose Opponents'}
+                </Text>
+              </View>
               <Pressable onPress={() => setPickerVisible(false)} hitSlop={10}>
                 <Icon name="xmark" size={fs(18)} color={tokens.t3} />
               </Pressable>
@@ -249,6 +267,7 @@ export default function ChallengesScreen() {
                 already fixed for my-aircraft/[id].tsx's ReminderFormModal
                 and AvatarEditModal -- header stays pinned outside. */}
             <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            {step === 'filters' && (<>
             <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11) }]}>QUESTIONS</Text>
             <View style={styles.countRow}>
               {QUESTION_COUNTS.map((n) => (
@@ -372,7 +391,25 @@ export default function ChallengesScreen() {
             </>
             )}
 
-            <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 14 }]}>
+            {/* RC: "select filters, and then the bottom of that pop up
+                would have a button that would apply the filters and then
+                allow you to then go select your opponent." Nothing else
+                on this step depends on the chosen filters server-side
+                (they scope the QUESTIONS in the duel, not who's eligible
+                to play it) -- this button's job is purely to make the
+                handoff to opponent-picking an explicit, visible step. */}
+            <Pressable
+              style={[styles.startBtn, { backgroundColor: tokens.gold, flexDirection: 'row', justifyContent: 'center', gap: 6 }]}
+              onPress={() => setStep('opponents')}
+            >
+              <Text style={[styles.startBtnText, { fontSize: fs(13.5) }]}>NEXT: CHOOSE OPPONENTS</Text>
+              <Icon name="chevron.right" size={fs(13)} color="#000" />
+            </Pressable>
+            </>
+            )}
+
+            {step === 'opponents' && (<>
+            <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11) }]}>
               OPPONENTS{selectedOpponents.length > 0 ? ` (${selectedOpponents.length} of ${MAX_OPPONENTS} max)` : ''}
             </Text>
             {opponents.length === 0 ? (
@@ -436,6 +473,8 @@ export default function ChallengesScreen() {
                   </Text>
                 )}
               </Pressable>
+            )}
+            </>
             )}
             </ScrollView>
           </View>
