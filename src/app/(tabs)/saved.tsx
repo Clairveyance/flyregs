@@ -384,6 +384,15 @@ export default function SavedScreen() {
     else setSelectMode(true)
   }
 
+  // Same All/None toggle already built for Notes' select-mode (notes.tsx) --
+  // RC noticed it missing here and expected parity. Toggles rather than a
+  // one-way "select all" for the same reason: if everything's already
+  // selected, tapping again is the obvious way to clear it.
+  const allSelected = bookmarks.length > 0 && selected.size === bookmarks.length
+  const toggleSelectAll = () => {
+    setSelected(allSelected ? new Set() : new Set(bookmarks.map((b) => b.id)))
+  }
+
   const toggleRow = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev)
@@ -717,6 +726,13 @@ export default function SavedScreen() {
 
   const rightSlot = (
     <View style={styles.headerRight}>
+      {selectMode && (
+        <Pressable onPress={toggleSelectAll} hitSlop={8}>
+          <Text style={[styles.selectBtn, { color: tokens.blu, fontSize: fs(13) }]}>
+            {allSelected ? 'None' : 'All'}
+          </Text>
+        </Pressable>
+      )}
       <Pressable onPress={toggleSelect} hitSlop={8}>
         <Text style={[styles.selectBtn, { color: tokens.blu, fontSize: fs(13) }]}>
           {selectMode ? 'Done' : 'Select'}
