@@ -79,7 +79,12 @@ export default function AdScreen() {
   const fs = useFS()
   const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
   const [ad, setAd] = useState<AirworthinessDirective | null>(null)
-  const [related, setRelated] = useState<RelatedItem[]>([])
+  // Split so the AD text can render as soon as the fast citation query
+  // resolves, without waiting on the much slower semantic "related content"
+  // RPC -- see the loading effect below for why. mergeRelated() is pure and
+  // safe to call with whichever of these two has filled in so far.
+  const [citationRelated, setCitationRelated] = useState<RelatedItem[]>([])
+  const [semanticRelated, setSemanticRelated] = useState<RelatedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [bookmarked, setBookmarked] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
@@ -182,6 +187,20 @@ export default function AdScreen() {
   useEffect(() => {
     if (!id) return
     setLoading(true)
+    // Reset both -- otherwise a fast nav between two ADs (Prev/Next) can
+    // briefly show the PREVIOUS AD's related content under the new one's
+    // header while the new fetches are in flight.
+    setCitationRelated([])
+    setSemanticRelated([])
+
+    // Fast path: the AD text itself + its citations. This is the only thing
+    // that should gate the page opening -- previously this was one single
+    // Promise.all with the semantic "related content" RPC below, which
+    // meant the actual AD text (what the user tapped in to read) waited on
+    // a decorative "related content" feature that has nothing to do with
+    // reading the AD. RC, real device: "content retrieval... taking too
+    // long, several seconds just to get a page open... tighten all flows,
+    // reduce waste."
     Promise.all([
       // _gated view redacts body_text server-side for non-Plus tiers — see
       // gotcha_tier_gate_client_side_only.md. Every other column passes
@@ -200,8 +219,7 @@ export default function AdScreen() {
         .from('document_citations_gated')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.ad,cited_id.eq.${id}),and(citing_type.eq.ad,citing_id.eq.${id})`),
-      getSemanticRelated('ad', id),
-    ]).then(async ([adRes, citRes, semantic]) => {
+    ]).then(async ([adRes, citRes]) => {
       if (!adRes.error && adRes.data) {
         const a = adRes.data as AirworthinessDirective
         setAd(a)
@@ -240,14 +258,20 @@ export default function AdScreen() {
             ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
             : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
           .filter((r) => !(r.cited_type === 'ad' && r.cited_id === id))
-        setRelated(mergeRelated(other, semantic))
+        setCitationRelated(other)
       }
       setLoading(false)
     })
+
+    // Slow path: semantic "related content" (embedding similarity search).
+    // Decoupled from the fast path above so it never blocks the AD text --
+    // it merges into the MagicLink pod whenever it happens to resolve.
+    getSemanticRelated('ad', id).then(setSemanticRelated)
   }, [id])
 
   const body = ad?.body_text ?? ''
 
+  const related = mergeRelated(citationRelated, semanticRelated)
   const aimRefs = related.filter((r) => r.cited_type === 'aim')
   const acRefs = related.filter((r) => r.cited_type === 'ac')
   const farRefs = related.filter((r) => r.cited_type === 'far' || r.cited_type === 'far_part')

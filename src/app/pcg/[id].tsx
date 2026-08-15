@@ -91,7 +91,18 @@ export default function PcgTermScreen() {
     seededHlRef.current = hl
     inDocSearch.onQueryChange(hl)
   }, [hl, inDocSearch])
-  const [related, setRelated] = useState<RelatedItem[]>([])
+  // Split so citation-derived related links can show up as soon as the fast
+  // document_citations_gated query resolves, without waiting on the slower
+  // semantic "related content" RPC -- see the effect below for why.
+  // mergeRelated() is pure and safe to call with whichever of these two has
+  // filled in so far. Note: unlike far/aim/ad/loi/cfr49, this screen's main
+  // term-loading effect (below, ~line 145) already sets `loading` false
+  // entirely on its own, independent of this citations+semantic effect --
+  // so the definition text itself was never gated on the semantic RPC to
+  // begin with. This split only speeds up how soon the MagicLink pod's bars
+  // fill in.
+  const [citationRelated, setCitationRelated] = useState<RelatedItem[]>([])
+  const [semanticRelated, setSemanticRelated] = useState<RelatedItem[]>([])
   const [siblingTerms, setSiblingTerms] = useState<{ slug: string; term: string }[]>([])
   const [backTo, setBackTo] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -192,22 +203,30 @@ export default function PcgTermScreen() {
   // bookmark effect above.
   useEffect(() => {
     if (!term) return
-    Promise.all([
-      supabase
-        .from('document_citations_gated')
-        .select('citing_type, citing_id, cited_type, cited_id, label')
-        .or(`and(cited_type.eq.pcg,cited_id.eq.${term.slug}),and(citing_type.eq.pcg,citing_id.eq.${term.slug})`),
-      getSemanticRelated('pcg', term.slug),
-    ]).then(([{ data, error }, semantic]) => {
-      if (error || !data) return
-      const rows = data as { citing_type: string; citing_id: string; cited_type: string; cited_id: string; label: string | null }[]
-      const other = rows
-        .map((r) => (r.citing_type === 'pcg' && r.citing_id === term.slug
-          ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
-          : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
-        .filter((r) => !(r.cited_type === 'pcg' && r.cited_id === term.slug))
-      setRelated(mergeRelated(other, semantic))
-    })
+    // Reset both -- otherwise navigating between two terms (See also,
+    // Prev/Next) can briefly show the PREVIOUS term's related content under
+    // the new one's header while the new fetches are in flight.
+    setCitationRelated([])
+    setSemanticRelated([])
+    supabase
+      .from('document_citations_gated')
+      .select('citing_type, citing_id, cited_type, cited_id, label')
+      .or(`and(cited_type.eq.pcg,cited_id.eq.${term.slug}),and(citing_type.eq.pcg,citing_id.eq.${term.slug})`)
+      .then(({ data, error }) => {
+        if (error || !data) return
+        const rows = data as { citing_type: string; citing_id: string; cited_type: string; cited_id: string; label: string | null }[]
+        const other = rows
+          .map((r) => (r.citing_type === 'pcg' && r.citing_id === term.slug
+            ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
+            : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
+          .filter((r) => !(r.cited_type === 'pcg' && r.cited_id === term.slug))
+        setCitationRelated(other)
+      })
+    // Decoupled from the citations fetch above -- the semantic RPC is
+    // noticeably slower (embedding centroid + HNSW search), and there's no
+    // reason the citation-derived bars should wait on it before showing
+    // anything.
+    getSemanticRelated('pcg', term.slug).then(setSemanticRelated)
   }, [term])
 
   // Alphabetical Prev/Next -- confirmed a real gap: unlike FAR/AIM (which
@@ -289,6 +308,7 @@ export default function PcgTermScreen() {
     return bases
   }, [defParagraphs, hq])
 
+  const related = mergeRelated(citationRelated, semanticRelated)
   const acRefs = related.filter((r) => r.cited_type === 'ac')
   const farRefs = related.filter((r) => r.cited_type === 'far' || r.cited_type === 'far_part')
   const aimRefs = related.filter((r) => r.cited_type === 'aim')

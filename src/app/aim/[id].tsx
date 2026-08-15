@@ -81,7 +81,12 @@ export default function AimParagraphScreen() {
   const [para, setPara] = useState<AimParagraph | null>(null)
   const [figures, setFigures] = useState<AimFigureRow[]>([])
   const [figuresExpanded, setFiguresExpanded] = useState(false)
-  const [related, setRelated] = useState<RelatedItem[]>([])
+  // Split so the paragraph text can render as soon as the fast citation
+  // query resolves, without waiting on the much slower semantic "related
+  // content" RPC -- see the loading effect below for why. mergeRelated() is
+  // pure and safe to call with whichever of these two has filled in so far.
+  const [citationRelated, setCitationRelated] = useState<RelatedItem[]>([])
+  const [semanticRelated, setSemanticRelated] = useState<RelatedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
   // Normalized AcFigure[] for FigureViewer's Prev/Next Fig navigation --
@@ -170,6 +175,20 @@ export default function AimParagraphScreen() {
   useEffect(() => {
     if (!id) return
     setLoading(true)
+    // Reset both -- otherwise a fast nav between two paragraphs can briefly
+    // show the PREVIOUS paragraph's related content under the new one's
+    // header while the new fetches are in flight.
+    setCitationRelated([])
+    setSemanticRelated([])
+
+    // Fast path: the paragraph text itself + its figures + citations. This
+    // is the only thing that should gate the page opening -- previously
+    // this was one single Promise.all with the semantic "related content"
+    // RPC below, which meant the actual paragraph text (what the user
+    // tapped in to read) waited on a decorative "related content" feature
+    // that has nothing to do with reading the paragraph. RC, real device:
+    // "content retrieval... taking too long, several seconds just to get a
+    // page open... tighten all flows, reduce waste."
     Promise.all([
       supabase
         .from('aim_paragraphs')
@@ -185,8 +204,7 @@ export default function AimParagraphScreen() {
         .from('document_citations_gated')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.aim,cited_id.eq.${id}),and(citing_type.eq.aim,citing_id.eq.${id})`),
-      getSemanticRelated('aim', id),
-    ]).then(async ([paraRes, figRes, citRes, semantic]) => {
+    ]).then(async ([paraRes, figRes, citRes]) => {
       if (!paraRes.error && paraRes.data) {
         const p = paraRes.data as AimParagraph
         setPara(p)
@@ -234,10 +252,16 @@ export default function AimParagraphScreen() {
             ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
             : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
           .filter((r) => !(r.cited_type === 'aim' && r.cited_id === id))
-        setRelated(mergeRelated(other, semantic))
+        setCitationRelated(other)
       }
       setLoading(false)
     })
+
+    // Slow path: semantic "related content" (embedding similarity search).
+    // Decoupled from the fast path above so it never blocks the paragraph
+    // text -- it merges into the MagicLink pod whenever it happens to
+    // resolve.
+    getSemanticRelated('aim', id).then(setSemanticRelated)
   }, [id])
 
   // Sibling paragraph numbers within this paragraph's own chapter, for
@@ -266,6 +290,7 @@ export default function AimParagraphScreen() {
   const body = para?.body_text ?? ''
   const currentLabel = para ? para.paragraph_number : undefined
 
+  const related = mergeRelated(citationRelated, semanticRelated)
   const farRefs = related.filter((r) => r.cited_type === 'far' || r.cited_type === 'far_part')
   const acRefs = related.filter((r) => r.cited_type === 'ac')
   const pcgRefs = related.filter((r) => r.cited_type === 'pcg')

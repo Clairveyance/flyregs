@@ -76,7 +76,13 @@ export default function LoiDetailScreen() {
   const fs = useFS()
   const { hasProAccess, isPremium } = useAuth()
   const [loi, setLoi] = useState<LegalInterpretation | null>(null)
-  const [related, setRelated] = useState<RelatedItem[]>([])
+  // Split so the interpretation text can render as soon as the fast
+  // citation query resolves, without waiting on the much slower semantic
+  // "related content" RPC -- see the loading effect below for why.
+  // mergeRelated() is pure and safe to call with whichever of these two has
+  // filled in so far.
+  const [citationRelated, setCitationRelated] = useState<RelatedItem[]>([])
+  const [semanticRelated, setSemanticRelated] = useState<RelatedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [bookmarked, setBookmarked] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
@@ -132,6 +138,20 @@ export default function LoiDetailScreen() {
   useEffect(() => {
     if (!slug) return
     setLoading(true)
+    // Reset both -- otherwise a fast nav between two interpretations can
+    // briefly show the PREVIOUS one's related content under the new one's
+    // header while the new fetches are in flight.
+    setCitationRelated([])
+    setSemanticRelated([])
+
+    // Fast path: the interpretation text itself + its citations. This is
+    // the only thing that should gate the page opening -- previously this
+    // was one single Promise.all with the semantic "related content" RPC
+    // below, which meant the actual interpretation text (what the user
+    // tapped in to read) waited on a decorative "related content" feature
+    // that has nothing to do with reading it. RC, real device: "content
+    // retrieval... taking too long, several seconds just to get a page
+    // open... tighten all flows, reduce waste."
     Promise.all([
       // _gated view redacts body_text server-side for non-Pro tiers -- see
       // gotcha_tier_gate_client_side_only.md.
@@ -157,8 +177,7 @@ export default function LoiDetailScreen() {
         .from('document_citations_gated')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.loi,cited_id.eq.${slug}),and(citing_type.eq.loi,citing_id.eq.${slug})`),
-      getSemanticRelated('loi', slug),
-    ]).then(async ([loiRes, citRes, semantic]) => {
+    ]).then(async ([loiRes, citRes]) => {
       if (!loiRes.error && loiRes.data) {
         const l = loiRes.data as LegalInterpretation
         setLoi(l)
@@ -193,14 +212,21 @@ export default function LoiDetailScreen() {
             ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
             : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
           .filter((r) => !(r.cited_type === 'loi' && r.cited_id === slug))
-        setRelated(mergeRelated(other, semantic))
+        setCitationRelated(other)
       }
       setLoading(false)
     })
+
+    // Slow path: semantic "related content" (embedding similarity search).
+    // Decoupled from the fast path above so it never blocks the
+    // interpretation text -- it merges into the MagicLink pod whenever it
+    // happens to resolve.
+    getSemanticRelated('loi', slug).then(setSemanticRelated)
   }, [slug])
 
   const body = loi?.body_text ?? ''
   const currentLabel = loi ? humanizeLoiTitle(loi.title) : undefined
+  const related = mergeRelated(citationRelated, semanticRelated)
   const farRefs = related.filter((r) => r.cited_type === 'far' || r.cited_type === 'far_part')
   const loiRefs = related.filter((r) => r.cited_type === 'loi')
   const acRefs = related.filter((r) => r.cited_type === 'ac')

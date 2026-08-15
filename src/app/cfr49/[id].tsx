@@ -77,7 +77,12 @@ export default function Cfr49SectionScreen() {
   const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
   const [section, setSection] = useState<Cfr49Section | null>(null)
   const [part, setPart] = useState<Cfr49Part | null>(null)
-  const [related, setRelated] = useState<RelatedItem[]>([])
+  // Split so the section text can render as soon as the fast citation query
+  // resolves, without waiting on the much slower semantic "related content"
+  // RPC -- see the loading effect below for why. mergeRelated() is pure and
+  // safe to call with whichever of these two has filled in so far.
+  const [citationRelated, setCitationRelated] = useState<RelatedItem[]>([])
+  const [semanticRelated, setSemanticRelated] = useState<RelatedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [bookmarked, setBookmarked] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
@@ -149,6 +154,20 @@ export default function Cfr49SectionScreen() {
   useEffect(() => {
     if (!id) return
     setLoading(true)
+    // Reset both -- otherwise a fast nav between two sections (Prev/Next)
+    // can briefly show the PREVIOUS section's related content under the
+    // new one's header while the new fetches are in flight.
+    setCitationRelated([])
+    setSemanticRelated([])
+
+    // Fast path: the section text itself + its citations. This is the only
+    // thing that should gate the page opening -- previously this was one
+    // single Promise.all with the semantic "related content" RPC below,
+    // which meant the actual section text (what the user tapped in to
+    // read) waited on a decorative "related content" feature that has
+    // nothing to do with reading the section. RC, real device: "content
+    // retrieval... taking too long, several seconds just to get a page
+    // open... tighten all flows, reduce waste."
     Promise.all([
       supabase
         .from('cfr49_sections')
@@ -159,8 +178,7 @@ export default function Cfr49SectionScreen() {
         .from('document_citations_gated')
         .select('citing_type, citing_id, cited_type, cited_id, label')
         .or(`and(cited_type.eq.cfr49,cited_id.eq.${id}),and(citing_type.eq.cfr49,citing_id.eq.${id})`),
-      getSemanticRelated('cfr49', id),
-    ]).then(async ([secRes, citRes, semantic]) => {
+    ]).then(async ([secRes, citRes]) => {
       if (!secRes.error && secRes.data) {
         const s = secRes.data as Cfr49Section
         setSection(s)
@@ -196,10 +214,16 @@ export default function Cfr49SectionScreen() {
             ? { cited_type: r.cited_type, cited_id: r.cited_id, label: r.label }
             : { cited_type: r.citing_type, cited_id: r.citing_id, label: r.label }))
           .filter((r) => !(r.cited_type === 'cfr49' && r.cited_id === id))
-        setRelated(mergeRelated(other, semantic))
+        setCitationRelated(other)
       }
       setLoading(false)
     })
+
+    // Slow path: semantic "related content" (embedding similarity search).
+    // Decoupled from the fast path above so it never blocks the section
+    // text -- it merges into the MagicLink pod whenever it happens to
+    // resolve.
+    getSemanticRelated('cfr49', id).then(setSemanticRelated)
   }, [id])
 
   useEffect(() => {
@@ -236,6 +260,7 @@ export default function Cfr49SectionScreen() {
     })
   const tableCount = tables.length
 
+  const related = mergeRelated(citationRelated, semanticRelated)
   const farRefs = related.filter((r) => r.cited_type === 'far')
   const aimRefs = related.filter((r) => r.cited_type === 'aim')
   const acRefs = related.filter((r) => r.cited_type === 'ac')
