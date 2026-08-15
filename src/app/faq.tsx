@@ -393,27 +393,47 @@ export default function FAQScreen() {
   // ScrollView's own tracked offset go stale between the tap and the
   // measurement -- see ACBody.tsx's blockRelY comment for why that
   // simpler approach isn't safe everywhere, just why it's fine here.
+  //
+  // RC, round 2, still real: "the new one displays, but it's throwing the
+  // new one way off the top of the screen, so you have to scroll way up
+  // looking for it." Root cause wasn't the coordinate math above -- it was
+  // WHEN it ran. .measure() fired synchronously right after setOpen(),
+  // before this accordion's own LayoutAnimation had actually settled. If
+  // the previously-open item sits ABOVE the one just tapped, its collapse
+  // shifts everything below it upward once the animation finishes -- but
+  // the measurement above raced that: it captured the tapped item's
+  // position while the old item was still (visually) collapsing, i.e.
+  // effectively its STILL-EXPANDED position, computing a scroll target
+  // well past where the item actually ends up. The user lands scrolled too
+  // far down, with the real (now higher-up) item off the TOP of the
+  // viewport -- exactly the reported symptom. LayoutAnimation.configureNext
+  // takes a completion callback specifically for this -- deferring the
+  // whole measure+scroll into it guarantees both the collapse and the
+  // expand have fully settled before anything gets measured, so the
+  // coordinate math above (already correct) finally runs against the
+  // REAL final layout instead of a mid-animation one.
   const scrollRef = useRef<ScrollView>(null)
   const itemRefs = useRef<Record<number, View | null>>({})
   const scrollOffsetRef = useRef(0)
 
   const toggle = (i: number) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut)
     const opening = open !== i
-    setOpen((prev) => (prev === i ? null : i))
-    if (!opening) return
-    const item = itemRefs.current[i]
-    // ScrollView's TS type doesn't expose the underlying host node's
-    // .measure() (it's only declared on the ref's runtime NativeMethods,
-    // same gap noted in ACBody.tsx's own measure()-based approach).
-    const scrollNode = scrollRef.current as unknown as { measure: View['measure']; scrollTo: ScrollView['scrollTo'] } | null
-    if (!item || !scrollNode) return
-    item.measure((_x: number, _y: number, _w: number, _h: number, pageX: number, pageY: number) => {
-      scrollNode.measure((_sx: number, _sy: number, _sw: number, _sh: number, _spageX: number, spageY: number) => {
-        const targetY = scrollOffsetRef.current + (pageY - spageY) - 12
-        scrollNode.scrollTo({ y: Math.max(0, targetY), animated: true })
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut, () => {
+      if (!opening) return
+      const item = itemRefs.current[i]
+      // ScrollView's TS type doesn't expose the underlying host node's
+      // .measure() (it's only declared on the ref's runtime NativeMethods,
+      // same gap noted in ACBody.tsx's own measure()-based approach).
+      const scrollNode = scrollRef.current as unknown as { measure: View['measure']; scrollTo: ScrollView['scrollTo'] } | null
+      if (!item || !scrollNode) return
+      item.measure((_x: number, _y: number, _w: number, _h: number, pageX: number, pageY: number) => {
+        scrollNode.measure((_sx: number, _sy: number, _sw: number, _sh: number, _spageX: number, spageY: number) => {
+          const targetY = scrollOffsetRef.current + (pageY - spageY) - 12
+          scrollNode.scrollTo({ y: Math.max(0, targetY), animated: true })
+        })
       })
     })
+    setOpen((prev) => (prev === i ? null : i))
   }
 
   return (
