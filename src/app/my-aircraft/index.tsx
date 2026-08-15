@@ -1058,6 +1058,20 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   // re-collapsing/re-expanding the same row doesn't re-fetch.
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedDetails, setExpandedDetails] = useState<Record<string, { ads: AircraftAdNotification[]; reminders: AircraftReminder[] } | 'loading'>>({})
+  // RC, real device: "i changed the ELT reminder date, and the main screen
+  // didn't reflect the change. it's also not even listing the other
+  // Reminder there." The cache-once-per-aircraft-id design above is correct
+  // for "don't refetch on every collapse/re-expand of the SAME row" -- the
+  // gap is that nothing ever invalidated it after a real edit made on the
+  // aircraft's own detail screen. load()'s own useFocusEffect already
+  // refreshes the top-level per-row badge/ring/stat-box numbers on
+  // returning from that screen (see its own comment) -- expandedDetails was
+  // just never part of that refresh. A ref (not expandedId itself) so
+  // load()'s own useCallback deps don't have to include it -- putting
+  // expandedId there would redefine load() on every expand/collapse tap,
+  // which would fire an extra unwanted load() on every tap via the
+  // useFocusEffect below it, not just on a real navigation-away-and-back.
+  const expandedIdRef = useRef<string | null>(null)
   // RC: "for Pro, we can probably leave this Aircraft box open by default,
   // since there's only one." Keyed on the actual reason (exactly one
   // aircraft, so there's nothing to scan or choose between) rather than on
@@ -1076,8 +1090,9 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   // Overdue pill's Reminders section already did answer. Back, but lighter
   // than before: just AD number chips, not the full subject-heading rows.
   const toggleExpand = (aircraftId: string) => {
-    if (expandedId === aircraftId) { setExpandedId(null); return }
+    if (expandedId === aircraftId) { setExpandedId(null); expandedIdRef.current = null; return }
     setExpandedId(aircraftId)
+    expandedIdRef.current = aircraftId
     if (!expandedDetails[aircraftId]) {
       setExpandedDetails((prev) => ({ ...prev, [aircraftId]: 'loading' }))
       Promise.all([getAircraftAdNotifications(aircraftId), getAircraftReminders(aircraftId)])
@@ -1203,6 +1218,19 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
         // this capped list, so no path re-widens it.
         const rows = all.slice(0, aircraftCap)
         setAircraft(rows)
+        // Refresh whatever row is currently expanded -- see expandedIdRef's
+        // own comment for why this reads the ref instead of adding
+        // expandedId to load()'s own deps. Real focus event only (this runs
+        // inside the useFocusEffect below), so this fires once on
+        // navigating back from the aircraft's own detail screen, not on
+        // every render.
+        const openId = expandedIdRef.current
+        if (openId) {
+          setExpandedDetails((prev) => ({ ...prev, [openId]: 'loading' }))
+          Promise.all([getAircraftAdNotifications(openId), getAircraftReminders(openId)])
+            .then(([ads, reminders]) => setExpandedDetails((prev) => ({ ...prev, [openId]: { ads, reminders } })))
+            .catch(() => {})
+        }
         Promise.all(rows.map((a) => getAircraftReminders(a.aircraftId).catch(() => [] as AircraftReminder[])))
           .then((lists) => {
             let soonest: number | null = null
