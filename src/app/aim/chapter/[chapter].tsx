@@ -97,11 +97,17 @@ export default function AimChapterScreen() {
                     if (consumeLongPress()) return
                     router.push(`/aim/${p.paragraph_number}` as any)
                   }}
-                  onLongPress={(e) => showPreview(p.title ?? '', e)}
+                  onLongPress={(e) => showPreview(p.title ?? '', e, p.paragraph_number)}
                   onPressOut={hidePreview}
                   delayLongPress={350}
                 >
-                  <Text style={[styles.paraNum, { color: tokens.blu, fontSize: fs(13.5) }]}>{p.paragraph_number}</Text>
+                  {/* RC, real device: paragraph numbers like "5-4-20" were
+                      wrapping mid-number onto a second line inside their
+                      fixed-width column -- numberOfLines={1} keeps it on
+                      one line; the rare case where it's still too tight
+                      truncates instead (fallback below), backed by the
+                      long-press preview above now showing the full number. */}
+                  <Text style={[styles.paraNum, { color: tokens.blu, fontSize: fs(13.5) }]} numberOfLines={1}>{p.paragraph_number}</Text>
                   <Text style={[styles.paraTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
                     {p.title ?? ''}
                   </Text>
@@ -134,6 +140,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 10,
     borderRadius: 12, borderWidth: 1, paddingVertical: 11, paddingHorizontal: 14, marginBottom: 6,
   },
-  paraNum: { fontWeight: '700', width: 56 },
+  // 62, not the old 56 -- the longest real paragraph number in this
+  // chapter-list shape is "N-N-NN" (6 chars); 56 was already tight enough
+  // to wrap at default font scale (RC's real-device "5-4-20" report), 62
+  // gives it real room so numberOfLines={1} below rarely needs its
+  // ellipsis fallback at all.
+  paraNum: { fontWeight: '700', width: 62 },
   paraTitle: { flex: 1, fontWeight: '500' },
 })

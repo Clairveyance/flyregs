@@ -13,7 +13,7 @@ import * as Haptics from 'expo-haptics'
 // there's zero regression risk to it; every NEW long-press site should use
 // this pair instead of re-deriving the pattern.
 export function useLongPressPreview() {
-  const [preview, setPreview] = useState<{ x: number; y: number; text: string } | null>(null)
+  const [preview, setPreview] = useState<{ x: number; y: number; text: string; number?: string } | null>(null)
   // Real measured height of the currently-open preview card -- see
   // LongPressPreviewCard's own onLayout comment for why this can't be a
   // fixed constant.
@@ -26,14 +26,22 @@ export function useLongPressPreview() {
   // it returns true.
   const longPressFired = useRef(false)
 
-  const showPreview = (text: string, e: GestureResponderEvent) => {
+  // `number`, optional: RC, real device -- reg numbers (AIM paragraph
+  // numbers, AC numbers, etc.) can themselves be too long for their
+  // column and get cut off/wrapped, same underlying problem as a long
+  // TITLE. "I DO want the press/hold... to include the reg number in
+  // that popup" -- every call site that has a natural number companion
+  // to its title should pass it here so the popup shows both, not just
+  // the title. Left undefined at call sites with no such number (plain
+  // title-only previews keep behaving exactly as before).
+  const showPreview = (text: string, e: GestureResponderEvent, number?: string) => {
     longPressFired.current = true
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
     // Discard the last card's measured height -- this new text can wrap to
     // a different number of lines, and reusing a stale height would
     // position against the WRONG card size for one frame.
     setPreviewHeight(null)
-    setPreview({ x: e.nativeEvent.pageX, y: e.nativeEvent.pageY, text })
+    setPreview({ x: e.nativeEvent.pageX, y: e.nativeEvent.pageY, text, number })
   }
 
   const hidePreview = () => setPreview(null)

@@ -18,7 +18,7 @@ export function LongPressPreviewCard({
   onLayoutHeight,
   onDismiss,
 }: {
-  preview: { x: number; y: number; text: string } | null
+  preview: { x: number; y: number; text: string; number?: string } | null
   previewHeight: number | null
   onLayoutHeight: (height: number) => void
   onDismiss: () => void
@@ -61,6 +61,17 @@ export function LongPressPreviewCard({
               },
             ]}
           >
+            {/* RC, real device: "I DO want the press/hold... to include
+                the reg number in that popup" -- reg numbers can themselves
+                be too long for their column (same problem as a long
+                title), so whenever a call site has a natural number
+                companion to its title (AIM paragraph number, AC number,
+                etc.) it's shown here too, styled like the row's own number
+                column so the popup reads as "the row's real content," not
+                a generic tooltip. */}
+            {preview.number && (
+              <Text style={[styles.previewNumber, { color: tokens.blu, fontSize: fs(13) }]}>{preview.number}</Text>
+            )}
             <Text style={[styles.previewText, { color: tokens.t1, fontSize: fs(13) }]}>{preview.text}</Text>
           </View>
         )}
@@ -85,4 +96,5 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   previewText: { fontWeight: '600' },
+  previewNumber: { fontWeight: '700', marginBottom: 3 },
 })

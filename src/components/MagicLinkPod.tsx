@@ -359,8 +359,18 @@ function PodRow({
   const primaryFor = (item: RelatedItem): string =>
     item.cited_type === 'loi' ? (titleFor(item) ?? item.cited_id) : item.label ?? item.cited_id
 
+  // RC, real device: "these don't have the 'press/hold...' working like
+  // the others" (Related LOIs specifically). Every OTHER type's primary
+  // line is a short label (item.label ?? cited_id) with the real title as
+  // a secondary elaboration line below it -- long-press reveals that
+  // secondary line. LOI has no secondary line at all: primaryFor() above
+  // already renders its title AS the (numberOfLines=1) primary line, so
+  // it's the one that actually gets cut off. The old code hardcoded LOI's
+  // preview text to null ("nothing extra to elaborate on" -- true for the
+  // OTHER types' shape, false for LOI's), silently no-opping the gesture
+  // for every LOI row regardless of whether its title was cut off.
   const showPreview = (item: RelatedItem, e: GestureResponderEvent) => {
-    const title = item.cited_type === 'loi' ? null : titleFor(item)
+    const title = item.cited_type === 'loi' ? primaryFor(item) : titleFor(item)
     if (!title) return // nothing extra to elaborate on, or not loaded yet -- don't show an empty card
     longPressFired.current = true
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)

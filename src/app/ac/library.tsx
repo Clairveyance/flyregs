@@ -68,7 +68,7 @@ export default function AcLibraryScreen() {
                   if (consumeLongPress()) return
                   router.push(`/series/${item.series_prefix}`)
                 }}
-                onLongPress={(e) => showPreview(item.display_name, e)}
+                onLongPress={(e) => showPreview(item.display_name, e, item.series_prefix)}
                 onPressOut={hidePreview}
                 delayLongPress={350}
               >
@@ -105,7 +105,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 10,
     borderRadius: 12, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 6,
   },
-  seriesNum: { fontWeight: '700', width: 34, textAlign: 'center' },
+  // RC, real device: "1…"/"4…"/"82…" -- 3-digit series numbers (194, 437,
+  // 440...) were getting cut down to a single digit in this column. 34 was
+  // sized for the shortest real prefixes and just isn't enough room for
+  // the ordinary 3-digit case at this font size, let alone "8260" (the
+  // longest real one) -- 46 gives real 3-digit numbers room to render in
+  // full; the numSize step-down above still helps the 4-digit outlier.
+  // numberOfLines={1} at the call site is the truncation fallback for
+  // anything still too tight (e.g. a larger accessibility text-size
+  // setting), backed by the long-press preview now showing the full number.
+  seriesNum: { fontWeight: '700', width: 46, textAlign: 'center' },
   seriesName: { flex: 1, fontWeight: '500' },
   countPill: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
   countText: { fontWeight: '600' },
