@@ -86,11 +86,17 @@ export default function Cfr49PartScreen() {
                         if (consumeLongPress()) return
                         router.push(`/cfr49/${s.section_number}` as any)
                       }}
-                      onLongPress={(e) => showPreview(cleanTitle, e)}
+                      onLongPress={(e) => showPreview(cleanTitle, e, `§ ${s.section_number}`)}
                       onPressOut={hidePreview}
                       delayLongPress={350}
                     >
-                      <Text style={[styles.secNum, { color: tokens.blu, fontSize: fs(13.5), minWidth: fs(64), flexShrink: 0 }]}>§ {s.section_number}</Text>
+                      {/* numberOfLines={1}, matching far/part/[part].tsx's
+                          identical column (this screen mirrors it) -- same
+                          minWidth-not-a-hard-guarantee reasoning, added in
+                          the corpus-wide reg-number sweep even though
+                          cfr49_sections.section_number's real max (8 chars,
+                          e.g. "1544.105") is shorter than FAR's range spans. */}
+                      <Text style={[styles.secNum, { color: tokens.blu, fontSize: fs(13.5), minWidth: fs(64), flexShrink: 0 }]} numberOfLines={1}>§ {s.section_number}</Text>
                       <Text style={[styles.secTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
                         {cleanTitle}
                       </Text>

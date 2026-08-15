@@ -292,7 +292,14 @@ export default function AdIndexScreen() {
                         style={[styles.recentChip, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
                         onPress={() => router.push(`/ad/${r.id}` as any)}
                       >
-                        <Text style={[styles.recentChipNum, { color: tokens.blu, fontSize: fs(12.5) }]}>AD {r.document_number}</Text>
+                        {/* numberOfLines={1}, corpus-wide reg-number sweep:
+                            this chip's box only caps width via maxWidth:160,
+                            no floor of its own -- added for the same
+                            defensive reason as the other index screens'
+                            recentChipNum, even though real AD numbers
+                            ("2018-02-04", fixed 10-char format) are shorter
+                            and lower-risk than FAR's range spans. */}
+                        <Text style={[styles.recentChipNum, { color: tokens.blu, fontSize: fs(12.5) }]} numberOfLines={1}>AD {r.document_number}</Text>
                         <Text style={[styles.recentChipTitle, { color: tokens.t2, fontSize: fs(11) }]} numberOfLines={1}>
                           {r.title}
                         </Text>
@@ -315,7 +322,7 @@ export default function AdIndexScreen() {
                         if (consumeLongPress()) return
                         router.push(`/ad/${item.ad_number}` as any)
                       }}
-                      onLongPress={(e) => showPreview(stripAdSubjectPrefix(item.subject_heading), e)}
+                      onLongPress={(e) => showPreview(stripAdSubjectPrefix(item.subject_heading), e, `AD ${item.ad_number}`)}
                       onPressOut={hidePreview}
                       delayLongPress={350}
                     >
@@ -361,7 +368,7 @@ export default function AdIndexScreen() {
                               if (consumeLongPress()) return
                               router.push(`/ad/${item.ad_number}` as any)
                             }}
-                            onLongPress={(e) => showPreview(stripAdSubjectPrefix(item.subject_heading), e)}
+                            onLongPress={(e) => showPreview(stripAdSubjectPrefix(item.subject_heading), e, `AD ${item.ad_number}`)}
                             onPressOut={hidePreview}
                             delayLongPress={350}
                           >
@@ -386,7 +393,7 @@ export default function AdIndexScreen() {
                         if (consumeLongPress()) return
                         router.push(`/ad/${item.ad_number}` as any)
                       }}
-                      onLongPress={(e) => showPreview(stripAdSubjectPrefix(item.subject_heading), e)}
+                      onLongPress={(e) => showPreview(stripAdSubjectPrefix(item.subject_heading), e, `AD ${item.ad_number}`)}
                       onPressOut={hidePreview}
                       delayLongPress={350}
                     >

@@ -313,7 +313,17 @@ export default function SemanticSearchScreen() {
                       if (consumeLongPress()) return
                       router.push(routeForCitedItem(r.sourceType, r.sourceId) as any)
                     }}
-                    onLongPress={(e) => showPreview(formatResultTitle(r.sourceType, r.title) || formatSourceLabel(r.sourceType, r.sourceId) || meta.label, e)}
+                    onLongPress={(e) => showPreview(
+                      formatResultTitle(r.sourceType, r.title) || formatSourceLabel(r.sourceType, r.sourceId) || meta.label,
+                      e,
+                      // formatSourceLabel() already returns null for P/CG and
+                      // LOI (see its own comment -- there's no extra
+                      // identifier beyond the badge for those), so this
+                      // naturally omits the number line for exactly the two
+                      // types that don't have one, same as every other
+                      // caller of it in this file.
+                      formatSourceLabel(r.sourceType, r.sourceId) ?? undefined,
+                    )}
                     onPressOut={hidePreview}
                     delayLongPress={350}
                   >

@@ -505,13 +505,30 @@ export default function SharedFolderDetail() {
                   router.push(item.route as any)
                 }}
                 onLongPress={(e) => {
-                  if (!item.blockText && item.regType !== 'pcg') showPreview(stripFarPrefix(item.title), e)
+                  // RC, real device: "verify every reg list actually HAS the
+                  // tap-hold feature." Same bug shape found in MagicLinkPod's
+                  // own LOI case: this used to skip showPreview entirely
+                  // whenever item.blockText was set, reasoned "the title
+                  // Text isn't even rendered in that state, nothing to
+                  // preview" -- true for rowTitle, but false for what
+                  // actually IS rendered instead: the highlightTag below,
+                  // whose blockSnippet is capped at numberOfLines={1} and
+                  // routinely longer than that (it's a real passage snippet,
+                  // not a short label). item.blockText holds the complete,
+                  // untruncated highlighted passage, so previewing THAT is
+                  // the direct fix -- long-press now shows the full
+                  // highlight instead of silently doing nothing.
+                  if (item.blockText) showPreview(item.blockText, e, item.blockLabel ? `§ ${item.blockLabel}` : undefined)
+                  else if (item.regType !== 'pcg') showPreview(stripFarPrefix(item.title), e)
                 }}
                 onPressOut={hidePreview}
                 delayLongPress={350}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.rowDoc, { color: tokens.blu, fontSize: fs(13) }]}>{item.label}</Text>
+                  {/* numberOfLines={1}, corpus-wide reg-number sweep:
+                      item.label can be a FAR/cfr49 "§ N.NNN" (up to 17+2
+                      chars for a range span) with no cap of its own before. */}
+                  <Text style={[styles.rowDoc, { color: tokens.blu, fontSize: fs(13) }]} numberOfLines={1}>{item.label}</Text>
                   {item.blockText ? (
                     <View style={[styles.highlightTag, { backgroundColor: redShift ? HIGHLIGHT_BG_REDSHIFT : HIGHLIGHT_BG, borderColor: redShift ? HIGHLIGHT_BDR_REDSHIFT : HIGHLIGHT_BDR }]}>
                       <Icon name="highlighter" size={fs(11)} color={redShift ? HIGHLIGHT_TEXT_REDSHIFT : resolved === 'dark' ? HIGHLIGHT_TEXT_DARK : HIGHLIGHT_TEXT} />
@@ -542,14 +559,18 @@ export default function SharedFolderDetail() {
                   router.push(`/ac/${acId}${hlText}` as any)
                 }}
                 onLongPress={(e) => {
-                  if (!item.blockText) showPreview(stripFarPrefix(item.title), e)
+                  // Same fix as the RegRow case above -- item.blockText's
+                  // own passage is what's actually on screen (as a clipped
+                  // highlightTag) whenever it's set, not the title.
+                  if (item.blockText) showPreview(item.blockText, e, item.blockLabel ? `§ ${item.blockLabel}` : undefined)
+                  else showPreview(stripFarPrefix(item.title), e)
                 }}
                 onPressOut={hidePreview}
                 delayLongPress={350}
               >
                 <View style={{ flex: 1 }}>
                   <View style={styles.rowNumBadgeWrap}>
-                    <Text style={[styles.rowDoc, { color: tokens.blu, fontSize: fs(13) }]}>
+                    <Text style={[styles.rowDoc, { color: tokens.blu, fontSize: fs(13) }]} numberOfLines={1}>
                       {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
                     </Text>
                     {isWithinBadgeLifespan(item.date_issued, badgeDays) && (() => {

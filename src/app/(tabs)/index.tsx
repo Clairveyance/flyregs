@@ -1086,7 +1086,15 @@ export default function HomeScreen() {
               </View>
             ) : null
           }
-          renderItem={({ item }) => <FilterResultRowView item={item} tokens={tokens} />}
+          renderItem={({ item }) => (
+            <FilterResultRowView
+              item={item}
+              tokens={tokens}
+              showPreview={showPreview}
+              hidePreview={hidePreview}
+              consumeLongPress={consumeLongPress}
+            />
+          )}
         />
       ) : isTabletLandscape || isTabletPortrait ? (
         <SplitPane
@@ -1313,7 +1321,24 @@ export default function HomeScreen() {
               keyboardDismissMode="interactive"
               nestedScrollEnabled
             >
-              {(hasPlusAccess ? combinedResults : combinedResults.slice(0, FREE_RESULT_CAP)).map((item) => (
+              {(hasPlusAccess ? combinedResults : combinedResults.slice(0, FREE_RESULT_CAP)).map((item) => {
+                // RC: "verify every reg list actually HAS the tap-hold
+                // feature" -- Home's own SmartSearch dropdown, the single
+                // most-used results list in the app, had no long-press at
+                // all despite both lines below being genuinely truncatable
+                // (numberOfLines={1} on the number, ={3} on the title -- a
+                // long FAR/AC title still clips past 3 lines). Computed once
+                // per row here (not inline in the handlers) since both
+                // onPress and onLongPress need the same primary/title pair.
+                const primary = item.ac
+                  ? `${acResultPrimary(item.ac.document_number)}${isOcrScanned(item.ac.document_number) ? ' *' : ''}`
+                  : item.other!.primary
+                const title = item.ac
+                  ? item.ac.title
+                  : item.other!.type === 'ad'
+                    ? stripAdSubjectPrefix(item.other!.secondary)
+                    : item.other!.secondary
+                return (
                 <Pressable
                   key={item.key}
                   style={({ pressed }) => [
@@ -1321,13 +1346,17 @@ export default function HomeScreen() {
                     { borderBottomColor: tokens.bdr },
                     pressed && { backgroundColor: tokens.bg3 },
                   ]}
-                  onPress={() => (item.ac ? selectResult(item.ac) : selectOtherResult(item.other!))}
+                  onPress={() => {
+                    if (consumeLongPress()) return
+                    item.ac ? selectResult(item.ac) : selectOtherResult(item.other!)
+                  }}
+                  onLongPress={(e) => showPreview(title, e, primary)}
+                  onPressOut={hidePreview}
+                  delayLongPress={350}
                 >
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={[styles.dropOtherPrimary, { color: tokens.blu, fontSize: fs(12.5) }]} numberOfLines={1}>
-                      {item.ac
-                        ? `${acResultPrimary(item.ac.document_number)}${isOcrScanned(item.ac.document_number) ? ' *' : ''}`
-                        : item.other!.primary}
+                      {primary}
                     </Text>
                     {/* Full title, wrapped -- NOT clamped to one line. Two
                         sibling FAR sections routinely differ only past the
@@ -1338,15 +1367,12 @@ export default function HomeScreen() {
                         needed. Uniform row height is worth less than being
                         able to read the result. */}
                     <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={3}>
-                      {item.ac
-                        ? item.ac.title
-                        : item.other!.type === 'ad'
-                          ? stripAdSubjectPrefix(item.other!.secondary)
-                          : item.other!.secondary}
+                      {title}
                     </Text>
                   </View>
                 </Pressable>
-              ))}
+                )
+              })}
               {!hasPlusAccess && combinedResults.length > FREE_RESULT_CAP && (
                 <Pressable
                   style={[styles.dropSeeAll, { borderTopColor: tokens.bdr }]}
@@ -2051,19 +2077,41 @@ function RegBodyCard({
 
 // ─── Filter result row ───────────────────────────────────────────────────────
 
+// RC: "verify every reg list actually HAS the tap-hold feature" -- this row
+// (the ad hoc Filter sheet's results list) had no long-press at all despite
+// primaryLabel being a real "§ 91.203 Title"/"AC 150/5320-12C: Title"-style
+// combined number+title string clipped to numberOfLines={1}, same
+// truncatable-content shape as every other list in the corpus-wide sweep.
+// filter_documents() (filterSearch.ts) returns primaryLabel as one already-
+// combined string rather than a separate number/title pair, so there's no
+// natural third `number` arg to split out here -- showPreview just gets the
+// whole label, matching how updates.tsx's NewRow (also a combined string)
+// does it.
 function FilterResultRowView({
   item,
   tokens,
+  showPreview,
+  hidePreview,
+  consumeLongPress,
 }: {
   item: FilterResultRow
   tokens: ReturnType<typeof useTheme>['tokens']
+  showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
+  hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
+  consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
   const meta = REG_TYPE[item.itemType]
   return (
     <Pressable
       style={[styles.filterRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-      onPress={() => router.push(routeForFilterResult(item) as any)}
+      onPress={() => {
+        if (consumeLongPress()) return
+        router.push(routeForFilterResult(item) as any)
+      }}
+      onLongPress={(e) => showPreview(item.primaryLabel, e)}
+      onPressOut={hidePreview}
+      delayLongPress={350}
     >
       <View style={styles.filterRowTop}>
         <Icon name={meta.icon} size={fs(11)} color={tokens.blu} />
@@ -2127,7 +2175,13 @@ function WhatsNewCard({
         <View style={[styles.wnTypeTag, { backgroundColor: tokens.bdim }]}>
           <Text style={[styles.wnTypeTagText, { color: tokens.blu, fontSize: fs(9) }]}>{REG_TYPE.ac.label}</Text>
         </View>
-        <Text style={[styles.wnAcNum, { color: tokens.t1, fontSize: fs(15) }]}>
+        {/* numberOfLines={1}, corpus-wide reg-number sweep: this card is a
+            FIXED, unscaled width:190 (wnCard) -- missing here even though
+            OtherWhatsNewCard right below (identical card/style, AD/LOI
+            variant) already has it. Real AC document numbers run up to 12
+            chars ("150/5320-12C"), tight enough in this narrow card to wrap
+            at a larger accessibility text size with nothing stopping it. */}
+        <Text style={[styles.wnAcNum, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={1}>
           {ac.document_number}{isOcrScanned(ac.document_number) ? ' *' : ''}
         </Text>
       </View>

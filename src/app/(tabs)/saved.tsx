@@ -1376,7 +1376,11 @@ function BookmarkRow({
               )}
               <View style={styles.rowBody}>
                 <View style={styles.rowNumBadgeWrap}>
-                  <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12.5) }]}>
+                  {/* numberOfLines={1}, corpus-wide reg-number sweep: this
+                      row spans every bookmark type (FAR/AIM/AC/AD/LOI/
+                      cfr49), and a FAR range-span document_number (up to 17
+                      chars) had no cap here before. */}
+                  <Text style={[styles.acNum, { color: tokens.blu, fontSize: fs(12.5) }]} numberOfLines={1}>
                     {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
                   </Text>
                   {badgeData && isWithinBadgeLifespan(badgeData.date_issued, badgeDays) && (() => {

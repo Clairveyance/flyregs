@@ -97,7 +97,7 @@ export default function FarPartScreen() {
                   if (isSplit) setSelectedRoute(route)
                   else router.push(route as any)
                 }}
-                onLongPress={(e) => showPreview(cleanTitle, e)}
+                onLongPress={(e) => showPreview(cleanTitle, e, `§ ${s.section_number}`)}
                 onPressOut={hidePreview}
                 delayLongPress={350}
               >
@@ -107,8 +107,16 @@ export default function FarPartScreen() {
                     left and are being forced to wrap." A raw pixel width
                     never grew even though the digits inside it did at
                     larger text sizes. flexShrink: 0 keeps secTitle's own
-                    flex:1 from squeezing this column back down. */}
-                <Text style={[styles.secNum, { color: tokens.blu, fontSize: fs(13.5), minWidth: fs(64), flexShrink: 0 }]}>§ {s.section_number}</Text>
+                    flex:1 from squeezing this column back down.
+                    numberOfLines={1}, added in the corpus-wide reg-number
+                    sweep: real section numbers can be range spans up to 17
+                    chars ("121.1400-121.1499"), long enough that minWidth's
+                    floor alone isn't a hard guarantee against wrap under a
+                    tight combination of a narrow device and a large
+                    accessibility text size -- same second-layer defense as
+                    aim/chapter/[chapter].tsx's paraNum, backed by the
+                    long-press preview now showing the full number below. */}
+                <Text style={[styles.secNum, { color: tokens.blu, fontSize: fs(13.5), minWidth: fs(64), flexShrink: 0 }]} numberOfLines={1}>§ {s.section_number}</Text>
                 <Text style={[styles.secTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
                   {cleanTitle}
                 </Text>

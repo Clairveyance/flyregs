@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { View, Pressable, Text, StyleSheet } from 'react-native'
+import { View, Pressable, Text, StyleSheet, GestureResponderEvent } from 'react-native'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import { useFS } from '@/context/fontScale'
@@ -18,6 +18,7 @@ import { useTheme } from '@/context/theme'
 // being deleted on each screen.
 export function SwipeToDelete({
   onDelete, onPress, disabled, children, leftAction,
+  onLongPress, onPressOut, delayLongPress,
 }: {
   onDelete: () => void
   onPress?: () => void
@@ -33,6 +34,18 @@ export function SwipeToDelete({
    * is byte-identical to before.
    */
   leftAction?: { label: string; color: string; onPress: () => void }
+  /**
+   * Corpus-wide reg-number sweep: my-aircraft/[id].tsx's Applicable ADs list
+   * had no tap-hold preview at all (its own "Link an AD" picker modal, one
+   * screen over, already had it) -- this row's onPress is internal to
+   * SwipeToDelete's own Pressable (see handlePress below), so there was no
+   * way for a caller to attach a long-press gesture alongside it without
+   * this. All three are optional and simply unused (byte-identical
+   * behavior) at every other existing call site that doesn't pass them.
+   */
+  onLongPress?: (e: GestureResponderEvent) => void
+  onPressOut?: () => void
+  delayLongPress?: number
 }) {
   const fs = useFS()
   const { tokens } = useTheme()
@@ -113,7 +126,14 @@ export function SwipeToDelete({
       </View>
       <GestureDetector gesture={panGesture}>
         <Reanimated.View style={cardStyle}>
-          <Pressable onPress={handlePress}>{children}</Pressable>
+          <Pressable
+            onPress={handlePress}
+            onLongPress={onLongPress}
+            onPressOut={onPressOut}
+            delayLongPress={delayLongPress}
+          >
+            {children}
+          </Pressable>
         </Reanimated.View>
       </GestureDetector>
     </View>

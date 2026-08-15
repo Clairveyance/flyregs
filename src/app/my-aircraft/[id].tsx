@@ -823,13 +823,27 @@ export default function AircraftDetailScreen() {
                     >
                       <SwipeToDelete
                         onDelete={() => handleDismissAd(n)}
-                        onPress={() => handleOpenAd(n)}
+                        onPress={() => {
+                          if (consumeLongPress()) return
+                          handleOpenAd(n)
+                        }}
                         disabled={!canEdit}
                         leftAction={canEdit ? {
                           label: n.compliedAt ? 'Un-mark' : 'Mark',
                           color: tokens.blu,
                           onPress: () => (n.compliedAt ? handleUnmarkComplied(n) : handleMarkComplied(n)),
                         } : undefined}
+                        // RC: "verify every reg list actually HAS the
+                        // tap-hold feature" -- this Applicable ADs list had
+                        // none despite subjectHeading being clipped to
+                        // numberOfLines={2}, even though the "Link an AD"
+                        // picker one modal over already had its own preview
+                        // wired. Reuses this screen's one shared hook
+                        // (already destructured above for the collaborator
+                        // list) rather than standing up a second instance.
+                        onLongPress={(e) => showPreview(n.subjectHeading, e, `AD ${n.adNumber}`)}
+                        onPressOut={hidePreview}
+                        delayLongPress={350}
                       >
                         <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
                           {!n.readAt && <View style={[styles.unreadDot, { backgroundColor: tokens.blu }]} />}

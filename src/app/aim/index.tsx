@@ -119,7 +119,11 @@ export default function AimIndexScreen() {
                   style={[styles.recentChip, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
                   onPress={() => router.push(`/aim/${r.id}` as any)}
                 >
-                  <Text style={[styles.recentChipNum, { color: tokens.blu, fontSize: fs(12.5) }]}>{r.document_number}</Text>
+                  {/* numberOfLines={1}, corpus-wide reg-number sweep: fixed,
+                      unscaled width:130 chip -- some real AIM paragraph
+                      numbers are long front-matter/appendix slugs (e.g.
+                      "chap0_section_0", 15 chars), not just "N-N-NN". */}
+                  <Text style={[styles.recentChipNum, { color: tokens.blu, fontSize: fs(12.5) }]} numberOfLines={1}>{r.document_number}</Text>
                   <Text style={[styles.recentChipTitle, { color: tokens.t2, fontSize: fs(11) }]} numberOfLines={1}>
                     {r.title}
                   </Text>
@@ -154,11 +158,22 @@ export default function AimIndexScreen() {
                   if (consumeLongPress()) return
                   router.push(`/aim/chapter/${item.chapter}` as any)
                 }}
-                onLongPress={(e) => showPreview(item.title, e)}
+                onLongPress={(e) => showPreview(item.title, e, isAppendix ? item.chapter.toUpperCase() : item.chapter)}
                 onPressOut={hidePreview}
                 delayLongPress={350}
               >
-                <Text style={[styles.chapNum, { color: tokens.blu, fontSize: fs(15) }]}>
+                {/* numberOfLines={1}, corpus-wide reg-number sweep: chapNum
+                    was a bare, unscaled `width: 30` with no fallback at all
+                    -- the exact bug shape aim/chapter/[chapter].tsx's own
+                    paraNum was fixed for (RC's real-device "5-4-20" report),
+                    just missed on this parent chapter-list screen. Real
+                    chapter labels top out at 2 chars ("A1"-"A5"), which only
+                    needs a raw 30px at default scale but can exceed it at a
+                    larger accessibility text size since the width itself
+                    doesn't grow with fs() -- widened slightly for headroom,
+                    numberOfLines is the real guarantee, backed by the
+                    long-press preview now showing the full chapter label. */}
+                <Text style={[styles.chapNum, { color: tokens.blu, fontSize: fs(15) }]} numberOfLines={1}>
                   {isAppendix ? item.chapter.toUpperCase() : item.chapter}
                 </Text>
                 <Text style={[styles.chapTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
@@ -222,7 +237,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 10,
     borderRadius: 12, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 6,
   },
-  chapNum: { fontWeight: '700', width: 30 },
+  chapNum: { fontWeight: '700', width: 36 },
   chapTitle: { flex: 1, fontWeight: '500' },
   countPill: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
   countText: { fontWeight: '600' },

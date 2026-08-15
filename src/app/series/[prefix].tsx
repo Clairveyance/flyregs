@@ -184,7 +184,7 @@ function ACRow({
         if (consumeLongPress()) return
         router.push(`/ac/${item.id}`)
       }}
-      onLongPress={(e) => showPreview(item.title, e)}
+      onLongPress={(e) => showPreview(item.title, e, item.document_number)}
       onPressOut={hidePreview}
       delayLongPress={350}
     >

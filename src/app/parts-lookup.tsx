@@ -250,7 +250,7 @@ export default function PartsLookupScreen() {
                               if (consumeLongPress()) return
                               router.push(`/ad/${ad.adNumber}` as any)
                             }}
-                            onLongPress={(e) => showPreview(ad.subjectHeading, e)}
+                            onLongPress={(e) => showPreview(ad.subjectHeading, e, `AD ${ad.adNumber}`)}
                             onPressOut={hidePreview}
                             delayLongPress={350}
                           >

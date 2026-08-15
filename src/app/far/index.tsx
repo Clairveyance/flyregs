@@ -201,7 +201,13 @@ export default function FarIndexScreen() {
                   style={[styles.recentChip, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
                   onPress={() => router.push(`/far/${r.id}` as any)}
                 >
-                  <Text style={[styles.recentChipNum, { color: tokens.blu, fontSize: fs(12.5) }]}>{r.document_number}</Text>
+                  {/* numberOfLines={1}, corpus-wide reg-number sweep: this
+                      chip is a fixed, unscaled width:130 -- real FAR section
+                      numbers can be range spans up to 17 chars
+                      ("121.1400-121.1499"), which wrapped mid-number with no
+                      fallback here (same bug shape as AIM's original paraNum
+                      report). */}
+                  <Text style={[styles.recentChipNum, { color: tokens.blu, fontSize: fs(12.5) }]} numberOfLines={1}>{r.document_number}</Text>
                   <Text style={[styles.recentChipTitle, { color: tokens.t2, fontSize: fs(11) }]} numberOfLines={1}>
                     {stripFarPrefix(r.title)}
                   </Text>
@@ -234,7 +240,7 @@ export default function FarIndexScreen() {
                     if (consumeLongPress()) return
                     router.push(`/far/part/${item.part}` as any)
                   }}
-                  onLongPress={(e) => showPreview(cleanLabel, e)}
+                  onLongPress={(e) => showPreview(cleanLabel, e, item.part)}
                   onPressOut={hidePreview}
                   delayLongPress={350}
                 >
@@ -273,7 +279,7 @@ export default function FarIndexScreen() {
                     if (consumeLongPress()) return
                     router.push(`/cfr49/part/${item.part}` as any)
                   }}
-                  onLongPress={(e) => showPreview(cleanLabel, e)}
+                  onLongPress={(e) => showPreview(cleanLabel, e, item.part)}
                   onPressOut={hidePreview}
                   delayLongPress={350}
                 >
