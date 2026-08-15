@@ -267,7 +267,7 @@ function heatWeightFor(color: string): number {
 }
 
 function FleetRing({
-  compliantCount, openCount, overdueCount, aircraftTotal, tokens, fs,
+  compliantCount, openCount, dueSoonCount, overdueCount, aircraftTotal, tokens, fs,
 }: {
   // RC, real device: "the count up top isn't matching how many open/
   // compliant ADs there are... 12 open and 3 complied ADs, but the top
@@ -282,20 +282,31 @@ function FleetRing({
   // the Applicable ADs list's own checkmarks exactly. aircraftTotal (fleet
   // size) stays a separate, deliberately different number, still shown at
   // the ring's own center -- see below.
-  compliantCount: number; openCount: number; overdueCount: number; aircraftTotal: number
+  //
+  // RC, round 3: "it should represent total status, which include Due
+  // Soon... the amber ring color will rep either/both any open ADs as well
+  // as any items Due Soon... if all ADs are green, but some Reminders are
+  // Due Soon, then it would still show up as that portion of the main
+  // ring... we don't need to diff bet the AD/Rem amber, they can stay like
+  // they are." dueSoonCount folds straight into the same amber bucket as
+  // openCount below -- one combined portion, not a 4th color/segment.
+  compliantCount: number; openCount: number; dueSoonCount: number; overdueCount: number; aircraftTotal: number
   tokens: ThemeTokens; fs: (n: number) => number
 }) {
   // Proportional split is now over the item total (how many AD/reminder
   // things have a status at all), not aircraft count -- the ring's own
   // colored dial should visually match the legend numbers sitting right
-  // next to it, not a different metric entirely.
-  const itemTotal = compliantCount + openCount + overdueCount
+  // next to it, not a different metric entirely. amberCount combines Open
+  // AD + Due Soon Reminder into the single amber bucket per RC's round-3
+  // ask above.
+  const amberCount = openCount + dueSoonCount
+  const itemTotal = compliantCount + amberCount + overdueCount
   const nOverdue = itemTotal > 0 ? Math.round((overdueCount / itemTotal) * RING_TICKS) : 0
-  const nOpen = itemTotal > 0 ? Math.round((openCount / itemTotal) * RING_TICKS) : 0
-  const nCompliant = Math.max(0, RING_TICKS - nOverdue - nOpen)
+  const nAmber = itemTotal > 0 ? Math.round((amberCount / itemTotal) * RING_TICKS) : 0
+  const nCompliant = Math.max(0, RING_TICKS - nOverdue - nAmber)
   const tickColors = [
     ...Array(nCompliant).fill(tokens.grn),
-    ...Array(nOpen).fill(tokens.amb),
+    ...Array(nAmber).fill(tokens.amb),
     ...Array(nOverdue).fill(tokens.red),
   ]
   const angleStep = 360 / RING_TICKS
@@ -306,8 +317,9 @@ function FleetRing({
   // -- worst-status-wins here gives the ring one instant glanceable color on
   // top of the richer breakdown, same "worst wins" rule the Account row's
   // own mini-ring already uses for the same reason at a size too small for
-  // a real proportional dial.
-  const worstColor = overdueCount > 0 ? tokens.red : openCount > 0 ? tokens.amb : tokens.grn
+  // a real proportional dial. amberCount (not just openCount) feeds this
+  // too, per the same round-3 ask.
+  const worstColor = overdueCount > 0 ? tokens.red : amberCount > 0 ? tokens.amb : tokens.grn
 
   const reduceMotion = useReducedMotion()
   // RC, real device: "the 'how this works' info CTA card isn't responding
@@ -1564,6 +1576,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                     <FleetRing
                       compliantCount={totalCompliantAds}
                       openCount={totalOpenAds}
+                      dueSoonCount={dueSoonCount}
                       overdueCount={totalOverdue}
                       aircraftTotal={aircraft.length}
                       tokens={tokens}
