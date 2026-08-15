@@ -89,7 +89,12 @@ function aircraftCapForTier(isPro: boolean, isPremium: boolean): number {
 // coincides with the ring's center since the wrapper is the same size and
 // position as the ring, so this sweeps the tick to the right spot with no
 // per-tick trigonometry. Standard SVG-free technique for radial layouts.
-const RING_SIZE = 152
+// RC: "the main ring can take up more of that open space" once the AD
+// legend became two compact stat boxes instead of a wider dot-row list --
+// grown from 152 (no other tick/tap-target math depends on this beyond the
+// wrapper size RingTick's absoluteFill already scales to, per its own
+// comment above).
+const RING_SIZE = 176
 const RING_TICKS = 32
 
 // RC, after the two-pill chase read as basically invisible even at a
@@ -528,16 +533,6 @@ function RingTick({
   return (
     <View style={[StyleSheet.absoluteFill, styles.ringTickWrap, { transform: [{ rotate: `${index * angleStep}deg` }] }]}>
       <Reanimated.View style={[styles.ringTick, tickStyle]} />
-    </View>
-  )
-}
-
-function LegendRow({ color, label, count, tokens, fs }: { color: string; label: string; count: number; tokens: ThemeTokens; fs: (n: number) => number }) {
-  return (
-    <View style={styles.legendRow}>
-      <View style={[styles.legendDot, { backgroundColor: color }]} />
-      <Text style={[styles.legendLabel, { color: tokens.t2, fontSize: fs(13) }]}>{label}</Text>
-      <Text style={[styles.legendCount, { color: tokens.t1, fontSize: fs(13.5) }]}>{count}</Text>
     </View>
   )
 }
@@ -1564,10 +1559,24 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                           already read from compliantCount/openCount/
                           overdueCount together) -- it's the umbrella
                           "fleet snapshot," these two labeled blocks are its
-                          breakdown. */}
+                          breakdown.
+
+                          RC, round 2: "make just boxes for the Compliant and
+                          Open AD counts, like the Reminder ones, and stack
+                          them vertically on the right. then the main ring
+                          can take up more of that open space." Swapped the
+                          dot+label legend rows for the same StatBox already
+                          used below (visual parity between the two now-
+                          separate AD/Reminders blocks was the whole point),
+                          stacked in a column instead of Reminders' row since
+                          there are only 2 here, not 3 -- and freed the
+                          horizontal space by growing the ring itself
+                          (RING_SIZE) rather than just leaving a gap. */}
                       <Text style={[styles.legendSectionLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>AD</Text>
-                      <LegendRow color={tokens.grn} label="Compliant" count={totalCompliantAds} tokens={tokens} fs={fs} />
-                      <LegendRow color={tokens.amb} label="Open" count={totalOpenAds} tokens={tokens} fs={fs} />
+                      <View style={styles.adBoxColumn}>
+                        <StatBox value={totalCompliantAds} label="COMPLIANT" color={tokens.grn} tokens={tokens} fs={fs} />
+                        <StatBox value={totalOpenAds} label="OPEN" color={tokens.amb} tokens={tokens} fs={fs} />
+                      </View>
                     </View>
                   </View>
                   <View style={[styles.remindersSection, { borderTopColor: tokens.bdr }]}>
@@ -1910,10 +1919,7 @@ const styles = StyleSheet.create({
   ringCenterNum: { fontWeight: '700' },
   ringCenterUnit: { letterSpacing: 0.8, marginTop: -2, fontWeight: '600' },
   legend: { flex: 1, gap: 10 },
-  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  legendDot: { width: 9, height: 9, borderRadius: 4.5 },
-  legendLabel: { flex: 1 },
-  legendCount: { fontWeight: '700' },
+  adBoxColumn: { flex: 1, gap: 8 },
   // Small caps header over the AD legend and the Reminders stat-box row --
   // the AD/Reminders split RC asked for, each block labeled by its own
   // domain instead of reading as one undifferentiated card.
