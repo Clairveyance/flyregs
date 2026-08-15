@@ -34,12 +34,19 @@
 -- you" convention in this app, rather than inventing a second opt-in
 -- concept. A user who's opted out of the Duels leaderboard is also opted
 -- out of being found via contact match.
+-- NOTE: live DB already had email_hash added to the return columns (drift
+-- from this file, fixed 2026-08-15 while investigating "Find a Friend just
+-- spins" -- see PROJECT_NOTES/flyregs_pending.md). email_hash lets the
+-- client attribute a match back to which of ITS OWN contacts it belongs to
+-- (matchContactsToCallsigns in src/lib/contactMatch.ts), since multiple
+-- device contacts can share features but only one hash-to-callsign pairing
+-- is meaningful per row.
 create or replace function public.match_contacts_by_email(p_email_hashes text[])
-returns table(callsign text)
+returns table(email_hash text, callsign text)
 language sql
 security definer
 as $$
-  select cr.callsign
+  select encode(digest(lower(btrim(u.email)), 'sha256'), 'hex') as email_hash, cr.callsign
   from auth.users u
   join callsign_registry cr on cr.user_id = u.id
   join user_streaks us on us.user_id = u.id
