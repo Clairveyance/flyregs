@@ -1378,6 +1378,7 @@ function PartTrackingModal({
   const { tokens } = useTheme()
   const fs = useFS()
   const ifs = useInputFS()
+  const insets = useSafeAreaInsets()
   const [intervalText, setIntervalText] = useState('')
   const [dueHobbsText, setDueHobbsText] = useState('')
   // Tracks whether the owner has typed into the due-hobbs field directly
@@ -1436,7 +1437,7 @@ function PartTrackingModal({
               A capped maxHeight + inner ScrollView (same shape as the
               AD-link picker's own scrollable list below) lets the content
               scroll instead of the card being forced to fit in full. */}
-          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, maxHeight: '85%' }]}>
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, maxHeight: '85%', paddingBottom: Math.max(18, insets.bottom + 8) }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]} numberOfLines={1}>
                 Track {part?.name ?? 'Part'}
@@ -1549,6 +1550,7 @@ function ReminderFormModal({
   const fs = useFS()
   const ifs = useInputFS()
   const confirm = useConfirm()
+  const insets = useSafeAreaInsets()
   const [typeKey, setTypeKey] = useState<ReminderTypeKey | null>(null)
   const [title, setTitle] = useState('')
   const [dueDate, setDueDate] = useState('')
@@ -1658,7 +1660,7 @@ function ReminderFormModal({
               unreachable -- looking exactly like a frozen screen. Save
               stays pinned outside the ScrollView so it's always reachable
               regardless of scroll position or text size. */}
-          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, maxHeight: '90%' }]}>
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, maxHeight: '90%', paddingBottom: Math.max(18, insets.bottom + 8) }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>{editing ? 'Edit Reminder' : 'New Reminder'}</Text>
               <Pressable onPress={onClose} hitSlop={10}>
@@ -1803,7 +1805,7 @@ function ReminderFormModal({
 
       <Modal visible={adPickerVisible} animationType="slide" transparent onRequestClose={() => setAdPickerVisible(false)}>
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, maxHeight: '70%' }]}>
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, maxHeight: '70%', paddingBottom: Math.max(18, insets.bottom + 8) }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Link an AD</Text>
               <Pressable onPress={() => setAdPickerVisible(false)} hitSlop={10}>
@@ -1879,6 +1881,7 @@ function DatePickerModal({
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
 }) {
+  const insets = useSafeAreaInsets()
   const parsed = DATE_RE.test(initialDate) ? new Date(initialDate + 'T00:00:00') : new Date()
   const [month, setMonth] = useState(parsed.getMonth() + 1)
   const [day, setDay] = useState(parsed.getDate())
@@ -1972,7 +1975,7 @@ function DatePickerModal({
   return (
     <View style={styles.datePickerOverlay}>
       <View style={styles.modalBackdrop}>
-        <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+        <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: Math.max(18, insets.bottom + 8) }]}>
           <View style={styles.modalHeader}>
             <Pressable onPress={onClose} hitSlop={10}><Text style={{ color: tokens.t3, fontSize: fs(14.5) }}>Cancel</Text></Pressable>
             <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Due Date</Text>

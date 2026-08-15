@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { View, Text, Modal, Pressable, TextInput, SectionList, StyleSheet, ActivityIndicator, Platform, Share } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
@@ -256,12 +257,13 @@ export function FindFriendsSheet({
   onSelect: (callsign: string) => void
 }) {
   const { tokens } = useTheme()
+  const insets = useSafeAreaInsets()
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <Pressable style={styles.scrim} onPress={onClose} />
-        <View style={[styles.card, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+        <View style={[styles.card, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: Math.max(0, insets.bottom + 8) }]}>
           {visible && <FindFriendsPickerBody onClose={onClose} onSelect={onSelect} />}
         </View>
       </View>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { View, Text, Modal, Pressable, TextInput, FlatList, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
@@ -53,6 +54,7 @@ export function BulkInviteContactPicker({
   const fs = useFS()
   const ifs = useInputFS()
   const confirm = useConfirm()
+  const insets = useSafeAreaInsets()
   const [permissionState, setPermissionState] = useState<'checking' | 'denied' | 'granted'>('checking')
   const [contacts, setContacts] = useState<PickableContact[]>([])
   const [query, setQuery] = useState('')
@@ -134,7 +136,7 @@ export function BulkInviteContactPicker({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <Pressable style={styles.scrim} onPress={sending ? undefined : onClose} />
-        <View style={[styles.card, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+        <View style={[styles.card, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: Math.max(0, insets.bottom + 8) }]}>
           <View style={styles.header}>
             <Pressable onPress={onClose} disabled={!!sending} hitSlop={10}>
               <Text style={[styles.headerBtn, { color: tokens.blu, fontSize: fs(15) }]}>Cancel</Text>

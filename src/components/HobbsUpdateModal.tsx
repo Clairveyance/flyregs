@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { View, Text, Pressable, TextInput, Modal, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
@@ -30,6 +31,7 @@ export function HobbsUpdateBody({
   const fs = useFS()
   const ifs = useInputFS()
   const confirm = useConfirm()
+  const insets = useSafeAreaInsets()
   const [text, setText] = useState(initialHours != null ? String(initialHours) : '')
   const [saving, setSaving] = useState(false)
 
@@ -53,7 +55,7 @@ export function HobbsUpdateBody({
   }
 
   return (
-    <View style={[styles.card, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+    <View style={[styles.card, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: Math.max(18, insets.bottom + 8) }]}>
       <View style={styles.header}>
         <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16) }]}>Current Hobbs / Tach</Text>
         <Pressable onPress={onClose} hitSlop={10}>

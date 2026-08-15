@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, ActivityIndicator, Modal, Keyboard } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
@@ -324,6 +325,7 @@ export function YearPickerModal({
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
 }) {
+  const insets = useSafeAreaInsets()
   const scrollRef = useRef<ScrollView>(null)
   const settleRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [pending, setPending] = useState(initialYear ?? CURRENT_YEAR)
@@ -364,7 +366,7 @@ export function YearPickerModal({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
-        <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+        <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: Math.max(18, insets.bottom + 8) }]}>
           <View style={styles.modalHeader}>
             <Pressable onPress={onClose} hitSlop={10}><Text style={{ color: tokens.t3, fontSize: fs(14.5) }}>Cancel</Text></Pressable>
             <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Year</Text>
@@ -425,6 +427,7 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: Us
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
+  const insets = useSafeAreaInsets()
   const [make, setMake] = useState('')
   const [model, setModel] = useState('')
   const [typeDesignator, setTypeDesignator] = useState('')
@@ -498,7 +501,7 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: Us
   return (
     <Modal visible={!!aircraft} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
-        <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+        <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: Math.max(18, insets.bottom + 8) }]}>
           <View style={styles.modalHeader}>
             <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Edit Aircraft</Text>
             <Pressable onPress={onClose} hitSlop={10}>

@@ -463,7 +463,7 @@ export function NoteEditor({
           </View>
 
           {/* Pane body */}
-          <ScrollView ref={paneScrollRef} style={{ flex: 1 }} contentContainerStyle={styles.paneBody}>
+          <ScrollView ref={paneScrollRef} style={{ flex: 1 }} contentContainerStyle={[styles.paneBody, { paddingBottom: Math.max(24, insets.bottom + 8) }]}>
             {paneLoading ? (
               <ActivityIndicator color={tokens.blu} style={{ marginTop: 24 }} />
             ) : paneData ? (
