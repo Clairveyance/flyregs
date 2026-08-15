@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Modal, View, Text, Pressable, StyleSheet } from 'react-native'
+import { Modal, View, Text, Pressable, StyleSheet, ScrollView } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -108,6 +108,24 @@ export function InfoPopup({ id, title, body, footer, forceOnce = false, iconSize
       </Pressable>
       <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
         <Pressable style={styles.backdrop} onPress={close}>
+          {/* RC, real device (13 mini): "this CTA is still way too big for
+              the screen." The card had no height cap and nothing inside it
+              scrolled -- a popup with a long body (bullets + a footer
+              legend widget) simply rendered taller than the screen and
+              overflowed both edges equally (backdrop centers it). Fixed
+              structurally rather than by trimming copy: this content
+              routinely carries real liability weight (forceOnce is
+              reserved for exactly that, per this component's own doc
+              comment above) and cutting it down to fit one specific
+              screen risks quietly losing something that matters. Header
+              and the "I Understand" button now stay pinned outside the
+              scroll area -- the button especially can't be allowed to
+              scroll out of reach on a forceOnce popup, since tap-outside/X
+              are both disabled until it's pressed. maxHeight is a fraction
+              of the SCREEN, not the card's own natural content height, so
+              this only ever engages (and only ever scrolls) when content
+              genuinely doesn't fit -- a short popup still renders exactly
+              as before. */}
           <Pressable style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]} onPress={(e) => e.stopPropagation()}>
             <View style={styles.headerRow}>
               <Icon name="info.circle" size={fs(20)} color={tokens.blu} />
@@ -118,26 +136,28 @@ export function InfoPopup({ id, title, body, footer, forceOnce = false, iconSize
                 </Pressable>
               )}
             </View>
-            {Array.isArray(body) ? (
-              <View style={styles.bulletList}>
-                {body.map((line, i) => {
-                  const text = typeof line === 'string' ? line : line.text
-                  const color = typeof line === 'string' ? tokens.t2 : line.color
-                  const indent = typeof line !== 'string' && line.indent
-                  return (
-                    <View key={i} style={[styles.bulletRow, indent && styles.bulletRowIndent]}>
-                      <Text style={[styles.bulletDot, { color: indent ? color : tokens.t3, fontSize: fs(indent ? 13 : 14.5) }]}>
-                        {indent ? '–' : '•'}
-                      </Text>
-                      <Text style={[styles.body, styles.bulletText, { color, fontSize: fs(indent ? 13.5 : 14.5) }]}>{text}</Text>
-                    </View>
-                  )
-                })}
-              </View>
-            ) : (
-              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>{body}</Text>
-            )}
-            {footer}
+            <ScrollView style={styles.scrollBody} contentContainerStyle={styles.scrollBodyContent} showsVerticalScrollIndicator={false}>
+              {Array.isArray(body) ? (
+                <View style={styles.bulletList}>
+                  {body.map((line, i) => {
+                    const text = typeof line === 'string' ? line : line.text
+                    const color = typeof line === 'string' ? tokens.t2 : line.color
+                    const indent = typeof line !== 'string' && line.indent
+                    return (
+                      <View key={i} style={[styles.bulletRow, indent && styles.bulletRowIndent]}>
+                        <Text style={[styles.bulletDot, { color: indent ? color : tokens.t3, fontSize: fs(indent ? 13 : 14.5) }]}>
+                          {indent ? '–' : '•'}
+                        </Text>
+                        <Text style={[styles.body, styles.bulletText, { color, fontSize: fs(indent ? 13.5 : 14.5) }]}>{text}</Text>
+                      </View>
+                    )
+                  })}
+                </View>
+              ) : (
+                <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>{body}</Text>
+              )}
+              {footer}
+            </ScrollView>
             {forcing && (
               <Pressable style={[styles.understandBtn, { backgroundColor: tokens.blu }]} onPress={acknowledge}>
                 <Text style={[styles.understandText, { fontSize: fs(14.5) }]}>I Understand</Text>
@@ -162,6 +182,11 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 420,
+    // Fraction of the SCREEN (backdrop is flex:1, full-height), not of the
+    // card's own content -- a short popup never touches this and renders
+    // exactly as before; only a popup whose content is genuinely taller
+    // than 85% of the screen ever engages the scroll below.
+    maxHeight: '85%',
     borderRadius: 18,
     borderWidth: 1,
     padding: 20,
@@ -169,6 +194,13 @@ const styles = StyleSheet.create({
   },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   title: { fontWeight: '700', flex: 1 },
+  // flexShrink (not flex/flexGrow) -- takes its natural content height when
+  // there's room (a short popup doesn't stretch to fill empty space), but
+  // is allowed to shrink below that -- which is what makes it scroll
+  // internally -- once headerRow + this + the pinned button together would
+  // exceed the card's own maxHeight above.
+  scrollBody: { flexShrink: 1 },
+  scrollBodyContent: { gap: 14 },
   body: { lineHeight: 21 },
   bulletList: {},
   bulletRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
