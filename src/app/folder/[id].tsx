@@ -634,10 +634,21 @@ export default function FolderDetail() {
 
   const activeCollaborators = collaborators.filter((c) => !c.leftAt)
   const leftCollaborators = collaborators.filter((c) => c.leftAt)
-  // "Joined" means actually accepted -- a pending Callsign invite hasn't,
-  // so it shouldn't inflate this count (matches my-aircraft/[id].tsx's
-  // identical accepted-only header count).
   const joinedCollaboratorCount = activeCollaborators.filter((c) => c.accepted).length
+  // RC (real device, 2026-08-15): "once i invite someone to a folder, i
+  // should see that list of people here - showing me who i've invited...
+  // I thought we already built this?" It WAS built (the per-row clock icon
+  // a few lines down already distinguishes pending from joined) but two
+  // things hid it: the header said "No one has joined yet" for a fresh
+  // pending invite (joinedCollaboratorCount is accepted-only), and the
+  // roster itself sat behind a manual expand tap defaulting closed --
+  // unlike my-aircraft/[id].tsx's equivalent roster, which is always
+  // visible the moment collaborators.length > 0. Auto-expanding on a real
+  // invite (not on every render, so a user who deliberately collapses it
+  // isn't fought) matches that same always-visible behavior.
+  useEffect(() => {
+    if (activeCollaborators.length > 0) setCollabExpanded(true)
+  }, [activeCollaborators.length])
 
   const totalCount = acEntries.length + noteEntries.length
 
@@ -707,8 +718,10 @@ export default function FolderDetail() {
           <Pressable style={styles.collabHeader} onPress={() => setCollabExpanded((v) => !v)}>
             <Icon name="person.2.fill" size={fs(15)} color={tokens.t2} />
             <Text style={[styles.collabHeaderText, { color: tokens.t2, fontSize: fs(13) }]}>
-              {joinedCollaboratorCount === 0
+              {activeCollaborators.length === 0
                 ? 'No one has joined yet'
+                : joinedCollaboratorCount === 0
+                ? `${activeCollaborators.length} ${activeCollaborators.length === 1 ? 'invite' : 'invites'} pending`
                 : `${joinedCollaboratorCount} ${joinedCollaboratorCount === 1 ? 'person has' : 'people have'} joined`}
             </Text>
             <Icon name={collabExpanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
