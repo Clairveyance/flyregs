@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, Modal, ScrollView, TextInput, Keyboard } from 'react-native'
+import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, Modal, ScrollView, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -285,7 +285,17 @@ export default function ChallengesScreen() {
       )}
 
       <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
-        <View style={[styles.modalBackdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+        {/* RC, real device: "can't access. k/b pops up covering everything
+            and the box doesn't adjust up" -- the Callsign search input is
+            new to this sheet (it never had a text field before), and the
+            sheet was never wrapped in a KeyboardAvoidingView the way every
+            other bottom sheet with a TextInput in this app already is
+            (see my-aircraft/[id].tsx's Invite by Callsign modal, the exact
+            same pattern). */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={[styles.modalBackdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}
+        >
           <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: Math.max(18, insets.bottom + 8) }]}>
             {/* Suppressed for the findFriends sub-step -- FindFriendsPickerBody
                 renders its own header (Close + "Find Friends" title), same
@@ -587,7 +597,7 @@ export default function ChallengesScreen() {
             </ScrollView>
             )}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
       <CoinRevealModal
         coin={unseenCoinQueue[0] ? COIN_BY_CODE[unseenCoinQueue[0]] ?? null : null}
