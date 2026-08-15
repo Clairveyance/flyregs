@@ -278,3 +278,46 @@ export async function isDuelNotificationsEnabled(userId: string): Promise<boolea
   if (error) return false
   return (data?.length ?? 0) > 0
 }
+
+// Invite by Callsign (aircraft + folder) -- mirrors sendDuelPush's exact
+// shape (own RPC that resolves the actor's callsign label server-side +
+// direct Expo push call, no server-side trigger). RC (real device,
+// 2026-08-15): a callsign invite already resolves to a real user server-side
+// via inviteCollaboratorByCallsign, but used to fall back to the OS share
+// sheet anyway -- "it shouldn't do that at all, with a callsign, that an
+// inside-FR feature and should simply locate the user with that callsign and
+// send them the invite." Deep-links through the same /join/[token] route
+// link-based invites already use (see get_collaboration_invite_push_target's
+// migration comment) rather than a new "pending invites" inbox. Lives here
+// rather than in aircraftSharing.ts/sharedFolders.ts so both can call it
+// without importing each other.
+export async function sendCollaborationInvitePush(
+  targetUserId: string,
+  resourceType: 'aircraft' | 'folder',
+  resourceLabel: string,
+  token: string
+): Promise<void> {
+  try {
+    const { data, error } = await supabase.rpc('get_collaboration_invite_push_target', {
+      p_target_user_id: targetUserId,
+      p_resource_type: resourceType,
+      p_resource_label: resourceLabel,
+    })
+    if (error) return
+    const rows = (data ?? []).filter((r: any) => r?.expo_push_token)
+    if (rows.length === 0) return
+    await Promise.all(rows.map((row: any) =>
+      fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          to: row.expo_push_token,
+          sound: 'default',
+          title: row.title,
+          body: row.body,
+          data: { type: 'collab-invite', token },
+        }),
+      }).catch(() => {})
+    ))
+  } catch (_) { /* best-effort */ }
+}

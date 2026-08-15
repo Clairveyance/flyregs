@@ -82,13 +82,15 @@ function AppShell({ children }: { children: React.ReactNode }) {
       // previous version of send-reg-of-day.mjs before this shipped still
       // routes correctly instead of silently no-op'ing.
       const data = response.notification.request.content.data as
-        { type?: string; slug?: string; sourceType?: string; pcgSlug?: string; challengeId?: string } | undefined
+        { type?: string; slug?: string; sourceType?: string; pcgSlug?: string; challengeId?: string; token?: string } | undefined
       if (data?.type === 'reg_of_day' && data.slug && data.sourceType) {
         router.push(`/${data.sourceType}/${data.slug}` as any)
       } else if (data?.type === 'reg_of_day' && data.pcgSlug) {
         router.push(`/pcg/${data.pcgSlug}` as any)
       } else if (data?.type === 'duel' && data.challengeId) {
         router.push(`/challenges/${data.challengeId}` as any)
+      } else if (data?.type === 'collab-invite' && data.token) {
+        router.push(`/join/${data.token}` as any)
       }
     })
     return () => sub.remove()

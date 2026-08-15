@@ -51,6 +51,8 @@ import { NoteEditor } from '@/components/NoteEditor'
 import { BulkInviteContactPicker } from '@/components/BulkInviteContactPicker'
 import { FindFriendsPickerBody } from '@/components/FindFriendsSheet'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { sendCollaborationInvitePush } from '@/lib/notifications'
+import { resolveCallsignToUserId } from '@/lib/contactMatch'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // ── Unified entry for the mixed-content list ──────────────────────────────────
@@ -350,6 +352,20 @@ export default function FolderDetail() {
   const [inviteCallsign, setInviteCallsign] = useState('')
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [callsignBusy, setCallsignBusy] = useState(false)
+  // Mirrors my-aircraft/[id].tsx's identical fix (RC, real device,
+  // 2026-08-15) -- see that file's comment for the full rationale.
+  const [callsignCheck, setCallsignCheck] = useState<'idle' | 'checking' | 'found' | 'not_found'>('idle')
+  useEffect(() => {
+    const trimmed = inviteCallsign.trim()
+    if (!trimmed) { setCallsignCheck('idle'); return }
+    setCallsignCheck('checking')
+    const t = setTimeout(() => {
+      resolveCallsignToUserId(trimmed)
+        .then((userId) => setCallsignCheck(userId ? 'found' : 'not_found'))
+        .catch(() => setCallsignCheck('idle'))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [inviteCallsign])
   // BB-078: pick several contacts at once instead of sending the invite
   // link one person at a time via the plain OS share sheet.
   const [bulkInviteVisible, setBulkInviteVisible] = useState(false)
@@ -444,12 +460,11 @@ export default function FolderDetail() {
     // sends/copies it) -- there's no equivalent ambiguity here: creating
     // this row already required knowing exactly who it's for.
     await confirmFolderShared(folder.id, invite.token)
-    const link = buildShareLink(invite.token)
-    try {
-      await Share.share({ message: link })
-    } catch {
-      confirm({ title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
-    }
+    // Push the resolved user directly instead of the OS share sheet --
+    // same fix and same reasoning as my-aircraft/[id].tsx's submitInvite
+    // (RC, real device, 2026-08-15).
+    sendCollaborationInvitePush(invite.userId, 'folder', folder.name, invite.token).catch(() => {})
+    confirm({ title: 'Invite Sent', message: `Sent to @${invite.callsign}.`, cancelLabel: null })
     getFolderCollaborators(folder.id).then(setCollaborators).catch(() => {})
     setCallsignBusy(false)
   }
@@ -943,9 +958,9 @@ export default function FolderDetail() {
                     <Text style={{ color: tokens.t3, fontSize: fs(14.5) }}>Cancel</Text>
                   </Pressable>
                   <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Invite by Callsign</Text>
-                  <Pressable onPress={submitCallsignInvite} hitSlop={10} disabled={callsignBusy || !inviteCallsign.trim()}>
+                  <Pressable onPress={submitCallsignInvite} hitSlop={10} disabled={callsignBusy || callsignCheck !== 'found'}>
                     {callsignBusy ? <ActivityIndicator color={tokens.blu} /> : (
-                      <Text style={{ color: inviteCallsign.trim() ? tokens.blu : tokens.t4, fontWeight: '700', fontSize: fs(14.5) }}>Invite</Text>
+                      <Text style={{ color: callsignCheck === 'found' ? tokens.blu : tokens.t4, fontWeight: '700', fontSize: fs(14.5) }}>Invite</Text>
                     )}
                   </Pressable>
                 </View>
@@ -959,8 +974,11 @@ export default function FolderDetail() {
                   autoCorrect={false}
                   placeholder="Callsign"
                   placeholderTextColor={tokens.t4}
-                  style={[styles.inviteInput, { color: tokens.t1, borderColor: inviteError ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
+                  style={[styles.inviteInput, { color: tokens.t1, borderColor: inviteError || callsignCheck === 'not_found' ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
                 />
+                {callsignCheck === 'checking' && <Text style={{ color: tokens.t3, fontSize: fs(12.5) }}>Checking…</Text>}
+                {callsignCheck === 'found' && <Text style={{ color: tokens.grn, fontSize: fs(12.5) }}>Callsign found</Text>}
+                {callsignCheck === 'not_found' && <Text style={{ color: tokens.red, fontSize: fs(12.5) }}>No FlyRegs user with this Callsign</Text>}
                 {inviteError && <Text style={{ color: tokens.red, fontSize: fs(12.5) }}>{inviteError}</Text>}
                 <Pressable
                   style={styles.findFriendsLink}

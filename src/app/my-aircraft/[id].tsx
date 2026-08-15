@@ -32,6 +32,8 @@ import {
 } from '@/lib/aircraftSharing'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
+import { sendCollaborationInvitePush } from '@/lib/notifications'
+import { resolveCallsignToUserId } from '@/lib/contactMatch'
 
 // Equipment tags are Premium; reminders are Pro+ (see openAddReminder's own
 // comment below -- this used to say both were Premium, but that was wrong
@@ -177,6 +179,24 @@ export default function AircraftDetailScreen() {
   const [inviteRole, setInviteRole] = useState<CollaboratorRole | null>(null)
   const [inviteCallsign, setInviteCallsign] = useState('')
   const [inviteError, setInviteError] = useState<string | null>(null)
+  // RC (real device, 2026-08-15): "it doesn't confirm if what you're
+  // entering exists or not... it just opens the iOS typical 'send to...'
+  // screen." The server already resolves the callsign inside the invite
+  // RPC (see resolveCallsignToUserId's own comment on why nothing called
+  // it before), but that only surfaces a typo AFTER a full submit attempt.
+  // Debounced so it doesn't fire on every keystroke.
+  const [callsignCheck, setCallsignCheck] = useState<'idle' | 'checking' | 'found' | 'not_found'>('idle')
+  useEffect(() => {
+    const trimmed = inviteCallsign.trim()
+    if (!trimmed) { setCallsignCheck('idle'); return }
+    setCallsignCheck('checking')
+    const t = setTimeout(() => {
+      resolveCallsignToUserId(trimmed)
+        .then((userId) => setCallsignCheck(userId ? 'found' : 'not_found'))
+        .catch(() => setCallsignCheck('idle'))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [inviteCallsign])
   // RC: "the a/c invite area should also be able to invite new people (of
   // course that invite comes with the Prem paywall to sub)." The Callsign
   // flow only ever worked for someone who already has a FlyRegs account --
@@ -332,18 +352,15 @@ export default function AircraftDetailScreen() {
       setSharingBusy(false)
       return
     }
-    const link = buildAircraftShareLink(invite.token)
     closeShareModal()
-    try {
-      await Share.share({ message: link })
-    } catch {
-      // The invite row above was already created and saved server-side,
-      // so a Share.share failure (no share target, sheet error, web
-      // preview) is not a "could not create invite" failure. Surface the
-      // real link instead of a false error -- same reasoning as
-      // folder/[id].tsx's own handleInvite.
-      confirm({ title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
-    }
+    // A named invite already knows exactly who it's for -- push the
+    // resolved user directly instead of opening the OS share sheet, which
+    // made no sense for a callsign (RC, real device, 2026-08-15: "it
+    // shouldn't do that at all, with a callsign... should simply locate
+    // the user with that callsign and send them the invite").
+    const label = aircraft.nickname || `${aircraft.make} ${aircraft.model}`
+    sendCollaborationInvitePush(invite.userId, 'aircraft', label, invite.token).catch(() => {})
+    confirm({ title: 'Invite Sent', message: `Sent to @${invite.callsign}.`, cancelLabel: null })
     getAircraftCollaborators(aircraft.id).then(setCollaborators).catch(() => {})
     setSharingBusy(false)
   }
@@ -1213,9 +1230,9 @@ export default function AircraftDetailScreen() {
                   <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>
                     Invite as {inviteRole === 'editor' ? 'Editor' : 'Viewer'}
                   </Text>
-                  <Pressable onPress={submitInvite} hitSlop={10} disabled={sharingBusy || !inviteCallsign.trim()}>
+                  <Pressable onPress={submitInvite} hitSlop={10} disabled={sharingBusy || callsignCheck !== 'found'}>
                     {sharingBusy ? <ActivityIndicator color={tokens.blu} /> : (
-                      <Text style={{ color: inviteCallsign.trim() ? tokens.blu : tokens.t4, fontWeight: '700', fontSize: fs(14.5) }}>Invite</Text>
+                      <Text style={{ color: callsignCheck === 'found' ? tokens.blu : tokens.t4, fontWeight: '700', fontSize: fs(14.5) }}>Invite</Text>
                     )}
                   </Pressable>
                 </View>
@@ -1229,8 +1246,11 @@ export default function AircraftDetailScreen() {
                   autoCorrect={false}
                   placeholder="Callsign"
                   placeholderTextColor={tokens.t4}
-                  style={[styles.inviteInput, { color: tokens.t1, borderColor: inviteError ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
+                  style={[styles.inviteInput, { color: tokens.t1, borderColor: inviteError || callsignCheck === 'not_found' ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
                 />
+                {callsignCheck === 'checking' && <Text style={{ color: tokens.t3, fontSize: fs(12.5) }}>Checking…</Text>}
+                {callsignCheck === 'found' && <Text style={{ color: tokens.grn, fontSize: fs(12.5) }}>Callsign found</Text>}
+                {callsignCheck === 'not_found' && <Text style={{ color: tokens.red, fontSize: fs(12.5) }}>No FlyRegs user with this Callsign</Text>}
                 {inviteError && <Text style={{ color: tokens.red, fontSize: fs(12.5) }}>{inviteError}</Text>}
                 <Pressable
                   style={styles.findFriendsLink}
