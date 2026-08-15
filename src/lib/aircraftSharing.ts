@@ -186,6 +186,7 @@ export interface FleetAircraftSummary {
   year: number | null
   role: FleetRole
   openAdCount: number
+  compliantAdCount: number
   overdueReminderCount: number
   currentHobbsHours: number | null
 }
@@ -196,14 +197,19 @@ export interface FleetAircraftSummary {
 // why "overdue" is built from two genuinely separate facts (open AD count,
 // overdue reminder count) instead of one conflated number -- RC caught the
 // mockup's ambiguous single "Overdue Ā· 2" chip implying 2 aircraft were
-// overdue when only 1 actually was.
+// overdue when only 1 actually was. compliantAdCount (added later, see
+// migrations_fleet_summary_compliant_ad_count.sql) is the third leg of the
+// same idea -- RC caught the fleet card's own ring/legend silently
+// substituting an AIRCRAFT-bucket count for a real compliant-AD-item count
+// (no item-level number existed at all until this field), producing "0
+// Compliant" against real device data that showed 3 complied ADs.
 export async function getFleetSummary(): Promise<FleetAircraftSummary[]> {
   const { data, error } = await supabase.rpc('get_fleet_summary')
   if (error) throw error
   return (data ?? []).map((row: any) => ({
     aircraftId: row.out_aircraft_id, make: row.out_make, model: row.out_model, nickname: row.out_nickname,
     typeDesignator: row.out_type_designator, year: row.out_year, role: row.out_role,
-    openAdCount: row.out_open_ad_count, overdueReminderCount: row.out_overdue_reminder_count,
+    openAdCount: row.out_open_ad_count, compliantAdCount: row.out_compliant_ad_count, overdueReminderCount: row.out_overdue_reminder_count,
     currentHobbsHours: row.out_current_hobbs_hours,
   }))
 }

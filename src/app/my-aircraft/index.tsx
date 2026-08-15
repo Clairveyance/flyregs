@@ -262,13 +262,31 @@ function heatWeightFor(color: string): number {
 }
 
 function FleetRing({
-  compliantCount, openCount, overdueCount, total, tokens, fs,
+  compliantCount, openCount, overdueCount, aircraftTotal, tokens, fs,
 }: {
-  compliantCount: number; openCount: number; overdueCount: number; total: number
+  // RC, real device: "the count up top isn't matching how many open/
+  // compliant ADs there are... 12 open and 3 complied ADs, but the top
+  // numbers don't match at all." These three were previously AIRCRAFT
+  // counts (how many aircraft fall into each bucket, by worst status) --
+  // correct by that definition, but not what the numbers next to them look
+  // like they mean, and degenerate with a 1-aircraft fleet (always 0 or 1
+  // regardless of how many real ADs that aircraft has). Now real item-level
+  // sums across the fleet -- open AD count, compliant AD count, overdue
+  // REMINDER count (ADs don't have their own separate "overdue" state in
+  // this schema, only reminders do) -- matching the stat boxes below and
+  // the Applicable ADs list's own checkmarks exactly. aircraftTotal (fleet
+  // size) stays a separate, deliberately different number, still shown at
+  // the ring's own center -- see below.
+  compliantCount: number; openCount: number; overdueCount: number; aircraftTotal: number
   tokens: ThemeTokens; fs: (n: number) => number
 }) {
-  const nOverdue = total > 0 ? Math.round((overdueCount / total) * RING_TICKS) : 0
-  const nOpen = total > 0 ? Math.round((openCount / total) * RING_TICKS) : 0
+  // Proportional split is now over the item total (how many AD/reminder
+  // things have a status at all), not aircraft count -- the ring's own
+  // colored dial should visually match the legend numbers sitting right
+  // next to it, not a different metric entirely.
+  const itemTotal = compliantCount + openCount + overdueCount
+  const nOverdue = itemTotal > 0 ? Math.round((overdueCount / itemTotal) * RING_TICKS) : 0
+  const nOpen = itemTotal > 0 ? Math.round((openCount / itemTotal) * RING_TICKS) : 0
   const nCompliant = Math.max(0, RING_TICKS - nOverdue - nOpen)
   const tickColors = [
     ...Array(nCompliant).fill(tokens.grn),
@@ -343,7 +361,7 @@ function FleetRing({
         />
       ))}
       <View style={[StyleSheet.absoluteFill, styles.ringCenter]}>
-        <Text style={[styles.ringCenterNum, { color: worstColor, fontSize: fs(32) }]}>{total}</Text>
+        <Text style={[styles.ringCenterNum, { color: worstColor, fontSize: fs(32) }]}>{aircraftTotal}</Text>
         <Text style={[styles.ringCenterUnit, { color: tokens.t4, fontSize: fs(11) }]}>AIRCRAFT</Text>
       </View>
     </View>
@@ -857,6 +875,21 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   // back already refreshes via useFocusEffect, but a same-screen action has
   // no focus event to hook -- the summary ring and row badge would go stale
   // until the next full reload without this local patch.
+  // Mirrors getAircraftAdNotifications' own .order() chain exactly (complied_at
+  // ascending nulls-first, then read_at ascending nulls-first, then id
+  // descending) -- so re-sorting THIS array locally after an optimistic
+  // toggle produces the identical order a real refetch would, instead of
+  // drifting from it. RC: after marking an AD complied, its chip "took a
+  // long time to organize and move to the end of the list." Root cause: the
+  // optimistic update below toggled compliedAt on the matching item but
+  // never re-sorted the array, so the chip stayed at its OLD position among
+  // the still-open ones -- checkmarked, but not actually relocated -- until
+  // whatever eventually triggered a real refetch, which this same-screen
+  // action has no natural event for.
+  const nullsFirst = (a: string | null, b: string | null) => (a === b ? 0 : a === null ? -1 : b === null ? 1 : a < b ? -1 : 1)
+  const compareAdNotifications = (a: AircraftAdNotification, b: AircraftAdNotification) =>
+    nullsFirst(a.compliedAt, b.compliedAt) || nullsFirst(a.readAt, b.readAt) || b.id - a.id
+
   const handleToggleCompliedFromList = (aircraftId: string, n: AircraftAdNotification) => {
     const wasComplied = !!n.compliedAt
     confirm({
@@ -872,10 +905,21 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
         setExpandedDetails((prev) => {
           const cur = prev[aircraftId]
           if (!cur || cur === 'loading') return prev
-          return { ...prev, [aircraftId]: { ...cur, ads: cur.ads.map((x) => (x.id === n.id ? { ...x, compliedAt: nowComplied } : x)) } }
+          const nextAds = cur.ads
+            .map((x) => (x.id === n.id ? { ...x, compliedAt: nowComplied } : x))
+            .sort(compareAdNotifications)
+          return { ...prev, [aircraftId]: { ...cur, ads: nextAds } }
         })
+        // openAdCount/compliantAdCount move in lockstep, opposite directions
+        // -- an AD is always in exactly one of the two buckets (see
+        // aircraftSharing.ts's own compliantAdCount comment), so un-marking
+        // one is a real transfer, not just a decrement on one side.
         setAircraft((prev) =>
-          prev.map((a) => (a.aircraftId === aircraftId ? { ...a, openAdCount: Math.max(0, a.openAdCount + (wasComplied ? 1 : -1)) } : a))
+          prev.map((a) => (a.aircraftId === aircraftId ? {
+            ...a,
+            openAdCount: Math.max(0, a.openAdCount + (wasComplied ? 1 : -1)),
+            compliantAdCount: Math.max(0, a.compliantAdCount + (wasComplied ? -1 : 1)),
+          } : a))
         )
       },
     })
@@ -1094,6 +1138,19 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
               message: `Found ${count} existing Airworthiness Directive${count === 1 ? '' : 's'} that may apply — see its Applicable ADs list.`,
               cancelLabel: null,
             })
+            // RC, real device: "when i input this info initially it didn't
+            // update, it wasn't until this morning that i saw that counts
+            // had populated." Root cause: this whole backfill deliberately
+            // fires AFTER the load() above (so it never blocks the aircraft
+            // itself from saving) -- but nothing ever called load() again
+            // once it actually finished. The confirm() above told the user
+            // real ADs were found; the ring/legend/stat-boxes/row badge
+            // stayed frozen on their PRE-backfill (zero) snapshot regardless,
+            // correct only the next time something else happened to
+            // refocus this screen -- which could genuinely be way later,
+            // since a same-screen background completion has no natural
+            // refocus event of its own.
+            load()
           }
         })
         .catch((e) => {
@@ -1151,15 +1208,18 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   const atProCap = aircraft.length >= aircraftCap
   const totalOpenAds = aircraft.reduce((sum, a) => sum + a.openAdCount, 0)
   const totalOverdue = aircraft.reduce((sum, a) => sum + a.overdueReminderCount, 0)
-  // Ring/legend counts are AIRCRAFT counted in exactly one bucket each (its
-  // worst status) -- e.g. an aircraft with both an overdue reminder and an
-  // open AD counts once, under Overdue, not both -- so the three numbers
-  // always sum to the fleet total. The stat-box numbers above (totalOpenAds/
-  // totalOverdue) are different on purpose: those are ITEM counts, which
-  // can outnumber the aircraft that have them.
-  const overdueCatCount = aircraft.filter((a) => a.overdueReminderCount > 0).length
-  const openCatCount = aircraft.filter((a) => a.overdueReminderCount === 0 && a.openAdCount > 0).length
-  const compliantCount = aircraft.length - overdueCatCount - openCatCount
+  // Ring/legend counts USED TO be AIRCRAFT counted in exactly one bucket
+  // each (its worst status) -- e.g. an aircraft with both an overdue
+  // reminder and an open AD counted once, under Overdue, not both -- so the
+  // three numbers always summed to the fleet total. RC, real device: "the
+  // count up top isn't matching how many open/compliant ADs there are...
+  // 12 open and 3 complied ADs, but the top numbers don't match at all."
+  // Confirmed real -- with RC's 1-aircraft fleet, that scheme always shows
+  // 0 or 1 for "Compliant"/"Open AD" no matter how many of that aircraft's
+  // real ADs are actually complied, since it was counting AIRCRAFT, not
+  // ADs. Now real item-level sums across the fleet, matching the stat
+  // boxes below and the Applicable ADs list's own checkmarks exactly.
+  const totalCompliantAds = aircraft.reduce((sum, a) => sum + a.compliantAdCount, 0)
   // RC: matches the reference image's own "Sorted by urgency" list order --
   // overdue first, then open, then compliant; alphabetical by make/model as
   // the tiebreak within each bucket (get_fleet_summary()'s own default
@@ -1320,17 +1380,17 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                 <View style={[styles.fleetCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                   <View style={styles.fleetCardTop}>
                     <FleetRing
-                      compliantCount={compliantCount}
-                      openCount={openCatCount}
-                      overdueCount={overdueCatCount}
-                      total={aircraft.length}
+                      compliantCount={totalCompliantAds}
+                      openCount={totalOpenAds}
+                      overdueCount={totalOverdue}
+                      aircraftTotal={aircraft.length}
                       tokens={tokens}
                       fs={fs}
                     />
                     <View style={styles.legend}>
-                      <LegendRow color={tokens.grn} label="Compliant" count={compliantCount} tokens={tokens} fs={fs} />
-                      <LegendRow color={tokens.amb} label="Open AD" count={openCatCount} tokens={tokens} fs={fs} />
-                      <LegendRow color={tokens.red} label="Overdue" count={overdueCatCount} tokens={tokens} fs={fs} />
+                      <LegendRow color={tokens.grn} label="Compliant" count={totalCompliantAds} tokens={tokens} fs={fs} />
+                      <LegendRow color={tokens.amb} label="Open AD" count={totalOpenAds} tokens={tokens} fs={fs} />
+                      <LegendRow color={tokens.red} label="Overdue" count={totalOverdue} tokens={tokens} fs={fs} />
                     </View>
                   </View>
                   <View style={styles.statBoxRow}>
