@@ -161,7 +161,16 @@ export default function ReadyRoomScreen() {
         {(['study', 'duels', 'mastery'] as LbTab[]).map((t) => (
           <Pressable
             key={t}
-            style={[styles.tabBtn, tab === t && { backgroundColor: tokens.blu }]}
+            style={[
+              styles.tabBtn,
+              // RC: "the chips don't have to be the exact same width" --
+              // "Study Activity" is by far the longest label of the 3, so an
+              // equal three-way flex split was cramping it while Duels and
+              // Mastery sat with slack space. Weighted by roughly how much
+              // text each label actually carries instead.
+              { flex: t === 'study' ? 1.5 : t === 'mastery' ? 0.9 : 0.75 },
+              tab === t && { backgroundColor: tokens.blu },
+            ]}
             onPress={() => setTab(t)}
           >
             <Text
