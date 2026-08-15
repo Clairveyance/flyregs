@@ -91,6 +91,18 @@ export const PART_NAME_MODEL_ALIASES: { nameIncludes: string; aliases: string[] 
     nameIncludes: 'garmin gns- or gtn-series',
     aliases: ['430', '430w', '530', '530w', '650', '750', 'gns430', 'gns530', 'gtn650', 'gtn750'],
   },
+  // RC, real-device: searched "Garrett" (the TPE331's original manufacturer
+  // -- Garrett AiResearch, still the name most pilots/mechanics know it by)
+  // and got zero hits, even though "tpe" alone matched real catalog rows.
+  // Honeywell acquired Garrett in 1999 and every catalog row now carries
+  // Honeywell's name (manufacturer='Honeywell', per an AD's own current
+  // applicability text), so a literal "Garrett" search has nothing to match
+  // -- same shape as the Garmin 430/530 gap above, just a manufacturer
+  // rename instead of a generic-vs-specific naming gap.
+  {
+    nameIncludes: 'tpe331',
+    aliases: ['garrett', 'airesearch'],
+  },
 ]
 
 // True if `word` is a known alias for `partName` per the table above --
