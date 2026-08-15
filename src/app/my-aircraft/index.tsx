@@ -3,7 +3,7 @@ import Reanimated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, useReducedMotion, interpolateColor,
 } from 'react-native-reanimated'
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Modal, KeyboardAvoidingView, Platform } from 'react-native'
-import { router, useFocusEffect } from 'expo-router'
+import { router, useFocusEffect, useIsFocused } from 'expo-router'
 import { useTheme, type ThemeTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -305,6 +305,17 @@ function FleetRing({
   const worstColor = overdueCount > 0 ? tokens.red : openCount > 0 ? tokens.amb : tokens.grn
 
   const reduceMotion = useReducedMotion()
+  // RC, real device: "the 'how this works' info CTA card isn't responding
+  // smoothly to scroll." Root cause: this component stays mounted while
+  // navigating to an aircraft's own detail screen (see load()'s own comment
+  // on why -- this screen deliberately never unmounts in the background),
+  // but its two setInterval loops below kept firing on the JS thread the
+  // entire time regardless -- including while genuinely off-screen, and
+  // competing with gesture recognition for JS-thread time whenever this
+  // screen WAS the one being scrolled. Gating both on real focus (not just
+  // "mounted") means the ring visually behaves identically while you're
+  // looking at it and does zero background work otherwise.
+  const isFocused = useIsFocused()
   const mainPos = useSharedValue(0)
   const breathePulse = useSharedValue(0)
   const ripplePhase = useSharedValue(-1) // -1 = idle, 0..1 = mid-sweep
@@ -315,14 +326,14 @@ function FleetRing({
   // smoother than a single long withTiming, and sidesteps withRepeat's own
   // "restarts toward the same fixed toValue" gotcha for open-ended motion.
   useEffect(() => {
-    if (reduceMotion) return
+    if (reduceMotion || !isFocused) return
     let pos = 0
     const id = setInterval(() => {
       pos += MAIN_SPEED * (RING_STEP_MS / 1000)
       mainPos.value = withTiming(pos, { duration: RING_STEP_MS, easing: Easing.linear })
     }, RING_STEP_MS)
     return () => clearInterval(id)
-  }, [reduceMotion, mainPos])
+  }, [reduceMotion, isFocused, mainPos])
 
   // Every RIPPLE_PERIOD_MS: inhale FIRST, hold at the peak, then release the
   // ripple exactly as the exhale begins -- RC: "make the main pill breathe
@@ -332,7 +343,7 @@ function FleetRing({
   // inside the inhale's own `finished` callback, so it fires only once the
   // breath has actually finished building.
   useEffect(() => {
-    if (reduceMotion) return
+    if (reduceMotion || !isFocused) return
     const id = setInterval(() => {
       breathePulse.value = withTiming(1, { duration: BREATHE_MS, easing: Easing.out(Easing.quad) }, (finished) => {
         if (!finished) return
@@ -350,7 +361,7 @@ function FleetRing({
       })
     }, RIPPLE_PERIOD_MS)
     return () => clearInterval(id)
-  }, [reduceMotion, mainPos, ripplePhase, rippleOrigin, breathePulse])
+  }, [reduceMotion, isFocused, mainPos, ripplePhase, rippleOrigin, breathePulse])
 
   return (
     <View style={{ width: RING_SIZE, height: RING_SIZE }}>
@@ -521,9 +532,9 @@ function RingTick({
   )
 }
 
-function LegendRow({ color, label, count, tokens, fs, divider, borderColor }: { color: string; label: string; count: number; tokens: ThemeTokens; fs: (n: number) => number; divider?: boolean; borderColor?: string }) {
+function LegendRow({ color, label, count, tokens, fs }: { color: string; label: string; count: number; tokens: ThemeTokens; fs: (n: number) => number }) {
   return (
-    <View style={[styles.legendRow, divider && [styles.legendRowDivider, { borderTopColor: borderColor }]]}>
+    <View style={styles.legendRow}>
       <View style={[styles.legendDot, { backgroundColor: color }]} />
       <Text style={[styles.legendLabel, { color: tokens.t2, fontSize: fs(13) }]}>{label}</Text>
       <Text style={[styles.legendCount, { color: tokens.t1, fontSize: fs(13.5) }]}>{count}</Text>
@@ -567,11 +578,12 @@ const PRO_HERO_ECHO1_START = PRO_HERO_BREATHE_END
 const PRO_HERO_ECHO2_START = PRO_HERO_BREATHE_END + 0.08 // trails echo 1 for the ripple feel
 
 function ProHero({
-  aircraft, reminderUrgency, nextDueDays, tokens, fs, onPressRing,
+  aircraft, reminderUrgency, nextDueDays, dueSoonCount, tokens, fs, onPressRing,
 }: {
   aircraft: FleetAircraftSummary
   reminderUrgency: 'overdue' | 'soon' | 'clear'
   nextDueDays: number | null
+  dueSoonCount: number
   tokens: ThemeTokens
   fs: (n: number) => number
   onPressRing: () => void
@@ -674,9 +686,15 @@ function ProHero({
         </Reanimated.View>
       </Pressable>
       <Text style={[styles.proHeroLabel, { color: tokens.t1, fontSize: fs(16) }]}>{label}</Text>
+      {/* Same fix as Premium's fleetCard: the ring above already shows
+          openAdCount as its own center number (that's what numColor is
+          keying off of), so repeating it here as a third stat box was the
+          exact literal-duplicate case RC flagged -- this row is Reminders-
+          only now, matching Premium's REMINDERS section content exactly. */}
+      <Text style={[styles.legendSectionLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>REMINDERS</Text>
       <View style={styles.statBoxRow}>
         <StatBox value={aircraft.overdueReminderCount} label="OVERDUE" color={tokens.red} tokens={tokens} fs={fs} />
-        <StatBox value={aircraft.openAdCount} label="OPEN ADS" color={tokens.amb} tokens={tokens} fs={fs} />
+        <StatBox value={dueSoonCount} label="DUE SOON" color={tokens.amb} tokens={tokens} fs={fs} />
         <StatBox value={nextDueDays !== null ? `${nextDueDays}d` : '—'} label="NEXT DUE" color={tokens.grn} tokens={tokens} fs={fs} />
       </View>
     </View>
@@ -1023,6 +1041,14 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   // for why this needs to be a real 3-state value, not just the RPC's
   // overdueReminderCount, to catch "due soon" too).
   const [reminderUrgency, setReminderUrgency] = useState<Record<string, 'overdue' | 'soon' | 'clear'>>({})
+  // Fleet-wide count of individual reminders due within 30 days (not yet
+  // overdue) -- RC, real device: once the stat-box row became Reminders-
+  // only, asked directly what belongs in the middle box between OVERDUE and
+  // NEXT DUE. This reuses the exact same 30-day "soon" threshold
+  // reminderUrgency already applies per-aircraft, just summed across every
+  // individual reminder instead of collapsed to one worst-status flag --
+  // no new fetch, same data this screen already loads.
+  const [dueSoonCount, setDueSoonCount] = useState<number>(0)
   // RC: "let's keep this whole 'add a/c' area collapsed. just a small
   // 'Add Aircraft +' which can expand when needed... this screen will have
   // status wheel, a/c dropdowns, etc. It's busy enough w/o this Add feature
@@ -1185,12 +1211,14 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
         Promise.all(rows.map((a) => getAircraftReminders(a.aircraftId).catch(() => [] as AircraftReminder[])))
           .then((lists) => {
             let soonest: number | null = null
+            let soonCount = 0
             const urgency: Record<string, 'overdue' | 'soon' | 'clear'> = {}
             lists.forEach((list, i) => {
               let worst: 'overdue' | 'soon' | 'clear' = 'clear'
               for (const r of list) {
                 const days = daysUntil(r.dueDate)
                 if (days >= 0 && (soonest === null || days < soonest)) soonest = days
+                if (days >= 0 && days <= 30) soonCount++
                 if (days < 0) worst = 'overdue'
                 else if (days <= 30 && worst !== 'overdue') worst = 'soon'
               }
@@ -1198,8 +1226,9 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
             })
             setNextDueDays(soonest)
             setReminderUrgency(urgency)
+            setDueSoonCount(soonCount)
           })
-          .catch(() => { setNextDueDays(null); setReminderUrgency({}) })
+          .catch(() => { setNextDueDays(null); setReminderUrgency({}); setDueSoonCount(0) })
       })
       .catch((e) => console.error('Failed to load fleet summary:', e?.message ?? e))
       .finally(() => setLoading(false))
@@ -1487,6 +1516,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                   aircraft={aircraft[0]}
                   reminderUrgency={reminderUrgency[aircraft[0].aircraftId] ?? 'clear'}
                   nextDueDays={nextDueDays}
+                  dueSoonCount={dueSoonCount}
                   tokens={tokens}
                   fs={fs}
                   onPressRing={() => handleQuickComplied(aircraft[0])}
@@ -1505,26 +1535,36 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                       fs={fs}
                     />
                     <View style={styles.legend}>
-                      {/* RC, real device: "yes, the Red overdue is probably
-                          only assoc. w/ Reminders. but Open and Compliant
-                          are clearly just for ADs, and should reflect
-                          that." All 3 rows read as one flat scale even
-                          though they span two unrelated counts (AD
-                          compliance state vs. reminder due-state) -- fixed
-                          both ways RC suggested: labels now name their own
-                          domain ("AD" / "Reminder"), and the Overdue row
-                          gets its own top border + extra spacing so it
-                          visually reads as a second, separate group rather
-                          than a third bucket of the same thing. */}
-                      <LegendRow color={tokens.grn} label="Compliant AD" count={totalCompliantAds} tokens={tokens} fs={fs} />
-                      <LegendRow color={tokens.amb} label="Open AD" count={totalOpenAds} tokens={tokens} fs={fs} />
-                      <LegendRow color={tokens.red} label="Overdue Reminder" count={totalOverdue} tokens={tokens} fs={fs} divider borderColor={tokens.bdr} />
+                      {/* RC, real device: "the top right area with the dots
+                          can be for AD info (a small 'AD' above those). the
+                          three blocks below that can be for Reminders."
+                          Splits what used to be one flat 3-row legend
+                          (mixing AD compliance state with reminder due-
+                          state, previously just labeled by domain per RC's
+                          own earlier fix) into two clearly separate blocks:
+                          this legend is AD-only now, Overdue Reminder moved
+                          down into the stat-box row below where the rest of
+                          the reminder data already lives -- removes the
+                          Open AD / OPEN ADS duplication RC flagged as
+                          wasted space, since AD counts now appear exactly
+                          once each. The ring itself is untouched and still
+                          factors in both domains (its color/proportions
+                          already read from compliantCount/openCount/
+                          overdueCount together) -- it's the umbrella
+                          "fleet snapshot," these two labeled blocks are its
+                          breakdown. */}
+                      <Text style={[styles.legendSectionLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>AD</Text>
+                      <LegendRow color={tokens.grn} label="Compliant" count={totalCompliantAds} tokens={tokens} fs={fs} />
+                      <LegendRow color={tokens.amb} label="Open" count={totalOpenAds} tokens={tokens} fs={fs} />
                     </View>
                   </View>
-                  <View style={styles.statBoxRow}>
-                    <StatBox value={totalOverdue} label="OVERDUE" color={tokens.red} tokens={tokens} fs={fs} />
-                    <StatBox value={totalOpenAds} label="OPEN ADS" color={tokens.amb} tokens={tokens} fs={fs} />
-                    <StatBox value={nextDueDays !== null ? `${nextDueDays}d` : '—'} label="NEXT DUE" color={tokens.grn} tokens={tokens} fs={fs} />
+                  <View style={[styles.remindersSection, { borderTopColor: tokens.bdr }]}>
+                    <Text style={[styles.legendSectionLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>REMINDERS</Text>
+                    <View style={styles.statBoxRow}>
+                      <StatBox value={totalOverdue} label="OVERDUE" color={tokens.red} tokens={tokens} fs={fs} />
+                      <StatBox value={dueSoonCount} label="DUE SOON" color={tokens.amb} tokens={tokens} fs={fs} />
+                      <StatBox value={nextDueDays !== null ? `${nextDueDays}d` : '—'} label="NEXT DUE" color={tokens.grn} tokens={tokens} fs={fs} />
+                    </View>
                   </View>
                 </View>
               )}
@@ -1859,14 +1899,14 @@ const styles = StyleSheet.create({
   ringCenterUnit: { letterSpacing: 0.8, marginTop: -2, fontWeight: '600' },
   legend: { flex: 1, gap: 10 },
   legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  // Sits only on the Overdue row (a Reminder-domain count) to visually
-  // break it away from the two AD-domain rows above it -- see the "AD
-  // Compliant"/"Open AD"/"Overdue Reminder" labeling comment at this
-  // component's call site.
-  legendRowDivider: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, marginTop: 2 },
   legendDot: { width: 9, height: 9, borderRadius: 4.5 },
   legendLabel: { flex: 1 },
   legendCount: { fontWeight: '700' },
+  // Small caps header over the AD legend and the Reminders stat-box row --
+  // the AD/Reminders split RC asked for, each block labeled by its own
+  // domain instead of reading as one undifferentiated card.
+  legendSectionLabel: { fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: -2 },
+  remindersSection: { gap: 8, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 14 },
   // RC: "give these some more space, they're cramped and wrapping lines
   // unnec." Root cause wasn't the padding -- proHeroCard sets alignItems:
   // 'center', which in flexbox makes a child size to its CONTENT instead of
