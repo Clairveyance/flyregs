@@ -1461,7 +1461,19 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
               ]}
               footer={
                 <View style={styles.ringLegendSection}>
-                  <Text style={[styles.ringLegendHeader, { color: tokens.t2, fontSize: fs(13) }]}>The ring shows the urgency status of Reminders:</Text>
+                  {/* RC, real device: "we'll need to update the info icon to
+                      explain the diff bet the main ring and smaller ones."
+                      This popup already explained the small per-aircraft
+                      badges below (ring = that aircraft's Reminder urgency,
+                      number = its AD status) but never mentioned the big
+                      ring above the popup trigger itself -- the one thing
+                      readers can see without scrolling while this is open.
+                      No new mockup widget for it: unlike the per-aircraft
+                      badges (buried further down a list), the real ring is
+                      already visible right above where this popup opens. */}
+                  <Text style={[styles.ringLegendHeader, { color: tokens.t2, fontSize: fs(13) }]}>The big ring above is your whole fleet at a glance — the AD and Reminders sections below it break down exactly what it's counting.</Text>
+                  <Text style={[styles.ringLegendHeader, { color: tokens.t2, fontSize: fs(13), marginTop: 14 }]}>If you have more than one aircraft, each one below also gets its own small ring and number:</Text>
+                  <Text style={[styles.ringLegendHeader, { color: tokens.t2, fontSize: fs(13), marginTop: 6 }]}>The ring shows that aircraft's Reminder urgency:</Text>
                   <PopupRingSwatchRow
                     tokens={tokens}
                     items={[
@@ -1470,7 +1482,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                       <PopupRingSwatch key="overdue" ringOnly color={tokens.red} label="Overdue" tokens={tokens} fs={fs} />,
                     ]}
                   />
-                  <Text style={[styles.ringLegendHeader, { color: tokens.t2, fontSize: fs(13), marginTop: 14 }]}>The number shows the count and status of ADs:</Text>
+                  <Text style={[styles.ringLegendHeader, { color: tokens.t2, fontSize: fs(13), marginTop: 14 }]}>The number shows that aircraft's own AD status:</Text>
                   <PopupRingSwatchRow
                     tokens={tokens}
                     items={[
