@@ -189,8 +189,18 @@ function TypeFilterChips({
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
 }) {
+  // RC, real device: "there are several FARs that show active under
+  // 'Changed' so that 'Other' chip should be see those." Root cause: this
+  // used to hide the WHOLE chip row (not just an individual empty chip)
+  // whenever fewer than 2 of the 3 buckets had any items -- reasonable
+  // when the list is genuinely empty (nothing to filter), wrong whenever
+  // everything present happens to fall into a single bucket (confirmed
+  // live: a 90-day Changed window with 15 real FAR revisions and 0 AC/AD
+  // ones hid "All" + "Other · 15" both, even though Other was fully
+  // populated and exactly what RC wanted to tap). Now only hides the row
+  // when there's truly nothing to show at all.
   const present = CHIP_ORDER.filter((t) => counts[t] > 0)
-  if (present.length < 2) return null
+  if (present.length < 1) return null
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterRow}>
       <Pressable
