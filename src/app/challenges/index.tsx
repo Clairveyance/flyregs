@@ -17,6 +17,7 @@ import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 const QUESTION_COUNTS = [3, 5, 10]
 const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac']
@@ -25,6 +26,7 @@ const MAX_OPPONENTS = 7
 
 export default function ChallengesScreen() {
   const { tokens } = useTheme()
+  const insets = useSafeAreaInsets()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web, so every dialog here was invisible in the Browser pane.
   // See components/ConfirmDialog.tsx.
@@ -241,7 +243,7 @@ export default function ChallengesScreen() {
 
       <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
         <View style={[styles.modalBackdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
-          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
+          <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: Math.max(18, insets.bottom + 8) }]}>
             <View style={styles.modalHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 {step === 'opponents' && (
