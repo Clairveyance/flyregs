@@ -126,3 +126,9 @@ scripts/.dictionary_facts_id_map*.json
 scripts/.dictionary_facts_sources_snapshot*.json
 scripts/.dictionary_facts_verify_batch_state.json
 scripts/.dictionary_facts_verify_id_map.json
+
+# date-trivia classification pass (Anthropic Batches API) — same
+# resumable checkpoint-state pattern; classify_date_trivia.py regenerates
+# these on each run
+scripts/.date_trivia_batch_state.json
+scripts/.date_trivia_id_map.json

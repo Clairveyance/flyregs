@@ -103,18 +103,30 @@ Frame the question around a concrete operational situation or condition, and mak
 specific number/procedure/threshold that applies -- not a bare restatement of what the section says,
 and never just the document's own title standing in as a question.
 
-NEVER ask about the document's own paperwork/metadata. This is a hard rule, not a preference --
-these shapes tested measurably common in a live sample even with softer guidance, so they're banned
-outright rather than merely discouraged:
-- Issue/effective/revision date ("What is the effective date of AC X?", "When was AC X issued?")
+NEVER ask about paperwork/administrative history -- not just the current document's own metadata,
+but ANY document, act, amendment, agreement, or rule's issue/signing/publication/supersession date
+mentioned anywhere in the passage. This is a hard rule, not a preference -- these shapes tested
+measurably common in a live sample even with softer guidance, so they're banned outright rather
+than merely discouraged:
+- Issue/effective/revision/publication/signing date of ANY document named in the passage -- the
+  current one ("What is the effective date of AC X?", "When was AC X issued?") OR a different one
+  the passage merely references or cites ("On what date was AC 20-140B, the AC superseded by this
+  one, issued?", "When did Congress pass the Act referenced here?", "What date was the earlier
+  version dated?") -- both are the same failure: memorizing a citation's date, not aviation knowledge.
 - Who signed it or which FAA office initiated/approved it
-- The document's own number ("What is the AC number for this guidance?")
+- The document's own number, or another document's number it references
 - What it replaced/cancelled, or what replaced it ("What AC did this cancel?")
 - Which paragraph/section was updated/revised in a later change
-None of these test aviation knowledge -- they test whether you memorized a cover page. A passage
-that is ITSELF administrative front matter (revision history, distribution list, purpose/cancellation
-statement) is exactly the passage that should yield FEWER facts, not a trivia question manufactured
-to hit a count.
+None of these test aviation knowledge -- they test whether you memorized a cover page or a citation.
+The test is the SHAPE of the fact, not which document it's about: "on what date was X issued/
+signed/published/superseded/dated" is banned regardless of whether X is this document or one it
+mentions in passing. A REAL regulatory compliance deadline or applicability cutoff a pilot/mechanic/
+operator would actually need to track (e.g. "by what date must operators install X" or "aircraft
+certificated after what date must comply with Y") is NOT banned -- the test is whether the date is
+operationally actionable knowledge or administrative trivia about a document's own history.
+A passage that is ITSELF administrative front matter (revision history, distribution list, purpose/
+cancellation statement) is exactly the passage that should yield FEWER facts, not a trivia question
+manufactured to hit a count.
 
 Real FAA examples of the target shape (public domain, FAA-published PAR sample questions):
 Q: "During operations outside controlled airspace at altitudes more than 1,200 feet AGL but less than 10,000 feet MSL, what is the minimum flight visibility for day VFR flight?"
@@ -323,6 +335,23 @@ def normalize_ws(s):
 # way. Whole-question match, not per-word, so it doesn't false-positive on
 # a question that happens to use "date" or "office" as part of a real
 # operational fact.
+#
+# 2026-08-16: extended after a live Study Mode screenshot (RC) surfaced
+# "On what date were the windshear training amendments to parts 121 and
+# 135 issued? -> September 27, 1988" -- a real AC-91-84-era fact that the
+# ORIGINAL patterns below never caught, because they only match questions
+# about the CURRENT document's own metadata ("what is THE date", "when
+# was AC X issued"). This question asks about a DIFFERENT document (the
+# amendments) merely mentioned in the AC's body text -- same failure
+# shape, different grammatical subject. A corpus-wide scripted audit found
+# 747 live facts with a bare-calendar-date answer; keyword matching alone
+# couldn't reliably separate genuine compliance deadlines ("must comply
+# by") from pure paperwork trivia ("was issued/signed/published/
+# superseded/dated/enacted/passed"), so the added clauses below key
+# specifically on those paperwork-history VERBS regardless of subject,
+# while leaving compliance-deadline phrasing ("must", "shall", "by what
+# date must", "required to") completely untouched -- those are real,
+# useful facts and should keep generating.
 METADATA_TRIVIA_RE = re.compile(
     r"\bwhat (is|was) the (effective |issue |revision )?date\b"
     r"|\bwhen was .* (issued|published|dated|effective)\b"
@@ -333,7 +362,12 @@ METADATA_TRIVIA_RE = re.compile(
     r"|\bwhat (earlier |previous )?ac (does|did) .* (cancel|replace|supersede)\b"
     r"|\bwhich (ac|paragraph|section) (was updated|is referenced|does this)\b"
     r"|\bwhich revision\b"
-    r"|\bwhat change number\b",
+    r"|\bwhat change number\b"
+    # -- added 2026-08-16, any-document paperwork-history dates --
+    r"|\b(on what date|what date) (was|were|did)\b.*\b(issue|issued|sign|signed|publish|published|date|dated|supersede|superseded|cancel|cancelled|canceled|enact|enacted|pass|passed|adopt|adopted)\b"
+    r"|\bwhen (was|were|did)\b.*\b(issue|issued|sign|signed|publish|published|supersede|superseded|enact|enacted|pass|passed|adopt|adopted|address|inactivate)\b"
+    r"|\bearlier (ac|version|edition)\b.*\bdate\b"
+    r"|\bpredecessor\b.*\bdate\b",
     re.IGNORECASE,
 )
 
