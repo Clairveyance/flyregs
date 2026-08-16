@@ -815,7 +815,7 @@ export default function HomeScreen() {
     const acScored = searchResults.map((r) => ({
       r, ...relevanceTier(eff, r.document_number, r.title),
     }))
-    const otherScored = otherResults.map((r) => {
+    const otherScoredRaw = otherResults.map((r) => {
       // `id` (not `primary`) is the bare identifier -- `primary` carries a
       // type prefix ("FAR 91.107") that would never equal a user's query.
       // Score against the term that actually FOUND it as well as the raw
@@ -834,9 +834,22 @@ export default function HomeScreen() {
       // -> tier 4, which left it at #6; via the bridge term "vfr weather
       // minimums" it is a full tier-3 title match. Still capped at tier 3 so
       // an expansion can never manufacture an exact/number match.
-      const viaTerm = direct.tier >= 4 && r.matchedTerm && r.matchedTerm !== eff
+      const viaTermRaw = direct.tier >= 4 && r.matchedTerm && r.matchedTerm !== eff
         ? relevanceTier(r.matchedTerm, r.id, r.secondary)
         : null
+      // relevanceTier's tier 0-2 mean "the identifier itself equals/starts-
+      // with/contains the query" -- built for a user PARTIAL-TYPING a real
+      // document number ("91.1" -> 91.107). P/CG and A/D `id` is a
+      // snake_case SLUG of the term name, not a number anyone types --
+      // "visual" is trivially a substring of VISUAL_CLIMB_OVER_AIRPORT_VCOA's
+      // own slug, so a one-word expansion term was hitting tier 1/2 via the
+      // SLUG itself, bypassing the tier-3 flood cap below entirely (worse
+      // than the case that guard was built for -- these landed ABOVE every
+      // title-match tier, not at tier 3). An expansion the user never typed
+      // can never legitimately claim "this IS the document you numbered" --
+      // floor it at tier 3 regardless of doc type, so the flood check next
+      // can see and demote it like any other over-broad rescue.
+      const viaTerm = viaTermRaw && viaTermRaw.tier < 3 ? { ...viaTermRaw, tier: 3 } : viaTermRaw
       const scored = viaTerm && viaTerm.tier <= 3 && viaTerm.tier < direct.tier ? viaTerm : direct
       // A concept anchor means the DB matched the QUESTION to the document
       // that answers it, which outranks any lexical tier. Without this,
@@ -844,10 +857,48 @@ export default function HomeScreen() {
       // AC 61-98E ("Currency REQUIREMENTS...") -- both landed in tier 4 on
       // one title word each, and the tie broke on array position, throwing
       // away the relevance the search RPC had just computed.
-      return { r, ...scored, tier: r.anchored ? 0 : scored.tier }
+      // `viaBridge`: true when this result's tier came from an expansion
+      // term rather than the user's own query -- used below both to demote
+      // flooded expansion terms and to sort a direct (if weaker) match
+      // ahead of expansion noise sharing the same numeric tier.
+      return { r, ...scored, tier: r.anchored ? 0 : scored.tier, viaBridge: scored === viaTerm }
     })
 
-    for (let tier = 0; tier <= 5; tier++) {
+    // A generic expansion word (bridge output like "vfr"->"visual" or
+    // "night"->"lighting", or a corpus association like "vfr"->"weather")
+    // title-matches EVERY document that merely CONTAINS that one word --
+    // "visual" alone hits VISUAL APPROACH, VISUAL CLIMB OVER AIRPORT, VISUAL
+    // LINE OF SIGHT, DEFENSE VISUAL FLIGHT RULES..., each independently
+    // earning the same tier-3 "full title match" trust as a genuinely
+    // specific rescue like "vfr weather minimums" -> § 91.155 (one match,
+    // clearly meaningful). RC, real device: "can I fly VFR at night" buried
+    // FAR 91.209/61.57(b) under a wall of unrelated glossary terms that
+    // have nothing to do with night flying. The discriminator isn't word
+    // count -- a precise single-word bridge that only matches one or two
+    // documents is a real signal and should keep its tier -- it's whether
+    // this SPECIFIC expansion term is flooding THIS SPECIFIC search with
+    // many same-tier hits, which is what actually means "too generic to
+    // trust." Counted per matchedTerm, not guessed at from word count alone.
+    const tier3RescueCounts = new Map<string, number>()
+    for (const x of otherScoredRaw) {
+      if (x.viaBridge && x.tier === 3 && x.r.matchedTerm) {
+        tier3RescueCounts.set(x.r.matchedTerm, (tier3RescueCounts.get(x.r.matchedTerm) ?? 0) + 1)
+      }
+    }
+    const FLOOD_THRESHOLD = 3
+    const otherScored = otherScoredRaw.map((x) => {
+      if (x.viaBridge && x.tier === 3 && x.r.matchedTerm && (tier3RescueCounts.get(x.r.matchedTerm) ?? 0) > FLOOD_THRESHOLD) {
+        // Pushed below every other real signal (anchor/exact/title/body),
+        // not just down one tier -- a document that only surfaced because
+        // it happens to contain a generic word many OTHER documents also
+        // contain is genuinely the weakest kind of match here, weaker even
+        // than a body-only hit on what the user actually typed.
+        return { ...x, tier: 6 }
+      }
+      return x
+    })
+
+    for (let tier = 0; tier <= 6; tier++) {
       const a = acScored.filter((x) => x.tier === tier)
       // RC: "the majority of AFR query material will come from FAR, AIM,
       // P/CG, ACs. The ADs and LOIs do need to be included... but hardly
@@ -857,7 +908,15 @@ export default function HomeScreen() {
       // relative order among everything else, or disturbing which tier any
       // result lands in -- the tier computation above (anchors, viaTerm
       // rescue, etc.) is untouched.
-      const b = otherScored.filter((x) => x.tier === tier).sort((x, y) => (x.r.type === 'ad' ? 1 : 0) - (y.r.type === 'ad' ? 1 : 0))
+      // Primary key added here: a DIRECT match (found via the user's own
+      // query) sorts ahead of a viaBridge one sharing the same numeric
+      // tier -- without this, a handful of genuinely relevant direct
+      // matches at tier 4 could still be scattered/outnumbered among a
+      // dozen same-tier expansion-flood P/CG hits (see the single-word
+      // rescue cap above), since a shared tier alone doesn't say which
+      // result actually answers the query the user typed.
+      const b = otherScored.filter((x) => x.tier === tier)
+        .sort((x, y) => (x.viaBridge ? 1 : 0) - (y.viaBridge ? 1 : 0) || (x.r.type === 'ad' ? 1 : 0) - (y.r.type === 'ad' ? 1 : 0))
       const max = Math.max(a.length, b.length)
       for (let i = 0; i < max; i++) {
         if (i < a.length) rows.push({ key: `ac-${a[i].r.id}`, ac: a[i].r, other: null, tier, ord: nextOrd(tier) })
