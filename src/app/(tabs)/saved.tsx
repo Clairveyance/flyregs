@@ -1872,7 +1872,10 @@ const styles = StyleSheet.create({
   subSegBtn: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 7 },
   subSegText: { fontSize: 12.5, fontWeight: '600' },
 
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  // Same fix as notes.tsx's identical All/None-vs-Done pattern: both
+  // Pressables carry hitSlop={8}, so gap:10 let their actual tappable
+  // zones overlap by 6px, not just look close. 18 clears it with margin.
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 18 },
   selectBtn: { fontSize: 13, fontWeight: '600' },
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
   addBtnText: { color: '#fff', fontWeight: '600', fontSize: 12.5 },

@@ -1303,7 +1303,11 @@ function SwipeableNoteRow({
 const styles = StyleSheet.create({
   root: { flex: 1 },
 
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  // Same tap-target fix as notes.tsx/saved.tsx/recents.tsx's All/None-vs-
+  // Done: all 3 of these icon buttons carry hitSlop={10}, so the old gap:4
+  // let adjacent buttons' real tappable zones overlap by up to 16px --
+  // worse than the text-button case since there are 3 buttons here, not 2.
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 24 },
   headerBtn: { padding: 6 },
 
   collabSection: { marginHorizontal: 16, marginTop: 12, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },

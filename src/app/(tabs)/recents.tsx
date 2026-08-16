@@ -636,7 +636,10 @@ const styles = StyleSheet.create({
   emptyTitle: { fontWeight: '600', fontSize: 16, marginTop: 8, textAlign: 'center' },
   emptySub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, marginTop: 4 },
 
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  // Same tap-target fix as notes.tsx/saved.tsx's All/None-vs-Done: Select
+  // and Clear All both carry hitSlop={8}, so gap:14 still let their real
+  // tappable zones overlap by 2px.
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 18 },
   headerBtnText: { fontSize: 13, fontWeight: '600' },
 
   list: { padding: 12, paddingBottom: 32 },

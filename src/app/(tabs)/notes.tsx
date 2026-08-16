@@ -693,7 +693,12 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
 
 
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  // RC, real device: All/None sat close enough to Done/Select to cause
+  // accidental taps. Not just visually close -- both Pressables carry
+  // hitSlop={8}, so at the old gap:10 their actual TAPPABLE hit zones
+  // overlapped by 6px (8+8 > 10). 18 clears the combined hitSlop with a
+  // few px of dead zone between them.
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 18 },
   selectBtnText: { fontSize: 13, fontWeight: '600' },
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
   addBtnText: { color: '#fff', fontWeight: '600', fontSize: 12.5 },
