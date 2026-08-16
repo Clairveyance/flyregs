@@ -110,3 +110,23 @@ export async function resolveCallsignToUserId(callsign: string): Promise<string 
   if (error) throw error
   return data?.[0]?.out_user_id ?? null
 }
+
+export interface VisibleUser {
+  userId: string
+  displayLabel: string
+}
+
+// RC: "if all 'visible' users show up in RR, then that should be another
+// way of searching/finding someone... along w/ 'search callsign' we
+// should have the ability to scroll the RR list for people." Everyone
+// who's opted into "Show me on the Ready Room leaderboard" (Account >
+// The Wing), regardless of whether they've actually studied/dueled yet --
+// broader than any single Ready Room tab, which each also require real
+// activity in that dimension. See get_visible_users' own migration
+// comment for why this isn't just get_challengeable_users() reused (that
+// one is Duels-specific and Premium-filtered).
+export async function getVisibleUsers(): Promise<VisibleUser[]> {
+  const { data, error } = await supabase.rpc('get_visible_users')
+  if (error) throw error
+  return (data ?? []).map((row: any) => ({ userId: row.user_id, displayLabel: row.display_label }))
+}

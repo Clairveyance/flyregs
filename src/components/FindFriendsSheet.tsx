@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { View, Text, Modal, Pressable, TextInput, SectionList, StyleSheet, ActivityIndicator, Platform, Share } from 'react-native'
+import { View, Text, Modal, Pressable, TextInput, SectionList, FlatList, StyleSheet, ActivityIndicator, Platform, Share } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
-import { getDeviceContacts, matchContactsToCallsigns, requestContactsPermission, resolveCallsignToUserId, DeviceContact } from '@/lib/contactMatch'
+import { getDeviceContacts, matchContactsToCallsigns, requestContactsPermission, resolveCallsignToUserId, getVisibleUsers, DeviceContact, VisibleUser } from '@/lib/contactMatch'
 import { APP_NAME, APP_STORE_URL } from '@/lib/appInfo'
 
 // RC: "build out the rest of the contact/invite path, RR, etc." -- the UI
@@ -79,6 +79,24 @@ export function FindFriendsPickerBody({
   // than re-derived -- see challenges/index.tsx's own identical block.
   const [manualCallsign, setManualCallsign] = useState('')
   const [manualCheck, setManualCheck] = useState<'idle' | 'checking' | 'found' | 'not_found'>('idle')
+
+  // RC: "if all 'visible' users show up in RR, then that should be
+  // another way of searching/finding someone - so, along w/ 'search
+  // callsign' we should have the ability to scroll the RR list for
+  // people." Independent of the contacts flow above (works on web, and
+  // doesn't need contacts permission) -- everyone who's opted into
+  // "Show me on the Ready Room leaderboard," scrollable right next to the
+  // Callsign search box instead of requiring you to already know exactly
+  // who you're looking for.
+  const [visibleUsers, setVisibleUsers] = useState<VisibleUser[]>([])
+  const [visibleUsersLoading, setVisibleUsersLoading] = useState(true)
+  useEffect(() => {
+    getVisibleUsers()
+      .then(setVisibleUsers)
+      .catch(() => setVisibleUsers([]))
+      .finally(() => setVisibleUsersLoading(false))
+  }, [])
+
   useEffect(() => {
     const trimmed = manualCallsign.trim()
     if (!trimmed) { setManualCheck('idle'); return }
@@ -191,6 +209,38 @@ export function FindFriendsPickerBody({
             </Pressable>
           )}
         </View>
+      )}
+
+      {/* RC: everyone who's opted into being findable, scrollable right
+          alongside the Callsign search above -- independent of the
+          contacts-permission flow below, so it works even when contacts
+          are denied/empty/unavailable (the exact dead-end RC flagged
+          before this existed). Hidden entirely once loaded if nobody's
+          opted in yet, matching this file's existing empty-section
+          convention. Capped height (not the sheet's own scroll) since the
+          contacts list below still needs its own room. */}
+      {!visibleUsersLoading && visibleUsers.length > 0 && (
+        <>
+          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), backgroundColor: tokens.bg }]}>
+            OR BROWSE PEOPLE
+          </Text>
+          <FlatList
+            data={visibleUsers}
+            keyExtractor={(u) => u.userId}
+            style={{ maxHeight: 132 }}
+            renderItem={({ item }) => (
+              <Pressable style={styles.row} onPress={() => { onSelect(item.displayLabel); onClose() }}>
+                <View style={[styles.avatar, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+                  <Icon name="person.fill" size={fs(16)} color={tokens.t3} />
+                </View>
+                <Text style={[styles.rowName, { flex: 1, color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
+                  {item.displayLabel}
+                </Text>
+                <Icon name="chevron.right" size={fs(13)} color={tokens.t4} />
+              </Pressable>
+            )}
+          />
+        </>
       )}
 
       {state === 'loading' && (
