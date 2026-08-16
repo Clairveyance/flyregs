@@ -1,0 +1,50 @@
+name: Daily Word of the Day
+
+# Sends the "DailyWord" push notification (Plus/Pro/Premium, opt-in toggle
+# in Account > Notifications) once a day. Independent of the weekly content
+# sync (weekly-sync.yml), same reasoning as daily-reg-of-day.yml -- this
+# fires every day regardless of whether any content actually changed that
+# week, since it's a rotating dictionary term, not an update alert. See
+# scripts/send-word-of-day.mjs and the get_word_of_the_day() Postgres
+# function for the rotation logic.
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    # 13:15 UTC daily -- 15 minutes after DailyReg's own 13:00 send, so the
+    # two never compete for the same push-send window.
+    - cron: '15 13 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Write .env.scraper from secrets
+        run: |
+          cat > .env.scraper <<EOF
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          EOF
+
+      - name: Send Word of the Day
+        run: node scripts/send-word-of-day.mjs
+
+      - name: Clean up secrets file
+        if: always()
+        run: rm -f .env.scraper

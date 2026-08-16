@@ -30,6 +30,9 @@ import {
   isDailyRegEnabled,
   enableDailyReg,
   disableDailyReg,
+  isDailyWordEnabled,
+  enableDailyWord,
+  disableDailyWord,
   isDuelNotificationsEnabled,
   enableDuelNotifications,
   disableDuelNotifications,
@@ -55,7 +58,7 @@ export default function AccountScreen() {
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
-  const { session, isPro, setIsPro, isPremium, setIsPremium, isUnlocked, setIsUnlocked, hasProAccess, signOut, avatarOverride, setAvatarOverride, clearAvatarOverride } = useAuth()
+  const { session, isPro, setIsPro, isPremium, setIsPremium, isUnlocked, setIsUnlocked, hasPlusAccess, hasProAccess, signOut, avatarOverride, setAvatarOverride, clearAvatarOverride } = useAuth()
   const insets = useSafeAreaInsets()
   const backToMenu = useReturnToMenu()
   // iPad: RC, "there's plenty of room for Account to open fully to the
@@ -141,6 +144,8 @@ export default function AccountScreen() {
   const [alertsBusy, setAlertsBusy] = useState(false)
   const [dailyRegEnabled, setDailyRegEnabled] = useState(false)
   const [dailyRegBusy, setDailyRegBusy] = useState(false)
+  const [dailyWordEnabled, setDailyWordEnabled] = useState(false)
+  const [dailyWordBusy, setDailyWordBusy] = useState(false)
   const [duelNotifEnabled, setDuelNotifEnabled] = useState(false)
   const [duelNotifBusy, setDuelNotifBusy] = useState(false)
   const [myRatings, setMyRatings] = useState<RatingCode[]>([])
@@ -232,6 +237,21 @@ export default function AccountScreen() {
       setDuelNotifEnabled(false)
     }
   }, [session?.user?.id, hasProAccess])
+
+  // DailyWord is its own effect, keyed on hasPlusAccess rather than folded
+  // into the hasProAccess one above -- DailyWord's real content gate is
+  // Plus (has_plus_access() in get_word_of_the_day()), a lower bar than
+  // DailyReg's Pro gate, confirmed live before writing this (see
+  // notifications.ts's getWordOfTheDay comment). A Plus-only account must
+  // see its real DailyWord status here even though hasProAccess is false
+  // for them.
+  useEffect(() => {
+    if (session?.user?.id && hasPlusAccess) {
+      isDailyWordEnabled(session.user.id).then(setDailyWordEnabled)
+    } else {
+      setDailyWordEnabled(false)
+    }
+  }, [session?.user?.id, hasPlusAccess])
 
   // RC: "let's put a small version of the color wheel on the actual
   // Account bar for them. this will let them see at a glance if they have
@@ -364,6 +384,40 @@ export default function AccountScreen() {
       setDailyRegEnabled(false)
     }
     setDailyRegBusy(false)
+  }
+
+  const handleToggleDailyWord = async (v: boolean) => {
+    // hasPlusAccess, NOT hasProAccess -- DailyWord's own content gate is
+    // Plus (see the effect above and notifications.ts's getWordOfTheDay
+    // comment). BB-090 (flyregs_beta_bug_tracker.md) was exactly this
+    // mistake for a different toggle: copy-pasting handleToggleDailyReg's
+    // gate check verbatim silently mis-gated a lower/different-tier
+    // feature. Checked, not assumed, before writing this line.
+    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!session?.user?.id) return
+    setDailyWordBusy(true)
+    try {
+      if (v) {
+        await enableDailyWord(session.user.id)
+        setDailyWordEnabled(true)
+      } else {
+        await disableDailyWord(session.user.id)
+        setDailyWordEnabled(false)
+      }
+    } catch (err: any) {
+      if (err?.message === 'PERMISSION_DENIED') {
+        confirm({
+          title: 'Notifications Disabled',
+          message: 'FlyRegs notifications are turned off in your device Settings. Enable them there to receive DailyWord.',
+          confirmLabel: 'Open Settings',
+          onConfirm: () => Linking.openSettings(),
+        })
+      } else {
+        confirm({ title: 'Error', message: err?.message ?? 'Could not update alert preference.', cancelLabel: null })
+      }
+      setDailyWordEnabled(false)
+    }
+    setDailyWordBusy(false)
   }
 
   const handleToggleDuelNotifications = async (v: boolean) => {
@@ -861,6 +915,28 @@ export default function AccountScreen() {
               <Switch
                 value={dailyRegEnabled}
                 onValueChange={handleToggleDailyReg}
+                trackColor={{ true: tokens.blu, false: undefined }}
+              />
+            )}
+          </View>
+          <View style={styles.row}>
+            <View style={styles.rowIcon}>
+              <Icon name="books.vertical.fill" size={fs(17)} color={tokens.t2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>DailyWord</Text>
+              {!hasPlusAccess && (
+                <View style={[styles.premBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
+                  <Text style={[styles.premBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>PLUS</Text>
+                </View>
+              )}
+            </View>
+            {dailyWordBusy ? (
+              <ActivityIndicator size="small" color={tokens.t3} />
+            ) : (
+              <Switch
+                value={dailyWordEnabled}
+                onValueChange={handleToggleDailyWord}
                 trackColor={{ true: tokens.blu, false: undefined }}
               />
             )}

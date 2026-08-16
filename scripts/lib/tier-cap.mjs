@@ -103,3 +103,16 @@ export function canReceiveProPush(entitlement) {
   if (!entitlement) return true
   return Boolean(entitlement.is_pro || entitlement.is_premium)
 }
+
+// Users whose tier includes PLUS-tier push features: DailyWord specifically.
+// DailyWord's own content gate is has_plus_access() (is_unlocked || is_pro
+// || is_premium) in Postgres -- genuinely a lower tier than DailyReg's Pro
+// gate, confirmed live via get_word_of_the_day()'s own SQL, not assumed
+// from DailyReg's pattern. user_entitlements has all three columns
+// (confirmed via information_schema), so this mirrors has_plus_access()
+// exactly rather than only checking the two canReceiveProPush already knew
+// about.
+export function canReceivePlusPush(entitlement) {
+  if (!entitlement) return true
+  return Boolean(entitlement.is_unlocked || entitlement.is_pro || entitlement.is_premium)
+}

@@ -108,7 +108,11 @@ for (const r of reminders) {
   const daysUntil = Math.round((due.getTime() - today.getTime()) / 86400000)
   const acLabel = r.user_aircraft?.nickname || (r.user_aircraft ? `${r.user_aircraft.make} ${r.user_aircraft.model}` : 'your aircraft')
 
-  const title = daysUntil < 0 ? `Reminder overdue: ${r.title}` : daysUntil === 0 ? `Due today: ${r.title}` : `Reminder: ${r.title}`
+  // RC, 2026-08-16: "it's important that the small home/lock screen msg
+  // bar... contains a brief indication of what type of notif it is."
+  // "Due today: {title}" was the one gap here -- the other two branches
+  // already say "Reminder" up front, this one didn't.
+  const title = daysUntil < 0 ? `Reminder overdue: ${r.title}` : daysUntil === 0 ? `Reminder due today: ${r.title}` : `Reminder: ${r.title}`
   const body =
     daysUntil < 0
       ? `${Math.abs(daysUntil)} day(s) past due for ${acLabel} — you may want to check this.`

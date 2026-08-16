@@ -87,6 +87,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
         router.push(`/${data.sourceType}/${data.slug}` as any)
       } else if (data?.type === 'reg_of_day' && data.pcgSlug) {
         router.push(`/pcg/${data.pcgSlug}` as any)
+      } else if (data?.type === 'word_of_day' && data.slug) {
+        router.push(`/dictionary/${data.slug}` as any)
       } else if (data?.type === 'duel' && data.challengeId) {
         router.push(`/challenges/${data.challengeId}` as any)
       } else if (data?.type === 'collab-invite' && data.token) {

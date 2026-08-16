@@ -214,17 +214,77 @@ export interface WordOfTheDay {
 
 // Mirrors getDailyReg()'s pattern (own get_word_of_the_day() rotation
 // function, same deterministic-by-date hash approach) but scoped only to
-// dictionary_terms. Gated Plus+ same as DailyReg -- RC first wanted this
-// free for everyone (2026-08-01), then reconsidered the next day given
-// the app's overall free/paid balance and asked to gate it like DailyReg
-// (2026-08-02); the fetch itself stays ungated here, the UI-level lock is
-// in DailyWordCard (src/app/dictionary/index.tsx). No push-notification
-// toggle exists for this (unlike DailyReg) since none was asked for.
+// dictionary_terms. RC first wanted this free for everyone (2026-08-01),
+// then reconsidered the next day given the app's overall free/paid balance
+// and asked to gate it (2026-08-02); the fetch itself stays ungated here,
+// the UI-level lock is in DailyWordCard (src/app/dictionary/index.tsx).
+//
+// 2026-08-16 correction: the comment here used to claim this was "gated
+// Plus+ same as DailyReg" -- checked live and that was wrong on its own
+// terms. DailyReg is Pro-gated (has_pro_access() in get_reg_of_the_day());
+// DailyWord is genuinely Plus-gated (has_plus_access() in
+// get_word_of_the_day(), a lower tier). RC: "the push not. should gate to
+// same tier that gets the DW itself" -- enableDailyWord below gates Plus,
+// not copied blind from DailyReg's Pro gate.
 export async function getWordOfTheDay(): Promise<WordOfTheDay | null> {
   const { data, error } = await supabase.rpc('get_word_of_the_day')
   if (error) throw error
   const row = data?.[0]
   return row ? { slug: row.slug, term: row.term, definition: row.definition } : null
+}
+
+// ── DailyWord (Plus/Pro/Premium, opt-in) ──────────────────────────────
+// Same shape as DailyReg's toggle (own opt-in column on push_tokens,
+// requires getOrRequestPushToken to have run once for this device), gated
+// to whatever tier actually unlocks DailyWord's content -- Plus, not Pro.
+// See getWordOfTheDay's own comment above for why that distinction matters
+// here specifically (the account.tsx call site must check hasPlusAccess,
+// not hasProAccess -- see BB-090 in flyregs_beta_bug_tracker.md for what
+// happens when a toggle handler is copy-pasted with the wrong tier check).
+
+export async function enableDailyWord(userId: string): Promise<void> {
+  const token = await getOrRequestPushToken()
+
+  const { data: existing } = await supabase
+    .from('push_tokens')
+    .select('enabled')
+    .eq('user_id', userId)
+    .eq('expo_push_token', token)
+    .maybeSingle()
+
+  const { error } = await supabase.from('push_tokens').upsert(
+    {
+      user_id: userId,
+      expo_push_token: token,
+      platform: Platform.OS,
+      enabled: existing?.enabled ?? false,
+      word_of_day_enabled: true,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id,expo_push_token' }
+  )
+  if (error) throw error
+}
+
+export async function disableDailyWord(userId: string): Promise<void> {
+  if (Platform.OS === 'web') return
+  const { error } = await supabase
+    .from('push_tokens')
+    .update({ word_of_day_enabled: false, updated_at: new Date().toISOString() })
+    .eq('user_id', userId)
+  if (error) throw error
+}
+
+export async function isDailyWordEnabled(userId: string): Promise<boolean> {
+  if (Platform.OS === 'web') return false
+  const { data, error } = await supabase
+    .from('push_tokens')
+    .select('word_of_day_enabled')
+    .eq('user_id', userId)
+    .eq('word_of_day_enabled', true)
+    .limit(1)
+  if (error) return false
+  return (data?.length ?? 0) > 0
 }
 
 // Duel notifications -- mirrors the DailyReg toggle exactly (own
