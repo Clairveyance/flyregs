@@ -92,6 +92,42 @@ export function citedAcNumbers(referencesText?: string | null): string[] {
   )]
 }
 
+/** Cleans up an ACS TASK'S OWN TITLE before it's used as the default
+ * auto-search query on load (task/[taskId].tsx's `runSearch(t.title)`).
+ * NOT applied to free-typed user queries in the same search box -- only to
+ * the FAA's own task title text, where both transforms below are safe:
+ *
+ * 1. Strips a trailing rating/category-abbreviation parenthetical
+ *    ("(AMEL, AMES)", "(ASEL)", "(ATP)", etc.) -- corpus-wide, 190 of 1,885
+ *    acs_tasks titles end in one, and it's never real search content, just
+ *    which certificate/category the task applies to. Left in, a generic
+ *    word in the remaining title (e.g. "Demonstration") is what actually
+ *    dominates keyword ranking, not this suffix -- but stripping it is
+ *    still a real, free, zero-risk cleanup of the query sent to search.
+ *
+ * 2. Expands the literal token "VMC" to also search "minimum control
+ *    speed controllability" -- found while root-causing the Multiengine
+ *    RefPack's "VMC Demonstration" task returning Emergency Evacuation
+ *    Demonstration / Part 141 noise instead of real VMC content: "VMC" the
+ *    abbreviation appears in zero FAR/AIM/AC body text in this corpus (the
+ *    regs use "minimum control speed", or "controllability" since Part
+ *    23's 2017 performance-based rewrite -- confirmed live, FAR 23.2135
+ *    "Controllability" is the real governing section but scored far below
+ *    the noise on a bare "VMC Demonstration" keyword search). NOT added to
+ *    the shared SmartSearch bridge (searchBridge.ts) -- "VMC" overwhelm-
+ *    ingly means Visual Meteorological Conditions in general aviation
+ *    usage, so a global expansion would wrongly pollute a pilot's own
+ *    weather-related search on the main Search tab. Scoped here instead,
+ *    to ACS task-title auto-search only, where the FAA's own task titles
+ *    never use "VMC" for anything else (confirmed: exactly 2 of 1,885
+ *    acs_tasks titles contain "VMC" corpus-wide, both this exact sense).
+ */
+export function cleanAcsTaskTitleQuery(title: string): string {
+  let q = title.replace(/\s*\([A-Z]{2,5}(?:,\s*[A-Z]{2,5})*\)\s*$/, '').trim()
+  if (/\bVMC\b/.test(q)) q += ' minimum control speed controllability'
+  return q
+}
+
 export async function searchRefPackTopic(
   query: string,
   limitPerType = 5,

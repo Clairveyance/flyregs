@@ -11,7 +11,7 @@ import { Icon } from '@/components/Icon'
 import { REG_TYPE } from '@/lib/regTypes'
 import { getRefPacketTask, RefPacketTask, RefPacketElement } from '@/lib/refPackets'
 import { linkifyText } from '@/lib/crossRefLinks'
-import { searchRefPackTopic, RefPackSearchGroup } from '@/lib/refPackSearch'
+import { searchRefPackTopic, cleanAcsTaskTitleQuery, RefPackSearchGroup } from '@/lib/refPackSearch'
 import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { highlightSpans } from '@/lib/searchHighlight'
 
@@ -91,7 +91,7 @@ export default function RefPacketTaskScreen() {
       // its real placeholder and start with an actually-empty value; the
       // title-seeded results still populate below via runSearch alone.
       if (t) {
-        runSearch(t.title)
+        runSearch(cleanAcsTaskTitleQuery(t.title))
       }
     })
   }, [taskId, runSearch, hasPlusAccess])
