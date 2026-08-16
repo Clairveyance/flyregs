@@ -359,8 +359,20 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
           }}
         />
       )}
+      {/* RC: the Master globe (MasterGlobe3D.tsx) had the identical bug on
+          real device -- "off center, low and left" -- root cause not
+          diagnosable in this environment (doesn't reproduce in web
+          preview; GLView is a genuinely different native component on iOS
+          vs. web). RC's own direction for the globe was to apply an
+          empirical 2D nudge from the reported direction rather than a
+          diagnosed scene/camera fix; applying the SAME correction here
+          since RC flagged the diamond is likely off by the same amount in
+          the same direction (both trophies share this exact GLView/
+          Renderer setup). Same magnitude as the globe's fix -- a first
+          estimate, not measured against RC's real device -- expect this
+          needs its own follow-up round once RC sees it live. */}
       <GLView
-        style={StyleSheet.absoluteFill}
+        style={[StyleSheet.absoluteFill, { transform: [{ translateX: 18 }, { translateY: -22 }] }]}
         // Not awaited/caught by GLView itself -- a rejection inside
         // onContextCreate (e.g. a real texture-load failure) would
         // otherwise be a silent unhandled promise rejection, leaving
