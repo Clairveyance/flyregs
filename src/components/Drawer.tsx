@@ -140,7 +140,7 @@ function DrawerContent({
 }) {
   const { session, isPro, isPremium, isUnlocked, setIsPro, setIsPremium, setIsUnlocked, avatarOverride } = useAuth()
   const { mode, setMode, redShift, setRedShift } = useTheme()
-  const { fontScale, setFontScale } = useFontScale()
+  const { fontScale, setFontScale, previewFontScale } = useFontScale()
   const fs = useFS()
   const { badgeDays, setBadgeDays: updateBadgeDays } = useBadgeLifespan()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
@@ -330,7 +330,7 @@ function DrawerContent({
         </View>
         <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14) }]}>Text Size</Text>
       </View>
-      <TextSizeSlider scale={fontScale} setScale={setFontScale} tokens={tokens} />
+      <TextSizeSlider scale={fontScale} setScale={setFontScale} previewScale={previewFontScale} tokens={tokens} />
 
       <Divider tokens={tokens} />
 
@@ -440,14 +440,29 @@ const SCALE_RANGE = FONT_SCALE_MAX - FONT_SCALE_MIN
 function TextSizeSlider({
   scale,
   setScale,
+  previewScale,
   tokens,
 }: {
   scale: number
   setScale: (v: number) => void
+  previewScale: (v: number) => void
   tokens: ThemeTokens
 }) {
   const trackW = useRef(0)
   const startX = useRef(0)
+  // RC, real device: "very jumpy and jittery... hard to work." Root cause:
+  // trackW was re-read live (trackW.current) on every move event, but the
+  // drawer's OWN text (including this slider's neighboring labels) resizes
+  // live as fontScale drags -- which can nudge this row's layout mid-
+  // gesture, re-firing onLayout and changing trackW WHILE a drag was still
+  // in progress. The math then measured new finger movement against a
+  // width that had shifted since the gesture started, producing a real
+  // discontinuous jump, not just visual roughness. Freezing the track
+  // width once per gesture (captured on grant, used for the whole
+  // gesture) removes the feedback loop entirely -- this component's own
+  // layout can still shift live, it just can't retroactively corrupt a
+  // drag that's already in progress.
+  const gestureTrackW = useRef(0)
   const [layoutW, setLayoutW] = useState(0)
   // Keep a live ref so PanResponder callbacks see the current scale
   const scaleRef = useRef(scale)
@@ -457,18 +472,23 @@ function TextSizeSlider({
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
-        startX.current = ((scaleRef.current - FONT_SCALE_MIN) / SCALE_RANGE) * trackW.current
+        gestureTrackW.current = trackW.current
+        startX.current = ((scaleRef.current - FONT_SCALE_MIN) / SCALE_RANGE) * gestureTrackW.current
       },
       onPanResponderMove: (_, { dx }) => {
-        const tw = trackW.current
+        const tw = gestureTrackW.current
         if (!tw) return
         const newX = Math.max(0, Math.min(tw, startX.current + dx))
-        setScale(FONT_SCALE_MIN + (newX / tw) * SCALE_RANGE)
+        // Preview only (state update, no AsyncStorage write) -- the app's
+        // text still resizes live as you drag, just without persisting on
+        // every single touch-move event. See fontScale.tsx's own comment.
+        previewScale(FONT_SCALE_MIN + (newX / tw) * SCALE_RANGE)
       },
       onPanResponderRelease: (_, { dx }) => {
-        const tw = trackW.current
+        const tw = gestureTrackW.current
         if (!tw) return
         const newX = Math.max(0, Math.min(tw, startX.current + dx))
+        // Persists (writes AsyncStorage once) with the final settled value.
         setScale(FONT_SCALE_MIN + (newX / tw) * SCALE_RANGE)
       },
     })

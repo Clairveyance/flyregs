@@ -15,11 +15,21 @@ export const FONT_SCALE_MAX = 1.75
 interface FontScaleContextType {
   fontScale: number
   setFontScale: (v: number) => void
+  // RC, real device: "the text size slider is very jumpy and jittery...
+  // hard to work." Root cause: the slider called setFontScale on every
+  // single PanResponder move event (up to ~60/sec while dragging), and
+  // setFontScale writes to AsyncStorage every time it's called -- disk I/O
+  // on every pixel of finger movement. previewFontScale updates the live
+  // context value (so text really does resize live as you drag, same
+  // behavior as before) WITHOUT touching storage; the slider now persists
+  // once, via the real setFontScale, only on release.
+  previewFontScale: (v: number) => void
 }
 
 const FontScaleContext = createContext<FontScaleContextType>({
   fontScale: 1.0,
   setFontScale: () => {},
+  previewFontScale: () => {},
 })
 
 export function FontScaleProvider({ children }: { children: ReactNode }) {
@@ -34,6 +44,10 @@ export function FontScaleProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const previewFontScale = (v: number) => {
+    setFontScaleState(Math.max(FONT_SCALE_MIN, Math.min(FONT_SCALE_MAX, v)))
+  }
+
   const setFontScale = (v: number) => {
     const clamped = Math.max(FONT_SCALE_MIN, Math.min(FONT_SCALE_MAX, v))
     setFontScaleState(clamped)
@@ -41,7 +55,7 @@ export function FontScaleProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <FontScaleContext.Provider value={{ fontScale, setFontScale }}>
+    <FontScaleContext.Provider value={{ fontScale, setFontScale, previewFontScale }}>
       {children}
     </FontScaleContext.Provider>
   )
