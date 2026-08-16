@@ -68,6 +68,54 @@ def ac_levels(s):
     if s in ("20","21","23","25","27","29","33","35","36","39","43","45","65","147","183"): return ["mechanic"]
     return []
 
+# RC, real device, build 33: Study Mode filtered to Student+ASEL surfaced
+# "CLEARANCE VOID IF NOT OFF BY (TIME)" -- unambiguously IFR-only content,
+# with zero business in a student-level pool. Root cause: the
+# citation-inheritance heuristic above is coarse at the AIM-CHAPTER level
+# -- AIM Ch. 4/5 ("ATC Clearances", "Air Traffic Procedures") are ALL_PILOT
+# because MOST of their content genuinely is (radio phraseology, airspace,
+# traffic patterns), but those same chapters also define/cross-reference a
+# real cluster of IFR-approach-procedure-only P/CG terms (missed approach
+# points, decision altitudes, glideslope, stepdown fixes, etc.), which
+# inherited ALL_PILOT right along with the general content around them.
+#
+# Curated by hand against the real P/CG term list (not regex'd against
+# definitions -- that produced real false positives: e.g. GO AROUND and
+# WAYPOINT both mention "instrument approach" in one clause of an
+# otherwise general-VFR-relevant definition, and removing them would have
+# been its own accuracy bug). Every slug here is a term whose CORE MEANING
+# is exclusively an instrument-approach-procedure concept -- confirmed
+# term-by-term, not a blanket sweep. Overrides the citation-inherited
+# levels by dropping student/private specifically (a non-instrument-rated
+# Private pilot needs this exactly as little as a Student does);
+# commercial/atp/cfi/mechanic are left as inherited.
+IFR_ONLY_PCG_SLUGS = {
+    "APPROACH_CLEARANCE", "CIRCLING_APPROACH", "CLEARANCE_VOID_IF_NOT_OFF_BY_TIME",
+    "CLEARED_APPROACH", "CONTACT_APPROACH", "DECISION_ALTITUDE_DA", "DECISION_HEIGHT_DH",
+    "FEEDER_FIX", "FEEDER_ROUTE", "FINAL_APPROACH_COURSE", "FINAL_APPROACH_FIX",
+    "FINAL_APPROACH_SEGMENT", "GLIDESLOPE", "HEIGHT_ABOVE_TOUCHDOWN_HAT", "IFR_AIRCRAFT",
+    "IFR_CONDITIONS", "IFR_FLIGHT", "IFR_LANDING_MINIMUMS", "INITIAL_APPROACH_FIX_IAF",
+    "INSTRUMENT_APPROACH", "INSTRUMENT_APPROACH_PROCEDURE", "INSTRUMENT_APPROACH_PROCEDURE_CHARTS",
+    "INSTRUMENT_DEPARTURE_PROCEDURE_DP_CHARTS", "INSTRUMENT_FLIGHT_RULES_IFR",
+    "INSTRUMENT_LANDING_SYSTEM_ILS", "INSTRUMENT_METEOROLOGICAL_CONDITIONS_IMC",
+    "INSTRUMENT_RUNWAY", "INTERMEDIATE_FIX", "LANDING_MINIMUMS",
+    "LOCALIZER_PERFORMANCE_WITH_VERTICAL_GUIDANCE_LPV", "LOCALIZER_TYPE_DIRECTIONAL_AID_LDA",
+    "LOW_APPROACH", "MIDDLE_MARKER", "MINIMUM_DESCENT_ALTITUDE_MDA", "MISSED_APPROACH",
+    "MISSED_APPROACH_POINT_MAP", "MISSED_APPROACH_SEGMENT", "NONPRECISION_APPROACH",
+    "NONPRECISION_APPROACH_PROCEDURE", "OUTER_MARKER", "PRACTICE_INSTRUMENT_APPROACH",
+    "PRECISION_APPROACH", "PRECISION_APPROACH_PROCEDURE", "PRECISION_APPROACH_RADAR",
+    "PRECISION_OBSTACLE_FREE_ZONE_POFZ", "PRM_APPROACH", "RADAR_APPROACH", "RNAV_APPROACH",
+    "RUNWAY_PROFILE_DESCENT", "SIMULTANEOUS_OFFSET_INSTRUMENT_APPROACH_SOIA",
+    "SPECIAL_INSTRUMENT_APPROACH_PROCEDURE", "STANDARD_TERMINAL_ARRIVAL_STAR", "STEPDOWN_FIX",
+    "SURVEILLANCE_APPROACH", "UNPUBLISHED_ROUTE", "VISUAL_APPROACH",
+    "VISUAL_APPROACH_SLOPE_INDICATOR_VASI",
+}
+
+def apply_ifr_only_override(levels_set, slug):
+    if slug in IFR_ONLY_PCG_SLUGS:
+        return levels_set - {"student", "private"}
+    return levels_set
+
 def fetch_all(table, select, **params):
     """Paginated -- an unfiltered PostgREST select silently caps at 1000 rows."""
     rows, off = [], 0
@@ -97,7 +145,8 @@ def main():
         elif t == "aim" and cid in aim: by_slug[c["cited_id"]].update(aim_levels(aim[cid]))
         elif t == "ac"  and cid in acs: by_slug[c["cited_id"]].update(ac_levels(acs[cid]))
 
-    rows = [{"slug": s, "levels": sorted(v)} for s, v in by_slug.items() if v]
+    rows = [{"slug": s, "levels": sorted(apply_ifr_only_override(v, s))} for s, v in by_slug.items() if v]
+    rows = [r for r in rows if r["levels"]]
     tally = {lv: sum(1 for r in rows if lv in r["levels"]) for lv in PILOT_PLUS_MECH}
     log.info(f"classified {len(rows)} terms: {tally}")
     if args.dry_run:
