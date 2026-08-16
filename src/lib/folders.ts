@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import * as Sentry from '@sentry/react-native'
 import { supabase } from '@/lib/supabase'
 import { syncPushFolder, syncPushFolderDelete, syncPushFolderItems, syncPushFolderItemDeletes, syncPushNote } from '@/lib/syncPush'
 import { getNotes } from '@/lib/notes'
@@ -10,9 +11,15 @@ import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
 // it's not folder deletion. Lives here (not sharedFolders.ts) so that module
 // can safely import folder-reading helpers from this file without creating a
 // require cycle -- see getOrCreateShareLink in sharedFolders.ts.
+//
+// Throws on failure (rather than swallowing, as it silently did before) so
+// that saved.tsx's "Stop Sharing" button can actually surface an error to
+// the user instead of showing success while collaborator rows survive.
 export async function unshareFolder(folderId: string): Promise<void> {
-  await supabase.from('folder_collaborators').delete().eq('folder_id', folderId)
-  await supabase.from('synced_folders').update({ share_token: null }).eq('id', folderId)
+  const { error: collabError } = await supabase.from('folder_collaborators').delete().eq('folder_id', folderId)
+  if (collabError) throw new Error(`unshare folder (collaborators): ${collabError.message}`)
+  const { error: tokenError } = await supabase.from('synced_folders').update({ share_token: null }).eq('id', folderId)
+  if (tokenError) throw new Error(`unshare folder (share_token): ${tokenError.message}`)
 }
 
 const FOLDERS_KEY = '@flyregs/folders'
@@ -187,8 +194,15 @@ export async function deleteFolder(id: string): Promise<void> {
   syncPushFolderDelete(id)
   syncPushFolderItemDeletes(itemsInFolder.map((i) => i.id))
   // Deleting a folder should also drop anyone it was shared with -- otherwise
-  // stale folder_collaborators rows linger forever with no owning folder.
-  unshareFolder(id).catch(() => {})
+  // stale folder_collaborators rows linger forever with no owning folder,
+  // and has_folder_access() would keep granting a departed collaborator
+  // read access to a folder that looks deleted everywhere else. Report
+  // (not swallow) a failure here, matching every syncPush* sibling --
+  // fire-and-forget is fine, silent is not.
+  unshareFolder(id).catch((err) => {
+    console.error('[folders] unshare-on-delete failed:', err)
+    Sentry.captureException(err)
+  })
 }
 
 // BB-079, RC real-device beta report: "we need to allow creation of a

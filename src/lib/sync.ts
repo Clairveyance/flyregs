@@ -461,5 +461,21 @@ export async function applyRemoteSyncPreference(userId: string, remoteSyncEnable
     // unguarded throw here would surface as a console warning on any
     // transient blip for no benefit (nothing awaits or reacts to it).
     supabase.auth.updateUser({ data: { sync_enabled: true } }).catch(() => {})
+  } else if (remoteSyncEnabled === true && local) {
+    // Steady state: sync already on, both sides agree -- the common case
+    // on every normal launch. Nothing reconciled a stuck row here before:
+    // every syncPush* call is fire-and-forget (syncPush.ts), so a
+    // transient network failure at push time leaves that one item
+    // permanently un-backed-up (logged to console+Sentry only) until the
+    // user happens to edit that same item again or manually toggles sync
+    // off/on -- the ONLY path that ever re-ran the toPushUp reconciliation
+    // below, via the mismatch branch above. Confirmed live in the B34
+    // readiness sweep. pullAndMergeAll's own per-section toPushUp already
+    // implements exactly "push whatever's local-only" (used by enableSync
+    // above), so reuse it here instead of a second copy of that logic.
+    // Fire-and-forget + swallowed, matching this function's own existing
+    // pattern for its unawaited caller (auth.tsx) -- a transient failure
+    // here just means the next launch tries again, not a user-facing error.
+    pullAndMergeAll(userId).catch(() => {})
   }
 }

@@ -95,7 +95,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // not just this device — reconcile so a device that's never toggled
         // it manually still picks up the same state (and pulls the account's
         // data down) the first time it opens with this account signed in.
-        if (status.isPremium) {
+        //
+        // Was `if (status.isPremium)` -- wrong tier. "Back up & sync" itself
+        // gates on isPro (hasProAccess = isPro || isPremium), confirmed in
+        // saved.tsx/notes.tsx's own toggleSync comments -- a Premium-only
+        // check here meant a Pro (non-Premium) user's cross-device
+        // reconciliation never ran on launch at all, so a second device
+        // never auto-picked up their sync state or pulled their data down.
+        // Same isPro-vs-hasProAccess mismatch pattern already found and
+        // fixed 14x elsewhere in this codebase (gotcha_gating_sweep_2026_
+        // 08_14.md), caught here on a fresh read while tracing the B34
+        // readiness sweep's sync-retry finding.
+        if (status.isPro || status.isPremium) {
           applyRemoteSyncPreference(session.user.id, session.user.user_metadata?.sync_enabled)
         }
       }
