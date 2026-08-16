@@ -117,3 +117,12 @@ scripts/audit_reports/
 # repair_flagged_facts.py regenerates these on each run
 scripts/.repair_flagged_batch_state.json
 scripts/.repair_flagged_id_map.json
+
+# dictionary-facts authoring (Anthropic Batches API) — same resumable
+# checkpoint-state pattern as fact-deck/question-bank above;
+# author_dictionary_facts.py regenerates these on each run
+scripts/.dictionary_facts_batch_state*.json
+scripts/.dictionary_facts_id_map*.json
+scripts/.dictionary_facts_sources_snapshot*.json
+scripts/.dictionary_facts_verify_batch_state.json
+scripts/.dictionary_facts_verify_id_map.json
