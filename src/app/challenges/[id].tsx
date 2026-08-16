@@ -21,7 +21,7 @@ import { useConfirm } from '@/components/ConfirmDialog'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
-type Phase = 'loading' | 'pending_response' | 'ready' | 'playing' | 'revealed' | 'waiting_opponent' | 'results' | 'declined' | 'not_found' | 'error'
+type Phase = 'loading' | 'pending_response' | 'waiting_accept' | 'ready' | 'playing' | 'revealed' | 'waiting_opponent' | 'results' | 'declined' | 'not_found' | 'error'
 
 const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC' }
 // Phrased as the ACTUAL QUESTION being asked, not as a label for the data
@@ -121,6 +121,17 @@ export default function ChallengeGameScreen() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const startedAt = useRef(0)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // RC, real duel test: "most of them just flashed on the screen and didn't
+  // give any time to read it." The reveal screen itself has no timer or
+  // auto-advance -- it only changes on an explicit NEXT QUESTION tap -- so
+  // this isn't the phase disappearing on its own. Choices submit on tap
+  // with zero visual "processing" state while submitChallengeAnswer's
+  // network round-trip is in flight; a player's finger tapping again out of
+  // impatience (or just moving fast through a test run) can land exactly
+  // where NEXT QUESTION renders the instant the reveal appears, skipping it
+  // before there was ever anything to read. Guards against that specific
+  // race rather than the reveal itself being wrong.
+  const revealedAt = useRef(0)
 
   const loadState = useCallback(async () => {
     if (!id) return
@@ -139,6 +150,23 @@ export default function ChallengeGameScreen() {
       if (!c) { setPhase('not_found'); return }
       if (c.status === 'cancelled' || c.myStatus === 'declined') { setPhase('declined'); return }
       if (c.myStatus === 'pending') { setPhase('pending_response'); return }
+      // RC, real duel test: "i selected a person to duel and it just
+      // started the game before knowing if they accepted. it needs to send
+      // a real invite, get a response, then, if accepted, start the
+      // match." create_challenge() puts the CREATOR's own participant row
+      // straight to 'active' at creation time -- by design, this app's
+      // duels are fully async (see challenges.ts's own header comment) and
+      // a challenger playing ahead of an opponent who hasn't answered YET
+      // is intentional and already has its own UI ("You're playing ahead
+      // -- nobody else has joined yet"). But that's a different thing from
+      // this: nothing ever gated the challenger from starting before ANY
+      // invite had even been accepted. Gate specifically on that -- once
+      // at least one opponent has accepted, the async "everyone plays at
+      // their own pace" behavior is unchanged.
+      if (c.amChallenger && c.status === 'active' && !c.others.some((o) => o.status === 'active')) {
+        setPhase('waiting_accept')
+        return
+      }
       if (c.status === 'completed') {
         const [r, s] = await Promise.all([getChallengeResults(id), getChallengeStandings(id)])
         setResults(r)
@@ -233,6 +261,7 @@ export default function ChallengeGameScreen() {
     setMyTimeMs(timeMs)
     setResult(r)
     setPhase('revealed')
+    revealedAt.current = Date.now()
     if (r.newCoins.length) {
       getDuelStats().then(setMyStats)
       // Same reveal moment Study Mode uses (see CoinRevealModal) -- fires
@@ -251,6 +280,10 @@ export default function ChallengeGameScreen() {
   }
 
   const handleNext = () => {
+    // See revealedAt's own comment -- ignore a tap that lands within the
+    // same beat as the reveal appearing, so a reflexive double-tap can't
+    // skip past it before it was ever visible.
+    if (Date.now() - revealedAt.current < 600) return
     setSelectedChoice(null)
     setResult(null)
     setMyTimeMs(0)
@@ -393,6 +426,19 @@ export default function ChallengeGameScreen() {
               <Text style={[styles.answerBtnText, { color: tokens.gold, fontSize: fs(14) }]}>Accept</Text>
             </Pressable>
           </View>
+        </View>
+      ) : phase === 'waiting_accept' ? (
+        <View style={styles.center}>
+          <Icon name="hourglass" size={fs(36)} color={tokens.t4} />
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Waiting for a response</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            {otherCount === 1
+              ? `${challenge?.others[0]?.label ?? 'They'} haven't accepted your invite yet — the duel starts once they do.`
+              : "Nobody's accepted your invite yet — the duel starts once at least one player does."}
+          </Text>
+          <Pressable style={[styles.goBtnSmall, { backgroundColor: tokens.gold, marginTop: 14 }]} onPress={() => loadState()}>
+            <Text style={[styles.goBtnSmallText, { fontSize: fs(14) }]}>Check again</Text>
+          </Pressable>
         </View>
       ) : phase === 'waiting_opponent' ? (
         // "Waiting on them to finish" was wrong whenever the other player
