@@ -362,6 +362,7 @@ export async function sendCollaborationInvitePush(
       p_target_user_id: targetUserId,
       p_resource_type: resourceType,
       p_resource_label: resourceLabel,
+      p_token: token,
     })
     if (error) return
     const rows = (data ?? []).filter((r: any) => r?.expo_push_token)
