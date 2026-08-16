@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
-import { getDeviceContacts, matchContactsToCallsigns, requestContactsPermission, DeviceContact } from '@/lib/contactMatch'
+import { getDeviceContacts, matchContactsToCallsigns, requestContactsPermission, resolveCallsignToUserId, DeviceContact } from '@/lib/contactMatch'
 import { APP_NAME, APP_STORE_URL } from '@/lib/appInfo'
 
 // RC: "build out the rest of the contact/invite path, RR, etc." -- the UI
@@ -68,6 +68,28 @@ export function FindFriendsPickerBody({
   // what failed, closes that gap AND gives a real error message to go on
   // instead of guessing at the root cause blind next time.
   const [debugError, setDebugError] = useState<string | null>(null)
+  // RC, real device: "the RR FF icon just brings up an empty box 'no
+  // contacts found' and gives no options to search for or actually FIND a
+  // friend." A device's contact book can legitimately come back empty (or
+  // permission can be denied, or the native call can fail) -- none of that
+  // should be a dead end for "find a specific person," since every other
+  // invite flow in this app (aircraft, folder, New Duel) already has a
+  // manual Callsign search that works independent of contacts. Same
+  // debounced validate-as-you-type pattern as those, reused here rather
+  // than re-derived -- see challenges/index.tsx's own identical block.
+  const [manualCallsign, setManualCallsign] = useState('')
+  const [manualCheck, setManualCheck] = useState<'idle' | 'checking' | 'found' | 'not_found'>('idle')
+  useEffect(() => {
+    const trimmed = manualCallsign.trim()
+    if (!trimmed) { setManualCheck('idle'); return }
+    setManualCheck('checking')
+    const t = setTimeout(() => {
+      resolveCallsignToUserId(trimmed)
+        .then((userId) => setManualCheck(userId ? 'found' : 'not_found'))
+        .catch(() => setManualCheck('idle'))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [manualCallsign])
 
   useEffect(() => {
     if (Platform.OS === 'web') { setState('error'); return }
@@ -137,6 +159,39 @@ export function FindFriendsPickerBody({
         <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16) }]}>Find Friends</Text>
         <View style={{ width: 50 }} />
       </View>
+
+      {state !== 'loading' && (
+        <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+          <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), paddingHorizontal: 0, paddingTop: 0 }]}>
+            OR SEARCH BY CALLSIGN
+          </Text>
+          <View style={[styles.searchWrap, { backgroundColor: tokens.bg2, borderColor: manualCheck === 'not_found' ? tokens.red : tokens.bdr, marginHorizontal: 0 }]}>
+            <Icon name="magnifyingglass" size={fs(14)} color={tokens.t3} />
+            <TextInput
+              value={manualCallsign}
+              onChangeText={setManualCallsign}
+              placeholder="Their Callsign"
+              placeholderTextColor={tokens.t4}
+              autoCapitalize="none"
+              style={[styles.searchInput, { color: tokens.t1, fontSize: ifs(14) }]}
+            />
+          </View>
+          {manualCheck === 'checking' && (
+            <Text style={{ color: tokens.t3, fontSize: fs(12.5), marginTop: 4 }}>Checking…</Text>
+          )}
+          {manualCheck === 'not_found' && (
+            <Text style={{ color: tokens.red, fontSize: fs(12.5), marginTop: 4 }}>No FlyRegs user with this Callsign</Text>
+          )}
+          {manualCheck === 'found' && (
+            <Pressable
+              style={{ marginTop: 6, alignSelf: 'flex-start' }}
+              onPress={() => { onSelect(manualCallsign.trim()); onClose() }}
+            >
+              <Text style={{ color: tokens.gold, fontSize: fs(13), fontWeight: '700' }}>Add {manualCallsign.trim()}</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
 
       {state === 'loading' && (
         <View style={styles.center}>
