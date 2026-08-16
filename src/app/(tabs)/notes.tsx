@@ -696,9 +696,12 @@ const styles = StyleSheet.create({
   // RC, real device: All/None sat close enough to Done/Select to cause
   // accidental taps. Not just visually close -- both Pressables carry
   // hitSlop={8}, so at the old gap:10 their actual TAPPABLE hit zones
-  // overlapped by 6px (8+8 > 10). 18 clears the combined hitSlop with a
-  // few px of dead zone between them.
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 18 },
+  // overlapped by 6px (8+8 > 10). Bumped to 18 -- RC, real device again:
+  // "still too close." The 18 fix only cleared the combined 16px of
+  // hitSlop by 2px -- technically no longer overlapping, but nowhere near
+  // a real, comfortable margin for an actual thumb. 40 leaves a genuine
+  // ~24px of dead zone between the two tap zones, not just a hair.
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 40 },
   selectBtnText: { fontSize: 13, fontWeight: '600' },
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
   addBtnText: { color: '#fff', fontWeight: '600', fontSize: 12.5 },

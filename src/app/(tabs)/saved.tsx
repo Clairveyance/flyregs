@@ -1874,8 +1874,10 @@ const styles = StyleSheet.create({
 
   // Same fix as notes.tsx's identical All/None-vs-Done pattern: both
   // Pressables carry hitSlop={8}, so gap:10 let their actual tappable
-  // zones overlap by 6px, not just look close. 18 clears it with margin.
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 18 },
+  // zones overlap by 6px, not just look close. RC, real device, round 2:
+  // "still too close" -- 18 only cleared the combined 16px of hitSlop by
+  // 2px, not a real margin. 40 leaves a genuine ~24px dead zone.
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 40 },
   selectBtn: { fontSize: 13, fontWeight: '600' },
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
   addBtnText: { color: '#fff', fontWeight: '600', fontSize: 12.5 },

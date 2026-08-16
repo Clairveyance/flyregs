@@ -638,8 +638,11 @@ const styles = StyleSheet.create({
 
   // Same tap-target fix as notes.tsx/saved.tsx's All/None-vs-Done: Select
   // and Clear All both carry hitSlop={8}, so gap:14 still let their real
-  // tappable zones overlap by 2px.
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 18 },
+  // tappable zones overlap by 2px. Matching notes.tsx/saved.tsx's round-2
+  // correction (18 only cleared the combined hitSlop by 2px, not a real
+  // margin) even though RC's round-2 report named Notes specifically --
+  // same pattern, same fix, for consistency.
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 40 },
   headerBtnText: { fontSize: 13, fontWeight: '600' },
 
   list: { padding: 12, paddingBottom: 32 },
