@@ -403,7 +403,7 @@ export default function ProfileScreen() {
   // Real callsign (or email prefix fallback), same as Community's identity
   // card -- previously hardcoded "You" here, so an updated callsign in
   // Account never showed up on your own profile page.
-  const displayLabel = isSelf ? getDisplayName(session) : (label || 'Pilot')
+  const displayLabel = isSelf ? getDisplayName(session) : (label || 'Member')
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>

@@ -289,14 +289,14 @@ export default function AccountScreen() {
   const handleToggleLeaderboard = async (v: boolean) => {
     if (!session?.user?.id) return
     if (v && !hasProAccess) { router.push('/paywall'); return }
-    // Every leaderboard RPC's display name falls back to a generic "Pilot"
+    // Every leaderboard RPC's display name falls back to a generic "Member"
     // when no Callsign is set (see sync/migrations_fix_leaderboard_email_
     // exposure.sql) -- safe, but not personalized. Require a real Callsign
-    // before opt-in so nobody shows up on a leaderboard as just "Pilot."
+    // before opt-in so nobody shows up on a leaderboard as just "Member."
     if (v && !existingCallsign.trim()) {
       confirm({
         title: 'Set a Callsign First',
-        message: 'The Ready Room leaderboard shows your Callsign to other pilots -- set one above, then turn this on.',
+        message: 'The Ready Room leaderboard shows your Callsign to other people -- set one above, then turn this on.',
         cancelLabel: null,
       })
       return
@@ -986,7 +986,7 @@ export default function AccountScreen() {
                   id="account-show-me"
                   title="Show Me"
                   body={[
-                    'Puts your Callsign and weekly study activity on the Ready Room leaderboard, visible to other opted-in pilots.',
+                    'Puts your Callsign and weekly study activity on the Ready Room leaderboard, visible to other opted-in members.',
                     'Also lets friends find you by contact when inviting you to a shared folder or aircraft (Find Friends).',
                   ]}
                   iconSize={fs(15)}

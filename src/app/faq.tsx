@@ -78,7 +78,7 @@ const FAQ: QA[] = [
       '• Airworthiness Directives (ADs)',
       '• Legal Interpretations (LOIs)',
       'Every one of them is cross-referenced together (see "What is MagicLink?" below), so a regulation, its related AIM guidance, its glossary terms, and any AC, AD, or LOI that touches it are all reachable from wherever you\'re reading.',
-      'The seventh is the Aviation Dictionary — not FAA material itself, but a 9,800+ term reference (plus a curated collection of aviation mnemonics) that we built and keep current ourselves, so pilots have one place for both the official terminology and the everyday shorthand no government glossary covers. It\'s big and genuinely useful, which is why it gets its own answer below ("What is the Aviation Dictionary?") even though it\'s called out separately from the six FAA sources.',
+      'The seventh is the Aviation Dictionary — not FAA material itself, but a 9,800+ term reference (plus a curated collection of aviation mnemonics) that we built and keep current ourselves, so you have one place for both the official terminology and the everyday shorthand no government glossary covers. It\'s big and genuinely useful, which is why it gets its own answer below ("What is the Aviation Dictionary?") even though it\'s called out separately from the six FAA sources.',
       'Browsing and searching the six FAA libraries is free. What each plan adds on top:',
       '• FAR, AIM and the P/CG are free to read in full — those never sit behind a plan.',
       '• Complete AC and AD text is Plus.',
@@ -257,7 +257,7 @@ const FAQ: QA[] = [
     q: 'Does FlyRegs replace my maintenance-tracking software?',
     category: 'My Aircraft & RefPacks',
     a: [
-      'No. FlyRegs is a lightweight personal reference for owner/pilots — it\'s not a substitute for comprehensive, professional-grade maintenance and AD-tracking software used by maintenance shops and fleet operators.',
+      'No. FlyRegs is a lightweight personal reference for aircraft owners and operators — it\'s not a substitute for comprehensive, professional-grade maintenance and AD-tracking software used by maintenance shops and fleet operators.',
       'Use FlyRegs to stay informed and get reminders; keep your official maintenance records and compliance sign-offs wherever your mechanic or shop already tracks them.',
     ],
   },
