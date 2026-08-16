@@ -1,5 +1,5 @@
 diff --git a/node_modules/three/build/three.cjs b/node_modules/three/build/three.cjs
-index d6f842a..86b9f80 100644
+index d6f842a..c4ed6c7 100644
 --- a/node_modules/three/build/three.cjs
 +++ b/node_modules/three/build/three.cjs
 @@ -28576,7 +28576,14 @@ class WebGLRenderer {
@@ -18,8 +18,30 @@ index d6f842a..86b9f80 100644
  
  				throw new Error( 'THREE.WebGLRenderer: WebGL 1 is not supported since r163.' );
  
+@@ -29953,7 +29960,20 @@ class WebGLRenderer {
+ 					generateMipmaps: true,
+ 					type: ( extensions.has( 'EXT_color_buffer_half_float' ) || extensions.has( 'EXT_color_buffer_float' ) ) ? HalfFloatType : UnsignedByteType,
+ 					minFilter: LinearMipmapLinearFilter,
+-					samples: 4,
++					// See build/three.module.js's identical change for the full explanation --
++					// hardcoded samples:4 here unconditionally calls the native
++					// renderbufferStorageMultisample() WebGL2 function once ANY material with
++					// transmission renders, and expo-gl's WebGL2 context is real but partial:
++					// it doesn't implement that specific function, so this was a guaranteed
++					// fatal crash on every real device the moment a transmissive material
++					// (FlyRegs' Ace diamond trophy) rendered a single frame -- confirmed via
++					// Sentry on build 33, iPhone14,4/iOS 18.7.8. samples:0 skips the
++					// renderbufferStorageMultisample call entirely (gated on `samples > 0` at
++					// this file's own multisampledRTT setup) -- costs only MSAA smoothing on
++					// the transmission pass's internal texture, not the transmission effect
++					// itself, so the material's own transmission/ior/thickness tuning is
++					// completely unaffected.
++					samples: 0,
+ 					stencilBuffer: stencil,
+ 					resolveDepthBuffer: false,
+ 					resolveStencilBuffer: false,
 diff --git a/node_modules/three/build/three.module.js b/node_modules/three/build/three.module.js
-index d33f9c3..c4a5cb0 100644
+index d33f9c3..cc6ac28 100644
 --- a/node_modules/three/build/three.module.js
 +++ b/node_modules/three/build/three.module.js
 @@ -28574,7 +28574,21 @@ class WebGLRenderer {
@@ -45,3 +67,28 @@ index d33f9c3..c4a5cb0 100644
  
  				throw new Error( 'THREE.WebGLRenderer: WebGL 1 is not supported since r163.' );
  
+@@ -29951,7 +29965,23 @@ class WebGLRenderer {
+ 					generateMipmaps: true,
+ 					type: ( extensions.has( 'EXT_color_buffer_half_float' ) || extensions.has( 'EXT_color_buffer_float' ) ) ? HalfFloatType : UnsignedByteType,
+ 					minFilter: LinearMipmapLinearFilter,
+-					samples: 4,
++					// Hardcoded samples:4 here unconditionally calls the native
++					// renderbufferStorageMultisample() WebGL2 function once ANY material with
++					// transmission renders, and expo-gl's WebGL2 context is real but partial
++					// (see this file's own WebGLRenderer-constructor guard a few thousand
++					// lines up, which fixed a false REJECTION of that same real-but-partial
++					// context): it doesn't implement that specific function, so this was a
++					// guaranteed fatal crash on every real device the moment a transmissive
++					// material (FlyRegs' Ace diamond trophy, AceGem3D.tsx) rendered a single
++					// frame -- confirmed via Sentry on build 33, iPhone14,4/iOS 18.7.8,
++					// stack: AceGem3D animate -> renderTransmissionPass -> setRenderTarget ->
++					// native renderbufferStorageMultisample. samples:0 skips the
++					// renderbufferStorageMultisample call entirely (gated on `samples > 0`
++					// at this file's own multisampledRTT setup, confirmed by reading it) --
++					// costs only MSAA smoothing on the transmission pass's internal texture,
++					// not the transmission effect itself, so the material's own
++					// transmission/ior/thickness/attenuation tuning is unaffected.
++					samples: 0,
+ 					stencilBuffer: stencil,
+ 					resolveDepthBuffer: false,
+ 					resolveStencilBuffer: false,
