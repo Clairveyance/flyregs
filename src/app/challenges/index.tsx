@@ -22,8 +22,8 @@ import { resolveCallsignToUserId } from '@/lib/contactMatch'
 import { FindFriendsPickerBody } from '@/components/FindFriendsSheet'
 
 const QUESTION_COUNTS = [3, 5, 10]
-const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac']
-const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC' }
+const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac', 'dictionary']
+const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC', dictionary: 'A/D' }
 const MAX_OPPONENTS = 7
 
 export default function ChallengesScreen() {

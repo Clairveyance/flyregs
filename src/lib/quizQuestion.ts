@@ -18,7 +18,7 @@
 // matches wins, and `fallback` guarantees we never render a bare passage
 // again.
 
-export type QuizSourceType = 'pcg' | 'far' | 'aim' | 'ac' | 'ad' | 'loi'
+export type QuizSourceType = 'pcg' | 'far' | 'aim' | 'ac' | 'ad' | 'loi' | 'dictionary'
 
 export interface QuizSource {
   type: QuizSourceType
@@ -361,6 +361,22 @@ export function buildStudyCard(src: QuizSource): StudyCardFaces {
   const title = tidy(src.title ?? '')
   switch (src.type) {
     case 'pcg': {
+      const term = num || title
+      const def = condenseDefinition(src.text)
+      return {
+        question: `What is ${term}?`,
+        answer: def,
+        reverseFront: def,
+        reverseBack: term,
+      }
+    }
+    // Dictionary terms are structurally identical to P/CG here -- a
+    // term+definition pair with nothing else to cite -- but unlike
+    // pcg_terms.term (always shouting-case, "CLEARED AS FILED"),
+    // dictionary_terms.term is already correctly cased in the source data
+    // ("COMBATS" is meant to stay all-caps as a real acronym; "5 Ps" is
+    // already natural) -- no toTitleCase() equivalent needed or wanted.
+    case 'dictionary': {
       const term = num || title
       const def = condenseDefinition(src.text)
       return {

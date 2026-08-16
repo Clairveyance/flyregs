@@ -23,7 +23,7 @@ import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 type Phase = 'loading' | 'pending_response' | 'waiting_accept' | 'ready' | 'playing' | 'revealed' | 'waiting_opponent' | 'results' | 'declined' | 'not_found' | 'error'
 
-const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC' }
+const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC', dictionary: 'A/D' }
 // Phrased as the ACTUAL QUESTION being asked, not as a label for the data
 // type below it. Most questions now come from the authored study_facts bank
 // (real answer-text choices), but any item without a live fact still falls
@@ -35,6 +35,7 @@ const QUESTION_LABEL: Record<DuelItemType, string> = {
   far: 'WHICH FAR SECTION IS THIS?',
   aim: 'WHICH AIM PARAGRAPH IS THIS?',
   ac: 'WHICH ADVISORY CIRCULAR IS THIS?',
+  dictionary: 'WHICH TERM IS THIS THE DEFINITION OF?',
 }
 
 // RC, real duel screenshot circling a live timer stuck open at 553.0s (the
@@ -555,11 +556,15 @@ function StatPill({
   )
 }
 
-// r.term is the item's own identifier for every type except P/CG, where it's
-// the term text and the route wants the slug.
+// r.term is the item's own identifier for every type except P/CG (needs
+// slugifyPcgTerm -- its slug isn't stored, only reconstructible from the
+// term) and dictionary (r.itemId is the real, stored slug -- unlike pcg's
+// term, a dictionary term doesn't reduce to its own slug algorithmically,
+// see get_challenge_results()'s own comment for why itemId exists).
 function openResultItem(r: ChallengeResultRow) {
   if (!r.term) return
   if (r.itemType === 'pcg') router.push(`/pcg/${slugifyPcgTerm(r.term)}` as any)
+  else if (r.itemType === 'dictionary') router.push(`/dictionary/${r.itemId}` as any)
   else router.push(`/${r.itemType}/${r.term}` as any)
 }
 

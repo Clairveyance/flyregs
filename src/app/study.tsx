@@ -18,8 +18,8 @@ import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { buildStudyCard, type QuizSourceType } from '@/lib/quizQuestion'
 import { normalizeRegBody } from '@/lib/regTextFormat'
 
-const TYPE_LABEL: Record<StudyItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC' }
-const ALL_TYPES: StudyItemType[] = ['far', 'aim', 'pcg', 'ac']
+const TYPE_LABEL: Record<StudyItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC', dictionary: 'A/D' }
+const ALL_TYPES: StudyItemType[] = ['far', 'aim', 'pcg', 'ac', 'dictionary']
 
 // Neutral starting tone for the mastery ring at 0% -- interpolated toward
 // tokens.gold as mastery % rises (see masteryGlow above).
@@ -293,7 +293,12 @@ export default function StudyScreen() {
     const t = current.item_type
     const docNumber =
       t === 'far' ? `§ ${current.item_id}`
-      : t === 'pcg' ? current.term
+      // dictionary/[slug].tsx bookmarks itself with document_number =
+      // entry.term (its slug is an internal id, not a citation) -- same
+      // shape as pcg's own term-as-document_number convention, for the
+      // same "bookmarked from two places must render identically" reason
+      // this whole block exists.
+      : t === 'pcg' || t === 'dictionary' ? current.term
       : current.item_id
     const title =
       t === 'far' ? current.term.replace(/^§\s*[\d.]+\s*/, '')
@@ -1010,8 +1015,11 @@ function FlashCard({
   // treatment as FAR/AIM/AC now applies here too, specifically for this
   // fact-backed case, using the term itself (title-cased -- pcg_terms
   // stores it shouting-case, "CLEARED AS FILED") as the citation text.
-  const showCitation = itemType === 'far' || itemType === 'aim' || itemType === 'ac' || (itemType === 'pcg' && !!fact)
-  const citationText = itemType === 'pcg' ? toTitleCase(term) : docNumber
+  const showCitation = itemType === 'far' || itemType === 'aim' || itemType === 'ac' || ((itemType === 'pcg' || itemType === 'dictionary') && !!fact)
+  // dictionary_terms.term is already correctly cased in the source data
+  // (unlike pcg_terms.term, always shouting-case) -- toTitleCase() would
+  // wrongly lowercase real acronyms like "COMBATS" or "RAOB".
+  const citationText = itemType === 'pcg' ? toTitleCase(term) : itemType === 'dictionary' ? term : docNumber
 
   return (
     <Pressable style={styles.cardOuter} onPress={onPress}>

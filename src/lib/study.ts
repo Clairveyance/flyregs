@@ -3,7 +3,7 @@ import type { StudyLevel } from '@/lib/challenges'
 import type { CategoryClass } from '@/lib/profileRatings'
 export type { CategoryClass, StudyRating } from '@/lib/profileRatings'
 
-export type StudyItemType = 'pcg' | 'far' | 'aim' | 'ac'
+export type StudyItemType = 'pcg' | 'far' | 'aim' | 'ac' | 'dictionary'
 
 export interface StudyCard {
   item_id: string

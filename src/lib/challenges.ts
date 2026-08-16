@@ -58,7 +58,7 @@ export interface DuelStats {
   ties: number
 }
 
-export type DuelItemType = 'pcg' | 'far' | 'aim' | 'ac'
+export type DuelItemType = 'pcg' | 'far' | 'aim' | 'ac' | 'dictionary'
 
 // Grounded in real FAR structure, not a guess -- see far_knowledge_levels()/
 // ac_knowledge_levels() in the DB (Part 61's subparts are official FAA
@@ -137,6 +137,12 @@ export interface ParticipantAnswer {
 export interface ChallengeResultRow {
   sortOrder: number
   itemType: DuelItemType
+  /** Raw challenge_questions.item_id, unresolved -- routing only. For
+   * far/aim/ac/pcg this happens to equal (or transform trivially into)
+   * `term`, but dictionary's real slug isn't derivable from its display
+   * term, so this is the one field guaranteed route-safe for every type.
+   * See get_challenge_results()'s own comment. */
+  itemId: string
   term: string
   definition: string
   answers: ParticipantAnswer[]
@@ -354,6 +360,7 @@ export async function getChallengeResults(challengeId: string): Promise<Challeng
   return (data ?? []).map((r: any) => ({
     sortOrder: r.sort_order,
     itemType: r.item_type,
+    itemId: r.item_id,
     term: r.term,
     definition: r.definition,
     answers: (r.answers ?? []).map((a: any) => ({
