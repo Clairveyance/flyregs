@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/react-native'
 import { supabase } from '@/lib/supabase'
 import type { CategoryClass, StudyRating } from '@/lib/profileRatings'
 import { STUDY_RATINGS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
@@ -290,10 +291,25 @@ export async function submitChallengeAnswer(
 // 'completed'; 'accepted' was accidentally fine already since is_creator
 // naturally matches exactly one row). Removed the limit server-side and
 // fan out to every returned row client-side.
+//
+// 2026-08-16: RC reported a real invite that the recipient never saw. The
+// full pipeline (RPC row selection, both her push_tokens flags, a live
+// test push + Expo receipt) checked out completely -- no bug found, most
+// likely an iOS-side notification setting on her device. But that
+// investigation only worked because it was reproducible right then; the
+// swallow-everything error handling below (still correct: a push failure
+// must never block the actual Duel action) means a real, transient
+// failure leaves zero trace. Logging failures to Sentry ONLY -- never
+// awaited beyond what already happens, never surfaced to the user, never
+// changes the fire-and-forget behavior -- just stops the next one from
+// being undiagnosable.
 export async function sendDuelPush(challengeId: string, event: 'invited' | 'accepted' | 'completed'): Promise<void> {
   try {
     const { data, error } = await supabase.rpc('get_duel_push_target', { p_challenge_id: challengeId, p_event: event })
-    if (error) return
+    if (error) {
+      Sentry.captureException(error, { tags: { feature: 'duel_push' }, extra: { challengeId, event, stage: 'rpc' } })
+      return
+    }
     const rows = (data ?? []).filter((r: any) => r?.expo_push_token)
     if (rows.length === 0) return
     // Fans out to every qualifying participant, not just one -- a group
@@ -313,9 +329,23 @@ export async function sendDuelPush(challengeId: string, event: 'invited' | 'acce
           body: row.body,
           data: { type: 'duel', challengeId },
         }),
-      }).catch(() => {})
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            Sentry.captureMessage('Duel push send failed', {
+              level: 'warning',
+              tags: { feature: 'duel_push' },
+              extra: { challengeId, event, stage: 'send', status: res.status, body: await res.text().catch(() => null) },
+            })
+          }
+        })
+        .catch((err) => {
+          Sentry.captureException(err, { tags: { feature: 'duel_push' }, extra: { challengeId, event, stage: 'fetch' } })
+        })
     ))
-  } catch (_) { /* best-effort */ }
+  } catch (err) {
+    Sentry.captureException(err, { tags: { feature: 'duel_push' }, extra: { challengeId, event, stage: 'outer' } })
+  }
 }
 
 export async function getChallengeResults(challengeId: string): Promise<ChallengeResultRow[]> {
