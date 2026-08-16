@@ -101,9 +101,20 @@ STYLE STEER (from researching the FAA's own released Private Pilot-Airplane (PAR
 questions): real FAA test questions are overwhelmingly SCENARIO-TO-THRESHOLD, not citation-to-fact.
 Frame the question around a concrete operational situation or condition, and make the answer the
 specific number/procedure/threshold that applies -- not a bare restatement of what the section says,
-and never just the document's own title standing in as a question. Favor this shape over
-administrative or citation-heavy facts (who-must-file-what, section-cross-reference trivia,
-document-history trivia like "what AC did this replace") whenever the passage supports it.
+and never just the document's own title standing in as a question.
+
+NEVER ask about the document's own paperwork/metadata. This is a hard rule, not a preference --
+these shapes tested measurably common in a live sample even with softer guidance, so they're banned
+outright rather than merely discouraged:
+- Issue/effective/revision date ("What is the effective date of AC X?", "When was AC X issued?")
+- Who signed it or which FAA office initiated/approved it
+- The document's own number ("What is the AC number for this guidance?")
+- What it replaced/cancelled, or what replaced it ("What AC did this cancel?")
+- Which paragraph/section was updated/revised in a later change
+None of these test aviation knowledge -- they test whether you memorized a cover page. A passage
+that is ITSELF administrative front matter (revision history, distribution list, purpose/cancellation
+statement) is exactly the passage that should yield FEWER facts, not a trivia question manufactured
+to hit a count.
 
 Real FAA examples of the target shape (public domain, FAA-published PAR sample questions):
 Q: "During operations outside controlled airspace at altitudes more than 1,200 feet AGL but less than 10,000 feet MSL, what is the minimum flight visibility for day VFR flight?"
@@ -116,7 +127,7 @@ A: "surface to 4,000 feet AGL above the airport (charted as MSL)"
 Return 4 to 8 DISTINCT facts covering different concrete points in the passage (not near-duplicate
 rephrasings of the same fact) -- fewer only if the passage genuinely doesn't support that many
 distinct extractable facts (a short or purely administrative passage may yield fewer, or zero; never
-invent facts or near-duplicates just to hit a count).
+invent facts, near-duplicates, or metadata trivia just to hit a count).
 
 Respond with JSON only, matching the schema."""
 
@@ -155,12 +166,26 @@ FACT_FORMAT = {
 
 
 def fetch_sources(only_types=None):
+    # 2026-08-15 incident: --submit --types=ac resubmitted ALL 778 active
+    # ACs (~$8.70, real cost $6.50 before a cancel partially caught it)
+    # instead of the ~2 actually missing coverage, because none of these
+    # three pools excluded items already covered by a live/pending fact --
+    # unlike this script's own predecessor, author_fact_deck.py, which
+    # does. This script was written for a single one-time full-corpus
+    # pass per type (hence the double-submit guard on the STATE FILE), but
+    # nothing stopped a later --submit from being read as "just backfill
+    # the gaps" and resubmitting the whole pool instead. All three pools
+    # now exclude already-covered items so that reading is actually true.
     pools = {}
     if only_types is None or "far" in only_types:
         pools["far"] = mgmt_sql("""
             select f.section_number as item_id, f.title, f.body_text
             from far_sections f
             join study_far_sections s on s.section_number = f.section_number
+            where f.section_number not in (
+                select item_id from study_facts
+                where item_type = 'far' and status in ('live', 'pending')
+            )
             order by f.section_number
         """)
     if only_types is None or "aim" in only_types:
@@ -169,6 +194,10 @@ def fetch_sources(only_types=None):
             from aim_paragraphs
             where body_text is not null and body_text <> ''
               and title is not null and title <> '' and title not ilike '%[reserved%'
+              and paragraph_number not in (
+                select item_id from study_facts
+                where item_type = 'aim' and status in ('live', 'pending')
+              )
             order by paragraph_number
         """)
     # AC: pdf_text (real full document), NOT description -- the fix.
@@ -179,6 +208,10 @@ def fetch_sources(only_types=None):
             select document_number as item_id, title, pdf_text as body_text
             from advisory_circulars
             where status = 'active' and pdf_text is not null and length(pdf_text) > 500
+              and document_number not in (
+                select item_id from study_facts
+                where item_type = 'ac' and status in ('live', 'pending')
+              )
             order by document_number
         """)
     out = []
@@ -245,12 +278,23 @@ def cmd_submit(only_types):
           f"source items ({len(sources)} total).")
 
     id_map = {}
+    # Snapshot each item's body_text alongside the id map, so --poll's
+    # grounding check verifies a fact's source_quote against the SAME text
+    # that was actually sent to the model -- not a fresh fetch_sources()
+    # call, which can legitimately return a different (now-smaller) pool by
+    # the time --poll runs, since the exclusion filter above means coverage
+    # can change between submit and poll. Re-querying at poll time used to
+    # be harmless only because the old query always returned every item
+    # regardless of coverage; that's no longer true.
+    sources_snapshot = {}
     requests = []
     for seq, (t, r) in enumerate(sources):
         cid = make_custom_id(t, r["item_id"], seq)
         id_map[cid] = {"item_type": t, "item_id": r["item_id"]}
+        sources_snapshot[f"{t}:{r['item_id']}"] = r["body_text"]
         requests.append(build_request(t, r, cid))
     json.dump(id_map, open(id_map_path, "w"))
+    json.dump(sources_snapshot, open(id_map_path.replace("id_map", "sources_snapshot"), "w"))
 
     total_input_chars = sum(len((r["body_text"] or "")[:MAX_BODY_CHARS]) for _, r in sources)
     est_input_tokens = total_input_chars // 4 + len(sources) * 250
@@ -270,6 +314,28 @@ def cmd_submit(only_types):
 
 def normalize_ws(s):
     return re.sub(r"\s+", " ", (s or "")).strip().lower()
+
+
+# Mechanical backstop for the SYSTEM_PROMPT's "NEVER ask" list -- see
+# cmd_poll's own comment on why prompt instructions alone aren't reliable
+# enough. Same document-metadata shapes flagged by the corpus-wide regex
+# audit that found 899/4,799 (18.7%) of already-live AC facts skewing this
+# way. Whole-question match, not per-word, so it doesn't false-positive on
+# a question that happens to use "date" or "office" as part of a real
+# operational fact.
+METADATA_TRIVIA_RE = re.compile(
+    r"\bwhat (is|was) the (effective |issue |revision )?date\b"
+    r"|\bwhen was .* (issued|published|dated|effective)\b"
+    r"|\bwho (signed|approved|authored)\b"
+    r"|\bwhich (faa )?office (initiated|issued|approved)\b"
+    r"|\bwhat (is |was )?(the )?(ac|advisory circular) number\b"
+    r"|\bwhat (document )?number (is|does) this (ac|advisory circular|document)\b"
+    r"|\bwhat (earlier |previous )?ac (does|did) .* (cancel|replace|supersede)\b"
+    r"|\bwhich (ac|paragraph|section) (was updated|is referenced|does this)\b"
+    r"|\bwhich revision\b"
+    r"|\bwhat change number\b",
+    re.IGNORECASE,
+)
 
 
 def cmd_poll(only_types):
@@ -297,9 +363,16 @@ def cmd_poll(only_types):
         return
 
     id_map = json.load(open(id_map_path))
-    sources = {(t, r["item_id"]): r for t, r in fetch_sources(only_types)}
+    snapshot_path = id_map_path.replace("id_map", "sources_snapshot")
+    # Prefer the submit-time snapshot (see cmd_submit's own comment on why)
+    # -- fall back to a fresh fetch for any batch state file that predates
+    # this fix, so an already-in-flight batch doesn't hard-fail on poll.
+    if os.path.exists(snapshot_path):
+        sources_snapshot = json.load(open(snapshot_path))
+    else:
+        sources_snapshot = {f"{t}:{r['item_id']}": r["body_text"] for t, r in fetch_sources(only_types)}
 
-    accepted, rejected_ungrounded, rejected_shape, empty, errored = 0, 0, 0, 0, 0
+    accepted, rejected_ungrounded, rejected_shape, rejected_metadata, empty, errored = 0, 0, 0, 0, 0, 0
     total_in_tok, total_out_tok = 0, 0
     rows = []
     for result in client.messages.batches.results(batch.id):
@@ -324,8 +397,7 @@ def cmd_poll(only_types):
             rejected_shape += 1
             continue
         item_type, item_id = mapped["item_type"], mapped["item_id"]
-        src = sources.get((item_type, item_id))
-        src_body_norm = normalize_ws(src["body_text"]) if src else ""
+        src_body_norm = normalize_ws(sources_snapshot.get(f"{item_type}:{item_id}"))
         for fact in facts[:8]:
             q, a = fact.get("question", ""), fact.get("answer", "")
             distractors = fact.get("distractors", [])
@@ -335,6 +407,14 @@ def cmd_poll(only_types):
                 continue
             if not (isinstance(distractors, list) and len(distractors) == 3 and all(isinstance(d, str) and d.strip() for d in distractors)):
                 rejected_shape += 1
+                continue
+            # Mechanical backstop, not just a prompt instruction -- 2026-08-15
+            # found the SYSTEM_PROMPT's softer "favor X over Y" framing still
+            # let document-metadata trivia through on a live sample even
+            # after the prompt was tightened to a hard "NEVER ask" rule.
+            # Reject the same shapes regardless of what the model does.
+            if METADATA_TRIVIA_RE.search(q):
+                rejected_metadata += 1
                 continue
             if normalize_ws(quote) not in src_body_norm:
                 rejected_ungrounded += 1
@@ -351,7 +431,7 @@ def cmd_poll(only_types):
     print(f"\nParsed {batch.request_counts.succeeded} responses: "
           f"{accepted} facts accepted, {empty} items had no extractable fact, "
           f"{rejected_shape} rejected (shape/length), {rejected_ungrounded} rejected (ungrounded quote), "
-          f"{errored} request errors.")
+          f"{rejected_metadata} rejected (metadata trivia), {errored} request errors.")
 
     cost = total_in_tok / 1_000_000 * 1.0 + total_out_tok / 1_000_000 * 5.0
     print(f"Actual usage: {total_in_tok:,} input / {total_out_tok:,} output tokens "
