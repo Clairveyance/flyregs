@@ -238,8 +238,22 @@ export function MasterGlobe3D({ size = 300, backdropColor }: { size?: number; ba
           }}
         />
       )}
+      {/* RC, real device, build 33: "the globe is out of center, low and
+          left." Root cause not diagnosable here -- this can't be reproduced
+          in the web preview (GLView is a genuinely different native
+          component on iOS vs. web, not just CSS) and this environment has
+          no working Simulator/device to test the real 3D camera/scene math
+          against. Per RC's own explicit direction: an empirical 2D
+          correction from the reported direction, not a diagnosed fix --
+          shifts the rendered canvas up and right within its still-centered,
+          still-circular-clipped parent (profile/[userId].tsx's wrapper),
+          same as nudging a picture inside an already-correctly-hung frame.
+          Magnitude is a first estimate (~8% of the 268pt canvas each axis),
+          not measured against a real device -- expect this needs one more
+          round of adjustment once RC sees it live, same as this session's
+          own earlier trophy-tuning rounds. */}
       <GLView
-        style={StyleSheet.absoluteFill}
+        style={[StyleSheet.absoluteFill, { transform: [{ translateX: 18 }, { translateY: -22 }] }]}
         onContextCreate={(gl) => { onContextCreate(gl).catch((err) => Sentry.captureException(err)) }}
       />
     </View>
