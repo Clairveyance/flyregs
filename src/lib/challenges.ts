@@ -190,6 +190,17 @@ export async function respondToChallenge(challengeId: string, accept: boolean): 
   if (error) throw error
 }
 
+// RC 2026-08-16: swipe to delete a duel from MY OWN history list. This is
+// a per-user hide, not a real delete -- it only touches this user's own
+// challenge_participants row (hidden_at), never challenges/questions/
+// answers/user_duel_stats, so the OTHER participant's history and every
+// W/L stat (profile, leaderboard) are completely unaffected. Reversible
+// server-side even though it reads as "delete" in the UI.
+export async function hideChallengeFromHistory(challengeId: string): Promise<void> {
+  const { error } = await supabase.rpc('hide_challenge_from_history', { p_challenge_id: challengeId })
+  if (error) throw error
+}
+
 export async function getMyChallenges(): Promise<MyChallenge[]> {
   const { data, error } = await supabase.rpc('get_my_challenges')
   if (error) throw error

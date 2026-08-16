@@ -8,9 +8,10 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import {
   getMyChallenges, getChallengeableUsers, createChallenge, respondToChallenge, getDuelStats, sendDuelPush,
-  getUnseenCoins, markCoinsSeen,
+  getUnseenCoins, markCoinsSeen, hideChallengeFromHistory,
   MyChallenge, ChallengeableUser, DuelStats, DuelItemType, StudyLevel, ALL_STUDY_LEVELS, STUDY_LEVEL_LABELS,
 } from '@/lib/challenges'
+import { SwipeToDelete } from '@/components/SwipeToDelete'
 import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS } from '@/lib/profileRatings'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
@@ -211,6 +212,33 @@ export default function ChallengesScreen() {
     } else load()
   }
 
+  // RC 2026-08-16: "basic swipe to delete, so users can clean up their
+  // duel history. total W/L count will still show in other areas and on
+  // leaderboard, etc." -- hideChallengeFromHistory only touches THIS
+  // user's own challenge_participants row, so wins/losses/ties
+  // (user_duel_stats) and the other participant's own history are
+  // untouched. Optimistic removal from local state, with a rollback +
+  // error dialog if the RPC fails (same shape as every other mutation on
+  // this screen, e.g. handleRespond above).
+  const handleDeleteFromHistory = (c: MyChallenge) => {
+    confirm({
+      title: 'Delete Duel',
+      message: `Remove this duel from your history? Your win/loss record and leaderboard stats won't change${c.others.length === 1 ? '' : ' — this only hides it from your list'}.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+      twoStep: false,
+      onConfirm: async () => {
+        setChallenges((prev) => prev.filter((x) => x.challengeId !== c.challengeId))
+        try {
+          await hideChallengeFromHistory(c.challengeId)
+        } catch (err: any) {
+          load()
+          throw err
+        }
+      },
+    })
+  }
+
   if (!isPremium) {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>
@@ -276,6 +304,7 @@ export default function ChallengesScreen() {
               tokens={tokens}
               fs={fs}
               onRespond={handleRespond}
+              onDelete={handleDeleteFromHistory}
               showPreview={showPreview}
               hidePreview={hidePreview}
               consumeLongPress={consumeLongPress}
@@ -614,12 +643,13 @@ export default function ChallengesScreen() {
 }
 
 function ChallengeRow({
-  item, tokens, fs, onRespond, showPreview, hidePreview, consumeLongPress,
+  item, tokens, fs, onRespond, onDelete, showPreview, hidePreview, consumeLongPress,
 }: {
   item: MyChallenge
   tokens: ReturnType<typeof useTheme>['tokens']
   fs: (n: number) => number
   onRespond: (c: MyChallenge, accept: boolean) => void
+  onDelete: (c: MyChallenge) => void
   showPreview: ReturnType<typeof useLongPressPreview>['showPreview']
   hidePreview: ReturnType<typeof useLongPressPreview>['hidePreview']
   consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
@@ -642,8 +672,9 @@ function ChallengeRow({
     : `${item.myAnsweredCount}/${item.questionCount} answered · ${acceptedOthers.length} of ${item.others.length} joined`
 
   return (
-    <Pressable
-      style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+    <View style={styles.swipeWrap}>
+    <SwipeToDelete
+      onDelete={() => onDelete(item)}
       onPress={() => {
         if (consumeLongPress()) return
         if (!isPendingForMe) router.push(`/challenges/${item.challengeId}` as any)
@@ -652,35 +683,38 @@ function ChallengeRow({
       onPressOut={hidePreview}
       delayLongPress={350}
     >
-      <Pressable
-        style={[styles.avatarDot, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}
-        onPress={(e) => {
-          e.stopPropagation()
-          if (item.others.length === 1) {
-            router.push(`/profile/${item.others[0].userId}?label=${encodeURIComponent(item.others[0].label)}` as any)
-          }
-        }}
-        hitSlop={6}
-      >
-        <Icon name="trophy" size={fs(14)} color={tokens.gold} />
-      </Pressable>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>{othersLabel}</Text>
-        <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]}>{statusLabel}</Text>
-      </View>
-      {isPendingForMe ? (
-        <View style={styles.respondRow}>
-          <Pressable style={[styles.respondBtn, { borderColor: tokens.bdr }]} onPress={() => onRespond(item, false)}>
-            <Icon name="xmark" size={fs(14)} color={tokens.t3} />
-          </Pressable>
-          <Pressable style={[styles.respondBtn, styles.respondBtnAccept, { borderColor: tokens.goldbdr, backgroundColor: tokens.goldlt }]} onPress={() => onRespond(item, true)}>
-            <Icon name="checkmark" size={fs(14)} color={tokens.gold} />
-          </Pressable>
+      <View style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+        <Pressable
+          style={[styles.avatarDot, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}
+          onPress={(e) => {
+            e.stopPropagation()
+            if (item.others.length === 1) {
+              router.push(`/profile/${item.others[0].userId}?label=${encodeURIComponent(item.others[0].label)}` as any)
+            }
+          }}
+          hitSlop={6}
+        >
+          <Icon name="trophy" size={fs(14)} color={tokens.gold} />
+        </Pressable>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>{othersLabel}</Text>
+          <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]}>{statusLabel}</Text>
         </View>
-      ) : (
-        <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
-      )}
-    </Pressable>
+        {isPendingForMe ? (
+          <View style={styles.respondRow}>
+            <Pressable style={[styles.respondBtn, { borderColor: tokens.bdr }]} onPress={() => onRespond(item, false)}>
+              <Icon name="xmark" size={fs(14)} color={tokens.t3} />
+            </Pressable>
+            <Pressable style={[styles.respondBtn, styles.respondBtnAccept, { borderColor: tokens.goldbdr, backgroundColor: tokens.goldlt }]} onPress={() => onRespond(item, true)}>
+              <Icon name="checkmark" size={fs(14)} color={tokens.gold} />
+            </Pressable>
+          </View>
+        ) : (
+          <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
+        )}
+      </View>
+    </SwipeToDelete>
+    </View>
   )
 }
 
@@ -700,9 +734,10 @@ const styles = StyleSheet.create({
   myStatsText: { fontWeight: '500' },
 
   list: { padding: 12, paddingBottom: 32 },
+  swipeWrap: { marginBottom: 8, borderRadius: 14, overflow: 'hidden' },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    borderRadius: 14, borderWidth: 1, padding: 13, marginBottom: 8,
+    borderRadius: 14, borderWidth: 1, padding: 13,
   },
   avatarDot: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   rowTitle: { fontWeight: '600' },
