@@ -10,8 +10,29 @@ import { markJustConfirmed } from '@/lib/justConfirmed'
 import { useConfirm } from '@/components/ConfirmDialog'
 import * as Biometric from '@/lib/biometricAuth'
 import { supabase } from '@/lib/supabase'
+import { isAuthRetryableFetchError } from '@supabase/supabase-js'
 
 const WORDMARK_ASPECT = 1915 / 1428 // flyregs-wordmark.png width/height
+
+// RC, real device report: "Authentication service was unavailable. You can
+// try again." -- traced to Supabase's OWN raw backend error text (confirmed
+// via node_modules/@supabase/auth-js's AuthRetryableFetchError -- the
+// client SDK never hardcodes that string itself, it's whatever the server
+// returns during a genuine backend hiccup) getting surfaced to the user
+// completely unfiltered by every catch block below. Root cause that day was
+// a real, since-fixed Supabase compute outage -- but even now that it's
+// fixed, any FUTURE transient network/server blip would still show this
+// same internal-sounding, alarming text verbatim. isAuthRetryableFetchError
+// is the SDK's own official way to distinguish "the server/network had a
+// hiccup, retrying makes sense" from a real auth failure (wrong password,
+// weak password, etc.) -- use it everywhere this screen surfaces an error
+// message instead of parroting whatever the backend happened to say.
+function friendlyAuthError(err: any, fallback: string): string {
+  if (isAuthRetryableFetchError(err)) {
+    return "We're having trouble reaching our servers right now. Please check your connection and try again in a moment."
+  }
+  return err?.message || fallback
+}
 
 type Mode = 'signin' | 'signup' | 'check-email' | 'forgot' | 'forgot-sent'
 
@@ -147,7 +168,9 @@ export default function AuthScreen() {
       }
     } catch (err: any) {
       const raw: string = err?.message ?? ''
-      if (mode === 'signin' && /invalid.*(login|credentials)/i.test(raw)) {
+      if (isAuthRetryableFetchError(err)) {
+        setFormError(friendlyAuthError(err, raw))
+      } else if (mode === 'signin' && /invalid.*(login|credentials)/i.test(raw)) {
         // Deliberately the same message whether the email doesn't exist or
         // the password is wrong -- distinguishing the two lets an attacker
         // discover which emails have accounts (email enumeration), which is
@@ -171,7 +194,7 @@ export default function AuthScreen() {
       setResendCooldown(RESEND_COOLDOWN_SECONDS)
       confirm({ title: 'Sent', message: 'Check your email for a new confirmation link.', cancelLabel: null })
     } catch (err: any) {
-      confirm({ title: 'Error', message: err?.message ?? 'Could not resend right now.', cancelLabel: null })
+      confirm({ title: 'Error', message: friendlyAuthError(err, 'Could not resend right now.'), cancelLabel: null })
     }
     setLoading(false)
   }
@@ -193,7 +216,7 @@ export default function AuthScreen() {
       // Supabase doesn't reveal whether the email actually has an account --
       // resetPasswordForEmail resolves the same way either way, so an error
       // here is a real failure (network, rate limit), not "no such account."
-      setFormError(err?.message ?? 'Could not send reset link right now.')
+      setFormError(friendlyAuthError(err, 'Could not send reset link right now.'))
     }
     setLoading(false)
   }
@@ -206,7 +229,7 @@ export default function AuthScreen() {
       setResendCooldown(RESEND_COOLDOWN_SECONDS)
       confirm({ title: 'Sent', message: 'Check your email for a new reset link.', cancelLabel: null })
     } catch (err: any) {
-      confirm({ title: 'Error', message: err?.message ?? 'Could not resend right now.', cancelLabel: null })
+      confirm({ title: 'Error', message: friendlyAuthError(err, 'Could not resend right now.'), cancelLabel: null })
     }
     setLoading(false)
   }
