@@ -120,8 +120,13 @@ export default function ChallengesScreen() {
 
   const load = useCallback(() => {
     setLoading(true)
-    getMyChallenges().then(setChallenges).finally(() => setLoading(false))
-    getDuelStats().then(setMyStats)
+    // Same stale-isPremium-cache race as openPicker's own comment below --
+    // get_duel_stats() also raises if the server's live entitlement check
+    // disagrees with this screen's cached isPremium gate. Silent catch (not
+    // a user-facing dialog) matches this function's own background-refresh
+    // nature -- markCoinsSeen right below does the same.
+    getMyChallenges().then(setChallenges).catch(() => {}).finally(() => setLoading(false))
+    getDuelStats().then(setMyStats).catch(() => {})
     // Catch-up path for the coin-toast timing bug (2026-08-11): a Duel win's
     // coin only reveals synchronously to whichever player's submission
     // happened to finish the challenge, not necessarily the real winner if
@@ -139,7 +144,26 @@ export default function ChallengesScreen() {
   }
 
   const openPicker = () => {
-    getChallengeableUsers().then(setOpponents)
+    // RC, real device (Sentry): "Duels requires Premium" -- a raw Postgres
+    // exception from get_challengeable_users() itself -- surfaced as an
+    // unhandled promise rejection with no .catch() anywhere. This screen's
+    // own `isPremium` client cache (only refreshed on sign-in/~hourly JWT
+    // refresh, same known-stale-cache class of bug found repeatedly this
+    // session) can briefly disagree with the server's live entitlement
+    // check, most likely right after a background/foreground cycle -- the
+    // real event showed a cancelled RevenueCat refresh while backgrounded,
+    // then this picker opened moments after foregrounding. Before this fix,
+    // `setPickerVisible(true)` below still ran unconditionally, so the
+    // sheet opened and just sat there with an opponents list that would
+    // never populate and no error shown -- indistinguishable from the app
+    // "locking up" to whoever's tapping it.
+    getChallengeableUsers().then(setOpponents).catch(() => {
+      confirm({
+        title: 'Could Not Load',
+        message: 'Your Premium status could not be confirmed right now. Please try again in a moment.',
+        cancelLabel: null,
+      })
+    })
     setSelectedOpponents([])
     setCreateError(null)
     setStep('filters')
