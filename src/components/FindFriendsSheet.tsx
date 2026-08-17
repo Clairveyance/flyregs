@@ -235,7 +235,7 @@ export function FindFriendsPickerBody({
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
             <Icon name="iphone" size={fs(16)} color={tokens.blu} style={{ marginTop: 1 }} />
             <Text style={[styles.phoneBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
-              Add your phone number so more of your contacts can find you -- most people save a number, not an email.
+              Add your phone number so more of your contacts can find you.
             </Text>
             <Pressable onPress={dismissPhoneBanner} hitSlop={10}>
               <Icon name="xmark" size={fs(14)} color={tokens.t3} />
