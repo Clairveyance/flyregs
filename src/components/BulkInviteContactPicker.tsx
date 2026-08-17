@@ -56,10 +56,48 @@ export function BulkInviteContactPicker({
   const confirm = useConfirm()
   const insets = useSafeAreaInsets()
   const [permissionState, setPermissionState] = useState<'checking' | 'denied' | 'granted'>('checking')
+  // iOS 18+ lets a user grant access to only SOME contacts ("Limited Access")
+  // instead of all-or-nothing. requestPermissionsAsync() still resolves
+  // granted:true in that case -- accessPrivileges is the only signal that
+  // distinguishes "granted, but you only shared 2 contacts" from "granted,
+  // full address book." RC, real device: this screen was showing the same
+  // generic empty state for both, with no way to add more contacts short of
+  // leaving the app and finding Settings > FlyRegs > Contacts manually.
+  const [accessScope, setAccessScope] = useState<'all' | 'limited' | 'none'>('all')
+  const [loadError, setLoadError] = useState(false)
   const [contacts, setContacts] = useState<PickableContact[]>([])
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [sending, setSending] = useState<{ done: number; total: number } | null>(null)
+
+  const loadContacts = async () => {
+    setLoadError(false)
+    try {
+      const Contacts = await import('expo-contacts')
+      const details = await Contacts.Contact.getAllDetails(
+        [Contacts.ContactField.FULL_NAME, Contacts.ContactField.PHONES],
+        { sortOrder: Contacts.ContactsSortOrder.GivenName },
+      )
+      const withPhones = details
+        .filter((c) => c.fullName && c.phones && c.phones.length > 0)
+        .map((c) => ({ id: c.id, name: c.fullName!, phone: c.phones![0].number ?? '' }))
+        .filter((c) => c.phone)
+      setContacts(withPhones)
+    } catch {
+      // Real native-call failure (not just "zero contacts") -- previously
+      // this left the screen stuck on an empty list forever with no signal
+      // anything had gone wrong.
+      setLoadError(true)
+    }
+  }
+
+  const chooseMoreContacts = async () => {
+    const Contacts = await import('expo-contacts')
+    await Contacts.Contact.presentAccessPicker()
+    const refreshed = await Contacts.getPermissionsAsync()
+    setAccessScope(refreshed.accessPrivileges ?? 'all')
+    await loadContacts()
+  }
 
   useEffect(() => {
     if (!visible) return
@@ -72,16 +110,9 @@ export function BulkInviteContactPicker({
       const existing = await Contacts.getPermissionsAsync()
       const perm = existing.granted ? existing : await Contacts.requestPermissionsAsync()
       if (!perm.granted) { setPermissionState('denied'); return }
+      setAccessScope(perm.accessPrivileges ?? 'all')
       setPermissionState('granted')
-      const details = await Contacts.Contact.getAllDetails(
-        [Contacts.ContactField.FULL_NAME, Contacts.ContactField.PHONES],
-        { sortOrder: Contacts.ContactsSortOrder.GivenName },
-      )
-      const withPhones = details
-        .filter((c) => c.fullName && c.phones && c.phones.length > 0)
-        .map((c) => ({ id: (c as any).id ?? c.fullName!, name: c.fullName!, phone: c.phones![0].number ?? '' }))
-        .filter((c) => c.phone)
-      setContacts(withPhones)
+      await loadContacts()
     })()
   }, [visible])
 
@@ -188,9 +219,31 @@ export function BulkInviteContactPicker({
               </View>
               {contacts.length === 0 ? (
                 <View style={styles.center}>
-                  <Text style={[styles.emptyText, { color: tokens.t2, fontSize: fs(14) }]}>
-                    No contacts with a phone number found.
-                  </Text>
+                  {loadError ? (
+                    <>
+                      <Icon name="exclamationmark.triangle" size={fs(28)} color={tokens.t3} />
+                      <Text style={[styles.emptyText, { color: tokens.t2, fontSize: fs(14) }]}>
+                        Couldn't load your contacts. Please try again.
+                      </Text>
+                      <Pressable onPress={loadContacts} hitSlop={10}>
+                        <Text style={[styles.headerBtn, { color: tokens.blu, fontSize: fs(14) }]}>Retry</Text>
+                      </Pressable>
+                    </>
+                  ) : accessScope === 'limited' ? (
+                    <>
+                      <Icon name="person.crop.circle" size={fs(28)} color={tokens.t3} />
+                      <Text style={[styles.emptyText, { color: tokens.t2, fontSize: fs(14) }]}>
+                        FlyRegs only has access to a limited set of your contacts, and none of them have a phone number on file.
+                      </Text>
+                      <Pressable onPress={chooseMoreContacts} hitSlop={10}>
+                        <Text style={[styles.headerBtn, { color: tokens.blu, fontSize: fs(14) }]}>Choose More Contacts</Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <Text style={[styles.emptyText, { color: tokens.t2, fontSize: fs(14) }]}>
+                      No contacts with a phone number found.
+                    </Text>
+                  )}
                 </View>
               ) : (
                 <FlatList
