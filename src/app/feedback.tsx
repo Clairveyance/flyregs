@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Platform, KeyboardAvoidingView, Animated } from 'react-native'
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Platform, KeyboardAvoidingView, Animated, Keyboard } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -102,6 +102,14 @@ export default function FeedbackScreen() {
       })
       if (error) throw error
       setMessage('')
+      // RC, real device, sent 10 bug reports back-to-back: no on-screen
+      // acknowledgment appeared for ANY of them. The toast below was
+      // already there and firing correctly (all 10 really did arrive) --
+      // the keyboard just never dismissed on submit, and stayed up over
+      // this toast's low, near-bottom position (bottom: insets.bottom+24)
+      // every single time, since nothing about tapping Send takes focus
+      // off the still-active TextInput.
+      Keyboard.dismiss()
       setShowSentToast(true)
     } catch {
       confirm({ title: 'Could not send', message: 'Please check your connection and try again.', cancelLabel: null })
