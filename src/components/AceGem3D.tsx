@@ -51,6 +51,25 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
   }, [])
 
   const onContextCreate = async (gl: ExpoWebGLRenderingContext) => {
+    // RC, real device: crashed opening the diamond ("EXGL:
+    // renderbufferStorageMultisample() isn't implemented yet!"). Root cause:
+    // this material's transmission:1.0 below makes three.js's
+    // renderTransmissionPass (WebGLRenderer.js) create an internal
+    // WebGLRenderTarget with a hardcoded `samples: 4` -- unconditional,
+    // independent of THIS renderer's own antialias setting, so turning that
+    // off wouldn't have helped. expo-gl's WebGL2 shim defines
+    // renderbufferStorageMultisample but throws instead of implementing it.
+    // Falling back to plain renderbufferStorage (drop the sample count) for
+    // just this one call keeps the transmission pass working; the lost MSAA
+    // is on an internal offscreen snapshot the gem's own material already
+    // heavily blurs via IOR/roughness/clearcoat, imperceptible in practice.
+    const glAny = gl as any
+    if (typeof glAny.renderbufferStorageMultisample === 'function') {
+      const plainStorage = gl.renderbufferStorage.bind(gl)
+      glAny.renderbufferStorageMultisample = (target: number, _samples: number, internalformat: number, width: number, height: number) =>
+        plainStorage(target, internalformat, width, height)
+    }
+
     // RC, real device + web preview: a large black rectangle instead of a
     // transparent/correctly-filled canvas. Root cause: the web prototype's
     // makeRenderer() explicitly passed `alpha: true` to WebGLRenderer --
