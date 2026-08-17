@@ -12,6 +12,7 @@ import { resolveCallsignToUserId } from '@/lib/contactMatch'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
+import { AvatarCircle } from '@/components/AvatarCircle'
 import {
   getReadyRoomLeaderboard, getDuelsLeaderboard, getMasteryLeaderboard,
   LeaderboardRow, DuelsLeaderboardRow, MasteryLeaderboardRow,
@@ -219,6 +220,7 @@ export default function ReadyRoomScreen() {
                 <Text numberOfLines={1} style={[styles.rank, { color: item.isMe ? tokens.gold : tokens.t4, fontSize: fs(11.5) }]}>
                   {String(index + 1).padStart(2, '0')}
                 </Text>
+                <AvatarCircle imageUri={item.avatarUrl} presetId={item.avatarPreset} fallbackLabel={item.displayLabel} size={fs(26)} />
                 <Text style={[styles.name, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
                   {item.isMe ? 'You' : item.displayLabel}
                 </Text>
@@ -250,6 +252,7 @@ export default function ReadyRoomScreen() {
                 <Text numberOfLines={1} style={[styles.rank, { color: item.isMe ? tokens.gold : tokens.t4, fontSize: fs(11.5) }]}>
                   {String(index + 1).padStart(2, '0')}
                 </Text>
+                <AvatarCircle imageUri={item.avatarUrl} presetId={item.avatarPreset} fallbackLabel={item.displayLabel} size={fs(26)} />
                 <Text style={[styles.name, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
                   {item.isMe ? 'You' : item.displayLabel}
                 </Text>
@@ -282,6 +285,7 @@ export default function ReadyRoomScreen() {
                 <Text numberOfLines={1} style={[styles.rank, { color: item.isMe ? tokens.gold : tokens.t4, fontSize: fs(11.5) }]}>
                   {String(index + 1).padStart(2, '0')}
                 </Text>
+                <AvatarCircle imageUri={item.avatarUrl} presetId={item.avatarPreset} fallbackLabel={item.displayLabel} size={fs(26)} />
                 <Text style={[styles.name, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
                   {item.isMe ? 'You' : item.displayLabel}
                 </Text>

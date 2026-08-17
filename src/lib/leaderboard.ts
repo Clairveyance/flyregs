@@ -7,6 +7,8 @@ export interface LeaderboardRow {
   weeklyCorrect: number
   currentStreak: number
   isMe: boolean
+  avatarUrl: string | null
+  avatarPreset: string | null
 }
 
 export async function getReadyRoomLeaderboard(limit = 20): Promise<LeaderboardRow[]> {
@@ -19,6 +21,8 @@ export async function getReadyRoomLeaderboard(limit = 20): Promise<LeaderboardRo
     weeklyCorrect: r.weekly_correct,
     currentStreak: r.current_streak,
     isMe: r.is_me,
+    avatarUrl: r.avatar_url ?? null,
+    avatarPreset: r.avatar_preset ?? null,
   }))
 }
 
@@ -35,6 +39,8 @@ export interface DuelsLeaderboardRow {
   losses: number
   ties: number
   isMe: boolean
+  avatarUrl: string | null
+  avatarPreset: string | null
 }
 
 export async function getDuelsLeaderboard(limit = 50): Promise<DuelsLeaderboardRow[]> {
@@ -47,6 +53,8 @@ export async function getDuelsLeaderboard(limit = 50): Promise<DuelsLeaderboardR
     losses: r.losses,
     ties: r.ties,
     isMe: r.is_me,
+    avatarUrl: r.avatar_url ?? null,
+    avatarPreset: r.avatar_preset ?? null,
   }))
 }
 
@@ -58,6 +66,8 @@ export interface MasteryLeaderboardRow {
   totalAvailable: number
   pct: number
   isMe: boolean
+  avatarUrl: string | null
+  avatarPreset: string | null
 }
 
 export async function getMasteryLeaderboard(limit = 50): Promise<MasteryLeaderboardRow[]> {
@@ -71,6 +81,8 @@ export async function getMasteryLeaderboard(limit = 50): Promise<MasteryLeaderbo
     totalAvailable: r.total_available,
     pct: r.pct,
     isMe: r.is_me,
+    avatarUrl: r.avatar_url ?? null,
+    avatarPreset: r.avatar_preset ?? null,
   }))
 }
 

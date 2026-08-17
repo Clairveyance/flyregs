@@ -986,7 +986,7 @@ export default function AccountScreen() {
                   id="account-show-me"
                   title="Show Me"
                   body={[
-                    'Puts your Callsign and weekly study activity on the Ready Room leaderboard, visible to other opted-in members.',
+                    'Puts your Callsign, profile photo, and weekly study activity on the Ready Room leaderboard and in Duels, visible to other opted-in members.',
                     'Also lets friends find you by contact when inviting you to a shared folder or aircraft (Find Friends).',
                   ]}
                   iconSize={fs(15)}

@@ -21,6 +21,7 @@ import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { resolveCallsignToUserId } from '@/lib/contactMatch'
 import { FindFriendsPickerBody } from '@/components/FindFriendsSheet'
+import { AvatarCircle } from '@/components/AvatarCircle'
 
 const QUESTION_COUNTS = [3, 5, 10]
 const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac', 'dictionary']
@@ -192,7 +193,7 @@ export default function ChallengesScreen() {
       confirm({ title: 'Duel is full', message: `Duels support up to ${MAX_OPPONENTS + 1} total participants.`, cancelLabel: null })
       return
     }
-    setOpponents((prev) => (prev.some((o) => o.userId === userId) ? prev : [...prev, { userId, displayLabel }]))
+    setOpponents((prev) => (prev.some((o) => o.userId === userId) ? prev : [...prev, { userId, displayLabel, avatarUrl: null, avatarPreset: null }]))
     setSelectedOpponents((prev) => (prev.includes(userId) ? prev : [...prev, userId]))
     setNewOppCallsign('')
     setCallsignCheck('idle')
@@ -619,6 +620,7 @@ export default function ChallengesScreen() {
                     <View style={[styles.checkbox, { borderColor: selected ? tokens.gold : tokens.bdr, backgroundColor: selected ? tokens.goldlt : 'transparent' }]}>
                       {selected && <Icon name="checkmark" size={fs(12)} color={tokens.gold} />}
                     </View>
+                    <AvatarCircle imageUri={o.avatarUrl} presetId={o.avatarPreset} fallbackLabel={o.displayLabel} size={fs(28)} />
                     <Text style={[styles.opponentText, { color: tokens.t1, fontSize: fs(14) }]}>{o.displayLabel}</Text>
                   </Pressable>
                 )

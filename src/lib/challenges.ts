@@ -17,6 +17,8 @@ import { STUDY_RATINGS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
 export interface ChallengeableUser {
   userId: string
   displayLabel: string
+  avatarUrl: string | null
+  avatarPreset: string | null
 }
 
 export interface ChallengeParticipant {
@@ -161,7 +163,12 @@ export interface StandingRow {
 export async function getChallengeableUsers(): Promise<ChallengeableUser[]> {
   const { data, error } = await supabase.rpc('get_challengeable_users')
   if (error) throw error
-  return (data ?? []).map((r: any) => ({ userId: r.user_id, displayLabel: r.display_label }))
+  return (data ?? []).map((r: any) => ({
+    userId: r.user_id,
+    displayLabel: r.display_label,
+    avatarUrl: r.avatar_url ?? null,
+    avatarPreset: r.avatar_preset ?? null,
+  }))
 }
 
 // opponentIds: 1-7 invitees (2-8 total participants including the caller).
