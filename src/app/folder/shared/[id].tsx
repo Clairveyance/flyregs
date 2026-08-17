@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, Modal, ScrollView, TextInput, RefreshControl, KeyboardAvoidingView, Platform, AppState } from 'react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
@@ -146,6 +146,17 @@ export default function SharedFolderDetail() {
   const [newNoteBody, setNewNoteBody] = useState('')
   const [savingNote, setSavingNote] = useState(false)
   const canWrite = collabMode === 'read_write'
+  // load() is invoked independently by 3 triggers (useFocusEffect, the
+  // realtime debounce below, and the AppState foreground listener) that can
+  // fire in near-overlapping succession -- with no ordering guard, whichever
+  // call's promise chain happened to resolve LAST won, even if a newer call
+  // was already in flight and its own (correct, fresher) result just hadn't
+  // landed yet. Found live: an owner's real-time Viewer<->Editor toggle
+  // often left this screen stuck showing the stale mode for 40-70+ seconds,
+  // sometimes surviving even a full reload, because an in-flight call from
+  // BEFORE the toggle resolved after the fresh one and overwrote it.
+  // loadGenRef makes only the most-recently-started call allowed to commit.
+  const loadGenRef = useRef(0)
   const [acIndex, setAcIndex] = useState<ACIndexEntry[]>([])
   const [farIndex, setFarIndex] = useState<string[]>([])
   const [aimIndex, setAimIndex] = useState<string[]>([])
@@ -166,6 +177,7 @@ export default function SharedFolderDetail() {
 
   const load = useCallback(async () => {
     if (typeof id !== 'string') return
+    const myGen = ++loadGenRef.current
     setLoading(true)
     // Per-invitee mode, not the folder's owner-set default (BB-077 added a
     // per-collaborator collab_mode specifically so one person can have
@@ -194,6 +206,7 @@ export default function SharedFolderDetail() {
       getSharedFolderDictionaryItems(id),
       getSharedFolderCfr49Items(id),
     ])
+    if (myGen !== loadGenRef.current) return
     if (!folder) {
       setRemoved(true)
       setLoading(false)
@@ -209,10 +222,11 @@ export default function SharedFolderDetail() {
     // Best-effort -- owner name is a nice-to-have, not load-bearing.
     try {
       const { data } = await supabase.rpc('get_shared_folder_owners', { p_folder_ids: [id] })
-      setOwnerName(data?.[0]?.out_owner_display_name ?? null)
+      if (myGen === loadGenRef.current) setOwnerName(data?.[0]?.out_owner_display_name ?? null)
     } catch {
-      setOwnerName(null)
+      if (myGen === loadGenRef.current) setOwnerName(null)
     }
+    if (myGen !== loadGenRef.current) return
 
     const acIds = acItems.map((i) => i.item_id)
     if (acIds.length) {
@@ -225,6 +239,7 @@ export default function SharedFolderDetail() {
       // resolveMissingAsHighlights' own comment for why item_id doesn't
       // resolve directly for those.
       const acHl = await resolveMissingAsHighlights('ac', acIds.filter((i) => !matched.has(i)), () => '')
+      if (myGen !== loadGenRef.current) return
       setAcs([
         ...(acRows ?? []).map((r) => ({ ...r, itemRowId: acItems.find((i) => i.item_id === r.id)?.id ?? '' })),
         ...acHl.map((h): ACRow => ({
@@ -252,10 +267,12 @@ export default function SharedFolderDetail() {
         .select('id, title, body, linked_ac, updated_at')
         .in('id', noteIds)
         .eq('deleted', false)
+      if (myGen !== loadGenRef.current) return
       setNotes((noteRows ?? []).map((r) => ({ ...r, itemRowId: noteItems.find((i) => i.item_id === r.id)?.id ?? '' })))
     } else {
       setNotes([])
     }
+    if (myGen !== loadGenRef.current) return
 
     // Each type's item_id matches exactly what that type's own detail
     // screen passes as FolderPicker's itemId (section_number/paragraph_
@@ -319,6 +336,7 @@ export default function SharedFolderDetail() {
     // diverge (document_number holds the display term, acId the real slug).
     const hlRoute = (base: string, h: { acId?: string; blockText?: string }) =>
       `${base}/${h.acId}${h.blockText ? `?hl=${encodeURIComponent(h.blockText)}` : ''}`
+    if (myGen !== loadGenRef.current) return
     setRegs([
       ...(farRows.data ?? []).map((r: any): RegRow => ({ id: r.section_number, itemRowId: rowIdFor(farItems, r.section_number), regType: 'far', label: `§ ${r.section_number}`, title: r.title, route: `/far/${r.section_number}` })),
       ...(aimRows.data ?? []).map((r: any): RegRow => ({ id: r.paragraph_number, itemRowId: rowIdFor(aimItems, r.paragraph_number), regType: 'aim', label: r.paragraph_number, title: r.title ?? '', route: `/aim/${r.paragraph_number}` })),

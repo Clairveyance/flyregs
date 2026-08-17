@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Modal, Share, KeyboardAvoidingView, Platform, Keyboard } from 'react-native'
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Modal, Share, KeyboardAvoidingView, Platform, Keyboard, AppState } from 'react-native'
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
@@ -27,7 +27,7 @@ import {
 } from '@/lib/adNotifications'
 import {
   getMyAircraftRole, getAircraftCollaborators, removeCollaborator, leaveSharedAircraft,
-  inviteCollaboratorByCallsign, buildAircraftShareLink, getOrCreateShareLink,
+  inviteCollaboratorByCallsign, buildAircraftShareLink, getOrCreateShareLink, useAircraftRealtime,
   type CollaboratorRole, type AircraftCollaborator, type FleetRole,
 } from '@/lib/aircraftSharing'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
@@ -251,6 +251,20 @@ export default function AircraftDetailScreen() {
   // navigate away and back, which reads as the roster silently not
   // updating even though the join genuinely succeeded server-side.
   useFocusEffect(useCallback(() => { load() }, [load]))
+
+  // This screen had ONLY the useFocusEffect above -- no AppState listener,
+  // no realtime subscription -- found by a QA sweep testing the same class
+  // of issue RC raised for shared folders (immediate r/w-access-change
+  // propagation). Same two-part fix as both folder screens got earlier:
+  // foreground refresh here, live push via useAircraftRealtime below.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') load()
+    })
+    return () => sub.remove()
+  }, [load])
+
+  useAircraftRealtime(typeof id === 'string' ? id : undefined, load)
 
   const isOwner = role === 'owner'
   const canEdit = role === 'owner' || role === 'editor'

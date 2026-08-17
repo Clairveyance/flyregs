@@ -191,8 +191,16 @@ export async function deleteFolder(id: string): Promise<void> {
     AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(folders.filter((f) => f.id !== id))),
     AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(items.filter((i) => i.folder_id !== id))),
   ])
-  syncPushFolderDelete(id)
-  syncPushFolderItemDeletes(itemsInFolder.map((i) => i.id))
+  // force: folder.shared -- same reasoning as handleSaveNote's own
+  // syncPushNote(updated, folder?.shared ?? false): syncPushFolderDelete had
+  // NO force param at all until now, so deleting a shared folder with the
+  // owner's OWN Back-up & Sync toggle off silently left synced_folders.deleted
+  // false forever (confirmed live: folder/items/notes all orphaned in the
+  // cloud DB, never cleaned up), even though the collaborator correctly lost
+  // access via unshareFolder below. Found by tonight's QA sweep.
+  const deletedFolder = folders.find((f) => f.id === id)
+  syncPushFolderDelete(id, deletedFolder?.shared ?? false)
+  syncPushFolderItemDeletes(itemsInFolder.map((i) => i.id), deletedFolder?.shared ?? false)
   // Deleting a folder should also drop anyone it was shared with -- otherwise
   // stale folder_collaborators rows linger forever with no owning folder,
   // and has_folder_access() would keep granting a departed collaborator

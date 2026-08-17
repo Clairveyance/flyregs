@@ -119,8 +119,8 @@ export async function syncPushFolder(f: Folder, force = false) {
   reportSyncError('folder upsert', error)
 }
 
-export async function syncPushFolderDelete(id: string) {
-  const userId = await currentUserId()
+export async function syncPushFolderDelete(id: string, force = false) {
+  const userId = await currentUserId(force)
   if (!userId) return
   const { error } = await supabase
     .from('synced_folders')

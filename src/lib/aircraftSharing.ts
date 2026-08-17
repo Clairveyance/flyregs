@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 
 // Fleet aircraft sharing -- viewer/editor collaborators. Mirrors
@@ -299,4 +300,40 @@ export async function getMyAircraftRole(aircraftId: string): Promise<Collaborato
     .maybeSingle()
   if (error) throw error
   return (data?.role as CollaboratorRole) ?? null
+}
+
+// Same gap, same fix as sharedFolders.ts's useFolderRealtime: this screen
+// had ONLY useFocusEffect (screen-focus refresh) -- an owner who shares an
+// aircraft and stays on this same screen never saw a collaborator's
+// acceptance, an access-level change, or a reminder/AD update land until
+// they navigated away and back. user_aircraft_equipment/reminders have no
+// aircraft_id column (they FK through user_aircraft_id), so those two are
+// subscribed unfiltered -- same tradeoff useFolderRealtime already accepts
+// for synced_notes: RLS still authorizes each event per-row, so a
+// completely unrelated aircraft's item change just costs one harmless extra
+// reload of an already-open screen. Debounced so a burst of changes
+// triggers one reload, not several.
+export function useAircraftRealtime(aircraftId: string | undefined, onChange: () => void): void {
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+
+  useEffect(() => {
+    if (!aircraftId) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const debounced = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => onChangeRef.current(), 400)
+    }
+    const channel = supabase
+      .channel(`aircraft-realtime-${aircraftId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'aircraft_collaborators', filter: `aircraft_id=eq.${aircraftId}` }, debounced)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_aircraft', filter: `id=eq.${aircraftId}` }, debounced)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_aircraft_equipment' }, debounced)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_aircraft_reminders' }, debounced)
+      .subscribe()
+    return () => {
+      if (timer) clearTimeout(timer)
+      supabase.removeChannel(channel)
+    }
+  }, [aircraftId])
 }
