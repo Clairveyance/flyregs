@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import * as Sentry from '@sentry/react-native'
-import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Platform, RefreshControl, Modal, KeyboardAvoidingView, ActivityIndicator, Keyboard } from 'react-native'
+import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Platform, RefreshControl, Modal, KeyboardAvoidingView, ActivityIndicator, Keyboard, AppState } from 'react-native'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import * as Clipboard from 'expo-clipboard'
@@ -210,6 +210,24 @@ export default function FolderDetail() {
   // edit (item add/remove, note create/edit) while this screen is already
   // open, not just on the next focus.
   useFolderRealtime(typeof id === 'string' ? id : undefined, load)
+
+  // RC real-device report 2026-08-16: "massive delay" seeing a collaborator's
+  // edits, sometimes indefinitely. useFocusEffect only fires on REACT
+  // NAVIGATION focus, never on the OS backgrounding/foregrounding the whole
+  // app -- a real phone gets locked/backgrounded constantly while this
+  // screen stays the topmost route, so it never unfocuses/refocuses in the
+  // navigation sense. The websocket the realtime hook above depends on also
+  // doesn't reliably survive iOS suspending the app (confirmed: this app had
+  // zero AppState-driven refresh anywhere, see saved.tsx's own comment on
+  // that gap for entitlements). Belt-and-suspenders: force a fresh pull the
+  // moment the app comes back to the foreground, regardless of whether the
+  // realtime socket reconnected cleanly on its own.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') load()
+    })
+    return () => sub.remove()
+  }, [load])
 
   useEffect(() => {
     // AC-only -- advisory_circulars.id is a uuid column, and a FAR/AIM/P-CG/AD
@@ -610,7 +628,17 @@ export default function FolderDetail() {
       // bare unhandled rejection with zero visibility.
       updateSharedNote(updated.id, { title: updated.title, body: updated.body }).catch((err) => Sentry.captureException(err))
     } else {
-      syncPushNote(updated)
+      // force = folder?.shared, matching addManyToFolder/removeFromFolder's
+      // own convention (folders.ts) -- this note lives inside a folder a
+      // collaborator may be reading right now, so its edit has to reach the
+      // cloud regardless of whether the owner's personal, unrelated
+      // Back-up & Sync toggle happens to be on. Bare syncPushNote(updated)
+      // silently no-ops when that toggle is off (currentUserId's
+      // `!force && !isSyncEnabled()` check in syncPush.ts) -- real bug found
+      // 2026-08-16: an owner's own edits to their own notes inside a shared
+      // folder never reached collaborators at all, permanently, not just
+      // delayed, unless Back-up & Sync happened to already be on.
+      syncPushNote(updated, folder?.shared ?? false)
     }
     setEditorNote(null)
   }
@@ -1127,7 +1155,19 @@ function SwipeableACRow({
         >
           <View style={[styles.typeBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}>
             <Text style={[styles.typeBadgeText, { color: tokens.blu, fontSize: fs(9.5) }]}>
-              {REG_TYPE[bookmarkItemType(item) as RegType].label}
+              {/* Optional-chained, not a bare index -- this exact "new
+                  content type ships, one lookup table doesn't get the new
+                  key" gap has broken shared-folder rendering twice before
+                  (dictionary, then cfr49; see getSharedFolderDictionaryItems'
+                  and getSharedFolderCfr49Items' own comments in
+                  sharedFolders.ts). An unmapped type here used to throw
+                  synchronously mid-render (Cannot read 'label' of
+                  undefined) instead of just rendering blank -- investigated
+                  2026-08-16 as a lead for 3 unexplained real-device
+                  RCTFatal crashes opening a folder; not proven as their
+                  cause (no Sentry stack trace landed to confirm), but this
+                  exact shape is a real, live crash risk regardless. */}
+              {REG_TYPE[bookmarkItemType(item) as RegType]?.label ?? ''}
             </Text>
           </View>
           <View style={styles.rowBody}>

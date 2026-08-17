@@ -84,8 +84,14 @@ async function ensureFolderPushed(folderId: string): Promise<void> {
 
   await syncPushFolder(folder, true)
   // Excludes authorId-tagged items (a past collaborator's items already
-  // pulled into this folder's local cache) -- see FolderItem.authorId.
-  const ownItems = items.filter((i) => !i.authorId)
+  // pulled into this folder's local cache -- see FolderItem.authorId) and
+  // seed notes (fake placeholder content every fresh install starts with --
+  // see addExistingItemToSharedFolder's SEED_NOTE_NOT_SHAREABLE guard below,
+  // which this bulk path never went through, real gap found 2026-08-16: a
+  // seed note filed in a folder before it was ever shared got its pointer
+  // force-pushed here regardless, silently handing a real collaborator a
+  // dangling reference to a note whose content never leaves the device).
+  const ownItems = items.filter((i) => !i.authorId && !(i.item_type === 'note' && isSeedNote(i.item_id)))
   if (ownItems.length) await syncPushFolderItems(ownItems, true)
   const noteMap = new Map(notes.map((n) => [n.id, n]))
   const noteItems = ownItems.filter((i) => i.item_type === 'note').map((i) => noteMap.get(i.item_id))
@@ -96,6 +102,23 @@ async function ensureFolderPushed(folderId: string): Promise<void> {
   )
 }
 
+// Real data-loss bug found 2026-08-16 (RC, real device: shared a folder,
+// added AC/FAR items right before sending, receiver got the notes but none
+// of the regulations): this used to return the EXISTING share_token
+// immediately, skipping ensureFolderPushed entirely, whenever the folder had
+// already been shared once before. ensureFolderPushed only runs at
+// getOrCreateShareLink-time, not continuously -- addManyToFolder/
+// removeFromFolder (folders.ts) force-push new items past the personal
+// Back-up & Sync toggle ONLY once folder.shared is true, which doesn't flip
+// true until confirmFolderShared actually runs (see that function's own
+// comment for why -- From Me visibility depends on it). Anything the owner
+// added between tapping Invite and completing the native share sheet (or a
+// SECOND invite of an already-shared folder, inviting person #2) landed in
+// that exact gap: added while folder.shared was still false, then never
+// re-synced because this early return meant ensureFolderPushed never ran
+// again. Now runs on every call, not just the first -- cheap (a handful of
+// idempotent upserts) and closes the gap for every invite path, not just
+// first-share.
 export async function getOrCreateShareLink(folderId: string): Promise<{ link: string; token: string }> {
   const { data: existing } = await supabase
     .from('synced_folders')
@@ -103,9 +126,9 @@ export async function getOrCreateShareLink(folderId: string): Promise<{ link: st
     .eq('id', folderId)
     .maybeSingle()
 
-  if (existing?.share_token) return { link: buildShareLink(existing.share_token), token: existing.share_token }
-
   await ensureFolderPushed(folderId)
+
+  if (existing?.share_token) return { link: buildShareLink(existing.share_token), token: existing.share_token }
 
   const token = makeShareToken()
   return { link: buildShareLink(token), token }
@@ -117,7 +140,15 @@ export async function getOrCreateShareLink(folderId: string): Promise<{ link: st
 // folders.ts's markFolderShared). Safe to call more than once with the same
 // token (e.g. a folder that was already shared before this call) -- it's
 // just re-setting the same value.
+//
+// Re-runs ensureFolderPushed one more time here too, not just from
+// getOrCreateShareLink -- closes the remaining window between minting the
+// link (getOrCreateShareLink) and the send actually completing (this call,
+// which can be seconds to minutes later for the native-share-sheet path):
+// anything added to the folder while that sheet was open is caught by this
+// second pass instead of being silently stranded local-only forever.
 export async function confirmFolderShared(folderId: string, token: string): Promise<void> {
+  await ensureFolderPushed(folderId)
   await markFolderShared(folderId)
   const { error } = await supabase.from('synced_folders').update({ share_token: token }).eq('id', folderId)
   if (error) throw error

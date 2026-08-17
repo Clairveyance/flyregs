@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, Modal, ScrollView, TextInput, RefreshControl, KeyboardAvoidingView, Platform } from 'react-native'
+import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, Modal, ScrollView, TextInput, RefreshControl, KeyboardAvoidingView, Platform, AppState } from 'react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -344,6 +344,20 @@ export default function SharedFolderDetail() {
   // (or another collaborator's) while this screen is already open, not
   // just on the next focus.
   useFolderRealtime(typeof id === 'string' ? id : undefined, load)
+
+  // Bug #5, RC real-device report 2026-08-16: "if the owner edits ... the
+  // receiver can't see" it. Same fix/reasoning as the owner's own
+  // folder/[id].tsx: useFocusEffect only fires on REACT NAVIGATION focus,
+  // never on the OS backgrounding/foregrounding the app while this stays
+  // the topmost route, and this app had zero AppState-driven data refresh
+  // anywhere. Force a fresh pull on foreground regardless of whether the
+  // realtime socket above reconnected cleanly on its own.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') load()
+    })
+    return () => sub.remove()
+  }, [load])
 
   // Clears the unread dot in Saved > Shared > With Me the moment the
   // collaborator actually opens this folder -- fire-and-forget, not

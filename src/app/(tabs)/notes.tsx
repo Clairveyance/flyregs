@@ -12,7 +12,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { Icon } from '@/components/Icon'
 import { FolderPicker } from '@/components/FolderPicker'
 import { FolderSelectSheet } from '@/components/FolderSelectSheet'
-import { addManyToFolder, getFolders, removeItemsFromAllFolders } from '@/lib/folders'
+import { addManyToFolder, getFolders, getFoldersForItem, removeItemsFromAllFolders } from '@/lib/folders'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions } from '@/lib/share'
 import { getNotes, saveNotes, makeNoteId, type Note } from '@/lib/notes'
@@ -150,7 +150,20 @@ export default function NotesScreen() {
       // exact same silent-data-loss shape this fix exists to close.
       updateSharedNote(saved.id, { title: saved.title, body: saved.body }).catch((err) => Sentry.captureException(err))
     } else {
-      syncPushNote(saved)
+      // force-push past the personal Back-up & Sync toggle if this note is
+      // filed in a folder that's actually been shared -- same fix/reasoning
+      // as folder/[id].tsx's own handleSaveNote (2026-08-16 real-device
+      // report): editing a note from THIS tab is just as reachable as
+      // editing it from inside the shared folder itself, and a collaborator
+      // needs the edit either way regardless of the owner's unrelated
+      // global sync preference. Bare syncPushNote(saved) silently no-ops
+      // when that toggle is off.
+      getFoldersForItem('note', saved.id).then(async (folderIds) => {
+        if (!folderIds.length) return syncPushNote(saved)
+        const folders = await getFolders()
+        const inSharedFolder = folderIds.some((fid) => folders.find((f) => f.id === fid)?.shared)
+        syncPushNote(saved, inSharedFolder)
+      })
     }
     setEditorNote(null)
   }
