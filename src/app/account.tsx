@@ -40,6 +40,7 @@ import {
 import { getMyRatings, addRating, removeRating, RATING_CODES, RATING_LABELS, RATING_SHORT_LABELS, RATING_GROUPS, RatingCode } from '@/lib/profileRatings'
 import { getLeaderboardOptIn, setLeaderboardOptIn } from '@/lib/leaderboard'
 import { getFleetSummary } from '@/lib/aircraftSharing'
+import { getMyPhoneNumber, setMyPhoneNumber } from '@/lib/contactMatch'
 
 // iPad: My Fleet's 3rd-pane width, resizable via a drag handle on its
 // leading edge -- same persistence pattern as the drawer's own railWidth in
@@ -218,6 +219,38 @@ export default function AccountScreen() {
       confirm({ title: 'Could not save callsign', message: 'Try again in a moment.', cancelLabel: null })
     }
     setCallsignSaving(false)
+  }
+
+  // Phone Number -- optional, matching-only field for Find Friends' contact
+  // discovery (RC: "let's do the phone addition your way. make it optional
+  // and prompt it contextually"). Never shown to anyone else -- only hashed
+  // and compared against the CALLER's own device contacts (see
+  // contactMatch.ts / sync/migrations_contact_match_phone.sql), same
+  // privacy shape as the existing email match. Unlike Callsign, no
+  // uniqueness reservation is needed (nothing else reads this value), so a
+  // plain updateUser() write is the whole save path.
+  const existingPhone = getMyPhoneNumber(session) ?? ''
+  const [phoneInput, setPhoneInput] = useState(existingPhone)
+  const [phoneSaving, setPhoneSaving] = useState(false)
+  const [phoneDirty, setPhoneDirty] = useState(false)
+
+  useEffect(() => {
+    if (!phoneDirty) setPhoneInput(existingPhone)
+  }, [existingPhone])
+
+  const handleSavePhone = async () => {
+    if (phoneSaving) return
+    const trimmed = phoneInput.trim().slice(0, 30)
+    setPhoneSaving(true)
+    try {
+      await setMyPhoneNumber(trimmed || null)
+      setPhoneInput(trimmed)
+      setPhoneDirty(false)
+    } catch (err: any) {
+      Sentry.captureException(err)
+      confirm({ title: 'Could not save phone number', message: 'Try again in a moment.', cancelLabel: null })
+    }
+    setPhoneSaving(false)
   }
 
   // AC update alerts moved from Premium to Pro in the pricing pivot -- see
@@ -765,6 +798,42 @@ export default function AccountScreen() {
           {callsignError ? (
             <Text style={[styles.fieldError, { color: tokens.red, fontSize: fs(12.5) }]}>{callsignError}</Text>
           ) : null}
+
+          <View style={{ marginTop: 14, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.bdr }}>
+            <View style={styles.callsignLabelRow}>
+              <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>Phone Number</Text>
+              <InfoPopup
+                id="account-phone-number"
+                title="Phone Number"
+                body="Optional, and never shown to anyone. Only used to help friends who already have your number saved find you in Find Friends -- the same privacy-preserving match already used for email, just matched against phone numbers too."
+                iconSize={fs(15)}
+              />
+            </View>
+            <View style={styles.handleInputRow}>
+              <TextInput
+                style={[styles.handleInput, { color: tokens.t1, borderColor: tokens.bdr, backgroundColor: tokens.bg, fontSize: ifs(14.5) }]}
+                value={phoneInput}
+                onChangeText={(v) => { setPhoneInput(v); setPhoneDirty(true) }}
+                placeholder="e.g. (555) 123-4567"
+                placeholderTextColor={tokens.t4}
+                maxLength={30}
+                keyboardType="phone-pad"
+                returnKeyType="done"
+                onSubmitEditing={handleSavePhone}
+              />
+              {phoneSaving ? (
+                <ActivityIndicator size="small" color={tokens.t3} style={styles.handleSaveBtn} />
+              ) : (
+                <Pressable
+                  style={[styles.handleSaveBtn, { backgroundColor: phoneDirty ? tokens.blu : tokens.bg4 }]}
+                  onPress={handleSavePhone}
+                  disabled={!phoneDirty}
+                >
+                  <Text style={[styles.handleSaveBtnText, { fontSize: fs(13) }]}>Save</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
 
           {/* Ratings live on Community > Profile, not here. They are a
               profile/bragging concept shown to other pilots, and having the

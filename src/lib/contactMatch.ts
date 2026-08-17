@@ -1,17 +1,25 @@
+import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 
 // Core layer for RC's approved contact/invite feature -- see
-// sync/migrations_contact_match.sql for the server side and why phone
-// matching isn't wired up yet (no phone numbers on file, email-only auth).
-// Same privacy shape as WhatsApp/Signal contact discovery: hash locally,
-// send only hashes, get back only the matched user's already-public
-// callsign -- raw contact emails never leave the device, and the
-// searcher's own contact list is never visible to anyone else, including
-// the matched user.
+// sync/migrations_contact_match.sql for the server side (email) and
+// sync/migrations_contact_match_phone.sql (phone, added later -- RC:
+// "let's do the phone addition your way. make it optional and prompt it
+// contextually", after this file's own empty-address-book self-diagnosis
+// below proved out: most real phone contacts have a number saved, not an
+// email). Same privacy shape as WhatsApp/Signal contact discovery: hash
+// locally, send only hashes, get back only the matched user's already-
+// public callsign -- raw contact emails/phones never leave the device, and
+// the searcher's own contact list is never visible to anyone else,
+// including the matched user. Phone is NOT auth -- this app stays
+// email/magic-link only -- just an optional, unverified matching-only
+// field in user_metadata, same trust model as an unverified device
+// contact's own saved number.
 export interface DeviceContact {
   id: string
   name: string
   emails: string[]
+  phones: string[]
 }
 
 // expo-contacts/expo-crypto are dynamically imported (not top-level) --
@@ -35,6 +43,34 @@ async function hashEmail(email: string): Promise<string> {
     email.trim().toLowerCase(),
     { encoding: Crypto.CryptoEncoding.HEX }
   )
+}
+
+// MUST exactly match public.normalize_phone in
+// migrations_contact_match_phone.sql, or a real match will silently never
+// hash-equal -- strips everything but digits, and assumes a bare 10-digit
+// number is a US number missing its country code.
+export function normalizePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '')
+  return digits.length === 10 ? `1${digits}` : digits
+}
+
+async function hashPhone(phone: string): Promise<string> {
+  const Crypto = await import('expo-crypto')
+  return Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    normalizePhone(phone),
+    { encoding: Crypto.CryptoEncoding.HEX }
+  )
+}
+
+export function getMyPhoneNumber(session: Session | null): string | null {
+  return (session?.user?.user_metadata as { phone_number?: string } | undefined)?.phone_number ?? null
+}
+
+export async function setMyPhoneNumber(phone: string | null): Promise<void> {
+  const trimmed = phone?.trim() || null
+  const { error } = await supabase.auth.updateUser({ data: { phone_number: trimmed } })
+  if (error) throw error
 }
 
 export interface ContactsPermissionResult {
@@ -70,7 +106,7 @@ export async function presentContactsAccessPicker(): Promise<void> {
 export async function getDeviceContacts(): Promise<DeviceContact[]> {
   const Contacts = await import('expo-contacts')
   const data = await Contacts.Contact.getAllDetails(
-    [Contacts.ContactField.FULL_NAME, Contacts.ContactField.EMAILS],
+    [Contacts.ContactField.FULL_NAME, Contacts.ContactField.EMAILS, Contacts.ContactField.PHONES],
     { sortOrder: Contacts.ContactsSortOrder.GivenName },
   )
   return (data as any[])
@@ -79,6 +115,7 @@ export async function getDeviceContacts(): Promise<DeviceContact[]> {
       id: (c.id as string) ?? c.fullName!,
       name: c.fullName as string,
       emails: ((c.emails ?? []) as { address?: string }[]).map((e) => e.address).filter((e): e is string => !!e),
+      phones: ((c.phones ?? []) as { number?: string }[]).map((p) => p.number).filter((n): n is string => !!n),
     }))
 }
 
@@ -90,26 +127,58 @@ export async function getDeviceContacts(): Promise<DeviceContact[]> {
 // being able to show an unattributed pile of matches.
 export async function matchContactsToCallsigns(contacts: DeviceContact[]): Promise<Map<string, string>> {
   const emailToContactId = new Map<string, string>()
+  const phoneToContactId = new Map<string, string>()
   for (const c of contacts) {
     for (const e of c.emails) {
       if (!emailToContactId.has(e)) emailToContactId.set(e, c.id)
     }
+    for (const p of c.phones) {
+      if (!phoneToContactId.has(p)) phoneToContactId.set(p, c.id)
+    }
   }
   const emails = [...emailToContactId.keys()]
+  const phones = [...phoneToContactId.keys()]
   const result = new Map<string, string>()
-  if (emails.length === 0) return result
+  if (emails.length === 0 && phones.length === 0) return result
 
   const hashToEmail = new Map<string, string>()
-  const hashes = await Promise.all(emails.map(async (e) => {
-    const h = await hashEmail(e)
-    hashToEmail.set(h, e)
-    return h
-  }))
-  const { data, error } = await supabase.rpc('match_contacts_by_email', { p_email_hashes: hashes })
-  if (error) throw error
-  for (const row of (data ?? []) as { email_hash: string; callsign: string }[]) {
+  const hashToPhone = new Map<string, string>()
+  const [emailHashes, phoneHashes] = await Promise.all([
+    Promise.all(emails.map(async (e) => {
+      const h = await hashEmail(e)
+      hashToEmail.set(h, e)
+      return h
+    })),
+    Promise.all(phones.map(async (p) => {
+      const h = await hashPhone(p)
+      hashToPhone.set(h, p)
+      return h
+    })),
+  ])
+
+  const [emailResult, phoneResult] = await Promise.all([
+    emailHashes.length
+      ? supabase.rpc('match_contacts_by_email', { p_email_hashes: emailHashes })
+      : Promise.resolve({ data: [] as { email_hash: string; callsign: string }[], error: null }),
+    phoneHashes.length
+      ? supabase.rpc('match_contacts_by_phone', { p_phone_hashes: phoneHashes })
+      : Promise.resolve({ data: [] as { phone_hash: string; callsign: string }[], error: null }),
+  ])
+  if (emailResult.error) throw emailResult.error
+  if (phoneResult.error) throw phoneResult.error
+
+  for (const row of (emailResult.data ?? []) as { email_hash: string; callsign: string }[]) {
     const email = hashToEmail.get(row.email_hash)
     const contactId = email ? emailToContactId.get(email) : undefined
+    if (contactId) result.set(contactId, row.callsign)
+  }
+  // Applied second -- most real address books have a number saved for
+  // someone, not an email (this file's own original motivation for adding
+  // phone matching at all), so a phone match is the more likely-correct
+  // signal if a contact's entries somehow matched on both.
+  for (const row of (phoneResult.data ?? []) as { phone_hash: string; callsign: string }[]) {
+    const phone = hashToPhone.get(row.phone_hash)
+    const contactId = phone ? phoneToContactId.get(phone) : undefined
     if (contactId) result.set(contactId, row.callsign)
   }
   return result

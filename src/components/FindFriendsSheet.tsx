@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { View, Text, Modal, Pressable, TextInput, SectionList, FlatList, StyleSheet, ActivityIndicator, Platform, Share } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
+import { useAuth } from '@/context/auth'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
-import { getDeviceContacts, matchContactsToCallsigns, requestContactsPermission, presentContactsAccessPicker, resolveCallsignToUserId, getVisibleUsers, DeviceContact, VisibleUser } from '@/lib/contactMatch'
+import { getDeviceContacts, matchContactsToCallsigns, requestContactsPermission, presentContactsAccessPicker, resolveCallsignToUserId, getVisibleUsers, getMyPhoneNumber, setMyPhoneNumber, DeviceContact, VisibleUser } from '@/lib/contactMatch'
 import { APP_NAME, APP_STORE_URL } from '@/lib/appInfo'
+
+const PHONE_PROMPT_DISMISSED_KEY = '@flyregs/phone-prompt-dismissed'
 
 // RC: "build out the rest of the contact/invite path, RR, etc." -- the UI
 // layer for src/lib/contactMatch.ts's core (privacy-preserving contact
@@ -52,9 +56,41 @@ export function FindFriendsPickerBody({
   onSelect: (callsign: string) => void
 }) {
   const { tokens } = useTheme()
+  const { session } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
   const [state, setState] = useState<'loading' | 'denied' | 'error' | 'ready'>('loading')
+  // Contextual phone-number prompt (RC: "let's do the phone addition your
+  // way. make it optional and prompt it contextually") -- this screen is
+  // exactly the moment a missing phone number matters most, since most
+  // real address books have a number saved for someone, not an email (this
+  // file's own header comment already diagnosed that as the root reason
+  // email-only matching under-delivers). Shown once per account until
+  // either a number is added (the session-level check below then hides it
+  // permanently) or the user explicitly dismisses it.
+  const [phoneNumber, setPhoneNumber] = useState('')
+  const [phoneBannerSaving, setPhoneBannerSaving] = useState(false)
+  const [phoneBannerDismissed, setPhoneBannerDismissed] = useState(true)
+  useEffect(() => {
+    AsyncStorage.getItem(PHONE_PROMPT_DISMISSED_KEY).then((v) => setPhoneBannerDismissed(v === 'true'))
+  }, [])
+  const showPhoneBanner = !getMyPhoneNumber(session) && !phoneBannerDismissed
+  const dismissPhoneBanner = () => {
+    setPhoneBannerDismissed(true)
+    AsyncStorage.setItem(PHONE_PROMPT_DISMISSED_KEY, 'true').catch(() => {})
+  }
+  const savePhoneFromBanner = async () => {
+    const trimmed = phoneNumber.trim()
+    if (!trimmed || phoneBannerSaving) return
+    setPhoneBannerSaving(true)
+    try {
+      await setMyPhoneNumber(trimmed)
+    } catch {
+      // Best-effort -- this is a convenience prompt, not a blocking step;
+      // the same field is always reachable from Account if this fails.
+    }
+    setPhoneBannerSaving(false)
+  }
   const [contacts, setContacts] = useState<DeviceContact[]>([])
   const [matched, setMatched] = useState<Map<string, string>>(new Map())
   const [query, setQuery] = useState('')
@@ -193,6 +229,41 @@ export function FindFriendsPickerBody({
         <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16) }]}>Find Friends</Text>
         <View style={{ width: 50 }} />
       </View>
+
+      {showPhoneBanner && (
+        <View style={[styles.phoneBanner, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+            <Icon name="iphone" size={fs(16)} color={tokens.blu} style={{ marginTop: 1 }} />
+            <Text style={[styles.phoneBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
+              Add your phone number so more of your contacts can find you -- most people save a number, not an email.
+            </Text>
+            <Pressable onPress={dismissPhoneBanner} hitSlop={10}>
+              <Icon name="xmark" size={fs(14)} color={tokens.t3} />
+            </Pressable>
+          </View>
+          <View style={[styles.phoneBannerInputRow, { marginTop: 8 }]}>
+            <TextInput
+              value={phoneNumber}
+              onChangeText={setPhoneNumber}
+              placeholder="e.g. (555) 123-4567"
+              placeholderTextColor={tokens.t4}
+              keyboardType="phone-pad"
+              style={[styles.searchInput, { color: tokens.t1, borderColor: tokens.bdr, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: ifs(13.5) }]}
+            />
+            {phoneBannerSaving ? (
+              <ActivityIndicator size="small" color={tokens.t3} />
+            ) : (
+              <Pressable
+                style={[styles.phoneBannerAddBtn, { backgroundColor: phoneNumber.trim() ? tokens.blu : tokens.bg4 }]}
+                onPress={savePhoneFromBanner}
+                disabled={!phoneNumber.trim()}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: fs(13) }}>Add</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      )}
 
       {state !== 'loading' && (
         <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
@@ -411,6 +482,10 @@ const styles = StyleSheet.create({
   emptySub: { textAlign: 'center' },
   searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginTop: 12, marginBottom: 6, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, borderWidth: 1 },
   searchInput: { flex: 1, padding: 0 },
+  phoneBanner: { marginHorizontal: 14, marginTop: 12, padding: 12, borderRadius: 10, borderWidth: 1 },
+  phoneBannerText: { flex: 1, lineHeight: 17 },
+  phoneBannerInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  phoneBannerAddBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
   groupLabel: { fontWeight: '600', letterSpacing: 0.5, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 11 },
   avatar: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
