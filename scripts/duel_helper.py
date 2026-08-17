@@ -110,9 +110,13 @@ if __name__ == "__main__":
             if not rows:
                 break
             q = rows[0]
-            st, cq = http("GET", f"/rest/v1/challenge_questions?id=eq.{q['question_id']}&select=item_id",
+            # correct_answer, not item_id -- an authored question's real
+            # answer can be totally different text from item_id (e.g.
+            # item_id "91.815" answered by "Part 36"). See duel_e2e_test.py's
+            # play() for how this silently picked wrong answers before.
+            st, cq = http("GET", f"/rest/v1/challenge_questions?id=eq.{q['question_id']}&select=item_id,correct_answer",
                           key=SERVICE)
-            right = cq[0]["item_id"]
+            right = cq[0]["correct_answer"] or cq[0]["item_id"]
             want_right = mode == "right" or (mode == "mixed" and i % 2 == 0)
             pick = right if want_right else next((c for c in q["choices"] if c != right), right)
             r = rpc("submit_challenge_answer", jwt, {

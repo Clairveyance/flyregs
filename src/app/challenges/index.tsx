@@ -677,7 +677,12 @@ function ChallengeRow({
       onDelete={() => onDelete(item)}
       onPress={() => {
         if (consumeLongPress()) return
-        if (!isPendingForMe) router.push(`/challenges/${item.challengeId}` as any)
+        // navigate, not push -- see _layout.tsx's notification handler for
+        // why stacking a second instance of the same duel screen is the root
+        // cause of "the question changed when I came back" (same duel
+        // screen already open deeper in this tab's stack reuses it instead
+        // of a fresh, potentially-divergent instance on top).
+        if (!isPendingForMe) router.navigate(`/challenges/${item.challengeId}` as any)
       }}
       onLongPress={(e) => showPreview(othersLabel, e)}
       onPressOut={hidePreview}

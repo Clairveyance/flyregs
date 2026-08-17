@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -285,6 +285,19 @@ export default function ChallengeGameScreen() {
     // same beat as the reveal appearing, so a reflexive double-tap can't
     // skip past it before it was ever visible.
     if (Date.now() - revealedAt.current < 600) return
+    // RC, real duel test, round 2: the 600ms double-tap guard above fixed
+    // ONE way the reveal could be skipped, but not this -- a normal,
+    // deliberate single tap on NEXT QUESTION still produced "a weird flash
+    // of some information too fast to read." Root cause: this cleared
+    // `result` synchronously while `phase` was still 'revealed' (it only
+    // changes once loadState's network round-trip resolves), so the
+    // 'revealed' branch re-rendered for that whole in-flight gap with a
+    // null result -- a red X, "Answer: undefined", "Your time: 0.0s", and
+    // "You're playing ahead" all rendered correctly per the code but wrong
+    // for the moment, then vanished the instant real data arrived. Flip to
+    // 'loading' (a plain spinner) FIRST so there's nothing stale left on
+    // screen to flash while the fetch is in flight.
+    setPhase('loading')
     setSelectedChoice(null)
     setResult(null)
     setMyTimeMs(0)
@@ -363,6 +376,17 @@ export default function ChallengeGameScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title={title} onBack={() => router.back()} />
 
+      {/* RC, real duel reports: long answer choices ran off the bottom of
+          the playing screen with no way to scroll down to them, and the
+          per-question breakdown on the results screen had the same problem
+          -- this whole body had no ScrollView at all before, so anything
+          taller than one phone screen was simply unreachable. Same
+          flexGrow-on-contentContainer pattern as study.tsx's own card
+          screen (see its scrollContent comment): short phases (loading,
+          "Ready?", the reveal screen) still center via their own flex:1
+          `center`/`playArea` styles, while tall ones (many choices, a long
+          results list) grow past the viewport and scroll. */}
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
       {challenge && phase !== 'loading' && <FilterSummary challenge={challenge} tokens={tokens} fs={fs} />}
 
       {(phase === 'ready' || phase === 'playing' || phase === 'revealed') && myStats && (
@@ -533,6 +557,7 @@ export default function ChallengeGameScreen() {
           onRematch={handleRematch}
         />
       ) : null}
+      </ScrollView>
       <CoinRevealModal coin={revealCoin} onClose={() => setRevealCoin(null)} />
     </View>
   )
@@ -696,6 +721,7 @@ function ResultsView({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  scrollContent: { flexGrow: 1, paddingBottom: 24 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
   emptyTitle: { fontWeight: '600', marginTop: 6, textAlign: 'center' },
   emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },

@@ -7,7 +7,8 @@ Creates disposable users, plays a full duel, asserts scoring/standings/stats,
 then deletes the users.
 
 Usage:  python3 scripts/duel_e2e_test.py [scenario]
-        scenarios: full (default) | premature | empty | all
+        scenarios: full (default) | premature | declined | bothwrong | group |
+                   resume | empty | deleted | all
 """
 import json
 import os
@@ -140,11 +141,22 @@ def play(u, challenge_id, *, correct, stop_after=None):
         if not q.get("choices"):
             note(f"{u['label']} question sort_order={q['sort_order']} has NO choices")
             break
-        # Determine the correct answer by asking the DB what item_id backs it.
+        # Determine the correct answer the same way submit_challenge_answer
+        # itself does: an AUTHORED question's real answer (correct_answer,
+        # denormalized from study_facts at creation time) can be completely
+        # different text from item_id -- e.g. item_id "91.815" with
+        # correct_answer "Part 36" for a "which Part sets the noise limits"
+        # fact. Falling back to bare item_id here (as this used to) picked
+        # an answer that often wasn't even among the choices for an
+        # authored question, silently corrupting "correct=True" into wrong
+        # answers and vice versa -- found live when this same mismatch (a
+        # real, correctly-behaving app RPC) made "A scored 5/5" and
+        # "correct answer is among the choices" fail in a duel that the app
+        # itself graded perfectly correctly.
         st, cq = http("GET",
-                      f"/rest/v1/challenge_questions?id=eq.{q['question_id']}&select=item_id,item_type",
+                      f"/rest/v1/challenge_questions?id=eq.{q['question_id']}&select=item_id,item_type,correct_answer",
                       key=SERVICE)
-        right = cq[0]["item_id"]
+        right = cq[0]["correct_answer"] or cq[0]["item_id"]
         if correct:
             pick = right
         else:
@@ -183,13 +195,18 @@ def scenario_full():
         })
         check("create_challenge returned an id", bool(cid), str(cid))
 
-        st, qs = http("GET", f"/rest/v1/challenge_questions?challenge_id=eq.{cid}&select=sort_order,item_type,item_id,choices&order=sort_order",
+        st, qs = http("GET", f"/rest/v1/challenge_questions?challenge_id=eq.{cid}&select=sort_order,item_type,item_id,choices,correct_answer&order=sort_order",
                       key=SERVICE)
         check("5 questions generated", len(qs) == 5, f"got {len(qs)}")
         check("every question has >1 choice", all(len(q["choices"] or []) > 1 for q in qs),
               str([len(q["choices"] or []) for q in qs]))
+        # An authored question's real answer is correct_answer, not item_id
+        # -- see play()'s own comment for why (item_id "91.815" answered by
+        # "Part 36" is a real, correctly-authored example, not a bug).
         check("correct answer is among the choices",
-              all(q["item_id"] in (q["choices"] or []) for q in qs))
+              all((q["correct_answer"] or q["item_id"]) in (q["choices"] or []) for q in qs),
+              str([(q["item_id"], q["correct_answer"], q["choices"]) for q in qs
+                   if (q["correct_answer"] or q["item_id"]) not in (q["choices"] or [])]))
         check("no duplicate choices within a question",
               all(len(set(q["choices"])) == len(q["choices"]) for q in qs),
               str([q["choices"] for q in qs if len(set(q["choices"])) != len(q["choices"])]))
@@ -445,6 +462,49 @@ def scenario_group():
             delete_user(u["id"])
 
 
+def scenario_resume():
+    # RC, build 33, real duel report: "one opponent left the app to look up
+    # the answer, and when they came back the duel had changed that
+    # question for a completely different question" at the same question
+    # NUMBER. get_next_challenge_question is the only server-side source of
+    # "the current question" -- if leaving and returning (re-fetching it
+    # fresh) ever produced different content for an unanswered position,
+    # THIS is where it would show up. Calls it repeatedly with no answer
+    # submitted in between (simulating background/foreground or a stacked
+    # navigation re-mount), then again after answering, asserting the
+    # response is byte-identical every time. It always was -- this
+    # confirms the RPC itself is deterministic; the actual fix (a duel push
+    # notification's router.push stacking a second `/challenges/[id]`
+    # instance on top of one already open, so "the duel screen" you land
+    # back on can silently be a DIFFERENT concurrent duel) is client-side,
+    # see src/app/_layout.tsx's notification handler.
+    print("\n=== SCENARIO: repeated get_next_challenge_question calls (leave + return) ===")
+    a = make_user("resumeA"); b = make_user("resumeB")
+    try:
+        opt_in(a); opt_in(b)
+        cid = rpc("create_challenge", a["jwt"], {"p_opponent_ids": [b["id"]], "p_question_count": 5})
+        rpc("respond_to_challenge", b["jwt"], {"p_challenge_id": cid, "p_accept": True})
+
+        seen = set()
+        for _ in range(8):
+            q = rpc("get_next_challenge_question", a["jwt"], {"p_challenge_id": cid})[0]
+            seen.add((q["sort_order"], q["question_id"], q["prompt"]))
+        check("next-question is stable across 8 repeated calls with no answer submitted",
+              len(seen) == 1, str(seen))
+
+        q1 = rpc("get_next_challenge_question", a["jwt"], {"p_challenge_id": cid})[0]
+        rpc("submit_challenge_answer", a["jwt"],
+            {"p_question_id": q1["question_id"], "p_answer_text": q1["choices"][0], "p_time_ms": 1000})
+        seen2 = set()
+        for _ in range(5):
+            q = rpc("get_next_challenge_question", a["jwt"], {"p_challenge_id": cid})[0]
+            seen2.add((q["sort_order"], q["question_id"]))
+        check("next-question (now Q2) is stable across repeated calls after answering Q1",
+              len(seen2) == 1 and next(iter(seen2))[0] == q1["sort_order"] + 1, str(seen2))
+    finally:
+        delete_user(a["id"]); delete_user(b["id"])
+
+
 def scenario_empty():
     print("\n=== SCENARIO: filter combination that yields few/no questions ===")
     a = make_user("empA"); b = make_user("empB")
@@ -557,6 +617,8 @@ if __name__ == "__main__":
             scenario_both_wrong()
         if which in ("group", "all"):
             scenario_group()
+        if which in ("resume", "all"):
+            scenario_resume()
         if which in ("empty", "all"):
             scenario_empty()
         if which in ("deleted", "all"):

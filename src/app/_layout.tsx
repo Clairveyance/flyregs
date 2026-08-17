@@ -90,7 +90,19 @@ function AppShell({ children }: { children: React.ReactNode }) {
       } else if (data?.type === 'word_of_day' && data.slug) {
         router.push(`/dictionary/${data.slug}` as any)
       } else if (data?.type === 'duel' && data.challengeId) {
-        router.push(`/challenges/${data.challengeId}` as any)
+        // router.push, not navigate, used to leave a SECOND `/challenges/[id]`
+        // instance stacked on top of one already open -- a duel push (invite/
+        // accept/completed) can arrive and get tapped while the player is
+        // mid-duel on ANY challenge screen, including this exact same one or
+        // a different concurrent duel. Two live instances of the same route
+        // meant "leave the duel screen, come back" could resolve to a fresh
+        // mount showing a DIFFERENT duel's current question under the same
+        // "Question N of 5" label -- reported as the duel's question
+        // "changing" on return. navigate unwinds to an already-open instance
+        // of the SAME duel (preserving its exact in-memory state, including
+        // the running timer) instead of stacking a duplicate, and still
+        // pushes normally when no matching screen exists yet.
+        router.navigate(`/challenges/${data.challengeId}` as any)
       } else if (data?.type === 'collab-invite' && data.token) {
         router.push(`/join/${data.token}` as any)
       }
