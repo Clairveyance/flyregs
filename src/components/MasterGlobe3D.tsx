@@ -20,6 +20,10 @@ import { equirectToEnvMap, loadTexture } from '@/lib/trophy3d/envMap'
 // result.
 export function MasterGlobe3D({ size = 300, backdropColor }: { size?: number; backdropColor: string }) {
   const disposed = useRef(false)
+  // See AceGem3D.tsx's matching comment on disposablesRef -- same leak
+  // (renderer/textures/geometry/PMREM env map never freed on unmount,
+  // only the animate() loop stopped), same fix.
+  const disposablesRef = useRef<{ dispose: () => void }[]>([])
   // See AceGem3D.tsx's matching comment -- same async-load blank-canvas
   // window (2 texture loads + a PMREM pass here) and same fix.
   const [ready, setReady] = useState(false)
@@ -27,6 +31,10 @@ export function MasterGlobe3D({ size = 300, backdropColor }: { size?: number; ba
   useEffect(() => {
     return () => {
       disposed.current = true
+      for (const d of disposablesRef.current) {
+        try { d.dispose() } catch { /* already-torn-down GL context, nothing left to free */ }
+      }
+      disposablesRef.current = []
     }
   }, [])
 
@@ -68,7 +76,8 @@ export function MasterGlobe3D({ size = 300, backdropColor }: { size?: number; ba
     camera.position.set(0, 0, 4.4)
 
     const envRaw = await loadTexture(require('../../assets/trophy/globe_env.png'))
-    scene.environment = equirectToEnvMap(renderer, envRaw as THREE.Texture)
+    const env = equirectToEnvMap(renderer, envRaw as THREE.Texture)
+    scene.environment = env
     // RC, round 4: "still too brown - go back to the render you made - it
     // was correct." Every value on this scene was already verbatim-matched
     // to trophy_3d.html (verified line-by-line), and the baked env texture
@@ -221,6 +230,14 @@ export function MasterGlobe3D({ size = 300, backdropColor }: { size?: number; ba
       renderer.render(scene, camera)
       gl.endFrameEXP()
     }
+
+    // See AceGem3D.tsx's matching comment.
+    disposablesRef.current = [
+      geo, mat, bumpTex, aoTex, envRaw as THREE.Texture, env,
+      { dispose: () => renderer.dispose() },
+      { dispose: () => renderer.forceContextLoss() },
+    ]
+
     if (!disposed.current) setReady(true)
     animate()
   }

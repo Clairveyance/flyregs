@@ -27,6 +27,22 @@ import { equirectToEnvMap, makeBackdropTexture, loadTexture } from '@/lib/trophy
 //    envMap.ts's makeBackdropTexture.
 export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdropColor: string }) {
   const disposed = useRef(false)
+  // RC: "app locks up / closes... during certain functions, or
+  // tapping/moving through certain parts too fast." Root cause: every
+  // popup open ran onContextCreate from scratch (renderer, 3 textures, a
+  // PMREM env map, geometry, materials, 15+ lights) but unmounting only
+  // ever stopped the animate() loop -- none of those GPU-side allocations
+  // were ever released. Three.js explicitly requires manual .dispose()
+  // calls to free GPU memory; JS garbage collection has no visibility
+  // into it. Repeatedly opening/closing this popup (exactly "tapping
+  // through" a trophy) accumulated leaked renderer/texture/geometry
+  // memory every time with nothing ever giving it back, a real match for
+  // Sentry's own WatchdogTermination ("terminated your app, possibly
+  // because it overused RAM"). disposablesRef collects everything
+  // onContextCreate creates that has a .dispose() method; the cleanup
+  // below disposes all of it, and the renderer's own GL context loss
+  // extension (forceContextLoss) releases the native backing store too.
+  const disposablesRef = useRef<{ dispose: () => void }[]>([])
   // RC, live: "what happened to the diamond? it disappeared." Root cause:
   // onContextCreate is async (3 sequential texture loads + a PMREM
   // env-map generation pass, all before the first real frame renders) and
@@ -47,6 +63,10 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
   useEffect(() => {
     return () => {
       disposed.current = true
+      for (const d of disposablesRef.current) {
+        try { d.dispose() } catch { /* already-torn-down GL context, nothing left to free */ }
+      }
+      disposablesRef.current = []
     }
   }, [])
 
@@ -348,6 +368,20 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
       renderer.render(scene, camera)
       gl.endFrameEXP()
     }
+
+    // Every GPU-side allocation this function created, for the unmount
+    // cleanup above to free -- see disposablesRef's own comment for why
+    // this exists. `forceContextLoss` (not just renderer.dispose(), which
+    // only frees the renderer's OWN internal buffers) is what actually
+    // releases the underlying GL context's resources back to the OS.
+    disposablesRef.current = [
+      geo, mat, backdrop.geometry, backdrop.material as THREE.Material, backdropTex,
+      envRaw as THREE.Texture, env, haloTex as THREE.Texture, halo.material as THREE.Material,
+      glintTex as THREE.Texture, ...glints.map((spr) => spr.material as THREE.Material),
+      { dispose: () => renderer.dispose() },
+      { dispose: () => renderer.forceContextLoss() },
+    ]
+
     // Flips the placeholder off right as the first real frame is about to
     // render -- guarded on disposed.current since the popup can close
     // (unmounting this component) while these awaits above were still in
