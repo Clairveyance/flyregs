@@ -878,6 +878,14 @@ export function useFolderRealtime(folderId: string | undefined, onChange: () => 
       .on('postgres_changes', { event: '*', schema: 'public', table: 'synced_folder_items', filter: `folder_id=eq.${folderId}` }, debounced)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'synced_notes' }, debounced)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'synced_folders', filter: `id=eq.${folderId}` }, debounced)
+      // RC: a collaborator's r/w access change (owner flips Viewer <->
+      // Editor) needs to land immediately, not just on next focus/
+      // foreground -- folder/shared/[id].tsx's load() already re-reads its
+      // own folder_collaborators row correctly, it just never got told to.
+      // users_view_own_collaborations RLS scopes delivery to a
+      // collaborator's own row, so this can't leak another collaborator's
+      // access change to someone who shouldn't see it.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'folder_collaborators', filter: `folder_id=eq.${folderId}` }, debounced)
       .subscribe()
     return () => {
       if (timer) clearTimeout(timer)

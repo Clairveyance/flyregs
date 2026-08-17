@@ -1,0 +1,16 @@
+-- RC: "double check and test and changing r/w access for a person in a
+-- shared folder has immediate response. no lags, no lost data, etc."
+--
+-- Tested live: an open folder/shared/[id].tsx screen already re-fetches the
+-- caller's own folder_collaborators.collab_mode correctly (load(), wired to
+-- useFolderRealtime's onChange), but useFolderRealtime only ever subscribed
+-- to synced_folder_items/synced_notes/synced_folders -- never
+-- folder_collaborators itself. So a mode change (Viewer <-> Editor) made
+-- while the collaborator has the folder open and foregrounded sat invisible
+-- until they navigated away and back, or backgrounded/foregrounded the app
+-- (tonight's earlier AppState fix). Adding the table to the realtime
+-- publication is the missing piece; folder_collaborators already has a
+-- primary key (folder_id, user_id) so default REPLICA IDENTITY is enough,
+-- and users_view_own_collaborations (auth.uid() = user_id) already scopes
+-- delivery to a collaborator's own row -- no RLS change needed.
+alter publication supabase_realtime add table folder_collaborators;
