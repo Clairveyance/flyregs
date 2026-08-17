@@ -37,10 +37,26 @@ async function hashEmail(email: string): Promise<string> {
   )
 }
 
-export async function requestContactsPermission(): Promise<boolean> {
+export interface ContactsPermissionResult {
+  granted: boolean
+  // iOS 18+ Limited Access: granted:true but only for a subset of contacts
+  // (possibly zero) the user explicitly picked -- see getDeviceContacts's
+  // own comment for why this matters. 'all'/'none' on older iOS/Android.
+  limited: boolean
+}
+
+export async function requestContactsPermission(): Promise<ContactsPermissionResult> {
   const Contacts = await import('expo-contacts')
-  const { status } = await Contacts.requestPermissionsAsync()
-  return status === 'granted'
+  const existing = await Contacts.getPermissionsAsync()
+  const perm = existing.granted ? existing : await Contacts.requestPermissionsAsync()
+  return { granted: perm.granted, limited: perm.accessPrivileges === 'limited' }
+}
+
+// Re-invokes iOS 18's native "Select Contacts" picker so the user can add
+// more contacts to their Limited Access grant without leaving the app.
+export async function presentContactsAccessPicker(): Promise<void> {
+  const Contacts = await import('expo-contacts')
+  await Contacts.Contact.presentAccessPicker()
 }
 
 // RC, real device: "this doesn't DO anything. This is a contact search

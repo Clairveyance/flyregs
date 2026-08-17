@@ -716,16 +716,28 @@ function ChallengeRow({
     >
       <View style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
         <Pressable
-          style={[styles.avatarDot, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}
           onPress={(e) => {
             e.stopPropagation()
+            // Group duels (2+ others) have no single person to open --
+            // the trophy stays purely decorative there, same as before.
             if (item.others.length === 1) {
               router.push(`/profile/${item.others[0].userId}?label=${encodeURIComponent(item.others[0].label)}` as any)
             }
           }}
           hitSlop={6}
         >
-          <Icon name="trophy" size={fs(14)} color={tokens.gold} />
+          {item.others.length === 1 ? (
+            <AvatarCircle
+              imageUri={item.others[0].avatarUrl}
+              presetId={item.others[0].avatarPreset}
+              fallbackLabel={item.others[0].label}
+              size={fs(34)}
+            />
+          ) : (
+            <View style={[styles.avatarDot, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}>
+              <Icon name="trophy" size={fs(14)} color={tokens.gold} />
+            </View>
+          )}
         </Pressable>
         <View style={{ flex: 1 }}>
           <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>{othersLabel}</Text>

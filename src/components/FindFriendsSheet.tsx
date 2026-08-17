@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
-import { getDeviceContacts, matchContactsToCallsigns, requestContactsPermission, resolveCallsignToUserId, getVisibleUsers, DeviceContact, VisibleUser } from '@/lib/contactMatch'
+import { getDeviceContacts, matchContactsToCallsigns, requestContactsPermission, presentContactsAccessPicker, resolveCallsignToUserId, getVisibleUsers, DeviceContact, VisibleUser } from '@/lib/contactMatch'
 import { APP_NAME, APP_STORE_URL } from '@/lib/appInfo'
 
 // RC: "build out the rest of the contact/invite path, RR, etc." -- the UI
@@ -68,6 +68,11 @@ export function FindFriendsPickerBody({
   // what failed, closes that gap AND gives a real error message to go on
   // instead of guessing at the root cause blind next time.
   const [debugError, setDebugError] = useState<string | null>(null)
+  // iOS 18+ Limited Access -- requestContactsPermission resolves granted:
+  // true even when the user only shared a few (or zero) contacts, which
+  // otherwise looks identical to "you genuinely have no contacts." See
+  // BulkInviteContactPicker.tsx's identical fix for the full mechanism.
+  const [limitedAccess, setLimitedAccess] = useState(false)
   // RC, real device: "the RR FF icon just brings up an empty box 'no
   // contacts found' and gives no options to search for or actually FIND a
   // friend." A device's contact book can legitimately come back empty (or
@@ -109,43 +114,54 @@ export function FindFriendsPickerBody({
     return () => clearTimeout(t)
   }, [manualCallsign])
 
+  const loadContacts = async () => {
+    let deviceContacts: DeviceContact[]
+    try {
+      deviceContacts = await getDeviceContacts()
+    } catch (e: any) {
+      console.warn('FindFriends: getDeviceContacts failed', e)
+      setDebugError(`contacts: ${e?.message ?? e}`)
+      setState('error')
+      return
+    }
+    setContacts(deviceContacts)
+
+    // Matching is best-effort -- a real, browsable contact list is the
+    // core of what RC asked for, so a match-lookup failure (network
+    // blip, RPC error) shouldn't hide the list itself, just leave
+    // everyone showing as "not on FlyRegs yet" for this pass.
+    try {
+      setMatched(await matchContactsToCallsigns(deviceContacts))
+    } catch (e) {
+      console.warn('FindFriends: matchContactsToCallsigns failed', e)
+      setMatched(new Map())
+    }
+    setState('ready')
+  }
+
+  const chooseMoreContacts = async () => {
+    await presentContactsAccessPicker()
+    const refreshed = await requestContactsPermission()
+    setLimitedAccess(refreshed.limited)
+    await loadContacts()
+  }
+
   useEffect(() => {
     if (Platform.OS === 'web') { setState('error'); return }
     setState('loading')
     ;(async () => {
-      let granted: boolean
+      let perm: { granted: boolean; limited: boolean }
       try {
-        granted = await requestContactsPermission()
+        perm = await requestContactsPermission()
       } catch (e: any) {
         console.warn('FindFriends: requestContactsPermission failed', e)
         setDebugError(`permission: ${e?.message ?? e}`)
         setState('error')
         return
       }
-      if (!granted) { setState('denied'); return }
-
-      let deviceContacts: DeviceContact[]
-      try {
-        deviceContacts = await getDeviceContacts()
-      } catch (e: any) {
-        console.warn('FindFriends: getDeviceContacts failed', e)
-        setDebugError(`contacts: ${e?.message ?? e}`)
-        setState('error')
-        return
-      }
-      setContacts(deviceContacts)
-
-      // Matching is best-effort -- a real, browsable contact list is the
-      // core of what RC asked for, so a match-lookup failure (network
-      // blip, RPC error) shouldn't hide the list itself, just leave
-      // everyone showing as "not on FlyRegs yet" for this pass.
-      try {
-        setMatched(await matchContactsToCallsigns(deviceContacts))
-      } catch (e) {
-        console.warn('FindFriends: matchContactsToCallsigns failed', e)
-        setMatched(new Map())
-      }
-      setState('ready')
+      if (!perm.granted) { setState('denied'); return }
+      setLimitedAccess(perm.limited)
+      await loadContacts()
     })().catch((e) => {
       console.warn('FindFriends: unexpected failure', e)
       setDebugError(String(e?.message ?? e))
@@ -281,7 +297,14 @@ export function FindFriendsPickerBody({
       {state === 'ready' && contacts.length === 0 && (
         <View style={styles.center}>
           <Icon name="person.2" size={fs(32)} color={tokens.t3} />
-          <Text style={[styles.emptyText, { color: tokens.t2, fontSize: fs(14) }]}>No contacts found.</Text>
+          <Text style={[styles.emptyText, { color: tokens.t2, fontSize: fs(14) }]}>
+            {limitedAccess ? "FlyRegs only has access to a limited set of your contacts." : 'No contacts found.'}
+          </Text>
+          {limitedAccess && (
+            <Pressable onPress={chooseMoreContacts} hitSlop={10}>
+              <Text style={{ color: tokens.blu, fontSize: fs(14), fontWeight: '600' }}>Choose More Contacts</Text>
+            </Pressable>
+          )}
         </View>
       )}
 

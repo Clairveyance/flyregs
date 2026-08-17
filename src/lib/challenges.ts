@@ -26,6 +26,8 @@ export interface ChallengeParticipant {
   label: string
   status: 'pending' | 'active' | 'declined'
   answeredCount: number
+  avatarUrl: string | null
+  avatarPreset: string | null
 }
 
 export interface MyChallenge {
@@ -225,6 +227,7 @@ export async function getMyChallenges(): Promise<MyChallenge[]> {
     ratings: r.ratings ?? null,
     others: (r.others ?? []).map((o: any) => ({
       userId: o.userId, label: o.label, status: o.status, answeredCount: o.answeredCount,
+      avatarUrl: o.avatarUrl ?? null, avatarPreset: o.avatarPreset ?? null,
     })),
   }))
 }
