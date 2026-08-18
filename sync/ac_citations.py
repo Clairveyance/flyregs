@@ -63,7 +63,13 @@ AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:/\d+)?(?:\.\d+)?[\-‐‑–]\d+[A-Za-z]*(
 AC_RE_SPELLED = re.compile(r"\bAdvisory\s+Circular\s+(?:No\.?\s*)?(\d+(?:/\d+)?(?:\.\d+)?\s*[\-‐‑–]\s*\d+[A-Za-z]*(?:\s*[\-‐‑–]\s*\d+)?)\b", re.IGNORECASE)
 FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
 AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
-AD_RE = re.compile(r"\bAD\s+(\d{4}-\d{2}-\d{2})\b")
+# Widened to match ad_citations.py's own AD_RE (optional close-paren,
+# tolerant of stray whitespace around the internal hyphens -- "AD 2022-
+# 19- 02" is a real, confirmed PDF-extraction artifact) -- this file's
+# copy had drifted narrower than the sibling that originally proved the
+# wider pattern necessary, a real corpus-wide extraction-consistency gap
+# found while auditing every citation regex for the same class of drift.
+AD_RE = re.compile(r"\bAD\)?\s*(\d{4}\s*-\s*\d{2}\s*-\s*\d{2})\b")
 PCG_RE = re.compile(r"Pilot/Controller Glossary Term-\s*([^.]+)\.")
 # See far_citations.py's identical constant -- always explicitly prefixed
 # "49 CFR" in real AC text (confirmed live: 80 real advisory_circulars rows
@@ -132,7 +138,7 @@ def extract_citations(ac: dict) -> list[dict]:
             citations.append({"citing_type": "ac", "citing_id": ac["document_number"], "cited_type": "aim", "cited_id": cited, "label": None})
 
     for m in AD_RE.finditer(text):
-        cited = _normalize_hyphens(m.group(1))
+        cited = _normalize_hyphens(re.sub(r"\s+", "", m.group(1)))
         key = ("ad", cited)
         if key not in seen:
             seen.add(key)

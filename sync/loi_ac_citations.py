@@ -47,9 +47,14 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 
-# Same AC pattern already proven in ad_citations.py and aim_far_citations.py —
-# kept identical rather than inventing a third dialect.
-AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:\.\d+)?-\d+[A-Za-z]*(?:[\-–]\d+)?)\b")
+# This file's own copy of AC_RE had drifted narrower than every sibling
+# extractor's -- missing the "(?:/\d+)?" slash-form (airport-design ACs
+# like "AC 150/5320-12") that ad_citations.py/pcg_citations.py/etc. all
+# already carry. Found while auditing every citation regex for the same
+# class of drift; confirmed real and corpus-wide, not theoretical: 2 LOIs,
+# 5 citation instances (AC 150/5390-2C, AC 150/5200-31) were silently
+# missed by this file specifically until this widening.
+AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:/\d+)?(?:\.\d+)?[\-‐‑–]\d+[A-Za-z]*(?:[\-‐‑–]\d+)?)\b")
 # The FAA also spells this out in full ("Advisory Circular No. 120-12A",
 # "Advisory Circular 20-420") instead of abbreviating to "AC" -- this is
 # the exact root cause of a real content-correction report (RC): the

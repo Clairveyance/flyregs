@@ -82,11 +82,24 @@ _DIRTY_NUM = rf"{_DIRTY_DIGIT}(?:\s*{_DIRTY_DIGIT})*"
 #   "§ 61.31 ( d)"             single symbol, space before the paragraph
 #   "Section 61.23( a)(3 )"    the spelled-out word, capitalized
 #   "section 91.209(b)"        ...and lowercased
+#   "FAR 91.409"               the bare abbreviation, no "14 CFR"/section
+#                              word/symbol at all -- MISSING from the
+#                              original validated sample (only 2 documents),
+#                              but confirmed live and corpus-wide once every
+#                              LOI was checked (RC pushed for a real
+#                              full-corpus MagicLink audit, not spot checks):
+#                              35 LOIs, 58 distinct section numbers cited
+#                              this way and nowhere else in the same
+#                              document -- the single biggest LOI->FAR gap
+#                              found. Unambiguous to add: "FAR" directly
+#                              before a dirty-number-dot-dirty-number shape
+#                              has no other meaning in this corpus.
 _LEAD_IN = (
     r"(?:"
     r"§{1,2}\s*"
     r"|\b[Ss]ection\s+"
     r"|\b14\s*C\.?\s*F\.?\s*R\.?\s*(?:§{1,2}\s*)?"
+    r"|\bFAR\s+"
     r")"
 )
 
