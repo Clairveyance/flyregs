@@ -44,7 +44,7 @@ export function cleanGlyphs(s: string): string {
 
 // Schema version for precomputed pdf_blocks — bump when the parser output shape
 // changes so a backfill can tell which rows need reprocessing.
-export const AC_FORMAT_VERSION = 42
+export const AC_FORMAT_VERSION = 43
 
 // Free-tier body preview: just enough to show how the app is organized, not
 // a real read of the content. Was a 20%-floored-at-3 formula (let short ACs
@@ -1264,17 +1264,37 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
     }
 
     // Table-mode content: column headers (all-caps lines before the first data
-    // row) render as a para; data rows become bullet items. Two patterns trigger
-    // a new bullet once we're past the column headers:
-    //   isAllCaps  — line is entirely uppercase ("SINUSES DESCENT") → pure row id
-    //   isRowStart — line begins with 2+ consecutive 2+-char ALL-CAPS words then
-    //                switches to mixed case on the same line ("TEETH ASCENT A
-    //                tooth block…") — the PDF squeezed the row identifier and
-    //                its description onto one line; treat that whole line as a
-    //                new bullet rather than a continuation.
+    // row) render as a para; data rows become bullet items. Three patterns
+    // trigger a new bullet once we're past the column headers:
+    //   isAllCaps       — line is entirely uppercase ("SINUSES DESCENT") →
+    //                     pure row id
+    //   isRowStart      — line begins with 2+ consecutive 2+-char ALL-CAPS
+    //                     words then switches to mixed case on the same line
+    //                     ("TEETH ASCENT A tooth block…") — the PDF squeezed
+    //                     the row identifier and its description onto one
+    //                     line; treat that whole line as a new bullet rather
+    //                     than a continuation.
+    //   isMatrixRowStart — a "N-M Title" row-label prefix used by multi-
+    //                     column compliance-matrix tables (mixed-case title,
+    //                     so neither pattern above matches it). Confirmed
+    //                     real against raw pdf_text: AC 33-8's Appendix 2/3
+    //                     risk-mitigation matrix uses a "Section/Number" +
+    //                     "Characteristic" column pair — real rows read
+    //                     "3-3 Mechanical /metallurgical properties",
+    //                     "3-4 Cast structure", "4-1 Casting cleanliness".
+    //                     Without this, table-mode's continuation fallback
+    //                     had no way to recognize a new row here and kept
+    //                     absorbing dozens of real rows into one runaway
+    //                     item (confirmed corpus-wide before adding this:
+    //                     also present in 33-8's own multiple 15K-45K-char
+    //                     blocks — the OTHER remaining oversized-block docs
+    //                     use visibly different row shapes, e.g. pipe-
+    //                     delimited tables in 38-1/33.70-3, and are
+    //                     deliberately NOT addressed by this same pattern).
     if (inTable) {
       const isAllCaps = /^[A-Z][A-Z0-9 (),-]*$/.test(line)
       const isRowStart = !isAllCaps && /^[A-Z]{2,}(?:\s+[A-Z]{2,})+/.test(line)
+      const isMatrixRowStart = !isAllCaps && !isRowStart && /^\d{1,2}-\d{1,3}\s+[A-Z]/.test(line)
 
       if (!tableHeaderDone) {
         if (isAllCaps) {
@@ -1292,8 +1312,9 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
           cur = { kind: 'item', level: 1, label: '•', title: '', body: line }
           bodyStarted = true
         }
-      } else if (isAllCaps || isRowStart) {
-        // New data row — pure all-caps id OR inline "ID text description" pattern
+      } else if (isAllCaps || isRowStart || isMatrixRowStart) {
+        // New data row — pure all-caps id, inline "ID text description"
+        // pattern, or a "N-M Title" compliance-matrix row label
         flush()
         cur = { kind: 'item', level: 1, label: '•', title: '', body: line }
         bodyStarted = true
