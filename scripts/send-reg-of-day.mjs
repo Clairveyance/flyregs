@@ -46,10 +46,18 @@ if (!today) {
 // user_id too, so the Pro gate below can be applied per recipient. DailyReg
 // is a Pro feature and this used to send on the opt-in flag alone -- see
 // canReceiveProPush in lib/tier-cap.mjs for why that leaked.
+//
+// `enabled` (the AC Update Alerts flag) is deliberately NOT part of this
+// query -- same bug, same fix as get_duel_push_target() (see
+// migrations_fix_duel_push_target_enabled_gate.sql): enableDailyReg()
+// upserts a brand-new push_tokens row with `enabled: existing?.enabled ??
+// false`, so a user who turns on DailyReg without ever touching AC Update
+// Alerts first gets reg_of_day_enabled=true but enabled=false and silently
+// never receives a DailyReg push despite Account showing the toggle ON.
+// The real gate here is canReceiveProPush() below, not this column.
 const { data: tokens, error: tokenErr } = await sb
   .from('push_tokens')
   .select('user_id, expo_push_token')
-  .eq('enabled', true)
   .eq('reg_of_day_enabled', true)
 
 if (tokenErr) {

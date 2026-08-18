@@ -54,10 +54,18 @@ if (!today || !today.definition) {
 // user_id too, so the Plus gate below can be applied per recipient. Same
 // reasoning as send-reg-of-day.mjs's Pro gate: the opt-in flag alone
 // (word_of_day_enabled) survives a downgrade untouched.
+//
+// `enabled` (the AC Update Alerts flag) is deliberately NOT part of this
+// query -- same bug, same fix as get_duel_push_target() and
+// send-reg-of-day.mjs (see migrations_fix_duel_push_target_enabled_gate.sql):
+// enableDailyWord() upserts a brand-new push_tokens row with
+// `enabled: existing?.enabled ?? false`, so a user who turns on DailyWord
+// without ever touching AC Update Alerts first gets word_of_day_enabled=true
+// but enabled=false and silently never receives a DailyWord push despite
+// Account showing the toggle ON. The real gate is the Plus-tier filter below.
 const { data: tokens, error: tokenErr } = await sb
   .from('push_tokens')
   .select('user_id, expo_push_token')
-  .eq('enabled', true)
   .eq('word_of_day_enabled', true)
 
 if (tokenErr) {
