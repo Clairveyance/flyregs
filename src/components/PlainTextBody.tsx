@@ -63,7 +63,7 @@ const ABBREVIATION_WORDS = new Set([
   'st', 'ave', 'rd', 'approx', 'dept', 'est', 'fig', 'ed', 'pg', 'pp',
 ])
 
-function leadHeaderMatch(s: string): string | null {
+function leadHeaderMatch(s: string, hasMarker: boolean): string | null {
   // Two shapes: "Header. Body text follows..." (lookahead requires more
   // text after it), OR a paragraph that IS just the header with nothing
   // else -- confirmed live: AIM 6-4-1's lost-comms procedure has "Route."
@@ -72,7 +72,20 @@ function leadHeaderMatch(s: string): string | null {
   // the same string), so the lookahead-based pattern can never match --
   // there's nothing after the period to look ahead AT. RC: "those steps
   // should stand out amongst the other text."
-  const m = s.match(/^([A-Z][^.]{1,42}\.)\s+(?=[A-Z"“])/) ?? s.match(/^([A-Z][^.]{1,42}\.)$/)
+  //
+  // The whole-paragraph fallback is gated on `!hasMarker` -- confirmed live
+  // (robinleabman, real beta tester, FAR 61.107/61.127/61.65): a genuine
+  // lettered/numbered list item whose text happens to be short and end in
+  // one period ("(xii) Postflight procedures.") matches this fallback's
+  // shape just as well as a real standalone label like "Route." does, and
+  // was getting bolded as if it were a heading for the NEXT list rather
+  // than rendered as an ordinary final item of the list it's actually
+  // part of. Every real standalone header in this corpus (Route.,
+  // Altitude., General., ...) has no leading marker of its own -- a marked
+  // item's remaining text, however short, is that item's own content, not
+  // a label for something else, so the fallback never applies once a
+  // marker was already stripped off this paragraph.
+  const m = s.match(/^([A-Z][^.]{1,42}\.)\s+(?=[A-Z"“])/) ?? (hasMarker ? null : s.match(/^([A-Z][^.]{1,42}\.)$/))
   if (!m) return null
   const header = m[1]
   if (!header.includes(' ') && ABBREVIATION_WORDS.has(header.slice(0, -1).toLowerCase())) return null
@@ -999,7 +1012,7 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
         // bolded. Stripping it here, before wrapping, means the wrap only
         // ever sees the body text -- header detection can't be split apart
         // by where softWrapParagraph happens to break the paragraph.
-        const headerText = leadHeaderMatch(rest)
+        const headerText = leadHeaderMatch(rest, marker !== null)
         const body = headerText ? rest.slice(headerText.length) : rest
         // Purely a display split — see softWrap.ts. A source paragraph
         // with no real internal break (one long run of prose) gets broken
