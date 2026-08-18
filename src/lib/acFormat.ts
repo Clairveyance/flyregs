@@ -44,7 +44,7 @@ export function cleanGlyphs(s: string): string {
 
 // Schema version for precomputed pdf_blocks — bump when the parser output shape
 // changes so a backfill can tell which rows need reprocessing.
-export const AC_FORMAT_VERSION = 40
+export const AC_FORMAT_VERSION = 41
 
 // Free-tier body preview: just enough to show how the app is organized, not
 // a real read of the content. Was a 20%-floored-at-3 formula (let short ACs
@@ -298,14 +298,19 @@ const NUMSEC2_BARE =
 // matching prose fragments like "14 CFR part 25." that start lines after wraps.
 const NUMSEC3 = /^(\d{1,2})\s+([A-Z][a-z][a-zA-Z ,/&()'-]{1,50}\.)$/
 
-// Lettered appendix section numbers: "A.1 Title", "B.3 Title", "A.96 Title".
-// Appendices in FAA ACs use this scheme (A.1–A.N) for numbered sub-items.
-// Requires uppercase letter, period, 1–3 digit number, then content starting
-// with an UPPERCASE letter — a real heading always does. Requiring uppercase
-// (not any letter) is what excludes an internal cross-reference that wraps
-// mid-sentence onto a new line ("...refer to section\nB.3 of this appendix.
-// Velocity accuracy may be qualified...") — that continuation starts
-// lowercase and would otherwise be misread as a new appendix subsection.
+// Lettered appendix section numbers: "A.1 Title", "B.3 Title", "A.96 Title",
+// and their multi-level sub-item form ("F.1.9 Title", "D.1.22 Title",
+// "A.8.8.2 Title", even "F.3.12.3.2.2.1 Title" — deeply nested subsections
+// inside a lettered appendix, the exact same "letter, then a chain of decimal
+// segments" shape SECDOT already handles for un-lettered documents). Requires
+// uppercase letter, period, 1–3 digit number, then zero or more additional
+// ".N" segments (1–2 digits each, same per-segment width SECDOT uses), then
+// content starting with an UPPERCASE letter — a real heading always does.
+// Requiring uppercase (not any letter) is what excludes an internal
+// cross-reference that wraps mid-sentence onto a new line ("...refer to
+// section\nB.3 of this appendix. Velocity accuracy may be qualified...") --
+// that continuation starts lowercase and would otherwise be misread as a new
+// appendix subsection.
 // Trailing period after the number is optional -- some ACs write "A.1 Title"
 // (no period), others "A.1. Title" (period, e.g. 70-1B's 17 real sub-headings,
 // which without this all collapsed into one 34K-char block since the regex
@@ -316,7 +321,31 @@ const NUMSEC3 = /^(\d{1,2})\s+([A-Z][a-z][a-zA-Z ,/&()'-]{1,50}\.)$/
 // which a corpus scan caught producing a real false positive (20-73A's
 // "Appendix C: The 14 CFR parts 25..." is a glossary DEFINITION using a
 // colon, not a heading) and was deliberately NOT shipped as a general rule.
-const APPXSEC = /^([A-Z]\.\d{1,3})\.?\s+([A-Z].+)$/
+//
+// Multi-level extension added 2026-08-18 during the oversized-block backlog
+// pass: the single-level form above only ever matched the TOP of a lettered
+// appendix's own numbering ("F.1 Definitions.") -- every deeper sub-item
+// under it ("F.1.9 Enhanced Flight Visibility...", "D.1.22 Receiver
+// Autonomous Integrity Monitoring...") shared no shape any classifier
+// recognized, so it silently fell through as plain continuation text of
+// whatever section was still open, gluing dozens of real, distinct
+// definitions/subsections into one giant block (confirmed corpus-wide on
+// 20-167B, 20-165B, 20-158B, 20-136C, 450.141-1A, 450.45-1, 20-185A,
+// 90-113C, 90-106B, 25-25A, 25-11B, 33.70-5, 70-1B's own "A.14.4."-style
+// sub-items, 150/5335-5D, 90-120, 91-70D, 91-85B, 25.981-1D, 25.933-1,
+// 90-80C, 120-59B, 20-154A, 20-151C -- the deepest confirmed real case,
+// 20-151C's "F.3.12.3.2.2.1", needs 6 segments after the leading letter).
+// The extra segments are capped at 1–2 digits each (mirroring SECDOT's own
+// per-segment width, which already excludes things like a CFR reference
+// "29.853" from being misread as a subsection chain) and at 6 repetitions,
+// comfortably covering every depth seen in the real corpus with margin to
+// spare, while the "letter + a chain of `.digit` groups, immediately
+// followed by an UPPERCASE-starting phrase" shape remains distinctive
+// enough that it essentially never occurs by accident in ordinary prose --
+// validated corpus-wide with scripts/diff-parser-version.mjs (every block's
+// full text content re-concatenates identically old vs. new; the only
+// change is where boundaries are drawn) before shipping.
+const APPXSEC = /^([A-Z]\.\d{1,3}(?:\.\d{1,2}){0,6})\.?\s+([A-Z].+)$/
 
 // FAA ACs often have numbered or titled tables: "TABLE 2-1. GAS LAWS...".
 // The TABLE keyword with a digit catches these reliably without false positives
@@ -868,7 +897,16 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
   //     line has no dots and would otherwise be classified as a real section.
   //     Look ahead up to 4 non-empty lines; if any is a TOC line, this line is
   //     a TOC header and should be skipped.
-  const APPXSEC_TOC_RE = /^[A-Z]\.\d{1,3}\.?\s+[A-Za-z]/
+  //     Kept in sync with APPXSEC's own multi-level shape (same "letter, then
+  //     a chain of .N segments" pattern) -- when APPXSEC gained multi-level
+  //     support (2026-08-18), a deep TOC entry like "A.2.1 Some Long Title"
+  //     stopped being recognized as a TOC line here (this regex was still
+  //     single-level only) and started leaking through Step 4's classifier as
+  //     a spurious real heading, corrupting block order on a handful of docs
+  //     (caught by scripts/diff-parser-version.mjs-style corpus validation --
+  //     word-for-word content reordering on 120-117, 45-2E, 450.141-1A before
+  //     this fix).
+  const APPXSEC_TOC_RE = /^[A-Z]\.\d{1,3}(?:\.\d{1,2}){0,6}\.?\s+[A-Za-z]/
   for (let k = 0; k < lines.length; k++) {
     if (!APPXSEC_TOC_RE.test(lines[k])) continue
     let nonEmpty = 0
@@ -1227,8 +1265,65 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
           // sentence continuing onto the next line, and needs a real space
           // (confirmed on AC 23-13A's "...in my fatigue" / "evaluation?...",
           // which the old no-space merge turned into "fatigueevaluation").
+          // Also excludes common short FUNCTION words ("an", "of", "the",
+          // "with"...) from the no-space branch even though they're <=5
+          // chars -- a real glyph-split fragment is a truncated CONTENT
+          // word (part of "Glidepath", "toxic", "CONDITIONS"), essentially
+          // never a complete grammatical function word, whereas a genuine
+          // sentence very commonly wraps right after one. Confirmed on AC
+          // 450.141-1A during the 2026-08-18 APPXSEC widening's corpus
+          // validation: "...as a result of an" / "intermittent power
+          // transient..." was merging into "anintermittent" -- this is a
+          // pre-existing gap in this heuristic (not new to that change) that
+          // simply had no section-title long/wrapped enough to expose it
+          // before APPXSEC started recognizing sections whose title is a
+          // full unterminated sentence fragment rather than a short bold
+          // label.
+          const SHORT_FUNCTION_WORDS = new Set([
+            'a', 'an', 'as', 'at', 'be', 'by', 'do', 'he', 'if', 'in', 'is', 'it', 'of', 'on', 'or', 'so', 'to', 'up', 'us', 'we',
+            'all', 'and', 'any', 'are', 'but', 'can', 'did', 'for', 'had', 'has', 'her', 'him', 'his', 'how', 'its', 'may', 'nor',
+            'not', 'now', 'off', 'one', 'our', 'out', 'per', 'she', 'the', 'too', 'use', 'was', 'who', 'why', 'you',
+            'also', 'been', 'both', 'each', 'from', 'into', 'more', 'most', 'must', 'none', 'only', 'over', 'same', 'some',
+            'such', 'than', 'that', 'them', 'then', 'they', 'this', 'thus', 'upon', 'were', 'what', 'when', 'whom', 'will', 'with',
+          ])
+          // A trailing letter run immediately preceded by a DIGIT with no
+          // space ("Pad 17B") is a complete alphanumeric designator/code,
+          // not a truncated word -- a real glyph split never produces a
+          // letter fragment stuck directly to a number this way. Without
+          // this, the trailing "B" of "17B" (length 1, not a function word)
+          // still passed the check and merged the next word straight onto
+          // it ("17Bat" -- confirmed on AC 450.141-1A's "Pad 17B" / "at Cape
+          // Canaveral..." during the same 2026-08-18 corpus validation as
+          // the SHORT_FUNCTION_WORDS fix above).
+          const trailingWordIsAlphanumericTail = /\d[A-Za-z]{1,5}$/.test(cur.title)
           const trailingWord = cur.title.match(/([A-Za-z]+)$/)?.[1] ?? ''
-          if (trailingWord.length > 0 && trailingWord.length <= 5) {
+          // Belt-and-suspenders on top of the two exclusions above: this
+          // repair's whole premise ("Sections' titles are deliberately
+          // bold/short/label-like") only actually holds for titles that ARE
+          // short -- every genuine confirmed case ("CO", "Glid") is under 10
+          // chars. The SHORT_FUNCTION_WORDS list only excludes grammatical
+          // function words; it can't catch an ordinary CONTENT word ("data",
+          // "error", "after", "role", "code") also legitimately ending a
+          // wrapped sentence -- confirmed on the same AC 450.141-1A corpus
+          // validation: "...to prevent error" / "propagation across..." and
+          // "...validate data" / "transfer. Operations..." both still
+          // merged into "errorpropagation"/"datatransfer." even after the
+          // function-word fix, because APPXSEC's multi-level widening lets
+          // splitHeading's unconditional "entire rest is title" fallback
+          // (see its own comment -- deliberately NOT scoped to short titles,
+          // since sections need it for real bare ALL-CAPS headings too) hand
+          // this repair a full 40+ char sentence fragment as "cur.title"
+          // instead of the short bold label it was designed for. Capping to
+          // titles this repair is actually meant to see restores the
+          // original safety argument instead of chasing individual words.
+          const titleLooksLikeShortLabel = cur.title.length <= 20
+          if (
+            trailingWord.length > 0 &&
+            trailingWord.length <= 5 &&
+            !SHORT_FUNCTION_WORDS.has(trailingWord.toLowerCase()) &&
+            !trailingWordIsAlphanumericTail &&
+            titleLooksLikeShortLabel
+          ) {
             const wordEnd = line.match(/^([a-z]+[.,]?)\s*(.*)$/)
             if (wordEnd) {
               cur.title = cur.title + wordEnd[1]
@@ -1349,11 +1444,43 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
   //    label+title text back into that preceding block (it's still real,
   //    useful information, just not this document's own navigable
   //    structure) and drop the fake heading blocks.
+  //
+  //    Guard added 2026-08-18 alongside APPXSEC's multi-level widening: a
+  //    genuine same-document numbered checklist nested under a lettered
+  //    appendix (e.g. Appendix A's own "A.1. General Information." / "A.1.1.
+  //    Date of written report." / "A.1.2." / "A.1.3." — each a real,
+  //    intentionally bodyless single-line item, confirmed on AC 120-117)
+  //    can ALSO land 4+ consecutive empty-body sections right after an
+  //    intro sentence ending in ":" — the exact shape this step was built
+  //    to catch for an EXTERNAL document's citation list. The two are told
+  //    apart by which appendix letter the run's own labels use: a genuine
+  //    external citation cites some OTHER document's numbering (never
+  //    sharing this document's current lettered-appendix prefix), while
+  //    120-117's run is entirely "A."-labeled while still inside "Appendix
+  //    A." itself. Skip the fold when every block in the run is a section
+  //    labeled under the SAME letter as the nearest preceding "Appendix X"
+  //    chapter — that combination only happens for this document's own
+  //    nested structure, never a foreign citation, so the original 20-184
+  //    case (flat, unlettered "N.N" RTCA section numbers) is unaffected.
   const citationDropIdx = new Set<number>()
   const citationMergeText = new Map<number, string>()
   {
     const isEmptyHeading = (b: ACBlock) => b.kind === 'chapter' || (b.kind === 'section' && !b.body.trim())
     const bareLabel = (l: string) => l.replace(/\.$/, '')
+    // Nearest preceding "Appendix X" chapter's own letter, scanning backward
+    // from just before the run -- null if the nearest preceding chapter
+    // isn't a lettered appendix (e.g. a numbered "CHAPTER N" instead), which
+    // means we're not inside a lettered appendix's own scope at all.
+    const nearestAppxLetter = (idx: number): string | null => {
+      for (let j = idx - 1; j >= 0; j--) {
+        const b = deduped[j]
+        if (b.kind === 'chapter') {
+          const m = b.text.match(/^(?:APPENDIX|Appendix)\s+([A-Z])\b/)
+          return m ? m[1] : null
+        }
+      }
+      return null
+    }
     const normTitle = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '')
     const recursWithContent = (i: number) => {
       const b = deduped[i]
@@ -1389,7 +1516,13 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
           const allNoRecur = Array.from({ length: end - runStart }, (_, k) => runStart + k).every(
             (i) => !recursWithContent(i)
           )
-          if (allNoRecur) {
+          const runLetter = nearestAppxLetter(runStart)
+          const isOwnAppendixStructure =
+            runLetter !== null &&
+            Array.from({ length: end - runStart }, (_, k) => deduped[runStart + k]).every(
+              (b) => b.kind === 'section' && b.label.startsWith(`${runLetter}.`)
+            )
+          if (allNoRecur && !isOwnAppendixStructure) {
             const merged = [
               introText,
               ...Array.from({ length: end - runStart }, (_, k) => labelText(deduped[runStart + k])),
