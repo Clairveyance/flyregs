@@ -582,6 +582,15 @@ export default function AccountScreen() {
       router.replace('/auth')
       return
     }
+    // restorePurchases() swallows Purchases.restorePurchases()'s own
+    // rejection and returns a plain "nothing active" status instead of
+    // throwing -- the native SDK rejects a second concurrent restore call
+    // while one is already in flight, so without this guard a rapid
+    // double-tap could let the failed call's result win the race and tell a
+    // real, paying subscriber "Nothing to Restore." Same bug class as the
+    // printReg.ts double-tap fix; the Row above is now also disabled while
+    // restoring, this is the belt-and-suspenders backstop.
+    if (restoring) return
     setRestoring(true)
     try {
       const status = await restorePurchases()
@@ -866,6 +875,7 @@ export default function AccountScreen() {
             tokens={tokens}
             onPress={handleRestore}
             trailing={restoring ? <ActivityIndicator size="small" color={tokens.t3} /> : undefined}
+            disabled={restoring}
             last
           />
         </View>
@@ -1155,6 +1165,7 @@ function Row({
   tint,
   trailing,
   last,
+  disabled,
 }: {
   icon: string
   label: string
@@ -1163,12 +1174,14 @@ function Row({
   tint?: string
   trailing?: React.ReactNode
   last?: boolean
+  disabled?: boolean
 }) {
   const fs = useFS()
   return (
     <Pressable
       style={[styles.row, !last && { borderBottomWidth: 1, borderBottomColor: tokens.bdr }]}
       onPress={onPress}
+      disabled={disabled}
     >
       <View style={styles.rowIcon}>
         <Icon name={icon} size={fs(17)} color={tint ?? tokens.t2} />

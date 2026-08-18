@@ -87,6 +87,13 @@ export default function ManageSubscriptionScreen() {
       router.replace('/auth')
       return
     }
+    // Same guard as account.tsx/paywall.tsx's Restore Purchases: RevenueCat
+    // rejects a second concurrent restore call while one is in flight, and
+    // restorePurchases() swallows that into a false "nothing active" status
+    // rather than throwing -- without this guard a rapid double-tap could
+    // let the failed call's result win and tell a real subscriber "Nothing
+    // to Restore." Same bug class as the printReg.ts double-tap fix.
+    if (restoring) return
     setRestoring(true)
     try {
       const status = await restorePurchases()
@@ -204,6 +211,7 @@ export default function ManageSubscriptionScreen() {
           tokens={tokens}
           onPress={handleRestore}
           trailing={restoring ? <ActivityIndicator size="small" color={tokens.t3} /> : undefined}
+          disabled={restoring}
         />
 
         {tier !== 'free' && (
@@ -218,17 +226,18 @@ export default function ManageSubscriptionScreen() {
 }
 
 function Row({
-  icon, label, tokens, onPress, trailing,
+  icon, label, tokens, onPress, trailing, disabled,
 }: {
   icon: string
   label: string
   tokens: ThemeTokens
   onPress: () => void
   trailing?: React.ReactNode
+  disabled?: boolean
 }) {
   const fs = useFS()
   return (
-    <Pressable style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]} onPress={onPress}>
+    <Pressable style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]} onPress={onPress} disabled={disabled}>
       <View style={styles.rowIcon}>
         <Icon name={icon} size={fs(17)} color={tokens.t2} />
       </View>

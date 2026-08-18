@@ -99,6 +99,24 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   const [sharedFolders, setSharedFolders] = useState<SharedFolderSummary[]>([])
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({})
   const [memberIds, setMemberIds] = useState<Set<string>>(new Set())
+  // Per-row in-flight guard: toggle()/toggleShared() read memberIds and the
+  // stale AsyncStorage snapshot before writing (addManyToFolder/
+  // removeFromFolder's own comments call this out as unsafe under concurrent
+  // calls), and neither this row's onPress nor the underlying folder-items
+  // table dedupes by (folder, item) — only by each call's own freshly
+  // generated row id. Two rapid taps on the same row before the first
+  // toggle's writes land raced to add the SAME item twice, creating two
+  // distinct synced_folder_items rows for one (folder, item) pair: the item
+  // rendered twice in the folder (folder/[id].tsx's render loop has no
+  // item_id dedupe either), and swiping to remove it only ever cleared
+  // whichever single row the LOCAL snapshot still knew about -- the other
+  // row stayed active in the cloud and came back on the next sync
+  // (mergeFolderItems pulls in any remote row not already known locally by
+  // id), so a "removed" item could silently reappear. Confirmed live via a
+  // scripted concurrent-call repro against the real backend, same bug class
+  // as the printReg.ts double-tap fix. Blocking re-entry per folder id here
+  // closes it at the source.
+  const [pendingFolderIds, setPendingFolderIds] = useState<Set<string>>(new Set())
   const [addedNames, setAddedNames] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -158,17 +176,23 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   // via Done (or the backdrop/X), at which point a single summarized toast
   // fires for everything added this session.
   const toggle = async (folder: Folder) => {
-    if (memberIds.has(folder.id)) {
-      await removeFromFolder(folder.id, itemType, itemId)
-      setMemberIds((prev) => { const s = new Set(prev); s.delete(folder.id); return s })
-      setAddedNames((prev) => prev.filter((n) => n !== folder.name))
-      setItemCounts((prev) => ({ ...prev, [folder.id]: Math.max(0, (prev[folder.id] ?? 1) - 1) }))
-    } else {
-      if (acMeta) await addManyBookmarks([{ id: itemId, itemType, ...acMeta }])
-      await addToFolder(folder.id, itemType, itemId)
-      setMemberIds((prev) => new Set([...prev, folder.id]))
-      setAddedNames((prev) => [...prev, folder.name])
-      setItemCounts((prev) => ({ ...prev, [folder.id]: (prev[folder.id] ?? 0) + 1 }))
+    if (pendingFolderIds.has(folder.id)) return
+    setPendingFolderIds((prev) => new Set(prev).add(folder.id))
+    try {
+      if (memberIds.has(folder.id)) {
+        await removeFromFolder(folder.id, itemType, itemId)
+        setMemberIds((prev) => { const s = new Set(prev); s.delete(folder.id); return s })
+        setAddedNames((prev) => prev.filter((n) => n !== folder.name))
+        setItemCounts((prev) => ({ ...prev, [folder.id]: Math.max(0, (prev[folder.id] ?? 1) - 1) }))
+      } else {
+        if (acMeta) await addManyBookmarks([{ id: itemId, itemType, ...acMeta }])
+        await addToFolder(folder.id, itemType, itemId)
+        setMemberIds((prev) => new Set([...prev, folder.id]))
+        setAddedNames((prev) => [...prev, folder.name])
+        setItemCounts((prev) => ({ ...prev, [folder.id]: (prev[folder.id] ?? 0) + 1 }))
+      }
+    } finally {
+      setPendingFolderIds((prev) => { const s = new Set(prev); s.delete(folder.id); return s })
     }
   }
 
@@ -178,22 +202,28 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   // never through MY bookmarks, so there's nothing local to seed.
   const toggleShared = async (folder: SharedFolderSummary) => {
     const id = folder.folder_id
-    if (memberIds.has(id)) {
-      await removeExistingItemFromSharedFolder(id, itemType, itemId)
-      setMemberIds((prev) => { const s = new Set(prev); s.delete(id); return s })
-      setAddedNames((prev) => prev.filter((n) => n !== folder.folder_name))
-    } else {
-      try {
-        await addExistingItemToSharedFolder(id, itemType, itemId)
-      } catch (e) {
-        if (e instanceof Error && e.message === SEED_NOTE_NOT_SHAREABLE) {
-          confirm({ title: "Can't Share This Note", message: 'This is one of the starter demo notes -- create your own note to share into this folder.', cancelLabel: null })
-          return
+    if (pendingFolderIds.has(id)) return
+    setPendingFolderIds((prev) => new Set(prev).add(id))
+    try {
+      if (memberIds.has(id)) {
+        await removeExistingItemFromSharedFolder(id, itemType, itemId)
+        setMemberIds((prev) => { const s = new Set(prev); s.delete(id); return s })
+        setAddedNames((prev) => prev.filter((n) => n !== folder.folder_name))
+      } else {
+        try {
+          await addExistingItemToSharedFolder(id, itemType, itemId)
+        } catch (e) {
+          if (e instanceof Error && e.message === SEED_NOTE_NOT_SHAREABLE) {
+            confirm({ title: "Can't Share This Note", message: 'This is one of the starter demo notes -- create your own note to share into this folder.', cancelLabel: null })
+            return
+          }
+          throw e
         }
-        throw e
+        setMemberIds((prev) => new Set([...prev, id]))
+        setAddedNames((prev) => [...prev, folder.folder_name])
       }
-      setMemberIds((prev) => new Set([...prev, id]))
-      setAddedNames((prev) => [...prev, folder.folder_name])
+    } finally {
+      setPendingFolderIds((prev) => { const s = new Set(prev); s.delete(id); return s })
     }
   }
 
@@ -312,6 +342,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
                   return (
                     <Pressable
                       style={[styles.folderRow, { borderBottomColor: tokens.bdr }]}
+                      disabled={pendingFolderIds.has(item.id)}
                       onPress={() => {
                         if (consumeLongPress()) return
                         toggle(item)
@@ -346,6 +377,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
                 return (
                   <Pressable
                     style={[styles.folderRow, { borderBottomColor: tokens.bdr }]}
+                    disabled={pendingFolderIds.has(item.folder_id)}
                     onPress={() => {
                       if (consumeLongPress()) return
                       toggleShared(item)

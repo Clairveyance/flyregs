@@ -299,6 +299,7 @@ export default function PaywallScreen() {
   const [tier, setTier] = useState<Tier>(defaultTier)
   const [plan, setPlan] = useState<Plan>('annual')
   const [loading, setLoading] = useState(false)
+  const [restoring, setRestoring] = useState(false)
 
   // isPro/isPremium/isUnlocked load asynchronously in AuthProvider — all still
   // false on this screen's first render for a real subscriber, so the tier
@@ -634,31 +635,55 @@ export default function PaywallScreen() {
         )}
 
         {/* Restore */}
-        <Pressable style={styles.restoreRow} onPress={async () => {
-          // Same account-required rule as purchasing itself (see
-          // handleSubscribe above) -- restoring must never hand out
-          // entitlements to a signed-out session.
-          if (!session) {
-            confirm({
-              title: 'Sign in first',
-              message: 'Create a free account to restore your purchases.',
-              confirmLabel: 'Sign In',
-              onConfirm: () => router.replace('/auth'),
-            })
-            return
-          }
-          try {
-            const status = await restorePurchases()
-            setIsPro(status.isPro)
-            setIsPremium(status.isPremium)
-            setIsUnlocked(status.isUnlocked)
-            if (status.isPro || status.isPremium || status.isUnlocked) router.dismiss()
-            else confirm({ title: 'No purchases found', message: 'No active purchases found for this Apple ID.', cancelLabel: null })
-          } catch (err: any) {
-            confirm({ title: 'Error', message: err?.message ?? 'Could not restore purchases.', cancelLabel: null })
-          }
-        }}>
-          <Text style={[styles.restoreText, { color: tokens.t4, fontSize: fs(13) }]}>Restore Purchases</Text>
+        <Pressable
+          style={styles.restoreRow}
+          disabled={restoring}
+          onPress={async () => {
+            // Same account-required rule as purchasing itself (see
+            // handleSubscribe above) -- restoring must never hand out
+            // entitlements to a signed-out session.
+            if (!session) {
+              confirm({
+                title: 'Sign in first',
+                message: 'Create a free account to restore your purchases.',
+                confirmLabel: 'Sign In',
+                onConfirm: () => router.replace('/auth'),
+              })
+              return
+            }
+            // restorePurchases() (revenuecat.ts) swallows every error from
+            // Purchases.restorePurchases() and returns a plain "no
+            // entitlement" status instead of throwing -- RevenueCat's native
+            // SDK rejects a SECOND concurrent restore call while one is
+            // already in flight (single global in-flight slot, same shape as
+            // the printReg.ts double-tap bug), and without a guard here that
+            // rejection surfaced as a false "No purchases found" for a real,
+            // paying subscriber whenever the failed call's state update won
+            // the race against the succeeding one. Code-traced, not a Sentry
+            // report -- this failure mode returns a status object instead of
+            // throwing, so it wouldn't generate a Sentry event even if it
+            // fired on a real device. 2026-08-18 bug sweep.
+            if (restoring) return
+            setRestoring(true)
+            try {
+              const status = await restorePurchases()
+              setIsPro(status.isPro)
+              setIsPremium(status.isPremium)
+              setIsUnlocked(status.isUnlocked)
+              if (status.isPro || status.isPremium || status.isUnlocked) router.dismiss()
+              else confirm({ title: 'No purchases found', message: 'No active purchases found for this Apple ID.', cancelLabel: null })
+            } catch (err: any) {
+              confirm({ title: 'Error', message: err?.message ?? 'Could not restore purchases.', cancelLabel: null })
+            } finally {
+              setRestoring(false)
+            }
+          }}
+        >
+          {restoring ? (
+            <ActivityIndicator size="small" color={tokens.t4} />
+          ) : (
+            <Text style={[styles.restoreText, { color: tokens.t4, fontSize: fs(13) }]}>Restore Purchases</Text>
+          )}
         </Pressable>
 
         <Text style={[styles.legal, { color: tokens.t4, fontSize: fs(11) }]}>
