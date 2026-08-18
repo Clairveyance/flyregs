@@ -148,7 +148,7 @@ export function FolderListView({
       await renameFolder(editingId, editName.trim())
     } catch (e) {
       if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
-        confirm({ title: 'Folder Already Exists', message: `You already have a folder named "${editName.trim()}". Choose a different name.`, cancelLabel: null })
+        confirm({ title: 'Folder already exists', message: `You already have a folder named "${editName.trim()}". Choose a different name.`, cancelLabel: null })
         return
       }
       throw e

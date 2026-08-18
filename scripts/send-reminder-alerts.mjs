@@ -113,12 +113,13 @@ for (const r of reminders) {
   // "Due today: {title}" was the one gap here -- the other two branches
   // already say "Reminder" up front, this one didn't.
   const title = daysUntil < 0 ? `Reminder overdue: ${r.title}` : daysUntil === 0 ? `Reminder due today: ${r.title}` : `Reminder: ${r.title}`
+  const overdueDays = Math.abs(daysUntil)
   const body =
     daysUntil < 0
-      ? `${Math.abs(daysUntil)} day(s) past due for ${acLabel} — you may want to check this.`
+      ? `${overdueDays} day${overdueDays === 1 ? '' : 's'} past due for ${acLabel} — you may want to check this.`
       : daysUntil === 0
         ? `Due today for ${acLabel}.`
-        : `Due in ${daysUntil} day(s) for ${acLabel}.`
+        : `Due in ${daysUntil} day${daysUntil === 1 ? '' : 's'} for ${acLabel}.`
 
   for (const expoPushToken of deviceTokens) {
     messages.push({ to: expoPushToken, sound: 'default', title, body, data: { reminderId: r.id, userAircraftId: r.user_aircraft_id } })

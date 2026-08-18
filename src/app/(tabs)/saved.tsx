@@ -592,7 +592,7 @@ export default function SavedScreen() {
       await createFolder(name)
     } catch (e) {
       if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
-        confirm({ title: 'Folder Already Exists', message: `You already have a folder named "${name}". Choose a different name.`, cancelLabel: null })
+        confirm({ title: 'Folder already exists', message: `You already have a folder named "${name}". Choose a different name.`, cancelLabel: null })
         return false
       }
       throw e
@@ -665,7 +665,7 @@ export default function SavedScreen() {
       // explicit "Copy Link" tap (not just dialog dismissal) ties "shared"
       // to a real signal instead of firing regardless of what the owner did.
       confirm({
-        title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link,
+        title: 'Invite link ready', message: 'Copy or share this link:', linkMessage: link,
         confirmLabel: 'Copy Link', cancelLabel: 'Not Now',
         onConfirm: async () => {
           await Clipboard.setStringAsync(link)
@@ -712,7 +712,7 @@ export default function SavedScreen() {
       if (Platform.OS !== 'ios' || result.action === Share.sharedAction) await confirmAll()
     } catch {
       confirm({
-        title: 'Invite Links Ready', message: 'Copy or share these links:', linkMessage: entries.map((e) => e.link),
+        title: 'Invite links ready', message: 'Copy or share these links:', linkMessage: entries.map((e) => e.link),
         confirmLabel: 'Copy Links', cancelLabel: 'Not Now',
         onConfirm: async () => {
           await Clipboard.setStringAsync(entries.map((e) => e.link).join('\n\n'))

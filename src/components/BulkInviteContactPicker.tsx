@@ -137,7 +137,7 @@ export function BulkInviteContactPicker({
     const SMS = await import('expo-sms')
     const available = await SMS.isAvailableAsync()
     if (!available) {
-      confirm({ title: 'No Messaging Available', message: "This device can't send text messages, so a bulk invite can't go out this way. Use \"Invite by Link\" instead and share it however works.", cancelLabel: null })
+      confirm({ title: 'No messaging available', message: "This device can't send text messages, so a bulk invite can't go out this way. Use \"Invite by Link\" instead and share it however works.", cancelLabel: null })
       return
     }
     setSending({ done: 0, total: targets.length })

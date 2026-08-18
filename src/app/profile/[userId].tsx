@@ -690,7 +690,7 @@ export default function ProfileScreen() {
                       })}
                     </View>
                   ) : coins.length === 0 ? (
-                    <Text style={[styles.emptySub, { color: tokens.t4, fontSize: fs(12.5) }]}>No coins earned yet.</Text>
+                    <Text style={[styles.emptySub, { color: tokens.t4, fontSize: fs(12.5) }]}>No coins earned yet</Text>
                   ) : (
                     <View style={styles.coinGrid}>
                       {/* Distinct codes, not one card per row -- a

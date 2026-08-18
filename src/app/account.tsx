@@ -595,7 +595,7 @@ export default function AccountScreen() {
         cancelLabel: null,
       })
     } catch (err: any) {
-      confirm({ title: 'Restore Failed', message: err?.message ?? 'Please try again later.', cancelLabel: null })
+      confirm({ title: 'Restore failed', message: err?.message ?? 'Please try again later.', cancelLabel: null })
     }
     setRestoring(false)
   }
@@ -632,7 +632,7 @@ export default function AccountScreen() {
     } catch (err: any) {
       Sentry.captureException(err)
       confirm({
-        title: 'Couldn’t Delete Account',
+        title: "Couldn't Delete Account",
         message: 'Something went wrong. Please try again, or email our support team if this keeps happening.',
         confirmLabel: 'Email Support',
         cancelLabel: 'OK',

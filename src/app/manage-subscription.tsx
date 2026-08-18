@@ -102,7 +102,7 @@ export default function ManageSubscriptionScreen() {
       })
       getSubscriptionDetails().then(setDetails)
     } catch (err: any) {
-      confirm({ title: 'Restore Failed', message: err?.message ?? 'Please try again later.', cancelLabel: null })
+      confirm({ title: 'Restore failed', message: err?.message ?? 'Please try again later.', cancelLabel: null })
     }
     setRestoring(false)
   }

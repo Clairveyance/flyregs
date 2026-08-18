@@ -1533,7 +1533,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
           </View>
 
           {aircraft.length === 0 ? (
-            <Text style={[styles.empty, { color: tokens.t3, fontSize: fs(14) }]}>No aircraft saved yet.</Text>
+            <Text style={[styles.empty, { color: tokens.t3, fontSize: fs(14) }]}>No aircraft saved yet</Text>
           ) : (
             <>
               {/* Fleet compliance card -- Premium only. RC: "you said you

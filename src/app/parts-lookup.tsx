@@ -111,7 +111,7 @@ export default function PartsLookupScreen() {
             body={[
               'This catalog only includes parts that have actually been named in an Airworthiness Directive — an engine model, a propeller, an avionics box, a specific appliance.',
               "It is not a general parts catalog. A manufacturer can make many more parts, models, and variants than what's listed here — this only covers the ones an AD has ever applied to.",
-              'If you know of a part with an active AD that isn’t listed here, please send us feedback so we can get it added for everyone. Thank you!',
+              "If you know of a part with an active AD that isn't listed here, please send us feedback so we can get it added for everyone. Thank you!",
             ]}
           />
         }
@@ -232,7 +232,7 @@ export default function PartsLookupScreen() {
                       {loadingAds === item.id ? (
                         <ActivityIndicator color={tokens.blu} style={{ paddingVertical: 12 }} />
                       ) : ads.length === 0 ? (
-                        <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(12.5), padding: 12 }]}>No ADs found.</Text>
+                        <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(12.5), padding: 12 }]}>No ADs found</Text>
                       ) : (
                         <>
                           {/* Previously the count was only visible by counting

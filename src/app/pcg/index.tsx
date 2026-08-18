@@ -154,7 +154,7 @@ export default function PcgIndexScreen() {
                 </Text>
               }
               ListEmptyComponent={
-                <Text style={[styles.emptyText, { color: tokens.t3, fontSize: fs(13.5) }]}>No terms found.</Text>
+                <Text style={[styles.emptyText, { color: tokens.t3, fontSize: fs(13.5) }]}>No terms found</Text>
               }
               renderItem={({ item }) => (
                 <Pressable

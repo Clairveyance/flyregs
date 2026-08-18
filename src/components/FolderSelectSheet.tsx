@@ -93,7 +93,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
         folder = await createFolder(name)
       } catch (e) {
         if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
-          confirm({ title: 'Folder Already Exists', message: `You already have a folder named "${name}". Choose a different name.`, cancelLabel: null })
+          confirm({ title: 'Folder already exists', message: `You already have a folder named "${name}". Choose a different name.`, cancelLabel: null })
           return
         }
         throw e

@@ -61,12 +61,12 @@ export default function ReadyRoomScreen() {
     try {
       const userId = await resolveCallsignToUserId(callsign)
       if (!userId) {
-        confirm({ title: 'Not Found', message: `${callsign} couldn't be found right now.`, cancelLabel: null })
+        confirm({ title: 'Not found', message: `${callsign} couldn't be found right now.`, cancelLabel: null })
         return
       }
       router.push(`/profile/${userId}?label=${encodeURIComponent(callsign)}` as any)
     } catch (e: any) {
-      confirm({ title: 'Something Went Wrong', message: e?.message ?? 'Please try again.', cancelLabel: null })
+      confirm({ title: 'Something went wrong', message: e?.message ?? 'Please try again.', cancelLabel: null })
     }
   }
 

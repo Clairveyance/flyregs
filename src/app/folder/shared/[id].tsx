@@ -441,7 +441,7 @@ export default function SharedFolderDetail() {
       // retried. Found in the post-build-31 sweep: this used to look like a
       // real save (no error thrown), silently dropping the edit entirely.
       if (err instanceof SharedNoteAccessLostError) {
-        confirm({ title: 'No longer editable', message: 'This folder was switched to read-only, so your changes here couldn’t be saved. Reload the folder to see the current version.', cancelLabel: null })
+        confirm({ title: 'No longer editable', message: "This folder was switched to read-only, so your changes here couldn't be saved. Reload the folder to see the current version.", cancelLabel: null })
         setNoteEditing(false)
         load()
         return

@@ -266,7 +266,7 @@ export default function FolderDetail() {
       await renameFolder(folder.id, renameText.trim())
     } catch (e) {
       if (e instanceof Error && e.message === DUPLICATE_FOLDER_NAME) {
-        confirm({ title: 'Folder Already Exists', message: `You already have a folder named "${renameText.trim()}". Choose a different name.`, cancelLabel: null })
+        confirm({ title: 'Folder already exists', message: `You already have a folder named "${renameText.trim()}". Choose a different name.`, cancelLabel: null })
         return
       }
       throw e
@@ -442,13 +442,13 @@ export default function FolderDetail() {
       await confirmFolderShared(folder.id, bulkInviteTokenRef.current)
     }
     if (sentCount > 0) {
-      confirm({ title: 'Invites Sent', message: `Sent to ${sentCount} contact${sentCount === 1 ? '' : 's'}.`, cancelLabel: null })
+      confirm({ title: 'Invites sent', message: `Sent to ${sentCount} contact${sentCount === 1 ? '' : 's'}.`, cancelLabel: null })
     } else {
       // Every native compose sheet in the queue got cancelled -- without
       // this the picker just closed with zero feedback, indistinguishable
       // from "did that actually work?" (BB-0xx-adjacent gap, found during
       // the 2026-08-11 app-wide cleanup pass, not a real-device report).
-      confirm({ title: 'No Invites Sent', message: 'Every message was cancelled before sending. Nothing was shared.', cancelLabel: null })
+      confirm({ title: 'No invites sent', message: 'Every message was cancelled before sending. Nothing was shared.', cancelLabel: null })
     }
   }
 
@@ -482,7 +482,7 @@ export default function FolderDetail() {
     // same fix and same reasoning as my-aircraft/[id].tsx's submitInvite
     // (RC, real device, 2026-08-15).
     sendCollaborationInvitePush(invite.userId, 'folder', folder.name, invite.token).catch(() => {})
-    confirm({ title: 'Invite Sent', message: `Sent to @${invite.callsign}.`, cancelLabel: null })
+    confirm({ title: 'Invite sent', message: `Sent to @${invite.callsign}.`, cancelLabel: null })
     getFolderCollaborators(folder.id).then(setCollaborators).catch(() => {})
     setCallsignBusy(false)
   }
@@ -527,7 +527,7 @@ export default function FolderDetail() {
       // forever, no way to make them go away. Requiring the explicit "Copy
       // Link" tap ties "shared" to a real signal instead of dialog dismissal.
       confirm({
-        title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link,
+        title: 'Invite link ready', message: 'Copy or share this link:', linkMessage: link,
         confirmLabel: 'Copy Link', cancelLabel: 'Not Now',
         onConfirm: async () => {
           await Clipboard.setStringAsync(link)

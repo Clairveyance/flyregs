@@ -323,7 +323,7 @@ export default function AircraftDetailScreen() {
       } catch {
         // Link is already live either way -- a cancelled/unavailable share
         // sheet isn't a real failure, same reasoning as submitInvite below.
-        confirm({ title: 'Invite Link Ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
+        confirm({ title: 'Invite link ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
       }
       return
     }
@@ -342,9 +342,9 @@ export default function AircraftDetailScreen() {
   const handleBulkInviteSent = (sentCount: number) => {
     setBulkInviteVisible(false)
     if (sentCount > 0) {
-      confirm({ title: 'Invites Sent', message: `Sent to ${sentCount} contact${sentCount === 1 ? '' : 's'}.`, cancelLabel: null })
+      confirm({ title: 'Invites sent', message: `Sent to ${sentCount} contact${sentCount === 1 ? '' : 's'}.`, cancelLabel: null })
     } else {
-      confirm({ title: 'No Invites Sent', message: 'Every message was cancelled before sending. Nothing was shared.', cancelLabel: null })
+      confirm({ title: 'No invites sent', message: 'Every message was cancelled before sending. Nothing was shared.', cancelLabel: null })
     }
   }
 
@@ -374,7 +374,7 @@ export default function AircraftDetailScreen() {
     // the user with that callsign and send them the invite").
     const label = aircraft.nickname || `${aircraft.make} ${aircraft.model}`
     sendCollaborationInvitePush(invite.userId, 'aircraft', label, invite.token).catch(() => {})
-    confirm({ title: 'Invite Sent', message: `Sent to @${invite.callsign}.`, cancelLabel: null })
+    confirm({ title: 'Invite sent', message: `Sent to @${invite.callsign}.`, cancelLabel: null })
     getAircraftCollaborators(aircraft.id).then(setCollaborators).catch(() => {})
     setSharingBusy(false)
   }
@@ -666,7 +666,7 @@ export default function AircraftDetailScreen() {
               title="Equipment & Reminders"
               body={[
                 "Equipment tags and reminders are based only on what you enter here — FlyRegs doesn't verify serial numbers or maintenance records. ADs shown may apply; always confirm against your aircraft's official records.",
-                'If you know of a part with an active AD that isn’t listed here, please send us feedback so we can get it added for everyone. Thank you!',
+                "If you know of a part with an active AD that isn't listed here, please send us feedback so we can get it added for everyone. Thank you!",
               ]}
               forceOnce
               iconSize={fs(14)}

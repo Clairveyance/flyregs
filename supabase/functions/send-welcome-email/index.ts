@@ -58,7 +58,7 @@ const WELCOME_HTML = `<div style="margin:0; padding:0; background-color:#07111E;
 </table>
 <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px; width:100%;">
 <tr><td align="center" style="padding:20px 32px 0 32px; font-family:Helvetica,Arial,sans-serif;">
-<span style="font-size:12px; color:#537A99;">FlyRegs &middot; The complete FAA Advisory Circular reference</span>
+<span style="font-size:12px; color:#537A99;">FlyRegs &middot; The complete FAA regulatory reference</span>
 </td></tr>
 </table>
 </td></tr>
