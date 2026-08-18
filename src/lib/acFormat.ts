@@ -44,7 +44,7 @@ export function cleanGlyphs(s: string): string {
 
 // Schema version for precomputed pdf_blocks — bump when the parser output shape
 // changes so a backfill can tell which rows need reprocessing.
-export const AC_FORMAT_VERSION = 39
+export const AC_FORMAT_VERSION = 40
 
 // Free-tier body preview: just enough to show how the app is organized, not
 // a real read of the content. Was a 20%-floored-at-3 formula (let short ACs
@@ -556,6 +556,20 @@ function splitHeading(rest: string, forItem = false): { title: string; body: str
   // here for sections would break it.
   if (/^[A-Z]/.test(rest)) {
     if (forItem && !/\s/.test(rest)) return { title: '', body: rest }
+    // ITEM-only: a genuine standalone title always ends in terminal
+    // punctuation (".", "?", ":", or a closing quote/paren after one) —
+    // when it doesn't, `rest` is just the PDF's first line of a longer
+    // sentence cut off mid-clause, the same shape as the bare-word case
+    // above, just multi-word. Confirmed on AC 27-1B: item "b."'s first line
+    // was "Requests from the rotorcraft industry to make the document
+    // easier to use resulted in" (no terminal punctuation), with "renumbering
+    // the AC paragraphs..." as the very next block's body — the sentence
+    // was being split at the PDF line-wrap instead of its real end, so a
+    // punctuation-less fragment rendered bold followed by its own plain-text
+    // continuation. Scoped to items only, same reasoning as the bare-word
+    // case (sections need the unconditional fallback for their own
+    // mid-word-split repair — see comment above).
+    if (forItem && !/[.!?:]["'’”)\]]?$/.test(rest)) return { title: '', body: rest }
     return { title: rest, body: '' }
   }
   return { title: '', body: rest }

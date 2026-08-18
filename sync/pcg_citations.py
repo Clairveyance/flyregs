@@ -86,7 +86,18 @@ AD_RE = re.compile(r"\bAD\)?\s*(\d{4}\s*-\s*\d{2}\s*-\s*\d{2})\b")
 # or part 107 UAS..."), but the negative lookahead excludes a part number
 # immediately followed by ".digit" -- that shape is a real section citation
 # FAR_RE already owns (e.g. "part 91.113"), not a bare Part reference.
-FAR_PART_RE = re.compile(r"\b(?:14\s*CFR\s*|FAR\s+)?[Pp]art\s+(\d{1,3})\b(?!\.\d)")
+#
+# Capture group changed \d{1,3} -> [1-9]\d{0,2} (no leading zero) 2026-08-17
+# while porting this pattern to ac/ad/aim/far_citations.py: a real live
+# false positive was found in AD body text -- "approved equivalent part
+# 001, dated June 5..." (a physical service-bulletin part number, not a
+# CFR Part) -- matching lowercase "part" the same way a genuine "part 91"
+# reference does. No genuine FAA regulatory citation is ever
+# zero-padded ("Part 091"), so this closes the false-positive class with
+# zero risk to real matches. Ported back here for consistency even though
+# no live pcg_terms row was confirmed hit by it (P/CG definitions are too
+# short/curated to plausibly discuss numbered physical parts).
+FAR_PART_RE = re.compile(r"\b(?:14\s*CFR\s*|FAR\s+)?[Pp]art\s+([1-9]\d{0,2})\b(?!\.\d)")
 
 # The FAA's own PDF->HTML text extraction is inconsistent about which
 # hyphen-like character it uses in a given document (confirmed live: two of

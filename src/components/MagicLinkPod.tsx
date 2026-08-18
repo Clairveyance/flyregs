@@ -279,6 +279,18 @@ const TITLE_SOURCE: Partial<Record<string, [string, string, string]>> = {
   cfr49: ['cfr49_sections', 'section_number', 'title'],
 }
 
+// Extraction coverage genuinely improving (see the 2026-08-17 MagicLink
+// audit) means a single bar's item list can now legitimately run long --
+// with no relevance/frequency signal in document_citations to rank by
+// (occurrence counts are computed transiently during extraction and never
+// persisted -- adding that is its own separate schema change, not bundled
+// here), the safest cap is a plain "first N in the already-natural-sorted
+// order, expand for the rest" -- never HIDES a citation permanently, just
+// keeps the common case (most bars, most documents) from growing a wall of
+// rows while a genuinely citation-dense document (e.g. a Part 91-heavy AC)
+// still surfaces everything on request.
+const BAR_ITEM_CAP = 8
+
 function PodRow({
   bar, isLast, currentLabel, hasProAccess, tokens,
 }: {
@@ -290,6 +302,7 @@ function PodRow({
 }) {
   const fs = useFS()
   const [expanded, setExpanded] = useState(false)
+  const [showAll, setShowAll] = useState(false)
   const [titles, setTitles] = useState<Record<string, string>>({})
   const [preview, setPreview] = useState<{ x: number; y: number; text: string } | null>(null)
   // Real measured height of the currently-open preview card -- see showPreview
@@ -400,7 +413,7 @@ function PodRow({
 
       {expanded && hasItems && hasProAccess && (
         <View style={[styles.expandedList, { borderBottomColor: tokens.bdr }, isLast && styles.expandedListLast]}>
-          {bar.items.map((item, i) => (
+          {(showAll ? bar.items : bar.items.slice(0, BAR_ITEM_CAP)).map((item, i) => (
             <Pressable
               key={`${item.cited_type}-${item.cited_id}-${i}`}
               style={[styles.expandedRow, i > 0 && { borderTopColor: tokens.bdr, borderTopWidth: StyleSheet.hairlineWidth }]}
@@ -426,6 +439,17 @@ function PodRow({
               <Icon name="chevron.right" size={fs(12)} color={tokens.t4} />
             </Pressable>
           ))}
+          {!showAll && count > BAR_ITEM_CAP && (
+            <Pressable
+              style={[styles.expandedRow, styles.showAllRow, { borderTopColor: tokens.bdr, borderTopWidth: StyleSheet.hairlineWidth }]}
+              onPress={() => setShowAll(true)}
+            >
+              <Text style={[styles.showAllText, { color: tokens.gold, fontSize: fs(12.5) }]}>
+                Show all {count}
+              </Text>
+              <Icon name="chevron.down" size={fs(12)} color={tokens.gold} />
+            </Pressable>
+          )}
         </View>
       )}
 
@@ -541,6 +565,8 @@ const styles = StyleSheet.create({
   },
   expandedLabel: { flex: 1, marginRight: 8 },
   expandedTitle: { marginTop: 1 },
+  showAllRow: { justifyContent: 'center', gap: 6 },
+  showAllText: { fontWeight: '600' },
   previewCard: {
     position: 'absolute',
     maxWidth: 240,

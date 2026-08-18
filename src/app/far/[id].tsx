@@ -316,7 +316,13 @@ export default function FarSectionScreen() {
   const pcgRefs = related.filter((r) => r.cited_type === 'pcg')
   const adRefs = related.filter((r) => r.cited_type === 'ad')
   const loiRefs = related.filter((r) => r.cited_type === 'loi')
-  const otherFarRefs = related.filter((r) => r.cited_type === 'far')
+  // Folds in cited_type='far_part' alongside 'far' -- same pattern already
+  // used by aim/ac/ad/pcg/loi's own "Related FARs" bar. This page was the
+  // one screen that hadn't gotten it (found live 2026-08-17 while adding
+  // far_part extraction to ac/ad/aim/far_citations.py -- a bare "Part 91"
+  // reference is still FAR-related and belongs in the same bar as a
+  // specific "§ 91.113" reference, not a silently-dropped citation type).
+  const otherFarRefs = related.filter((r) => r.cited_type === 'far' || r.cited_type === 'far_part')
   const cfr49Refs = related.filter((r) => r.cited_type === 'cfr49')
 
   const handleToggleBookmark = async () => {

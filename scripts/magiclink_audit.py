@@ -27,11 +27,11 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # is owned corpus-wide by sync/pcg_term_links.py and must appear in exactly
 # one owner.
 OWNERSHIP = {
-    "sync/ac_citations.py":      {"citing": "ac",  "cited": {"ac", "far", "aim", "ad", "cfr49"}},
-    "sync/far_citations.py":     {"citing": "far", "cited": {"ac", "far", "aim", "ad", "cfr49"}},
-    "sync/ad_citations.py":      {"citing": "ad",  "cited": {"ac", "far", "aim", "ad"}},
+    "sync/ac_citations.py":      {"citing": "ac",  "cited": {"ac", "far", "aim", "ad", "cfr49", "far_part"}},
+    "sync/far_citations.py":     {"citing": "far", "cited": {"ac", "far", "aim", "ad", "cfr49", "far_part"}},
+    "sync/ad_citations.py":      {"citing": "ad",  "cited": {"ac", "far", "aim", "ad", "far_part"}},
     "sync/aim_scraper.py":       {"citing": "aim", "cited": {"ac", "far", "aim", "ad"}},
-    "sync/aim_far_citations.py": {"citing": "aim", "cited": {"far", "ac", "cfr49"}},
+    "sync/aim_far_citations.py": {"citing": "aim", "cited": {"far", "ac", "cfr49", "far_part"}},
     "sync/loi_scraper.py":       {"citing": "loi", "cited": {"far"}},
     "sync/loi_vision_cleanup.py": {"citing": "loi", "cited": {"far"}},
     "sync/loi_ac_citations.py":  {"citing": "loi", "cited": {"ac"}},

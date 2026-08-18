@@ -62,6 +62,13 @@ AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 # wider pattern necessary, a real corpus-wide extraction-consistency gap
 # found while auditing every citation regex for the same class of drift.
 AD_RE = re.compile(r"\bAD\)?\s*(\d{4}\s*-\s*\d{2}\s*-\s*\d{2})\b")
+# Bare "Part N" references -- see ac_citations.py's own FAR_PART_RE comment
+# for the corpus-wide boilerplate measurement this is based on. FAR's own
+# highest bare-Part prevalence measured at 3.4% ("part 121") -- no
+# exclusion needed. Self-part is excluded at the call site below instead
+# (a section citing the very Part it already belongs to isn't a real
+# cross-reference -- the reader is already there).
+FAR_PART_RE = re.compile(r"\b(?:14\s*CFR\s*|FAR\s+)?[Pp]art\s+([1-9]\d{0,2})\b(?!\.\d)")
 PCG_RE = re.compile(r"Pilot/Controller Glossary Term-\s*([^.]+)\.")
 # 49 CFR (DOT-wide -- NTSB/TSA/HMR, see cfr49_scraper.py) is always
 # EXPLICITLY prefixed "49 CFR" in FAR prose (confirmed live: 91 real
@@ -88,7 +95,7 @@ def fetch_all_far_sections() -> list[dict]:
     while True:
         resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/far_sections"
-            f"?select=section_number,body_text"
+            f"?select=section_number,body_text,part"
             f"&limit=1000&offset={offset}",
             headers=HEADERS, timeout=60,
         )
@@ -163,6 +170,16 @@ def extract_citations(section: dict) -> list[dict]:
             seen.add(key)
             citations.append({"citing_type": "far", "citing_id": own_id, "cited_type": "cfr49", "cited_id": cited, "label": None})
 
+    own_part = str(section.get("part") or "")
+    for m in FAR_PART_RE.finditer(text):
+        cited = m.group(1)
+        if cited == own_part:
+            continue  # this section already lives in the Part it's citing -- not a real cross-reference
+        key = ("far_part", cited)
+        if key not in seen:
+            seen.add(key)
+            citations.append({"citing_type": "far", "citing_id": own_id, "cited_type": "far_part", "cited_id": cited, "label": None})
+
     return citations
 
 
@@ -180,7 +197,7 @@ def delete_far_citations() -> None:
     resp = requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**HEADERS, "Prefer": "return=minimal"},
-        params={"citing_type": "eq.far", "cited_type": "in.(ac,far,aim,ad,cfr49)"},
+        params={"citing_type": "eq.far", "cited_type": "in.(ac,far,aim,ad,cfr49,far_part)"},
         timeout=30,
     )
     resp.raise_for_status()

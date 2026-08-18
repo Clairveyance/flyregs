@@ -70,6 +70,20 @@ AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 # wider pattern necessary, a real corpus-wide extraction-consistency gap
 # found while auditing every citation regex for the same class of drift.
 AD_RE = re.compile(r"\bAD\)?\s*(\d{4}\s*-\s*\d{2}\s*-\s*\d{2})\b")
+# Bare "Part N" references (no specific section number) -- same pattern as
+# pcg_citations.py's own FAR_PART_RE, reused verbatim. Deliberately NOT
+# extended to ad_citations.py's own copy without an exclusion list -- ADs
+# repeat "part 39"/"part 51" in near-universal boilerplate (see that file's
+# BOILERPLATE_FAR_EXCLUDE for the section-level precedent this mirrors).
+# Measured live before adding here (2026-08-17, corpus-wide prevalence per
+# citing_type): AC's own highest bare-Part mention is "part 91" at 29.3% of
+# the 786-AC corpus, with a smooth, continuously-decreasing distribution
+# below it (26.7%, 26.1%, 21.2%...) -- no order-of-magnitude outlier the
+# way AD's 100%/86.8% Part 39/51 are against AD's own next-highest at 8.2%.
+# A smooth curve with no discontinuity means every one of these is a real,
+# topically-relevant mention, not repeated administrative boilerplate -- so
+# no exclusion list is needed here.
+FAR_PART_RE = re.compile(r"\b(?:14\s*CFR\s*|FAR\s+)?[Pp]art\s+([1-9]\d{0,2})\b(?!\.\d)")
 PCG_RE = re.compile(r"Pilot/Controller Glossary Term-\s*([^.]+)\.")
 # See far_citations.py's identical constant -- always explicitly prefixed
 # "49 CFR" in real AC text (confirmed live: 80 real advisory_circulars rows
@@ -177,6 +191,13 @@ def extract_citations(ac: dict) -> list[dict]:
             seen.add(key)
             citations.append({"citing_type": "ac", "citing_id": ac["document_number"], "cited_type": "cfr49", "cited_id": cited, "label": None})
 
+    for m in FAR_PART_RE.finditer(text):
+        cited = m.group(1)
+        key = ("far_part", cited)
+        if key not in seen:
+            seen.add(key)
+            citations.append({"citing_type": "ac", "citing_id": ac["document_number"], "cited_type": "far_part", "cited_id": cited, "label": None})
+
     return citations
 
 
@@ -194,7 +215,7 @@ def delete_ac_citations() -> None:
     resp = requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**HEADERS, "Prefer": "return=minimal"},
-        params={"citing_type": "eq.ac", "cited_type": "in.(ac,far,aim,ad,cfr49)"},
+        params={"citing_type": "eq.ac", "cited_type": "in.(ac,far,aim,ad,cfr49,far_part)"},
         timeout=30,
     )
     resp.raise_for_status()

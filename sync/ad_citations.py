@@ -109,6 +109,21 @@ AD_RE = re.compile(r"\bAD\)?\s*(\d{4}\s*-\s*\d{2}\s*-\s*\d{2})\b")
 # 39.17 (153/155), 91.417 (124/155), 43.7 (94/111).
 BOILERPLATE_FAR_EXCLUDE = {"39.19", "21.197", "43.9", "39.17", "91.417", "43.7"}
 
+# Bare "Part N" references (no section number) -- same pattern as
+# pcg_citations.py's own FAR_PART_RE. Measured corpus-wide by citing_type
+# before adding this anywhere (2026-08-17): AD is the ONE type with a real
+# boilerplate problem here -- every AD is issued "under 14 CFR part 39"
+# and nearly every AD's own standard footer also cites part 51 (100.0% and
+# 86.8% of the 5,610-AD corpus respectively), an order-of-magnitude jump
+# over the next-highest bare-Part mention (part 119 at 8.2%) -- the exact
+# same shape and evidentiary bar as BOILERPLATE_FAR_EXCLUDE above, just at
+# the whole-Part level instead of section level. AC/AIM/FAR measured clean
+# (max 29.3%/7.3%/3.4%, smooth distributions with no such outlier) so they
+# ship without any exclusion list -- see each of those files' own
+# FAR_PART_RE comment.
+FAR_PART_RE = re.compile(r"\b(?:14\s*CFR\s*|FAR\s+)?[Pp]art\s+([1-9]\d{0,2})\b(?!\.\d)")
+BOILERPLATE_FAR_PART_EXCLUDE = {"39", "51"}
+
 
 def fetch_all_ads() -> list[dict]:
     out = []
@@ -180,6 +195,15 @@ def extract_citations(ad: dict) -> list[dict]:
             seen.add(key)
             citations.append({"citing_type": "ad", "citing_id": ad["ad_number"], "cited_type": "aim", "cited_id": cited, "label": None})
 
+    for m in FAR_PART_RE.finditer(text):
+        cited = m.group(1)
+        if cited in BOILERPLATE_FAR_PART_EXCLUDE:
+            continue
+        key = ("far_part", cited)
+        if key not in seen:
+            seen.add(key)
+            citations.append({"citing_type": "ad", "citing_id": ad["ad_number"], "cited_type": "far_part", "cited_id": cited, "label": None})
+
     return citations
 
 
@@ -199,7 +223,7 @@ def delete_ad_citations() -> None:
     resp = requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**HEADERS, "Prefer": "return=minimal"},
-        params={"citing_type": "eq.ad", "cited_type": "in.(ac,far,aim,ad)"},
+        params={"citing_type": "eq.ad", "cited_type": "in.(ac,far,aim,ad,far_part)"},
         timeout=30,
     )
     resp.raise_for_status()
