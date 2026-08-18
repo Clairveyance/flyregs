@@ -44,7 +44,7 @@ export function cleanGlyphs(s: string): string {
 
 // Schema version for precomputed pdf_blocks — bump when the parser output shape
 // changes so a backfill can tell which rows need reprocessing.
-export const AC_FORMAT_VERSION = 41
+export const AC_FORMAT_VERSION = 42
 
 // Free-tier body preview: just enough to show how the app is organized, not
 // a real read of the content. Was a 20%-floored-at-3 formula (let short ACs
@@ -351,6 +351,97 @@ const APPXSEC = /^([A-Z]\.\d{1,3}(?:\.\d{1,2}){0,6})\.?\s+([A-Z].+)$/
 // The TABLE keyword with a digit catches these reliably without false positives
 // on prose references like "see the table above" (lowercase) or section titles.
 const TBL = /^TABLE\s+\d/
+
+// FAA ACs also use a SECOND, distinct table-numbering scheme inside lettered
+// appendices: "Table A-1. U.S. Air Force Specialty Codes", "TABLE D-1.
+// EXAMPLE OF...", "Table A3-1-1. Boeing 737-900...". TBL above requires a
+// DIGIT right after "TABLE", so it never matches -- table-mode never
+// engages, and every data row of a lettered table glues into whatever
+// section/item was still open (confirmed swallowing 65-30B's entire "U.S.
+// Air Force/Army/Navy/Marine Corps/Coast Guard Specialty/Occupational Codes"
+// appendix into one block). Corpus-measured before writing this regex (not
+// guessed): 100 of 780 active ACs have a line matching a broad
+// `^(TABLE|Table)\s+[A-Z]` net; manually classifying all 879 real hits found
+// the genuine heading shape is "Table"/"TABLE" (both cases appear -- 25.1309-
+// 1B, 33.28-3, 450.109-1 use uppercase "TABLE", same as the digit scheme;
+// everyone else uses title-case "Table") + a letter, optionally 1-2 extra
+// digits before the dash ("A3", "A6", "A1"), one or two dash-number groups
+// (plain "A-1", or "A3-1-1"), tolerating stray OCR spacing around the dash
+// ("A1 - 1") or before the terminal punctuation ("Table D-1 ." — seen twice
+// in 120-92D).
+//
+// The real false-positive risk (same shape the reverted SECDOT attempt ran
+// into): TBL only anchors at line-start, not sentence-start, and a PDF line
+// break can coincidentally land right after an inline citation, producing a
+// standalone line that opens exactly like a heading -- "Table A-2. New
+// records must be entered within 30 days of creation" (120-68J, a genuine
+// sentence, not a title), "Table A-3. Similarly, account for the static
+// pressure measurement error in two" (91-85B, a sentence that merely ends
+// with ". Similarly," -- i.e. the PREVIOUS sentence's own trailing "Table
+// A-3." reference plus a new sentence starting right after). Two guards,
+// corpus-validated by classifying all 879 real hits by hand before picking
+// thresholds:
+//   1. Punctuation-gated: only "." or ":" immediately (or after one stray
+//      OCR space) after the table number counts. Corpus evidence: bare
+//      "Table A-1 shows/provides/lists/below/on/when/in ..." (no punctuation
+//      at all -- 87 real instances found, all prose citing a table
+//      introduced elsewhere) and comma-punctuated "Table A-4, and Table A-5
+//      to determine..." are both dominated by ordinary sentences, not
+//      headings, so both are excluded entirely rather than risk them.
+//   2. Noun-phrase check: real table titles are noun phrases and essentially
+//      never contain a FINITE main verb ("must", "are", "shows", "requires"
+//      ...) or open with a comma-led adverbial transition ("Similarly,",
+//      "However,"). A relative clause modifying the title itself doesn't
+//      count against it ("Organizations That Are Required", "Items to be
+//      Evaluated" -- the verb follows "that"/"which"/"who"/"to", a
+//      subordinate clause, not the line's own main clause). This cleanly
+//      separated every real title from every real sentence found in the
+//      corpus scan, including two that a cruder title-case-ratio heuristic
+//      could NOT distinguish (120-68J's real sentence and 437.55-1's
+//      genuine-but-sentence-case "Hazard example: leak in..." caption both
+//      scored identically on a pure capitalization ratio).
+// Deliberately asymmetric: a false NEGATIVE here just leaves that one table
+// exactly as unfixed as it is today (no regression). A false POSITIVE
+// corrupts real prose into a fake heading/table-row -- so every ambiguous
+// case above is resolved toward rejecting, not matching.
+const TBL_LETTER_SHAPE =
+  /^(?:TABLE|Table)\s+([A-Z](?:\d{1,2})?(?:\s?-\s?\d{1,3}){0,2})\s?([.:])\s*(.*)$/
+const TBL_LETTER_VERBS = new Set([
+  'is', 'are', 'was', 'were', 'must', 'should', 'shall', 'will', 'would', 'can', 'could', 'may', 'might',
+  'has', 'have', 'had', 'does', 'do', 'did',
+  'shows', 'show', 'indicates', 'indicate', 'provides', 'provide',
+  'identifies', 'identify', 'conveys', 'convey', 'relates', 'relate', 'requires', 'require',
+  'describes', 'describe', 'explains', 'explain', 'illustrates', 'illustrate',
+  'demonstrates', 'demonstrate', 'contains', 'contain', 'includes', 'include', 'account', 'accounts',
+])
+const TBL_LETTER_CLAUSE_GUARDS = new Set(['that', 'which', 'who', 'to'])
+const TBL_LETTER_ADVERBIAL_OPENERS = new Set([
+  'similarly', 'however', 'therefore', 'also', 'then', 'thus', 'furthermore', 'moreover',
+  'consequently', 'first', 'second', 'third', 'note', 'additionally', 'finally', 'meanwhile',
+  'otherwise', 'nevertheless', 'nonetheless', 'instead', 'indeed', 'hence', 'accordingly',
+  'overall', 'specifically', 'generally', 'typically', 'importantly', 'notably',
+])
+function isLetterTableHeading(line: string): boolean {
+  const m = line.match(TBL_LETTER_SHAPE)
+  if (!m) return false
+  // A bare "Table A-1" number with a letter but NO dash-number ("Table C.")
+  // is still accepted -- some docs number their own tables "Table A",
+  // "Table B", "Table C" with no per-section suffix (confirmed real: AC
+  // 20-147A's "Table C. Inlet Lip and Runback Ice...").
+  const rest = m[3].replace(/\.{3,}.*$/, '').replace(/\s*\([^()]*\)\s*$/, '').trim()
+  if (rest === '') return true // bare label, title empty or wraps to the next line
+  const words = rest.split(/\s+/).filter(Boolean)
+  const firstBare = words[0].replace(/[^A-Za-z]/g, '').toLowerCase()
+  if (/,$/.test(words[0]) && TBL_LETTER_ADVERBIAL_OPENERS.has(firstBare)) return false
+  let guarded = false
+  for (const w of words) {
+    const bare = w.replace(/^[^A-Za-z]+|[^A-Za-z0-9]+$/g, '').toLowerCase()
+    if (!bare) continue
+    if (TBL_LETTER_CLAUSE_GUARDS.has(bare)) { guarded = true; continue }
+    if (TBL_LETTER_VERBS.has(bare) && !guarded) return false
+  }
+  return true
+}
 
 const ITEM_A = /^([a-z]\.)\s+(.*)$/ // a. ...
 const ITEM_N = /^(\(\d+\))\s+(.*)$/ // (1) ...
@@ -1066,9 +1157,11 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
       line = line.replace(/(?<![A-Za-z''’])([B-HJ-NP-Zb-hj-np-z]) ([a-z]{3,})/g, '$1$2')
     }
 
-    // TABLE headers ("TABLE 2-1. GAS LAWS…") become chapter blocks for navigation
-    // and trigger table-mode so subsequent content is formatted as bullet items.
-    if (TBL.test(line)) {
+    // TABLE headers ("TABLE 2-1. GAS LAWS…", or the lettered-appendix scheme
+    // "Table A-1. U.S. Air Force Specialty Codes") become chapter blocks for
+    // navigation and trigger table-mode so subsequent content is formatted
+    // as bullet items.
+    if (TBL.test(line) || isLetterTableHeading(line)) {
       flush()
       blocks.push({ kind: 'chapter', id: nextId(), text: line })
       bodyStarted = true
@@ -1404,6 +1497,33 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
     // trailing-period differences between the TOC copy and the real heading
     // ("Related References" vs "Related References.") shouldn't block a match.
     const normTitle = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '')
+    // A chapter is only a genuine leftover TOC "ghost" if NOTHING with real
+    // content sits between it and the next chapter (or the end of the
+    // document) -- a bare heading-shaped line with nothing of its own.
+    // Needed once the lettered-table fix (2026-08-18) started producing
+    // MANY chapter pushes sharing byte-identical text: a table that spans
+    // several printed pages reprints its own heading verbatim as a running
+    // "(continued)" page header every time (confirmed real, e.g. AC
+    // 21.101-1B's "Table A-2. Examples of Significant Changes for Small
+    // Airplanes (Part 23) (continued)" appears 10 times). Every one of
+    // those 10 has a real table row directly under it -- none is an empty
+    // ghost -- but the ORIGINAL text-equality check alone couldn't tell a
+    // true ghost from a genuine repeated-but-content-bearing table-page
+    // marker, so it collapsed 9 of the 10 down to just the last, discarding
+    // 8 legitimate navigation points (row content itself was never lost,
+    // only the heading text of the dropped duplicates -- confirmed via
+    // scripts/diff-parser-version.mjs-style corpus validation, which is
+    // what surfaced this). This guard restores the mechanism to its
+    // original, narrower intent.
+    const chapterIsGhost = (i: number): boolean => {
+      for (let j = i + 1; j < blocks.length; j++) {
+        const b2 = blocks[j]
+        if (b2.kind === 'chapter') return true // next heading, nothing in between
+        if (b2.kind === 'para' && b2.text.trim()) return false
+        if ((b2.kind === 'section' || b2.kind === 'item') && (b2.body.trim() || b2.title.trim())) return false
+      }
+      return true // reached the end of the document with nothing in between
+    }
     const recursWithContent = (i: number) => {
       const b = blocks[i]
       for (let j = i + 1; j < blocks.length; j++) {
@@ -1415,7 +1535,7 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
           normTitle(b2.title) === normTitle(b.title)
         ) {
           if (b2.body.trim()) return true
-        } else if (b.kind === 'chapter' && b2.kind === 'chapter' && b2.text === b.text) {
+        } else if (b.kind === 'chapter' && b2.kind === 'chapter' && b2.text === b.text && chapterIsGhost(i)) {
           return true
         }
       }
