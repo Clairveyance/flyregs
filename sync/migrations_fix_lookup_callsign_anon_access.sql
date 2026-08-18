@@ -1,0 +1,38 @@
+-- Found during the 2026-08-18 "more full gating checks" audit (Study Mode /
+-- Dictionary / Account / push / Find Friends sweep, independent of the
+-- gating regression sweeps already run today).
+--
+-- lookup_user_by_callsign(text) -- the server side of resolveCallsignToUserId()
+-- in contactMatch.ts, used by every "invite/add by Callsign" flow app-wide
+-- (Ready Room, Duels/New Duel opponent search, Folder invite, Aircraft
+-- invite, Find Friends' manual callsign search) -- had EXECUTE granted to
+-- PUBLIC and anon, unlike its sibling get_visible_users() (authenticated
+-- only) and unlike match_contacts_by_email/match_contacts_by_phone (also
+-- PUBLIC/anon-granted, but each has its own internal has_pro_access() check
+-- that fails closed for an anon caller since auth.uid() is null).
+-- lookup_user_by_callsign has no internal check at all, so the PUBLIC/anon
+-- grant meant a fully unauthenticated caller -- literally anyone hitting
+-- the REST endpoint with just the public anon API key, no FlyRegs account
+-- required -- could resolve any guessed/known Callsign string to that
+-- user's real internal user_id. Live-confirmed via a real anonymous-key
+-- probe (scripts/tier_matrix_test.py-style, ad hoc): HTTP 200 with a real
+-- match for anon, alongside every other tier.
+--
+-- Every real client call site is from an already-authenticated in-app
+-- screen (see contactMatch.ts's own header comment on this function) -- no
+-- legitimate anonymous caller exists anywhere in the app -- so this is the
+-- PUBLIC-grant-by-default gap (Postgres grants EXECUTE to PUBLIC on new
+-- functions unless explicitly revoked), the same root cause already fixed
+-- for match_contacts_by_email/phone, just missing its own explicit REVOKE
+-- here since this function fails open (no internal auth check) rather than
+-- closed. Fix: revoke PUBLIC/anon EXECUTE, matching get_visible_users'
+-- already-correct grant shape. authenticated keeps its existing grant (see
+-- migrations_aircraft_pending_invites.sql) -- zero behavior change for
+-- every real caller, since every real caller is already signed in.
+--
+-- Verified live after: anon -> HTTP 401 (was HTTP 200 with a real match
+-- before); free/plus/pro/premium test accounts (tiermatrix-*@flyregs.invalid)
+-- all still -> HTTP 200, unchanged.
+
+revoke execute on function public.lookup_user_by_callsign(text) from public;
+revoke execute on function public.lookup_user_by_callsign(text) from anon;

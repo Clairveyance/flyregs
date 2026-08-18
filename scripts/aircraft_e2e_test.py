@@ -99,9 +99,29 @@ def delete_user(uid):
     http("DELETE", f"/auth/v1/admin/users/{uid}", key=SERVICE)
 
 
+def grant_premium(uid):
+    """This test exercises aircraft ownership (Pro+), maintenance reminders
+    (Pro+), and equipment tagging (Premium-only) end to end, so the main
+    test user needs Premium -- same pattern as aircraft_sharing_e2e_test.py's
+    own grant_premium(). Added 2026-08-18: this test previously created its
+    user with NO entitlements row at all and its very first step (aircraft
+    insert) still passed -- not because Free tier can own aircraft, but
+    because fleet_visible_cap() failed OPEN (unlimited) for any user with no
+    user_entitlements row, a real server-side gating gap independently found
+    and fixed the same session (sync/migrations_default_entitlements_row_on_
+    signup.sql adds a signup-time trigger so every user always has a row).
+    This test unknowingly relied on that exploit to pass instead of testing
+    the real, intended Premium-owner path -- granting explicitly here tests
+    what this file has always claimed to test."""
+    http("POST", "/rest/v1/user_entitlements", key=SERVICE,
+         body={"user_id": uid, "is_premium": True},
+         headers={"Prefer": "resolution=merge-duplicates"})
+
+
 def main():
     user = make_user("acftA")
     stranger = make_user("acftB")
+    grant_premium(user["id"])
     aircraft_id = None
     equipment_id = None
     reminder_id = None

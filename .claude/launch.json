@@ -26,6 +26,19 @@
       ],
       "port": 8091,
       "autoPort": false
+    },
+    {
+      "name": "flyregs-web-qa2",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8092"
+      ],
+      "port": 8092,
+      "autoPort": false
     }
   ]
 }

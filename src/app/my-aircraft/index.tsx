@@ -1221,6 +1221,25 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   // See AircraftDowngradeGate.tsx for the same fix, same root cause.
   const load = useCallback(() => {
     if (!session) {
+      // Clear the previous user's fleet, not just stop loading -- this
+      // screen deliberately never unmounts in the background (see above),
+      // so without this a sign-out followed by a different account signing
+      // in on the same device would keep showing the FIRST account's real
+      // aircraft (tail numbers, compliance status) here until the next
+      // getFleetSummary() call happened to overwrite it. The other 3 screens
+      // fixed alongside this one for the session-identity bug (Home's fleet
+      // widget, search.tsx's Identity card, AircraftDowngradeGate) all clear
+      // their state on !session already; this one didn't, and was never
+      // exercised by that fix since the dependency-array change alone
+      // doesn't touch this branch. Found in the regression sweep for that
+      // fix, same root-cause family (session-identity handling), fixed here.
+      setAircraft([])
+      setNextDueDays(null)
+      setReminderUrgency({})
+      setDueSoonCount(0)
+      setExpandedDetails({})
+      setExpandedId(null)
+      expandedIdRef.current = null
       setLoading(false)
       return
     }
