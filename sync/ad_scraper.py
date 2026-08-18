@@ -116,12 +116,28 @@ SGML_ENTITY_RE = re.compile(r"\[([a-zA-Z]+)\]")
 # "[[Page 8664]]"-style pagination artifacts from the FR's own PDF-to-text
 # rendering -- not content, safe to drop outright rather than decode.
 PAGE_BREAK_RE = re.compile(r"\[\[Page\s+[\d,]+\]\]\s*", re.IGNORECASE)
+# Raw numeric HTML entities ("&#160;", the non-breaking-space reference) --
+# a DIFFERENT artifact from the bracket-named ones above, confirmed live
+# 2026-08-17 in 15 recent ADs (2026-15-11 through 2026-16-13): every source
+# document's Cloudflare-obfuscated compliance-contact email renders in the
+# FR's own full text as the literal fallback placeholder "[email protected]",
+# and in these 15 the space inside it survived as a raw numeric entity
+# instead of a real space ("[email&#160;protected]"). The real underlying
+# email address isn't recoverable from this source at all -- FR's own
+# published record only ever contains the placeholder text, same as any
+# other Cloudflare-protected page -- so this decode ONLY fixes the space
+# character, it never invents contact info. Scoped to numeric refs only
+# (not a general HTML-entity decoder) to avoid touching genuine bracketed
+# CFR drafting conventions like "[Reserved]" the same way SGML_ENTITY_RE's
+# letters-only class already avoids them.
+NUMERIC_ENTITY_RE = re.compile(r"&(?:amp;)?#(\d+);")
 
 
 def decode_sgml_entities(text: str | None) -> str | None:
     if not text:
         return text
     text = PAGE_BREAK_RE.sub("", text)
+    text = NUMERIC_ENTITY_RE.sub(lambda m: chr(int(m.group(1))), text)
 
     def _sub(m: re.Match) -> str:
         char = html.entities.html5.get(m.group(1).lower() + ";")
