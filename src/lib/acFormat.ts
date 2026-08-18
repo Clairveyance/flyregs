@@ -44,7 +44,7 @@ export function cleanGlyphs(s: string): string {
 
 // Schema version for precomputed pdf_blocks — bump when the parser output shape
 // changes so a backfill can tell which rows need reprocessing.
-export const AC_FORMAT_VERSION = 43
+export const AC_FORMAT_VERSION = 45
 
 // Free-tier body preview: just enough to show how the app is organized, not
 // a real read of the content. Was a 20%-floored-at-3 formula (let short ACs
@@ -1289,12 +1289,45 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
     //                     also present in 33-8's own multiple 15K-45K-char
     //                     blocks — the OTHER remaining oversized-block docs
     //                     use visibly different row shapes, e.g. pipe-
-    //                     delimited tables in 38-1/33.70-3, and are
-    //                     deliberately NOT addressed by this same pattern).
+    //                     delimited tables in 38-1/33.70-3 (see
+    //                     isPipeRowStart below, added separately).
+    //   isPipeRowStart  — a literal PDF-extracted markdown-style pipe row
+    //                     ("| Correction | Paragraph... |"), confirmed real
+    //                     against raw pdf_text in both 38-1 (Appendix 3's
+    //                     "Table A3-1. Corrections to reference
+    //                     specifications") and 33.70-3 (Appendix C's
+    //                     "Table C-2. Tabular Data") -- same shared root
+    //                     cause, same fix. Neither of the other two row
+    //                     patterns match a line starting with "|", so this
+    //                     content had no row boundary at all and glued into
+    //                     one runaway item exactly like the "N-M Title"
+    //                     case above. A leading "|" essentially never
+    //                     starts an ordinary prose line, so this is a safe,
+    //                     unambiguous signal once already inside table-mode.
+    //                     Deliberately not filtering the header/separator
+    //                     row that repeats after a PDF page break (e.g.
+    //                     "|---|---|---|" or the column-header row again) --
+    //                     it becomes its own small, harmless extra item
+    //                     rather than corrupting anything, and guessing at
+    //                     which repeated row is "real" vs. a page-break
+    //                     artifact is exactly the kind of fragile heuristic
+    //                     this fix is trying to avoid.
     if (inTable) {
       const isAllCaps = /^[A-Z][A-Z0-9 (),-]*$/.test(line)
       const isRowStart = !isAllCaps && /^[A-Z]{2,}(?:\s+[A-Z]{2,})+/.test(line)
       const isMatrixRowStart = !isAllCaps && !isRowStart && /^\d{1,2}-\d{1,3}\s+[A-Z]/.test(line)
+      const isPipeRowStart = /^\|/.test(line)
+      // isSectionCiteRowStart — a "§ N.NN, Title" regulation-citation row
+      // label, confirmed real against raw pdf_text in 120-92D's Appendix G
+      // implementation-strategy table (real rows: "§ 5.21, Safety policy.",
+      // "§ 5.23, Safety accountability and authority." -- the latter wraps
+      // its own title across multiple PDF lines, so this only needs to
+      // match the "§ N.NN," lead-in on the row's first line, same as the
+      // other row-start patterns above). The section-symbol prefix is
+      // essentially unambiguous inside table-mode -- ordinary prose never
+      // starts a line with "§".
+      const isSectionCiteRowStart =
+        !isAllCaps && !isRowStart && !isMatrixRowStart && /^§\s*\d+(\.\d+)?,/.test(line)
 
       if (!tableHeaderDone) {
         if (isAllCaps) {
@@ -1312,9 +1345,11 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
           cur = { kind: 'item', level: 1, label: '•', title: '', body: line }
           bodyStarted = true
         }
-      } else if (isAllCaps || isRowStart || isMatrixRowStart) {
+      } else if (isAllCaps || isRowStart || isMatrixRowStart || isPipeRowStart || isSectionCiteRowStart) {
         // New data row — pure all-caps id, inline "ID text description"
-        // pattern, or a "N-M Title" compliance-matrix row label
+        // pattern, a "N-M Title" compliance-matrix row label, a literal
+        // "| ... |" pipe-delimited row, or a "§ N.NN," regulation-citation
+        // row label
         flush()
         cur = { kind: 'item', level: 1, label: '•', title: '', body: line }
         bodyStarted = true
