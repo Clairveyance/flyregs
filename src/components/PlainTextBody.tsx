@@ -34,6 +34,22 @@ import { useConfirm } from '@/components/ConfirmDialog'
 // — far more common in FAR body text than the period style — never bolded.
 const LEADING_MARKER_RE = /^(\([a-zA-Z0-9]{1,4}\)|[a-zA-Z0-9]{1,3}\.)\s+/
 
+// Bare-word markers this regex catches that are real ordinary English
+// words, not list letters -- found via a full corpus scan for every
+// bare-word marker shape (RC: "these blocks throughout all regs... need
+// to have super accurate formatting... check them all"). Corpus-wide,
+// this is a single confirmed case (FAR 61.421's entire body is the
+// literal text "No. If you hold a flight instructor certificate..." --
+// several Part 61 Subpart K sections are titled as a question with the
+// answer's own body starting "Yes."/"No."), but a real, visible bug:
+// "No." rendered bold as if it were a genuine list marker like "a." or
+// "1.", with no actual list to belong to. Every OTHER bare-word marker
+// this same scan found (MIL., ANG., USN., PAX., Sea., GLS., LPV., LP.,
+// MWA., IFR., VFR.) is a real FAA-source abbreviation-as-list-marker and
+// correctly stays bolded -- so this is a small, explicit exclusion, not
+// a blanket "no bare words" rule that would break those.
+const NON_MARKER_WORDS = new Set(['yes', 'no'])
+
 /** A short (<=44 char) declarative/imperative lead phrase at the very
  * start of a paragraph, immediately followed by more prose in the SAME
  * paragraph -- the FAA's own informal way of breaking a long passage into
@@ -1000,8 +1016,14 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
           .replace(/\n{3,}/g, '\n\n')
           .trim()
         const m = cleaned.match(LEADING_MARKER_RE)
-        const marker = m ? m[1] : null
-        const rest = m ? cleaned.slice(m[0].length) : cleaned
+        // NON_MARKER_WORDS guard: a bare-word match ("No.", not "(a)") whose
+        // word is really ordinary English, not a list letter -- see that
+        // constant's own comment. Real markers ("(a)", "1.", "MIL.") pass
+        // through unaffected; only this small excluded set falls through to
+        // "no marker found" and keeps its original text intact.
+        const isRealMarker = !!m && (m[1].startsWith('(') || !NON_MARKER_WORDS.has(m[1].slice(0, -1).toLowerCase()))
+        const marker = isRealMarker ? m![1] : null
+        const rest = isRealMarker ? cleaned.slice(m![0].length) : cleaned
         // Detected against the FULL pre-wrap paragraph, not a post-softwrap
         // chunk -- confirmed live as a real bug: softWrapParagraph splits at
         // ~220 chars, and a short header sentence immediately followed by a

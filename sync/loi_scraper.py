@@ -365,7 +365,15 @@ def write_citations(loi_id: str, slug: str, citations: list[dict]) -> None:
     never duplicates.
     """
     headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
-    requests.delete(
+    # raise_for_status() -- found live via magiclink_audit after
+    # loi_far_citations_backfill.py's first full-corpus run: a delete that
+    # silently no-ops (a transient 5xx, previously unchecked) leaves this
+    # LOI's OLD rows in place, and the insert below then lands duplicates
+    # right on top of them (edwards-islandair-2014 -> FAR 117.1/117.5, 1
+    # LOI out of 1,055 in that run). Raising means the caller sees the
+    # real failure and can retry/report instead of silently corrupting the
+    # dedup invariant this function's whole design depends on.
+    resp = requests.delete(
         f"{SUPABASE_URL}/rest/v1/document_citations",
         headers={**headers, "Prefer": "return=minimal"},
         # Scoped to the cited_type this scraper OWNS. It used to delete every
@@ -376,6 +384,7 @@ def write_citations(loi_id: str, slug: str, citations: list[dict]) -> None:
         params={"citing_type": "eq.loi", "citing_id": f"eq.{slug}", "cited_type": "eq.far"},
         timeout=15,
     )
+    resp.raise_for_status()
     rows = [
         {
             "citing_type": "loi",

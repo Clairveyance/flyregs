@@ -79,6 +79,7 @@ def main():
 
     total_resolved = 0
     total_docs_with_citations = 0
+    failed_slugs = []
     for loi in lois:
         text = loi.get("body_text") or ""
         if not text:
@@ -90,9 +91,23 @@ def main():
             total_resolved += len(resolved)
         if args.dry_run:
             continue
-        write_citations(loi["slug"], loi["slug"], citations)
+        # write_citations() now raises on a failed delete (see its own
+        # comment -- found live via magiclink_audit after this backfill's
+        # first run silently duplicated one LOI's rows when its delete
+        # transiently failed). Catching per-LOI here so one bad HTTP call
+        # over 1,000+ sequential requests can't abort the whole run --
+        # logged and reported at the end instead, so a real failure is
+        # visible rather than either crashing everything or corrupting the
+        # dedup invariant silently.
+        try:
+            write_citations(loi["slug"], loi["slug"], citations)
+        except Exception as e:
+            log.warning(f"  Failed to write citations for {loi['slug']}: {e}")
+            failed_slugs.append(loi["slug"])
 
     log.info(f"{total_docs_with_citations} LOIs have at least one resolved FAR citation, {total_resolved} total citation rows.")
+    if failed_slugs:
+        log.warning(f"{len(failed_slugs)} LOIs failed to write (re-run this script to retry them): {failed_slugs}")
     if args.dry_run:
         log.info("(dry run -- nothing written)")
     else:
