@@ -1,0 +1,123 @@
+name: Weekly Master Audit
+
+# Runs scripts/master_audit.sh -- the full Layer 1-2 audit suite
+# (run_all_audits.sh, hard gate) plus the two formatting-quality worklist
+# tools (audit_corpus_formatting.py for AC, audit_reg_formatting.mjs for
+# FAR/AIM/AD/49-CFR), as non-blocking reports. Built 2026-08-18 in
+# response to RC's explicit ask: every content type's MagicLink-
+# completeness, tier-gating, and formatting-quality checks should run
+# automatically any time a reg is ingested/updated -- previously only AC
+# had ANY automated quality check (sync.sh's own audit-parser.mjs step);
+# nothing re-verified MagicLink completeness, tier gating, or formatting
+# quality on a schedule for ANY content type, and this master gate itself
+# had never been wired into CI at all.
+#
+# Staggered to 17:00 UTC -- after all 7 sync pipelines (AC 10:00, AIM
+# 11:00, FAR 12:00, P/CG 13:00, AD 14:00, LOI 15:00, 49 CFR 16:00 UTC)
+# have had a full hour to finish, so this always audits real post-sync
+# state, not a stale pre-sync snapshot.
+#
+# Alerting: a hard-gate failure (any of run_all_audits.sh's 10 checks)
+# makes this whole job show as FAILED -- check via
+# `gh run list --workflow=weekly-master-audit.yml`. The two formatting
+# worklist tools never fail the build (see master_audit.sh's own header
+# for why) -- their findings land in scripts/audit_reports/ and in this
+# run's uploaded artifact only; nothing currently pages a human for a
+# rising count, so growth there needs a periodic manual glance, not just
+# this gate.
+#
+# Needs secrets beyond what the other weekly-*-sync.yml workflows use:
+#   SUPABASE_MANAGEMENT_TOKEN + SUPABASE_PROJECT_REF -- magiclink_audit.py
+#     (run twice, plain + --ownership) uses the Supabase Management API,
+#     not the regular data API the sync scripts use. Same values already
+#     in this repo's local .env.supabase-mgmt (gitignored, never
+#     committed) -- read that file locally to get the exact values to
+#     paste into these two secrets; nothing here reproduces them in
+#     plaintext.
+#   EXPO_PUBLIC_SUPABASE_URL + EXPO_PUBLIC_SUPABASE_ANON_KEY --
+#     tier_matrix_test.py drives real @flyregs.invalid test-account
+#     signups exactly like a real client would (see its own header for
+#     why the web-preview ?tier= stub can't substitute), so it needs the
+#     same public anon key the shipped app already embeds. Same values
+#     already in this repo's local .env.
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '0 17 * * 1'
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Also run Layer 3 (slower live search/filter eval harnesses)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Python dependencies
+        run: pip install -r sync/requirements.txt
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Write .env.scraper from secrets
+        run: |
+          cat > .env.scraper <<EOF
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          EOF
+
+      - name: Write .env.supabase-mgmt from secrets
+        run: |
+          cat > .env.supabase-mgmt <<EOF
+          SUPABASE_MANAGEMENT_TOKEN=${{ secrets.SUPABASE_MANAGEMENT_TOKEN }}
+          SUPABASE_PROJECT_REF=${{ secrets.SUPABASE_PROJECT_REF }}
+          EOF
+
+      - name: Write .env from secrets
+        run: |
+          cat > .env <<EOF
+          EXPO_PUBLIC_SUPABASE_URL=${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          EOF
+
+      - name: Run master audit
+        run: |
+          chmod +x scripts/master_audit.sh
+          if [[ "${{ github.event.inputs.full }}" == "true" ]]; then
+            ./scripts/master_audit.sh --full
+          else
+            ./scripts/master_audit.sh
+          fi
+
+      - name: Clean up secrets files
+        if: always()
+        run: rm -f .env.scraper .env.supabase-mgmt .env
+
+      - name: Upload audit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-reports
+          path: scripts/audit_reports/*_latest.json
+          retention-days: 30

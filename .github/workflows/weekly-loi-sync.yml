@@ -1,0 +1,53 @@
+name: Weekly LOI Sync
+
+# Runs sync_loi.sh (FAA Legal Interpretations). Confirmed a real gap
+# 2026-08-18: LOI had NO scheduled sync of any kind, ever, despite
+# AC/AD/AIM/FAR/P-CG all having one since 2026-07-24 to -28 -- see
+# sync_loi.sh's own header for the full story. Staggered to 15:00 UTC
+# (an hour after the AD sync) so it doesn't contend with the other six
+# for Supabase write throughput.
+#
+# Alerting: sync_loi.sh uses `set -euo pipefail`, so a failing step makes
+# the whole job show as FAILED -- check via
+# `gh run list --workflow=weekly-loi-sync.yml` any time.
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '0 15 * * 1'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install -r sync/requirements.txt
+
+      - name: Write .env.scraper from secrets
+        run: |
+          cat > .env.scraper <<EOF
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          EOF
+
+      - name: Run LOI sync
+        run: |
+          chmod +x sync_loi.sh
+          ./sync_loi.sh
+
+      - name: Clean up secrets file
+        if: always()
+        run: rm -f .env.scraper

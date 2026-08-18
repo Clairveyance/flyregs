@@ -1,0 +1,52 @@
+name: Weekly 49 CFR Sync
+
+# Runs sync_cfr49.sh (NTSB Part 830, TSA Parts 1544/1552, HMR Part 175).
+# Confirmed a real gap 2026-08-18: 49 CFR had no scheduled sync of any
+# kind since it shipped -- see sync_cfr49.sh's own header. Staggered to
+# 16:00 UTC (an hour after the LOI sync) so it doesn't contend with the
+# other six for Supabase write throughput.
+#
+# Alerting: sync_cfr49.sh uses `set -euo pipefail`, so a failing step
+# makes the whole job show as FAILED -- check via
+# `gh run list --workflow=weekly-cfr49-sync.yml` any time.
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '0 16 * * 1'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install -r sync/requirements.txt
+
+      - name: Write .env.scraper from secrets
+        run: |
+          cat > .env.scraper <<EOF
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          EOF
+
+      - name: Run 49 CFR sync
+        run: |
+          chmod +x sync_cfr49.sh
+          ./sync_cfr49.sh
+
+      - name: Clean up secrets file
+        if: always()
+        run: rm -f .env.scraper
