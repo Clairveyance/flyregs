@@ -68,8 +68,27 @@ def build_pattern(doc_num: str) -> re.Pattern:
     )
 
 
-def clean_text(doc_num: str, text: str) -> tuple[str, int]:
-    pattern = build_pattern(doc_num)
+# A second, less common boilerplate order found 2026-08-18 while working the
+# oversized/footer-boilerplate backlog: some AC series print their own page
+# header as "AC {number}[, Chg N] {date}" instead of "{date} AC {number}
+# [CHG N]" -- e.g. "AC 33-8 8/19/09", "AC 29-2C, Chg 7 2/4/2016". Confirmed
+# live: 11 of 14 sampled stragglers left over after the forward-pattern pass
+# matched this reversed shape instead. Deliberately does NOT try to strip a
+# trailing page-locator or "Appendix N"/"Figure N" the way the forward
+# pattern's own trailing-locator group does -- every reversed sample seen
+# has real section content immediately following the date (an Appendix/
+# Figure heading), not a bare chapter-page number, so there's nothing safe
+# to additionally strip here.
+def build_pattern_reversed(doc_num: str) -> re.Pattern:
+    escaped = re.escape(doc_num)
+    return re.compile(
+        rf"\s*AC\s+{escaped}(,?\s+Chg\s+\d+)?,?\s*{DATE_RE}\s*",
+        re.IGNORECASE,
+    )
+
+
+def clean_text(doc_num: str, text: str, reversed_pattern: bool = False) -> tuple[str, int]:
+    pattern = build_pattern_reversed(doc_num) if reversed_pattern else build_pattern(doc_num)
     cleaned, n = pattern.subn(" ", text)
     # Collapse any resulting run of spaces (but preserve real paragraph
     # breaks — only touch horizontal whitespace runs, not newlines).
@@ -123,16 +142,17 @@ def main():
     ap.add_argument("--all", action="store_true", help="All affected ACs")
     ap.add_argument("--dry-run", action="store_true", help="Show what would change, no writes")
     ap.add_argument("--limit", type=int, default=None, help="Cap how many ACs to apply with --all")
+    ap.add_argument("--reversed", action="store_true", help="Match 'AC {num} {date}' order instead of '{date} AC {num}'")
     args = ap.parse_args()
 
     if args.doc:
         ac = fetch_ac(args.doc)
-        cleaned, n = clean_text(ac["document_number"], ac["pdf_text"] or "")
+        cleaned, n = clean_text(ac["document_number"], ac["pdf_text"] or "", args.reversed)
         verb = "would be removed" if args.dry_run else "removed"
         print(f"{ac['document_number']}: {n} occurrence(s) {verb}")
         if args.dry_run:
             # Show a small window around the first change for a quick sanity check
-            pattern = build_pattern(ac["document_number"])
+            pattern = build_pattern_reversed(ac["document_number"]) if args.reversed else build_pattern(ac["document_number"])
             m = pattern.search(ac["pdf_text"] or "")
             if m:
                 s, e = m.span()
@@ -179,7 +199,7 @@ def main():
         applied = 0
         applied_docs = []
         for ac in acs:
-            cleaned, n = clean_text(ac["document_number"], ac["pdf_text"] or "")
+            cleaned, n = clean_text(ac["document_number"], ac["pdf_text"] or "", args.reversed)
             if n == 0:
                 continue
             affected += 1
