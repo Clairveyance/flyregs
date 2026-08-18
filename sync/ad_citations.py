@@ -50,6 +50,15 @@ HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 # source prose -- confirmed real live misses in P/CG text; the same
 # airport-design AC family is plausibly cited from AD text too.
 AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:/\d+)?(?:\.\d+)?[\-‐‑–]\d+[A-Za-z]*(?:[\-‐‑–]\d+)?)\b")
+# The FAA also spells this out in full ("Advisory Circular No. 120-12A",
+# "Advisory Circular 20-420") instead of abbreviating to "AC" -- confirmed
+# live and corpus-wide (RC, real content-correction report): 36 LOIs alone
+# use this phrasing with zero overlap with AC_RE, a real silent hole shared
+# by every extractor built on this same AC_RE pattern (fixed together in
+# ad/ac/aim/cfr49/far/loi/pcg/acs). Matches are whitespace-stripped below
+# before use -- the source carries the same "00- 1"-style stray-space
+# artifact AD_RE already has to tolerate.
+AC_RE_SPELLED = re.compile(r"\bAdvisory\s+Circular\s+(?:No\.?\s*)?(\d+(?:/\d+)?(?:\.\d+)?\s*[\-‐‑–]\s*\d+[A-Za-z]*(?:\s*[\-‐‑–]\s*\d+)?)\b", re.IGNORECASE)
 FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
 AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 
@@ -144,6 +153,13 @@ def extract_citations(ad: dict) -> list[dict]:
 
     for m in AC_RE.finditer(text):
         cited = _normalize_hyphens(m.group(1))
+        key = ("ac", cited)
+        if key not in seen:
+            seen.add(key)
+            citations.append({"citing_type": "ad", "citing_id": ad["ad_number"], "cited_type": "ac", "cited_id": cited, "label": None})
+
+    for m in AC_RE_SPELLED.finditer(text):
+        cited = _normalize_hyphens(re.sub(r"\s+", "", m.group(1)))
         key = ("ac", cited)
         if key not in seen:
             seen.add(key)

@@ -50,6 +50,21 @@ HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 # Same AC pattern already proven in ad_citations.py and aim_far_citations.py —
 # kept identical rather than inventing a third dialect.
 AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:\.\d+)?-\d+[A-Za-z]*(?:[\-–]\d+)?)\b")
+# The FAA also spells this out in full ("Advisory Circular No. 120-12A",
+# "Advisory Circular 20-420") instead of abbreviating to "AC" -- this is
+# the exact root cause of a real content-correction report (RC): the
+# MacPherson-JonesDay LOI names "Advisory Circular No. 120-12A" in its
+# own body, never the "AC" abbreviation, so it produced zero loi->ac
+# citation and the reverse MagicLink never appeared on AC 120-12A's own
+# page. Confirmed corpus-wide, not a one-off: 36 LOIs, 46 instances, none
+# caught by AC_RE. Same gap, same fix, applied together across every
+# extractor sharing this AC_RE pattern (ad/ac/aim/cfr49/far/loi/pcg/acs).
+AC_RE_SPELLED = re.compile(r"\bAdvisory\s+Circular\s+(?:No\.?\s*)?(\d+(?:\.\d+)?\s*[\-–]\s*\d+[A-Za-z]*(?:\s*[\-–]\s*\d+)?)\b", re.IGNORECASE)
+_HYPHEN_VARIANTS_RE = re.compile("[‐‑–]")
+
+
+def _normalize_hyphens(s: str) -> str:
+    return _HYPHEN_VARIANTS_RE.sub("-", s)
 
 
 def fetch_all_lois() -> list[dict]:
@@ -100,7 +115,16 @@ def extract_citations(loi: dict) -> list[dict]:
     text = " ".join(filter(None, [loi.get("title"), loi.get("summary"), loi.get("body_text")]))
     citations, seen = [], set()
     for m in AC_RE.finditer(text):
-        cited_id = m.group(1)
+        cited_id = _normalize_hyphens(m.group(1))
+        if cited_id in seen:
+            continue
+        seen.add(cited_id)
+        citations.append({
+            "citing_type": "loi", "citing_id": loi["slug"],
+            "cited_type": "ac", "cited_id": cited_id, "label": None,
+        })
+    for m in AC_RE_SPELLED.finditer(text):
+        cited_id = _normalize_hyphens(re.sub(r"\s+", "", m.group(1)))
         if cited_id in seen:
             continue
         seen.add(cited_id)

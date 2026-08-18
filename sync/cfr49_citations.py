@@ -54,6 +54,15 @@ CFR49_RE = re.compile(r"§\s*(\d+\.\d+)\b")
 # text (see docstring), so "FAR"/"14 CFR" must appear literally.
 FAR_RE = re.compile(r"\b(?:FAR\s+|14\s*CFR\s*(?:section\s+)?)(\d+\.\d+)\b", re.IGNORECASE)
 AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:/\d+)?(?:\.\d+)?[\-‐‑–]\d+[A-Za-z]*(?:[\-‐‑–]\d+)?)\b")
+# The FAA also spells this out in full ("Advisory Circular No. 120-12A",
+# "Advisory Circular 20-420") instead of abbreviating to "AC" -- confirmed
+# live and corpus-wide (RC, real content-correction report): 36 LOIs alone
+# use this phrasing with zero overlap with AC_RE, a real silent hole shared
+# by every extractor built on this same AC_RE pattern (fixed together in
+# ad/ac/aim/cfr49/far/loi/pcg/acs). Matches are whitespace-stripped below
+# before use -- the source carries the same stray-space artifacts this
+# corpus is already known for.
+AC_RE_SPELLED = re.compile(r"\bAdvisory\s+Circular\s+(?:No\.?\s*)?(\d+(?:/\d+)?(?:\.\d+)?\s*[\-‐‑–]\s*\d+[A-Za-z]*(?:\s*[\-‐‑–]\s*\d+)?)\b", re.IGNORECASE)
 AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 AD_RE = re.compile(r"\bAD\s+(\d{4}-\d{2}-\d{2})\b")
 
@@ -121,6 +130,13 @@ def extract_citations(section: dict) -> list[dict]:
 
     for m in AC_RE.finditer(text):
         cited = _normalize_hyphens(m.group(1))
+        key = ("ac", cited)
+        if key not in seen:
+            seen.add(key)
+            citations.append({"citing_type": "cfr49", "citing_id": own_id, "cited_type": "ac", "cited_id": cited, "label": None})
+
+    for m in AC_RE_SPELLED.finditer(text):
+        cited = _normalize_hyphens(re.sub(r"\s+", "", m.group(1)))
         key = ("ac", cited)
         if key not in seen:
             seen.add(key)

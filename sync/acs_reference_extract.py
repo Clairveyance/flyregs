@@ -53,6 +53,15 @@ HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 
 FAR_PARTS_RE = re.compile(r"14\s*CFR\s*part(?:s)?\s*([\d,\s&andPARTS]+?)(?=;|$)", re.I)
 AC_RE = re.compile(r"\bAC\s+(\d+(?:/\d+)?(?:\.\d+)?[\-‐‑–]\d+[A-Za-z0-9]*)", re.I)
+# The FAA also spells this out in full ("Advisory Circular No. 120-12A",
+# "Advisory Circular 20-420") instead of abbreviating to "AC" -- confirmed
+# live and corpus-wide (RC, real content-correction report): 36 LOIs alone
+# use this phrasing with zero overlap with AC_RE, a real silent hole shared
+# by every extractor built on this same AC_RE pattern (fixed together in
+# ad/ac/aim/cfr49/far/loi/pcg/acs). Matches are whitespace-stripped below
+# before use -- the source carries the same stray-space artifacts this
+# corpus is already known for.
+AC_RE_SPELLED = re.compile(r"\bAdvisory\s+Circular\s+(?:No\.?\s*)?(\d+(?:/\d+)?(?:\.\d+)?\s*[\-‐‑–]\s*\d+[A-Za-z0-9]*(?:\s*[\-‐‑–]\s*\d+)?)\b", re.IGNORECASE)
 AIM_RE = re.compile(r"^\s*AIM\s*$", re.I)
 _HYPHEN_VARIANTS_RE = re.compile("[‐‑–]")
 
@@ -100,6 +109,9 @@ def extract_citations(task: dict) -> list[dict]:
 
     for m in AC_RE.finditer(text):
         add("ac", _normalize_hyphens(m.group(1)))
+
+    for m in AC_RE_SPELLED.finditer(text):
+        add("ac", _normalize_hyphens(re.sub(r"\s+", "", m.group(1))))
 
     for seg in text.split(";"):
         if AIM_RE.match(seg.strip()):
