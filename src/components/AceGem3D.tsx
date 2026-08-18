@@ -5,6 +5,7 @@ import { Renderer } from 'expo-three'
 import * as THREE from 'three'
 import * as Sentry from '@sentry/react-native'
 import { equirectToEnvMap, makeBackdropTexture, loadTexture } from '@/lib/trophy3d/envMap'
+import { guardUnsupportedRenderbufferMultisample } from '@/lib/trophy3d/glGuards'
 
 // Real WebGL port of the "Ace" brilliant-cut diamond built and tuned live
 // with RC across this whole session's trophy_3d.html prototype -- every
@@ -72,23 +73,13 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
 
   const onContextCreate = async (gl: ExpoWebGLRenderingContext) => {
     // RC, real device: crashed opening the diamond ("EXGL:
-    // renderbufferStorageMultisample() isn't implemented yet!"). Root cause:
-    // this material's transmission:1.0 below makes three.js's
-    // renderTransmissionPass (WebGLRenderer.js) create an internal
-    // WebGLRenderTarget with a hardcoded `samples: 4` -- unconditional,
-    // independent of THIS renderer's own antialias setting, so turning that
-    // off wouldn't have helped. expo-gl's WebGL2 shim defines
-    // renderbufferStorageMultisample but throws instead of implementing it.
-    // Falling back to plain renderbufferStorage (drop the sample count) for
-    // just this one call keeps the transmission pass working; the lost MSAA
-    // is on an internal offscreen snapshot the gem's own material already
-    // heavily blurs via IOR/roughness/clearcoat, imperceptible in practice.
-    const glAny = gl as any
-    if (typeof glAny.renderbufferStorageMultisample === 'function') {
-      const plainStorage = gl.renderbufferStorage.bind(gl)
-      glAny.renderbufferStorageMultisample = (target: number, _samples: number, internalformat: number, width: number, height: number) =>
-        plainStorage(target, internalformat, width, height)
-    }
+    // renderbufferStorageMultisample() isn't implemented yet!"). Root cause
+    // and why this is a SHARED guard now (not just this component's own
+    // fix): see glGuards.ts's own header comment. The lost MSAA on the
+    // rare code path this actually intercepts is on an internal offscreen
+    // snapshot the gem's own material already heavily blurs via
+    // IOR/roughness/clearcoat, imperceptible in practice.
+    guardUnsupportedRenderbufferMultisample(gl)
 
     // RC, real device + web preview: a large black rectangle instead of a
     // transparent/correctly-filled canvas. Root cause: the web prototype's
@@ -365,8 +356,36 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
         spr.scale.set(s, s, 1)
       })
 
-      renderer.render(scene, camera)
-      gl.endFrameEXP()
+      // RC, real device, build 33: the "renderbufferStorageMultisample()
+      // isn't implemented yet!" crash (see glGuards.ts) reached the app as
+      // a genuinely UNHANDLED exception -- confirmed via Sentry's own tags
+      // on that event (`handled: no, mechanism: onerror`), NOT caught by
+      // this component's onContextCreate(gl).catch() below. Root cause:
+      // that .catch() only wraps the async SETUP phase (onContextCreate's
+      // own promise). animate() is called once synchronously at the end of
+      // that phase, so frame 1 alone runs inside it -- but every frame
+      // after that runs via requestAnimationFrame, a completely separate
+      // call stack outside that promise chain entirely, with zero error
+      // boundary. React Native has no implicit per-frame error boundary
+      // the way a component tree's <ErrorBoundary> catches render throws,
+      // so ANY exception here (this specific bug, a different expo-gl
+      // native gap -- see glGuards.ts's UNIMPL_NATIVE_METHOD list, a
+      // future three.js version bump, anything) was fatal to the whole
+      // app, on every single frame, for the popup's entire open lifetime.
+      // Catching here doesn't fix whatever specific thing throws -- it
+      // makes the FAILURE MODE non-fatal: report once, stop scheduling
+      // further frames (disposed.current, the same flag unmount cleanup
+      // already checks), and let the trophy freeze on its last good frame
+      // instead of taking the app down. Structural, independent of which
+      // GL call is the next one to throw.
+      try {
+        renderer.render(scene, camera)
+        gl.endFrameEXP()
+      } catch (err) {
+        disposed.current = true
+        Sentry.captureException(err)
+        return
+      }
     }
 
     // Every GPU-side allocation this function created, for the unmount

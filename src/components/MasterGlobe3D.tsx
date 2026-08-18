@@ -5,6 +5,7 @@ import { Renderer } from 'expo-three'
 import * as THREE from 'three'
 import * as Sentry from '@sentry/react-native'
 import { equirectToEnvMap, loadTexture } from '@/lib/trophy3d/envMap'
+import { guardUnsupportedRenderbufferMultisample } from '@/lib/trophy3d/glGuards'
 
 // Real WebGL port of the "Master" gold globe -- see AceGem3D.tsx's header
 // comment for the general porting approach (this file follows the same
@@ -39,6 +40,19 @@ export function MasterGlobe3D({ size = 300, backdropColor }: { size?: number; ba
   }, [])
 
   const onContextCreate = async (gl: ExpoWebGLRenderingContext) => {
+    // RC, real device, build 33: AceGem3D.tsx (the Ace diamond, this
+    // component's sibling) crashed the app on this exact same
+    // expo-gl/expo-three stack with "EXGL: renderbufferStorageMultisample()
+    // isn't implemented yet!" -- see glGuards.ts's own header comment for
+    // the full root cause and why this guard belongs here too, not just on
+    // the component that happened to trip it first: expo-gl's native
+    // limitation is per-GL-CONTEXT, not per-material, so this globe's own
+    // context needs the identical guard even though its current opaque
+    // metal material doesn't (yet) reach the one call site three.js
+    // hardcodes today. Call this before constructing the Renderer, same as
+    // AceGem3D.tsx.
+    guardUnsupportedRenderbufferMultisample(gl)
+
     // See AceGem3D.tsx's matching comment -- the original prototype's
     // makeRenderer() always passed antialias/alpha explicitly; both were
     // dropped in this port's first pass. This canvas doesn't strictly need
@@ -227,8 +241,19 @@ export function MasterGlobe3D({ size = 300, backdropColor }: { size?: number; ba
       if (disposed.current) return
       requestAnimationFrame(animate)
       globe.rotation.y = clock.getElapsedTime() * 0.25
-      renderer.render(scene, camera)
-      gl.endFrameEXP()
+      // See AceGem3D.tsx's matching comment on this try/catch -- same gap
+      // (the RAF-scheduled frames after the first run outside
+      // onContextCreate's own .catch(), with zero error boundary), same
+      // fix: any GL exception here degrades to "freeze on the last good
+      // frame" instead of taking the whole app down.
+      try {
+        renderer.render(scene, camera)
+        gl.endFrameEXP()
+      } catch (err) {
+        disposed.current = true
+        Sentry.captureException(err)
+        return
+      }
     }
 
     // See AceGem3D.tsx's matching comment.
