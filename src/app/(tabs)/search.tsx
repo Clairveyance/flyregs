@@ -236,7 +236,14 @@ export default function TheWingScreen() {
       identityStatsMemCache[uid] = snap
       AsyncStorage.setItem(IDENTITY_CACHE_KEY_PREFIX + uid, JSON.stringify(snap)).catch(() => {})
     })
-  }, [session])
+    // session?.user?.id, not the raw `session` object -- confirmed live
+    // (2026-08-18): onAuthStateChange fires SIGNED_IN repeatedly for the
+    // SAME already-signed-in user (identical token, no real change), handing
+    // back a brand-new session object each time. Depending on the whole
+    // object meant every one of those no-op events re-ran all 5 of these
+    // queries again -- see AircraftDowngradeGate.tsx for the same root
+    // cause and fix.
+  }, [session?.user?.id])
 
   const hasAnyStats = !!(
     (mastery && mastery.seen > 0) ||

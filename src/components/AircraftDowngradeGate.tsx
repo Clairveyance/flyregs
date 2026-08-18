@@ -47,8 +47,22 @@ export function AircraftDowngradeGate() {
   // possible render branches share this one instance.
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
+  // Keyed on the user id, not the raw `session` object -- confirmed live
+  // (2026-08-18): supabase-js's onAuthStateChange fires SIGNED_IN/
+  // INITIAL_SESSION repeatedly for the SAME already-signed-in user (same
+  // token, same expires_at, no real change), which calls setSession with a
+  // brand-new object every time. `check` used to depend on that whole
+  // object, so every one of those no-op events produced a new `check`
+  // identity, which retriggered the effect below and re-hit
+  // getFleetHiddenCount() -- a real Supabase round trip -- on a loop, dozens
+  // of times a minute, app-wide (this component is mounted at root), for as
+  // long as the app stayed open. `check` never reads anything from `session`
+  // except the truthy check, so the user id is the only part of it that
+  // should ever matter here; a token refresh for the same person is not a
+  // reason to re-run this.
+  const userId = session?.user?.id ?? null
   const check = useCallback(async () => {
-    if (!session) { setLocked([]); return }
+    if (!userId) { setLocked([]); return }
     try {
       // Server count first: it's the tier-of-record answer, so a client
       // whose RevenueCat read is momentarily stale can't skip the gate.
@@ -70,7 +84,7 @@ export function AircraftDowngradeGate() {
       // appears on the next launch instead.
       setLocked([])
     }
-  }, [session])
+  }, [userId])
 
   // Re-checked on navigation as well as on tier change: the entitlement can
   // flip mid-session (a restore, a webhook landing, an expiry), and this is

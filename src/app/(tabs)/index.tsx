@@ -1603,7 +1603,16 @@ function HobbsHeaderButton() {
         setFleet(fresh)
         AsyncStorage.setItem(FLEET_SUMMARY_CACHE_KEY + uid, JSON.stringify(fresh)).catch(() => {})
       }).catch(() => setFleet([]))
-    }, [hasProAccess, authLoading, session])
+      // session?.user?.id, not the raw `session` object -- confirmed live
+      // (2026-08-18): onAuthStateChange fires SIGNED_IN repeatedly for the
+      // SAME already-signed-in user (identical token, no real change),
+      // handing back a brand-new session object every time. This callback
+      // is wrapped in useFocusEffect, which re-runs whenever ITS OWN
+      // identity changes, not just on a real focus transition -- depending
+      // on the whole object meant Home's fleet widget re-fetched
+      // getFleetSummary() on a loop the entire time Home stayed mounted.
+      // See AircraftDowngradeGate.tsx for the same root cause and fix.
+    }, [hasProAccess, authLoading, session?.user?.id])
   )
 
   if (!fleet || fleet.length === 0) return null

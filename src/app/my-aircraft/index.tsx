@@ -1208,6 +1208,17 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
     })
   }
 
+  // session?.user?.id, not the raw `session` object -- confirmed live
+  // (2026-08-18): onAuthStateChange fires SIGNED_IN repeatedly for the SAME
+  // signed-in user (identical token, no real change), handing back a
+  // brand-new session object each time. `load` only ever reads `session` as
+  // a truthy check, so depending on the whole object meant every one of
+  // those no-op events gave `load` a new identity, which retriggered the
+  // useFocusEffect below and re-ran the ENTIRE fleet fetch (get_fleet_
+  // summary + a per-aircraft getAircraftReminders call for every row) on a
+  // loop the whole time this screen stayed mounted -- and it deliberately
+  // never unmounts in the background (see FleetRing's own comment above).
+  // See AircraftDowngradeGate.tsx for the same fix, same root cause.
   const load = useCallback(() => {
     if (!session) {
       setLoading(false)
@@ -1267,7 +1278,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
       })
       .catch((e) => console.error('Failed to load fleet summary:', e?.message ?? e))
       .finally(() => setLoading(false))
-  }, [session, isPro, isPremium])
+  }, [session?.user?.id, isPro, isPremium])
 
   // useFocusEffect, not a plain mount-only useEffect: this screen stays
   // mounted in the background while you're on an aircraft's detail screen,
