@@ -34,3 +34,28 @@ if (Platform.OS !== 'web') {
     else supabase.auth.stopAutoRefresh()
   })
 }
+
+// Every `supabase.functions.invoke()` call in this app MUST pass a
+// `timeout` (FunctionInvokeOptions.timeout, supported natively by
+// @supabase/functions-js since this project's pinned 2.108.2). Without one,
+// invoke()'s underlying fetch has NO timeout at all and hangs forever on a
+// stalled/dropped connection -- no error, no retry button, no spinner with
+// a way out, nothing. Confirmed live 2026-08-18 against three call sites
+// that had shipped with no timeout: semanticSearch.ts, revenuecat.ts's
+// syncEntitlements, and account.tsx's delete-account flow.
+//
+// On timeout, invoke() aborts its own internally-created AbortController,
+// and that rejection always surfaces as a FunctionsFetchError with the
+// SAME generic message -- "Failed to send a request to the Edge Function"
+// -- as any other network failure (offline, DNS, TLS), so error.message
+// alone can't tell a caller "this was specifically a timeout." The raw
+// abort rejection is preserved as error.context though (see
+// FunctionsClient.invoke()'s `.catch((fetchError) => { throw new
+// FunctionsFetchError(fetchError) })`), and since none of this app's
+// invoke() call sites pass their own external `signal`, the ONLY thing
+// that can ever abort the request is the timeout's own internal
+// AbortController -- so error.context?.name === 'AbortError' unambiguously
+// means "our timeout fired," not just "some fetch error happened."
+export function isEdgeFunctionTimeout(error: any): boolean {
+  return error?.name === 'FunctionsFetchError' && error?.context?.name === 'AbortError'
+}

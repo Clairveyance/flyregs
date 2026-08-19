@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { supabase, isEdgeFunctionTimeout } from '@/lib/supabase'
 import type { RegType } from '@/lib/regTypes'
 
 // "Ask FlyRegs" -- natural-language / conceptual search, distinct from the
@@ -24,14 +24,30 @@ export interface SemanticSearchResult {
   similarity: number
 }
 
+// 18s -- the most aggressive of this app's three invoke() timeouts (see
+// lib/supabase.ts's isEdgeFunctionTimeout comment for why all three needed
+// one). This is a read-only lookup the user is actively watching a spinner
+// for, not a background sync or a destructive server-side operation, so it
+// should give up and let them retry sooner than the other two.
+const SEMANTIC_SEARCH_TIMEOUT_MS = 18000
+
 export async function semanticSearch(query: string, contentTypes?: RegType[]): Promise<SemanticSearchResult[]> {
   const trimmed = query.trim()
   if (trimmed.length < 3) return []
   const { data, error } = await supabase.functions.invoke('semantic-search', {
     method: 'POST',
     body: { query: trimmed, contentTypes: contentTypes && contentTypes.length > 0 ? contentTypes : undefined },
+    timeout: SEMANTIC_SEARCH_TIMEOUT_MS,
   })
-  if (error) throw error
+  if (error) {
+    // semantic-search.tsx's own catch already renders err.message inline as
+    // the screen's error state (see its runSearch) -- give that a real
+    // "you can act on this" message instead of invoke()'s generic "Failed
+    // to send a request to the Edge Function," which reads identically for
+    // a timeout as for being offline.
+    if (isEdgeFunctionTimeout(error)) throw new Error('Search timed out. Check your connection and try again.')
+    throw error
+  }
   if (data?.error) throw new Error(data.error)
   return ((data?.results ?? []) as any[]).map((r) => ({
     sourceType: r.source_type,

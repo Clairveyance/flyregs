@@ -1,6 +1,6 @@
 import Purchases, { LOG_LEVEL, PurchasesPackage, CustomerInfo } from 'react-native-purchases'
 import { Platform } from 'react-native'
-import { supabase } from '@/lib/supabase'
+import { supabase, isEdgeFunctionTimeout } from '@/lib/supabase'
 
 export const ENTITLEMENT_PRO = 'pro'
 export const ENTITLEMENT_PREMIUM = 'premium'
@@ -109,11 +109,27 @@ export async function getSubscriptionDetails(): Promise<SubscriptionDetails> {
 // surfacing an error for, let alone rolling back a real purchase over.
 // Exported so auth.tsx can also call it once at session-init, self-healing
 // the rare case a webhook was ever missed while the app was closed.
+// 15s timeout -- this call was previously unbounded and, on a stalled
+// connection, could hang the `await` forever (confirmed live, see
+// lib/supabase.ts's isEdgeFunctionTimeout comment). That wouldn't just
+// affect this best-effort sync itself: every caller below
+// (purchaseSubscription, purchaseUnlock, restorePurchases) awaits this
+// directly AFTER the real RevenueCat purchase/restore has already
+// succeeded, so a hang here would leave that screen's busy spinner stuck
+// indefinitely even though the user's money already moved. The try/catch
+// stays silent on purpose, unchanged from before -- see this function's own
+// header comment above: the webhook backstop still catches a failed or
+// timed-out sync, so this only ever needed a bound, not new user-facing
+// error handling.
 export async function syncEntitlements() {
   try {
-    await supabase.functions.invoke('sync-entitlements', { method: 'POST' })
+    await supabase.functions.invoke('sync-entitlements', { method: 'POST', timeout: 15000 })
   } catch (err) {
-    console.warn('[RevenueCat] sync-entitlements failed (webhook will catch up)', err)
+    if (isEdgeFunctionTimeout(err)) {
+      console.warn('[RevenueCat] sync-entitlements timed out (webhook will catch up)')
+    } else {
+      console.warn('[RevenueCat] sync-entitlements failed (webhook will catch up)', err)
+    }
   }
 }
 

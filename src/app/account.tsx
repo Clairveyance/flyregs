@@ -16,7 +16,7 @@ import { MyAircraftBody } from '@/app/my-aircraft'
 import { restorePurchases } from '@/lib/revenuecat'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { SUPPORT_EMAIL } from '@/lib/appInfo'
-import { supabase } from '@/lib/supabase'
+import { supabase, isEdgeFunctionTimeout } from '@/lib/supabase'
 import { getAvatarUrl, getAvatarPresetId, resolveAvatarUrl, resolveAvatarPresetId, pickAndUploadAvatar, takeAndUploadAvatar, removeAvatar, selectAvatarPreset, getDisplayName } from '@/lib/avatar'
 import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
@@ -49,6 +49,15 @@ const AIRCRAFT_PANE_WIDTH_KEY = '@flyregs/aircraft-pane-width'
 const AIRCRAFT_PANE_WIDTH_DEFAULT = 400
 const AIRCRAFT_PANE_WIDTH_MIN = 320
 const AIRCRAFT_PANE_WIDTH_MAX = 560
+
+// 25s -- longer than this app's other two invoke() timeouts (semantic
+// search's 18s, RevenueCat sync's 15s, both in lib/*.ts) because this is a
+// real server-side operation, not a lookup that can safely be assumed
+// fast: supabase/functions/delete-account/index.ts deletes an avatar
+// storage object, then the auth user itself, which cascades across a dozen+
+// tables via ON DELETE CASCADE. See lib/supabase.ts's isEdgeFunctionTimeout
+// comment for why this call previously had no bound at all.
+const DELETE_ACCOUNT_TIMEOUT_MS = 25000
 
 export default function AccountScreen() {
   const { tokens, redShift } = useTheme()
@@ -630,7 +639,7 @@ export default function AccountScreen() {
   const runAccountDelete = async () => {
     setDeleting(true)
     try {
-      const { error } = await supabase.functions.invoke('delete-account', { method: 'POST' })
+      const { error } = await supabase.functions.invoke('delete-account', { method: 'POST', timeout: DELETE_ACCOUNT_TIMEOUT_MS })
       if (error) throw error
       // Unlike a plain sign-out, the account itself is gone -- a stored
       // biometric credential pointing at it would just be a dead "Sign in
@@ -640,9 +649,24 @@ export default function AccountScreen() {
       backToMenu()
     } catch (err: any) {
       Sentry.captureException(err)
+      // delete-account (supabase/functions/delete-account/index.ts)
+      // resolves the caller from their OWN session token on every
+      // invocation, then deletes the auth user -- so a genuine timeout is
+      // the one failure mode here where we truly can't tell what happened
+      // server-side: the request may never have reached the function, or it
+      // may have completed and only the response never made it back before
+      // the client gave up. A same-account retry can't disambiguate the two
+      // either -- it would 401 in BOTH cases once the account is actually
+      // gone, since the function's own /auth/v1/user lookup needs that same
+      // now-stale session token to still resolve. So rather than word this
+      // as a safe "just try again," the timeout case tells the user how to
+      // check for themselves instead of implying either outcome.
+      const timedOut = isEdgeFunctionTimeout(err)
       confirm({
-        title: "Couldn't Delete Account",
-        message: 'Something went wrong. Please try again, or email our support team if this keeps happening.',
+        title: timedOut ? 'Delete Request Timed Out' : "Couldn't Delete Account",
+        message: timedOut
+          ? "The connection timed out and we can't confirm whether your account was deleted. Try signing in again — if you still can, it wasn't deleted and you're safe to retry. If you're unsure, email our support team and we'll check for you."
+          : 'Something went wrong. Please try again, or email our support team if this keeps happening.',
         confirmLabel: 'Email Support',
         cancelLabel: 'OK',
         onConfirm: () =>
