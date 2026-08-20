@@ -348,9 +348,18 @@ export default function LoiDetailScreen() {
     if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     if (!loi) return
     try {
+      // No 4th (title/description) arg: loi.summary is a raw OCR sentence,
+      // present on well under half the corpus and frequently truncated
+      // mid-clause when it is ("...request for legal interpretation of 14
+      // C.") -- unlike every other reg type's title (a real short section/
+      // AC title), it was never a usable one-line description. Omitting it
+      // lets the website's own already-built fallback apply instead
+      // (reg/index.php: $ogDescription = $shareTitle ?: $typeName --
+      // renders "Legal Interpretation", same clean-and-short shape every
+      // other type gets when it has no title override).
       await Share.share({
         title: humanizeLoiTitle(loi.title),
-        message: buildRegShareLink('loi', loi.slug, humanizeLoiTitle(loi.title), loi.summary ?? undefined),
+        message: buildRegShareLink('loi', loi.slug, humanizeLoiTitle(loi.title)),
       })
     } catch {
       // User cancelled or share unavailable

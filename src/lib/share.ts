@@ -56,7 +56,17 @@ function noteLine(note: ShareableNote): string {
 }
 
 function regLine(item: ShareableReg): string {
-  return buildRegShareLink(item.type, item.id, item.label, item.title)
+  // LOI's stored `title` (Saved/Recents/Folder rows) is either a raw,
+  // often mid-clause-truncated OCR summary sentence or -- on the majority
+  // of the corpus, where no summary exists -- just a repeat of the same
+  // humanized title already used as `label`. Neither is a useful one-line
+  // description the way every other RegShareType's title genuinely is
+  // (a real FAR/AC/AIM section title). Omit it for LOI specifically and
+  // let the website's own typeName fallback apply ("Legal Interpretation")
+  // -- same fix as loi/[slug].tsx's own direct Share button, centralized
+  // here so every bulk/Saved/Folder/Recents share of an LOI gets it too.
+  const title = item.type === 'loi' ? undefined : item.title
+  return buildRegShareLink(item.type, item.id, item.label, title)
 }
 
 // AC/folder shares are plain text (just the link) -- no branded card image
