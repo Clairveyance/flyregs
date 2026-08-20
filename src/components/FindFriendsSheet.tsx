@@ -6,6 +6,7 @@ import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
+import { AvatarCircle } from '@/components/AvatarCircle'
 import { getDeviceContacts, matchContactsToCallsigns, requestContactsPermission, presentContactsAccessPicker, resolveCallsignToUserId, getVisibleUsers, getMyPhoneNumber, setMyPhoneNumber, DeviceContact, VisibleUser } from '@/lib/contactMatch'
 import { APP_NAME, APP_STORE_URL } from '@/lib/appInfo'
 
@@ -317,9 +318,7 @@ export function FindFriendsPickerBody({
             style={{ maxHeight: 132 }}
             renderItem={({ item }) => (
               <Pressable style={styles.row} onPress={() => { onSelect(item.displayLabel); onClose() }}>
-                <View style={[styles.avatar, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-                  <Icon name="person.fill" size={fs(16)} color={tokens.t3} />
-                </View>
+                <AvatarCircle imageUri={item.avatarUrl} presetId={item.avatarPreset} fallbackLabel={item.displayLabel} size={32} />
                 <Text style={[styles.rowName, { flex: 1, color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
                   {item.displayLabel}
                 </Text>

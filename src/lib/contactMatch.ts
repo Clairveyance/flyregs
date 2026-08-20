@@ -199,6 +199,8 @@ export async function resolveCallsignToUserId(callsign: string): Promise<string 
 export interface VisibleUser {
   userId: string
   displayLabel: string
+  avatarUrl: string | null
+  avatarPreset: string | null
 }
 
 // RC: "if all 'visible' users show up in RR, then that should be another
@@ -210,8 +212,22 @@ export interface VisibleUser {
 // activity in that dimension. See get_visible_users' own migration
 // comment for why this isn't just get_challengeable_users() reused (that
 // one is Duels-specific and Premium-filtered).
+//
+// avatarUrl/avatarPreset added alongside a real duel bug report ("Ready
+// Room / duel opponent-list avatars show placeholder circles") -- every
+// SIBLING list (get_challengeable_users, the 3 Ready Room leaderboards,
+// get_my_challenges) already returns real avatar data under the same
+// leaderboard_opt_in gate; this one was the one place still missed, so
+// FindFriendsSheet's "OR BROWSE PEOPLE" rows always fell back to a plain
+// generic person icon regardless of whether the person actually has a
+// photo/preset set.
 export async function getVisibleUsers(): Promise<VisibleUser[]> {
   const { data, error } = await supabase.rpc('get_visible_users')
   if (error) throw error
-  return (data ?? []).map((row: any) => ({ userId: row.user_id, displayLabel: row.display_label }))
+  return (data ?? []).map((row: any) => ({
+    userId: row.user_id,
+    displayLabel: row.display_label,
+    avatarUrl: row.avatar_url ?? null,
+    avatarPreset: row.avatar_preset ?? null,
+  }))
 }
