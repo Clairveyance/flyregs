@@ -56,7 +56,7 @@ Deno.serve(async (req: Request) => {
     return new Response('Bad request', { status: 400 })
   }
 
-  const { id, category, message, user_email, app_version, platform } = body ?? {}
+  const { id, category, message, user_email, app_version, platform, attachment_path } = body ?? {}
   if (!id || typeof message !== 'string') {
     return new Response('Bad request', { status: 400 })
   }
@@ -88,6 +88,30 @@ App: ${escapeHtml(app_version || '?')} · ${escapeHtml(platform || '?')}<br>
 Submission id: ${escapeHtml(id)}
 </div>`
 
+  // Attachments live in the private `feedback-attachments` bucket with no
+  // client-readable select policy at all (see
+  // migrations_feedback_attachment.sql) -- this service_role fetch is the
+  // ONLY way the screenshot is ever read back out. Best-effort: a failed
+  // fetch here shouldn't block the feedback email itself from sending, so
+  // this just falls back to no attachment rather than throwing.
+  let resendAttachments: { filename: string; content: string }[] | undefined
+  if (attachment_path && typeof attachment_path === 'string') {
+    try {
+      const objResp = await fetch(
+        `${supabaseUrl}/storage/v1/object/feedback-attachments/${attachment_path}`,
+        { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } },
+      )
+      if (objResp.ok) {
+        const bytes = new Uint8Array(await objResp.arrayBuffer())
+        let binary = ''
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+        resendAttachments = [{ filename: attachment_path.split('/').pop() || 'screenshot.jpg', content: btoa(binary) }]
+      }
+    } catch {
+      // Swallow -- see comment above.
+    }
+  }
+
   try {
     const resp = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -101,6 +125,7 @@ Submission id: ${escapeHtml(id)}
         reply_to: user_email && typeof user_email === 'string' ? user_email : undefined,
         subject,
         html,
+        attachments: resendAttachments,
       }),
     })
 

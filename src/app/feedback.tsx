@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Platform, KeyboardAvoidingView, Animated, Keyboard } from 'react-native'
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Platform, KeyboardAvoidingView, Animated, Keyboard, Image } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import * as ImagePicker from 'expo-image-picker'
+import { File } from 'expo-file-system'
+import * as Crypto from 'expo-crypto'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useReturnToMenu } from '@/context/drawer'
@@ -61,7 +64,24 @@ export default function FeedbackScreen() {
   const visibleCategories = hasProAccess ? [...CATEGORIES, AIRCRAFT_PART_CATEGORY] : CATEGORIES
   const [showSentToast, setShowSentToast] = useState(false)
   const [sending, setSending] = useState(false)
+  const [attachment, setAttachment] = useState<{ uri: string; mimeType: string } | null>(null)
   const toastOpacity = useRef(new Animated.Value(0)).current
+
+  // Anyone can attach, signed in or not -- same "works without auth" shape
+  // as the rest of this screen. Picker only (not camera): by the time
+  // someone's reporting a bug they usually already have the screenshot
+  // sitting in their camera roll from the power+volume-button capture.
+  const pickAttachment = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (!perm.granted) {
+      confirm({ title: 'Photo access needed', message: 'Allow photo library access in Settings to attach a screenshot.', cancelLabel: null })
+      return
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 })
+    if (result.canceled || !result.assets?.[0]) return
+    const asset = result.assets[0]
+    setAttachment({ uri: asset.uri, mimeType: asset.mimeType ?? 'image/jpeg' })
+  }
 
   useEffect(() => {
     if (!showSentToast) return
@@ -93,15 +113,41 @@ export default function FeedbackScreen() {
     // ENTIRE send now -- durable the instant it succeeds, independent of
     // what happens next on the device.
     try {
+      // Generated client-side (not the row's default gen_random_uuid())
+      // so the Storage object can be named to match the row it belongs to
+      // -- upload happens BEFORE the insert, so if the upload fails, no
+      // row (and no dangling attachment_path) is ever created.
+      const feedbackId = Crypto.randomUUID()
+      let attachmentPath: string | null = null
+
+      if (attachment) {
+        const ext = attachment.mimeType.includes('png') ? 'png' : 'jpg'
+        const path = `${feedbackId}.${ext}`
+        // Read raw bytes directly from the filesystem, not fetch(uri).blob()
+        // -- same RN fetch/Blob-polyfill unreliability for local file://
+        // URIs that avatar.ts's uploadAvatarAsset already worked around.
+        const file = new File(attachment.uri)
+        const arrayBuffer = await file.arrayBuffer()
+        const { error: uploadError } = await supabase.storage
+          .from('feedback-attachments')
+          .upload(path, arrayBuffer, { contentType: attachment.mimeType, upsert: false })
+        if (uploadError) throw uploadError
+        attachmentPath = path
+      }
+
       const { error } = await supabase.from('feedback_submissions').insert({
+        id: feedbackId,
         category,
         message: trimmed,
+        user_id: session?.user?.id ?? null,
         user_email: session?.user?.email ?? null,
         app_version: APP_VERSION,
         platform: Platform.OS,
+        attachment_path: attachmentPath,
       })
       if (error) throw error
       setMessage('')
+      setAttachment(null)
       // RC, real device, sent 10 bug reports back-to-back: no on-screen
       // acknowledgment appeared for ANY of them. The toast below was
       // already there and firing correctly (all 10 really did arrive) --
@@ -173,6 +219,27 @@ export default function FeedbackScreen() {
           autoCapitalize="sentences"
         />
 
+        <Text style={[styles.label, { color: tokens.t3, marginTop: 18, fontSize: fs(11) }]}>SCREENSHOT (OPTIONAL)</Text>
+        {attachment ? (
+          <View style={[styles.attachmentPreview, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+            <Image source={{ uri: attachment.uri }} style={styles.attachmentThumb} />
+            <Text style={[styles.attachmentLabel, { color: tokens.t2, fontSize: fs(13) }]} numberOfLines={1}>
+              Screenshot attached
+            </Text>
+            <Pressable onPress={() => setAttachment(null)} hitSlop={10}>
+              <Icon name="xmark.circle.fill" size={fs(20)} color={tokens.t3} />
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            style={[styles.attachBtn, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
+            onPress={pickAttachment}
+          >
+            <Icon name="photo" size={fs(17)} color={tokens.t2} />
+            <Text style={[styles.attachBtnText, { color: tokens.t2, fontSize: fs(13.5) }]}>Attach a screenshot</Text>
+          </Pressable>
+        )}
+
         <Pressable
           style={[styles.submit, { backgroundColor: tokens.blu, opacity: sending ? 0.6 : 1 }]}
           onPress={submit}
@@ -228,6 +295,27 @@ const styles = StyleSheet.create({
     fontSize: 14.5,
     lineHeight: 21,
   },
+  attachBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    paddingVertical: 13,
+  },
+  attachBtnText: { fontWeight: '600' },
+  attachmentPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 10,
+  },
+  attachmentThumb: { width: 44, height: 44, borderRadius: 8 },
+  attachmentLabel: { flex: 1, fontWeight: '600' },
   submit: {
     flexDirection: 'row',
     alignItems: 'center',
