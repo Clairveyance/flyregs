@@ -44,7 +44,7 @@ export function cleanGlyphs(s: string): string {
 
 // Schema version for precomputed pdf_blocks — bump when the parser output shape
 // changes so a backfill can tell which rows need reprocessing.
-export const AC_FORMAT_VERSION = 45
+export const AC_FORMAT_VERSION = 46
 
 // Free-tier body preview: just enough to show how the app is organized, not
 // a real read of the content. Was a 20%-floored-at-3 formula (let short ACs
@@ -1520,6 +1520,86 @@ export function parseAC(raw: string, documentNumber?: string): ACBlock[] {
     }
   }
   flush()
+
+  // 5. Reclassify SECDOT-matched section blocks that are really enumerated
+  //    list ITEMS -- parallel, semicolon-terminated requirements clauses
+  //    that happen to share SECDOT's own "deep decimal number + capitalized
+  //    text" shape (e.g. AC 20-165B's "4.1.3.2.2 An indication of the
+  //    aircraft's latitude and longitude;", "4.1.3.2.3 An indication of the
+  //    aircraft's barometric pressure altitude;" -- parallel siblings of one
+  //    enumerated list, each wrongly rendered as its own deep bold
+  //    sub-heading instead of a plain list item).
+  //
+  //    MUST run here, AFTER flush() -- against each block's fully assembled
+  //    title+body, never the raw first PDF line SECDOT originally matched
+  //    on. An earlier attempt at this exact fix (2026-08-17) gated the
+  //    SECDOT regex match itself on whether the RAW line ended in
+  //    ";"/", and"/", or" -- before line-wrap continuations get joined into
+  //    a block's real body -- and diff-parser-version.mjs immediately
+  //    caught it corrupting a genuine section boundary on AC 91-91: ordinary
+  //    prose that happens to wrap its own PDF line right after a
+  //    natural-language list ("...emergency equipment, and\nsurvival
+  //    equipment...") is indistinguishable from a genuine enumerated-list
+  //    clause AT THAT POINT in the parse, and gating the match itself on
+  //    that signal silently merged a real heading ("2.2.1 Program Details.")
+  //    into the preceding section instead of giving it its own block.
+  //    Reverted before shipping. Checking the FINAL assembled text instead
+  //    -- exactly what the corpus query that originally found this bug also
+  //    checks -- avoids that failure mode entirely: by the time this runs,
+  //    every wrapped continuation line is already joined in, so there's no
+  //    "not yet assembled" state left for an ordinary mid-sentence line
+  //    wrap to be mistaken for a real list boundary.
+  //
+  //    Two-part signal, corpus-validated against the live DB before
+  //    shipping (not just the target cases, and not assumed from one
+  //    example): the block's TITLE must NOT already end in real terminal
+  //    punctuation (".", "?", "!", ":"), AND its final visible text (body
+  //    if non-empty, else title) must end in ";". The title check is what
+  //    tells a genuine deep heading apart from a mis-swallowed list clause
+  //    -- splitHeading's unconditional "whole line is title" fallback for
+  //    sections (see its own comment) only ever hands back a
+  //    semicolon-ending, non-terminally-punctuated title for a clause that
+  //    had no real heading-style period/colon to split on in the first
+  //    place; a real heading's title is always correctly split off ending
+  //    in "." or ":" even when its BODY separately, coincidentally ends in
+  //    ";" (confirmed live: of 121 SECDOT-labeled sections in the corpus
+  //    whose assembled text ends in ";", 11 have a properly punctuated
+  //    title and a body that merely CONTAINS an embedded list ending in ";"
+  //    -- e.g. AC 150/5360-14A's "3.3 Accessibility Standards." and AC
+  //    91-57D's "3.1.1 A CBO is defined in 49 U.S.C. § 44809(h) as a
+  //    membership-based association entity that:" -- both real headings
+  //    with real, independently-titled content, correctly left untouched by
+  //    the title check). The remaining 110 were hand-sampled corpus-wide
+  //    (not just the originally-reported 20-165B example) and confirmed
+  //    genuine parallel-clause list items. One known false NEGATIVE
+  //    (deliberately left unfixed, not a regression): AC 00-46F's "12.3.2"
+  //    has a title ending in a real period that belongs to the abbreviation
+  //    "U.S.C." rather than a genuine heading terminator, which this check
+  //    can't distinguish from a real title -- left unfixed rather than
+  //    risked, matching this file's established asymmetric-risk convention
+  //    elsewhere (a missed fix costs nothing; a wrongly "fixed" real heading
+  //    costs real structure).
+  //
+  //    Reclassified blocks are re-split via splitHeading's own
+  //    already-shipped, already-vetted item-only (forItem=true) rules --
+  //    reusing exactly the same title/body logic real ITEM_A/ITEM_N/ITEM_L
+  //    items already get, not new bespoke logic -- and given level 3, the
+  //    deepest existing item indent tier, since these are always the
+  //    deepest-nesting list content in the document's own decimal
+  //    structure.
+  {
+    const SECDOT_LABEL_RE = /^[1-9]\d*(?:\.\d{1,2}){1,4}\.?$/
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i]
+      if (b.kind !== 'section' || !SECDOT_LABEL_RE.test(b.label)) continue
+      if (/[.?!:]\s*$/.test(b.title)) continue
+      const finalText = b.body || b.title
+      if (!/;\s*$/.test(finalText)) continue
+      const combined = b.body ? `${b.title} ${b.body}`.trim() : b.title
+      const { title, body } = splitHeading(combined, true)
+      blocks[i] = { kind: 'item', level: 3, label: b.label, title, body }
+    }
+  }
 
   // 6. Strip duplicate TOC-stub headings. Some ACs (e.g. 120-28D) have a table
   //    of contents with neither a dotted leader (step 3) nor a trailing page
