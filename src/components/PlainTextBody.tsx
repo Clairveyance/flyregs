@@ -822,40 +822,47 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
       // — confirmed live. First choice: match the mention's exact text
       // ("FIG 4-3-8") against this page's own figures by label -- reliable
       // even with several figures on the page (AIM 4-3-11 has 6; its own
-      // FIG 4-3-8/4-3-9/4-3-10 mentions all match real labels here). Only
-      // when that also fails to resolve to a single figure does the old
-      // "just one figure on the page" fallback apply, before finally
-      // giving up and trying the (unreliable, see this file's own header
-      // comment) route guess -- confirmed live as a real bug: with 6
-      // figures on the page, the old code always skipped straight past
-      // this and routed to the wrong AIM paragraph number instead.
+      // FIG 4-3-8/4-3-9/4-3-10 mentions all match real labels here).
       //
       // Match on the NUMBER only, not the raw label text -- confirmed live
-      // as a second real bug on AIM 4-3-3: its own prose spells this out as
+      // as a real bug on AIM 4-3-3: its own prose spells this out as
       // "Figure 4-3-4" while the figure's actual stored label is "FIG
       // 4-3-4" (the AIM source is inconsistent about which word form it
       // uses, paragraph to paragraph, sometimes sentence to sentence). A
       // literal string match ("Figure 4-3-4" !== "FIG 4-3-4") failed even
       // though the figure genuinely belongs to this exact paragraph and
-      // was sitting right there in `figures` -- with 6 figures on the page
-      // the length===1 fallback couldn't save it either, so it fell all
-      // the way through to the unreliable route guess.
+      // was sitting right there in `figures`.
+      //
+      // RC, live, AIM 2-1-6: this paragraph's own prose cites FIG 2-1-9,
+      // FIG 2-1-10, AND FIG 2-1-11, but `figures` (this paragraph's own
+      // aim_figures rows) only has FIG 2-1-9 -- 2-1-10 and 2-1-11 are real
+      // rows, just filed under paragraph 2-1-8 instead. The `length===1`
+      // fallback used to run BEFORE the global lookup, so it fired the
+      // instant the exact match failed and silently routed BOTH "FIG
+      // 2-1-9" and "FIG 2-1-10" to the same lone 2-1-9 figure. Global
+      // lookup now runs first -- it matches on the cited NUMBER across the
+      // whole corpus regardless of which paragraph a figure is filed
+      // under, so "FIG 2-1-10" correctly finds the real 2-1-10 row instead
+      // of getting steamrolled by "well there's only one figure on this
+      // page." `length===1` is now a true last resort, for citations whose
+      // number genuinely doesn't resolve anywhere (a phrasing/OCR mismatch
+      // rather than a different-paragraph filing) but the page unambiguously
+      // has exactly one figure to fall back on.
       if (onOpenFigure && figures) {
         const segNum = normalizeFigureLabel(seg.text)
         const exact = figures.find((f) => normalizeFigureLabel(f.label ?? '') === segNum)
         if (exact) { onOpenFigure(exact); return }
-        if (figures.length === 1) { onOpenFigure(figures[0]); return }
         // Corpus-wide audit found this ISN'T rare: 47 of 393 FIG/TBL
         // mentions across the AIM point at a figure filed under a
-        // DIFFERENT paragraph than the one mentioning it. Try a global
-        // lookup before giving up and falling through to the route guess.
-        // (A further 3 mentions reference figures missing from aim_figures
-        // entirely -- a real scraping gap, not a resolution bug -- the
-        // route guess is the honest best-effort for those.)
+        // DIFFERENT paragraph than the one mentioning it. (A further 3
+        // mentions reference figures missing from aim_figures entirely --
+        // a real scraping gap, not a resolution bug -- the route guess
+        // below is the honest best-effort for those.)
         if (resolveFigureGlobally) {
           const global = await resolveFigureGlobally(seg.text)
           if (global) { onOpenFigure(global); return }
         }
+        if (figures.length === 1) { onOpenFigure(figures[0]); return }
       }
       // None of the three resolution strategies found a real figure. This
       // used to silently fall through to the seg.route guess below, which
@@ -902,13 +909,33 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
   return (
     <>
       {paragraphs.map((para, i) => {
+        // Checked BEFORE the search-mode bypass below, deliberately -- RC,
+        // real device, FAR 91.175: "when i tap the T&F in 91.175, it brings
+        // up a well-formatted RVR table. BUT, when i do an in doc search...
+        // the table is very poorly formatted." Root cause: the search
+        // bypass used to run unconditionally, so ANY visible table in the
+        // document collapsed to raw "1,600 | ¼"-style pipe-delimited plain
+        // text the instant in-doc search had ANY query typed anywhere --
+        // not just when the match was inside that table. Computing `table`
+        // first and routing table paragraphs around the bypass keeps every
+        // table rendering as a real TableGrid throughout a search session;
+        // the only real loss is that a match landing INSIDE a table's own
+        // text won't get its own inline highlight (search can still find
+        // and scroll to it) -- a reasonable trade against destroying the
+        // table's actual structure. Corpus-wide: this affects every
+        // FAR/AIM/AD/P-CG/LOI/49-CFR page with a real table (ACBody has no
+        // equivalent bug -- confirmed live, it never calls parseTableBlock/
+        // TableGrid at all; its own AC tables come from pre-parsed
+        // pdf_blocks, a structurally different mechanism this doesn't touch).
+        const table = parseTableBlock(para) ?? parseADFigureTable(para)
         // While actively searching, render the whole paragraph as one
         // highlighted plain-text block -- same simplification ACBody
-        // already makes (see its own render switch): skip table/marker/
+        // already makes (see its own render switch): skip marker/
         // softWrap-chunk handling and crossRefLinks hyperlinking, since
         // stacking search highlighting on top of them isn't worth the
-        // complexity for what's a temporary interaction mode.
-        if (hq) {
+        // complexity for what's a temporary interaction mode. Tables are
+        // excluded from this simplification (see the comment above).
+        if (hq && !table) {
           const paraKey = para.trim()
           const isHl = !!highlightedBlockTexts?.has(paraKey)
           const isPending = !isHl && pendingBlockText === paraKey
@@ -945,7 +972,6 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
             </Pressable>
           )
         }
-        const table = parseTableBlock(para) ?? parseADFigureTable(para)
         if (table) {
           // Match this table's own embedded label ("TBL 6-2-6b Air Force
           // Rescue...") against the paragraph's figures so its caption can
