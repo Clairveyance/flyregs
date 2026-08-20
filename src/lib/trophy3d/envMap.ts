@@ -1,5 +1,34 @@
+import { PixelRatio } from 'react-native'
 import * as THREE from 'three'
 import { TextureLoader } from 'expo-three'
+
+// RC, B34, real device: "still not centered... judge your adjustment
+// further right, slightly up" (gem), "still slightly off-center" (globe).
+// Shared by both trophies (AceGem3D.tsx, MasterGlobe3D.tsx) since they use
+// the identical GLView/Renderer setup and hit the identical root cause.
+// Root cause, actually diagnosed this round instead of re-guessed:
+// `renderer.setPixelRatio(Math.min(PixelRatio.get(), 2))` in both files
+// deliberately caps the RENDERED resolution at 2x for performance, but
+// expo-gl's iOS GLView still sizes the real native framebuffer at the
+// device's TRUE screen scale (`contentScaleFactor` -- 3x on most current
+// iPhones). WebGLRenderer.setSize(size, size, false) draws into a
+// viewport sized by the pixelRatio it was TOLD (2x), which only fills a
+// fraction (renderedScale/actualScale, e.g. 2/3) of that larger real
+// buffer -- and since GL's viewport origin is bottom-left, the content
+// ends up rendered at that fraction's scale, anchored to the bottom-left
+// corner of the view, instead of filling and centering in it. Computed
+// from the actual runtime pixel ratio (matches a real 3x device's math
+// exactly: at 268pt this popup uses, works out to +/-44.67pt, not a
+// re-guessed constant) rather than a fixed nudge -- on a 2x device (many
+// Androids, iPad, older iPhones) actualScale <= 2 means
+// renderedScale/actualScale = 1 and this correctly resolves to a NO-OP
+// instead of a fixed old nudge actively mis-centering a device that never
+// had the mismatch in the first place.
+export function centeringOffset(size: number): number {
+  const actualScale = PixelRatio.get()
+  const renderedScale = Math.min(actualScale, 2)
+  return (size / 2) * (1 - renderedScale / actualScale)
+}
 
 // RC, real device + web preview: "ExpoTHREE.loaderClassForExtension():
 // Unrecognized file type png." `ExpoTHREE.loadAsync()` is a generic

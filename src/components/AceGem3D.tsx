@@ -4,7 +4,7 @@ import { GLView, ExpoWebGLRenderingContext } from 'expo-gl'
 import { Renderer } from 'expo-three'
 import * as THREE from 'three'
 import * as Sentry from '@sentry/react-native'
-import { equirectToEnvMap, makeBackdropTexture, loadTexture } from '@/lib/trophy3d/envMap'
+import { equirectToEnvMap, makeBackdropTexture, loadTexture, centeringOffset } from '@/lib/trophy3d/envMap'
 import { guardUnsupportedRenderbufferMultisample } from '@/lib/trophy3d/glGuards'
 
 // Real WebGL port of the "Ace" brilliant-cut diamond built and tuned live
@@ -197,7 +197,27 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
       clearcoat: 1.0,
       clearcoatRoughness: 0.01,
       envMapIntensity: 1.3,
-      side: THREE.DoubleSide,
+      // RC, B34, real device: "rotation is super glitchy... color is
+      // glitching too... green flashes." DoubleSide on a transmissive
+      // material makes three.js render an EXTRA back-face pass every
+      // single frame (renderTransmissionPass toggles material.side to
+      // BackSide, re-renders, toggles back -- see three.module.js's
+      // WebGLRenderer around its transmission-pass handling), each flip
+      // setting material.needsUpdate = true, which forces a program
+      // recompile/swap. That's on top of the transmission pass ALREADY
+      // rendering a full extra scene into a 536x536 HalfFloat render
+      // target and generating its mipmap chain TWICE. This gem never
+      // needs its back faces -- it's convex and always viewed from
+      // outside -- so FrontSide removes the entire duplicate pass (half
+      // the per-frame transmission cost, zero needsUpdate churn) with no
+      // visual difference for a shape like this. Directly targets both
+      // reported symptoms: the removed per-frame stutter is the most
+      // likely cause of "super glitchy" rotation, and the removed SECOND
+      // mipmap generation on that HalfFloat target is the most likely
+      // cause of the intermittent green flashes (an uninitialized/
+      // driver-dependent mip level under iOS GLES3, sampled every frame
+      // by the transmission shader).
+      side: THREE.FrontSide,
       flatShading: true,
     })
     const gem = new THREE.Mesh(geo, mat)
@@ -313,17 +333,42 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
     })
 
     const clock = new THREE.Clock()
+    // RC, B34, real device: "freezes entirely after a couple of turns."
+    // The try/catch below (see its own comment) was correctly designed to
+    // turn a fatal per-frame exception into a non-fatal one -- but it did
+    // that by setting disposed.current permanently true on the FIRST
+    // error, stopping every future frame forever, which is exactly a
+    // permanent on-screen freeze the moment any single frame throws once.
+    // A transient GL hiccup (this device's expo-gl/GLES3 stack has
+    // several documented rough edges around this exact transmissive-
+    // material code path -- see the material comment above) shouldn't
+    // permanently kill an otherwise-fine animation. Tolerates a handful of
+    // CONSECUTIVE failures (resets to 0 on every good frame) before truly
+    // giving up -- still reports every single failure to Sentry so a real
+    // recurring problem stays fully visible there, it just no longer
+    // freezes the trophy on the first isolated one.
+    let consecutiveErrors = 0
+    const MAX_CONSECUTIVE_ERRORS = 8
     const animate = () => {
       if (disposed.current) return
       requestAnimationFrame(animate)
       const t = clock.getElapsedTime()
-      // Same 0.25 speed as MasterGlobe3D.tsx's globe on purpose (RC: keep
-      // both rotating at the same speed) -- the globe carries a +90deg
-      // starting-angle offset instead so the two don't stay in visual
-      // lockstep when shown together in the locked-coin popup. This one
-      // (the gem, mounted first / left-hand coin) stays the zero-offset
-      // baseline; only the globe needed the correction.
-      gem.rotation.y = t * 0.25
+      // RC, B34, real device: "spinning too fast." The true angular rate
+      // (below) is unchanged from the original tuning -- one full
+      // revolution every 2*pi/rate seconds regardless of frame rate, since
+      // this is elapsed-wall-clock-time-based, not a per-frame increment.
+      // What actually reads as "fast" is perceptual: LatheGeometry(pts, 12)
+      // a few lines up is 12-fold rotationally symmetric with flatShading,
+      // so its FACET pattern repeats every 360/12 = 30 degrees -- at the
+      // previous 0.25 rad/s that's a visible facet-cycle every ~2.1s, much
+      // more often than the nominal ~25s/revolution, and the per-frame
+      // judder fixed above (the DoubleSide removal) made that aliasing
+      // read as even faster/choppier. Halved here so the perceived
+      // facet-cycle roughly doubles to ~4.2s -- keep LOCKED_SPIN_MS in
+      // TrophyBadge.tsx (the flat 2D grid-tile badge's own CSS-style spin,
+      // deliberately kept in sync with this rate) updated in lockstep if
+      // this ever changes again.
+      gem.rotation.y = t * 0.125
       gem.rotation.x = Math.sin(t * 0.4) * 0.12 + 0.08
       backdrop.rotation.z = t * 0.1
       const haloPulse = Math.sin(t * 0.7) * 0.5 + 0.5
@@ -379,17 +424,21 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
       // future three.js version bump, anything) was fatal to the whole
       // app, on every single frame, for the popup's entire open lifetime.
       // Catching here doesn't fix whatever specific thing throws -- it
-      // makes the FAILURE MODE non-fatal: report once, stop scheduling
-      // further frames (disposed.current, the same flag unmount cleanup
-      // already checks), and let the trophy freeze on its last good frame
-      // instead of taking the app down. Structural, independent of which
-      // GL call is the next one to throw.
+      // makes the FAILURE MODE non-fatal: report every failure, but only
+      // truly stop scheduling frames after MAX_CONSECUTIVE_ERRORS in a row
+      // (see that constant's own comment above, added B34 -- a single
+      // transient error used to freeze the trophy permanently, which is
+      // exactly RC's "freezes entirely after a couple of turns" report).
       try {
         renderer.render(scene, camera)
         gl.endFrameEXP()
+        consecutiveErrors = 0
       } catch (err) {
-        disposed.current = true
+        consecutiveErrors++
         Sentry.captureException(err)
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          disposed.current = true
+        }
         return
       }
     }
@@ -437,20 +486,24 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
           }}
         />
       )}
-      {/* RC: the Master globe (MasterGlobe3D.tsx) had the identical bug on
-          real device -- "off center, low and left" -- root cause not
-          diagnosable in this environment (doesn't reproduce in web
-          preview; GLView is a genuinely different native component on iOS
-          vs. web). RC's own direction for the globe was to apply an
-          empirical 2D nudge from the reported direction rather than a
-          diagnosed scene/camera fix; applying the SAME correction here
-          since RC flagged the diamond is likely off by the same amount in
-          the same direction (both trophies share this exact GLView/
-          Renderer setup). Same magnitude as the globe's fix -- a first
-          estimate, not measured against RC's real device -- expect this
-          needs its own follow-up round once RC sees it live. */}
+      {/* B34: replaces the empirical +18/-22 nudge with centeringOffset(),
+          computed from the real pixel-ratio mismatch (see that function's
+          own comment). The gem also carries one small ADDITIONAL y-only
+          correction the globe doesn't need: camera.position above is
+          (0, 0.15, 4.2) with no lookAt, so the view is centered on world
+          y=0.15, not the gem's own true visual center -- the lathe profile
+          a few lines up spans y=[+1.05, -1.15], bounding-box center
+          y=-0.05 (matching the halo sprite's own position a few lines up,
+          which was independently placed to track the gem's visual
+          center). That 0.20-unit gap, projected through this camera's FOV
+          at the gem's depth, works out to ~9.95% of `size` -- deliberately
+          NOT fixed by adding a camera.lookAt() instead, since that would
+          also rotate the view frustum and risk disturbing the halo's own
+          hard-won frustum-edge-clipping tuning (see the halo's "round 9"
+          comment above) for a component this file's header already says
+          is copied verbatim from a live-tuned prototype. */}
       <GLView
-        style={[StyleSheet.absoluteFill, { transform: [{ translateX: 18 }, { translateY: -22 }] }]}
+        style={[StyleSheet.absoluteFill, { transform: [{ translateX: centeringOffset(size) }, { translateY: -(centeringOffset(size) + size * 0.0995) }] }]}
         // Not awaited/caught by GLView itself -- a rejection inside
         // onContextCreate (e.g. a real texture-load failure) would
         // otherwise be a silent unhandled promise rejection, leaving

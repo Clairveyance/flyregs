@@ -4,7 +4,7 @@ import { GLView, ExpoWebGLRenderingContext } from 'expo-gl'
 import { Renderer } from 'expo-three'
 import * as THREE from 'three'
 import * as Sentry from '@sentry/react-native'
-import { equirectToEnvMap, loadTexture } from '@/lib/trophy3d/envMap'
+import { equirectToEnvMap, loadTexture, centeringOffset } from '@/lib/trophy3d/envMap'
 import { guardUnsupportedRenderbufferMultisample } from '@/lib/trophy3d/glGuards'
 
 // Real WebGL port of the "Master" gold globe -- see AceGem3D.tsx's header
@@ -237,11 +237,17 @@ export function MasterGlobe3D({ size = 300, backdropColor }: { size?: number; ba
     scene.add(new THREE.AmbientLight(0x2e2110, 0.1))
 
     const clock = new THREE.Clock()
+    // See AceGem3D.tsx's matching comment -- same fix, B34: RC reported
+    // the diamond freezing after a couple of turns from this exact
+    // permanent-on-first-error pattern; tolerating a handful of
+    // consecutive failures here too rather than dying on the first one.
+    let consecutiveErrors = 0
+    const MAX_CONSECUTIVE_ERRORS = 8
     const animate = () => {
       if (disposed.current) return
       requestAnimationFrame(animate)
       // + Math.PI/2 (90deg) offset -- RC: with the Ace gem's own rotation
-      // matching this same 0.25 speed, both mounted together in the locked-
+      // matching this same speed, both mounted together in the locked-
       // coin popup started at the same angle and stayed in visual lockstep.
       // Same speed, different starting axis position -- see AceGem3D.tsx.
       globe.rotation.y = clock.getElapsedTime() * 0.25 + Math.PI / 2
@@ -253,9 +259,13 @@ export function MasterGlobe3D({ size = 300, backdropColor }: { size?: number; ba
       try {
         renderer.render(scene, camera)
         gl.endFrameEXP()
+        consecutiveErrors = 0
       } catch (err) {
-        disposed.current = true
+        consecutiveErrors++
         Sentry.captureException(err)
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          disposed.current = true
+        }
         return
       }
     }
@@ -284,22 +294,14 @@ export function MasterGlobe3D({ size = 300, backdropColor }: { size?: number; ba
           }}
         />
       )}
-      {/* RC, real device, build 33: "the globe is out of center, low and
-          left." Root cause not diagnosable here -- this can't be reproduced
-          in the web preview (GLView is a genuinely different native
-          component on iOS vs. web, not just CSS) and this environment has
-          no working Simulator/device to test the real 3D camera/scene math
-          against. Per RC's own explicit direction: an empirical 2D
-          correction from the reported direction, not a diagnosed fix --
-          shifts the rendered canvas up and right within its still-centered,
-          still-circular-clipped parent (profile/[userId].tsx's wrapper),
-          same as nudging a picture inside an already-correctly-hung frame.
-          Magnitude is a first estimate (~8% of the 268pt canvas each axis),
-          not measured against a real device -- expect this needs one more
-          round of adjustment once RC sees it live, same as this session's
-          own earlier trophy-tuning rounds. */}
+      {/* B34: replaces the empirical +18/-22 nudge with centeringOffset()
+          (see envMap.ts) -- diagnosed this round as a real, computable
+          pixelRatio-cap-vs-real-screen-scale mismatch, not a re-guessed
+          constant. Unlike the gem, this camera sits at (0,0,4.4) with the
+          sphere at the origin -- zero scene-level offset of its own, so
+          the shared correction alone is the whole fix here. */}
       <GLView
-        style={[StyleSheet.absoluteFill, { transform: [{ translateX: 18 }, { translateY: -22 }] }]}
+        style={[StyleSheet.absoluteFill, { transform: [{ translateX: centeringOffset(size) }, { translateY: -centeringOffset(size) }] }]}
         onContextCreate={(gl) => { onContextCreate(gl).catch((err) => Sentry.captureException(err)) }}
       />
     </View>

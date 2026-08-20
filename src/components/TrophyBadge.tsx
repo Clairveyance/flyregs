@@ -23,13 +23,22 @@ import { useTheme } from '@/context/theme'
 const SPIN_MS = 7000
 // Locked-state spin speed, RC: "make the two large coins spin slowly (same
 // speed as the diamond/globe inside)" -- naming the ACTUAL 3D scene shown
-// once earned (AceGem3D.tsx/MasterGlobe3D.tsx both use `rotation.y =
-// clock.getElapsedTime() * 0.25`, one full turn every 2π/0.25 ≈ 25.1s) as
-// the reference speed, not this badge's own earned-state SPIN_MS above (a
-// separately tuned "trophy on a slow turntable" speed for this small-badge
-// context, per this file's own header comment -- left as-is here, only the
-// previously-static locked preview gets a speed).
-const LOCKED_SPIN_MS = 25133
+// once earned (AceGem3D.tsx/MasterGlobe3D.tsx, one full turn every
+// 2*pi/rate) as the reference speed, not this badge's own earned-state
+// SPIN_MS above (a separately tuned "trophy on a slow turntable" speed for
+// this small-badge context, per this file's own header comment -- left
+// as-is here, only the previously-static locked preview gets a speed).
+// Split into two constants B34: the gem's own rotation rate was halved
+// (0.25 -> 0.125 rad/s, see AceGem3D.tsx's own comment -- RC, real device:
+// "spinning too fast," traced to that scene's 12-fold facet symmetry
+// making the true ~25s/revolution read as a much faster ~2s facet-cycle)
+// while the globe's stayed at its original 0.25 (a smooth sphere has no
+// equivalent facet-aliasing, and RC didn't flag the globe's speed) -- the
+// two locked previews now genuinely need different durations to keep
+// matching their own real 3D scene, where a single shared constant used
+// to correctly match both because they were the same rate.
+const LOCKED_SPIN_MS_ACE = 50265
+const LOCKED_SPIN_MS_MASTER = 25133
 const PULSE_MS = 4200
 // Same painted-rings glow approach as CoinMedal.tsx -- duplicated rather
 // than imported since these two components deliberately share no other
@@ -96,7 +105,8 @@ export function TrophyBadge({
 
   useEffect(() => {
     if (reduceMotion) return
-    spin.value = withRepeat(withTiming(360, { duration: earned ? SPIN_MS : LOCKED_SPIN_MS, easing: Easing.linear }), -1, false)
+    const lockedMs = variant === 'ace' ? LOCKED_SPIN_MS_ACE : LOCKED_SPIN_MS_MASTER
+    spin.value = withRepeat(withTiming(360, { duration: earned ? SPIN_MS : lockedMs, easing: Easing.linear }), -1, false)
     if (earned) {
       pulse.value = withRepeat(withTiming(1, { duration: PULSE_MS, easing: Easing.inOut(Easing.sin) }), -1, true)
     }
