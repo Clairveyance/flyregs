@@ -84,6 +84,11 @@ CASES = [
     ("parachute jump visibility",        [("far", "105.17", 5)]),
     ("tail rotor guard ground clearance", [("far", "27.411", 5)]),
     ("emergency locator transmitter",    [("far", "91.207", 5)]),
+
+    # ---- RC-flagged 2026-08-20: "search must find relevant topics and get
+    # them up front... this process IS the app" ---------------------------
+    ("certification",                    [("ac", "61-65K", "top")]),
+    ("endorsements",                     [("ac", "61-65K", "top")]),
 ]
 
 TYPE_FN = {

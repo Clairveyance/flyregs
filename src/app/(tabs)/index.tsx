@@ -234,6 +234,18 @@ export default function HomeScreen() {
   // moment it returns.
   const [keyboardHeight, setKeyboardHeight] = useState(0)
   const { height: windowHeight } = useWindowDimensions()
+  // RC: "the swipe to hide k/b on Home when searching is really clunky in
+  // front of the drop down results." Root cause: dropdownMaxHeight below
+  // was a plain derived number -- correct VALUE, correct TIMING (the
+  // keyboardWillShow/Hide "ahead of the animation" trick below already
+  // solved when it starts), but the actual height change itself SNAPPED
+  // in one React re-render while the keyboard's own dismiss (especially
+  // "interactive" mode, which tracks the user's finger in real time) slides
+  // smoothly over ~250-300ms -- one part of the screen animating, the other
+  // popping, is exactly what reads as "clunky." Captured here so the
+  // Reanimated `withTiming` driving dropdownMaxHeight (below) can match the
+  // keyboard's own real animation duration instead of guessing one.
+  const keyboardAnimDuration = useRef(250)
 
   useEffect(() => {
     // keyboardWillShow/Hide (iOS-only) fire ahead of the animation, so the
@@ -243,8 +255,14 @@ export default function HomeScreen() {
     // app.
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
-    const showSub = Keyboard.addListener(showEvent, (e) => setKeyboardHeight(e.endCoordinates?.height ?? 0))
-    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0))
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      keyboardAnimDuration.current = e.duration || 250
+      setKeyboardHeight(e.endCoordinates?.height ?? 0)
+    })
+    const hideSub = Keyboard.addListener(hideEvent, (e) => {
+      keyboardAnimDuration.current = e.duration || 250
+      setKeyboardHeight(0)
+    })
     return () => {
       showSub.remove()
       hideSub.remove()
@@ -258,6 +276,16 @@ export default function HomeScreen() {
   // that briefly reports oddly during its own show/hide animation) never
   // collapses the results to something unusably short.
   const dropdownMaxHeight = Math.max(200, windowHeight - dropdownTop - keyboardHeight - 90)
+  // Drives the dropdown/dropScroll height with a real animation instead of
+  // the instant snap a plain style value produces -- see the
+  // keyboardAnimDuration comment above for why this specific value was
+  // clunky. Shared across both the results dropdown and the recent-
+  // searches dropdown (they're mutually exclusive, same underlying height).
+  const animatedDropdownMaxHeight = useSharedValue(dropdownMaxHeight)
+  useEffect(() => {
+    animatedDropdownMaxHeight.value = withTiming(dropdownMaxHeight, { duration: keyboardAnimDuration.current })
+  }, [dropdownMaxHeight])
+  const animatedDropdownStyle = useAnimatedStyle(() => ({ maxHeight: animatedDropdownMaxHeight.value }))
   const searchInputRef = useRef<TextInput>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Only the most-recent search may write results (guards against a slow earlier
@@ -544,6 +572,11 @@ export default function HomeScreen() {
     // back non-empty) — a query the user typed is worth re-offering later
     // even if it happened to return nothing that one time.
     addRecentSearch(trimmed).then(setRecentSearches)
+    // Anonymous, fire-and-forget usage log (RC: "log all search topics...
+    // stay flexible as search patterns create diff priorities") — never
+    // awaited, never blocks the search critical path that was just fixed
+    // for latency. See sync/migrations_search_usage_logging.sql.
+    supabase.from('search_query_log').insert({ query_text: trimmed }).then(() => {})
 
     // Fired independently of the AC-specific branches below (phrase vs.
     // plain search) — FAR/AIM/P-CG/T&F don't need phrase-search handling
@@ -731,9 +764,16 @@ export default function HomeScreen() {
 
   const selectResult = useCallback((r: SearchResult) => {
     const id = r.id
+    // Fire-and-forget: which doc a search actually led to opening is the
+    // real usage-popularity signal, not just the query text alone (a query
+    // can surface many results -- the click says which one mattered). See
+    // sync/migrations_search_usage_logging.sql.
+    supabase.from('search_click_log').insert({
+      doc_type: 'ac', doc_id: r.document_number, query_text: searchQuery,
+    }).then(() => {})
     dismissSearch()
     router.push(`/ac/${id}`)
-  }, [dismissSearch])
+  }, [dismissSearch, searchQuery])
 
   // Tapping a past query re-populates the field and re-runs it immediately
   // — no debounce wait, since the user is choosing a value they've already
@@ -752,6 +792,11 @@ export default function HomeScreen() {
   }, [])
 
   const selectOtherResult = useCallback((r: UnifiedResult) => {
+    // Same click-through log as selectResult above, covering the FAR/AIM/
+    // P-CG/CFR49/figure/dictionary results path.
+    supabase.from('search_click_log').insert({
+      doc_type: r.type, doc_id: r.id, query_text: searchQuery,
+    }).then(() => {})
     dismissSearch()
     // Figure/table results open the image directly instead of navigating
     // to the parent AC/AIM paragraph first — confirmed live as an unwanted
@@ -776,7 +821,7 @@ export default function HomeScreen() {
     // is the deliberate escape hatch here (see searchInput's outlineStyle
     // comment above for the same pattern/reasoning), not an accident.
     router.push(routeForUnifiedResult(r) as any)
-  }, [dismissSearch])
+  }, [dismissSearch, searchQuery])
 
   // IA redesign: there's no more standalone Search tab to hand off to, so
   // this just dismisses the keyboard — results already stay on screen
@@ -1345,18 +1390,18 @@ export default function HomeScreen() {
       )}
 
       {showDropdown && (
-        <View
+        <Reanimated.View
           style={[
             styles.dropdown,
             {
               top: dropdownTop > 0 ? dropdownTop : 110,
-              maxHeight: dropdownMaxHeight,
               backgroundColor: tokens.bg2,
               borderColor: tokens.bdr,
               ...(Platform.OS === 'web'
                 ? ({ boxShadow: '0 4px 16px rgba(0,0,0,0.14)' } as object)
                 : { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.13, shadowRadius: 14 }),
             },
+            animatedDropdownStyle,
           ]}
         >
           {/* Always-reachable keyboard dismiss — tapping the backdrop works too,
@@ -1374,8 +1419,8 @@ export default function HomeScreen() {
               list with a spinner on every re-search, which is what made results
               flicker away and come back after releasing the mic button. */}
           {combinedResults.length > 0 ? (
-            <ScrollView
-              style={[styles.dropScroll, { maxHeight: dropdownMaxHeight }]}
+            <Reanimated.ScrollView
+              style={[styles.dropScroll, animatedDropdownStyle]}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="interactive"
               nestedScrollEnabled
@@ -1443,7 +1488,7 @@ export default function HomeScreen() {
                   </Text>
                 </Pressable>
               )}
-            </ScrollView>
+            </Reanimated.ScrollView>
           ) : searchLoading ? (
             <View style={styles.dropCenter}>
               <ActivityIndicator size="small" color={tokens.blu} />
@@ -1453,7 +1498,7 @@ export default function HomeScreen() {
               <Text style={[styles.dropEmpty, { color: tokens.t3, fontSize: fs(14) }]}>No results</Text>
             </View>
           )}
-        </View>
+        </Reanimated.View>
       )}
 
       {/* Recent-searches dropdown — shown when the field is focused but
@@ -1469,18 +1514,18 @@ export default function HomeScreen() {
       )}
 
       {showRecentSearches && (
-        <View
+        <Reanimated.View
           style={[
             styles.dropdown,
             {
               top: dropdownTop > 0 ? dropdownTop : 110,
-              maxHeight: dropdownMaxHeight,
               backgroundColor: tokens.bg2,
               borderColor: tokens.bdr,
               ...(Platform.OS === 'web'
                 ? ({ boxShadow: '0 4px 16px rgba(0,0,0,0.14)' } as object)
                 : { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.13, shadowRadius: 14 }),
             },
+            animatedDropdownStyle,
           ]}
         >
           <View style={[styles.dropHideKb, { borderBottomColor: tokens.bdr, justifyContent: 'space-between' }]}>
@@ -1489,8 +1534,8 @@ export default function HomeScreen() {
               <Text style={[styles.dropHideKbText, { color: tokens.blu, fontSize: fs(11.5) }]}>Clear</Text>
             </Pressable>
           </View>
-          <ScrollView
-            style={[styles.dropScroll, { maxHeight: dropdownMaxHeight }]}
+          <Reanimated.ScrollView
+            style={[styles.dropScroll, animatedDropdownStyle]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             nestedScrollEnabled
@@ -1529,8 +1574,8 @@ export default function HomeScreen() {
                 </Pressable>
               </View>
             ))}
-          </ScrollView>
-        </View>
+          </Reanimated.ScrollView>
+        </Reanimated.View>
       )}
 
       <FigureViewer figure={viewerFigure} onClose={() => setViewerFigure(null)} />
