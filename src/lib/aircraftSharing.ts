@@ -155,6 +155,32 @@ export async function inviteCollaboratorByCallsign(
   return { token: row.out_token, userId: row.out_user_id, callsign: row.out_callsign }
 }
 
+// Change an EXISTING collaborator's role after they've already joined --
+// unlike getOrCreateShareLink above (which only sets the role FUTURE
+// joiners get), this touches the live aircraft_collaborators row directly.
+// RC: "yes, build the a/c sharing change role capability."
+//
+// Deliberately an RPC, not a plain `.from('aircraft_collaborators').update(...)`
+// the way sharedFolders.ts's setCollaboratorMode does it for folders -- this
+// table has no owner-side UPDATE RLS policy at all (only the collaborator's
+// own self-service last_viewed_at policy exists), and per
+// sync/migrations_fix_collaborator_self_escalation.sql that self-service
+// policy is exactly the shape that let a viewer self-escalate to editor on a
+// sibling table before it was locked down with a column-restricting trigger.
+// Rather than widen RLS on this table at all, this calls a SECURITY DEFINER
+// RPC (see sync/migrations_aircraft_collaborator_role_change.sql) that checks
+// auth.uid() owns the aircraft, rejects targeting your own row, and updates
+// only the one row -- same narrow, auditable shape as every other sensitive
+// collaborator mutation in this file.
+export async function updateCollaboratorRole(aircraftId: string, userId: string, role: CollaboratorRole): Promise<void> {
+  const { error } = await supabase.rpc('update_aircraft_collaborator_role', {
+    p_aircraft_id: aircraftId,
+    p_user_id: userId,
+    p_role: role,
+  })
+  if (error) throw error
+}
+
 export async function removeCollaborator(aircraftId: string, userId: string): Promise<void> {
   const { error } = await supabase
     .from('aircraft_collaborators')

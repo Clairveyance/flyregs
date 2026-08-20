@@ -28,6 +28,7 @@ import {
 import {
   getMyAircraftRole, getAircraftCollaborators, removeCollaborator, leaveSharedAircraft,
   inviteCollaboratorByCallsign, buildAircraftShareLink, getOrCreateShareLink, useAircraftRealtime,
+  updateCollaboratorRole,
   type CollaboratorRole, type AircraftCollaborator, type FleetRole,
 } from '@/lib/aircraftSharing'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
@@ -377,6 +378,21 @@ export default function AircraftDetailScreen() {
     confirm({ title: 'Invite sent', message: `Sent to @${invite.callsign}.`, cancelLabel: null })
     getAircraftCollaborators(aircraft.id).then(setCollaborators).catch(() => {})
     setSharingBusy(false)
+  }
+
+  // RC: "yes, build the a/c sharing change role capability" -- an owner can
+  // now flip an already-joined collaborator between viewer/editor, not just
+  // pick a role at invite time. Optimistic + rollback-on-failure, same
+  // pattern as folder/[id].tsx's handleSetCollaboratorMode.
+  const handleSetCollaboratorRole = async (c: AircraftCollaborator, role: CollaboratorRole) => {
+    if (!aircraft || role === c.role) return
+    setCollaborators((prev) => prev.map((x) => (x.userId === c.userId ? { ...x, role } : x)))
+    try {
+      await updateCollaboratorRole(aircraft.id, c.userId, role)
+    } catch {
+      setCollaborators((prev) => prev.map((x) => (x.userId === c.userId ? { ...x, role: c.role } : x)))
+      confirm({ title: 'Error', message: 'Could not update access. Try again in a moment.', cancelLabel: null })
+    }
   }
 
   const handleRemoveCollaborator = (c: AircraftCollaborator) => {
@@ -743,11 +759,32 @@ export default function AircraftDetailScreen() {
                       {c.displayLabel}
                     </Text>
                   </Pressable>
-                  <View style={[styles.roleBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
-                    <Text style={[styles.roleBadgeText, { color: tokens.t3, fontSize: fs(10) }]}>
-                      {c.accepted ? c.role.toUpperCase() : 'INVITED'}
-                    </Text>
-                  </View>
+                  {c.accepted ? (
+                    // Tap-to-toggle, same interaction as folder/[id].tsx's
+                    // own per-collaborator collabModeToggle -- this
+                    // person's own access, independent of any other
+                    // collaborator on the same aircraft.
+                    <View style={[styles.roleToggle, { borderColor: tokens.bdr }]}>
+                      <Pressable
+                        style={[styles.roleToggleSeg, { backgroundColor: c.role === 'viewer' ? tokens.bdim : 'transparent' }]}
+                        onPress={() => handleSetCollaboratorRole(c, 'viewer')}
+                        hitSlop={4}
+                      >
+                        <Icon name="eye" size={fs(12)} color={c.role === 'viewer' ? tokens.blu : tokens.t4} />
+                      </Pressable>
+                      <Pressable
+                        style={[styles.roleToggleSeg, { backgroundColor: c.role === 'editor' ? tokens.bdim : 'transparent' }]}
+                        onPress={() => handleSetCollaboratorRole(c, 'editor')}
+                        hitSlop={4}
+                      >
+                        <Icon name="pencil" size={fs(12)} color={c.role === 'editor' ? tokens.blu : tokens.t4} />
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <View style={[styles.roleBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
+                      <Text style={[styles.roleBadgeText, { color: tokens.t3, fontSize: fs(10) }]}>INVITED</Text>
+                    </View>
+                  )}
                   <Pressable onPress={() => handleRemoveCollaborator(c)} hitSlop={8}>
                     <Icon name="xmark.circle" size={fs(18)} color={tokens.t4} />
                   </Pressable>
@@ -2034,6 +2071,8 @@ const styles = StyleSheet.create({
   leaveText: { fontWeight: '600' },
   roleBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
   roleBadgeText: { fontWeight: '700', letterSpacing: 0.4 },
+  roleToggle: { flexDirection: 'row', alignItems: 'center', borderRadius: 8, borderWidth: 1, overflow: 'hidden' },
+  roleToggleSeg: { paddingHorizontal: 8, paddingVertical: 5 },
   collabSection: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', marginTop: 10, marginBottom: 4 },
   collabHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12 },
   collabHeaderText: { flex: 1, fontWeight: '600' },
