@@ -142,6 +142,25 @@ function DrawerContent({
   const { mode, setMode, redShift, setRedShift } = useTheme()
   const { fontScale, setFontScale, previewFontScale } = useFontScale()
   const fs = useFS()
+  // RC, real device, B34: "text size slider still not very smooth" -- a
+  // recurrence after the B33 fix (which only removed the AsyncStorage
+  // writes during drag, see fontScale.tsx's own comment). Second real
+  // cause found: previewFontScale live-updates the SAME fontScale this
+  // whole screen's rows read via fs() -- so every row above the slider
+  // (profile card, Appearance, Red Shift, Badge Duration) grows/shrinks in
+  // real time as you drag, which pushes the slider row itself down/up
+  // under the finger mid-gesture. Freeze THIS screen's own rows to the
+  // scale they had when the drag started (everything else in the app
+  // still previews live, unaffected) so the row the user is actually
+  // touching can't crawl out from under them. isDraggingSlider/frozenScale
+  // only ever apply to Drawer's own layout, never to previewFontScale
+  // itself -- the live preview elsewhere in the app is untouched.
+  const [isDraggingSlider, setIsDraggingSlider] = useState(false)
+  const frozenScaleRef = useRef(fontScale)
+  useEffect(() => {
+    if (!isDraggingSlider) frozenScaleRef.current = fontScale
+  }, [fontScale, isDraggingSlider])
+  const activeFs = isDraggingSlider ? (n: number) => Math.round(n * frozenScaleRef.current) : fs
   const { badgeDays, setBadgeDays: updateBadgeDays } = useBadgeLifespan()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web, so every dialog here was invisible in the Browser pane.
@@ -230,7 +249,7 @@ function DrawerContent({
     >
       {/* Close */}
       <Pressable onPress={onClose} style={styles.closeBtn} hitSlop={8}>
-        <Icon name="xmark" size={fs(17)} color={tokens.t3} />
+        <Icon name="xmark" size={activeFs(17)} color={tokens.t3} />
       </Pressable>
 
       {/* Profile */}
@@ -242,23 +261,23 @@ function DrawerContent({
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
           ) : avatarPreset ? (
-            <Icon name={avatarPreset.icon} size={fs(20)} color="#fff" />
+            <Icon name={avatarPreset.icon} size={activeFs(20)} color="#fff" />
           ) : (
-            <Text style={[styles.avatarText, { fontSize: fs(17) }]}>{initials}</Text>
+            <Text style={[styles.avatarText, { fontSize: activeFs(17) }]}>{initials}</Text>
           )}
         </View>
         <View style={{ flex: 1, marginLeft: 12 }}>
           <View style={styles.profileNameRow}>
-            <Text style={[styles.profileName, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={1}>
+            <Text style={[styles.profileName, { color: tokens.t1, fontSize: activeFs(15) }]} numberOfLines={1}>
               {session ? 'My Account' : 'Sign In'}
             </Text>
-            {session && <TierPill isPro={isPro} isPremium={isPremium} isUnlocked={isUnlocked} tokens={tokens} fs={fs} />}
+            {session && <TierPill isPro={isPro} isPremium={isPremium} isUnlocked={isUnlocked} tokens={tokens} fs={activeFs} />}
           </View>
-          <Text style={[styles.profileEmail, { color: tokens.t2, fontSize: fs(12) }]} numberOfLines={1}>
+          <Text style={[styles.profileEmail, { color: tokens.t2, fontSize: activeFs(12) }]} numberOfLines={1}>
             {email}
           </Text>
         </View>
-        <Icon name="chevron.right" size={fs(13)} color={tokens.t3} />
+        <Icon name="chevron.right" size={activeFs(13)} color={tokens.t3} />
       </Pressable>
 
       {/* Account group -- subscription management now lives entirely in
@@ -271,6 +290,7 @@ function DrawerContent({
         value={restoring ? 'Restoring…' : undefined}
         tokens={tokens}
         onPress={handleRestore}
+        fsOverride={activeFs}
       />
       <DrawerRow
         icon="info.circle"
@@ -278,6 +298,7 @@ function DrawerContent({
         value={`v${APP_VERSION}`}
         tokens={tokens}
         onPress={() => nav('/about')}
+        fsOverride={activeFs}
       />
 
       <Divider tokens={tokens} />
@@ -285,20 +306,20 @@ function DrawerContent({
       {/* Appearance — Phase 2: wired */}
       <View style={styles.appearanceRow}>
         <View style={styles.rowIcon}>
-          <Icon name="moon.stars" size={fs(17)} color={tokens.t2} />
+          <Icon name="moon.stars" size={activeFs(17)} color={tokens.t2} />
         </View>
-        <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14) }]}>Appearance</Text>
+        <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: activeFs(14) }]}>Appearance</Text>
       </View>
-      <AppearancePicker mode={mode} setMode={setMode} tokens={tokens} />
+      <AppearancePicker mode={mode} setMode={setMode} tokens={tokens} fsOverride={activeFs} />
 
       {/* Red Shift — manual-only night-vision mode (RC: no auto-switching).
           Toggling either direction normalizes Appearance to Dark underneath
           it, so turning Red Shift off always lands somewhere predictable. */}
       <View style={styles.appearanceRow}>
         <View style={styles.rowIcon}>
-          <Icon name="eye.fill" size={fs(17)} color={redShift ? tokens.red : tokens.t2} />
+          <Icon name="eye.fill" size={activeFs(17)} color={redShift ? tokens.red : tokens.t2} />
         </View>
-        <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14) }]}>Red Shift</Text>
+        <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: activeFs(14) }]}>Red Shift</Text>
         <Switch
           value={redShift}
           onValueChange={setRedShift}
@@ -319,18 +340,24 @@ function DrawerContent({
             <View style={[styles.badgeDot, { backgroundColor: tokens.amb }]} />
           </View>
         </View>
-        <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14) }]}>Badge Duration</Text>
+        <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: activeFs(14) }]}>Badge Duration</Text>
       </View>
-      <BadgeLifespanPicker days={badgeDays} setDays={updateBadgeDays} tokens={tokens} />
+      <BadgeLifespanPicker days={badgeDays} setDays={updateBadgeDays} tokens={tokens} fsOverride={activeFs} />
 
       {/* Text Size — inline picker */}
       <View style={styles.appearanceRow}>
         <View style={styles.rowIcon}>
-          <Icon name="textformat.size" size={fs(17)} color={tokens.t2} />
+          <Icon name="textformat.size" size={activeFs(17)} color={tokens.t2} />
         </View>
-        <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: fs(14) }]}>Text Size</Text>
+        <Text style={[styles.rowLabel, { color: tokens.t1, fontSize: activeFs(14) }]}>Text Size</Text>
       </View>
-      <TextSizeSlider scale={fontScale} setScale={setFontScale} previewScale={previewFontScale} tokens={tokens} />
+      <TextSizeSlider
+        scale={fontScale}
+        setScale={setFontScale}
+        previewScale={previewFontScale}
+        tokens={tokens}
+        onDragStateChange={setIsDraggingSlider}
+      />
 
       <Divider tokens={tokens} />
 
@@ -360,12 +387,15 @@ function AppearancePicker({
   mode,
   setMode,
   tokens,
+  fsOverride,
 }: {
   mode: ThemeMode
   setMode: (m: ThemeMode) => void
   tokens: ThemeTokens
+  fsOverride?: (n: number) => number
 }) {
-  const fs = useFS()
+  const contextFs = useFS()
+  const fs = fsOverride ?? contextFs
   return (
     <View style={[styles.segWrap, { backgroundColor: tokens.bg3 }]}>
       {MODES.map((m) => {
@@ -406,12 +436,15 @@ function BadgeLifespanPicker({
   days,
   setDays,
   tokens,
+  fsOverride,
 }: {
   days: number
   setDays: (d: number) => void
   tokens: ThemeTokens
+  fsOverride?: (n: number) => number
 }) {
-  const fs = useFS()
+  const contextFs = useFS()
+  const fs = fsOverride ?? contextFs
   return (
     <View style={[styles.segWrap, { backgroundColor: tokens.bg3 }]}>
       {LIFESPAN_OPTIONS.map((opt) => {
@@ -442,11 +475,13 @@ function TextSizeSlider({
   setScale,
   previewScale,
   tokens,
+  onDragStateChange,
 }: {
   scale: number
   setScale: (v: number) => void
   previewScale: (v: number) => void
   tokens: ThemeTokens
+  onDragStateChange?: (dragging: boolean) => void
 }) {
   const trackW = useRef(0)
   const startX = useRef(0)
@@ -468,10 +503,45 @@ function TextSizeSlider({
   const scaleRef = useRef(scale)
   scaleRef.current = scale
 
+  // RC, real device, B34: "still not very smooth" -- the B33 fix above
+  // (freezing trackW, dropping the AsyncStorage write per tick) was real
+  // but didn't touch the actual headline cause. thumbLeft/the fill bar used
+  // to derive purely from the `scale` PROP, which only updates after a full
+  // round trip: onPanResponderMove -> previewScale() -> context state ->
+  // FontScaleProvider re-renders -> every one of the ~90 files calling
+  // useFS() re-renders (no memoization anywhere in that context, confirmed
+  // by a dedicated investigation) -> only THEN does this component receive
+  // a new `scale` prop and move the thumb. On a real device that fan-out is
+  // slow enough that touch-move events queue up and the thumb visibly
+  // stutters/lags the finger -- this IS the "jumpy" symptom, and it can't
+  // be fixed by anything inside the gesture math, only by not waiting on
+  // that round trip for the slider's OWN rendering.
+  //
+  // dragFrac is purely local state: set directly from the gesture's own
+  // dx on every move, with no context involved, so the thumb/fill move at
+  // the speed of this one component re-rendering, not the whole app.
+  // previewScale() is still called every move (unchanged) so the live-
+  // preview-elsewhere behavior is fully preserved -- it just no longer
+  // gates this component's own visual feedback. Cleared back to null
+  // whenever `scale` changes while NOT dragging, so an external change
+  // (e.g. a future reset-to-default control) is still respected.
+  const [dragFrac, setDragFrac] = useState<number | null>(null)
+  const isDragging = useRef(false)
+  useEffect(() => {
+    if (!isDragging.current) setDragFrac(null)
+  }, [scale])
+
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
+      // Default RN behavior lets the enclosing vertical ScrollView steal
+      // the responder on any vertical finger wander mid-drag -- on a real
+      // device that reads as the slider randomly "letting go." Refusing
+      // the request keeps this gesture in full control once it's started.
+      onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => {
+        isDragging.current = true
+        onDragStateChange?.(true)
         gestureTrackW.current = trackW.current
         startX.current = ((scaleRef.current - FONT_SCALE_MIN) / SCALE_RANGE) * gestureTrackW.current
       },
@@ -479,22 +549,39 @@ function TextSizeSlider({
         const tw = gestureTrackW.current
         if (!tw) return
         const newX = Math.max(0, Math.min(tw, startX.current + dx))
+        const f = newX / tw
+        setDragFrac(f)
         // Preview only (state update, no AsyncStorage write) -- the app's
         // text still resizes live as you drag, just without persisting on
         // every single touch-move event. See fontScale.tsx's own comment.
-        previewScale(FONT_SCALE_MIN + (newX / tw) * SCALE_RANGE)
+        previewScale(FONT_SCALE_MIN + f * SCALE_RANGE)
       },
       onPanResponderRelease: (_, { dx }) => {
         const tw = gestureTrackW.current
+        isDragging.current = false
+        onDragStateChange?.(false)
         if (!tw) return
         const newX = Math.max(0, Math.min(tw, startX.current + dx))
         // Persists (writes AsyncStorage once) with the final settled value.
         setScale(FONT_SCALE_MIN + (newX / tw) * SCALE_RANGE)
       },
+      // A terminated gesture (in practice, now rare -- see the termination-
+      // request refusal above, but still reachable, e.g. an incoming call
+      // UI) used to leave the value wherever the last preview tick put it,
+      // never persisted. Commits it the same as a normal release instead
+      // of silently dropping the drag.
+      onPanResponderTerminate: (_, { dx }) => {
+        const tw = gestureTrackW.current
+        isDragging.current = false
+        onDragStateChange?.(false)
+        if (!tw) return
+        const newX = Math.max(0, Math.min(tw, startX.current + dx))
+        setScale(FONT_SCALE_MIN + (newX / tw) * SCALE_RANGE)
+      },
     })
   ).current
 
-  const frac = Math.max(0, Math.min(1, (scale - FONT_SCALE_MIN) / SCALE_RANGE))
+  const frac = dragFrac ?? Math.max(0, Math.min(1, (scale - FONT_SCALE_MIN) / SCALE_RANGE))
   const thumbLeft = layoutW > 0
     ? Math.max(0, Math.min(layoutW - THUMB, frac * layoutW - THUMB / 2))
     : 0
@@ -541,14 +628,17 @@ function DrawerRow({
   value,
   tokens,
   onPress,
+  fsOverride,
 }: {
   icon: string
   label: string
   value?: string
   tokens: ThemeTokens
   onPress?: () => void
+  fsOverride?: (n: number) => number
 }) {
-  const fs = useFS()
+  const contextFs = useFS()
+  const fs = fsOverride ?? contextFs
   return (
     <Pressable style={styles.row} onPress={onPress}>
       <View style={styles.rowIcon}>
