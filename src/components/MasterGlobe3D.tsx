@@ -240,7 +240,11 @@ export function MasterGlobe3D({ size = 300, backdropColor }: { size?: number; ba
     const animate = () => {
       if (disposed.current) return
       requestAnimationFrame(animate)
-      globe.rotation.y = clock.getElapsedTime() * 0.25
+      // + Math.PI/2 (90deg) offset -- RC: with the Ace gem's own rotation
+      // matching this same 0.25 speed, both mounted together in the locked-
+      // coin popup started at the same angle and stayed in visual lockstep.
+      // Same speed, different starting axis position -- see AceGem3D.tsx.
+      globe.rotation.y = clock.getElapsedTime() * 0.25 + Math.PI / 2
       // See AceGem3D.tsx's matching comment on this try/catch -- same gap
       // (the RAF-scheduled frames after the first run outside
       // onContextCreate's own .catch(), with zero error boundary), same

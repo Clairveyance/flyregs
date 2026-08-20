@@ -317,6 +317,12 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
       if (disposed.current) return
       requestAnimationFrame(animate)
       const t = clock.getElapsedTime()
+      // Same 0.25 speed as MasterGlobe3D.tsx's globe on purpose (RC: keep
+      // both rotating at the same speed) -- the globe carries a +90deg
+      // starting-angle offset instead so the two don't stay in visual
+      // lockstep when shown together in the locked-coin popup. This one
+      // (the gem, mounted first / left-hand coin) stays the zero-offset
+      // baseline; only the globe needed the correction.
       gem.rotation.y = t * 0.25
       gem.rotation.x = Math.sin(t * 0.4) * 0.12 + 0.08
       backdrop.rotation.z = t * 0.1
