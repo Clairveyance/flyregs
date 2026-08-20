@@ -81,6 +81,37 @@ export async function findDownload(id: string): Promise<DownloadedAC | undefined
   return list.find((d) => d.id === id)
 }
 
+// In-memory cache of the parsed list -- getDownloads() used to do a full
+// AsyncStorage.getItem(KEY) + JSON.parse(raw) of the WHOLE offline library on
+// every single call, and isDownloaded() (called via getDownloads()) runs in a
+// useEffect on mount in all 7 regulation detail screens (ad/aim/ac/far/loi/
+// pcg/cfr49). Combined with expo-router's router.push-based citation-chase
+// navigation (which never unmounts a previous screen, just hides it -- see
+// those screens' own navigation), a chain of citation taps meant re-parsing
+// this same blob once per still-mounted screen instance. Suspected
+// contributor to the WatchdogTermination (RAM) crashes seen in Sentry.
+// Populated on first read, reused after that; addDownload/removeDownload/
+// clearDownloads invalidate it below rather than trying to patch it in place,
+// so a mutation costs exactly one re-parse on the next read, not zero.
+//
+// Keyed by the signed-in user id (NO_USER_KEY while signed out) rather than
+// cached unconditionally, because of how the account-mismatch guard below
+// interacts with syncOwner.ts's claimDeviceIfMismatched: that function can
+// WIPE this same AsyncStorage key (as part of resolving a genuine cross-
+// account mismatch) in the same moment the guard's own verdict flips from
+// "mismatched, return []" to "belongs to this user, proceed" -- both keyed
+// off the exact same owner-tag write. A cache that didn't know about that
+// transition would keep serving the PREVIOUS account's in-memory list right
+// after the wipe, even though the guard now says it's fine to proceed. Every
+// account transition (sign out, sign in, or a real mismatch handoff) changes
+// currentUserId()'s return value, which is exactly what forces a cache miss
+// here -- so a stale list can never survive across one. See folders.ts's
+// getFolders() / syncOwner.ts's own comments for the leak this guard closes
+// in the first place; this cache is not allowed to reopen it.
+const NO_USER_KEY = '__signed_out__'
+let cache: DownloadedAC[] | null = null
+let cacheKey: string | null = null
+
 // Same account-mismatch guard as folders.ts's getFolders() -- see that
 // function's own comment for the leak this closes. Defense-in-depth: see
 // recents.ts's getRecents() for why this stays even with the device-level
@@ -89,8 +120,20 @@ export async function getDownloads(): Promise<DownloadedAC[]> {
   try {
     const userId = await currentUserId()
     if (userId && !(await localDataBelongsTo(userId))) return []
-    const raw = await AsyncStorage.getItem(KEY)
-    return raw ? JSON.parse(raw) : []
+    const key = userId ?? NO_USER_KEY
+    if (!cache || cacheKey !== key) {
+      const raw = await AsyncStorage.getItem(KEY)
+      cache = raw ? JSON.parse(raw) : []
+      cacheKey = key
+    }
+    // Return a fresh top-level array each call (matching the old JSON.parse-
+    // every-time behavior) so nothing can mutate the shared cache by mutating
+    // what it got back -- cheap (reference copy), unlike the parse itself.
+    // (`cache ?? []` rather than relying on the narrowing above: TS can't
+    // prove `cache` is still non-null after the `await` inside that block,
+    // since it's a module-level binding another call could in principle
+    // touch in between.)
+    return [...(cache ?? [])]
   } catch {
     return []
   }
@@ -107,6 +150,7 @@ export async function addDownload(ac: Omit<DownloadedAC, 'downloadedAt'>) {
     const filtered = list.filter((d) => d.id !== ac.id)
     const updated = [{ ...ac, downloadedAt: new Date().toISOString() }, ...filtered]
     await AsyncStorage.setItem(KEY, JSON.stringify(updated))
+    cache = null // invalidate -- see getDownloads' cache comment above
   } catch {}
 }
 
@@ -114,12 +158,14 @@ export async function removeDownload(id: string) {
   try {
     const list = await getDownloads()
     await AsyncStorage.setItem(KEY, JSON.stringify(list.filter((d) => d.id !== id)))
+    cache = null
   } catch {}
 }
 
 export async function clearDownloads() {
   try {
     await AsyncStorage.removeItem(KEY)
+    cache = null
   } catch {}
 }
 

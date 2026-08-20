@@ -74,8 +74,51 @@ export const TABLE_HEADER_MARK = '\ue000'
  * an existing stripping regex downstream that assumed the rule would
  * still be alone on its own line by the time it ran. */
 const TABLE_RULE_LINE = /^[ \t]*-{10,}[ \t]*$/m
+
+/** How large a paragraph can be and still let a bare TABLE_RULE_LINE alone
+ * flip it to tabular. Calibrated against the whole AD corpus, not guessed:
+ * a scan of every AD paragraph corpus-wide that contains a rule line but
+ * ISN'T one of the 59 documents scripts/audit_reg_formatting.mjs flags as
+ * having a pathological oversized paragraph found every GENUINE rule-line-
+ * bounded table paragraph tops out at 5,996 chars -- the SMALLEST of the 59
+ * flagged paragraphs is 6,042 chars. A real, if narrow, gap between the two
+ * populations, not an arbitrary round number picked out of a continuum.
+ *
+ * Why this exists at all: a bare rule line is a much weaker, more ambiguous
+ * signal than ' | ' or TABLE_HEADER_MARK below -- it also marks ordinary
+ * Federal-Register SECTION boundaries (a "PART 39--AIRWORTHINESS
+ * DIRECTIVES" header rule, or the divider before the next amendment further
+ * down the same body_text blob), not just a table's own fence. Confirmed
+ * live, AD 2015-19-04: a single rule line sitting at line 148 of 149
+ * (essentially the very last line -- a section-end divider) was enough to
+ * flag the ENTIRE preceding 16,078-char numbered checklist as "tabular,"
+ * which skipped line-joining/space-collapsing for all of it and rendered
+ * the FAA's hard-wrapped source as raw ragged fragments with huge
+ * leading-whitespace runs on every continuation line -- completely
+ * unreadable. A genuine table's rule lines bound a compact region (header
+ * rule, rows, footer rule); they don't legitimately span 15,000+ characters
+ * of otherwise ordinary checklist prose.
+ *
+ * Tried and rejected: gating on rule lines sitting close TOGETHER instead
+ * of on overall paragraph size (protect only when two rule-line matches are
+ * near each other, wherever in the paragraph they fall -- the intuition
+ * being a real table's header/footer rules should be close together no
+ * matter how long the surrounding paragraph is). Checked against the real
+ * 55 broken paragraphs this fix targets and it does NOT hold: 49 of the 55
+ * have their own rule lines only ~140-900 chars apart -- they're incidental
+ * FR boilerplate rules bracketing a short docket/agency block near the top
+ * of the body, not a table's fence, so "close together" fired anyway and
+ * would have left 49 of 55 unfixed. Plain paragraph SIZE is what actually,
+ * cleanly separates genuine tables from this bug in the real corpus. */
+const TABLE_RULE_MAX_CHARS = 6000
+
 function isTabular(para: string): boolean {
-  return para.includes(' | ') || para.includes(TABLE_HEADER_MARK) || TABLE_RULE_LINE.test(para)
+  // ' | ' and TABLE_HEADER_MARK are unambiguous, deliberately-emitted table
+  // signals (see their own comments) -- genuine large pipe-tables exist
+  // (FAR 171.311, FAR 61.313) and must stay protected regardless of size,
+  // so only the weaker rule-line signal above gets a size cutoff.
+  if (para.includes(' | ') || para.includes(TABLE_HEADER_MARK)) return true
+  return TABLE_RULE_LINE.test(para) && para.length <= TABLE_RULE_MAX_CHARS
 }
 
 function normalizeParagraph(para: string): string {

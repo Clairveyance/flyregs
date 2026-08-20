@@ -64,7 +64,34 @@ export const AIRCRAFT_MODEL_ALIASES: Record<string, string> = {
   navajo: 'PA-31', chieftain: 'PA-31-350', 'navajo chieftain': 'PA-31-350',
 
   // Beechcraft
-  bonanza: '36', debonair: '33', baron: '58', duchess: '76',
+  // "Bonanza" alone is NOT one designator the way every other marketing
+  // name in this table is -- it spans ~50 real, distinct FAA type
+  // certificates across 70 years (35/A35.../H35, 33/A33.../G33,
+  // A36/A36TC/B36TC/G36...), each with its own AD-applicability scope.
+  // A single 'bonanza: 36' alias used to exist here; found and removed
+  // 2026-08-19 after confirming live it was a real false-positive source:
+  // several older Beechcraft ADs' applicability TEXT includes the bare
+  // token "36" as shorthand for the whole 33/35/36 lineage (e.g. AD
+  // 2019-21-08 lists "...S35, V35, V35A, and 36..." while explicitly
+  // carving OUT A36 by serial range) -- a saved aircraft whose model
+  // resolved to bare "36" substring-matched that text and got flagged for
+  // ADs that don't apply to it. Per this file's own "a wrong designator is
+  // worse than none" stance (see header comment), removed the ambiguous
+  // catch-all rather than picking one designator to stand in for all of
+  // them, and added the specific, still-commonly-flying variants instead
+  // (confirmed real via aircraft_type_designators) so an owner who knows
+  // their actual model gets an exact match instead of a guess. A bare
+  // "Bonanza" with no variant now correctly falls through to no
+  // suggestion at all -- same as any other not-yet-covered marketing name.
+  // Keyed by the bare variant name (not "bonanza g36") -- these are
+  // themselves real, distinctive Beechcraft product names a pilot is just
+  // as likely to type alone ("G36") or in either order ("G36 Bonanza")
+  // as after "Bonanza", same as every other bare marketing-name key in
+  // this table (skyhawk/warrior/etc. never require the manufacturer name
+  // either). Checked for collisions against every other key here first --
+  // none.
+  g36: 'G36', a36: 'A36', 'v35': 'V35B', f33: 'F33A',
+  debonair: '33', baron: '58', duchess: '76',
   'travel air': '95', musketeer: '23', sundowner: '23', sierra: '24',
   sport: '19', duke: '60', 'queen air': '65', 'king air': '90', skipper: '77',
 
