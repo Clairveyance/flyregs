@@ -241,6 +241,29 @@ def parse_issued_date(date_str: str | None) -> str | None:
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
+# body_text is the PDF's own embedded OCR text layer (PyMuPDF get_text()),
+# used as-is -- no independent re-OCR happens here (see the file-level
+# comment on loi_quality_scan.py). A handful of specific character
+# misreads recur identically across MANY different letters because they
+# all share the same FAA letterhead image/template, so the exact same OCR
+# error gets baked into scan after scan. Confirmed corpus-wide 2026-08-19:
+# "U.S. Deportment of Transportation" (should read "Department") appeared
+# in 213 of 1055 documents, always as the identical letterhead phrase,
+# zero false-positive risk (no legitimate letter would ever say
+# "Deportment"). Fixing these here, at scrape time, means a future re-scan
+# can't silently reintroduce an error already corrected once in the DB --
+# the alternative (a one-time SQL backfill only) would drift the next time
+# any of these 213 documents gets re-scraped.
+_KNOWN_OCR_MISREADS = [
+    (re.compile(r"\bDeportment\b", re.IGNORECASE), "Department"),
+]
+
+
+def _fix_known_ocr_misreads(text: str) -> str:
+    for pattern, replacement in _KNOWN_OCR_MISREADS:
+        text = pattern.sub(replacement, text)
+    return text
+
 
 def process_one(hit: dict, mode: str, known_far_sections: set[str] | None) -> dict | None:
     doc_unique_id = hit["docUniqueId"]
@@ -257,6 +280,7 @@ def process_one(hit: dict, mode: str, known_far_sections: set[str] | None) -> di
     pdf_bytes = fetch_pdf_bytes(file_id)
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     body_text = "\n".join(p.get_text() for p in doc)
+    body_text = _fix_known_ocr_misreads(body_text)
     page_count = len(doc)
 
     parsed = parse_letter_text(body_text)
