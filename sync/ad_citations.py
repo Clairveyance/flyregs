@@ -59,7 +59,7 @@ AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:/\d+)?(?:\.\d+)?[\-‐‑–]\d+[A-Za-z]*(
 # before use -- the source carries the same "00- 1"-style stray-space
 # artifact AD_RE already has to tolerate.
 AC_RE_SPELLED = re.compile(r"\bAdvisory\s+Circular\s+(?:No\.?\s*)?(\d+(?:/\d+)?(?:\.\d+)?\s*[\-‐‑–]\s*\d+[A-Za-z]*(?:\s*[\-‐‑–]\s*\d+)?)\b", re.IGNORECASE)
-FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
+FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+(?:[Ss]ection\s+)?|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
 AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 
 # See pcg_citations.py for why: the FAA's own PDF->HTML extraction is
@@ -123,6 +123,11 @@ BOILERPLATE_FAR_EXCLUDE = {"39.19", "21.197", "43.9", "39.17", "91.417", "43.7"}
 # FAR_PART_RE comment.
 FAR_PART_RE = re.compile(r"\b(?:14\s*CFR\s*|FAR\s+)?[Pp]art\s+([1-9]\d{0,2})\b(?!\.\d)")
 BOILERPLATE_FAR_PART_EXCLUDE = {"39", "51"}
+# Plural "Parts N, M, and O" -- see ac_citations.py's own FAR_PART_ENUM_RE
+# comment. Confirmed live: 16 ADs affected. Same BOILERPLATE_FAR_PART_EXCLUDE
+# set applies to each extracted sub-number, same as the singular pattern.
+FAR_PART_ENUM_RE = re.compile(r"\b(?:14\s*CFR\s*|FAR\s+)?[Pp]arts\s+([1-9]\d{0,2}(?:(?:\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or|through)\s+)[1-9]\d{0,2})+)\b")
+_BARE_NUM_RE = re.compile(r"[1-9]\d{0,2}")
 
 
 def fetch_all_ads() -> list[dict]:
@@ -203,6 +208,16 @@ def extract_citations(ad: dict) -> list[dict]:
         if key not in seen:
             seen.add(key)
             citations.append({"citing_type": "ad", "citing_id": ad["ad_number"], "cited_type": "far_part", "cited_id": cited, "label": None})
+
+    for m in FAR_PART_ENUM_RE.finditer(text):
+        for sm in _BARE_NUM_RE.finditer(m.group(1)):
+            cited = sm.group(0)
+            if cited in BOILERPLATE_FAR_PART_EXCLUDE:
+                continue
+            key = ("far_part", cited)
+            if key not in seen:
+                seen.add(key)
+                citations.append({"citing_type": "ad", "citing_id": ad["ad_number"], "cited_type": "far_part", "cited_id": cited, "label": None})
 
     return citations
 

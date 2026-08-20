@@ -46,13 +46,18 @@ HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 
 # Same pattern already proven in ad_citations.py, aim_scraper.py, and
 # crossRefLinks.ts's render-time linkifier.
-FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
+FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+(?:[Ss]ection\s+)?|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
 # Bare "Part N" references -- see ac_citations.py's own FAR_PART_RE comment
 # for the corpus-wide boilerplate measurement this is based on. AIM's own
 # highest bare-Part prevalence measured at 7.3% ("part 91"), an order of
 # magnitude below the >85% level that actually signals boilerplate (AD's
 # Part 39/51) -- no exclusion needed.
 FAR_PART_RE = re.compile(r"\b(?:14\s*CFR\s*|FAR\s+)?[Pp]art\s+([1-9]\d{0,2})\b(?!\.\d)")
+# Plural "Parts N, M, and O" -- see ac_citations.py's own FAR_PART_ENUM_RE
+# comment. No boilerplate exclusion needed here (same basis as the singular
+# pattern above).
+FAR_PART_ENUM_RE = re.compile(r"\b(?:14\s*CFR\s*|FAR\s+)?[Pp]arts\s+([1-9]\d{0,2}(?:(?:\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or|through)\s+)[1-9]\d{0,2})+)\b")
+_BARE_NUM_RE = re.compile(r"[1-9]\d{0,2}")
 
 # AC mentions. aim_scraper.py also has an _AC_RE, but it only ever runs over
 # the Reference BOX (`ref_text`), never the paragraph body -- so of the 27 AIM
@@ -165,6 +170,17 @@ def extract_citations(para: dict) -> list[dict]:
                 "citing_type": "aim", "citing_id": para["paragraph_number"],
                 "cited_type": "far_part", "cited_id": cited_id, "label": None,
             })
+
+    for m in FAR_PART_ENUM_RE.finditer(text):
+        for sm in _BARE_NUM_RE.finditer(m.group(1)):
+            cited_id = sm.group(0)
+            key = ("far_part", cited_id)
+            if key not in seen:
+                seen.add(key)
+                citations.append({
+                    "citing_type": "aim", "citing_id": para["paragraph_number"],
+                    "cited_type": "far_part", "cited_id": cited_id, "label": None,
+                })
 
     return citations
 

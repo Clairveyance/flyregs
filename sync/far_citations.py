@@ -53,7 +53,7 @@ AC_RE = re.compile(r"\bAC\)?\s+(\d+(?:/\d+)?(?:\.\d+)?[\-‐‑–]\d+[A-Za-z]*(
 # before use -- the source carries the same stray-space artifacts this
 # corpus is already known for.
 AC_RE_SPELLED = re.compile(r"\bAdvisory\s+Circular\s+(?:No\.?\s*)?(\d+(?:/\d+)?(?:\.\d+)?\s*[\-‐‑–]\s*\d+[A-Za-z]*(?:\s*[\-‐‑–]\s*\d+)?)\b", re.IGNORECASE)
-FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
+FAR_RE = re.compile(r"(?:§\s*|\bFAR\s+(?:[Ss]ection\s+)?|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b")
 AIM_PARA_RE = re.compile(r"\bAIM\s+(?:[Pp]ara(?:graph)?\.?\s+)?(\d+-\d+-\d+)\b")
 # Widened to match ad_citations.py's own AD_RE (optional close-paren,
 # tolerant of stray whitespace around the internal hyphens -- "AD 2022-
@@ -69,6 +69,11 @@ AD_RE = re.compile(r"\bAD\)?\s*(\d{4}\s*-\s*\d{2}\s*-\s*\d{2})\b")
 # (a section citing the very Part it already belongs to isn't a real
 # cross-reference -- the reader is already there).
 FAR_PART_RE = re.compile(r"\b(?:14\s*CFR\s*|FAR\s+)?[Pp]art\s+([1-9]\d{0,2})\b(?!\.\d)")
+# Plural "Parts N, M, and O" -- see ac_citations.py's own FAR_PART_ENUM_RE
+# comment. Same self-part exclusion as the singular pattern applies at the
+# call site below.
+FAR_PART_ENUM_RE = re.compile(r"\b(?:14\s*CFR\s*|FAR\s+)?[Pp]arts\s+([1-9]\d{0,2}(?:(?:\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or|through)\s+)[1-9]\d{0,2})+)\b")
+_BARE_NUM_RE = re.compile(r"[1-9]\d{0,2}")
 PCG_RE = re.compile(r"Pilot/Controller Glossary Term-\s*([^.]+)\.")
 # 49 CFR (DOT-wide -- NTSB/TSA/HMR, see cfr49_scraper.py) is always
 # EXPLICITLY prefixed "49 CFR" in FAR prose (confirmed live: 91 real
@@ -179,6 +184,16 @@ def extract_citations(section: dict) -> list[dict]:
         if key not in seen:
             seen.add(key)
             citations.append({"citing_type": "far", "citing_id": own_id, "cited_type": "far_part", "cited_id": cited, "label": None})
+
+    for m in FAR_PART_ENUM_RE.finditer(text):
+        for sm in _BARE_NUM_RE.finditer(m.group(1)):
+            cited = sm.group(0)
+            if cited == own_part:
+                continue
+            key = ("far_part", cited)
+            if key not in seen:
+                seen.add(key)
+                citations.append({"citing_type": "far", "citing_id": own_id, "cited_type": "far_part", "cited_id": cited, "label": None})
 
     return citations
 

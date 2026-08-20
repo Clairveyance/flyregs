@@ -196,7 +196,26 @@ function linkifyCitations(
   return (
     <>
       {segments.map((seg, j) =>
-        seg.route ? (
+        // isFigure segments here are a real, confirmed-live bug source, not
+        // just a theoretical risk: this function only ever sees text that
+        // linkifyBody's OWN figuresByLabel pass already checked and did NOT
+        // recognize as one of this AC's real captioned figures/tables — so
+        // a "TBL 10-1-2B"-shaped match reaching here is guaranteed to not
+        // be this AC's own content. crossRefLinks.ts's shared isFigure
+        // pattern still confidently routes it to /aim/10-1-2B on the
+        // assumption that ANY "TBL/FIG X-X-X" mention means AIM -- true
+        // often enough in AIM's own prose (where PlainTextBody uses this
+        // same shared pattern correctly), but AC prose regularly cites a
+        // completely different source's own internal table numbering that
+        // just happens to share the X-X-X shape (an FAA Order, an MSG-3
+        // maintenance doc, etc). Confirmed live: AC 120-49B's "Table
+        // 10-1-2B, Master List of Functions" and AC 120-17B's "Table
+        // 2-3-7.1" both silently routed to real, but topically unrelated,
+        // AIM paragraphs. Rendering these as plain text instead of a
+        // link -- an honest non-answer beats a confident wrong one, same
+        // posture as PlainTextBody's own "not available" dead-end dialog
+        // for a citation it can't verify.
+        seg.route && !seg.isFigure ? (
           <Text
             key={j}
             onPress={() => {

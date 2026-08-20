@@ -80,11 +80,17 @@ const PATTERNS: LinkPattern[] = [
   // document_number to its real UUID and redirects, so the raw matched
   // number can route directly with no lookup here.
   { regex: /\bAC\)?\s+(\d+(?:\.\d+)?-\d+[A-Za-z]*(?:[\-–]\d+)?)\b/g, buildRoute: (m) => `/ac/${m[1]}` },
-  // FAR section mention ("§ 91.107", "FAR 91.107", "14 CFR 91.107", "14 CFR
-  // section 91.107") -- confirmed live as a real gap: AIM 5-4-9's "(14 CFR
-  // section 91.123)" rendered as plain text, not a link, because the word
-  // "section" between "14 CFR" and the number wasn't accounted for.
-  { regex: /(?:§\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b/g, buildRoute: (m) => `/far/${m[1]}` },
+  // FAR section mention ("§ 91.107", "FAR 91.107", "FAR Section 91.107",
+  // "14 CFR 91.107", "14 CFR section 91.107") -- confirmed live as a real
+  // gap: AIM 5-4-9's "(14 CFR section 91.123)" rendered as plain text, not
+  // a link, because the word "section" between "14 CFR" and the number
+  // wasn't accounted for. "FAR Section N.N" (not just "14 CFR section N.N")
+  // added 2026-08-19 -- a real user reported AC 120-12A doesn't MagicLink to
+  // the FARs its own body plainly cites; its actual text reads "FAR Section
+  // 91.181", which this pattern's "FAR " branch never allowed a "Section "
+  // word after (only the "14 CFR" branch did) -- confirmed corpus-wide,
+  // 15 ACs use this exact phrasing.
+  { regex: /(?:§\s*|\bFAR\s+(?:[Ss]ection\s+)?|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b/g, buildRoute: (m) => `/far/${m[1]}` },
   // FAR section ENUMERATION ("§§ 133.19, 133.21, and 133.23", "§§ 133.41
   // and 133.43", "§§ 91.1 through 91.21") -- confirmed live, RC: "in FAR
   // 133, in the text body, there are 3 other FARs referenced. only the
@@ -137,6 +143,28 @@ const PATTERNS: LinkPattern[] = [
   // double-matching when a real dotted section immediately follows (the
   // FAR-section pattern above already handles that case on its own).
   { regex: /\b(?:14\s*CFR\s*|FAR\s+)?[Pp]art\s+(\d{1,3})\b(?!\.\d)/g, buildRoute: (m) => `/far/part/${m[1]}` },
+  // Plural "Parts N, M, and O" / "Parts N or M" -- the singular pattern
+  // above requires "Part" immediately followed by exactly one number, so a
+  // list like "Federal Aviation Regulations (FAR) Parts 121 or 135" (real
+  // text, AC 120-12A) never matched at all. Confirmed corpus-wide (197
+  // rows across AC/LOI/AD/FAR/CFR49). Same buildSubMatches shape as the FAR
+  // section enumeration pattern above: match the whole list as one span,
+  // then hand back one sub-candidate per bare part number inside. Mirrors
+  // sync/*_citations.py's own FAR_PART_ENUM_RE exactly.
+  {
+    regex: /\b(?:14\s*CFR\s*|FAR\s+)?[Pp]arts\s+(\d{1,3}(?:(?:\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or|through)\s+)\d{1,3})+)\b/g,
+    buildSubMatches: (m) => {
+      const list = m[1]
+      const offset = m[0].length - list.length
+      const subs: { text: string; offset: number; route: string }[] = []
+      const numRe = /\d{1,3}/g
+      let sm: RegExpExecArray | null
+      while ((sm = numRe.exec(list))) {
+        subs.push({ text: sm[0], offset: offset + sm.index, route: `/far/part/${sm[0]}` })
+      }
+      return subs
+    },
+  },
   // P/CG glossary term mention — the exact phrase the AIM/FAR scrapers'
   // own citation regex already looks for.
   { regex: /Pilot\/Controller Glossary Term-\s*([^.]+)\.?/g, buildRoute: (m) => `/pcg/${slugifyPcgTerm(m[1].trim())}` },
