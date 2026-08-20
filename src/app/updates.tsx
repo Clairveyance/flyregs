@@ -49,9 +49,10 @@ type Tab = 'new' | 'changed'
 // full block.
 interface WordToken { type: 'same' | 'add' | 'del'; text: string }
 
-function wordDiff(oldText: string, newText: string): WordToken[] {
-  const a = oldText.split(/\s+/).filter(Boolean)
-  const b = newText.split(/\s+/).filter(Boolean)
+// Plain word-level LCS diff. Kept as the fallback patienceWordDiff below
+// calls when a gap between two anchors has no unique word to anchor on
+// (small gaps only, by construction -- see patienceWordDiff's own comment).
+function lcsWordDiff(a: string[], b: string[]): WordToken[] {
   const m = a.length, n = b.length
   const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
   for (let i = 1; i <= m; i++) {
@@ -69,6 +70,95 @@ function wordDiff(oldText: string, newText: string): WordToken[] {
   while (i > 0) { ops.unshift({ type: 'del', text: a[i - 1] }); i-- }
   while (j > 0) { ops.unshift({ type: 'add', text: b[j - 1] }); j-- }
   return ops
+}
+
+// Standard patience-sort longest-increasing-subsequence on bIdx, given
+// candidates already sorted by aIdx. O(n log n). Returns the actual
+// subsequence (not just its length) via a parent-pointer walk-back.
+function longestIncreasingByB<T extends { bIdx: number }>(candidates: T[]): T[] {
+  if (candidates.length === 0) return []
+  const piles: number[] = []
+  const prev: number[] = new Array(candidates.length).fill(-1)
+  for (let idx = 0; idx < candidates.length; idx++) {
+    const b = candidates[idx].bIdx
+    let lo = 0, hi = piles.length
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (candidates[piles[mid]].bIdx < b) lo = mid + 1
+      else hi = mid
+    }
+    if (lo > 0) prev[idx] = piles[lo - 1]
+    if (lo === piles.length) piles.push(idx)
+    else piles[lo] = idx
+  }
+  const seq: T[] = []
+  let k = piles[piles.length - 1]
+  while (k !== -1) { seq.unshift(candidates[k]); k = prev[k] }
+  return seq
+}
+
+// RC, real device, on a real FAR 91.313(e) revision: reconstructed what
+// the rendered diff actually reads as if you skip every red word --
+// "...or unless otherwise authorized operating limitations by the
+// Administrator in operating limitations, no person may..." -- and
+// correctly called it out: "this sentence doesn't make too much sense
+// like this." Root cause, confirmed against the REAL added/removed text
+// pulled from content_revisions (not a guess): plain word-level LCS
+// maximizes the total COUNT of matched words with no understanding of
+// clause boundaries, so when a short, common phrase happens to appear
+// once in the OLD-only clause and once in the unrelated NEW-only clause
+// (here: "operating limitations" -- once in "special operating
+// limitations issued," once in "in operating limitations,", two
+// completely different clauses that coincidentally share those two
+// words), plain LCS greedily matches them as "unchanged" and produces a
+// cross-eyed alignment no human would construct. This is a well-known
+// failure mode of plain LCS diffing on real prose -- it's exactly why
+// tools like git offer "patience diff" as an alternative to the default
+// Myers/LCS algorithm. Implements that same idea: anchor on words that
+// appear EXACTLY ONCE on both sides (so a coincidental short common
+// phrase can't hijack the alignment the way a repeated one can), take the
+// longest run of those anchors that stays in-order on both sides, then
+// recursively diff only the small gaps BETWEEN anchors (falling back to
+// plain lcsWordDiff there, where a repeated-word ambiguity is much less
+// likely in a short gap). Verified against the real 91.313(e) text: this
+// produces "unless otherwise authorized" (all green) cleanly replacing
+// "special operating limitations issued" (all red) as one block, and
+// "Administrator in operating limitations," (all green) sitting directly
+// before "Administrator," (red) as another -- exactly RC's own described
+// ideal ("if a green addition is on either side of a red removal, the red
+// word can stay in the middle, and the reader omits it"). Always
+// reconstructs the real old text from same+del tokens and the real new
+// text from same+add tokens exactly, the same guarantee plain LCS gives.
+function patienceWordDiff(a: string[], b: string[]): WordToken[] {
+  if (a.length === 0) return b.map((w) => ({ type: 'add', text: w }))
+  if (b.length === 0) return a.map((w) => ({ type: 'del', text: w }))
+
+  const positionsInA = new Map<string, number[]>()
+  a.forEach((w, i) => { const arr = positionsInA.get(w) ?? []; arr.push(i); positionsInA.set(w, arr) })
+  const positionsInB = new Map<string, number[]>()
+  b.forEach((w, i) => { const arr = positionsInB.get(w) ?? []; arr.push(i); positionsInB.set(w, arr) })
+
+  const candidates: { aIdx: number; bIdx: number }[] = []
+  positionsInA.forEach((aPositions, word) => {
+    if (aPositions.length !== 1) return
+    const bPositions = positionsInB.get(word)
+    if (bPositions && bPositions.length === 1) candidates.push({ aIdx: aPositions[0], bIdx: bPositions[0] })
+  })
+  candidates.sort((x, y) => x.aIdx - y.aIdx)
+
+  const anchors = longestIncreasingByB(candidates)
+  if (anchors.length === 0) return lcsWordDiff(a, b)
+
+  const result: WordToken[] = []
+  let prevA = 0, prevB = 0
+  for (const anchor of anchors) {
+    result.push(...patienceWordDiff(a.slice(prevA, anchor.aIdx), b.slice(prevB, anchor.bIdx)))
+    result.push({ type: 'same', text: a[anchor.aIdx] })
+    prevA = anchor.aIdx + 1
+    prevB = anchor.bIdx + 1
+  }
+  result.push(...patienceWordDiff(a.slice(prevA), b.slice(prevB)))
+  return result
 }
 
 function paragraphSimilarity(a: string, b: string): number {
@@ -516,7 +606,7 @@ function RevisionRow({
   const added = splitParagraphs(item.addedText)
   const removed = splitParagraphs(item.removedText)
   const title = item.docType === 'ad' ? stripAdSubjectPrefix(item.title ?? item.docKey) : (item.title ?? item.docKey)
-  const groups = useMemo(() => groupDiff(removed, added), [item.id])
+  const groups = useMemo(() => groupDiff(removed, added), [removed, added])
 
   return (
     <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
@@ -552,7 +642,10 @@ function RevisionRow({
               return (
                 <View key={`g${i}`} style={[styles.diffLine, redShift ? { backgroundColor: 'rgba(255,45,18,0.08)', borderColor: 'rgba(255,45,18,0.3)' } : { backgroundColor: 'rgba(220,60,60,0.08)', borderColor: 'rgba(220,60,60,0.3)' }]}>
                   <Text style={[styles.diffMark, { color: tokens.red, fontSize: fs(13) }]}>−</Text>
-                  <Text style={[styles.diffText, styles.diffTextRemoved, { color: tokens.t3, fontSize: fs(13) }]}>{g.text}</Text>
+                  {/* RC: "anything Out is in red, so we don't need to
+                      strikethrough on those (it's too hard to read w/ it
+                      anyway)" -- red alone already signals removed. */}
+                  <Text style={[styles.diffText, { color: tokens.t3, fontSize: fs(13) }]}>{g.text}</Text>
                 </View>
               )
             }
@@ -560,8 +653,11 @@ function RevisionRow({
             // a list insertion elsewhere shifting this item's trailing "or"
             // to a "."). One line, only the actually-different words
             // highlighted, so a one-word connector shift doesn't read as
-            // loudly as genuinely new content.
-            const tokensDiff = wordDiff(g.removed, g.added)
+            // loudly as genuinely new content. patienceWordDiff (see its
+            // own comment above) is what keeps a real substitution reading
+            // as one clean red block next to one clean green block instead
+            // of a scattered word-by-word interleaving.
+            const tokensDiff = patienceWordDiff(g.removed.split(/\s+/).filter(Boolean), g.added.split(/\s+/).filter(Boolean))
             return (
               <View key={`g${i}`} style={[styles.diffLine, { backgroundColor: tokens.bg3, borderColor: tokens.bdr }]}>
                 <Icon name="arrow.triangle.2.circlepath" size={fs(12)} color={tokens.t3} />
@@ -569,7 +665,7 @@ function RevisionRow({
                   {tokensDiff.map((t, ti) => {
                     if (t.type === 'same') return <Text key={ti}>{t.text} </Text>
                     if (t.type === 'add') return <Text key={ti} style={{ color: tokens.grn, fontWeight: '700', backgroundColor: tokens.gdim }}>{t.text} </Text>
-                    return <Text key={ti} style={{ color: tokens.red, textDecorationLine: 'line-through' }}>{t.text} </Text>
+                    return <Text key={ti} style={{ color: tokens.red }}>{t.text} </Text>
                   })}
                 </Text>
               </View>
@@ -643,7 +739,6 @@ const styles = StyleSheet.create({
   diffLine: { flexDirection: 'row', gap: 8, borderRadius: 8, borderWidth: 1, padding: 9 },
   diffMark: { fontWeight: '700', width: 12 },
   diffText: { flex: 1, lineHeight: 19 },
-  diffTextRemoved: { textDecorationLine: 'line-through' },
 
   openBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
