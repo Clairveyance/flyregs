@@ -39,6 +39,32 @@
       ],
       "port": 8092,
       "autoPort": false
+    },
+    {
+      "name": "flyregs-web-gating-sweep",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8094"
+      ],
+      "port": 8094,
+      "autoPort": false
+    },
+    {
+      "name": "flyregs-web-access-points-sweep",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8096"
+      ],
+      "port": 8096,
+      "autoPort": false
     }
   ]
 }

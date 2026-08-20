@@ -1,0 +1,45 @@
+-- Close the residual AC/LOI storage-bucket public-exposure gap    2026-08-20
+--
+-- RC's explicit go-ahead, given verbally in this session after the full
+-- gating-infrastructure re-pass flagged this as the single highest-value
+-- open item: "Run it now."
+--
+-- Context: sync/migrations_gate_storage_buckets.sql (2026-08-11) already
+-- built and shipped the full fix -- private buckets, RLS policies on
+-- storage.objects (gated_read_advisory_circulars: has_plus_access(),
+-- gated_read_legal_interpretations: has_pro_access()), and client-side
+-- signed-URL resolution (src/lib/gatedStorage.ts, resolveGatedStorageUrl(),
+-- called from ac/[id].tsx and loi/[slug].tsx's openPDF()). It was reverted
+-- the same day via migrations_temp_reopen_pdf_buckets_for_build31.sql
+-- because Build 31 (uploaded 2026-08-08) predated that client code and
+-- broke "Open PDF" for 100% of real users -- a Storage bucket has no
+-- column-level middle ground the way a table GRANT does, so a private
+-- bucket 404s instantly for a build that only knows the old public URL.
+--
+-- Re-verified 2026-08-19/20 before re-attempting (per the standing lesson
+-- in gotcha_rls_fix_broke_shipped_build.md -- check the actual latest
+-- shipped build, don't assume from repo state):
+--   - `git merge-base --is-ancestor 0695adc <B32-commit>` and `...<B33-
+--     commit>` both true -- the client fix is an ancestor of both builds
+--     shipped since B31, not just present in main.
+--   - Directly read `git show <B33-commit>:src/app/ac/[id].tsx` -- B33's
+--     actual compiled source calls resolveGatedStorageUrl(pdf_url_cached)
+--     in openPDF(), confirmed, not assumed.
+--   - App Store Connect API confirms B33 (2026-08-15) is still the latest
+--     shipped build as of this writing -- no build older than B32 exists
+--     to worry about except B31 itself, and TestFlight's own update
+--     behavior make a tester still frozen on B31 unlikely for a 3-tester
+--     beta this many days on.
+--   - The RLS policies from the original fix never reverted -- only
+--     storage.buckets.public itself was ever flipped back. ac-figures/
+--     ac-formula-refs (same signed-URL mechanism, never reopened) have run
+--     private for 8+ days with zero reported issue -- live proof the
+--     client mechanism works correctly in production today, not just in
+--     theory.
+--
+-- This is the literal one-line fix already sitting at lines 37-38 of the
+-- original 2026-08-11 migration -- re-issued here as its own dated file so
+-- the close-the-loop action has its own record distinct from the original
+-- build-and-immediately-revert entry.
+
+UPDATE storage.buckets SET public = false WHERE id IN ('advisory-circulars', 'legal-interpretations');

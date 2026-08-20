@@ -205,10 +205,23 @@ export async function getDailyReg(): Promise<DailyReg | null> {
 export interface WordOfTheDay {
   slug: string
   term: string
-  // null for non-Plus viewers -- get_word_of_the_day() redacts it server-side
-  // now (see gotcha_tier_gate_client_side_only.md). DailyWordCard already
-  // shows its own locked-teaser UI when !hasPlusAccess, so this should never
-  // actually render null in practice, but the type has to admit reality.
+  // category='mnemonic' rows need has_pro_access() to read (matches
+  // dictionary_terms_gated's own redaction and the mnemonic-specific Pro
+  // paywall on the Dictionary detail screen) -- a genuinely HIGHER bar than
+  // every other category's has_plus_access(). Real live leak found+fixed
+  // 2026-08-19/20: get_word_of_the_day() used to redact everything at the
+  // single Plus bar regardless of category, so a Plus-but-not-Pro viewer
+  // whose daily pick happened to be one of the 52 real mnemonic rows in the
+  // pool got the real Pro-gated text back, both here and in the DailyWord
+  // push (scripts/send-word-of-day.mjs). DailyWordCard branches on this now
+  // (not just hasPlusAccess) to show the correct paywall tier per day.
+  category: string
+  // null for non-Plus viewers, OR for a Plus-but-not-Pro viewer on a
+  // mnemonic day -- get_word_of_the_day() redacts it server-side (see
+  // gotcha_tier_gate_client_side_only.md and the category comment above).
+  // DailyWordCard branches on this value itself, not just hasPlusAccess, so
+  // it should never actually render null in practice, but the type has to
+  // admit reality.
   definition: string | null
 }
 
@@ -230,7 +243,7 @@ export async function getWordOfTheDay(): Promise<WordOfTheDay | null> {
   const { data, error } = await supabase.rpc('get_word_of_the_day')
   if (error) throw error
   const row = data?.[0]
-  return row ? { slug: row.slug, term: row.term, definition: row.definition } : null
+  return row ? { slug: row.slug, term: row.term, definition: row.definition, category: row.category } : null
 }
 
 // ── DailyWord (Plus/Pro/Premium, opt-in) ──────────────────────────────

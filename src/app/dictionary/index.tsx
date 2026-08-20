@@ -317,27 +317,51 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
         <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t4} />
       </View>
       {expanded && (
-        <>
-          {splitIntoDisplayParagraphs(wordOfDay.definition).map((para, i, arr) => (
-            <Text
-              key={i}
-              style={[
-                styles.wordCardDef,
-                { color: tokens.t2, fontSize: fs(13.5) },
-                i < arr.length - 1 && { marginBottom: 8 },
-              ]}
+        // Branch on wordOfDay.definition itself, not hasPlusAccess -- a
+        // mnemonic-category pick (52 real rows in the pool, category now
+        // returned by get_word_of_the_day() -- see notifications.ts's
+        // WordOfTheDay comment) needs has_pro_access() to read, a genuinely
+        // higher bar than every other category's Plus gate. A Plus-but-not-
+        // Pro viewer who lands here on a mnemonic day gets definition=null
+        // from the already-past-this-point hasPlusAccess check above, so
+        // without this branch the card would silently expand to an empty
+        // body (splitIntoDisplayParagraphs([null]) -> []) instead of
+        // explaining why, or -- before this fix -- leaked the real
+        // Pro-gated text because the RPC redacted everything at the single
+        // Plus bar. Found + fixed 2026-08-19/20 access-points sweep.
+        wordOfDay.definition ? (
+          <>
+            {splitIntoDisplayParagraphs(wordOfDay.definition).map((para, i, arr) => (
+              <Text
+                key={i}
+                style={[
+                  styles.wordCardDef,
+                  { color: tokens.t2, fontSize: fs(13.5) },
+                  i < arr.length - 1 && { marginBottom: 8 },
+                ]}
+              >
+                {para}
+              </Text>
+            ))}
+            <Pressable
+              style={[styles.wordCardJump, { borderColor: tokens.bdr }]}
+              onPress={() => router.push(`/dictionary/${wordOfDay.slug}` as any)}
             >
-              {para}
-            </Text>
-          ))}
+              <Text style={[styles.wordCardJumpText, { color: tokens.blu, fontSize: fs(13) }]}>Open full entry</Text>
+              <Icon name="chevron.right" size={fs(12)} color={tokens.blu} />
+            </Pressable>
+          </>
+        ) : (
           <Pressable
-            style={[styles.wordCardJump, { borderColor: tokens.bdr }]}
-            onPress={() => router.push(`/dictionary/${wordOfDay.slug}` as any)}
+            style={[styles.wordCardJump, { borderColor: tokens.bdr, marginTop: 4 }]}
+            onPress={(e) => { e.stopPropagation(); router.push('/paywall?tier=pro' as any) }}
           >
-            <Text style={[styles.wordCardJumpText, { color: tokens.blu, fontSize: fs(13) }]}>Open full entry</Text>
-            <Icon name="chevron.right" size={fs(12)} color={tokens.blu} />
+            <Icon name="lock.fill" size={fs(12)} color={tokens.gold} />
+            <Text style={[styles.wordCardJumpText, { color: tokens.t2, fontSize: fs(13) }]}>
+              Today's pick is a mnemonic — unlock with Pro
+            </Text>
           </Pressable>
-        </>
+        )
       )}
     </Pressable>
   )

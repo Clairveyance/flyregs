@@ -18,7 +18,7 @@
 import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
 import path from 'path'
-import { canReceivePlusPush } from './lib/tier-cap.mjs'
+import { canReceivePlusPush, canReceiveProPush } from './lib/tier-cap.mjs'
 
 const envPath = path.resolve(process.cwd(), '.env.scraper')
 if (!fs.existsSync(envPath)) {
@@ -81,9 +81,25 @@ if (entErr) {
   process.exit(1)
 }
 const entByUser = new Map((entitlements ?? []).map((e) => [e.user_id, e]))
-const eligible = (tokens ?? []).filter((t) => canReceivePlusPush(entByUser.get(t.user_id)))
+// 2026-08-19/20 gating sweep, real live leak found and fixed: this RPC's
+// pool is drawn from ALL of dictionary_terms, and a category='mnemonic'
+// row needs has_pro_access() to read (see dictionary_terms_gated's own
+// redaction, and the mnemonic-specific Pro paywall on the Dictionary
+// detail screen) -- a genuinely HIGHER bar than DailyWord's normal Plus
+// gate. This script authenticates as service_role (needed to read the real
+// text for the notification body -- see get_word_of_the_day's own
+// comment), so nothing upstream stops it from happily building a push for
+// a mnemonic day and sending the real text to a Plus-but-not-Pro
+// recipient, who'd then see the exact text the in-app detail screen
+// correctly paywalls behind Pro. Confirmed live: 52 real mnemonic rows are
+// in the pool today, and the date-hash rotation lands on one
+// (2026-09-11 -> "5 Ps") within the next month. category now comes back
+// from get_word_of_the_day() specifically so this per-day decision can be
+// made without a second query.
+const requiredGate = today.category === 'mnemonic' ? canReceiveProPush : canReceivePlusPush
+const eligible = (tokens ?? []).filter((t) => requiredGate(entByUser.get(t.user_id)))
 const skipped = (tokens ?? []).length - eligible.length
-if (skipped > 0) console.log(`Skipping ${skipped} device(s) whose tier no longer includes DailyWord.`)
+if (skipped > 0) console.log(`Skipping ${skipped} device(s) whose tier no longer includes today's DailyWord (${today.category === 'mnemonic' ? 'mnemonic, Pro+' : 'Plus+'}).`)
 
 if (!eligible || eligible.length === 0) {
   console.log('No devices opted into DailyWord -- nothing to send.')

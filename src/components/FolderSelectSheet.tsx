@@ -5,7 +5,7 @@ import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
-import { getFolders, getFolderItemCounts, createFolder, Folder, DUPLICATE_FOLDER_NAME } from '@/lib/folders'
+import { getFolders, getFolderItemCounts, createFolder, Folder, DUPLICATE_FOLDER_NAME, PRO_FOLDER_CAP } from '@/lib/folders'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
@@ -36,7 +36,10 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
-  const { hasPlusAccess } = useAuth()
+  const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
+  // Plus and Pro share the same folder cap (PRO_FOLDER_CAP) -- same rule
+  // FolderPicker.tsx and saved.tsx's own "New Folder" already enforce.
+  const planName = hasProAccess ? 'Pro' : 'Plus'
   const [folders, setFolders] = useState<Folder[]>([])
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({})
   // Folder names (user-created) can run long and get cut off the same way
@@ -86,6 +89,24 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
     if (submittingCreate) return
     const name = newName.trim()
     if (!name) return
+    // Plus/Pro are both capped at PRO_FOLDER_CAP folders, Premium unlimited
+    // -- same rule FolderPicker.tsx and saved.tsx's own "New Folder" already
+    // enforce. This bulk multi-select sheet (opened from any doc's
+    // multi-select "Add to Folder" action) is a second, independent
+    // create-folder entry point and had no cap check of its own -- same
+    // recurring "a gated action has more than one UI entry point" shape
+    // documented in gotcha_folderpicker_cap_missing.md, found again
+    // 2026-08-19 gating re-sweep.
+    if (!isPremium && folders.length >= PRO_FOLDER_CAP) {
+      setCreating(false)
+      confirm({
+        title: 'Folder limit reached',
+        message: `${planName} includes ${PRO_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
+        confirmLabel: 'Upgrade to Premium',
+        onConfirm: () => { onClose(); router.push('/paywall?tier=premium') },
+      })
+      return
+    }
     setSubmittingCreate(true)
     try {
       let folder: Folder

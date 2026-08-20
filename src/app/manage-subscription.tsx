@@ -114,9 +114,20 @@ export default function ManageSubscriptionScreen() {
     setRestoring(false)
   }
 
-  const tier = isPremium ? 'premium' : isPro ? 'pro' : 'free'
-  const tierLabel = tier === 'premium' ? 'Premium' : tier === 'pro' ? 'Pro' : 'Free'
-  const tierColor = tier === 'premium' ? tokens.gold : tier === 'pro' ? tokens.blu : tokens.t3
+  // 2026-08-19 gating re-sweep: this was `isPremium ? 'premium' : isPro ?
+  // 'pro' : 'free'` with no `isUnlocked` branch at all -- a real Plus
+  // subscriber (isUnlocked: true, isPro/isPremium both false, the normal
+  // shape for anyone who only ever bought the standalone Plus unlock) fell
+  // straight through to 'free'. That made this whole screen lie to a
+  // paying customer ("You're on the free plan"), hid the "Manage or Cancel
+  // Subscription" row entirely (gated on `tier !== 'free'`), and offered
+  // "See Plans" instead of an upgrade CTA. Same bug shape as the 14
+  // bare-`isPro` gates found 2026-08-14 (see gotcha_gating_sweep_2026_08_14),
+  // just via a ternary that dropped a branch instead of a missing check.
+  // Drawer.tsx's own `TierPill` already gets this right -- copy its ladder.
+  const tier = isPremium ? 'premium' : isPro ? 'pro' : isUnlocked ? 'plus' : 'free'
+  const tierLabel = tier === 'premium' ? 'Premium' : tier === 'pro' ? 'Pro' : tier === 'plus' ? 'Plus' : 'Free'
+  const tierColor = tier === 'premium' ? tokens.gold : tier === 'pro' ? tokens.blu : tier === 'plus' ? tokens.amb : tokens.t3
 
   const renewalText = (() => {
     if (!details?.expirationDate) return null
@@ -131,7 +142,7 @@ export default function ManageSubscriptionScreen() {
         {/* Current plan card */}
         <View style={[styles.planCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <View style={styles.planCardTop}>
-            <Icon name={tier === 'premium' ? 'crown.fill' : tier === 'pro' ? 'star.fill' : 'star'} size={fs(20)} color={tierColor} />
+            <Icon name={tier === 'premium' ? 'crown.fill' : tier === 'free' ? 'star' : 'star.fill'} size={fs(20)} color={tierColor} />
             <Text style={[styles.planName, { color: tokens.t1, fontSize: fs(18) }]}>FlyRegs {tierLabel}</Text>
           </View>
           {details === null ? (
@@ -161,6 +172,15 @@ export default function ManageSubscriptionScreen() {
             onPress={() => router.push('/paywall')}
           >
             <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>See Plans</Text>
+          </Pressable>
+        )}
+        {tier === 'plus' && (
+          <Pressable
+            style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]}
+            onPress={() => router.push('/paywall?tier=pro')}
+          >
+            <Icon name="star.fill" size={fs(15)} color="#fff" />
+            <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Upgrade to Pro</Text>
           </Pressable>
         )}
         {tier === 'pro' && (
