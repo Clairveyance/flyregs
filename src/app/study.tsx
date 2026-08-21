@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, withRepeat, Easing } from 'react-native-reanimated'
@@ -89,6 +89,18 @@ export default function StudyScreen() {
   const [deck, setDeck] = useState<StudyCard[]>([])
   const [index, setIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
+  // Guards handleAnswer against double-firing on the SAME card. Reveal's
+  // pointerEvents flips back to 'auto' as soon as flipped->false renders
+  // (immediately, on tap), but the actual index advance is deliberately
+  // deferred FLIP_DURATION (420ms, see handleAnswer's own comment) so the
+  // flip-back animation can play -- a Reveal tap followed by a second
+  // Knew/Missed tap inside that window used to re-fire handleAnswer for the
+  // still-on-screen card, scheduling a second independent advance() and a
+  // second recordStudyReview() call for the same item. Confirmed live: a
+  // scripted rapid tap sequence (Knew it -> Reveal -> Knew it, all inside
+  // 420ms) skipped a card ("1/20" straight to "3/20") and double-recorded
+  // the review, inflating that item's correct_streak.
+  const answeringRef = useRef(false)
   const [mastery, setMastery] = useState<StudyMastery | null>(null)
   // Mastery ring: starts a dull neutral tone and grows toward full gold as
   // mastery % rises, with a soft pulsing glow whose intensity also scales
@@ -350,7 +362,8 @@ export default function StudyScreen() {
   }
 
   const handleAnswer = (correct: boolean) => {
-    if (!current) return
+    if (!current || answeringRef.current) return
+    answeringRef.current = true
     const item = current // capture -- index/current may have advanced by the time the network call resolves
 
     // Bug this fixes, confirmed live: tapping Knew/Missed used to set
@@ -364,6 +377,7 @@ export default function StudyScreen() {
     // the actual index advance until that animation has finished.
     setFlipped(false)
     const advance = () => {
+      answeringRef.current = false
       if (index + 1 >= deck.length) {
         setSessionDone(true)
         getStudyMastery().then(setMastery).catch(() => {})
