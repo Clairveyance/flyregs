@@ -568,19 +568,26 @@ export default function AircraftDetailScreen() {
 
   const handleSaveTracking = async (tracking: PartTracking) => {
     if (!aircraft || !trackingTarget) return
-    if (trackingTarget.mode === 'new') {
-      await addAircraftEquipment(aircraft.id, trackingTarget.part.id, tracking)
-      setTrackingTarget(null)
-      load()
-      // Same reasoning as the picker's own backfill call below -- a newly
-      // tagged part can carry real historical ADs of its own.
-      backfillAircraftAds(aircraft.id)
-        .then((count) => { if (count > 0) getAircraftAdNotifications(aircraft.id).then(setAdNotifications) })
-        .catch((e) => console.error('AD backfill failed for new equipment tag:', e?.message ?? e))
-    } else {
-      await updateAircraftEquipmentTracking(trackingTarget.equipment.id, tracking)
-      setTrackingTarget(null)
-      load()
+    try {
+      if (trackingTarget.mode === 'new') {
+        await addAircraftEquipment(aircraft.id, trackingTarget.part.id, tracking)
+        setTrackingTarget(null)
+        load()
+        // Same reasoning as the picker's own backfill call below -- a newly
+        // tagged part can carry real historical ADs of its own.
+        backfillAircraftAds(aircraft.id)
+          .then((count) => { if (count > 0) getAircraftAdNotifications(aircraft.id).then(setAdNotifications) })
+          .catch((e) => console.error('AD backfill failed for new equipment tag:', e?.message ?? e))
+      } else {
+        await updateAircraftEquipmentTracking(trackingTarget.equipment.id, tracking)
+        setTrackingTarget(null)
+        load()
+      }
+    } catch (e: any) {
+      // Was unguarded -- a thrown save left the modal's own Save button
+      // stuck disabled forever (see PartTrackingModal.handleSave) with no
+      // indication anywhere of what went wrong.
+      confirm({ title: 'Could not save tracking', message: e?.message ?? 'Unknown error. Try again.', cancelLabel: null })
     }
   }
 
@@ -1159,18 +1166,33 @@ export default function AircraftDetailScreen() {
           if (!aircraft) return
           if (editingEquipment) {
             // Swap which part this tag points to. No update-in-place
-            // function exists for a part reference, so this is
-            // remove-old-tag then add-new -- tracking values reset blank
-            // on the new part rather than carrying over, since a
-            // different part's own interval rarely matches the old one's.
-            await removeAircraftEquipment(editingEquipment.id)
-            await addAircraftEquipment(aircraft.id, part.id)
-            setPartPickerVisible(false)
-            setEditingEquipment(null)
-            load()
-            backfillAircraftAds(aircraft.id)
-              .then((count) => { if (count > 0) getAircraftAdNotifications(aircraft.id).then(setAdNotifications) })
-              .catch((e) => console.error('AD backfill failed for new equipment tag:', e?.message ?? e))
+            // function exists for a part reference, so this is add-new
+            // then remove-old -- tracking values reset blank on the new
+            // part rather than carrying over, since a different part's own
+            // interval rarely matches the old one's.
+            //
+            // Add BEFORE remove, and wrapped in try/catch: this used to
+            // remove first, then add -- if the add failed (transient
+            // network/RLS blip, the same failure shape as
+            // gotcha_enablesync_unguarded_updateuser.md), the old tag
+            // (its interval, due hobbs/date tracking) was already gone and
+            // nothing replaced it, with no error shown anywhere -- the
+            // modal just silently didn't close. Worst case now is a
+            // harmless duplicate tag if the remove itself fails after a
+            // successful add -- recoverable and visible, unlike losing the
+            // tag outright.
+            try {
+              await addAircraftEquipment(aircraft.id, part.id)
+              await removeAircraftEquipment(editingEquipment.id)
+              setPartPickerVisible(false)
+              setEditingEquipment(null)
+              load()
+              backfillAircraftAds(aircraft.id)
+                .then((count) => { if (count > 0) getAircraftAdNotifications(aircraft.id).then(setAdNotifications) })
+                .catch((e) => console.error('AD backfill failed for new equipment tag:', e?.message ?? e))
+            } catch (e: any) {
+              confirm({ title: 'Could not change part', message: e?.message ?? 'Unknown error -- your original part tag is untouched. Try again.', cancelLabel: null })
+            }
           } else {
             // Brand new tag -- don't insert yet. RC: "each part box needs
             // an input sheet" for its own date/hour requirement, so the
@@ -1469,10 +1491,22 @@ function PartTrackingModal({
   }
 
   const handleSave = async () => {
+    if (saving) return
     setSaving(true)
     const intervalHours = intervalText.trim() ? parseFloat(intervalText.trim()) : null
     const dueHobbsHours = dueHobbsText.trim() ? parseFloat(dueHobbsText.trim()) : null
-    await onSave({ intervalHours, dueHobbsHours, dueDate: dueDate.trim() || null })
+    // try/finally, same shape as ReminderFormModal.handleSave -- this used
+    // to have neither: a thrown save (e.g. a transient network/RLS blip)
+    // left `saving` stuck true forever, so the Save button stayed disabled
+    // with its spinner showing and the modal never closed, with no error
+    // shown anywhere -- the only way out was abandoning via the X. Error
+    // surfacing itself is onSave's (the parent's) job, matching every
+    // other save handler on this screen.
+    try {
+      await onSave({ intervalHours, dueHobbsHours, dueDate: dueDate.trim() || null })
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (

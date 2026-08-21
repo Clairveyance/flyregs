@@ -1183,7 +1183,14 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   // confirm as before. Falls back to a fresh fetch if the row was never
   // expanded (so expandedDetails has nothing cached for it yet).
   const handleQuickComplied = async (a: FleetAircraftSummary) => {
-    if (!(a.role === 'owner' || a.role === 'editor')) return
+    // Used to early-return entirely for a Viewer, blocking even seeing
+    // which ADs are open -- inconsistent with the AD-chip inside this same
+    // row's expand panel, which lets a Viewer navigate through to view
+    // details (canEdit false -> straight to /ad/[n], no complied-toggle
+    // choice offered). Mirrors that here instead of gating the whole
+    // convenience off: a Viewer still gets the open-ADs picker, each choice
+    // just navigates to view rather than offering to mark it complied.
+    const canEdit = a.role === 'owner' || a.role === 'editor'
     const label = a.nickname || `${a.make} ${a.model}`
     const cached = expandedDetails[a.aircraftId]
     let list: AircraftAdNotification[]
@@ -1204,7 +1211,12 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
     }
     confirm({
       title: `Open ADs — ${label}`,
-      choices: open.map((n) => ({ label: `AD ${n.adNumber}`, onPress: () => handleToggleCompliedFromList(a.aircraftId, n) })),
+      choices: open.map((n) => ({
+        label: `AD ${n.adNumber}`,
+        onPress: canEdit
+          ? () => handleToggleCompliedFromList(a.aircraftId, n)
+          : () => router.push(`/ad/${n.adNumber}` as any),
+      })),
     })
   }
 
