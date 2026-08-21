@@ -77,7 +77,16 @@ function regLine(item: ShareableReg): string {
 // FILE, silently dropping the accompanying text entirely -- so an AirDropped
 // share arrived as a bare image with no link at all, landing in Photos
 // instead of opening the app. A pure text share has nothing to lose there.
-// shareNote (a standalone note, no link to lose) keeps the branded card.
+// shareNote used to keep the branded card here, reasoned as "no link to
+// lose" -- that reasoning was wrong: a note's BODY is the actual content,
+// and the branded card only bakes in a 2-line truncated preview of it
+// (ShareCardCapture.tsx's subtitle, numberOfLines={2}). The exact same
+// AirDrop failure this comment already documents would leave the recipient
+// with a permanently-truncated image and no way to see the rest of the
+// note. Not live-tested (iOS-only, no device/simulator access in this
+// environment) -- fixed on the strength of this file's own already-proven
+// identical failure mode, matching shareAC/shareReg's resolution rather
+// than guessing at a new one.
 export function useShareActions() {
   const { session, avatarOverride } = useAuth()
   const { capture } = useShareCard()
@@ -101,7 +110,10 @@ export function useShareActions() {
         subtitle: note.body,
       })
       if (Platform.OS === 'ios') {
-        await Share.share({ title: note.title || 'Note', message: noteLine(note), url: uri })
+        // Text-only, no `url: uri` -- see the header comment above for why
+        // (a note's full body must never be at risk of silently vanishing
+        // behind AirDrop's image-only-survives quirk).
+        await Share.share({ title: note.title || 'Note', message: noteLine(note) })
         return
       }
       if (Platform.OS === 'web' || !(await Sharing.isAvailableAsync())) {
