@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { syncPushFolder, syncPushFolderItems, syncPushNote } from '@/lib/syncPush'
+import { syncPushFolder, syncPushFolderItems, syncPushNote, syncPushBookmark } from '@/lib/syncPush'
 import { getFolders, getItemsInFolder, markFolderShared, FolderItem, FolderItemType } from '@/lib/folders'
 import { getNotes, isSeedNote } from '@/lib/notes'
+import { getBookmarks } from '@/lib/bookmarks'
 import type { BookmarkAC } from '@/lib/bookmarks'
 
 function makeItemId(): string {
@@ -78,7 +79,9 @@ export function buildShareLink(token: string): string {
 // (`user_id = auth.uid()`) simply finds no row and raises "Not authorized" --
 // a confusing error for what's really just "this folder was never synced."
 async function ensureFolderPushed(folderId: string): Promise<void> {
-  const [folders, items, notes] = await Promise.all([getFolders(), getItemsInFolder(folderId), getNotes()])
+  const [folders, items, notes, bookmarks] = await Promise.all([
+    getFolders(), getItemsInFolder(folderId), getNotes(), getBookmarks(),
+  ])
   const folder = folders.find((f) => f.id === folderId)
   if (!folder) throw new Error('Folder not found')
 
@@ -99,6 +102,27 @@ async function ensureFolderPushed(folderId: string): Promise<void> {
     noteItems
       .filter((n): n is NonNullable<typeof n> => !!n && !n.authorId)
       .map((n) => syncPushNote(n, true))
+  )
+  // Same gap, same fix, for 'ac'-type items -- this covers BOTH plain AC
+  // bookmarks and highlights (a highlight is just an 'ac' folder item whose
+  // backing bookmark carries blockText/blockKind -- see addHighlight in
+  // bookmarks.ts). Real gap found 2026-08-21: syncPushBookmark had no
+  // `force` param at all until now, so a bookmark/highlight added while the
+  // owner's personal Back-up & Sync toggle was off never reached
+  // synced_bookmarks -- the folder item pointer force-pushed fine, but
+  // resolveMissingAsHighlights below (which this exact scenario depends on)
+  // found nothing to resolve, so the item silently vanished from every
+  // collaborator's view. (A plain 'ac' bookmark item without matching
+  // synced_bookmarks content still resolves fine via the public AC content
+  // table directly -- only highlights, whose content lives ONLY in
+  // synced_bookmarks, were actually broken by this; force-pushing both here
+  // is simpler and correct either way.)
+  const bookmarkMap = new Map(bookmarks.map((b) => [b.id, b]))
+  const acItems = ownItems.filter((i) => i.item_type === 'ac').map((i) => bookmarkMap.get(i.item_id))
+  await Promise.all(
+    acItems
+      .filter((b): b is BookmarkAC => !!b)
+      .map((b) => syncPushBookmark(b, true))
   )
 }
 
@@ -661,14 +685,20 @@ export async function updateSharedNote(noteId: string, updates: { title?: string
 // A highlight's folder item stores the highlight bookmark's own synthetic id
 // as item_id, not the real document id (see BookmarkAC.id's comment in
 // bookmarks.ts), so it never matches a row in that type's own content table
-// above -- it silently vanished from every collaborator's view. Every
-// highlight is unconditionally pushed to synced_bookmarks the moment it's
-// created (see syncPushBookmark's call sites in bookmarks.ts, unlike normal
-// bookmarks this isn't gated behind the separate Back-up & Sync toggle), so
-// any item_id the direct lookup above missed gets a second pass here:
-// resolve it as a highlight via synced_bookmarks (ac_id + block_text carry
-// the real doc + passage), then look up that doc's own current title the
-// same way the direct path does. Requires the
+// above -- it silently vanished from every collaborator's view. Corrected
+// 2026-08-21: this comment used to claim every highlight is pushed to
+// synced_bookmarks "unconditionally... unlike normal bookmarks" the moment
+// it's created -- that was never actually true (syncPushBookmark had no
+// `force` param and addHighlight never bypassed the personal Back-up & Sync
+// toggle any differently than a plain bookmark does), which meant this
+// entire fallback silently found nothing for any owner with that toggle
+// off. Real fix is at share time, not creation time: ensureFolderPushed
+// above now force-pushes the backing synced_bookmarks row for every 'ac'-
+// type item (bookmark or highlight alike) the same way it already did for
+// notes, so any item_id the direct lookup above missed gets a second pass
+// here: resolve it as a highlight via synced_bookmarks (ac_id + block_text
+// carry the real doc + passage), then look up that doc's own current title
+// the same way the direct path does. Requires the
 // collaborators_read_shared_bookmarks RLS policy -- see
 // sync/migrations_shared_folder_highlights.sql.
 export async function resolveMissingAsHighlights(itemType: FolderItemType, missedIds: string[], savedAtFor: (id: string) => string): Promise<BookmarkAC[]> {

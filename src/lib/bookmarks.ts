@@ -158,7 +158,7 @@ export async function addManyBookmarks(acs: Omit<BookmarkAC, 'savedAt'>[]) {
   const toAdd = acs.filter((ac) => !existing.has(ac.id)).map((ac) => ({ ...ac, savedAt: now }))
   if (toAdd.length === 0) return
   await AsyncStorage.setItem(KEY, JSON.stringify([...toAdd, ...list]))
-  toAdd.forEach(syncPushBookmark)
+  toAdd.forEach((b) => syncPushBookmark(b))
 }
 
 export async function removeBookmark(id: string) {

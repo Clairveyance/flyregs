@@ -71,8 +71,8 @@ async function currentUserId(force = false): Promise<string | null> {
   return data.session?.user?.id ?? null
 }
 
-export async function syncPushBookmark(b: BookmarkAC) {
-  const userId = await currentUserId()
+export async function syncPushBookmark(b: BookmarkAC, force = false) {
+  const userId = await currentUserId(force)
   if (!userId) return
   const { error } = await supabase.from('synced_bookmarks').upsert(
     {
