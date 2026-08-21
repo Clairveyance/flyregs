@@ -67,8 +67,19 @@ def make_user(prefix):
                    body={"email": email, "password": pw})
     return {"id": b["id"], "jwt": tok["access_token"]}
 
+def grant_pro(uid):
+    """Study Mode (record_study_review, get_study_queue, etc.) is Pro-gated
+    server-side -- this script's own test user had no entitlement row at
+    all, so record_study_review rejected the very first call and the whole
+    lifecycle test couldn't run past its first line. Same disposable-grant
+    pattern as folders_e2e_test.py/tier_matrix_test.py, not a real purchase."""
+    http("POST", "/rest/v1/user_entitlements", key=SERVICE,
+         body={"user_id": uid, "is_pro": True},
+         headers={"Prefer": "resolution=merge-duplicates"})
+
 def main():
     u = make_user("srs")
+    grant_pro(u["id"])
     try:
         # -- one known item per type, reviewed WRONG: must come due in ~10min
         picks = [("far", "91.155"), ("aim", "4-3-13"), ("pcg", "MINIMUM_FUEL"),
