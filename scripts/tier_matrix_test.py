@@ -201,6 +201,23 @@ def probes(H):
     st, d = call(f"{URL}/rest/v1/rpc/search_far", {"query": "aircraft", "result_limit": 200},
                  {**H, "Content-Type": "application/json"})
     out["search depth"] = len(d) if st == 200 and isinstance(d, list) else f"HTTP {st}"
+    # Added 2026-08-21, gating-audit follow-up -- search_ads/search_legal_
+    # interpretations (added 2026-08-20, migrations_search_ad_loi_parity.sql,
+    # for AD/LOI search parity with search_acs) were never added to this
+    # harness, so a live audit had to write a one-off probe by hand to
+    # confirm the depth clamp (10 rows below Plus, up to 200 at Plus+) was
+    # actually wired the same way search_far/search_acs already are. Neither
+    # RPC returns body_text at any tier (they're metadata-only search
+    # results -- full text stays behind the separate *_gated views, already
+    # covered by the "AD body_text"/"LOI body_text" probes above), so depth
+    # is the only real gating surface here. Extending coverage now so this
+    # doesn't need re-discovering by hand on the next audit.
+    st, d = call(f"{URL}/rest/v1/rpc/search_ads", {"query": "cessna", "result_limit": 200},
+                 {**H, "Content-Type": "application/json"})
+    out["search_ads depth"] = len(d) if st == 200 and isinstance(d, list) else f"HTTP {st}"
+    st, d = call(f"{URL}/rest/v1/rpc/search_legal_interpretations", {"q": "maintenance", "lim": 200},
+                 {**H, "Content-Type": "application/json"})
+    out["search_loi depth"] = len(d) if st == 200 and isinstance(d, list) else f"HTTP {st}"
     return out
 
 rows = {}
