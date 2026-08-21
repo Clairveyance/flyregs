@@ -95,7 +95,21 @@ async function mergeBookmarks(userId: string) {
     getBookmarks(),
   ])
   const localById = new Map(local.map((b) => [b.id, b]))
-  const merged = new Map(localById)
+  // Re-read local fresh right before the write below, rather than basing
+  // it on the snapshot (`local`, above) taken before the network
+  // round-trip -- a local write (addBookmark/addHighlight) that happened
+  // while this merge was in flight used to get silently clobbered by this
+  // function's own final setItem, which blindly wrote from that stale
+  // snapshot regardless of what had actually landed in AsyncStorage since.
+  // Not live-reproduced (needs sub-second in-app timing control to
+  // trigger), but the snapshot-then-blind-overwrite shape was unambiguous
+  // on inspection. `localById` above (the original snapshot) still drives
+  // the remote-vs-local decision logic below unchanged -- only the base
+  // list `merged`/`toPushUp` are built from is fresher, narrowing the
+  // exposure window from "the whole network round-trip" down to "one more
+  // AsyncStorage read," about as tight as this gets without a real lock.
+  const fresh = await getBookmarks()
+  const merged = new Map(fresh.map((b) => [b.id, b]))
 
   for (const r of remote ?? []) {
     if (r.deleted) {
@@ -126,7 +140,7 @@ async function mergeBookmarks(userId: string) {
       })
     }
   }
-  const toPushUp = local.filter((loc) => !(remote ?? []).some((r) => r.id === loc.id))
+  const toPushUp = fresh.filter((loc) => !(remote ?? []).some((r) => r.id === loc.id))
 
   await AsyncStorage.setItem(BOOKMARKS_KEY, JSON.stringify([...merged.values()]))
   for (const b of toPushUp) await syncPushBookmark(b)
@@ -138,7 +152,12 @@ async function mergeFolders(userId: string) {
     getFolders(),
   ])
   const localById = new Map(local.map((f) => [f.id, f]))
-  const merged = new Map(localById)
+  // Same race/fix as mergeBookmarks above -- re-read fresh right before the
+  // write below so a concurrent local folder write isn't silently
+  // clobbered. `localById` (the original snapshot) still drives the
+  // remoteNewer decision below unchanged.
+  const fresh = await getFolders()
+  const merged = new Map(fresh.map((f) => [f.id, f]))
 
   for (const r of remote ?? []) {
     const loc = localById.get(r.id)
@@ -172,7 +191,7 @@ async function mergeFolders(userId: string) {
       })
     }
   }
-  const toPushUp = local.filter((loc) => {
+  const toPushUp = fresh.filter((loc) => {
     const r = (remote ?? []).find((x) => x.id === loc.id)
     return !r || new Date(loc.updated_at) > new Date(r.updated_at)
   })
@@ -201,7 +220,12 @@ async function mergeFolderItems(userId: string) {
   const relevantRemote = (remote ?? []).filter((r) => ownFolderIds.has(r.folder_id))
 
   const localById = new Map(local.map((i) => [i.id, i]))
-  const merged = new Map(localById)
+  // Same race/fix as mergeBookmarks above -- re-read fresh right before the
+  // write below so a concurrent local folder-item write (add/remove) isn't
+  // silently clobbered. `localById` (the original snapshot) still drives
+  // the "already exists locally" decision below unchanged.
+  const fresh = await getFolderItems()
+  const merged = new Map(fresh.map((i) => [i.id, i]))
 
   for (const r of relevantRemote) {
     if (r.deleted) {
@@ -224,7 +248,7 @@ async function mergeFolderItems(userId: string) {
   }
   // Never push up a row that isn't this account's own -- see
   // FolderItem.authorId's comment for why that would duplicate it remotely.
-  const toPushUp = local.filter((loc) => !loc.authorId && !relevantRemote.some((r) => r.id === loc.id))
+  const toPushUp = fresh.filter((loc) => !loc.authorId && !relevantRemote.some((r) => r.id === loc.id))
 
   await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify([...merged.values()]))
   await syncPushFolderItems(toPushUp)
@@ -259,7 +283,12 @@ async function mergeNotes(userId: string) {
   const foreignIds = new Set((foreignRemote ?? []).map((n) => n.id))
 
   const localById = new Map(local.map((n) => [n.id, n]))
-  const merged = new Map(localById)
+  // Same race/fix as mergeBookmarks above -- re-read fresh right before the
+  // write below so a concurrent local note edit isn't silently clobbered.
+  // `localById` (the original snapshot) still drives the remoteNewer
+  // decision below unchanged.
+  const fresh = await getNotes()
+  const merged = new Map(fresh.map((n) => [n.id, n]))
 
   for (const r of remote) {
     const loc = localById.get(r.id)
@@ -286,7 +315,7 @@ async function mergeNotes(userId: string) {
   // updateSharedNote instead) -- excluding them here too, defensively, in
   // case a future caller ever re-pushes the full local list the way
   // enableSync does for folder items.
-  const toPushUp = local.filter((loc) => {
+  const toPushUp = fresh.filter((loc) => {
     if (isSeedNote(loc.id) || foreignIds.has(loc.id)) return false
     const r = remote.find((x) => x.id === loc.id)
     return !r || new Date(loc.updated_at) > new Date(r.updated_at)
