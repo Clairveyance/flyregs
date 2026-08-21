@@ -2,8 +2,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { getBookmarks } from '@/lib/bookmarks'
 import { getFolders, getFolderItems } from '@/lib/folders'
-import { getNotes, saveNotes, isSeedNote } from '@/lib/notes'
+import { getNotes, updateNotes, isSeedNote, type Note } from '@/lib/notes'
 import { getSyncOwner, setSyncOwner } from '@/lib/syncOwner'
+import { withLock } from '@/lib/asyncMutex'
+import type { FolderItem } from '@/lib/folders'
 import {
   SYNC_ENABLED_KEY,
   isSyncEnabled,
@@ -95,54 +97,52 @@ async function mergeBookmarks(userId: string) {
     getBookmarks(),
   ])
   const localById = new Map(local.map((b) => [b.id, b]))
-  // Re-read local fresh right before the write below, rather than basing
-  // it on the snapshot (`local`, above) taken before the network
-  // round-trip -- a local write (addBookmark/addHighlight) that happened
-  // while this merge was in flight used to get silently clobbered by this
-  // function's own final setItem, which blindly wrote from that stale
-  // snapshot regardless of what had actually landed in AsyncStorage since.
-  // Not live-reproduced (needs sub-second in-app timing control to
-  // trigger), but the snapshot-then-blind-overwrite shape was unambiguous
-  // on inspection. `localById` above (the original snapshot) still drives
-  // the remote-vs-local decision logic below unchanged -- only the base
-  // list `merged`/`toPushUp` are built from is fresher, narrowing the
-  // exposure window from "the whole network round-trip" down to "one more
-  // AsyncStorage read," about as tight as this gets without a real lock.
-  const fresh = await getBookmarks()
-  const merged = new Map(fresh.map((b) => [b.id, b]))
+  // withLock('bookmarks', ...) -- the SAME lock key bookmarks.ts's own
+  // addBookmark/addManyBookmarks/removeManyBookmarks/addHighlight now use,
+  // so this merge and a concurrent local write can never race: whichever
+  // acquires the lock first fully finishes before the other starts. Reads
+  // fresh right before writing (not the stale `local` snapshot above,
+  // taken before the network round-trip) -- `localById` above still drives
+  // the remote-vs-local decision logic unchanged, only the base list
+  // `merged`/`toPushUp` are built from is the true current state. See
+  // asyncMutex.ts's own header comment for the full story.
+  const toPushUp = await withLock('bookmarks', async () => {
+    const fresh = await getBookmarks()
+    const merged = new Map(fresh.map((b) => [b.id, b]))
 
-  for (const r of remote ?? []) {
-    if (r.deleted) {
-      merged.delete(r.id)
-      continue
+    for (const r of remote ?? []) {
+      if (r.deleted) {
+        merged.delete(r.id)
+        continue
+      }
+      if (!localById.has(r.id)) {
+        merged.set(r.id, {
+          id: r.id,
+          // Missing means 'ac' (see bookmarks.ts's own BookmarkAC comment) --
+          // was never restored here at all before this fix, so any FAR/AIM/
+          // AD/PCG/LOI bookmark that round-tripped through cloud sync (new
+          // device, reinstall, restore) silently reverted to 'ac' and then
+          // mis-routed via routeForBookmark(). Confirmed live via the #154
+          // process-flow audit.
+          itemType: r.item_type ?? undefined,
+          document_number: r.document_number,
+          title: r.title,
+          date_issued: r.date_issued,
+          office: r.office,
+          subject_series: r.subject_series,
+          savedAt: r.saved_at,
+          acId: r.ac_id ?? r.id,
+          blockKind: r.block_kind ?? undefined,
+          blockLabel: r.block_label ?? undefined,
+          blockSnippet: r.block_snippet ?? undefined,
+          blockText: r.block_text ?? undefined,
+        })
+      }
     }
-    if (!localById.has(r.id)) {
-      merged.set(r.id, {
-        id: r.id,
-        // Missing means 'ac' (see bookmarks.ts's own BookmarkAC comment) --
-        // was never restored here at all before this fix, so any FAR/AIM/
-        // AD/PCG/LOI bookmark that round-tripped through cloud sync (new
-        // device, reinstall, restore) silently reverted to 'ac' and then
-        // mis-routed via routeForBookmark(). Confirmed live via the #154
-        // process-flow audit.
-        itemType: r.item_type ?? undefined,
-        document_number: r.document_number,
-        title: r.title,
-        date_issued: r.date_issued,
-        office: r.office,
-        subject_series: r.subject_series,
-        savedAt: r.saved_at,
-        acId: r.ac_id ?? r.id,
-        blockKind: r.block_kind ?? undefined,
-        blockLabel: r.block_label ?? undefined,
-        blockSnippet: r.block_snippet ?? undefined,
-        blockText: r.block_text ?? undefined,
-      })
-    }
-  }
-  const toPushUp = fresh.filter((loc) => !(remote ?? []).some((r) => r.id === loc.id))
-
-  await AsyncStorage.setItem(BOOKMARKS_KEY, JSON.stringify([...merged.values()]))
+    const pushUp = fresh.filter((loc) => !(remote ?? []).some((r) => r.id === loc.id))
+    await AsyncStorage.setItem(BOOKMARKS_KEY, JSON.stringify([...merged.values()]))
+    return pushUp
+  })
   for (const b of toPushUp) await syncPushBookmark(b)
 }
 
@@ -152,51 +152,56 @@ async function mergeFolders(userId: string) {
     getFolders(),
   ])
   const localById = new Map(local.map((f) => [f.id, f]))
-  // Same race/fix as mergeBookmarks above -- re-read fresh right before the
-  // write below so a concurrent local folder write isn't silently
-  // clobbered. `localById` (the original snapshot) still drives the
-  // remoteNewer decision below unchanged.
-  const fresh = await getFolders()
-  const merged = new Map(fresh.map((f) => [f.id, f]))
+  // withLock('folders', ...) -- the SAME lock key folders.ts's own
+  // createFolder/reorderFolders/renameFolder/markFolderShared/deleteFolder/
+  // addManyToFolder/removeFromFolder/etc now use (one shared domain for
+  // both the folders and folder-items keys), so this merge and a
+  // concurrent local write can never race. Reads fresh right before
+  // writing -- `localById` above still drives the remoteNewer decision
+  // unchanged. See asyncMutex.ts's own header comment for the full story.
+  const toPushUp = await withLock('folders', async () => {
+    const fresh = await getFolders()
+    const merged = new Map(fresh.map((f) => [f.id, f]))
 
-  for (const r of remote ?? []) {
-    const loc = localById.get(r.id)
-    const remoteNewer = !loc || new Date(r.updated_at) > new Date(loc.updated_at)
-    if (r.deleted) {
-      if (remoteNewer) merged.delete(r.id)
-      continue
+    for (const r of remote ?? []) {
+      const loc = localById.get(r.id)
+      const remoteNewer = !loc || new Date(r.updated_at) > new Date(loc.updated_at)
+      if (r.deleted) {
+        if (remoteNewer) merged.delete(r.id)
+        continue
+      }
+      if (remoteNewer) {
+        // Carries `shared` forward from the existing local value -- synced_folders
+        // has no boolean "shared" column of its own (see the Folder.shared
+        // comment in folders.ts), so a remote-newer update must not silently
+        // drop it, only sort_order and the other real columns actually come
+        // from `r`. Also OR'd with `r.share_token != null`: on a folder pulled
+        // fresh (new device, reinstall, cleared storage -- `loc` undefined or
+        // stale-false), the local flag alone would come back false even though
+        // the folder genuinely IS shared, silently downgrading every later
+        // add/remove on it to a non-force push (wrong subscription-tier check,
+        // and skippable by the personal Back-up & Sync toggle) -- collaborators
+        // would stop seeing this device's edits with no error anywhere. Never
+        // goes the other way (share_token is "deliberately never unset by
+        // unsharing" per that same comment, so this can't spuriously flip an
+        // unshared folder back to shared).
+        merged.set(r.id, {
+          id: r.id,
+          name: r.name,
+          created_at: r.created_at,
+          updated_at: r.updated_at,
+          sort_order: r.sort_order ?? undefined,
+          shared: loc?.shared || !!r.share_token,
+        })
+      }
     }
-    if (remoteNewer) {
-      // Carries `shared` forward from the existing local value -- synced_folders
-      // has no boolean "shared" column of its own (see the Folder.shared
-      // comment in folders.ts), so a remote-newer update must not silently
-      // drop it, only sort_order and the other real columns actually come
-      // from `r`. Also OR'd with `r.share_token != null`: on a folder pulled
-      // fresh (new device, reinstall, cleared storage -- `loc` undefined or
-      // stale-false), the local flag alone would come back false even though
-      // the folder genuinely IS shared, silently downgrading every later
-      // add/remove on it to a non-force push (wrong subscription-tier check,
-      // and skippable by the personal Back-up & Sync toggle) -- collaborators
-      // would stop seeing this device's edits with no error anywhere. Never
-      // goes the other way (share_token is "deliberately never unset by
-      // unsharing" per that same comment, so this can't spuriously flip an
-      // unshared folder back to shared).
-      merged.set(r.id, {
-        id: r.id,
-        name: r.name,
-        created_at: r.created_at,
-        updated_at: r.updated_at,
-        sort_order: r.sort_order ?? undefined,
-        shared: loc?.shared || !!r.share_token,
-      })
-    }
-  }
-  const toPushUp = fresh.filter((loc) => {
-    const r = (remote ?? []).find((x) => x.id === loc.id)
-    return !r || new Date(loc.updated_at) > new Date(r.updated_at)
+    const pushUp = fresh.filter((loc) => {
+      const r = (remote ?? []).find((x) => x.id === loc.id)
+      return !r || new Date(loc.updated_at) > new Date(r.updated_at)
+    })
+    await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify([...merged.values()]))
+    return pushUp
   })
-
-  await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify([...merged.values()]))
   for (const f of toPushUp) await syncPushFolder(f)
 }
 
@@ -220,37 +225,39 @@ async function mergeFolderItems(userId: string) {
   const relevantRemote = (remote ?? []).filter((r) => ownFolderIds.has(r.folder_id))
 
   const localById = new Map(local.map((i) => [i.id, i]))
-  // Same race/fix as mergeBookmarks above -- re-read fresh right before the
-  // write below so a concurrent local folder-item write (add/remove) isn't
-  // silently clobbered. `localById` (the original snapshot) still drives
-  // the "already exists locally" decision below unchanged.
-  const fresh = await getFolderItems()
-  const merged = new Map(fresh.map((i) => [i.id, i]))
+  // withLock('folders', ...) -- same shared domain as mergeFolders above
+  // and every folders.ts write. Reads fresh right before writing --
+  // `localById` above still drives the "already exists locally" decision
+  // unchanged.
+  const toPushUp = await withLock('folders', async () => {
+    const fresh = await getFolderItems()
+    const merged = new Map(fresh.map((i) => [i.id, i]))
 
-  for (const r of relevantRemote) {
-    if (r.deleted) {
-      merged.delete(r.id)
-      continue
+    for (const r of relevantRemote) {
+      if (r.deleted) {
+        merged.delete(r.id)
+        continue
+      }
+      if (!localById.has(r.id)) {
+        merged.set(r.id, {
+          id: r.id,
+          folder_id: r.folder_id,
+          item_type: r.item_type,
+          item_id: r.item_id,
+          added_at: r.added_at,
+          // Tags rows this account didn't author -- see FolderItem.authorId.
+          // Own-authored rows (r.user_id === userId) stay untagged so they
+          // still push up normally if this device somehow lost them locally.
+          ...(r.user_id !== userId ? { authorId: r.user_id } : {}),
+        })
+      }
     }
-    if (!localById.has(r.id)) {
-      merged.set(r.id, {
-        id: r.id,
-        folder_id: r.folder_id,
-        item_type: r.item_type,
-        item_id: r.item_id,
-        added_at: r.added_at,
-        // Tags rows this account didn't author -- see FolderItem.authorId.
-        // Own-authored rows (r.user_id === userId) stay untagged so they
-        // still push up normally if this device somehow lost them locally.
-        ...(r.user_id !== userId ? { authorId: r.user_id } : {}),
-      })
-    }
-  }
-  // Never push up a row that isn't this account's own -- see
-  // FolderItem.authorId's comment for why that would duplicate it remotely.
-  const toPushUp = fresh.filter((loc) => !loc.authorId && !relevantRemote.some((r) => r.id === loc.id))
-
-  await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify([...merged.values()]))
+    // Never push up a row that isn't this account's own -- see
+    // FolderItem.authorId's comment for why that would duplicate it remotely.
+    const pushUp = fresh.filter((loc) => !loc.authorId && !relevantRemote.some((r) => r.id === loc.id))
+    await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify([...merged.values()]))
+    return pushUp
+  })
   await syncPushFolderItems(toPushUp)
 }
 
@@ -283,45 +290,51 @@ async function mergeNotes(userId: string) {
   const foreignIds = new Set((foreignRemote ?? []).map((n) => n.id))
 
   const localById = new Map(local.map((n) => [n.id, n]))
-  // Same race/fix as mergeBookmarks above -- re-read fresh right before the
-  // write below so a concurrent local note edit isn't silently clobbered.
-  // `localById` (the original snapshot) still drives the remoteNewer
-  // decision below unchanged.
-  const fresh = await getNotes()
-  const merged = new Map(fresh.map((n) => [n.id, n]))
-
-  for (const r of remote) {
-    const loc = localById.get(r.id)
-    const remoteNewer = !loc || new Date(r.updated_at) > new Date(loc.updated_at)
-    if (r.deleted) {
-      if (remoteNewer) merged.delete(r.id)
-      continue
+  // Routed through updateNotes (the SAME 'notes' lock domain notes.tsx/
+  // folder/[id].tsx's own edits now use) rather than a raw getNotes-then-
+  // saveNotes pair -- that's the actual fix for the clobber race: the
+  // mutator below runs against a truly fresh read taken under the lock,
+  // immediately before the write, so a local note edit landing at the same
+  // moment either fully happens before this merge starts or fully after it
+  // finishes, never silently in between. `localById` (the original
+  // snapshot, above) still drives the remoteNewer decision unchanged --
+  // only WHERE the base list comes from changed. toPushUp is captured via
+  // this closure since updateNotes's mutator only returns the next array.
+  let toPushUp: Note[] = []
+  await updateNotes((fresh) => {
+    const merged = new Map(fresh.map((n) => [n.id, n]))
+    for (const r of remote) {
+      const loc = localById.get(r.id)
+      const remoteNewer = !loc || new Date(r.updated_at) > new Date(loc.updated_at)
+      if (r.deleted) {
+        if (remoteNewer) merged.delete(r.id)
+        continue
+      }
+      if (remoteNewer) {
+        merged.set(r.id, {
+          id: r.id,
+          title: r.title,
+          body: r.body,
+          linked_ac: r.linked_ac,
+          updated_at: r.updated_at,
+          // See Note.authorId -- tags a collaborator's note so notes.tsx
+          // routes edits through updateSharedNote instead of syncPushNote.
+          ...(foreignIds.has(r.id) ? { authorId: r.user_id } : {}),
+        })
+      }
     }
-    if (remoteNewer) {
-      merged.set(r.id, {
-        id: r.id,
-        title: r.title,
-        body: r.body,
-        linked_ac: r.linked_ac,
-        updated_at: r.updated_at,
-        // See Note.authorId -- tags a collaborator's note so notes.tsx
-        // routes edits through updateSharedNote instead of syncPushNote.
-        ...(foreignIds.has(r.id) ? { authorId: r.user_id } : {}),
-      })
-    }
-  }
-  // Foreign-authored notes are never pushed up under this account's own
-  // user_id (see notes.tsx's handleSave, which routes edits to those through
-  // updateSharedNote instead) -- excluding them here too, defensively, in
-  // case a future caller ever re-pushes the full local list the way
-  // enableSync does for folder items.
-  const toPushUp = fresh.filter((loc) => {
-    if (isSeedNote(loc.id) || foreignIds.has(loc.id)) return false
-    const r = remote.find((x) => x.id === loc.id)
-    return !r || new Date(loc.updated_at) > new Date(r.updated_at)
+    // Foreign-authored notes are never pushed up under this account's own
+    // user_id (see notes.tsx's handleSave, which routes edits to those
+    // through updateSharedNote instead) -- excluding them here too,
+    // defensively, in case a future caller ever re-pushes the full local
+    // list the way enableSync does for folder items.
+    toPushUp = fresh.filter((loc) => {
+      if (isSeedNote(loc.id) || foreignIds.has(loc.id)) return false
+      const r = remote.find((x) => x.id === loc.id)
+      return !r || new Date(loc.updated_at) > new Date(r.updated_at)
+    })
+    return [...merged.values()]
   })
-
-  await saveNotes([...merged.values()])
   for (const n of toPushUp) await syncPushNote(n)
 }
 
@@ -339,14 +352,23 @@ export async function syncFolderFromCloud(folderId: string, userId: string): Pro
     getFolderItems(),
   ])
   const byId = new Map(local.map((i) => [i.id, i]))
-  let itemsChanged = false
+  // Decide what remote dictates against this ORIGINAL snapshot (unchanged
+  // decision logic) -- called far more often than pullAndMergeAll's
+  // mergeFolderItems (every folder screen focus, not just app launch), so
+  // this was actually the MOST exposed instance of the sync-clobber race
+  // found in the 2026-08-21 sweep, not a lesser copy of it. Same fix: apply
+  // these decisions onto a freshly-read base, under the 'folders' lock,
+  // immediately before writing -- not onto the stale `local` snapshot
+  // above, which used to be what actually got written.
+  const idsToDelete = new Set<string>()
+  const itemsToAdd: FolderItem[] = []
   for (const r of remote ?? []) {
     if (r.deleted) {
-      if (byId.delete(r.id)) itemsChanged = true
+      if (byId.has(r.id)) idsToDelete.add(r.id)
       continue
     }
     if (!byId.has(r.id)) {
-      byId.set(r.id, {
+      itemsToAdd.push({
         id: r.id,
         folder_id: r.folder_id,
         item_type: r.item_type,
@@ -354,15 +376,19 @@ export async function syncFolderFromCloud(folderId: string, userId: string): Pro
         added_at: r.added_at,
         ...(r.user_id !== userId ? { authorId: r.user_id } : {}),
       })
-      itemsChanged = true
     }
   }
-  const merged = [...byId.values()]
-  if (itemsChanged) {
-    // Splice just this folder's rows back into the full local list -- other
-    // folders' items aren't part of `local` restricted here, they came
-    // straight from the unfiltered getFolderItems() above.
-    await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(merged))
+  let merged: FolderItem[] = local
+  if (idsToDelete.size || itemsToAdd.length) {
+    merged = await withLock('folders', async () => {
+      // Splice just this folder's rows back into the full local list -- other
+      // folders' items aren't part of `local` restricted here, they came
+      // straight from the unfiltered getFolderItems() above.
+      const fresh = await getFolderItems()
+      const next = [...fresh.filter((i) => !idsToDelete.has(i.id)), ...itemsToAdd]
+      await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(next))
+      return next
+    })
   }
 
   const noteIds = merged.filter((i) => i.folder_id === folderId && i.item_type === 'note').map((i) => i.item_id)
@@ -373,16 +399,19 @@ export async function syncFolderFromCloud(folderId: string, userId: string): Pro
     getNotes(),
   ])
   const noteById = new Map(localNotes.map((n) => [n.id, n]))
-  let notesChanged = false
+  // Same pattern as above: decide against the original snapshot, apply onto
+  // a fresh read under the 'notes' lock.
+  const noteIdsToDelete = new Set<string>()
+  const notesToUpsert: Note[] = []
   for (const r of remoteNotes ?? []) {
     const loc = noteById.get(r.id)
     const remoteNewer = !loc || new Date(r.updated_at) > new Date(loc.updated_at)
     if (r.deleted) {
-      if (loc && remoteNewer && noteById.delete(r.id)) notesChanged = true
+      if (loc && remoteNewer) noteIdsToDelete.add(r.id)
       continue
     }
     if (remoteNewer) {
-      noteById.set(r.id, {
+      notesToUpsert.push({
         id: r.id,
         title: r.title,
         body: r.body,
@@ -390,10 +419,16 @@ export async function syncFolderFromCloud(folderId: string, userId: string): Pro
         updated_at: r.updated_at,
         ...(r.user_id !== userId ? { authorId: r.user_id } : {}),
       })
-      notesChanged = true
     }
   }
-  if (notesChanged) await saveNotes([...noteById.values()])
+  if (noteIdsToDelete.size || notesToUpsert.length) {
+    await updateNotes((fresh) => {
+      const freshById = new Map(fresh.map((n) => [n.id, n]))
+      for (const id of noteIdsToDelete) freshById.delete(id)
+      for (const n of notesToUpsert) freshById.set(n.id, n)
+      return [...freshById.values()]
+    })
+  }
 }
 
 // ── Turning sync on/off ────────────────────────────────────────────────────────

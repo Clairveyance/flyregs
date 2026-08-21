@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
+import { withLock } from '@/lib/asyncMutex'
 
 const NOTES_KEY = '@flyregs/notes'
 
@@ -62,4 +63,23 @@ export async function getNotes(): Promise<Note[]> {
 
 export async function saveNotes(notes: Note[]): Promise<void> {
   await AsyncStorage.setItem(NOTES_KEY, JSON.stringify(notes))
+}
+
+// 2026-08-21 bug sweep: every prior notes.tsx/folder/[id].tsx call site did
+// its own getNotes() -> compute new array (often from a stale, closed-over
+// React state variable, not even a fresh read) -> saveNotes() cycle, with
+// nothing stopping sync.ts's mergeNotes from silently clobbering an edit
+// that landed in the middle of that cycle. `mutate` receives a FRESH read
+// taken under the lock, immediately before the write -- callers should
+// always compute the next array from the `fresh` argument, never from their
+// own outside state, or this guarantee doesn't actually hold for them.
+// Same lock domain ('notes') mergeNotes uses below, so a local edit and a
+// background merge can never race each other's write.
+export async function updateNotes(mutate: (fresh: Note[]) => Note[]): Promise<Note[]> {
+  return withLock('notes', async () => {
+    const fresh = await getNotes()
+    const next = mutate(fresh)
+    await AsyncStorage.setItem(NOTES_KEY, JSON.stringify(next))
+    return next
+  })
 }

@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { syncPushBookmark, syncPushBookmarkDeletes } from '@/lib/syncPush'
 import { removeItemsFromAllFolders, FolderItemType } from '@/lib/folders'
 import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
+import { withLock } from '@/lib/asyncMutex'
 
 const KEY = '@flyregs/bookmarks'
 
@@ -133,11 +134,18 @@ export async function isBookmarked(id: string): Promise<boolean> {
 }
 
 export async function addBookmark(ac: Omit<BookmarkAC, 'savedAt'>) {
-  const list = await getBookmarks()
-  if (list.some((b) => b.id === ac.id)) return
-  const bookmark = { ...ac, savedAt: new Date().toISOString() }
-  await AsyncStorage.setItem(KEY, JSON.stringify([bookmark, ...list]))
-  syncPushBookmark(bookmark)
+  // withLock('bookmarks', ...) here and on every other read-modify-write in
+  // this file -- serializes against both each other AND sync.ts's
+  // mergeBookmarks (same lock key), which used to be able to silently
+  // clobber a local write like this one if it landed mid-merge. See
+  // asyncMutex.ts's own header comment for the full story.
+  return withLock('bookmarks', async () => {
+    const list = await getBookmarks()
+    if (list.some((b) => b.id === ac.id)) return
+    const bookmark = { ...ac, savedAt: new Date().toISOString() }
+    await AsyncStorage.setItem(KEY, JSON.stringify([bookmark, ...list]))
+    syncPushBookmark(bookmark)
+  })
 }
 
 // Ensures a bookmark exists for each given AC in one read-modify-write, only
@@ -152,13 +160,15 @@ export async function addBookmark(ac: Omit<BookmarkAC, 'savedAt'>) {
 // flyregs_gotchas.md for the 2026-07-12 bug this fixes.
 export async function addManyBookmarks(acs: Omit<BookmarkAC, 'savedAt'>[]) {
   if (acs.length === 0) return
-  const list = await getBookmarks()
-  const existing = new Set(list.map((b) => b.id))
-  const now = new Date().toISOString()
-  const toAdd = acs.filter((ac) => !existing.has(ac.id)).map((ac) => ({ ...ac, savedAt: now }))
-  if (toAdd.length === 0) return
-  await AsyncStorage.setItem(KEY, JSON.stringify([...toAdd, ...list]))
-  toAdd.forEach((b) => syncPushBookmark(b))
+  return withLock('bookmarks', async () => {
+    const list = await getBookmarks()
+    const existing = new Set(list.map((b) => b.id))
+    const now = new Date().toISOString()
+    const toAdd = acs.filter((ac) => !existing.has(ac.id)).map((ac) => ({ ...ac, savedAt: now }))
+    if (toAdd.length === 0) return
+    await AsyncStorage.setItem(KEY, JSON.stringify([...toAdd, ...list]))
+    toAdd.forEach((b) => syncPushBookmark(b))
+  })
 }
 
 export async function removeBookmark(id: string) {
@@ -170,17 +180,24 @@ export async function removeBookmark(id: string) {
 // AsyncStorage, so concurrent writes clobber each other and only the last
 // removal survives. This does the read once, removes everything, writes once.
 export async function removeManyBookmarks(ids: string[]) {
-  const list = await getBookmarks()
-  const idSet = new Set(ids)
-  const removed = list.filter((b) => idSet.has(b.id))
-  await AsyncStorage.setItem(KEY, JSON.stringify(list.filter((b) => !idSet.has(b.id))))
-  syncPushBookmarkDeletes(ids)
+  const removed = await withLock('bookmarks', async () => {
+    const list = await getBookmarks()
+    const idSet = new Set(ids)
+    const rem = list.filter((b) => idSet.has(b.id))
+    await AsyncStorage.setItem(KEY, JSON.stringify(list.filter((b) => !idSet.has(b.id))))
+    syncPushBookmarkDeletes(ids)
+    return rem
+  })
   // A removed bookmark may still be referenced by one or more folders — drop
   // those references too, or the folder's item count silently drifts ahead
   // of what it actually renders (see folders.ts's removeItemsFromAllFolders).
   // Removed ids can span multiple content types in one call (e.g. a
   // multi-select bulk delete in Saved), so group by each bookmark's own
   // itemType rather than assuming everything being removed is an 'ac'.
+  // Outside the 'bookmarks' lock above (this touches the separate 'folders'
+  // domain, via removeItemsFromAllFolders's own lock) -- deliberately not
+  // nested inside it, since a lock this file doesn't own has no business
+  // being acquired from inside another lock's critical section.
   const byType = new Map<FolderItemType, string[]>()
   for (const b of removed) {
     const t = bookmarkItemType(b)
@@ -234,11 +251,13 @@ export async function addHighlight(h: {
   blockText: string
 }): Promise<BookmarkAC> {
   const id = `${h.acId}-hl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  const list = await getBookmarks()
-  const bookmark: BookmarkAC = { ...h, itemType: h.itemType ?? 'ac', id, savedAt: new Date().toISOString() }
-  await AsyncStorage.setItem(KEY, JSON.stringify([bookmark, ...list]))
-  syncPushBookmark(bookmark)
-  return bookmark
+  return withLock('bookmarks', async () => {
+    const list = await getBookmarks()
+    const bookmark: BookmarkAC = { ...h, itemType: h.itemType ?? 'ac', id, savedAt: new Date().toISOString() }
+    await AsyncStorage.setItem(KEY, JSON.stringify([bookmark, ...list]))
+    syncPushBookmark(bookmark)
+    return bookmark
+  })
 }
 
 export async function removeHighlight(id: string) {

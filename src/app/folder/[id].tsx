@@ -45,7 +45,7 @@ import { syncFolderFromCloud } from '@/lib/sync'
 import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { stripFarPrefix, rowTitle } from '@/lib/titleFormat'
 import { useConfirm } from '@/components/ConfirmDialog'
-import { getNotes, saveNotes, type Note } from '@/lib/notes'
+import { getNotes, updateNotes, type Note } from '@/lib/notes'
 import { syncPushNote, syncPushNoteDeletes } from '@/lib/syncPush'
 import { NoteEditor } from '@/components/NoteEditor'
 import { BulkInviteContactPicker } from '@/components/BulkInviteContactPicker'
@@ -618,8 +618,11 @@ export default function FolderDetail() {
   // create a duplicate row under my own id rather than update the original.
   const handleSaveNote = async (note: Note) => {
     const updated = { ...note, updated_at: new Date().toISOString() }
-    const all = await getNotes()
-    await saveNotes(all.map((n) => (n.id === updated.id ? updated : n)))
+    // updateNotes (not a plain getNotes-then-saveNotes pair) -- reads and
+    // writes atomically under a lock shared with sync.ts's mergeNotes, so a
+    // background sync merge landing between the old read and write can't
+    // silently revert this edit. See notes.ts's own comment on updateNotes.
+    await updateNotes((fresh) => fresh.map((n) => (n.id === updated.id ? updated : n)))
     setNoteEntries((prev) => prev.map((e) => (e.data.id === updated.id ? { ...e, data: updated } : e)))
     if (updated.authorId) {
       // Fire-and-forget by design, same as notes.tsx's identical pattern --
@@ -651,8 +654,7 @@ export default function FolderDetail() {
       destructive: true,
       twoStep: false,
       onConfirm: async () => {
-        const all = await getNotes()
-        await saveNotes(all.filter((n) => n.id !== note.id))
+        await updateNotes((fresh) => fresh.filter((n) => n.id !== note.id))
         syncPushNoteDeletes([note.id])
         removeItemsFromAllFolders('note', [note.id])
         setNoteEntries((prev) => prev.filter((e) => e.data.id !== note.id))

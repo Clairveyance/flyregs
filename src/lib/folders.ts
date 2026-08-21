@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { syncPushFolder, syncPushFolderDelete, syncPushFolderItems, syncPushFolderItemDeletes, syncPushNote } from '@/lib/syncPush'
 import { getNotes } from '@/lib/notes'
 import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
+import { withLock } from '@/lib/asyncMutex'
 
 // Revokes sharing entirely: removes every collaborator and invalidates the
 // share link (a new one is generated next time the owner shares again). The
@@ -124,16 +125,28 @@ export const DUPLICATE_FOLDER_NAME = 'DUPLICATE_FOLDER_NAME'
 
 export async function createFolder(name: string): Promise<Folder> {
   const trimmed = name.trim()
-  const folders = await getFolders()
-  if (folders.some((f) => f.name.trim().toLowerCase() === trimmed.toLowerCase())) {
-    throw new Error(DUPLICATE_FOLDER_NAME)
-  }
-  const now = new Date().toISOString()
-  const nextOrder = folders.reduce((max, f) => Math.max(max, f.sort_order ?? -1), -1) + 1
-  const folder: Folder = { id: makeId(), name: trimmed, created_at: now, updated_at: now, sort_order: nextOrder }
-  await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify([...folders, folder]))
-  syncPushFolder(folder)
-  return folder
+  // withLock('folders', ...) here and on every other read-modify-write in
+  // this file touching FOLDERS_KEY/FOLDER_ITEMS_KEY -- one shared domain for
+  // BOTH keys (not two separate locks), so deleteFolder/duplicateFolder can
+  // never deadlock against a lock-ordering mismatch. Serializes against
+  // sync.ts's mergeFolders/mergeFolderItems (same lock key), which used to
+  // be able to silently clobber a local write like this one if it landed
+  // mid-merge. See asyncMutex.ts's own header comment for the full story.
+  // NOTE: never wrap a function that itself calls another already-locked
+  // function (duplicateFolder below calls this one + addManyToFolder) --
+  // this plain queue-per-key mutex isn't reentrant and would deadlock.
+  return withLock('folders', async () => {
+    const folders = await getFolders()
+    if (folders.some((f) => f.name.trim().toLowerCase() === trimmed.toLowerCase())) {
+      throw new Error(DUPLICATE_FOLDER_NAME)
+    }
+    const now = new Date().toISOString()
+    const nextOrder = folders.reduce((max, f) => Math.max(max, f.sort_order ?? -1), -1) + 1
+    const folder: Folder = { id: makeId(), name: trimmed, created_at: now, updated_at: now, sort_order: nextOrder }
+    await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify([...folders, folder]))
+    syncPushFolder(folder)
+    return folder
+  })
 }
 
 // Persists a full new display order after a drag-and-drop reorder in the UI.
@@ -142,36 +155,40 @@ export async function createFolder(name: string): Promise<Folder> {
 // its old and new position, so "what actually changed" isn't worth computing
 // separately from "here's the whole new order."
 export async function reorderFolders(orderedIds: string[]): Promise<Folder[]> {
-  const folders = await getFolders()
-  const byId = new Map(folders.map((f) => [f.id, f]))
-  const now = new Date().toISOString()
-  const reordered: Folder[] = orderedIds
-    .map((id, i): Folder | null => {
-      const f = byId.get(id)
-      return f ? { ...f, sort_order: i, updated_at: now } : null
-    })
-    .filter((f): f is Folder => f !== null)
-  // Any folder not present in orderedIds (shouldn't normally happen -- the
-  // caller reorders the exact list it was given) is kept, appended after,
-  // rather than silently dropped.
-  const missing = folders.filter((f) => !orderedIds.includes(f.id))
-  const next = [...reordered, ...missing]
-  await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(next))
-  for (const f of reordered) syncPushFolder(f, f.shared)
-  return next
+  return withLock('folders', async () => {
+    const folders = await getFolders()
+    const byId = new Map(folders.map((f) => [f.id, f]))
+    const now = new Date().toISOString()
+    const reordered: Folder[] = orderedIds
+      .map((id, i): Folder | null => {
+        const f = byId.get(id)
+        return f ? { ...f, sort_order: i, updated_at: now } : null
+      })
+      .filter((f): f is Folder => f !== null)
+    // Any folder not present in orderedIds (shouldn't normally happen -- the
+    // caller reorders the exact list it was given) is kept, appended after,
+    // rather than silently dropped.
+    const missing = folders.filter((f) => !orderedIds.includes(f.id))
+    const next = [...reordered, ...missing]
+    await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(next))
+    for (const f of reordered) syncPushFolder(f, f.shared)
+    return next
+  })
 }
 
 export async function renameFolder(id: string, name: string): Promise<void> {
   const trimmed = name.trim()
-  const folders = await getFolders()
-  if (folders.some((f) => f.id !== id && f.name.trim().toLowerCase() === trimmed.toLowerCase())) {
-    throw new Error(DUPLICATE_FOLDER_NAME)
-  }
-  const updated_at = new Date().toISOString()
-  const next = folders.map((f) => (f.id === id ? { ...f, name: trimmed, updated_at } : f))
-  await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(next))
-  const renamed = next.find((f) => f.id === id)
-  if (renamed) syncPushFolder(renamed, renamed.shared)
+  return withLock('folders', async () => {
+    const folders = await getFolders()
+    if (folders.some((f) => f.id !== id && f.name.trim().toLowerCase() === trimmed.toLowerCase())) {
+      throw new Error(DUPLICATE_FOLDER_NAME)
+    }
+    const updated_at = new Date().toISOString()
+    const next = folders.map((f) => (f.id === id ? { ...f, name: trimmed, updated_at } : f))
+    await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(next))
+    const renamed = next.find((f) => f.id === id)
+    if (renamed) syncPushFolder(renamed, renamed.shared)
+  })
 }
 
 // Marks a folder as shared locally -- called once by sharedFolders.ts's
@@ -179,18 +196,23 @@ export async function renameFolder(id: string, name: string): Promise<void> {
 // merely generated one). See the Folder.shared field comment for why this
 // exists.
 export async function markFolderShared(folderId: string): Promise<void> {
-  const folders = await getFolders()
-  const next = folders.map((f) => (f.id === folderId ? { ...f, shared: true } : f))
-  await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(next))
+  return withLock('folders', async () => {
+    const folders = await getFolders()
+    const next = folders.map((f) => (f.id === folderId ? { ...f, shared: true } : f))
+    await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(next))
+  })
 }
 
 export async function deleteFolder(id: string): Promise<void> {
-  const [folders, items] = await Promise.all([getFolders(), getFolderItems()])
-  const itemsInFolder = items.filter((i) => i.folder_id === id)
-  await Promise.all([
-    AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(folders.filter((f) => f.id !== id))),
-    AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(items.filter((i) => i.folder_id !== id))),
-  ])
+  const { deletedFolder, itemsInFolder } = await withLock('folders', async () => {
+    const [folders, items] = await Promise.all([getFolders(), getFolderItems()])
+    const inFolder = items.filter((i) => i.folder_id === id)
+    await Promise.all([
+      AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(folders.filter((f) => f.id !== id))),
+      AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(items.filter((i) => i.folder_id !== id))),
+    ])
+    return { deletedFolder: folders.find((f) => f.id === id), itemsInFolder: inFolder }
+  })
   // force: folder.shared -- same reasoning as handleSaveNote's own
   // syncPushNote(updated, folder?.shared ?? false): syncPushFolderDelete had
   // NO force param at all until now, so deleting a shared folder with the
@@ -198,7 +220,6 @@ export async function deleteFolder(id: string): Promise<void> {
   // false forever (confirmed live: folder/items/notes all orphaned in the
   // cloud DB, never cleaned up), even though the collaborator correctly lost
   // access via unshareFolder below. Found by tonight's QA sweep.
-  const deletedFolder = folders.find((f) => f.id === id)
   syncPushFolderDelete(id, deletedFolder?.shared ?? false)
   syncPushFolderItemDeletes(itemsInFolder.map((i) => i.id), deletedFolder?.shared ?? false)
   // Deleting a folder should also drop anyone it was shared with -- otherwise
@@ -292,30 +313,34 @@ export async function addManyToFolder(
   itemType: FolderItemType,
   itemIds: string[]
 ): Promise<void> {
-  const [items, folders] = await Promise.all([getFolderItems(), getFolders()])
-  const existing = new Set(
-    items
-      .filter((i) => i.folder_id === folderId && i.item_type === itemType)
-      .map((i) => i.item_id)
-  )
-  const now = new Date().toISOString()
-  const newItems: FolderItem[] = itemIds
-    .filter((itemId) => !existing.has(itemId))
-    .map((itemId) => ({
-      id: makeId(),
-      folder_id: folderId,
-      item_type: itemType,
-      item_id: itemId,
-      added_at: now,
-    }))
-  if (newItems.length === 0) return
-  await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify([...items, ...newItems]))
-  const isShared = folders.find((f) => f.id === folderId)?.shared ?? false
-  syncPushFolderItems(newItems, isShared)
+  const { newItems, isShared } = await withLock('folders', async () => {
+    const [items, folders] = await Promise.all([getFolderItems(), getFolders()])
+    const existing = new Set(
+      items
+        .filter((i) => i.folder_id === folderId && i.item_type === itemType)
+        .map((i) => i.item_id)
+    )
+    const now = new Date().toISOString()
+    const added: FolderItem[] = itemIds
+      .filter((itemId) => !existing.has(itemId))
+      .map((itemId) => ({
+        id: makeId(),
+        folder_id: folderId,
+        item_type: itemType,
+        item_id: itemId,
+        added_at: now,
+      }))
+    if (added.length === 0) return { newItems: added, isShared: false }
+    await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify([...items, ...added]))
+    const shared = folders.find((f) => f.id === folderId)?.shared ?? false
+    syncPushFolderItems(added, shared)
+    return { newItems: added, isShared: shared }
+  })
   // A shared folder's notes need their actual content in the cloud too, not
   // just the item pointer -- unlike ACs (resolved against the public
   // advisory_circulars table for anyone), a note's title/body only exists in
-  // synced_notes, which is otherwise gated on the global sync toggle.
+  // synced_notes, which is otherwise gated on the global sync toggle. Reads
+  // notes (no lock needed for a read), outside the 'folders' lock above.
   if (isShared && itemType === 'note' && newItems.length) {
     const notes = await getNotes()
     const noteMap = new Map(notes.map((n) => [n.id, n]))
@@ -331,16 +356,18 @@ export async function removeFromFolder(
   itemType: FolderItemType,
   itemId: string
 ): Promise<void> {
-  const [items, folders] = await Promise.all([getFolderItems(), getFolders()])
-  const removed = items.filter(
-    (i) => i.folder_id === folderId && i.item_type === itemType && i.item_id === itemId
-  )
-  await AsyncStorage.setItem(
-    FOLDER_ITEMS_KEY,
-    JSON.stringify(items.filter((i) => !removed.some((r) => r.id === i.id)))
-  )
-  const isShared = folders.find((f) => f.id === folderId)?.shared ?? false
-  syncPushFolderItemDeletes(removed.map((i) => i.id), isShared)
+  return withLock('folders', async () => {
+    const [items, folders] = await Promise.all([getFolderItems(), getFolders()])
+    const removed = items.filter(
+      (i) => i.folder_id === folderId && i.item_type === itemType && i.item_id === itemId
+    )
+    await AsyncStorage.setItem(
+      FOLDER_ITEMS_KEY,
+      JSON.stringify(items.filter((i) => !removed.some((r) => r.id === i.id)))
+    )
+    const isShared = folders.find((f) => f.id === folderId)?.shared ?? false
+    syncPushFolderItemDeletes(removed.map((i) => i.id), isShared)
+  })
 }
 
 // Removes several items from one folder in a single read-modify-write — same
@@ -353,14 +380,16 @@ export async function removeManyFromFolder(
   entries: { itemType: FolderItemType; itemId: string }[]
 ): Promise<void> {
   if (!entries.length) return
-  const [items, folders] = await Promise.all([getFolderItems(), getFolders()])
-  const toRemove = new Set(entries.map((e) => `${e.itemType}:${e.itemId}`))
-  const removed = items.filter((i) => i.folder_id === folderId && toRemove.has(`${i.item_type}:${i.item_id}`))
-  if (!removed.length) return
-  const removedIds = new Set(removed.map((r) => r.id))
-  await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(items.filter((i) => !removedIds.has(i.id))))
-  const isShared = folders.find((f) => f.id === folderId)?.shared ?? false
-  syncPushFolderItemDeletes(removed.map((i) => i.id), isShared)
+  return withLock('folders', async () => {
+    const [items, folders] = await Promise.all([getFolderItems(), getFolders()])
+    const toRemove = new Set(entries.map((e) => `${e.itemType}:${e.itemId}`))
+    const removed = items.filter((i) => i.folder_id === folderId && toRemove.has(`${i.item_type}:${i.item_id}`))
+    if (!removed.length) return
+    const removedIds = new Set(removed.map((r) => r.id))
+    await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(items.filter((i) => !removedIds.has(i.id))))
+    const isShared = folders.find((f) => f.id === folderId)?.shared ?? false
+    syncPushFolderItemDeletes(removed.map((i) => i.id), isShared)
+  })
 }
 
 // Removes one item from EVERY folder it's in — called whenever the underlying
@@ -380,19 +409,21 @@ export async function removeItemFromAllFolders(itemType: FolderItemType, itemId:
 // last removal (see addManyToFolder above for the same class of bug).
 export async function removeItemsFromAllFolders(itemType: FolderItemType, itemIds: string[]): Promise<void> {
   if (!itemIds.length) return
-  const idSet = new Set(itemIds)
-  const [items, folders] = await Promise.all([getFolderItems(), getFolders()])
-  const removed = items.filter((i) => i.item_type === itemType && idSet.has(i.item_id))
-  if (!removed.length) return
-  const removedIds = new Set(removed.map((r) => r.id))
-  await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(items.filter((i) => !removedIds.has(i.id))))
-  // Removed items can span both shared and unshared folders in one call --
-  // split so only the shared folders' rows force-push past the global toggle.
-  const sharedFolderIds = new Set(folders.filter((f) => f.shared).map((f) => f.id))
-  const sharedRemoved = removed.filter((i) => sharedFolderIds.has(i.folder_id))
-  const unsharedRemoved = removed.filter((i) => !sharedFolderIds.has(i.folder_id))
-  if (sharedRemoved.length) syncPushFolderItemDeletes(sharedRemoved.map((i) => i.id), true)
-  if (unsharedRemoved.length) syncPushFolderItemDeletes(unsharedRemoved.map((i) => i.id))
+  return withLock('folders', async () => {
+    const idSet = new Set(itemIds)
+    const [items, folders] = await Promise.all([getFolderItems(), getFolders()])
+    const removed = items.filter((i) => i.item_type === itemType && idSet.has(i.item_id))
+    if (!removed.length) return
+    const removedIds = new Set(removed.map((r) => r.id))
+    await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(items.filter((i) => !removedIds.has(i.id))))
+    // Removed items can span both shared and unshared folders in one call --
+    // split so only the shared folders' rows force-push past the global toggle.
+    const sharedFolderIds = new Set(folders.filter((f) => f.shared).map((f) => f.id))
+    const sharedRemoved = removed.filter((i) => sharedFolderIds.has(i.folder_id))
+    const unsharedRemoved = removed.filter((i) => !sharedFolderIds.has(i.folder_id))
+    if (sharedRemoved.length) syncPushFolderItemDeletes(sharedRemoved.map((i) => i.id), true)
+    if (unsharedRemoved.length) syncPushFolderItemDeletes(unsharedRemoved.map((i) => i.id))
+  })
 }
 
 /** Returns a map of folderId → item count, useful for rendering folder cards. */

@@ -15,7 +15,7 @@ import { FolderSelectSheet } from '@/components/FolderSelectSheet'
 import { addManyToFolder, getFolders, getFoldersForItem, removeItemsFromAllFolders } from '@/lib/folders'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { useShareActions } from '@/lib/share'
-import { getNotes, saveNotes, makeNoteId, type Note } from '@/lib/notes'
+import { getNotes, updateNotes, makeNoteId, type Note } from '@/lib/notes'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
 import { syncPushNote, syncPushNoteDeletes } from '@/lib/syncPush'
 import { updateSharedNote } from '@/lib/sharedFolders'
@@ -109,9 +109,14 @@ export default function NotesScreen() {
     }
   }, [openId, notes, hasPlusAccess])
 
-  const persist = useCallback((updated: Note[]) => {
-    setNotes(updated)
-    saveNotes(updated)
+  // Takes a MUTATOR, not a precomputed array -- updateNotes runs it against
+  // a fresh read taken right before the write (under a lock shared with
+  // sync.ts's mergeNotes), so a background sync merge landing at the same
+  // moment can't silently revert this edit the way it used to when this
+  // just wrote a whole array computed from the (possibly already-stale)
+  // `notes` React state closed over by each call site below.
+  const persist = useCallback((mutate: (fresh: Note[]) => Note[]) => {
+    updateNotes(mutate).then(setNotes)
   }, [])
 
   const openNew = () => {
@@ -135,7 +140,7 @@ export default function NotesScreen() {
   const handleSave = (note: Note) => {
     const now = new Date().toISOString()
     const saved: Note = note.id ? { ...note, updated_at: now } : { ...note, id: makeNoteId(), updated_at: now }
-    persist(note.id ? notes.map((n) => (n.id === note.id ? saved : n)) : [saved, ...notes])
+    persist((fresh) => (note.id ? fresh.map((n) => (n.id === note.id ? saved : n)) : [saved, ...fresh]))
     // A note pulled in because a collaborator placed it in one of MY folders
     // (see mergeNotes' authorId tag) isn't mine to upsert -- syncPushNote's
     // upsert keys on (user_id, id) and would create a duplicate row under my
@@ -169,7 +174,7 @@ export default function NotesScreen() {
   }
 
   const deleteNote = (id: string) => {
-    persist(notes.filter((n) => n.id !== id))
+    persist((fresh) => fresh.filter((n) => n.id !== id))
     syncPushNoteDeletes([id])
     // A deleted note may still be referenced by one or more folders -- drop
     // those references too, or the folder's shown item count silently drifts
@@ -201,7 +206,7 @@ export default function NotesScreen() {
       twoStep: false,
       onConfirm: () => {
         const ids = [...selected]
-        persist(notes.filter((n) => !selected.has(n.id)))
+        persist((fresh) => fresh.filter((n) => !selected.has(n.id)))
         syncPushNoteDeletes(ids)
         removeItemsFromAllFolders('note', ids)
         setSelected(new Set())
