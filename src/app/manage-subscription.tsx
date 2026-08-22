@@ -8,6 +8,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { useFS } from '@/context/fontScale'
 import { getSubscriptionDetails, restorePurchases, SubscriptionDetails } from '@/lib/revenuecat'
+import { getOwnedAircraftOldestFirst } from '@/lib/aircraftSharing'
 import { useConfirm } from '@/components/ConfirmDialog'
 
 // Apple/Google don't let an app deep-link to a management screen scoped to
@@ -41,11 +42,28 @@ export default function ManageSubscriptionScreen() {
     Linking.openURL(url).catch(() => {})
   }
 
-  const handleManage = () => {
+  const handleManage = async () => {
     if (Platform.OS === 'web') {
       confirm({ title: 'Available on iOS', message: 'Manage your subscription from the FlyRegs iOS app.', cancelLabel: null })
       return
     }
+    // RC, 2026-08-22: "if d/g to Plus or Free, they must be reminded that
+    // they will lose (complete delete) all their a/c's and data." Plus and
+    // Free both have fleet_visible_cap() 0 -- Aircraft Manager isn't part
+    // of either tier -- so cancelling out of Pro/Premium here is a full
+    // wipe of every saved aircraft, not just a downgrade. Only worth the
+    // lookup (and only worth mentioning) if there's currently something to
+    // lose -- a Free/Plus subscriber managing nothing has no aircraft to
+    // warn about in the first place.
+    let aircraftCount = 0
+    if (isPro || isPremium) {
+      try {
+        aircraftCount = (await getOwnedAircraftOldestFirst()).length
+      } catch { /* best-effort -- don't block cancellation on this lookup failing */ }
+    }
+    const aircraftNote = aircraftCount > 0
+      ? ` You currently have ${aircraftCount} saved aircraft${aircraftCount === 1 ? '' : 's'} -- Aircraft Manager isn't part of Plus or Free, so ${aircraftCount === 1 ? 'it' : 'all of them'}, and their equipment/reminders/AD history, will be permanently deleted.`
+      : ''
     // Cancelling drops the subscriber to whatever they separately own
     // (isUnlocked) -- if they never bought Plus on its own, that's a full
     // cliff back to Free, losing Highlights/Notes/Bookmarks and the AC/LOI
@@ -58,7 +76,7 @@ export default function ManageSubscriptionScreen() {
     if (!isUnlocked) {
       confirm({
         title: 'Before you go',
-        message: 'Cancelling will remove access to your Highlights, Notes, and AC/LOI library. Keep that permanently for $17.99 instead?',
+        message: `Cancelling will remove access to your Highlights, Notes, and AC/LOI library. Keep that permanently for $17.99 instead?${aircraftNote}`,
         // Three real options, so `choices` rather than a confirm/cancel pair.
         // Order matters: "Continue to Cancel" must be as easy to reach as
         // "Get Plus" -- a genuine choice, not a buried escape hatch -- and
@@ -69,6 +87,19 @@ export default function ManageSubscriptionScreen() {
           { label: 'Get Plus', onPress: () => router.push('/paywall?tier=plus') },
           { label: 'Continue to Cancel', destructive: true, onPress: openManageURL },
         ],
+      })
+      return
+    }
+    // Already owns Plus permanently, so the Highlights/Notes/library
+    // warning above doesn't apply -- but the aircraft warning still does,
+    // and previously had NO confirmation step at all here.
+    if (aircraftNote) {
+      confirm({
+        title: 'Before you go',
+        message: `Cancelling will move you to Plus (already yours to keep).${aircraftNote}`,
+        confirmLabel: 'Continue to Cancel',
+        destructive: true,
+        onConfirm: openManageURL,
       })
       return
     }

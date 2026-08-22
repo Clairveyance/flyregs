@@ -7,6 +7,7 @@ import { useAuth } from '@/context/auth'
 import { useTheme } from '@/context/theme'
 import { Icon } from '@/components/Icon'
 import { purchaseSubscription, purchaseUnlock, restorePurchases } from '@/lib/revenuecat'
+import { getOwnedAircraftOldestFirst } from '@/lib/aircraftSharing'
 import { useFS } from '@/context/fontScale'
 import { useConfirm } from '@/components/ConfirmDialog'
 
@@ -380,9 +381,24 @@ export default function PaywallScreen() {
     }
     if (viewingCurrentPlan) return
     if (downgradeMode && tier === 'pro') {
+      // RC, 2026-08-22: "if a user DOES downgrade Prem>Pro, and have
+      // multiple a/c, they must be notified first that they need to pick
+      // only one a/c to take with them to Pro." AircraftDowngradeGate
+      // already handles the actual choice AFTER the downgrade takes
+      // effect (it has to -- Apple's own billing-period-end timing means
+      // this purchase doesn't demote the account immediately), but this
+      // is the one moment before the fact where the app can say it out
+      // loud, while there's still a real choice to make.
+      let aircraftCount = 0
+      try {
+        aircraftCount = (await getOwnedAircraftOldestFirst()).length
+      } catch { /* best-effort -- don't block the downgrade on this lookup failing */ }
+      const aircraftNote = aircraftCount > 1
+        ? ` Pro only keeps 1 saved aircraft — you'll be asked to choose which of your ${aircraftCount} to keep; the rest, and their equipment/reminders/AD history, will be permanently deleted.`
+        : ''
       confirm({
         title: 'Downgrade to Pro?',
-        message: "You'll keep Premium features (shared folders, aircraft sharing, offline downloads, unlimited aircraft) until your current billing period ends, then move to Pro automatically. No refund for the time remaining.",
+        message: `You'll keep Premium features (shared folders, aircraft sharing, offline downloads, unlimited aircraft) until your current billing period ends, then move to Pro automatically. No refund for the time remaining.${aircraftNote}`,
         confirmLabel: 'Downgrade',
         destructive: true,
         finalTitle: 'Downgrade to Pro — confirm',
