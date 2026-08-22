@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal, TextInput } from 'react-native'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native'
 import { router, usePathname } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -122,7 +122,15 @@ export function AircraftDowngradeGate() {
     const going = locked.filter((a) => a.aircraftId !== pending.aircraftId)
     return (
       <Modal visible transparent animationType="fade" onRequestClose={() => setPending(null)}>
-        <View style={styles.scrim}>
+        {/* Corpus-wide keyboard-avoidance sweep, RC real-device report. This
+            card's height is unbounded (a body message plus a per-aircraft
+            list that grows with `going.length`, plus the typed-DELETE input
+            and buttons below it) -- on a smaller device, or with several
+            aircraft in the delete list, the input/buttons can end up under
+            the keyboard once it's up, with nothing here to push the card
+            back into view. Same fix as ConfirmDialog.tsx's own requireTyped
+            case. */}
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.scrim}>
           <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.red }]}>
             <Icon name="exclamationmark.triangle" size={fs(26)} color={tokens.red} />
             <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>
@@ -192,7 +200,7 @@ export function AircraftDowngradeGate() {
               </>
             )}
           </View>
-        </View>
+        </KeyboardAvoidingView>
         <LongPressPreviewCard
           preview={preview}
           previewHeight={previewHeight}

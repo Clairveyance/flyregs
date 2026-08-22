@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, ActivityIndicator, Modal, Keyboard } from 'react-native'
+import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, ActivityIndicator, Modal, Keyboard, KeyboardAvoidingView, Platform } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -500,7 +500,17 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: Us
 
   return (
     <Modal visible={!!aircraft} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
+      {/* Corpus-wide keyboard-avoidance sweep, RC/Adriana real-device
+          report ("Plane brands options are weird... not clickable"): this
+          card is bottom-pinned (modalBackdrop's justifyContent: 'flex-end')
+          with no KeyboardAvoidingView, and MakeField's own suggestion
+          dropdown renders directly BELOW the Make input -- once the
+          keyboard is up, that dropdown (and the taps on it) could end up
+          entirely under the keyboard, which would look exactly like
+          "not clickable" even though the underlying Pressable/onPress
+          wiring is fine. Same fix as ConfirmDialog.tsx/
+          AircraftDowngradeGate.tsx's own requireTyped case. */}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalBackdrop}>
         <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: Math.max(18, insets.bottom + 8) }]}>
           <View style={styles.modalHeader}>
             <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Edit Aircraft</Text>
@@ -562,7 +572,7 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: Us
             {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Save Changes</Text>}
           </Pressable>
         </View>
-      </View>
+      </KeyboardAvoidingView>
       <YearPickerModal
         visible={yearPickerOpen}
         initialYear={year}

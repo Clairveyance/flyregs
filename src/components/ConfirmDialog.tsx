@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useRef, useState } from 'react'
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Modal, TextInput } from 'react-native'
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -201,6 +201,15 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     <ConfirmContext.Provider value={confirm}>
       {children}
       <Modal visible={!!opts} transparent animationType="fade" onRequestClose={close}>
+        {/* This dialog's card is vertically centered, not bottom-pinned, so
+            most confirms never come near the keyboard -- but requireTyped
+            (the "type DELETE to confirm" destructive-action pattern) adds a
+            real TextInput below a title/message/error stack that can push
+            the input and buttons down far enough on a smaller device (or
+            with larger accessibility text) to sit under the keyboard once
+            it's up, with nothing here to push the card back into view.
+            Corpus-wide keyboard-avoidance sweep, RC real-device report. */}
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <Pressable
           style={styles.scrim}
           // onCancel too, not just close() -- a caller relying on onCancel
@@ -294,6 +303,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
             )}
           </Pressable>
         </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
     </ConfirmContext.Provider>
   )
