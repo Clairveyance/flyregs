@@ -98,6 +98,7 @@ scripts/.fact_deck_verify_state.json
 scripts/.question_bank_batch_state*.json
 scripts/.question_bank_id_map*.json
 scripts/.question_bank_verify_state.json
+scripts/.question_bank_sources_snapshot*.json
 
 # Aviation Dictionary sourcing scratch — raw scraped/OCR'd source text and
 # batch-job checkpoint state the load_dictionary_*.py scripts consume and
