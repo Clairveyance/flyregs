@@ -429,12 +429,17 @@ export default function HomeScreen() {
   }, [citesQuery])
 
   const load = useCallback(async () => {
+    // Carries the last known-good count across both the cache-read and
+    // fresh-fetch blocks below -- see this function's own cache-write
+    // comment near the bottom for why this exists.
+    let lastGoodCount: number | null = null
+
     // Show cached data immediately so the screen appears in under 100 ms
     try {
       const cached = await AsyncStorage.getItem(HOME_CACHE_KEY)
       if (cached) {
         const { totalCount: ct, whatsNew: cw, otherWhatsNew: cow } = JSON.parse(cached)
-        if (ct != null) setTotalCount(ct)
+        if (ct != null) { setTotalCount(ct); lastGoodCount = ct }
         if (cw?.length) setWhatsNew(cw as WhatsNewAC[])
         if (cow?.length) setOtherWhatsNew(cow as WhatsNewOther[])
         setLoading(false)
@@ -505,9 +510,19 @@ export default function HomeScreen() {
       setWhatsNew(freshWhatsNew)
       setOtherWhatsNew(freshOther)
 
-      // Cache for next launch — fire-and-forget
+      // Cache for next launch — fire-and-forget. Was `totalCount: freshCount`
+      // unconditionally -- on a transient failure (network blip, or the kind
+      // of stale-JWT auth-state transition today's Face ID entitlement-race
+      // fix, c052a50, targets) countRes.count comes back null, and this used
+      // to overwrite a perfectly good previously-cached count with null,
+      // permanently (until the next successful fetch) blanking the Home
+      // card's AC count on every subsequent cold launch that read this
+      // corrupted cache -- part of the same "ACs look gone" class of report
+      // as series/[prefix].tsx and ac/library.tsx's own loadError fix.
+      // freshCount ?? lastGoodCount preserves whatever was already known
+      // good instead of clobbering it with a failed fetch's null.
       AsyncStorage.setItem(HOME_CACHE_KEY, JSON.stringify({
-        totalCount: freshCount,
+        totalCount: freshCount ?? lastGoodCount,
         whatsNew: freshWhatsNew,
         otherWhatsNew: freshOther,
       }))

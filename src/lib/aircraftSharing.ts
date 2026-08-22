@@ -350,8 +350,14 @@ export function useAircraftRealtime(aircraftId: string | undefined, onChange: ()
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => onChangeRef.current(), 400)
     }
+    // Same channel-reuse race and fix as useFolderRealtime (sharedFolders.ts)
+    // -- supabase-js's client.channel(topic) reuses an EXISTING channel
+    // object if one with the same topic string is still registered rather
+    // than always creating a fresh one, so a rapid unmount+remount of this
+    // screen could get back a stale, already-subscribed channel and throw
+    // calling .on() on it again. Per-mount-unique topic name sidesteps it.
     const channel = supabase
-      .channel(`aircraft-realtime-${aircraftId}`)
+      .channel(`aircraft-realtime-${aircraftId}-${Math.random().toString(36).slice(2, 9)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'aircraft_collaborators', filter: `aircraft_id=eq.${aircraftId}` }, debounced)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'user_aircraft', filter: `id=eq.${aircraftId}` }, debounced)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'user_aircraft_equipment' }, debounced)

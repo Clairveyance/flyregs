@@ -903,8 +903,33 @@ export function useFolderRealtime(folderId: string | undefined, onChange: () => 
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => onChangeRef.current(), 400)
     }
+    // Real crash, RC real-device report 2026-08-22 (Sentry: "cannot add
+    // postgres_changes callbacks for realtime:folder-realtime-<id> after
+    // `subscribe()`", immediately followed by a WatchdogTermination RAM
+    // kill in the same session): supabase-js's own client.channel(topic)
+    // (RealtimeClient.js) reuses an EXISTING channel object if one with the
+    // same topic string is still registered, rather than always creating a
+    // fresh one -- confirmed directly against
+    // node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js.
+    // removeChannel() below (this effect's own cleanup) isn't synchronous,
+    // so a rapid unmount+remount of this screen for the SAME folder (RC
+    // navigating away and back in quickly -- this codebase has already
+    // documented this exact "many movements and clicks happen quickly"
+    // pattern biting other screens) could re-run this effect before the
+    // previous instance's channel had actually finished being removed from
+    // the client's registry. The new effect then got back that STALE,
+    // already-subscribed channel object, and calling .on() on it again
+    // (after its own earlier .subscribe() had already resolved) is exactly
+    // what throws this error -- and an orphaned, still-registered channel
+    // per abandoned attempt is a real leaked-resource shape consistent with
+    // the RAM buildup a watchdog kill implies. A per-mount-unique topic
+    // name sidesteps the whole race: it can never collide with a
+    // not-yet-fully-removed channel from a previous mount, regardless of
+    // how fast cleanup does or doesn't finish. The actual postgres_changes
+    // filters below (table/event/folder_id) are what determine delivery,
+    // not the topic string, so uniqueness here has no functional cost.
     const channel = supabase
-      .channel(`folder-realtime-${folderId}`)
+      .channel(`folder-realtime-${folderId}-${Math.random().toString(36).slice(2, 9)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'synced_folder_items', filter: `folder_id=eq.${folderId}` }, debounced)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'synced_notes' }, debounced)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'synced_folders', filter: `id=eq.${folderId}` }, debounced)

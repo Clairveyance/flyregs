@@ -61,6 +61,18 @@ export default function SeriesScreen() {
   const [figureCounts, setFigureCounts] = useState<Record<string, number>>({})
   const [seriesName, setSeriesName] = useState('')
   const [loading, setLoading] = useState(true)
+  // Real bug, RC real-device report 2026-08-21/22: "ALL of the ACs are
+  // GONE!!" -- this screen used to have no error state at all. supabase-js
+  // query builders resolve to {data, error} rather than throwing on a
+  // failed request (network blip, an in-flight/stale JWT during an
+  // auth-state transition -- see today's Face ID entitlement-race fix,
+  // c052a50, for exactly the kind of transitional window that could
+  // trigger this), so a transient failure used to silently fall through
+  // the `if (!acsRes.error && acsRes.data)` guard, leave `acs` empty, and
+  // still flip `loading` false -- rendering the exact same "No active ACs
+  // in this series" empty state a genuinely-empty series shows, with zero
+  // indication anything went wrong. Indistinguishable from real data loss.
+  const [loadError, setLoadError] = useState(false)
   const { badgeDays } = useBadgeLifespan()
   // AC titles in this series list get cut off the same way FAR Part titles
   // do -- same hook/card pair as far/index.tsx's own long-press preview.
@@ -68,7 +80,9 @@ export default function SeriesScreen() {
   // is passed down to ACRow below.
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true)
+    setLoadError(false)
     Promise.all([
       supabase
         .from('advisory_circulars')
@@ -94,11 +108,17 @@ export default function SeriesScreen() {
           for (const f of figs ?? []) counts[f.ac_id] = (counts[f.ac_id] ?? 0) + 1
           setFigureCounts(counts)
         }
+      } else if (acsRes.error) {
+        // Distinguishes "the fetch failed" from "this series genuinely has
+        // zero active ACs" -- see this file's loadError comment above.
+        setLoadError(true)
       }
       if (!seriesRes.error && seriesRes.data) setSeriesName(seriesRes.data.display_name)
       setLoading(false)
     })
-  }, [prefix])
+  }
+
+  useEffect(load, [prefix])
 
   const headerTitle = seriesName ? `${prefix} — ${seriesName}` : `Series ${prefix}`
 
@@ -109,6 +129,19 @@ export default function SeriesScreen() {
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
+        </View>
+      ) : loadError ? (
+        <View style={styles.center}>
+          <Icon name="exclamationmark.triangle" size={fs(28)} color={tokens.red} />
+          <Text style={[styles.empty, { color: tokens.t2, fontSize: fs(15), marginTop: 10 }]}>
+            Couldn't load this series.
+          </Text>
+          <Pressable
+            onPress={load}
+            style={{ marginTop: 14, paddingVertical: 8, paddingHorizontal: 18, borderRadius: 10, backgroundColor: tokens.blu }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '600', fontSize: fs(14) }}>Try Again</Text>
+          </Pressable>
         </View>
       ) : (
         <TabletContainer>

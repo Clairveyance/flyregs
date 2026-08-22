@@ -22,11 +22,19 @@ export default function AcLibraryScreen() {
   const [series, setSeries] = useState<ACSeries[]>([])
   const [totalCount, setTotalCount] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
+  // Same real bug, same fix, as series/[prefix].tsx's own loadError comment
+  // -- RC real-device report 2026-08-21/22: "ALL of the ACs are GONE!!."
+  // This screen had no error state at all; a failed fetch (supabase-js
+  // resolves {data, error} rather than throwing) used to silently render
+  // an empty list with no indication anything went wrong.
+  const [loadError, setLoadError] = useState(false)
   // AC series display names get cut off the same way FAR Part titles do --
   // same hook/card pair as far/index.tsx's own long-press preview.
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true)
+    setLoadError(false)
     Promise.all([
       supabase.from('series_summary').select('*').order('sort_order'),
       // 'id' not '*' -- see (tabs)/index.tsx's identical fix for why: a
@@ -36,10 +44,13 @@ export default function AcLibraryScreen() {
       supabase.from('advisory_circulars').select('id', { count: 'exact', head: true }).eq('status', 'active'),
     ]).then(([seriesRes, countRes]) => {
       if (seriesRes.data) setSeries(seriesRes.data as ACSeries[])
+      else if (seriesRes.error) setLoadError(true)
       setTotalCount(countRes.count)
       setLoading(false)
     })
-  }, [])
+  }
+
+  useEffect(load, [])
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
@@ -47,6 +58,19 @@ export default function AcLibraryScreen() {
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
+        </View>
+      ) : loadError ? (
+        <View style={styles.center}>
+          <Icon name="exclamationmark.triangle" size={fs(28)} color={tokens.red} />
+          <Text style={[styles.groupLabel, { color: tokens.t2, fontSize: fs(15), marginTop: 10, textAlign: 'center' }]}>
+            Couldn't load Advisory Circulars.
+          </Text>
+          <Pressable
+            onPress={load}
+            style={{ marginTop: 14, paddingVertical: 8, paddingHorizontal: 18, borderRadius: 10, backgroundColor: tokens.blu }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '600', fontSize: fs(14) }}>Try Again</Text>
+          </Pressable>
         </View>
       ) : (
         <TabletContainer>
