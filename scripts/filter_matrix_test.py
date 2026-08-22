@@ -48,7 +48,7 @@ URL = SCRAPER["SUPABASE_URL"]
 SERVICE = SCRAPER["SUPABASE_SERVICE_KEY"]
 ANON = load_env(".env")["EXPO_PUBLIC_SUPABASE_ANON_KEY"]
 
-TYPES = ["far", "aim", "pcg", "ac"]
+TYPES = ["far", "aim", "pcg", "ac", "dictionary"]
 LEVELS = ["student", "private", "commercial", "atp", "cfi", "mechanic"]
 # Must match src/lib/profileRatings.ts CATEGORY_CLASSES exactly -- these are
 # the literal strings the app sends, and category_classes_from_text() returns
@@ -170,6 +170,23 @@ def category_counts():
         where c.status='active' and c.title is not null and c.title <> ''
           and c.description is not null and c.description <> ''
           and not (ac_knowledge_levels(c.subject_series) && ARRAY['not_applicable'])
+      union all
+      -- dictionary_terms: must mirror get_study_pool_count's own dictionary
+      -- branch exactly (migrations_dictionary_quiz_integration.sql) --
+      -- category='handbook'/'mnemonic' only (not every dictionary_terms
+      -- row -- 'informal'/other categories aren't in the study pool at
+      -- all), a real first-sense definition required, classified by
+      -- category_classes_from_text(term) same as P/CG. Added 2026-08-22:
+      -- this branch was missing entirely, which silently folded every
+      -- category-tagged dictionary item (HELI/GLIDER/BALLOON/etc mnemonics
+      -- and terms) into "neutral" below, producing a uniform false FAIL on
+      -- every category's exact-math check once Dictionary was wired into
+      -- Study Mode (fcbfb28) -- same failure shape this file's own FAR/AIM/
+      -- AC comments already describe for the wrong-classifier-function
+      -- version of this bug, just via an entirely missing source instead.
+      select category_classes_from_text(d.term) from dictionary_terms d
+        where d.category in ('handbook', 'mnemonic')
+          and d.senses->0->>'definition' is not null and d.senses->0->>'definition' <> ''
     )
     select coalesce(x.cat,'_none') as cat, count(*) as n
     from items left join lateral unnest(items.c) as x(cat) on true
@@ -326,7 +343,7 @@ def scenario_study():
 
         # ---------- types partition the corpus exactly ----------
         print("  -- UNION: content types --")
-        check("the 4 content types sum to the unfiltered total",
+        check(f"the {len(TYPES)} content types sum to the unfiltered total",
               sum(per_type.values()) == total,
               f"sum={sum(per_type.values())} total={total}")
         for a, b in itertools.combinations(TYPES, 2):
@@ -338,7 +355,7 @@ def scenario_study():
         check("3 types combine additively",
               n3 == sum(per_type[t] for t in TYPES[:3]),
               f"{n3} vs {sum(per_type[t] for t in TYPES[:3])}")
-        check("selecting all 4 types == no type filter",
+        check(f"selecting all {len(TYPES)} types == no type filter",
               pool_count(u["jwt"], types=TYPES) == total)
 
         # ---------- levels: overlapping sets, must UNION not intersect ----------
@@ -509,7 +526,7 @@ def scenario_duel():
                 warn(f"duel with types {pair} drew only {kinds} across {len(qs)} questions",
                      "possible per-type cap starving one side")
         cid, qs = try_create(types=TYPES, n=20)
-        check("duel with all 4 types draws from more than one type",
+        check(f"duel with all {len(TYPES)} types draws from more than one type",
               len({q["item_type"] for q in qs}) >= 2,
               str({q["item_type"] for q in qs}))
 

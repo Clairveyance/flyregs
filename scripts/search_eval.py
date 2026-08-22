@@ -182,8 +182,19 @@ def run(verbose=False):
         # so the harness measures search quality again instead of the
         # paywall. Inside the try so a transient failure here still hits the
         # finally's cleanup instead of orphaning the auth user.
+        #
+        # Upsert (Prefer: resolution=merge-duplicates), not a bare POST:
+        # sync/migrations_default_entitlements_row_on_signup.sql (2026-08-18)
+        # added an on_auth_user_created_entitlements trigger that now inserts
+        # a default (all-false) user_entitlements row the instant the admin
+        # /auth/v1/admin/users call above creates the auth.users row -- a
+        # plain POST here always 409s (23505 dup PK) racing that trigger,
+        # which made this harness fail on every run once that trigger
+        # shipped. Confirmed live: two separate runs, two different fresh
+        # uids, same duplicate-key error both times.
         s, d = req("POST", "/rest/v1/user_entitlements",
-                   {"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}"},
+                   {"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}",
+                    "Prefer": "resolution=merge-duplicates"},
                    {"user_id": uid, "is_pro": True})
         assert s in (200, 201, 204), d
         s, d = req("POST", "/auth/v1/token?grant_type=password", {"apikey": ANON_KEY},
