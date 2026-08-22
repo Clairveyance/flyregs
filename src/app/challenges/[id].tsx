@@ -8,7 +8,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import {
   getMyChallenges, respondToChallenge, getNextChallengeQuestion, submitChallengeAnswer,
-  getChallengeResults, getChallengeStandings, getDuelStats, sendDuelPush, createChallenge,
+  getChallengeResults, getChallengeStandings, getDuelStats, sendDuelPush, createChallenge, forfeitChallenge,
   MyChallenge, NextQuestion, AnswerResult, ChallengeResultRow, StandingRow, DuelStats, DuelItemType,
   STUDY_LEVEL_LABELS, markCoinsSeen,
 } from '@/lib/challenges'
@@ -349,6 +349,36 @@ export default function ChallengeGameScreen() {
     }
   }
 
+  // RC, 2026-08-22, exact rule: "once they start the challenge and hit go
+  // on the first question, they are not allowed to leave the game without
+  // forfeiting" -- "started" is derived the same way the rest of this fix
+  // derives it server-side (see forfeitChallenge/cancel_challenge in
+  // challenges.ts): at least one question already answered in THIS duel.
+  // Below that, or once you've already answered everything you have left
+  // to answer (myAnsweredCount === questionCount -- you're just waiting on
+  // others, nothing to forfeit), or once the duel is already over, backing
+  // out is a plain, unconfirmed nav exactly like before.
+  const handleBack = () => {
+    const stillMine = challenge != null && challenge.status === 'active' && challenge.myStatus === 'active'
+    const started = stillMine && challenge!.myAnsweredCount > 0 && challenge!.myAnsweredCount < challenge!.questionCount
+    if (!started || !id) {
+      router.back()
+      return
+    }
+    const othersLabel = (challenge?.others.length ?? 0) === 1 ? (challenge?.others[0]?.label ?? 'your opponent') : 'the other players'
+    confirm({
+      title: 'Forfeit Duel?',
+      message: `You've answered ${challenge!.myAnsweredCount} of ${challenge!.questionCount} questions. Leaving now forfeits the duel — ${othersLabel} will win automatically.`,
+      confirmLabel: 'Forfeit & Leave',
+      destructive: true,
+      twoStep: false,
+      onConfirm: async () => {
+        await forfeitChallenge(id)
+        router.back()
+      },
+    })
+  }
+
   const otherCount = challenge?.others.length ?? 0
   const stillPending = challenge?.others.filter((o) => o.status === 'pending') ?? []
   const stillPlaying = challenge?.others.filter(
@@ -374,7 +404,7 @@ export default function ChallengeGameScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title={title} onBack={() => router.back()} />
+      <OverlayHeader title={title} onBack={handleBack} />
 
       {/* RC, real duel reports: long answer choices ran off the bottom of
           the playing screen with no way to scroll down to them, and the
@@ -423,19 +453,16 @@ export default function ChallengeGameScreen() {
         // 'cancelled' now has a distinct cause from 'I declined': the DB
         // cancels a duel when nobody is left to play it (every invitee
         // declined), so "Duel declined" would misattribute that to the
-        // viewer. See sync/migrations_duels_2.sql.
+        // viewer. See sync/migrations_duels_2.sql. As of 2026-08-22 it can
+        // ALSO mean the creator cancelled it outright before playing
+        // (cancelChallenge, bug 2's fix) -- possibly after you'd already
+        // accepted and answered a few questions -- so this no longer
+        // guesses at "everyone declined" as the one and only reason.
         <View style={styles.center}>
           <Icon name="xmark.circle" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>
             {challenge?.myStatus === 'declined' ? 'You declined this duel' : 'Duel cancelled'}
           </Text>
-          {challenge?.myStatus !== 'declined' && (
-            <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-              {otherCount === 1
-                ? `${challenge?.others[0]?.label ?? 'Your opponent'} declined, so there was nobody to duel.`
-                : 'Everyone invited declined, so there was nobody to duel.'}
-            </Text>
-          )}
         </View>
       ) : phase === 'pending_response' ? (
         <View style={styles.center}>
@@ -663,9 +690,12 @@ function ResultsView({
                 {s.isMe ? 'You' : s.label}
               </Text>
             </Pressable>
-            <Text style={[styles.standingScore, { color: tokens.t2, fontSize: fs(13) }]}>
-              {s.correctCount} correct
-              {s.tieGroupSize > 1 ? ` · ${formatDuelSecondsLabel(s.tiebreakMs)}` : ''}
+            <Text style={[styles.standingScore, { color: s.isForfeited ? tokens.red : tokens.t2, fontSize: fs(13) }]}>
+              {/* RC: "they need to be told that they forfeit" -- this is the
+                  one shared, both-players-see-it place that fact lives,
+                  rather than only a one-time dialog on the forfeiter's own
+                  device. */}
+              {s.isForfeited ? 'Forfeited' : `${s.correctCount} correct${s.tieGroupSize > 1 ? ` · ${formatDuelSecondsLabel(s.tiebreakMs)}` : ''}`}
             </Text>
           </View>
         ))}
@@ -702,8 +732,15 @@ function ResultsView({
               key={a.userId}
               style={[styles.resultAnswer, { color: a.isCorrect ? tokens.grn : tokens.red, fontSize: fs(12) }]}
             >
-              {a.isMe ? 'You' : a.label}: {a.isCorrect ? '✓' : '✕'}
-              {!a.isCorrect && a.answerText ? ` ${a.answerText}` : ''}
+              {/* get_challenge_results now also returns a forfeiter's row
+                  (see sync/migrations_fix_duel_forfeit_and_cancel.sql) --
+                  they may never have reached this specific question, which
+                  reads as a real answer/answerText/timeMs of null (a LEFT
+                  JOIN with nothing to join). Previously every non-`true`
+                  isCorrect rendered as a hard ✕ ("got it wrong"), which is
+                  wrong for "never got here at all." */}
+              {a.isMe ? 'You' : a.label}: {a.isCorrect == null ? (a.isForfeited ? 'forfeited before this one' : 'did not answer') : a.isCorrect ? '✓' : '✕'}
+              {a.isCorrect === false && a.answerText ? ` ${a.answerText}` : ''}
               {a.timeMs != null ? ` · ${formatDuelSecondsLabel(a.timeMs)}` : ''}
             </Text>
           ))}

@@ -24,7 +24,7 @@ export interface ChallengeableUser {
 export interface ChallengeParticipant {
   userId: string
   label: string
-  status: 'pending' | 'active' | 'declined'
+  status: 'pending' | 'active' | 'declined' | 'forfeited'
   answeredCount: number
   avatarUrl: string | null
   avatarPreset: string | null
@@ -34,7 +34,7 @@ export interface MyChallenge {
   challengeId: string
   amChallenger: boolean
   status: 'active' | 'cancelled' | 'completed'
-  myStatus: 'pending' | 'active' | 'declined'
+  myStatus: 'pending' | 'active' | 'declined' | 'forfeited'
   questionCount: number
   myAnsweredCount: number
   createdAt: string
@@ -133,6 +133,7 @@ export interface ParticipantAnswer {
   userId: string
   label: string
   isMe: boolean
+  isForfeited: boolean
   answerText: string | null
   isCorrect: boolean | null
   timeMs: number | null
@@ -160,6 +161,7 @@ export interface StandingRow {
   tiebreakMs: number
   finalRank: number
   tieGroupSize: number
+  isForfeited: boolean
 }
 
 export async function getChallengeableUsers(): Promise<ChallengeableUser[]> {
@@ -207,6 +209,33 @@ export async function respondToChallenge(challengeId: string, accept: boolean): 
 // server-side even though it reads as "delete" in the UI.
 export async function hideChallengeFromHistory(challengeId: string): Promise<void> {
   const { error } = await supabase.rpc('hide_challenge_from_history', { p_challenge_id: challengeId })
+  if (error) throw error
+}
+
+// RC, 2026-08-22, exact rule: "before you've answered your first question,
+// deleting/leaving is a clean no-op cancellation." The CREATOR cancelling
+// kills the whole duel outright -- even if another invitee already started
+// playing, per RC's own words: "the challenge just goes away even if the
+// other person has already started." A non-creator who hasn't played yet
+// just leaves (same as a decline). Server re-derives "haven't started" from
+// challenge_answers itself and rejects this once you've answered anything
+// -- see forfeitChallenge below for that case. See
+// sync/migrations_fix_duel_forfeit_and_cancel.sql.
+export async function cancelChallenge(challengeId: string): Promise<void> {
+  const { error } = await supabase.rpc('cancel_challenge', { p_challenge_id: challengeId })
+  if (error) throw error
+}
+
+// RC, 2026-08-22, exact rule: "once they start the challenge and hit go on
+// the first question, they are not allowed to leave the game without
+// forfeiting and can't delete the challenge without also forfeiting" --
+// "they need to be told that they forfeit and the other person
+// automatically becomes a winner." Only callable once the caller has
+// answered at least one question in this duel (server-enforced); completes
+// the challenge immediately in the common 2-player case, crowning whoever
+// is left. See sync/migrations_fix_duel_forfeit_and_cancel.sql.
+export async function forfeitChallenge(challengeId: string): Promise<void> {
+  const { error } = await supabase.rpc('forfeit_challenge', { p_challenge_id: challengeId })
   if (error) throw error
 }
 
@@ -385,7 +414,8 @@ export async function getChallengeResults(challengeId: string): Promise<Challeng
     term: r.term,
     definition: r.definition,
     answers: (r.answers ?? []).map((a: any) => ({
-      userId: a.userId, label: a.label, isMe: a.isMe, answerText: a.answerText, isCorrect: a.isCorrect, timeMs: a.timeMs,
+      userId: a.userId, label: a.label, isMe: a.isMe, isForfeited: !!a.isForfeited,
+      answerText: a.answerText, isCorrect: a.isCorrect, timeMs: a.timeMs,
     })),
   }))
 }
@@ -401,5 +431,6 @@ export async function getChallengeStandings(challengeId: string): Promise<Standi
     tiebreakMs: r.tiebreak_ms,
     finalRank: r.final_rank,
     tieGroupSize: r.tie_group_size,
+    isForfeited: !!r.is_forfeited,
   }))
 }

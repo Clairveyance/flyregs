@@ -8,7 +8,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import {
   getMyChallenges, getChallengeableUsers, createChallenge, respondToChallenge, getDuelStats, sendDuelPush,
-  getUnseenCoins, markCoinsSeen, hideChallengeFromHistory,
+  getUnseenCoins, markCoinsSeen, hideChallengeFromHistory, cancelChallenge, forfeitChallenge,
   MyChallenge, ChallengeableUser, DuelStats, DuelItemType, StudyLevel, ALL_STUDY_LEVELS, STUDY_LEVEL_LABELS,
 } from '@/lib/challenges'
 import { SwipeToDelete } from '@/components/SwipeToDelete'
@@ -245,7 +245,70 @@ export default function ChallengesScreen() {
   // untouched. Optimistic removal from local state, with a rollback +
   // error dialog if the RPC fails (same shape as every other mutation on
   // this screen, e.g. handleRespond above).
+  //
+  // RC 2026-08-22, exact rule: "A person can send a challenge and then
+  // delete the challenge before they start playing and the challenge just
+  // goes away even if the other person has already started, but once they
+  // start the challenge and hit go on the first question, they are not
+  // allowed to leave the game without forfeiting and can't delete the
+  // challenge without also forfeiting." hideChallengeFromHistory is a pure
+  // PER-USER cosmetic hide that never touched the other side at all -- a
+  // "deleted" pending/active duel stayed fully visible and playable for the
+  // opponent forever (bug 2). It's still correct for an ALREADY-OVER duel
+  // (completed/cancelled, nothing left to propagate), but a still-'active'
+  // one now routes through the real exit that matches how far the caller
+  // got: still pending -> decline (same as the X button); accepted but
+  // haven't answered anything -> cancelChallenge (a clean, no-penalty exit
+  // that the server also now blocks past this point, see sync/migrations_
+  // fix_duel_forfeit_and_cancel.sql); already answered >=1 question ->
+  // forfeitChallenge, which the server completes immediately in the
+  // opponent's favor.
   const handleDeleteFromHistory = (c: MyChallenge) => {
+    if (c.status === 'active') {
+      if (c.myStatus === 'pending') {
+        handleRespond(c, false)
+        return
+      }
+      const othersLabel = c.others.length === 1 ? (c.others[0]?.label ?? 'Your opponent') : 'The other players'
+      if (c.myAnsweredCount > 0) {
+        confirm({
+          title: 'Forfeit Duel',
+          message: `You've already answered ${c.myAnsweredCount} question${c.myAnsweredCount === 1 ? '' : 's'} in this duel. Leaving now forfeits it — ${othersLabel} will win automatically.`,
+          confirmLabel: 'Forfeit',
+          destructive: true,
+          twoStep: false,
+          onConfirm: async () => {
+            setChallenges((prev) => prev.filter((x) => x.challengeId !== c.challengeId))
+            try {
+              await forfeitChallenge(c.challengeId)
+            } catch (err: any) {
+              load()
+              throw err
+            }
+          },
+        })
+        return
+      }
+      confirm({
+        title: c.amChallenger ? 'Cancel Duel' : 'Leave Duel',
+        message: c.amChallenger
+          ? "Cancel this duel? It'll be removed for everyone, even if someone else already started playing."
+          : "Leave this duel? You haven't answered any questions yet, so there's no penalty.",
+        confirmLabel: c.amChallenger ? 'Cancel Duel' : 'Leave',
+        destructive: true,
+        twoStep: false,
+        onConfirm: async () => {
+          setChallenges((prev) => prev.filter((x) => x.challengeId !== c.challengeId))
+          try {
+            await cancelChallenge(c.challengeId)
+          } catch (err: any) {
+            load()
+            throw err
+          }
+        },
+      })
+      return
+    }
     confirm({
       title: 'Delete Duel',
       message: `Remove this duel from your history? Your win/loss record and leaderboard stats won't change${c.others.length === 1 ? '' : ' — this only hides it from your list'}.`,
@@ -689,11 +752,24 @@ function ChallengeRow({
 
   // 'cancelled' had no case here and fell through to the "x/y answered"
   // label, which read as an in-progress duel. It's a real state now: the DB
-  // cancels a duel once every invitee has declined (migrations_duels_2.sql).
+  // cancels a duel once every invitee has declined (migrations_duels_2.sql)
+  // -- OR, since 2026-08-22, once the creator cancels it outright before
+  // playing (cancelChallenge, bug 2's fix), which can happen even after an
+  // invitee already started answering. "Cancelled — nobody accepted" was a
+  // fair assumption when decline-cascade was the ONLY cause; it's now
+  // sometimes flatly false (you may well have accepted and even played a
+  // few questions before the creator cancelled it out from under you), so
+  // this no longer guesses at a specific reason.
   const statusLabel =
-    item.status === 'cancelled' ? (item.myStatus === 'declined' ? 'You declined' : 'Cancelled — nobody accepted')
+    item.status === 'cancelled' ? (item.myStatus === 'declined' ? 'You declined' : 'Cancelled')
     : item.status === 'completed' ? 'Completed'
     : isPendingForMe ? `${item.others.find((o) => o.status !== 'pending')?.label ?? 'Someone'} wants to duel you`
+    // Only reachable in a 3+ player duel: forfeiting completes the WHOLE
+    // challenge immediately in the common 2-player case (see
+    // forfeitChallenge/finalize_challenge_if_done), so item.status would
+    // already be 'completed' there -- this only shows while other players
+    // are still actively finishing the duel out among themselves.
+    : item.myStatus === 'forfeited' ? 'You forfeited this duel'
     : pendingOthers.length > 0 && acceptedOthers.length === 0 ? 'Waiting for them to accept'
     : `${item.myAnsweredCount}/${item.questionCount} answered · ${acceptedOthers.length} of ${item.others.length} joined`
 
