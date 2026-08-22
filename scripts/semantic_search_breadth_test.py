@@ -37,13 +37,15 @@ SERVICE = SCRAPER["SUPABASE_SERVICE_KEY"]
 ANON = load_env(".env")["EXPO_PUBLIC_SUPABASE_ANON_KEY"]
 
 
-def http(method, path, *, key, jwt=None, body=None):
+def http(method, path, *, key, jwt=None, body=None, headers=None):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(URL + path, data=data, method=method)
     req.add_header("apikey", key)
     req.add_header("Authorization", f"Bearer {jwt or key}")
     if data:
         req.add_header("Content-Type", "application/json")
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
     try:
         with urllib.request.urlopen(req) as r:
             txt = r.read().decode()
@@ -70,8 +72,16 @@ def make_user(prefix):
     # silently testing nothing since the gate shipped despite run_all_audits.sh
     # reporting PASS. Same fix as search_eval.py's run(): grant Pro directly
     # via the DB (throwaway @flyregs.invalid account, not a real purchase).
+    #
+    # Upsert (Prefer: resolution=merge-duplicates), not a bare POST: same
+    # migrations_default_entitlements_row_on_signup.sql race search_eval.py
+    # hit (2026-08-22) -- the admin/users call above triggers a default
+    # user_entitlements row before this POST lands, so a bare insert always
+    # 409s (23505 dup PK). This script had the identical bug, just never
+    # got the same fix.
     st, ent = http("POST", "/rest/v1/user_entitlements", key=SERVICE,
-                   body={"user_id": body["id"], "is_pro": True})
+                   body={"user_id": body["id"], "is_pro": True},
+                   headers={"Prefer": "resolution=merge-duplicates"})
     if st not in (200, 201, 204):
         raise RuntimeError(f"grant pro {st}: {ent}")
     st, tok = http("POST", "/auth/v1/token?grant_type=password", key=ANON,
