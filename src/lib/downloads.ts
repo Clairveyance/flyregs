@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { ACBlock } from '@/lib/acFormat'
 import type { AcFigure, FormulaRef } from '@/types'
 import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
+import { supabase } from '@/lib/supabase'
 
 const KEY = '@flyregs/downloads'
 
@@ -144,7 +145,31 @@ export async function isDownloaded(id: string): Promise<boolean> {
   return list.some((d) => d.id === id)
 }
 
+// Gating audit, 2026-08-22, P2-6: this whole module used to be pure
+// AsyncStorage with zero server involvement -- confirmed live, a patched
+// Plus (or even Free) client could call addDownload directly and get the
+// marketed Premium-exclusive feature for free, with no server able to
+// tell the difference. Real architecture decision, not a quick patch: the
+// underlying CONTENT isn't secret (a Plus subscriber already legitimately
+// receives the exact same bytes reading this online), so there's no way
+// to block SAVING what was already legitimately RECEIVED -- that's true
+// of any reading app. What's real and enforceable is the tier boundary on
+// the action of marking something offline in the first place, same shape
+// as the aircraft/folder caps enforced elsewhere in this app.
+// record_offline_download() is a security-definer RPC that checks Premium
+// server-side and throws if it isn't met -- this call happens BEFORE the
+// local AsyncStorage write, so a rejected download never gets cached at
+// all. Every existing call site already has a try/catch around
+// addDownload() for a generic "couldn't save" failure; the Premium
+// rejection surfaces through that exact same path -- no call site changes
+// needed, and a legitimate Premium user never sees it since their own
+// screen's client-side check already keeps them from reaching this line
+// in the overwhelming common case.
 export async function addDownload(ac: Omit<DownloadedAC, 'downloadedAt'>) {
+  const { error: gateError } = await supabase.rpc('record_offline_download', {
+    p_item_type: downloadItemType(ac), p_item_id: ac.id,
+  })
+  if (gateError) throw gateError
   try {
     const list = await getDownloads()
     const filtered = list.filter((d) => d.id !== ac.id)
@@ -155,11 +180,22 @@ export async function addDownload(ac: Omit<DownloadedAC, 'downloadedAt'>) {
 }
 
 export async function removeDownload(id: string) {
+  const item = await findDownload(id)
   try {
     const list = await getDownloads()
     await AsyncStorage.setItem(KEY, JSON.stringify(list.filter((d) => d.id !== id)))
     cache = null
   } catch {}
+  // Best-effort -- removing is never blocked, and a failure to clear the
+  // server-side record shouldn't undo the local removal the user is
+  // already looking at (hence the swallowed catch, after the local write
+  // above has already committed). Guarded on `item` existing so this
+  // doesn't fire for an id that was never actually downloaded.
+  if (item) {
+    try {
+      await supabase.rpc('remove_offline_download', { p_item_type: downloadItemType(item), p_item_id: id })
+    } catch {}
+  }
 }
 
 export async function clearDownloads() {
