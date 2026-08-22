@@ -6,7 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { useAuth } from '@/context/auth'
 import { useTheme } from '@/context/theme'
 import { Icon } from '@/components/Icon'
-import { purchaseSubscription, purchaseUnlock, restorePurchases } from '@/lib/revenuecat'
+import { purchaseSubscription, purchaseUnlock, restorePurchases, getSubscriptionDetails } from '@/lib/revenuecat'
 import { getOwnedAircraftOldestFirst } from '@/lib/aircraftSharing'
 import { useFS } from '@/context/fontScale'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -275,8 +275,15 @@ export default function PaywallScreen() {
 
   // The tiers actually worth showing: skip anything already owned. A Plus
   // owner hitting a Pro/Premium gate should never see Plus offered again.
-  const availableTiers: Tier[] = (upgradeMode || premiumRequired)
+  // RC gating audit, 2026-08-22, P2-4 (part 2): upgradeMode used to omit
+  // 'pro' from availableTiers entirely -- Premium is still the intended
+  // DEFAULT tab (defaultTier below is unchanged), but a Pro subscriber
+  // genuinely has no other in-app path to switch their OWN Pro plan's
+  // billing period if 'pro' was never even a selectable tab.
+  const availableTiers: Tier[] = premiumRequired
     ? ['premium']
+    : upgradeMode
+    ? ['pro', 'premium']
     : proRequired
     ? ['pro', 'premium']
     : downgradeMode
@@ -329,6 +336,18 @@ export default function PaywallScreen() {
   const [plan, setPlan] = useState<Plan>('annual')
   const [loading, setLoading] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  // RC gating audit, 2026-08-22, P2-4: viewingCurrentPlan below used to key
+  // ONLY on tier, so a Premium-monthly (or Pro-monthly) subscriber picking
+  // their OWN tier to switch to annual instead got a hard-disabled "Current
+  // Plan" button -- there was no in-app way to change billing period at
+  // all, the same "obvious button does nothing" shape as the downgrade-
+  // button bug fixed in 9542444. Needs the real current period, not just
+  // the tier, to tell "already exactly this" apart from "same tier,
+  // different period -- a real, purchasable change."
+  const [currentPeriod, setCurrentPeriod] = useState<'monthly' | 'annual' | null>(null)
+  useEffect(() => {
+    getSubscriptionDetails().then((d) => setCurrentPeriod(d.plan))
+  }, [])
 
   // isPro/isPremium/isUnlocked load asynchronously in AuthProvider — all still
   // false on this screen's first render for a real subscriber, so the tier
@@ -339,10 +358,22 @@ export default function PaywallScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locked, downgradeMode, hasPlusAccess])
 
-  // Viewing "premium" while downgradeMode is true means looking at the
-  // CURRENT plan, not something new to buy -- nothing to purchase, and the
-  // CTA below is disabled/relabeled for exactly this case.
-  const viewingCurrentPlan = downgradeMode && tier === 'premium'
+  // Viewing the tier already owned (Premium subscriber on the Premium tab,
+  // or Pro subscriber on the Pro tab) means looking at the current plan --
+  // but only truly "nothing to buy" if the billing PERIOD also matches.
+  // RC gating audit, 2026-08-22, P2-4: this used to key on tier alone, so
+  // picking your own tier specifically to switch monthly<->annual got the
+  // same disabled "Current Plan" button as picking a tier you don't own at
+  // all -- there was no way to tell "already exactly this" apart from
+  // "same tier, different period, a real purchase" until currentPeriod
+  // (fetched above) made that distinction possible.
+  const viewingOwnTier = (downgradeMode && tier === 'premium') || (upgradeMode && tier === 'pro')
+  const viewingCurrentPlan = viewingOwnTier && (currentPeriod === null || plan === currentPeriod)
+  // Same tier, different period -- a genuine billing-period switch, not a
+  // tier change. RevenueCat treats this as an ordinary purchase of the
+  // other period's product; confirmSubscribe() below doesn't need to know
+  // the difference, only the label and confirm-copy do.
+  const switchingPeriod = viewingOwnTier && !viewingCurrentPlan
 
   // Pro/Premium always show as marginal additions on top of the tier below --
   // "Everything in Plus, plus:" / "Everything in Plus and Pro, plus:" -- not
@@ -359,6 +390,12 @@ export default function PaywallScreen() {
   const tierLabel = tier === 'plus' ? 'Plus' : tier === 'pro' ? 'Pro' : 'Premium'
   const ctaLabel = viewingCurrentPlan
     ? 'Current Plan'
+    // Checked before the generic downgradeMode/upgradeMode labels below --
+    // otherwise switching your OWN tier's billing period read as
+    // "Downgrade to Pro" or "Upgrade to Premium," which is wrong (no tier
+    // is actually changing).
+    : switchingPeriod
+    ? `Switch to ${plan === 'annual' ? 'Annual' : 'Monthly'}`
     : downgradeMode
     ? 'Downgrade to Pro'
     : premiumRequired || upgradeMode
@@ -431,6 +468,27 @@ export default function PaywallScreen() {
       setIsPro(status.isPro)
       setIsPremium(status.isPremium)
       setIsUnlocked(status.isUnlocked)
+      // RC gating audit, 2026-08-22, P2-5: a Premium->Pro downgrade
+      // purchase is a real StoreKit "deferred downgrade" -- it succeeds,
+      // but status.isPremium stays true until the current billing period
+      // actually ends, so every visible piece of app state looks exactly
+      // like it did before the tap. The sheet used to just silently
+      // dismiss here -- someone who just tapped through a destructive,
+      // two-step confirm got zero acknowledgment that anything happened,
+      // a real "did that work?" moment and a plausible source of a repeat
+      // tap or a support ticket. Doesn't apply to switchingPeriod (that's
+      // typically immediate, and its own confirm-dialog copy already set
+      // the right expectation) or a genuine tier upgrade (state visibly
+      // changes on its own).
+      if (downgradeMode && tier === 'pro') {
+        confirm({
+          title: 'Downgrade Scheduled',
+          message: "You'll keep Premium until your current billing period ends, then move to Pro automatically. You can change your mind any time before then from Manage Subscription.",
+          cancelLabel: null,
+          onConfirm: () => router.dismiss(),
+        })
+        return
+      }
       router.dismiss()
     } catch (err: any) {
       // User cancelled — no alert needed
