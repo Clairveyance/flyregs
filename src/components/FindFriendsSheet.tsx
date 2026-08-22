@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { View, Text, Modal, Pressable, TextInput, SectionList, FlatList, StyleSheet, ActivityIndicator, Platform, Share } from 'react-native'
+import { View, Text, Modal, Pressable, TextInput, SectionList, FlatList, StyleSheet, ActivityIndicator, Platform, Share, KeyboardAvoidingView } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
@@ -444,7 +444,13 @@ export function FindFriendsPickerBody({
 // Standalone modal wrapper -- only safe to use where nothing else is
 // already presenting a <Modal> (Ready Room, its one and only caller today).
 // Aircraft/folder invite flows use FindFriendsPickerBody directly, as a
-// step inside their OWN already-open modal instead.
+// step inside their OWN already-open modal instead (those parents already
+// wrap themselves in KeyboardAvoidingView, e.g. my-aircraft/[id].tsx's
+// modals -- this standalone wrapper never got the same treatment, and this
+// is the one real caller RC's own screenshot (Ready Room, the phone-number
+// field) matches: the card sits pinned to the bottom (backdrop's
+// `justifyContent: 'flex-end'`) with nothing pushing it up, so the keyboard
+// simply covers whatever's in the lower half of the card once it's up.
 export function FindFriendsSheet({
   visible,
   onClose,
@@ -459,12 +465,12 @@ export function FindFriendsSheet({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.backdrop}>
         <Pressable style={styles.scrim} onPress={onClose} />
         <View style={[styles.card, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: Math.max(0, insets.bottom + 8) }]}>
           {visible && <FindFriendsPickerBody onClose={onClose} onSelect={onSelect} />}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   )
 }
