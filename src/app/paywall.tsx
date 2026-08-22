@@ -251,7 +251,7 @@ export default function PaywallScreen() {
   const fs = useFS()
   const { session, isPro, isPremium, isUnlocked, hasPlusAccess, setIsPro, setIsPremium, setIsUnlocked } = useAuth()
   const insets = useSafeAreaInsets()
-  const { tier: paramTier } = useLocalSearchParams<{ tier?: string }>()
+  const { tier: paramTier, intent } = useLocalSearchParams<{ tier?: string; intent?: string }>()
 
   // downgradeMode: Premium subscribers -- shows the tier picker again (Plus
   // isn't offered here since Premium already includes it) so Pro is a real,
@@ -309,7 +309,16 @@ export default function PaywallScreen() {
     // the moment this screen opens; tapping back to the "Premium" tab
     // still correctly shows the disabled "Current Plan" state for anyone
     // who wants to review what they already have first.
-    ? 'pro'
+    //
+    // RC gating audit, 2026-08-22: that default is wrong for a DIFFERENT
+    // caller with the opposite intent -- AircraftDowngradeGate's own "Stay
+    // with Premium" button also lands here with tier=premium (same param
+    // this branch otherwise ignores), and got the same "downgrade to Pro
+    // is the primary button" default, on a screen the user opened
+    // specifically to confirm they're staying. intent=stay is the signal
+    // that call site sets to ask for the actual tier param to be honored
+    // instead of overridden.
+    ? (intent === 'stay' && paramTier === 'premium' ? 'premium' : 'pro')
     : paramTier === 'pro' && availableTiers.includes('pro')
     ? 'pro'
     : paramTier === 'plus' && availableTiers.includes('plus')

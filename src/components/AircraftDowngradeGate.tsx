@@ -334,7 +334,12 @@ export function AircraftDowngradeGate() {
           </Text>
           <Pressable
             style={[styles.primaryBtn, { backgroundColor: tokens.gold }]}
-            onPress={() => router.push('/paywall?tier=premium' as any)}
+            // RC gating audit, 2026-08-22: without intent=stay, this landed
+            // on paywall.tsx's downgradeMode default of 'pro' -- so tapping
+            // "Stay with Premium" opened a screen whose primary button said
+            // "Downgrade to Pro." intent=stay tells paywall.tsx to actually
+            // honor tier=premium here instead of overriding it.
+            onPress={() => router.push('/paywall?tier=premium&intent=stay' as any)}
           >
             <Text style={[styles.primaryBtnText, { fontSize: fs(14.5) }]}>Stay with Premium</Text>
           </Pressable>
