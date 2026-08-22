@@ -1,0 +1,418 @@
+-- Fixes a real filter-leak RC caught live, 2026-08-22: multi-engine-only
+-- mnemonic content (COMBATS/SMACFUM/PAST, all specifically about Vmc
+-- demonstration conditions per 14 CFR 23.149/25.149) was showing up under
+-- EVERY aircraft-category filter, including single-engine-only ones, for
+-- students, etc. Root cause: category_classes_from_text() only matches
+-- exact phrases like "multi-engine land/sea" (built for formal document
+-- titles) against the bare TERM name ("COMBATS") -- a mnemonic's name
+-- never literally contains that phrase, so it always came back NULL,
+-- which this app's convention treats as "applies to everyone."
+--
+-- Real fix: dictionary_terms already has a curated, structured
+-- mnemonic_group field ("Multi-Engine Operations", verified: exactly 3 of
+-- 52 mnemonics -- COMBATS, SMACFUM, PAST). Far more reliable than
+-- regex-matching prose. New dictionary_category_classes(slug) checks that
+-- first, falls back to the existing category_classes_from_text(term) for
+-- everything else (unchanged behavior for the other 49 mnemonics + all
+-- handbook terms).
+create or replace function public.dictionary_category_classes(p_slug text)
+ returns text[]
+ language sql
+ stable
+as $function$
+  select case
+    when exists (
+      select 1 from dictionary_terms
+      where slug = p_slug and category = 'mnemonic' and mnemonic_group = 'Multi-Engine Operations'
+    ) then array['AMEL', 'AMES']
+    else category_classes_from_text((select term from dictionary_terms where slug = p_slug))
+  end;
+$function$;
+
+-- The following 3 functions are re-created here at their current live
+-- definitions (pulled via pg_get_functiondef, not copied from an older
+-- migration file, to guarantee this matches what's actually running) with
+-- every DICTIONARY-context category_classes_from_text(term) call site
+-- swapped to dictionary_category_classes(slug). P/CG-context call sites
+-- (category_classes_from_text on a pcg_terms term, which DOES sometimes
+-- literally contain a category word like "helicopter") are deliberately
+-- left untouched.
+
+CREATE OR REPLACE FUNCTION public.get_study_pool_count(p_item_types text[] DEFAULT NULL::text[], p_levels text[] DEFAULT NULL::text[], p_category_classes text[] DEFAULT NULL::text[])
+ RETURNS integer
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+AS $function$
+  SELECT CASE WHEN NOT public.has_pro_access() THEN 0 ELSE
+    (SELECT count(*) FROM pcg_terms p
+       WHERE (p_item_types IS NULL OR 'pcg' = ANY(p_item_types))
+         AND (p_levels IS NULL OR pcg_all_levels(p.slug, p.term) && p_levels)
+         AND p.definition IS NOT NULL AND p.definition <> ''
+         AND (p_category_classes IS NULL OR category_classes_from_text(p.term) IS NULL OR category_classes_from_text(p.term) && p_category_classes))
+  + (SELECT count(*) FROM far_sections f
+       WHERE (p_item_types IS NULL OR 'far' = ANY(p_item_types))
+         AND f.body_text IS NOT NULL AND f.body_text <> ''
+         AND f.title IS NOT NULL AND f.title <> ''
+         AND f.section_number IN (SELECT section_number FROM study_far_sections)
+         AND NOT (far_knowledge_levels(f.part, f.subpart_letter) && ARRAY['not_applicable'])
+         AND (p_levels IS NULL OR far_all_levels(f.part, f.subpart_letter, f.section_number) && p_levels)
+         AND (p_category_classes IS NULL OR far_category_classes(f.part, f.title) IS NULL OR far_category_classes(f.part, f.title) && p_category_classes))
+  + (SELECT count(*) FROM aim_paragraphs a
+       WHERE (p_item_types IS NULL OR 'aim' = ANY(p_item_types))
+         AND (p_levels IS NULL OR aim_all_levels(a.chapter, a.paragraph_number) && p_levels)
+         AND a.body_text IS NOT NULL AND a.body_text <> ''
+         AND (p_category_classes IS NULL OR aim_category_classes(a.chapter, COALESCE(a.title, '')) IS NULL OR aim_category_classes(a.chapter, COALESCE(a.title, '')) && p_category_classes))
+  + (SELECT count(*) FROM advisory_circulars c
+       WHERE (p_item_types IS NULL OR 'ac' = ANY(p_item_types))
+         AND c.status = 'active' AND c.description IS NOT NULL AND c.description <> ''
+         AND c.title IS NOT NULL AND c.title <> ''
+         AND NOT (ac_knowledge_levels(c.subject_series) && ARRAY['not_applicable'])
+         AND (p_levels IS NULL OR ac_all_levels(c.subject_series) && p_levels)
+         AND (p_category_classes IS NULL OR ac_category_classes(c.subject_series, c.title) IS NULL OR ac_category_classes(c.subject_series, c.title) && p_category_classes))
+  + (SELECT count(*) FROM dictionary_terms d
+       WHERE (p_item_types IS NULL OR 'dictionary' = ANY(p_item_types))
+         AND d.category IN ('handbook', 'mnemonic')
+         AND d.senses->0->>'definition' IS NOT NULL AND d.senses->0->>'definition' <> ''
+         AND (p_levels IS NULL OR dictionary_all_levels(d.slug) && p_levels)
+         AND (p_category_classes IS NULL OR dictionary_category_classes(d.slug) IS NULL OR dictionary_category_classes(d.slug) && p_category_classes))
+  END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.get_study_queue(p_limit integer DEFAULT 20, p_item_types text[] DEFAULT NULL::text[], p_levels text[] DEFAULT NULL::text[], p_category_classes text[] DEFAULT NULL::text[])
+ RETURNS TABLE(item_id text, item_type text, term text, definition text, is_new boolean)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+AS $function$
+  WITH due AS (
+    SELECT sp.item_id, sp.item_type,
+      CASE sp.item_type
+        WHEN 'pcg' THEN (SELECT p.term FROM pcg_terms p WHERE p.slug = sp.item_id)
+        WHEN 'far' THEN (SELECT '§ ' || f.section_number || ' ' || regexp_replace(f.title, '^§\s*[0-9]+(\.[0-9]+)?\s*', '') FROM far_sections f WHERE f.section_number = sp.item_id)
+        WHEN 'aim' THEN (SELECT a.paragraph_number || COALESCE(' ' || a.title, '') FROM aim_paragraphs a WHERE a.paragraph_number = sp.item_id)
+        WHEN 'ac' THEN (SELECT 'AC ' || c.document_number || ': ' || c.title FROM advisory_circulars c WHERE c.document_number = sp.item_id)
+        WHEN 'dictionary' THEN (SELECT d.term FROM dictionary_terms d WHERE d.slug = sp.item_id)
+      END AS term,
+      CASE sp.item_type
+        WHEN 'pcg' THEN (SELECT p.definition FROM pcg_terms p WHERE p.slug = sp.item_id)
+        WHEN 'far' THEN (SELECT f.body_text FROM far_sections f WHERE f.section_number = sp.item_id)
+        WHEN 'aim' THEN (SELECT a.body_text FROM aim_paragraphs a WHERE a.paragraph_number = sp.item_id)
+        WHEN 'ac' THEN (SELECT c.title FROM advisory_circulars c WHERE c.document_number = sp.item_id)
+        WHEN 'dictionary' THEN (SELECT d.senses->0->>'definition' FROM dictionary_terms d WHERE d.slug = sp.item_id)
+      END AS definition,
+      false AS is_new, extract(epoch FROM sp.next_review_at) AS sort_key
+    FROM study_progress sp
+    WHERE sp.user_id = auth.uid() AND sp.next_review_at <= now()
+      AND (p_item_types IS NULL OR sp.item_type = ANY(p_item_types))
+      AND (
+        p_levels IS NULL
+        OR (sp.item_type = 'aim' AND EXISTS (SELECT 1 FROM aim_paragraphs a4 WHERE a4.paragraph_number = sp.item_id AND aim_knowledge_levels(a4.chapter, a4.paragraph_number) && p_levels))
+        OR (sp.item_type = 'pcg' AND pcg_knowledge_levels(sp.item_id) && p_levels)
+        OR (sp.item_type = 'far' AND EXISTS (
+              SELECT 1 FROM far_sections f3 WHERE f3.section_number = sp.item_id
+                AND far_knowledge_levels(f3.part, f3.subpart_letter) && p_levels
+            ))
+        OR (sp.item_type = 'ac' AND EXISTS (
+              SELECT 1 FROM advisory_circulars c3 WHERE c3.document_number = sp.item_id
+                AND ac_knowledge_levels(c3.subject_series) && p_levels
+            ))
+        OR (sp.item_type = 'dictionary' AND dictionary_all_levels(sp.item_id) && p_levels)
+      )
+  ),
+  fresh_pcg AS (
+    SELECT p.slug AS item_id, 'pcg' AS item_type, p.term, p.definition, true AS is_new
+    FROM pcg_terms p
+    WHERE (p_item_types IS NULL OR 'pcg' = ANY(p_item_types))
+      AND (p_levels IS NULL OR pcg_all_levels(p.slug, p.term) && p_levels)
+      AND p.definition IS NOT NULL AND p.definition <> ''
+      AND p.slug NOT IN (SELECT item_id FROM study_progress WHERE user_id = auth.uid() AND item_type = 'pcg')
+      AND (p_category_classes IS NULL OR category_classes_from_text(p.term) IS NULL OR category_classes_from_text(p.term) && p_category_classes)
+    ORDER BY (CASE WHEN p.frequently_used THEN 1 ELSE 0 END) DESC, random()
+    LIMIT p_limit
+  ),
+  fresh_far AS (
+    SELECT f.section_number AS item_id, 'far' AS item_type,
+      '§ ' || f.section_number || ' ' || regexp_replace(f.title, '^§\s*[0-9]+(\.[0-9]+)?\s*', '') AS term,
+      f.body_text AS definition, true AS is_new
+    FROM far_sections f
+    JOIN study_far_sections s ON s.section_number = f.section_number
+    WHERE (p_item_types IS NULL OR 'far' = ANY(p_item_types))
+      AND f.body_text IS NOT NULL AND f.body_text <> ''
+      AND f.title IS NOT NULL AND f.title <> ''
+      AND NOT (far_knowledge_levels(f.part, f.subpart_letter) && ARRAY['not_applicable'])
+      AND (p_levels IS NULL OR far_all_levels(f.part, f.subpart_letter, f.section_number) && p_levels)
+      AND f.section_number NOT IN (SELECT item_id FROM study_progress WHERE user_id = auth.uid() AND item_type = 'far')
+      AND (p_category_classes IS NULL OR far_category_classes(f.part, f.title) IS NULL OR far_category_classes(f.part, f.title) && p_category_classes)
+    ORDER BY (far_relevance_weight(f.part) + 1) * random() DESC
+    LIMIT p_limit
+  ),
+  fresh_aim AS (
+    SELECT a.paragraph_number AS item_id, 'aim' AS item_type,
+      a.paragraph_number || COALESCE(' ' || a.title, '') AS term,
+      a.body_text AS definition, true AS is_new
+    FROM aim_paragraphs a
+    WHERE (p_item_types IS NULL OR 'aim' = ANY(p_item_types))
+      AND a.body_text IS NOT NULL AND a.body_text <> ''
+      AND a.title IS NOT NULL AND a.title <> '' AND a.title NOT ILIKE '%[reserved%'
+      AND (p_levels IS NULL OR aim_all_levels(a.chapter, a.paragraph_number) && p_levels)
+      AND a.paragraph_number NOT IN (SELECT item_id FROM study_progress WHERE user_id = auth.uid() AND item_type = 'aim')
+      AND (p_category_classes IS NULL OR aim_category_classes(a.chapter, COALESCE(a.title, '')) IS NULL OR aim_category_classes(a.chapter, COALESCE(a.title, '')) && p_category_classes)
+    ORDER BY random()
+    LIMIT p_limit
+  ),
+  fresh_ac AS (
+    SELECT c.document_number AS item_id, 'ac' AS item_type,
+      'AC ' || c.document_number || ': ' || c.title AS term,
+      c.title AS definition, true AS is_new
+    FROM advisory_circulars c
+    WHERE (p_item_types IS NULL OR 'ac' = ANY(p_item_types))
+      AND c.status = 'active' AND c.description IS NOT NULL AND c.description <> ''
+      AND c.title IS NOT NULL AND c.title <> ''
+      AND EXISTS (
+            SELECT 1 FROM study_facts sf
+            WHERE sf.item_type = 'ac' AND sf.item_id = c.document_number AND sf.status = 'live'
+          )
+      AND c.document_number NOT IN (SELECT item_id FROM study_progress WHERE user_id = auth.uid() AND item_type = 'ac')
+      AND NOT (ac_knowledge_levels(c.subject_series) && ARRAY['not_applicable'])
+      AND (p_levels IS NULL OR ac_all_levels(c.subject_series) && p_levels)
+      AND (p_category_classes IS NULL OR ac_category_classes(c.subject_series, c.title) IS NULL OR ac_category_classes(c.subject_series, c.title) && p_category_classes)
+    ORDER BY (ac_relevance_weight(c.document_number) + 1) * random() DESC
+    LIMIT p_limit
+  ),
+  fresh_dictionary AS (
+    SELECT d.slug AS item_id, 'dictionary' AS item_type, d.term,
+      d.senses->0->>'definition' AS definition, true AS is_new
+    FROM dictionary_terms d
+    WHERE (p_item_types IS NULL OR 'dictionary' = ANY(p_item_types))
+      AND d.category IN ('handbook', 'mnemonic')
+      AND d.senses->0->>'definition' IS NOT NULL AND d.senses->0->>'definition' <> ''
+      AND (p_levels IS NULL OR dictionary_all_levels(d.slug) && p_levels)
+      AND d.slug NOT IN (SELECT item_id FROM study_progress WHERE user_id = auth.uid() AND item_type = 'dictionary')
+      AND (p_category_classes IS NULL OR dictionary_category_classes(d.slug) IS NULL OR dictionary_category_classes(d.slug) && p_category_classes)
+    ORDER BY (CASE WHEN d.category = 'mnemonic' THEN 1 ELSE 0 END) DESC, random()
+    LIMIT p_limit
+  ),
+  fresh AS (
+    SELECT * FROM fresh_pcg
+    UNION ALL SELECT * FROM fresh_far
+    UNION ALL SELECT * FROM fresh_aim
+    UNION ALL SELECT * FROM fresh_ac
+    UNION ALL SELECT * FROM fresh_dictionary
+  ),
+  combined AS (
+    SELECT item_id, item_type, term, definition, is_new, 0 AS prio, sort_key FROM due
+    WHERE term IS NOT NULL AND btrim(term) <> '' AND definition IS NOT NULL AND btrim(definition) <> ''
+    UNION ALL
+    SELECT item_id, item_type, term, definition, is_new, 1 AS prio, random() AS sort_key FROM fresh
+  )
+  SELECT item_id, item_type, term, definition, is_new FROM combined
+  WHERE public.has_pro_access()
+  ORDER BY prio, sort_key
+  LIMIT p_limit;
+$function$;
+
+-- create_challenge, reproduced in full at its current live definition
+-- (pulled via pg_get_functiondef, not copied from an older migration
+-- file) with the SAME one-line fix applied to its dictionary
+-- item-selection branch only -- the P/CG branch a few lines above it
+-- (from quizzable_pcg_terms) is untouched.
+CREATE OR REPLACE FUNCTION public.create_challenge(p_opponent_ids uuid[], p_question_count integer DEFAULT 5, p_item_types text[] DEFAULT NULL::text[], p_levels text[] DEFAULT NULL::text[], p_category_classes text[] DEFAULT NULL::text[])
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+declare
+  v_challenge_id uuid;
+  v_item record;
+  v_fact record;
+  v_have_fact boolean;
+  v_i int := 0;
+  v_choices text[];
+  v_opp uuid;
+  v_used_fact_ids uuid[] := array[]::uuid[];
+  v_unavailable_callsigns text;
+  v_non_premium_callsigns text;
+begin
+  if not exists (select 1 from user_entitlements ue where ue.user_id = auth.uid() and ue.is_premium = true) then
+    raise exception 'Duels requires Premium';
+  end if;
+
+  if array_length(p_opponent_ids, 1) is null or array_length(p_opponent_ids, 1) < 1 then
+    raise exception 'At least one opponent required';
+  end if;
+  if array_length(p_opponent_ids, 1) > 7 then
+    raise exception 'Duels support up to 8 total participants';
+  end if;
+  if auth.uid() = any(p_opponent_ids) then
+    raise exception 'Cannot challenge yourself';
+  end if;
+
+  select string_agg(coalesce(cr.callsign, 'That pilot'), ', ')
+  into v_unavailable_callsigns
+  from unnest(p_opponent_ids) opp_id
+  left join callsign_registry cr on cr.user_id = opp_id
+  where not exists (
+    select 1 from user_streaks us where us.user_id = opp_id and us.leaderboard_opt_in = true
+  );
+  if v_unavailable_callsigns is not null then
+    raise exception '% hasn''t enabled Duel challenges yet. Remove them to continue.', v_unavailable_callsigns;
+  end if;
+
+  -- A non-Premium invitee can Decline (no tier check there) but can never
+  -- Accept -- if they instead simply never respond, the duel would
+  -- otherwise sit 'pending' for them forever, freezing everyone else's
+  -- game since finalize_challenge_if_done requires zero pending
+  -- participants. Reject at invite time instead of letting that happen.
+  select string_agg(coalesce(cr.callsign, 'That pilot'), ', ')
+  into v_non_premium_callsigns
+  from unnest(p_opponent_ids) opp_id
+  left join callsign_registry cr on cr.user_id = opp_id
+  where not exists (
+    select 1 from user_entitlements ue3 where ue3.user_id = opp_id and ue3.is_premium = true
+  );
+  if v_non_premium_callsigns is not null then
+    raise exception '% isn''t on Premium, so they can''t be added to a Duel. Remove them to continue.', v_non_premium_callsigns;
+  end if;
+
+  insert into challenges (challenger_id, status, question_count, item_types, levels, category_classes)
+  values (auth.uid(), 'active', p_question_count, p_item_types, p_levels, p_category_classes)
+  returning id into v_challenge_id;
+
+  insert into challenge_participants (challenge_id, user_id, is_creator, status, responded_at)
+  values (v_challenge_id, auth.uid(), true, 'active', now());
+
+  foreach v_opp in array p_opponent_ids loop
+    insert into challenge_participants (challenge_id, user_id, is_creator, status)
+    values (v_challenge_id, v_opp, false, 'pending')
+    on conflict (challenge_id, user_id) do nothing;
+  end loop;
+
+  for v_item in
+    select * from (
+      select item_type, item_id from (
+        select 'pcg' as item_type, term as item_id
+        from quizzable_pcg_terms
+        where (p_levels is null or pcg_all_levels(slug, term) && p_levels)
+          and (p_category_classes is null or category_classes_from_text(term) is null or category_classes_from_text(term) && p_category_classes)
+        order by random() limit p_question_count * 3
+      ) x
+      where p_item_types is null or 'pcg' = any(p_item_types)
+      union all
+      select item_type, item_id from (
+        select 'far' as item_type, section_number as item_id
+        from quizzable_far_sections f2
+        where not (far_knowledge_levels(f2.part, f2.subpart_letter) && array['not_applicable'])
+          and (p_levels is null or far_all_levels(f2.part, f2.subpart_letter, f2.section_number) && p_levels)
+          and (p_category_classes is null or far_category_classes(f2.part, f2.title) is null or far_category_classes(f2.part, f2.title) && p_category_classes)
+        order by (far_relevance_weight(f2.part) + 1) * random() desc limit p_question_count * 3
+      ) x
+      where p_item_types is null or 'far' = any(p_item_types)
+      union all
+      select item_type, item_id from (
+        select 'aim' as item_type, paragraph_number as item_id
+        from quizzable_aim_paragraphs
+        where (p_levels is null or aim_all_levels(chapter, paragraph_number) && p_levels)
+          and (p_category_classes is null or aim_category_classes(chapter, coalesce(title, '')) is null or aim_category_classes(chapter, coalesce(title, '')) && p_category_classes)
+        order by random() limit p_question_count * 3
+      ) x
+      where p_item_types is null or 'aim' = any(p_item_types)
+      union all
+      select item_type, item_id from (
+        select 'ac' as item_type, document_number as item_id
+        from quizzable_advisory_circulars c2
+        where not (ac_knowledge_levels(c2.subject_series) && array['not_applicable'])
+          and (p_levels is null or ac_all_levels(c2.subject_series) && p_levels)
+          and (p_category_classes is null or ac_category_classes(c2.subject_series, c2.title) is null or ac_category_classes(c2.subject_series, c2.title) && p_category_classes)
+        order by (ac_relevance_weight(c2.document_number) + 1) * random() desc limit p_question_count
+      ) x
+      where p_item_types is null or 'ac' = any(p_item_types)
+      union all
+      select item_type, item_id from (
+        select 'dictionary' as item_type, slug as item_id
+        from quizzable_dictionary_terms
+        where (p_levels is null or dictionary_all_levels(slug) && p_levels)
+          and (p_category_classes is null or dictionary_category_classes(slug) is null or dictionary_category_classes(slug) && p_category_classes)
+        order by random() limit p_question_count * 3
+      ) x
+      where p_item_types is null or 'dictionary' = any(p_item_types)
+    ) pool
+    order by random() limit p_question_count
+  loop
+    v_have_fact := false;
+    if v_item.item_type in ('far', 'aim', 'ac', 'dictionary') then
+      select sf.* into v_fact
+      from study_facts sf
+      where sf.item_type = v_item.item_type
+        and sf.item_id = v_item.item_id
+        and sf.status = 'live'
+        and sf.distractors is not null
+        and array_length(sf.distractors, 1) = 3
+        and not (sf.id = any(v_used_fact_ids))
+      order by random()
+      limit 1;
+      v_have_fact := found;
+    end if;
+
+    if v_have_fact then
+      v_used_fact_ids := array_append(v_used_fact_ids, v_fact.id);
+      select array_agg(c order by random()) into v_choices
+      from unnest(array_cat(array[v_fact.answer], v_fact.distractors)) c;
+
+      insert into challenge_questions (challenge_id, sort_order, item_type, item_id, choices, fact_id, question, correct_answer)
+      values (v_challenge_id, v_i, v_item.item_type, v_item.item_id, v_choices, v_fact.id, v_fact.question, v_fact.answer);
+      v_i := v_i + 1;
+      continue;
+    end if;
+
+    case v_item.item_type
+      when 'pcg' then
+        select array_cat(array[v_item.item_id], coalesce(array_agg(t.term), array[]::text[]))
+        into v_choices
+        from (select term from pcg_terms where definition is not null and definition <> '' and term is not null and (p_levels is null or pcg_all_levels(slug, term) && p_levels) and term <> v_item.item_id order by random() limit 5) t;
+      when 'far' then
+        select array_cat(array[v_item.item_id], coalesce(array_agg(t.section_number), array[]::text[]))
+        into v_choices
+        from (select section_number from far_sections f3 where f3.title is not null and f3.title <> ''
+              and not (far_knowledge_levels(f3.part, f3.subpart_letter) && array['not_applicable'])
+              and (p_levels is null or far_all_levels(f3.part, f3.subpart_letter, f3.section_number) && p_levels)
+              and f3.section_number <> v_item.item_id order by random() limit 5) t;
+      when 'aim' then
+        select array_cat(array[v_item.item_id], coalesce(array_agg(t.paragraph_number), array[]::text[]))
+        into v_choices
+        from (select paragraph_number from aim_paragraphs where title is not null and title <> '' and (p_levels is null or aim_all_levels(chapter, paragraph_number) && p_levels) and paragraph_number <> v_item.item_id order by random() limit 5) t;
+      when 'ac' then
+        select array_cat(array[v_item.item_id], coalesce(array_agg(t.document_number), array[]::text[]))
+        into v_choices
+        from (select document_number from advisory_circulars c3 where c3.status = 'active' and c3.description is not null and c3.description <> '' and c3.title is not null and c3.title <> ''
+              and not (ac_knowledge_levels(c3.subject_series) && array['not_applicable'])
+              and (p_levels is null or ac_all_levels(c3.subject_series) && p_levels)
+              and c3.document_number <> v_item.item_id order by random() limit 5) t;
+      when 'dictionary' then
+        select array_cat(
+          array[(select d.term from dictionary_terms d where d.slug = v_item.item_id)],
+          coalesce(array_agg(t.term), array[]::text[])
+        )
+        into v_choices
+        from (select term from quizzable_dictionary_terms
+              where (p_levels is null or dictionary_all_levels(slug) && p_levels)
+              and slug <> v_item.item_id order by random() limit 5) t;
+    end case;
+
+    select array_agg(c order by random()) into v_choices from unnest(v_choices) c;
+
+    insert into challenge_questions (challenge_id, sort_order, item_type, item_id, choices)
+    values (v_challenge_id, v_i, v_item.item_type, v_item.item_id, v_choices);
+    v_i := v_i + 1;
+  end loop;
+
+  if v_i = 0 then
+    raise exception 'No questions match those filters. Try widening the Content or Knowledge Level selection.';
+  end if;
+
+  if v_i <> p_question_count then
+    update challenges set question_count = v_i where id = v_challenge_id;
+  end if;
+
+  return v_challenge_id;
+end;
+$function$
+;
