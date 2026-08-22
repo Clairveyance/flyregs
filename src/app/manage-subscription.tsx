@@ -28,7 +28,7 @@ export default function ManageSubscriptionScreen() {
   // See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
-  const { session, isPro, isPremium, isUnlocked, setIsPro, setIsPremium } = useAuth()
+  const { session, isPro, isPremium, isUnlocked, setIsPro, setIsPremium, setIsUnlocked } = useAuth()
   const insets = useSafeAreaInsets()
   const [details, setDetails] = useState<SubscriptionDetails | null>(null)
   const [restoring, setRestoring] = useState(false)
@@ -130,11 +130,21 @@ export default function ManageSubscriptionScreen() {
       const status = await restorePurchases()
       setIsPro(status.isPro)
       setIsPremium(status.isPremium)
-      const active = status.isPro || status.isPremium
+      // RC gating audit, 2026-08-22: setIsUnlocked was never called here at
+      // all (not even destructured above), and `active` excluded isUnlocked
+      // entirely -- so a Plus-only customer (the normal shape for anyone
+      // who bought the standalone $17.99 unlock and no subscription) got
+      // told "Nothing to Restore -- No active subscription was found,"
+      // despite the restore genuinely succeeding, and their restored Plus
+      // entitlement was never applied to app state. Every other restore
+      // call site (account.tsx, Drawer.tsx, paywall.tsx) already handles
+      // this correctly; this was the one that didn't.
+      setIsUnlocked(status.isUnlocked)
+      const active = status.isPro || status.isPremium || status.isUnlocked
       confirm({
         title: active ? 'Purchases Restored' : 'Nothing to Restore',
         message: active
-          ? `Your FlyRegs ${status.isPremium ? 'Premium' : 'Pro'} subscription is active.`
+          ? `Your FlyRegs ${status.isPremium ? 'Premium' : status.isPro ? 'Pro' : 'Plus'} ${status.isPro || status.isPremium ? 'subscription' : 'purchase'} is active.`
           : 'No active subscription was found for this account.',
         cancelLabel: null,
       })

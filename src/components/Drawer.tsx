@@ -205,6 +205,13 @@ function DrawerContent({
       confirm({ title: 'Available on iOS', message: 'Restore purchases from the FlyRegs iOS app.', cancelLabel: null })
       return
     }
+    // RC gating audit, 2026-08-22: the other 3 restore call sites (account.tsx,
+    // paywall.tsx, manage-subscription.tsx) already guard against a rapid
+    // double-tap starting a second concurrent restore while one's in flight --
+    // RevenueCat rejects the second call, and restorePurchases() used to
+    // swallow that into a false "nothing active" status that could win the
+    // race against the real one. This was the one call site missing it.
+    if (restoring) return
     // Pro/Premium require a FlyRegs account as part of the plan -- without
     // this check, a signed-out device (e.g. right after deleting an
     // account) could still call into RevenueCat and come back with a real,

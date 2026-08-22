@@ -215,12 +215,25 @@ export async function logOutRevenueCat() {
   }
 }
 
+// RC gating audit, 2026-08-22: swallowing every error here into the exact
+// same {false,false,false} shape as a genuine "nothing to restore" meant a
+// network blip, an offline device, or any StoreKit hiccup during a
+// user-initiated Restore locally downgraded a real subscriber to Free for
+// the rest of the session -- every one of the 4 call sites (account.tsx,
+// Drawer.tsx, paywall.tsx, manage-subscription.tsx) writes this return
+// value straight into auth state and tells the user "No purchases found
+// for this Apple ID," which is simply false. Unlike getSubscriptionStatus()
+// above (a passive background check, where retry-then-fall-back-to-Free is
+// the right call so one failed read doesn't lock a real subscriber out),
+// this is a user-initiated action with its own visible loading state and
+// an existing error dialog at every call site -- a real failure should
+// surface as a real error the user can retry, not a fabricated "you have
+// nothing" that quietly downgrades them. Genuinely having no purchases is
+// not an error case for RevenueCat's SDK (it resolves normally with an
+// empty/inactive CustomerInfo), so anything that reaches this catch is a
+// real failure -- let it propagate.
 export async function restorePurchases(): Promise<SubscriptionStatus> {
-  try {
-    const customerInfo = await Purchases.restorePurchases()
-    await syncEntitlements()
-    return statusFromCustomerInfo(customerInfo)
-  } catch {
-    return { isPro: false, isPremium: false, isUnlocked: false }
-  }
+  const customerInfo = await Purchases.restorePurchases()
+  await syncEntitlements()
+  return statusFromCustomerInfo(customerInfo)
 }
