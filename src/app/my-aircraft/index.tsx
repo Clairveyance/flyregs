@@ -875,7 +875,7 @@ function AddAircraftForm({
     // hit this exact bug, matching saved.tsx/notes.tsx/study.tsx's own
     // earlier-caught instances of the same class.
     if (!hasProAccess) {
-      router.push('/paywall')
+      router.push('/paywall?tier=pro')
       return
     }
     // Pro is capped at 1 saved aircraft (most owners have exactly one);
@@ -1479,7 +1479,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             Save your aircraft to get AD alerts, maintenance reminders, and part lookups matched to what you actually fly.
           </Text>
-          <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall')}>
+          <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall?tier=pro')}>
             <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Pro</Text>
           </Pressable>
         </View>
@@ -1924,7 +1924,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                 // bare isPro -- same class of bug as the two other isPro
                 // checks in this file, fixed together (2026-08-14 audit).
                 if (!hasProAccess) {
-                  router.push('/paywall')
+                  router.push('/paywall?tier=pro')
                   return
                 }
                 setAddFormOpen(true)

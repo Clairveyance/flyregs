@@ -115,7 +115,7 @@ export default function ReadyRoomScreen() {
               to unlock it." Ready Room's Pro-lock screen had the identical
               gap -- Study Mode and Duels both have an Unlock button here,
               Ready Room didn't. */}
-          <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall')}>
+          <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall?tier=pro')}>
             <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Pro</Text>
           </Pressable>
         </View>

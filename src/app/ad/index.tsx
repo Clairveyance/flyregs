@@ -266,7 +266,7 @@ export default function AdIndexScreen() {
                   // subscriber (isPro:false/isPremium:true) to the paywall
                   // before ever reaching the screen, even after
                   // my-aircraft/index.tsx's own self-guard was fixed.
-                  if (!hasProAccess) { router.push('/paywall'); return }
+                  if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
                   router.push('/my-aircraft' as any)
                 }}
               >

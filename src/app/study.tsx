@@ -419,7 +419,7 @@ export default function StudyScreen() {
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
             Flashcards, mastery tracking, and daily practice — join Pro to start building real recall, not just lookups.
           </Text>
-          <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall')}>
+          <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall?tier=pro')}>
             <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Pro</Text>
           </Pressable>
         </View>

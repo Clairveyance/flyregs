@@ -258,7 +258,7 @@ export default function TheWingScreen() {
     // fine (it uses hasProAccess) but never reach it, because THIS second
     // entry point into Study Mode was still bouncing them to the paywall
     // first. Found during the corpus-wide sweep for the same pattern.
-    if (!hasProAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     router.push('/study')
   }
 
@@ -298,7 +298,7 @@ export default function TheWingScreen() {
             </Text>
             <Pressable
               style={[styles.lockedBtn, { backgroundColor: tokens.blu }]}
-              onPress={() => router.push('/paywall')}
+              onPress={() => router.push('/paywall?tier=pro')}
             >
               <Text style={[styles.lockedBtnText, { fontSize: fs(15) }]}>See what's included</Text>
             </Pressable>

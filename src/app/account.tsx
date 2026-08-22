@@ -330,7 +330,7 @@ export default function AccountScreen() {
 
   const handleToggleLeaderboard = async (v: boolean) => {
     if (!session?.user?.id) return
-    if (v && !hasProAccess) { router.push('/paywall'); return }
+    if (v && !hasProAccess) { router.push('/paywall?tier=pro'); return }
     // Every leaderboard RPC's display name falls back to a generic "Member"
     // when no Callsign is set (see sync/migrations_fix_leaderboard_email_
     // exposure.sql) -- safe, but not personalized. Require a real Callsign
@@ -356,7 +356,7 @@ export default function AccountScreen() {
   const handleToggleRating = async (code: RatingCode) => {
     if (!session?.user?.id) return
     const has = myRatings.includes(code)
-    if (!has && !hasProAccess) { router.push('/paywall'); return }
+    if (!has && !hasProAccess) { router.push('/paywall?tier=pro'); return }
     setRatingBusy(code)
     try {
       if (has) {
@@ -373,7 +373,7 @@ export default function AccountScreen() {
   }
 
   const handleToggleAlerts = async (v: boolean) => {
-    if (!hasProAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     if (!session?.user?.id) return
     setAlertsBusy(true)
     try {
@@ -401,7 +401,7 @@ export default function AccountScreen() {
   }
 
   const handleToggleDailyReg = async (v: boolean) => {
-    if (!hasProAccess) { router.push('/paywall'); return }
+    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
     if (!session?.user?.id) return
     setDailyRegBusy(true)
     try {
@@ -435,7 +435,7 @@ export default function AccountScreen() {
     // mistake for a different toggle: copy-pasting handleToggleDailyReg's
     // gate check verbatim silently mis-gated a lower/different-tier
     // feature. Checked, not assumed, before writing this line.
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     if (!session?.user?.id) return
     setDailyWordBusy(true)
     try {
@@ -884,7 +884,7 @@ export default function AccountScreen() {
               label="Upgrade to Pro"
               tint={tokens.blu}
               tokens={tokens}
-              onPress={() => router.push('/paywall')}
+              onPress={() => router.push('/paywall?tier=pro')}
             />
           )}
           <Row
@@ -950,7 +950,7 @@ export default function AccountScreen() {
               // straight into the real screen; Free/Plus go straight to
               // the paywall instead of into a screen that would only
               // block them once they try to add an aircraft.
-              if (!hasProAccess) { router.push('/paywall'); return }
+              if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
               // iPad: open beside Account as a 3rd rail pane instead of
               // pushing full-screen over it. Phone has no rail to extend,
               // so it keeps the original push.
