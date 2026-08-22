@@ -445,15 +445,33 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
 
     // Every GPU-side allocation this function created, for the unmount
     // cleanup above to free -- see disposablesRef's own comment for why
-    // this exists. `forceContextLoss` (not just renderer.dispose(), which
-    // only frees the renderer's OWN internal buffers) is what actually
-    // releases the underlying GL context's resources back to the OS.
+    // this exists.
+    //
+    // Real Sentry WatchdogTermination, 2026-08-20 17:59 UTC (production
+    // B34): thread dump showed the JS thread and Hermes GC completely
+    // idle -- the main thread was parked in CA::Render::Encoder, GPU
+    // threads blocked in gldGenerateTexMipmaps/Metal command-buffer
+    // submission -- a native GPU/memory stall, not a JS hang. Breadcrumbs
+    // showed the trophy popup opened 3 times in 6 minutes; by the kill,
+    // app_memory was 728MB with thermal_state "serious". Root cause:
+    // `renderer.forceContextLoss()` below is a WebGL-spec extension call
+    // (`WEBGL_lose_context`) that expo-gl's ExpoWebGLRenderingContext does
+    // NOT implement -- it silently no-ops instead of throwing, so every
+    // popup open/close cycle disposed the JS-side three.js buffers
+    // correctly but leaked the underlying native EXGL context (and its
+    // GPU-side render targets/textures) permanently. `GLView.destroyContextAsync(gl)`
+    // is expo-gl's own real API for this (node_modules/expo-gl/build/GLView.d.ts)
+    // -- unlike forceContextLoss, this one actually reaches native code and
+    // frees the context. Kept forceContextLoss too (harmless no-op, not
+    // worth a separate PR to remove) rather than assume nothing else could
+    // ever depend on it firing.
     disposablesRef.current = [
       geo, mat, backdrop.geometry, backdrop.material as THREE.Material, backdropTex,
       envRaw as THREE.Texture, env, haloTex as THREE.Texture, halo.material as THREE.Material,
       glintTex as THREE.Texture, ...glints.map((spr) => spr.material as THREE.Material),
       { dispose: () => renderer.dispose() },
       { dispose: () => renderer.forceContextLoss() },
+      { dispose: () => { GLView.destroyContextAsync(gl).catch(() => {}) } },
     ]
 
     // Flips the placeholder off right as the first real frame is about to

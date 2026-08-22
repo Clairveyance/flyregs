@@ -270,11 +270,14 @@ export function MasterGlobe3D({ size = 300, backdropColor }: { size?: number; ba
       }
     }
 
-    // See AceGem3D.tsx's matching comment.
+    // See AceGem3D.tsx's matching comment -- forceContextLoss() silently
+    // no-ops on expo-gl (real WatchdogTermination root cause, 2026-08-20);
+    // GLView.destroyContextAsync(gl) is the real fix.
     disposablesRef.current = [
       geo, mat, bumpTex, aoTex, envRaw as THREE.Texture, env,
       { dispose: () => renderer.dispose() },
       { dispose: () => renderer.forceContextLoss() },
+      { dispose: () => { GLView.destroyContextAsync(gl).catch(() => {}) } },
     ]
 
     if (!disposed.current) setReady(true)
