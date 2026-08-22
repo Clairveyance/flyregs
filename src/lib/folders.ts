@@ -171,7 +171,23 @@ export async function reorderFolders(orderedIds: string[]): Promise<Folder[]> {
     const missing = folders.filter((f) => !orderedIds.includes(f.id))
     const next = [...reordered, ...missing]
     await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(next))
-    for (const f of reordered) syncPushFolder(f, f.shared)
+    // RC real-device gating audit, 2026-08-22: pushing each folder's new
+    // sort_order via syncPushFolder's plain upsert can't promote a
+    // currently-hidden (over-cap) folder into view -- folders_own_update's
+    // WITH CHECK requires the row to already be visible, which a same-
+    // statement self-lookup can't correctly evaluate against the NEW
+    // sort_order being written (the exact "drag the hidden one to the top"
+    // case this screen's own instruction promises). set_folder_sort_orders
+    // is a security-definer RPC scoped by auth.uid() that bypasses this
+    // for exactly this legitimate operation, in one atomic call instead of
+    // N separate upserts.
+    if (reordered.length) {
+      const { error } = await supabase.rpc('set_folder_sort_orders', {
+        p_ids: reordered.map((f) => f.id),
+        p_sort_orders: reordered.map((f) => f.sort_order),
+      })
+      if (error) Sentry.captureException(new Error(`reorderFolders push failed: ${error.message}`))
+    }
     return next
   })
 }

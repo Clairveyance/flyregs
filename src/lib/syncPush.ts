@@ -119,14 +119,18 @@ export async function syncPushFolder(f: Folder, force = false) {
   reportSyncError('folder upsert', error)
 }
 
+// RC real-device gating audit, 2026-08-22: a plain .update() here silently
+// affected 0 rows for any folder pushed over the visibility cap by a
+// downgrade -- Postgres requires SELECT-policy visibility as a
+// precondition for UPDATE to even find the row, and a hidden folder never
+// satisfies folders_own_select's cap check. soft_delete_own_folder is a
+// narrow security-definer RPC (scoped internally by auth.uid()) built
+// specifically for this -- deletes correctly regardless of visibility,
+// with no change to the general RLS policy.
 export async function syncPushFolderDelete(id: string, force = false) {
   const userId = await currentUserId(force)
   if (!userId) return
-  const { error } = await supabase
-    .from('synced_folders')
-    .update({ deleted: true, updated_at: new Date().toISOString() })
-    .eq('user_id', userId)
-    .eq('id', id)
+  const { error } = await supabase.rpc('soft_delete_own_folder', { p_id: id })
   reportSyncError('folder delete', error)
 }
 
