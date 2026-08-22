@@ -251,24 +251,26 @@ export async function getFleetSummary(): Promise<FleetAircraftSummary[]> {
 // fleet_visible_cap() slices, so index >= cap is exactly the set the server
 // is hiding. get_fleet_summary() can't answer this (it returns only what's
 // visible, by design), and the downgrade picker needs the hidden ones' real
-// names to let the user choose which one they keep. Plain select rather
-// than a new RPC: user_aircraft's own RLS already scopes an owner to their
-// own rows.
+// names to let the user choose which one they keep.
+//
+// RC real-device gating audit, 2026-08-22: this used to be a plain
+// user_aircraft select trusting RLS to scope it to "this user's own rows"
+// -- true when this was written, but user_aircraft_own_select later grew a
+// VISIBILITY CAP on top of ownership (migrations_fix_user_aircraft_select_
+// returning.sql, closing a real read-bypass), so a plain select could only
+// ever return the 1 already-visible aircraft -- the picker could never show
+// the other N to choose from. get_owned_aircraft_oldest_first() is a narrow
+// SECURITY DEFINER RPC scoped internally by auth.uid(), built specifically
+// for this recovery flow -- it does not reopen the general read-bypass
+// (the underlying RLS policy is untouched; this is a separate, deliberate
+// exception for a user managing their own full set during a real downgrade).
 export async function getOwnedAircraftOldestFirst(): Promise<
   { aircraftId: string; make: string; model: string; nickname: string | null }[]
 > {
-  const { data: auth } = await supabase.auth.getUser()
-  const userId = auth.user?.id
-  if (!userId) return []
-  const { data, error } = await supabase
-    .from('user_aircraft')
-    .select('id, make, model, nickname, created_at')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: true })
-    .order('id', { ascending: true })
+  const { data, error } = await supabase.rpc('get_owned_aircraft_oldest_first')
   if (error) throw error
   return (data ?? []).map((r: any) => ({
-    aircraftId: r.id, make: r.make, model: r.model, nickname: r.nickname,
+    aircraftId: r.aircraft_id, make: r.make, model: r.model, nickname: r.nickname,
   }))
 }
 
@@ -277,13 +279,14 @@ export async function getOwnedAircraftOldestFirst(): Promise<
 // anything for Pro users. in this case, they'd have to choose 1 a/c to take
 // w/ them down to Pro." Only ever called from an explicit user choice with
 // its own confirm -- nothing here runs on a timer or on downgrade itself.
+//
+// Same fix as getOwnedAircraftOldestFirst() above and for the same reason:
+// a plain DELETE requires SELECT-visibility as a prerequisite to touch a
+// row at all, so this used to silently affect 0 rows for every hidden
+// aircraft. keep_only_aircraft() is the matching SECURITY DEFINER RPC,
+// also scoped internally by auth.uid().
 export async function keepOnlyAircraft(keepIds: string[]): Promise<void> {
-  const { data: auth } = await supabase.auth.getUser()
-  const userId = auth.user?.id
-  if (!userId) throw new Error('Not signed in')
-  let q = supabase.from('user_aircraft').delete().eq('user_id', userId)
-  if (keepIds.length > 0) q = q.not('id', 'in', `(${keepIds.join(',')})`)
-  const { error } = await q
+  const { error } = await supabase.rpc('keep_only_aircraft', { p_keep_ids: keepIds })
   if (error) throw error
 }
 
