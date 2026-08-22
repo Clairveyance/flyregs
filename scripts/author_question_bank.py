@@ -490,17 +490,39 @@ def cmd_poll(only_types):
 
 VERIFY_SYSTEM = """You fact-check a flashcard (question, correct answer, AND 3 distractors) against its source regulatory text.
 
-Given SOURCE_TEXT, a QUESTION, an ANSWER, and 3 DISTRACTORS, decide whether the card is sound.
-Respond with JSON only:
-{"verdict": "pass" | "fail", "corrected_answer": string or null}
+Given SOURCE_TEXT, a QUESTION, an ANSWER, and 3 DISTRACTORS, decide whether the card is sound AND
+whether it's a fair question for a pilot/mechanic study or duel app -- not just factually correct.
 
+Respond with JSON only:
+{"verdict": "pass" | "fail", "corrected_answer": string or null, "quality": "good" | "trivia"}
+
+verdict (accuracy):
 "pass": the answer is accurate and grounded in the source text as written, AND all 3 distractors are
 clearly wrong (none of them could also be defended as correct given the source text).
 "fail": the answer is wrong/unsupported, OR any distractor is actually correct/ambiguous (which would
 make the question have more than one right answer). If a small, precise correction to the ANSWER
 alone would fix it, include it as corrected_answer; otherwise corrected_answer is null and the card
 should be discarded (a bad distractor cannot be auto-corrected the way an answer can, since we don't
-know what a better distractor should be -- discard rather than guess)."""
+know what a better distractor should be -- discard rather than guess).
+
+quality (relevance -- checked even if verdict is "pass"; a card can be 100% accurate and still be
+"trivia"). Real production data (2026-08-22): ~1 in 5 authored AC facts were exactly this failure
+mode DESPITE the authoring prompt already explicitly banning it -- the authoring model doesn't
+always follow its own instructions, especially on source passages that are themselves administrative
+front matter, so this is a second, independent check, not a redundant one.
+"trivia" if the question is fundamentally about a DOCUMENT'S OWN paperwork/history rather than
+aviation knowledge a pilot/mechanic would actually need -- regardless of which document, and
+regardless of how the question is phrased:
+  - the issue/effective/revision/publication/signing date of ANY document named in the passage
+  - who signed a document, or which FAA office initiated/approved/issued it
+  - a document's own number, or another document's number it merely references/cites
+  - what a document replaced/cancelled, or what replaced/cancelled it
+  - which paragraph/section of a document was updated/revised in a later change
+A real, operationally-actionable regulatory deadline a pilot/mechanic/operator would actually need
+to track (e.g. "by what date must operators install X", "aircraft certificated after what date must
+comply with Y") is "good", not "trivia" -- the test is whether the fact is something a pilot needs
+to KNOW AND APPLY, not a fact about a document's own cover page or citation history.
+"good" for everything else that passes the operational-relevance bar above."""
 
 VERIFY_FORMAT = {
     "type": "json_schema",
@@ -509,8 +531,9 @@ VERIFY_FORMAT = {
         "properties": {
             "verdict": {"type": "string", "enum": ["pass", "fail"]},
             "corrected_answer": {"type": ["string", "null"]},
+            "quality": {"type": "string", "enum": ["good", "trivia"]},
         },
-        "required": ["verdict", "corrected_answer"],
+        "required": ["verdict", "corrected_answer", "quality"],
         "additionalProperties": False,
     },
 }
@@ -621,18 +644,25 @@ def cmd_verify_poll():
         if not parsed:
             skipped += 1
             continue
-        if parsed.get("verdict") == "pass":
+        # A factually-accurate card can still be "trivia" -- quality is
+        # checked independent of, and can override, an accuracy "pass".
+        # No corrected_answer path for trivia: the fix isn't a better
+        # answer, it's a different question, which this pass can't write
+        # -- discard and let a fresh authoring pass replace it.
+        is_trivia = parsed.get("quality") == "trivia"
+        if parsed.get("verdict") == "pass" and not is_trivia:
             rest("PATCH", f"/rest/v1/study_facts?id=eq.{fact_id}",
                  body={"status": "live", "verified_at": "now()", "verified_model": VERIFY_MODEL})
             passed += 1
-        elif parsed.get("corrected_answer"):
+        elif parsed.get("corrected_answer") and not is_trivia:
             rest("PATCH", f"/rest/v1/study_facts?id=eq.{fact_id}",
                  body={"status": "live", "answer": parsed["corrected_answer"],
                        "verified_at": "now()", "verified_model": VERIFY_MODEL})
             corrected += 1
         else:
             rest("PATCH", f"/rest/v1/study_facts?id=eq.{fact_id}",
-                 body={"status": "flagged", "verified_at": "now()", "verified_model": VERIFY_MODEL})
+                 body={"status": "flagged", "verified_at": "now()", "verified_model": VERIFY_MODEL,
+                       "flag_reason": "trivia" if is_trivia else "failed_grounding"})
             failed += 1
     print(f"Verification done: {passed} passed as-is, {corrected} corrected+passed, "
           f"{failed} flagged (never served), {skipped} left pending (no parseable "
