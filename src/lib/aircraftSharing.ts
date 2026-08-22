@@ -308,6 +308,19 @@ export async function getFleetHiddenCount(): Promise<number> {
   return typeof data === 'number' ? data : 0
 }
 
+// How many aircraft the caller's CURRENT tier actually shows -- Pro: 1,
+// Premium: unlimited, Plus/Free: 0 (Aircraft Manager isn't part of the
+// tier at all). AircraftDowngradeGate needs this alongside
+// getFleetHiddenCount() to tell "pick the one to keep" (cap 1) apart from
+// "nothing can be kept, all N are being deleted" (cap 0) -- conflating
+// those left a cap-0 downgrade unable to ever resolve the gate (any
+// single "keep" choice was still over the real cap).
+export async function getFleetVisibleCap(): Promise<number> {
+  const { data, error } = await supabase.rpc('fleet_visible_cap')
+  if (error) throw error
+  return typeof data === 'number' ? data : 0
+}
+
 // A collaborator's own role on one aircraft, for the detail screen's
 // role-gated controls. Not RPC-backed -- aircraft_collaborators already
 // has a direct "see my own membership row" RLS policy

@@ -5,7 +5,7 @@ import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
-import { getFleetHiddenCount, getOwnedAircraftOldestFirst, keepOnlyAircraft } from '@/lib/aircraftSharing'
+import { getFleetHiddenCount, getFleetVisibleCap, getOwnedAircraftOldestFirst, keepOnlyAircraft } from '@/lib/aircraftSharing'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
@@ -34,9 +34,25 @@ export function AircraftDowngradeGate() {
   const { session } = useAuth()
   const pathname = usePathname()
   const [locked, setLocked] = useState<{ aircraftId: string; make: string; model: string; nickname: string | null }[]>([])
+  // RC, 2026-08-22: "if a user DOES downgrade Prem>Pro, and have multiple
+  // a/c, they must be notified first that they need to pick only one a/c
+  // to take with them to Pro, and if d/g to Plus or Free, they must be
+  // reminded that they will lose (complete delete) all their a/c's."
+  // Pro's cap is 1 (pick-one, the flow below already built for this) --
+  // but Plus/Free's cap is 0 (fleet_visible_cap(): "My Aircraft isn't part
+  // of the tier"), where NO aircraft can ever be kept. Before this fix,
+  // this component only ever knew "how many are hidden," not the real
+  // cap -- so a Plus/Free downgrade showed the SAME "pick the one that
+  // comes with you to Pro" copy (wrong: there is no Pro destination) and
+  // let the user tap "Keep this" on exactly one, which -- at cap 0 -- is
+  // STILL over cap and immediately re-triggers this same gate with that
+  // one aircraft, forever. A real cap-0 downgrade could never resolve.
+  const [cap, setCap] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   // The aircraft the user tapped "Keep this" on, awaiting confirmation.
   const [pending, setPending] = useState<{ aircraftId: string; make: string; model: string; nickname: string | null } | null>(null)
+  // The cap-0 case: no single aircraft to pick, only "delete all N."
+  const [confirmingDeleteAll, setConfirmingDeleteAll] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [typed, setTyped] = useState('')
   const armed = typed.trim().toUpperCase() === 'DELETE'
@@ -78,7 +94,9 @@ export function AircraftDowngradeGate() {
       // this component is to actually show the user the choice.
       const hidden = await getFleetHiddenCount()
       if (hidden <= 0) { setLocked([]); return }
-      setLocked(await getOwnedAircraftOldestFirst())
+      const [owned, visibleCap] = await Promise.all([getOwnedAircraftOldestFirst(), getFleetVisibleCap()])
+      setLocked(owned)
+      setCap(visibleCap)
     } catch {
       // Never block the whole app on a failed lookup -- worst case the gate
       // appears on the next launch instead.
@@ -109,6 +127,21 @@ export function AircraftDowngradeGate() {
     setBusy(false)
   }
 
+  // The cap-0 (Plus/Free) case: nothing can be kept. keepOnlyAircraft([])
+  // deletes every one of the caller's own aircraft -- same RPC as runKeep
+  // above, just with an empty keep-list instead of one id.
+  const runDeleteAll = async () => {
+    setBusy(true)
+    try {
+      await keepOnlyAircraft([])
+      setLocked([])
+      setConfirmingDeleteAll(false)
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not update. Please try again.')
+    }
+    setBusy(false)
+  }
+
   const label = (a: typeof locked[number]) => a.nickname || `${a.make} ${a.model}`
 
   // Confirm step 2, rendered INSIDE this modal rather than via Alert.alert.
@@ -118,10 +151,14 @@ export function AircraftDowngradeGate() {
   // confirm also just belongs here: this is a permanent, unrecoverable
   // delete of someone's maintenance history, and it deserves a screen that
   // names every aircraft going away rather than a two-line OS dialog.
-  if (pending) {
-    const going = locked.filter((a) => a.aircraftId !== pending.aircraftId)
+  if (pending || confirmingDeleteAll) {
+    // confirmingDeleteAll (cap 0: Plus/Free): every locked aircraft is
+    // going, none is being "kept" -- same confirmation screen, no single
+    // aircraft to exclude from the going-list.
+    const going = pending ? locked.filter((a) => a.aircraftId !== pending.aircraftId) : locked
+    const closeThis = () => { setPending(null); setConfirmingDeleteAll(false) }
     return (
-      <Modal visible transparent animationType="fade" onRequestClose={() => setPending(null)}>
+      <Modal visible transparent animationType="fade" onRequestClose={closeThis}>
         {/* Corpus-wide keyboard-avoidance sweep, RC real-device report. This
             card's height is unbounded (a body message plus a per-aircraft
             list that grows with `going.length`, plus the typed-DELETE input
@@ -134,10 +171,12 @@ export function AircraftDowngradeGate() {
           <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.red }]}>
             <Icon name="exclamationmark.triangle" size={fs(26)} color={tokens.red} />
             <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>
-              Keep {label(pending)} only?
+              {pending ? `Keep ${label(pending)} only?` : `Delete all ${going.length} aircraft?`}
             </Text>
             <Text style={[styles.body, { color: tokens.t3, fontSize: fs(13.5) }]}>
-              {going.length === 1 ? 'This aircraft' : `These ${going.length} aircraft`} will be permanently deleted, with their equipment, reminders, and AD history. This cannot be undone.
+              {pending
+                ? `${going.length === 1 ? 'This aircraft' : `These ${going.length} aircraft`} will be permanently deleted, with their equipment, reminders, and AD history. This cannot be undone.`
+                : "Your plan doesn't include Aircraft Manager, so none of these can stay. They'll be permanently deleted, with their equipment, reminders, and AD history. This cannot be undone."}
             </Text>
             <View style={styles.goingList}>
               {going.map((a) => (
@@ -186,21 +225,90 @@ export function AircraftDowngradeGate() {
                 </View>
                 <Pressable
                   style={[styles.primaryBtn, { backgroundColor: armed ? tokens.red : tokens.bdim }]}
-                  onPress={() => { if (armed) runKeep(pending) }}
+                  onPress={() => { if (armed) { if (pending) runKeep(pending); else runDeleteAll() } }}
                   disabled={!armed}
                   accessibilityState={{ disabled: !armed }}
                 >
                   <Text style={[styles.destructiveBtnText, { fontSize: fs(14.5), opacity: armed ? 1 : 0.55 }]}>
-                    Delete {going.length} and keep {label(pending)}
+                    {pending ? `Delete ${going.length} and keep ${label(pending)}` : `Delete all ${going.length} aircraft`}
                   </Text>
                 </Pressable>
-                <Pressable onPress={() => { setPending(null); setError(null); setTyped('') }} hitSlop={8}>
+                <Pressable onPress={() => { closeThis(); setError(null); setTyped('') }} hitSlop={8}>
                   <Text style={[styles.cancelText, { color: tokens.t3, fontSize: fs(13.5) }]}>Cancel</Text>
                 </Pressable>
               </>
             )}
           </View>
         </KeyboardAvoidingView>
+        <LongPressPreviewCard
+          preview={preview}
+          previewHeight={previewHeight}
+          onLayoutHeight={setPreviewHeight}
+          onDismiss={hidePreview}
+        />
+      </Modal>
+    )
+  }
+
+  // cap === 0 (Plus/Free): no aircraft can be kept at all -- a completely
+  // different message and flow from cap === 1 (Pro: pick-one) below. Only
+  // render this branch once cap has actually loaded (null = still
+  // fetching) so the pick-one UI doesn't flash first and then swap.
+  if (cap === 0) {
+    return (
+      <Modal visible transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={styles.scrim}>
+          <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.gold }]}>
+            <Icon name="airplane" size={fs(26)} color={tokens.gold} />
+            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>
+              Your plan doesn't include Aircraft Manager
+            </Text>
+            <Text style={[styles.body, { color: tokens.t3, fontSize: fs(13.5) }]}>
+              Saved aircraft are stored on our servers, and come with Pro or Premium. Your current plan can't keep any of these {locked.length} — upgrade to keep them, or delete them to continue.
+            </Text>
+            <Pressable
+              style={[styles.primaryBtn, { backgroundColor: tokens.gold }]}
+              onPress={() => router.push('/paywall?tier=premium' as any)}
+            >
+              <Text style={[styles.primaryBtnText, { fontSize: fs(14.5) }]}>Upgrade to Premium (keep all)</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.primaryBtn, { backgroundColor: tokens.bg2, borderWidth: 1, borderColor: tokens.gold, marginTop: 8 }]}
+              onPress={() => router.push('/paywall?tier=pro' as any)}
+            >
+              <Text style={[styles.primaryBtnText, { color: tokens.gold, fontSize: fs(14.5) }]}>Upgrade to Pro (keep 1)</Text>
+            </Pressable>
+
+            <ScrollView style={styles.list} contentContainerStyle={{ gap: 8 }}>
+              {locked.map((a) => (
+                <View key={a.aircraftId} style={[styles.row, { borderColor: tokens.bdr }]}>
+                  <Icon name="airplane" size={fs(13)} color={tokens.t3} />
+                  <Pressable
+                    style={{ flex: 1 }}
+                    onLongPress={(e) => showPreview(label(a), e)}
+                    onPressOut={hidePreview}
+                    delayLongPress={350}
+                  >
+                    <Text style={[styles.rowText, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={1}>
+                      {label(a)}
+                    </Text>
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+
+            <Pressable
+              style={[styles.primaryBtn, { backgroundColor: tokens.red, marginTop: 8 }]}
+              onPress={() => { setTyped(''); setConfirmingDeleteAll(true) }}
+            >
+              <Text style={[styles.primaryBtnText, { fontSize: fs(14.5) }]}>Delete All {locked.length} Aircraft</Text>
+            </Pressable>
+
+            <Text style={[styles.footnote, { color: tokens.t4, fontSize: fs(11.5) }]}>
+              Nothing is deleted until you choose. Your aircraft stay locked, not lost — upgrading restores all of them.
+            </Text>
+          </View>
+        </View>
         <LongPressPreviewCard
           preview={preview}
           previewHeight={previewHeight}
