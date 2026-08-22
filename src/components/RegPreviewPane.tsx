@@ -113,7 +113,7 @@ function useRegPreviewContent(route: string | null, onClose: () => void, highlig
 
   const handleToggleBookmark = async () => {
     if (!data) return
-    if (!hasPlusAccess) { onClose(); router.push('/paywall'); return }
+    if (!hasPlusAccess) { onClose(); router.push('/paywall?tier=plus'); return }
     setBookmarked((prev) => !prev) // optimistic
     const next = await toggleBookmark({
       id: data.id,
@@ -129,7 +129,7 @@ function useRegPreviewContent(route: string | null, onClose: () => void, highlig
 
   const handleOpenFolderPicker = () => {
     if (!data) return
-    if (!hasPlusAccess) { onClose(); router.push('/paywall'); return }
+    if (!hasPlusAccess) { onClose(); router.push('/paywall?tier=plus'); return }
     setFolderPickerOpen(true)
   }
 

@@ -375,7 +375,7 @@ export default function Cfr49SectionScreen() {
   }
 
   const handlePrint = async () => {
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     if (!section) return
     try {
       await printReg({

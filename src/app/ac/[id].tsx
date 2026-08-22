@@ -586,7 +586,7 @@ export default function ACDetailScreen() {
   // promise. An AC's text lives in pdf_blocks rather than one body column,
   // so flatten it with the same blockText() the reader renders from.
   const handlePrint = async () => {
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     if (!ac) return
     const body = (ac.pdf_blocks ?? []).map((b) => blockText(b)).filter(Boolean).join('\n\n')
     try {
@@ -617,7 +617,7 @@ export default function ACDetailScreen() {
     // Gating it on isPremium bounced a Plus buyer to a Premium upsell for
     // something they had already paid for.
     if (!hasPlusAccess) {
-      router.push('/paywall')
+      router.push('/paywall?tier=plus')
       return
     }
     if (!ac) return
@@ -835,7 +835,7 @@ export default function ACDetailScreen() {
 
   const openPDF = async () => {
     if (!hasPlusAccess) {
-      router.push('/paywall')
+      router.push('/paywall?tier=plus')
       return
     }
     if (hasNoSourceAtAll) {
@@ -1228,7 +1228,7 @@ export default function ACDetailScreen() {
               {!hasPlusAccess && (ac.pdf_blocks_total_count ?? ac.pdf_blocks.length) > previewBlockCount(ac.pdf_blocks_total_count ?? ac.pdf_blocks.length) && (
                 <Pressable
                   style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
-                  onPress={() => router.push('/paywall')}
+                  onPress={() => router.push('/paywall?tier=plus')}
                 >
                   <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
                   <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Continue reading with Plus</Text>

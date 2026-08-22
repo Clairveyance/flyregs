@@ -517,7 +517,7 @@ export function NoteEditor({
                       onOpenFormulaRef={hasPlusAccess ? setViewerFormulaRef : undefined}
                     />
                     {!hasPlusAccess && paneData.pdf_blocks_total_count > previewBlockCount(paneData.pdf_blocks_total_count) && (
-                      <Pressable onPress={() => { closeAcPane(); router.push('/paywall') }}>
+                      <Pressable onPress={() => { closeAcPane(); router.push('/paywall?tier=plus') }}>
                         <Text style={[styles.paneOpenText, { color: tokens.gold, fontSize: fs(12.5) }]}>
                           Unlock the rest with Plus →
                         </Text>

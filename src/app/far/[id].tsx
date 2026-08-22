@@ -450,7 +450,7 @@ export default function FarSectionScreen() {
   // promise -- until now the app had no print at all, only the share
   // sheet (which exports a LINK, not the text).
   const handlePrint = async () => {
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     if (!section) return
     try {
       await printReg({
@@ -473,7 +473,7 @@ export default function FarSectionScreen() {
     // Share/export is a PLUS feature (paywall PLUS_FEATURES), not Premium.
     // Gating it on isPremium bounced a Plus buyer to a Premium upsell for
     // something they had already paid for.
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     if (!section) return
     try {
       await Share.share({

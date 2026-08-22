@@ -301,7 +301,7 @@ export default function AdScreen() {
     // straight past it to the real thing. Every other action on this
     // screen (bookmark, folder, print, share) already checks this; this
     // one was the one gap.
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     // Used to window.open() the raw URL on web -- found live: govinfo.gov
     // (where every AD's pdf_url points) serves its PDFs in a way that
     // triggers an OS-level file-download prompt instead of opening as a
@@ -433,7 +433,7 @@ export default function AdScreen() {
   // promise -- until now the app had no print at all, only the share
   // sheet (which exports a LINK, not the text).
   const handlePrint = async () => {
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     if (!ad) return
     try {
       await printReg({
@@ -457,7 +457,7 @@ export default function AdScreen() {
     // Share/export is a PLUS feature (paywall PLUS_FEATURES), not Premium.
     // Gating it on isPremium bounced a Plus buyer to a Premium upsell for
     // something they had already paid for.
-    if (!hasPlusAccess) { router.push('/paywall'); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
     if (!ad) return
     try {
       await Share.share({
