@@ -471,13 +471,32 @@ export default function FolderDetail() {
   // anonymous link, so a folder that's never been shared yet still has a
   // way to reach the Callsign flow (the in-roster shortcut below only
   // exists once folder.shared is already true).
+  //
+  // RC re-report, 2026-08-22: "Invite by Callsign" from THIS icon (not the
+  // in-roster shortcut, which calls openCallsignInvite directly and was
+  // never broken) "doesn't click, doesn't do anything." Root cause: this
+  // action sheet is ConfirmDialog's own <Modal>; runChoice there calls
+  // `await c.onPress()` and only closes that Modal (via closeIfCurrent)
+  // AFTER onPress returns. openCallsignInvite is synchronous, so calling it
+  // directly here sets callsignModalVisible=true in the SAME commit as this
+  // sheet's Modal is still visible=true -- the exact "two RN <Modal>s both
+  // wanting to be visible at once" iOS presentation deadlock already
+  // diagnosed and fixed once for Find Friends (see callsignModalVisible's
+  // own findFriendsStep comment below) and for shareStep in
+  // my-aircraft/[id].tsx -- just never caught here, since this specific
+  // sheet-to-modal handoff is a different call site than either of those.
+  // openBulkInvite doesn't hit this by accident (its real getOrCreateShareLink
+  // network round-trip gives closeIfCurrent time to run first); Callsign
+  // has no such gap. Deferring past this sheet's fade-out (animationType
+  // "fade" on ConfirmDialog's Modal) guarantees the ordering without
+  // touching the shared ConfirmDialog component.
   const handleInviteChoice = () => {
     if (!isPremium) { router.push('/paywall?tier=premium'); return }
     confirm({
       title: 'Invite to this folder',
       choices: [
         { label: 'Invite by Link', onPress: handleInvite },
-        { label: 'Invite by Callsign', onPress: openCallsignInvite },
+        { label: 'Invite by Callsign', onPress: () => { setTimeout(openCallsignInvite, 300) } },
         { label: 'Invite Multiple (Contacts)', onPress: openBulkInvite },
       ],
     })
