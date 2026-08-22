@@ -130,23 +130,51 @@ export async function syncPushFolderDelete(id: string, force = false) {
   reportSyncError('folder delete', error)
 }
 
+const folderItemRow = (userId: string, i: FolderItem) => ({
+  id: i.id,
+  user_id: userId,
+  folder_id: i.folder_id,
+  item_type: i.item_type,
+  item_id: i.item_id,
+  added_at: i.added_at,
+  updated_at: new Date().toISOString(),
+  deleted: false,
+})
+
+// RC + Adriana real-device Sentry report, 2026-08-22: a single item this
+// account no longer has write access to (enforce_folder_item_access's
+// BEFORE INSERT trigger, sync/migrations_gating_sweep_batch3.sql -- collab
+// access can legitimately go stale between local-write-time and
+// sync-push-time) 400'd the WHOLE batched upsert, so every OTHER healthy
+// item queued alongside it silently failed to sync too, even though
+// nothing was wrong with them. Falls back to one upsert per item on a
+// batch failure so one denied/stale item can't take down unrelated items
+// -- each item's own success/failure is now independent and reported on
+// its own line.
+//
+// Known, currently-accepted gap (not fixed here): a genuinely,
+// permanently-denied item still isn't surfaced to the user or dropped from
+// the local pending queue -- it silently retries and fails again every
+// future sync cycle. The equivalent case for shared NOTES already has a
+// real UI affordance (SharedNoteAccessLostError, folder/shared/[id].tsx) --
+// extending that same idea to folder items needs its own local-storage +
+// UI design (this runs from a background batch, not a live foreground
+// screen a user is looking at), scoped separately rather than rushed in
+// alongside this fix.
 export async function syncPushFolderItems(items: FolderItem[], force = false) {
   const userId = await currentUserId(force)
   if (!userId || !items.length) return
-  const { error } = await supabase.from('synced_folder_items').upsert(
-    items.map((i) => ({
-      id: i.id,
-      user_id: userId,
-      folder_id: i.folder_id,
-      item_type: i.item_type,
-      item_id: i.item_id,
-      added_at: i.added_at,
-      updated_at: new Date().toISOString(),
-      deleted: false,
-    })),
-    { onConflict: 'user_id,id' }
-  )
-  reportSyncError('folder item upsert', error)
+  const { error } = await supabase
+    .from('synced_folder_items')
+    .upsert(items.map((i) => folderItemRow(userId, i)), { onConflict: 'user_id,id' })
+  if (!error) return
+  reportSyncError('folder item upsert (batch)', error)
+  for (const item of items) {
+    const { error: itemError } = await supabase
+      .from('synced_folder_items')
+      .upsert(folderItemRow(userId, item), { onConflict: 'user_id,id' })
+    reportSyncError(`folder item upsert (${item.item_type}:${item.item_id})`, itemError)
+  }
 }
 
 export async function syncPushFolderItemDeletes(ids: string[], force = false) {
