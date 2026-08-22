@@ -73,56 +73,96 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session)
       if (session?.user) {
-        // Must run before anything below reads or writes local-first
-        // storage (folders/bookmarks/notes/recents/downloads/recent-
-        // searches) -- see claimDeviceIfMismatched's own comment for why a
-        // mismatch has to be resolved here, up front, rather than left to
-        // each read/write call to discover independently.
-        await claimDeviceIfMismatched(session.user.id)
-        initRevenueCat(session.user.id)
-        const status = await getSubscriptionStatus()
-        setIsPro(status.isPro)
-        setIsPremium(status.isPremium)
-        setIsUnlocked(status.isUnlocked)
-        // Self-healing catch-up for user_entitlements (the DB-backed
-        // tier-of-record behind every *_gated view/RPC -- see
-        // gotcha_tier_gate_client_side_only.md), in case revenuecat-webhook
-        // ever missed an event while the app was closed. Once per real
-        // session-init only (not on every onAuthStateChange firing below --
-        // that fires on token refreshes too, which don't need a re-sync).
-        syncEntitlements()
-        // The sync on/off preference lives on the account (user_metadata),
-        // not just this device — reconcile so a device that's never toggled
-        // it manually still picks up the same state (and pulls the account's
-        // data down) the first time it opens with this account signed in.
-        //
-        // Was `if (status.isPremium)` -- wrong tier. "Back up & sync" itself
-        // gates on isPro (hasProAccess = isPro || isPremium), confirmed in
-        // saved.tsx/notes.tsx's own toggleSync comments -- a Premium-only
-        // check here meant a Pro (non-Premium) user's cross-device
-        // reconciliation never ran on launch at all, so a second device
-        // never auto-picked up their sync state or pulled their data down.
-        // Same isPro-vs-hasProAccess mismatch pattern already found and
-        // fixed 14x elsewhere in this codebase (gotcha_gating_sweep_2026_
-        // 08_14.md), caught here on a fresh read while tracing the B34
-        // readiness sweep's sync-retry finding.
-        if (status.isPro || status.isPremium) {
-          applyRemoteSyncPreference(session.user.id, session.user.user_metadata?.sync_enabled)
+        try {
+          // Must run before anything below reads or writes local-first
+          // storage (folders/bookmarks/notes/recents/downloads/recent-
+          // searches) -- see claimDeviceIfMismatched's own comment for why a
+          // mismatch has to be resolved here, up front, rather than left to
+          // each read/write call to discover independently.
+          await claimDeviceIfMismatched(session.user.id)
+          initRevenueCat(session.user.id)
+          const status = await getSubscriptionStatus()
+          setIsPro(status.isPro)
+          setIsPremium(status.isPremium)
+          setIsUnlocked(status.isUnlocked)
+          // Self-healing catch-up for user_entitlements (the DB-backed
+          // tier-of-record behind every *_gated view/RPC -- see
+          // gotcha_tier_gate_client_side_only.md), in case revenuecat-webhook
+          // ever missed an event while the app was closed. Once per real
+          // session-init only (not on every onAuthStateChange firing below --
+          // that fires on token refreshes too, which don't need a re-sync).
+          syncEntitlements()
+          // The sync on/off preference lives on the account (user_metadata),
+          // not just this device — reconcile so a device that's never toggled
+          // it manually still picks up the same state (and pulls the account's
+          // data down) the first time it opens with this account signed in.
+          //
+          // Was `if (status.isPremium)` -- wrong tier. "Back up & sync" itself
+          // gates on isPro (hasProAccess = isPro || isPremium), confirmed in
+          // saved.tsx/notes.tsx's own toggleSync comments -- a Premium-only
+          // check here meant a Pro (non-Premium) user's cross-device
+          // reconciliation never ran on launch at all, so a second device
+          // never auto-picked up their sync state or pulled their data down.
+          // Same isPro-vs-hasProAccess mismatch pattern already found and
+          // fixed 14x elsewhere in this codebase (gotcha_gating_sweep_2026_
+          // 08_14.md), caught here on a fresh read while tracing the B34
+          // readiness sweep's sync-retry finding.
+          if (status.isPro || status.isPremium) {
+            applyRemoteSyncPreference(session.user.id, session.user.user_metadata?.sync_enabled)
+          }
+        } finally {
+          // finally, not a trailing call -- claimDeviceIfMismatched already
+          // catches its own errors and getSubscriptionStatus never throws,
+          // but initRevenueCat's Purchases.configure() is an unguarded
+          // native bridge call; `loading` must not get stuck true forever
+          // on cold launch (the whole app renders behind this flag) if it
+          // does throw.
+          setLoading(false)
         }
+      } else {
+        setLoading(false)
       }
-      setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       setSession(session)
       if (session?.user) {
-        // Same reasoning as the session-restore branch above.
-        await claimDeviceIfMismatched(session.user.id)
-        initRevenueCat(session.user.id)
-        const status = await getSubscriptionStatus()
-        setIsPro(status.isPro)
-        setIsPremium(status.isPremium)
-        setIsUnlocked(status.isUnlocked)
+        // SIGNED_IN specifically (not TOKEN_REFRESHED, which fires roughly
+        // hourly for an already-signed-in session and shouldn't re-block
+        // anything) re-uses the same `loading` gate the cold-launch branch
+        // above already holds the UI behind -- real bug, RC real-device
+        // report: Face ID sign-in (biometricAuth.ts's signInWithBiometric,
+        // which calls supabase.auth.setSession directly) landed on a screen
+        // showing session=truthy but isPro/isPremium still at their
+        // pre-fetch `false` defaults, because THIS branch never gated
+        // anything on `loading` the way cold launch does -- and
+        // auth.tsx's handleBiometricSignIn dismisses the sign-in screen on
+        // the very next tick after setSession() resolves, giving the async
+        // entitlement fetch below essentially no head start. `loading` is
+        // already the established signal other screens correctly wait on
+        // before trusting hasProAccess/isPro/isPremium (see
+        // (tabs)/index.tsx's HobbsHeaderButton for existing precedent) --
+        // extending it to cover this event is consistent with that, not a
+        // new mechanism.
+        if (event === 'SIGNED_IN') setLoading(true)
+        try {
+          // Same reasoning as the session-restore branch above.
+          await claimDeviceIfMismatched(session.user.id)
+          initRevenueCat(session.user.id)
+          const status = await getSubscriptionStatus()
+          setIsPro(status.isPro)
+          setIsPremium(status.isPremium)
+          setIsUnlocked(status.isUnlocked)
+        } finally {
+          // finally, not a trailing call -- if anything above threw
+          // (claimDeviceIfMismatched already catches its own errors, but
+          // initRevenueCat's Purchases.configure() is an unguarded native
+          // bridge call), `loading` must not get stuck true forever for
+          // this session; better to fall through to whatever isPro/
+          // isPremium/isUnlocked already held than freeze every consumer
+          // that correctly waits on this flag.
+          if (event === 'SIGNED_IN') setLoading(false)
+        }
       } else {
         setIsPro(false)
         setIsPremium(false)

@@ -460,6 +460,14 @@ export default function AuthScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 autoComplete="email"
+                // Explicit, not inferred from autoComplete -- iOS's Password
+                // AutoFill / "Save Password?" heuristic pairs .username with
+                // .password/.newPassword most reliably (Apple's own
+                // guidance) to recognize this as a login form, more so than
+                // .emailAddress (what autoComplete="email" alone maps to).
+                // RC real-device report 2026-08-21: "glitchy when trying to
+                // save a stored username/pass."
+                textContentType="username"
               />
             </View>
             {emailError?.trim() ? (
@@ -477,7 +485,16 @@ export default function AuthScreen() {
                 onChangeText={(t) => { setPassword(t); setPasswordError(null); setFormError(null) }}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
-                autoComplete={mode === 'signin' ? 'password' : 'new-password'}
+                // Was autoComplete="password" on sign-in -- not a real HTML
+                // autocomplete token (only "current-password"/"new-password"
+                // are), so React Native's own autoComplete->textContentType
+                // lookup table (TextInput.js) silently found no match and
+                // left textContentType undefined on the ONE screen where
+                // this matters most. Sign-up's "new-password" already
+                // mapped correctly, which is why this was sign-in-specific.
+                // Set both explicitly now rather than relying on inference.
+                autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                textContentType={mode === 'signin' ? 'password' : 'newPassword'}
               />
               <Pressable onPress={() => setShowPassword((v) => !v)} hitSlop={8}>
                 <Icon name={showPassword ? 'eye.slash' : 'eye'} size={fs(18)} color={tokens.t3} />

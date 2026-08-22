@@ -54,13 +54,41 @@ function statusFromCustomerInfo(customerInfo: CustomerInfo): SubscriptionStatus 
   }
 }
 
-export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
-  try {
-    const customerInfo = await Purchases.getCustomerInfo()
-    return statusFromCustomerInfo(customerInfo)
-  } catch {
-    return { isPro: false, isPremium: false, isUnlocked: false }
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Real bug, RC real-device report 2026-08-21: signing in with Face ID
+// reverted the app to a Free/locked account, permanently, until a full
+// force-quit + relaunch -- password sign-in didn't show it. Root cause:
+// initRevenueCat() calls Purchases.configure(), which returns void (not a
+// Promise -- see react-native-purchases' own type declaration) and does its
+// real native setup asynchronously under the hood. getCustomerInfo()'s own
+// doc comment says it rejects "if configure has not been called yet or if
+// there's an issue getting the customer information" -- exactly the
+// condition of calling it immediately after an unawaited configure(). The
+// password sign-in path incidentally survives this because
+// maybeOfferBiometricEnroll() awaits several more calls before the screen
+// dismisses, giving configure() more wall-clock time to finish; the
+// biometric path dismisses on the very next tick after setSession()
+// resolves (auth.tsx's handleBiometricSignIn), racing configure() far more
+// tightly. A single failed attempt used to fall back to Free permanently --
+// nothing else in a running process ever calls configure() again, so
+// foregrounding could never self-heal it, only a full relaunch (which
+// re-runs the whole sequence from a cold, uncontested start) could.
+// A short retry-with-backoff gives configure() the moment it needs to
+// finish instead of giving up on the very first race.
+export async function getSubscriptionStatus(retries = 3): Promise<SubscriptionStatus> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const customerInfo = await Purchases.getCustomerInfo()
+      return statusFromCustomerInfo(customerInfo)
+    } catch {
+      if (attempt === retries) return { isPro: false, isPremium: false, isUnlocked: false }
+      await sleep(300 * (attempt + 1))
+    }
   }
+  return { isPro: false, isPremium: false, isUnlocked: false }
 }
 
 export interface SubscriptionDetails {
