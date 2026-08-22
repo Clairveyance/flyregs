@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native'
 import { router } from 'expo-router'
+import * as Sentry from '@sentry/react-native'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
@@ -70,6 +71,15 @@ export default function ReadyRoomScreen() {
     }
   }
 
+  // Sentry, real production events (mechanism onunhandledrejection): one of
+  // these RPCs returning a real error (e.g. a genuine 400) here was going
+  // completely unhandled -- no .catch on this chain at all -- silently
+  // leaving whatever rows this tab already had (stale, or the initial
+  // empty array on first load) with no error surfaced anywhere. Not a
+  // crash (React Native swallows an unhandled rejection rather than
+  // terminating), but a real "leaderboard just never loads, no
+  // explanation" bug. Reports to Sentry same as this file's other error
+  // paths; deliberately doesn't clear existing rows on a failed refresh.
   const load = useCallback((t: LbTab) => {
     setLoading(true)
     const fetcher = t === 'study' ? getReadyRoomLeaderboard(50)
@@ -81,6 +91,7 @@ export default function ReadyRoomScreen() {
         else if (t === 'duels') setDuelsRows(rows)
         else setMasteryRows(rows)
       })
+      .catch((err) => Sentry.captureException(err))
       .finally(() => setLoading(false))
   }, [])
 
