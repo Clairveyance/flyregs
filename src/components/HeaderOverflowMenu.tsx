@@ -82,17 +82,27 @@ export function HeaderOverflowMenu({
                 // view controller that's still mid-dismissal. Deferring to
                 // runAfterInteractions (rather than a magic-number setTimeout)
                 // waits for that dismiss animation to actually finish first.
+                // RC gating audit, 2026-08-22: `disabled={item.disabled}`
+                // made a tier-gated row's own onPress -- which already
+                // correctly routes to the paywall -- never fire at all. A
+                // disabled RN Pressable is a dead tap, not an upsell; every
+                // item here (Print/Share/Add to Folder on 7 detail screens)
+                // read as a broken button instead of a locked one. Row stays
+                // dimmed (unchanged) but is now tappable, with a lock icon so
+                // dimmed reads as "locked," not "broken."
                 onPress={() => {
                   setOpen(false)
                   InteractionManager.runAfterInteractions(() => item.onPress())
                 }}
-                disabled={item.disabled}
                 style={[styles.row, i < items.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }]}
               >
                 <Icon name={item.icon} size={fs(18)} color={item.disabled ? tokens.t4 : tokens.t2} />
                 <Text style={[styles.label, { color: item.disabled ? tokens.t4 : tokens.t1, fontSize: fs(14.5) }]}>
                   {item.label}
                 </Text>
+                {item.disabled && (
+                  <Icon name="lock.fill" size={fs(12)} color={tokens.t4} style={{ marginLeft: 'auto' }} />
+                )}
               </Pressable>
             ))}
           </View>
