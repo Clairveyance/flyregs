@@ -95,14 +95,31 @@ ORDINALS = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th", 6: "6th",
 
 
 def main():
+    # NOT gated through quizzable_dictionary_terms (2026-08-22 fix): that
+    # view excludes a term whose senses[0].definition contains the term's
+    # own name -- a real guard for the generic "What is {term}?" dictionary
+    # question shape (buildStudyCard's dictionary case), where restating
+    # the term in its own definition would give the answer away for free.
+    # It doesn't apply here: a letter-recall question ("What does the C in
+    # COMBATS stand for?") is INTENTIONALLY built around the mnemonic's own
+    # name -- the definition containing that name is irrelevant to whether
+    # this fact shape gives anything away. Confirmed live this same session
+    # that this WAS silently starving the pool: after rewriting all 52
+    # mnemonic definitions to actually enumerate their own breakdown
+    # concepts by name (a real, separate RC-requested fix), 43 of 52 now
+    # legitimately restate their own term somewhere in the definition --
+    # correctly tripping quizzable_dictionary_terms' filter, incorrectly
+    # starving THIS script down to 6 of 45 eligible mnemonics. The only
+    # real eligibility criterion for a letter-recall fact is "does this
+    # mnemonic have a real letter breakdown" -- checked directly below.
     rows = mgmt_sql("""
         select slug, term, mnemonic_group, senses->0->'breakdown' as breakdown
         from dictionary_terms
-        where category = 'mnemonic' and slug in (select slug from quizzable_dictionary_terms)
+        where category = 'mnemonic'
           and jsonb_array_length(senses->0->'breakdown') > 0
         order by slug
     """)
-    print(f"Fetched {len(rows)} quizzable mnemonics with a letter breakdown.")
+    print(f"Fetched {len(rows)} mnemonics with a letter breakdown.")
 
     # Build a group-level distractor pool (concept text) per mnemonic_group,
     # for the <4-letter fallback case.
