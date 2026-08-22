@@ -175,10 +175,10 @@ export default function SharedFolderDetail() {
     getPcgIndex().then(setPcgIndex)
   }, [])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (typeof id !== 'string') return
     const myGen = ++loadGenRef.current
-    setLoading(true)
+    if (!silent) setLoading(true)
     // Per-invitee mode, not the folder's owner-set default (BB-077 added a
     // per-collaborator collab_mode specifically so one person can have
     // write access and another read-only on the same folder -- reading
@@ -209,7 +209,7 @@ export default function SharedFolderDetail() {
     if (myGen !== loadGenRef.current) return
     if (!folder) {
       setRemoved(true)
-      setLoading(false)
+      if (!silent) setLoading(false)
       return
     }
     setFolderName(folder.name)
@@ -353,10 +353,29 @@ export default function SharedFolderDetail() {
       ...cfr49Hl.map((h): RegRow => ({ id: h.id, itemRowId: rowIdFor(cfr49Items, h.id), regType: 'cfr49', label: `§ ${h.document_number}`, title: h.title, route: hlRoute('/cfr49', h), blockText: h.blockText, blockLabel: h.blockLabel, blockSnippet: h.blockSnippet })),
     ])
 
-    setLoading(false)
+    if (!silent) setLoading(false)
   }, [id])
 
-  useFocusEffect(useCallback(() => { load() }, [load]))
+  // Mirrors folder/[id].tsx's own identical fix -- see that file's comment
+  // for the full reasoning (RC + Adriana, 2026-08-21: note edits arriving
+  // "immediately" in one direction only, or with a "massive delay").
+  // loadGenRef above already makes any out-of-order `load()` call a no-op
+  // for its own commit, so a periodic call here can never race the other
+  // two triggers into showing stale data -- it can only ever narrow the
+  // window before the next real refresh happens.
+  //
+  // Unlike folder/[id].tsx, this screen's `load()` drives a full-replace
+  // `loading` state (line ~511: `loading ? <ActivityIndicator/> : ...`) --
+  // the whole content view, not just a header badge. Calling it unmodified
+  // every 45s would blank the entire screen out to a spinner and back while
+  // someone is actively reading it. `silent=true` skips those setLoading
+  // calls for the periodic tick only; the real focus-triggered load below
+  // still shows the normal first-paint spinner.
+  useFocusEffect(useCallback(() => {
+    load()
+    const interval = setInterval(() => load(true), 45_000)
+    return () => clearInterval(interval)
+  }, [load]))
 
   // Live push on top of the pull-on-focus above -- sees the owner's edits
   // (or another collaborator's) while this screen is already open, not

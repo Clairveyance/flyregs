@@ -394,10 +394,10 @@ export async function removeManyFromFolder(
 
 // Removes one item from EVERY folder it's in — called whenever the underlying
 // AC bookmark or note is itself deleted. Without this, a folder_item row for
-// a since-unbookmarked/deleted item lingers forever: getFolderItemCounts()
-// still counts it (inflating the folder's shown count) while the folder
-// detail screen silently drops it from the list (its bookmark/note lookup
-// fails), producing a folder that claims N items but only renders fewer.
+// a since-unbookmarked/deleted item lingers forever: folderCounts.ts's
+// getResolvedFolderItemCounts() and folder/[id].tsx's own render both filter
+// it out, but the raw row would still sit here forever otherwise, an orphan
+// nothing ever cleans up.
 export async function removeItemFromAllFolders(itemType: FolderItemType, itemId: string): Promise<void> {
   return removeItemsFromAllFolders(itemType, [itemId])
 }
@@ -426,12 +426,9 @@ export async function removeItemsFromAllFolders(itemType: FolderItemType, itemId
   })
 }
 
-/** Returns a map of folderId → item count, useful for rendering folder cards. */
-export async function getFolderItemCounts(): Promise<Record<string, number>> {
-  const items = await getFolderItems()
-  const counts: Record<string, number> = {}
-  for (const item of items) {
-    counts[item.folder_id] = (counts[item.folder_id] ?? 0) + 1
-  }
-  return counts
-}
+// A raw per-folder row count (no filtering at all) used to live here as
+// getFolderItemCounts() -- moved to folderCounts.ts as
+// getResolvedFolderItemCounts(), which cross-references local bookmarks/
+// notes so the count actually matches what folder/[id].tsx renders. See
+// that file's own header comment for the real-device report this fixed and
+// why it isn't in this file (a folders.ts <-> bookmarks.ts require cycle).

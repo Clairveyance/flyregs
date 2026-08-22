@@ -5,7 +5,8 @@ import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { Icon } from '@/components/Icon'
-import { getFolders, getFolderItemCounts, createFolder, Folder, DUPLICATE_FOLDER_NAME, PRO_FOLDER_CAP } from '@/lib/folders'
+import { getFolders, createFolder, Folder, DUPLICATE_FOLDER_NAME, PRO_FOLDER_CAP } from '@/lib/folders'
+import { getResolvedFolderItemCounts } from '@/lib/folderCounts'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
@@ -64,7 +65,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
       return
     }
     getFolders().then((all) => setFolders(excludeFolderId ? all.filter((f) => f.id !== excludeFolderId) : all))
-    getFolderItemCounts().then(setItemCounts)
+    getResolvedFolderItemCounts().then(setItemCounts)
     setSelected(new Set())
     setCreating(false)
     setNewName('')

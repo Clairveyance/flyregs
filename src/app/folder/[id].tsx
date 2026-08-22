@@ -38,7 +38,7 @@ import { REG_TYPE, RegType } from '@/lib/regTypes'
 import { highlightSnippet } from '@/lib/acShare'
 import {
   getOrCreateShareLink, confirmFolderShared, getFolderCollaborators, removeCollaborator, FolderCollaborator,
-  getFolderCollabMode, setFolderCollabMode, setCollaboratorMode, FolderCollabMode, resolveForeignFolderEntries, updateSharedNote,
+  getFolderCollabMode, setFolderCollabMode, setCollaboratorMode, FolderCollabMode, resolveForeignFolderEntries, resolveForeignNoteEntries, updateSharedNote,
   useFolderRealtime, inviteCollaboratorByCallsign, buildShareLink,
 } from '@/lib/sharedFolders'
 import { syncFolderFromCloud } from '@/lib/sync'
@@ -123,8 +123,8 @@ export default function FolderDetail() {
 
     const acs: ACEntry[] = []
     const notesList: NoteEntry[] = []
-    const orphaned: FolderItem[] = []
-    const foreign: FolderItem[] = []
+    const unresolvedAc: FolderItem[] = []
+    const unresolvedNotes: FolderItem[] = []
 
     for (const item of items) {
       // Every non-'note' item_type (ac/far/aim/pcg/ad) resolves through the
@@ -137,45 +137,83 @@ export default function FolderDetail() {
       if (item.item_type === 'note') {
         const note = noteMap.get(item.item_id)
         if (note) notesList.push({ kind: 'note', data: note, folderItem: item })
-        else if (!item.authorId) orphaned.push(item)
-        // A foreign note not yet locally cached is a transient sync lag,
-        // not orphaned -- silently skip rather than self-heal-delete it.
+        else unresolvedNotes.push(item)
       } else {
         const bm = bookmarkMap.get(item.item_id)
         if (bm) acs.push({ kind: 'ac', data: bm, folderItem: item })
-        // A collaborator's item was never in MY bookmarks -- expected, not
-        // a sign it's gone. Resolve those separately below instead of
-        // treating "not in bookmarkMap" as orphaned, which would otherwise
-        // self-heal-delete every collaborator addition on the next load.
-        else if (item.authorId) foreign.push(item)
-        else orphaned.push(item)
+        else unresolvedAc.push(item)
       }
     }
 
-    setNoteEntries(notesList)
-
-    // Self-heal: a folder_item pointing at an AC/note that was unbookmarked or
-    // deleted elsewhere (before removeItemFromAllFolders existed to prevent
-    // this) lingers and inflates the folder's shown count in Saved without
-    // ever appearing here. Prune it now that we've confirmed its target is
-    // really gone, so the count is correct the next time Saved loads.
-    if (typeof id === 'string' && orphaned.length) {
-      removeManyFromFolder(id, orphaned.map((o) => ({ itemType: o.item_type, itemId: o.item_id }))).catch(() => {})
+    // Self-heal helper: only for an item that's ALSO failed to resolve
+    // against the real remote source of truth below -- see the big comment
+    // on unresolvedAc/unresolvedNotes for why a purely local cache miss is
+    // never enough on its own anymore.
+    const selfHeal = (trulyOrphaned: FolderItem[]) => {
+      if (typeof id === 'string' && trulyOrphaned.length) {
+        removeManyFromFolder(id, trulyOrphaned.map((o) => ({ itemType: o.item_type, itemId: o.item_id }))).catch(() => {})
+      }
     }
 
-    if (foreign.length) {
-      resolveForeignFolderEntries(foreign).then((resolved) => {
+    // Anything not resolved from THIS device's own local cache -- a
+    // collaborator's item, or this SAME account's own item/note added from a
+    // second device and not yet pulled down here -- gets one more chance
+    // against the real remote source of truth before being treated as gone.
+    //
+    // 2026-08-21 fix: this used to split purely on item.authorId (present =
+    // "foreign, resolve remotely, never self-heal"; absent = "mine, and if
+    // it's not in MY local cache it must be orphaned, self-heal-delete it
+    // immediately, fire-and-forget, right here in loadLocal") -- but
+    // authorId only tells you WHO added something, never whether it still
+    // exists. A same-account item/note added from a second device is
+    // authorId-less and legitimately absent from THIS device's local
+    // bookmark/note cache until the app's own separate mergeBookmarks/
+    // mergeNotes pass catches up: syncFolderFromCloud (called right after
+    // this loadLocal, in load() below) only pulls folder_item pointers +
+    // this folder's own notes, never bookmarks, and pullAndMergeAll's own
+    // mergeBookmarks/mergeFolderItems race independently (Promise.all, no
+    // shared ordering) at app launch. Landing here in that exact window used
+    // to read as "doesn't exist," permanently deleting a real item both
+    // locally and on the server -- via a fire-and-forget call this same
+    // function kicked off -- before the item ever had a chance to sync down.
+    // RC + Adriana real-device/TestFlight reports, same day: items vanishing
+    // unpredictably for both a shared folder's owner and its collaborator,
+    // different items each time, not in the same order -- exactly the shape
+    // a timing-dependent race like this produces, not a fixed, repeatable
+    // bug. Only an item that ALSO fails to resolve remotely is genuinely
+    // gone and safe to self-heal.
+    if (unresolvedAc.length) {
+      resolveForeignFolderEntries(unresolvedAc).then((resolved) => {
         const byId = new Map(resolved.map((r) => [r.id, r]))
-        const foreignEntries: ACEntry[] = foreign
-          .map((item) => {
-            const data = byId.get(item.item_id)
-            return data ? { kind: 'ac' as const, data, folderItem: item } : null
-          })
-          .filter((e): e is ACEntry => e !== null)
-        setAcEntries([...acs, ...foreignEntries])
+        const resolvedEntries: ACEntry[] = []
+        const trulyOrphaned: FolderItem[] = []
+        for (const item of unresolvedAc) {
+          const data = byId.get(item.item_id)
+          if (data) resolvedEntries.push({ kind: 'ac', data, folderItem: item })
+          else trulyOrphaned.push(item)
+        }
+        setAcEntries([...acs, ...resolvedEntries])
+        selfHeal(trulyOrphaned)
       }).catch(() => setAcEntries(acs))
     } else {
       setAcEntries(acs)
+    }
+
+    if (unresolvedNotes.length) {
+      resolveForeignNoteEntries(unresolvedNotes).then((resolved) => {
+        const byId = new Map(resolved.map((r) => [r.id, r]))
+        const resolvedEntries: NoteEntry[] = []
+        const trulyOrphaned: FolderItem[] = []
+        for (const item of unresolvedNotes) {
+          const note = byId.get(item.item_id)
+          if (note) resolvedEntries.push({ kind: 'note', data: note, folderItem: item })
+          else trulyOrphaned.push(item)
+        }
+        setNoteEntries([...notesList, ...resolvedEntries])
+        selfHeal(trulyOrphaned)
+      }).catch(() => setNoteEntries(notesList))
+    } else {
+      setNoteEntries(notesList)
     }
 
     // Only owned, previously-shared folders have collaborators to show — a
@@ -204,7 +242,36 @@ export default function FolderDetail() {
     }
   }, [id, loadLocal])
 
-  useFocusEffect(useCallback(() => { load() }, [load]))
+  // RC + Adriana real-device/TestFlight reports, 2026-08-21 (RC: "massive
+  // delay in shared notes with rewrite access... needs to be immediate";
+  // Adriana: "I see your edits but you can't see mine after the file is
+  // shared") -- the SAME "massive delay" phrase RC used for the 2026-08-16
+  // report the AppState listener below was built for, recurring despite
+  // that fix. Traced the actual data path (both directions) live against
+  // the real DB/Realtime stack: a collaborator's note edit and the owner's
+  // own force-pushed edit both land correctly and both fire a genuine
+  // postgres_changes push to the OTHER side within the same session --
+  // there's no asymmetry in the write path or the RLS/Realtime
+  // authorization itself. What's still missing is a bound on how long this
+  // screen can go WITHOUT any of its 3 existing triggers (focus, realtime,
+  // AppState foreground) firing at all: a user who stays on this exact
+  // screen, in the foreground, for an extended stretch (which is exactly
+  // "reviewing a shared folder together") never re-focuses and never
+  // backgrounds, and Realtime's own websocket can silently stop delivering
+  // events well before either of those happens -- an hourly access-token
+  // refresh that never reaches the channel (supabase-js requires an
+  // explicit realtime.setAuth() call this codebase doesn't make), a
+  // carrier/Wi-Fi handoff, or any other silent drop -- with nothing here to
+  // notice or recover until the next focus/background cycle. A periodic
+  // re-sync while this screen is genuinely focused closes that gap: worst
+  // case, an edit is picked up within one interval instead of only on the
+  // next navigation or app-switch, regardless of whether Realtime happens
+  // to still be alive.
+  useFocusEffect(useCallback(() => {
+    load()
+    const interval = setInterval(load, 45_000)
+    return () => clearInterval(interval)
+  }, [load]))
 
   // Live push on top of the pull-on-focus above -- sees a collaborator's
   // edit (item add/remove, note create/edit) while this screen is already

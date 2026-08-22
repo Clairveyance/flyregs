@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Modal, View, Text, FlatList, Pressable, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native'
+import { Modal, View, Text, FlatList, Pressable, TextInput, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -8,7 +8,6 @@ import { Icon } from '@/components/Icon'
 import {
   getFolders,
   getFoldersForItem,
-  getFolderItemCounts,
   addToFolder,
   removeFromFolder,
   createFolder,
@@ -17,6 +16,7 @@ import {
   DUPLICATE_FOLDER_NAME,
   PRO_FOLDER_CAP,
 } from '@/lib/folders'
+import { getResolvedFolderItemCounts } from '@/lib/folderCounts'
 import {
   getMyCollaborations,
   addExistingItemToSharedFolder,
@@ -26,6 +26,7 @@ import {
   SEED_NOTE_NOT_SHAREABLE,
 } from '@/lib/sharedFolders'
 import { addManyBookmarks, BookmarkAC } from '@/lib/bookmarks'
+import { isSeedNote } from '@/lib/notes'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
@@ -98,26 +99,32 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   const lockedFolderCount = folders.length - visibleFolders.length
   const [sharedFolders, setSharedFolders] = useState<SharedFolderSummary[]>([])
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({})
+  // Current, possibly-still-uncommitted selection (what the checkmarks show)
+  // vs. the truth this sheet was opened with -- handleDone below diffs the
+  // two and writes exactly that diff; every tap before Done only touches
+  // `memberIds`, never storage. RC real-device/TestFlight report, 2026-08-21:
+  // "while that folder selection screen is open we can't allow it to be
+  // closed by tapping outside of it -- either click done and send those
+  // files into the folders you selected, or clear and exit without doing
+  // anything." Before this fix, toggle()/toggleShared() below wrote to
+  // AsyncStorage/Supabase on EVERY tap, so there was no real "cancel" at
+  // all -- backdrop tap, the hardware back gesture, and Done all left
+  // whatever had been tapped permanently committed, which is exactly what
+  // read to RC as "tapping outside silently commits the add." Mirrors
+  // FolderSelectSheet.tsx's own already-correct deferred-commit design.
+  const [initialMemberIds, setInitialMemberIds] = useState<Set<string>>(new Set())
   const [memberIds, setMemberIds] = useState<Set<string>>(new Set())
-  // Per-row in-flight guard: toggle()/toggleShared() read memberIds and the
-  // stale AsyncStorage snapshot before writing (addManyToFolder/
-  // removeFromFolder's own comments call this out as unsafe under concurrent
-  // calls), and neither this row's onPress nor the underlying folder-items
-  // table dedupes by (folder, item) — only by each call's own freshly
-  // generated row id. Two rapid taps on the same row before the first
-  // toggle's writes land raced to add the SAME item twice, creating two
-  // distinct synced_folder_items rows for one (folder, item) pair: the item
-  // rendered twice in the folder (folder/[id].tsx's render loop has no
-  // item_id dedupe either), and swiping to remove it only ever cleared
-  // whichever single row the LOCAL snapshot still knew about -- the other
-  // row stayed active in the cloud and came back on the next sync
-  // (mergeFolderItems pulls in any remote row not already known locally by
-  // id), so a "removed" item could silently reappear. Confirmed live via a
-  // scripted concurrent-call repro against the real backend, same bug class
-  // as the printReg.ts double-tap fix. Blocking re-entry per folder id here
-  // closes it at the source.
-  const [pendingFolderIds, setPendingFolderIds] = useState<Set<string>>(new Set())
-  const [addedNames, setAddedNames] = useState<string[]>([])
+  // True only while handleDone's own batch of writes is in flight -- guards
+  // against a second Done tap (or a toggle/backdrop tap landing) mid-commit,
+  // now that a single Done press can fan out into several addToFolder/
+  // removeFromFolder/addExistingItemToSharedFolder/removeExistingItemFromShared
+  // Folder calls at once. The double-tap-race this file used to guard
+  // per-ROW (two rapid taps on the SAME row both firing their own
+  // independent addToFolder before the first one's write landed, creating
+  // two distinct synced_folder_items rows for one (folder, item) pair) can no
+  // longer happen the same way -- toggling is now pure local state, nothing
+  // reaches storage until this single, serialized Done commit.
+  const [committing, setCommitting] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   // BB-070 audit: handleCreate is reachable from BOTH the TextInput's
@@ -145,7 +152,6 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
       router.push('/paywall?tier=plus')
       return
     }
-    setAddedNames([])
     load()
   }, [visible, itemId, hasPlusAccess])
 
@@ -157,74 +163,67 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
     const [allFolders, memberFolderIds, counts, collaborations] = await Promise.all([
       getFolders(),
       getFoldersForItem(itemType, itemId),
-      getFolderItemCounts(),
+      getResolvedFolderItemCounts(),
       getMyCollaborations(),
     ])
     const writable = collaborations.filter((c) => c.collabMode === 'read_write')
     setFolders(allFolders)
     setSharedFolders(writable)
-    setMemberIds(new Set(memberFolderIds))
     setItemCounts(counts)
+    // Compute the FULL starting membership (own + foreign) before publishing
+    // either memberIds or initialMemberIds, so the two start out genuinely
+    // equal -- publishing memberIds first and merging foreignMembers in via a
+    // second setMemberIds (the old two-step shape) would leave
+    // initialMemberIds missing those foreign ids, which handleDone would
+    // then misread as "the user just added every one of this item's existing
+    // shared-folder memberships this session."
+    let allMemberIds = new Set(memberFolderIds)
     if (writable.length) {
       const foreignMembers = await getSharedFolderMembership(writable.map((w) => w.folder_id), itemType, itemId)
-      setMemberIds((prev) => new Set([...prev, ...foreignMembers]))
+      allMemberIds = new Set([...allMemberIds, ...foreignMembers])
     }
+    setMemberIds(allMemberIds)
+    setInitialMemberIds(allMemberIds)
   }
 
-  // Multi-select: tapping a folder toggles membership without closing, so
-  // the user can add to several folders in one visit. The sheet only closes
-  // via Done (or the backdrop/X), at which point a single summarized toast
-  // fires for everything added this session.
-  const toggle = async (folder: Folder) => {
-    if (pendingFolderIds.has(folder.id)) return
-    setPendingFolderIds((prev) => new Set(prev).add(folder.id))
-    try {
-      if (memberIds.has(folder.id)) {
-        await removeFromFolder(folder.id, itemType, itemId)
-        setMemberIds((prev) => { const s = new Set(prev); s.delete(folder.id); return s })
-        setAddedNames((prev) => prev.filter((n) => n !== folder.name))
-        setItemCounts((prev) => ({ ...prev, [folder.id]: Math.max(0, (prev[folder.id] ?? 1) - 1) }))
-      } else {
-        if (acMeta) await addManyBookmarks([{ id: itemId, itemType, ...acMeta }])
-        await addToFolder(folder.id, itemType, itemId)
-        setMemberIds((prev) => new Set([...prev, folder.id]))
-        setAddedNames((prev) => [...prev, folder.name])
-        setItemCounts((prev) => ({ ...prev, [folder.id]: (prev[folder.id] ?? 0) + 1 }))
-      }
-    } finally {
-      setPendingFolderIds((prev) => { const s = new Set(prev); s.delete(folder.id); return s })
-    }
+  // Multi-select: tapping a folder toggles its checkmark without writing
+  // anything yet, so the user can stage several folders in one visit --
+  // purely local state, same as FolderSelectSheet.tsx's own `toggle`. Nothing
+  // reaches storage until handleDone below diffs this against
+  // initialMemberIds and commits exactly that diff.
+  const toggle = (folder: Folder) => {
+    const wasMember = memberIds.has(folder.id)
+    setMemberIds((prev) => {
+      const s = new Set(prev)
+      if (wasMember) s.delete(folder.id)
+      else s.add(folder.id)
+      return s
+    })
+    setItemCounts((prev) => ({
+      ...prev,
+      [folder.id]: Math.max(0, (prev[folder.id] ?? 0) + (wasMember ? -1 : 1)),
+    }))
   }
 
-  // Foreign-folder counterpart to toggle() -- no acMeta/addManyBookmarks step
-  // here: a foreign folder's contents resolve on the OWNER's side via
-  // resolveForeignFolderEntries reading the real content tables directly,
-  // never through MY bookmarks, so there's nothing local to seed.
-  const toggleShared = async (folder: SharedFolderSummary) => {
+  // Foreign-folder counterpart to toggle() -- also local-only now. The
+  // seed-note guard moves here (still synchronous, isSeedNote is a pure id
+  // check) rather than staying inside the network call it used to wrap, so a
+  // starter demo note can't even be checked on for a shared folder in the
+  // first place, instead of being checked then silently un-checked when the
+  // old immediate write failed.
+  const toggleShared = (folder: SharedFolderSummary) => {
     const id = folder.folder_id
-    if (pendingFolderIds.has(id)) return
-    setPendingFolderIds((prev) => new Set(prev).add(id))
-    try {
-      if (memberIds.has(id)) {
-        await removeExistingItemFromSharedFolder(id, itemType, itemId)
-        setMemberIds((prev) => { const s = new Set(prev); s.delete(id); return s })
-        setAddedNames((prev) => prev.filter((n) => n !== folder.folder_name))
-      } else {
-        try {
-          await addExistingItemToSharedFolder(id, itemType, itemId)
-        } catch (e) {
-          if (e instanceof Error && e.message === SEED_NOTE_NOT_SHAREABLE) {
-            confirm({ title: "Can't Share This Note", message: 'This is one of the starter demo notes -- create your own note to share into this folder.', cancelLabel: null })
-            return
-          }
-          throw e
-        }
-        setMemberIds((prev) => new Set([...prev, id]))
-        setAddedNames((prev) => [...prev, folder.folder_name])
-      }
-    } finally {
-      setPendingFolderIds((prev) => { const s = new Set(prev); s.delete(id); return s })
+    const wasMember = memberIds.has(id)
+    if (!wasMember && itemType === 'note' && isSeedNote(itemId)) {
+      confirm({ title: "Can't Share This Note", message: 'This is one of the starter demo notes -- create your own note to share into this folder.', cancelLabel: null })
+      return
     }
+    setMemberIds((prev) => {
+      const s = new Set(prev)
+      if (wasMember) s.delete(id)
+      else s.add(id)
+      return s
+    })
   }
 
   const handleCreate = async () => {
@@ -251,7 +250,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
         title: 'Folder limit reached',
         message: `${planName} includes ${PRO_FOLDER_CAP} folders. Upgrade to Premium for unlimited.`,
         confirmLabel: 'Upgrade to Premium',
-        onConfirm: () => { handleClose(); router.push('/paywall?tier=premium') },
+        onConfirm: () => { handleCancel(); router.push('/paywall?tier=premium') },
       })
       return
     }
@@ -265,24 +264,94 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
       }
       throw e
     }
-    if (acMeta) await addManyBookmarks([{ id: itemId, itemType, ...acMeta }])
-    await addToFolder(folder.id, itemType, itemId)
+    // Folder creation itself is immediate, same as FolderSelectSheet.tsx's
+    // own Create button -- a brand-new empty folder isn't something a
+    // backdrop-tap "cancel" needs to undo. Filing THIS item into it, though,
+    // is exactly the kind of write handleDone owns now: stage it into
+    // memberIds (it's absent from initialMemberIds, so it reads as
+    // newly-added there) instead of calling addToFolder here.
     setFolders((prev) => [...prev, folder])
     setMemberIds((prev) => new Set([...prev, folder.id]))
-    setAddedNames((prev) => [...prev, folder.name])
-    setItemCounts((prev) => ({ ...prev, [folder.id]: 1 }))
+    setItemCounts((prev) => ({ ...prev, [folder.id]: (prev[folder.id] ?? 0) + 1 }))
     setNewName('')
     setCreating(false)
   }
 
   const cancelCreate = () => { setCreating(false); setNewName('') }
 
-  const handleClose = () => {
-    if (addedNames.length === 1) onAdded?.(`Added to ${addedNames[0]}`)
-    else if (addedNames.length > 1) onAdded?.('Added to multiple folders')
+  // True cancel -- writes nothing. Every tap before this point only touched
+  // local state (toggle/toggleShared/doCreate's own membership staging), so
+  // closing this way is a genuine no-op: the next time this sheet opens,
+  // load() re-reads the real truth from storage/Supabase, unaffected by
+  // anything staged and abandoned here. Wired to the backdrop tap, the
+  // hardware-back/swipe-down onRequestClose, AND (implicitly, since it does
+  // nothing) a Done tap with no changes staged -- see handleDone below.
+  const handleCancel = () => {
+    if (committing) return
     setCreating(false)
     setNewName('')
     onClose()
+  }
+
+  // The ONE place this sheet writes anything -- diffs the staged `memberIds`
+  // against the `initialMemberIds` snapshot this sheet opened with and
+  // commits exactly that diff (own-folder adds/removes, shared-folder adds/
+  // removes), then closes. Safe to Promise.all the own-folder calls even
+  // though they all touch the same shared AsyncStorage folder-items key --
+  // each addToFolder/removeFromFolder call serializes through folders.ts's
+  // own withLock('folders', ...) queue (see asyncMutex.ts), so "concurrent"
+  // here just means "queued together," never a real race.
+  const handleDone = async () => {
+    if (committing) return
+    const ownFolderIds = new Set(folders.map((f) => f.id))
+    const sharedFolderIds = new Set(sharedFolders.map((f) => f.folder_id))
+    const addedOwn = [...memberIds].filter((id) => ownFolderIds.has(id) && !initialMemberIds.has(id))
+    const removedOwn = [...initialMemberIds].filter((id) => ownFolderIds.has(id) && !memberIds.has(id))
+    const addedShared = [...memberIds].filter((id) => sharedFolderIds.has(id) && !initialMemberIds.has(id))
+    const removedShared = [...initialMemberIds].filter((id) => sharedFolderIds.has(id) && !memberIds.has(id))
+
+    if (!addedOwn.length && !removedOwn.length && !addedShared.length && !removedShared.length) {
+      handleCancel()
+      return
+    }
+
+    setCommitting(true)
+    try {
+      // One ensure-bookmark call total, not one per newly-added folder --
+      // addManyBookmarks itself already no-ops if the bookmark exists, this
+      // just avoids calling it redundantly N times for N target folders.
+      if (addedOwn.length && acMeta) await addManyBookmarks([{ id: itemId, itemType, ...acMeta }])
+      await Promise.all([
+        ...addedOwn.map((fid) => addToFolder(fid, itemType, itemId)),
+        ...removedOwn.map((fid) => removeFromFolder(fid, itemType, itemId)),
+        ...addedShared.map(async (fid) => {
+          try {
+            await addExistingItemToSharedFolder(fid, itemType, itemId)
+          } catch (e) {
+            // Belt-and-suspenders -- toggleShared already blocks staging a
+            // seed note in the first place, so this shouldn't fire in
+            // practice, but silently dropping just this one item (rather
+            // than failing the whole batch) matches that same guard's intent.
+            if (e instanceof Error && e.message === SEED_NOTE_NOT_SHAREABLE) return
+            throw e
+          }
+        }),
+        ...removedShared.map((fid) => removeExistingItemFromSharedFolder(fid, itemType, itemId)),
+      ])
+      const addedNames = [
+        ...addedOwn.map((fid) => folders.find((f) => f.id === fid)?.name),
+        ...addedShared.map((fid) => sharedFolders.find((f) => f.folder_id === fid)?.folder_name),
+      ].filter((n): n is string => !!n)
+      if (addedNames.length === 1) onAdded?.(`Added to ${addedNames[0]}`)
+      else if (addedNames.length > 1) onAdded?.('Added to multiple folders')
+      setCreating(false)
+      setNewName('')
+      onClose()
+    } catch {
+      confirm({ title: 'Error', message: 'Could not update folders. Try again in a moment.', cancelLabel: null })
+    } finally {
+      setCommitting(false)
+    }
   }
 
   return (
@@ -290,13 +359,13 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
       visible={visible}
       transparent
       animationType="slide"
-      onRequestClose={handleClose}
+      onRequestClose={handleCancel}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.avoidingView}
       >
-        <Pressable style={[StyleSheet.absoluteFill, styles.backdrop]} onPress={handleClose} />
+        <Pressable style={[StyleSheet.absoluteFill, styles.backdrop]} onPress={handleCancel} />
         <View style={[styles.sheet, { backgroundColor: tokens.bg2, borderTopColor: tokens.bdr2 }]}>
           {/* Grip */}
           <View style={styles.gripRow}>
@@ -306,8 +375,10 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: tokens.bdr }]}>
             <Text style={[styles.headerTitle, { color: tokens.t1, fontSize: fs(15) }]}>Add to Folder(s)</Text>
-            <Pressable onPress={handleClose} style={[styles.doneBtn, { backgroundColor: tokens.blu }]} hitSlop={4}>
-              <Text style={[styles.doneBtnText, { fontSize: fs(13) }]}>Done</Text>
+            <Pressable onPress={handleDone} disabled={committing} style={[styles.doneBtn, { backgroundColor: tokens.blu, opacity: committing ? 0.6 : 1 }]} hitSlop={4}>
+              {committing ? <ActivityIndicator color="#fff" size="small" /> : (
+                <Text style={[styles.doneBtnText, { fontSize: fs(13) }]}>Done</Text>
+              )}
             </Pressable>
           </View>
 
@@ -342,7 +413,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
                   return (
                     <Pressable
                       style={[styles.folderRow, { borderBottomColor: tokens.bdr }]}
-                      disabled={pendingFolderIds.has(item.id)}
+                      disabled={committing}
                       onPress={() => {
                         if (consumeLongPress()) return
                         toggle(item)
@@ -377,7 +448,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
                 return (
                   <Pressable
                     style={[styles.folderRow, { borderBottomColor: tokens.bdr }]}
-                    disabled={pendingFolderIds.has(item.folder_id)}
+                    disabled={committing}
                     onPress={() => {
                       if (consumeLongPress()) return
                       toggleShared(item)
@@ -439,7 +510,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
             <Pressable
               style={[styles.newFolderRow, { borderTopColor: tokens.bdr }]}
               onPress={() => {
-                if (!hasPlusAccess) { handleClose(); router.push('/paywall?tier=plus'); return }
+                if (!hasPlusAccess) { handleCancel(); router.push('/paywall?tier=plus'); return }
                 setCreating(true)
               }}
             >

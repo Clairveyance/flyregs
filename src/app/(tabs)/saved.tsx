@@ -22,7 +22,6 @@ import { getDownloads, removeDownload, formatBytes, DownloadedAC, downloadItemTy
 import { REG_TYPE, RegType } from '@/lib/regTypes'
 import {
   getFolders,
-  getFolderItemCounts,
   createFolder,
   deleteFolder,
   duplicateFolder,
@@ -34,6 +33,7 @@ import {
   PRO_FOLDER_CAP,
   FolderItemType,
 } from '@/lib/folders'
+import { getResolvedFolderItemCounts } from '@/lib/folderCounts'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
 import { getMyCollaborations, getMySharedFolders, getOrCreateShareLink, confirmFolderShared, SharedFolderSummary, SharedByMeFolder } from '@/lib/sharedFolders'
 import { FolderListView } from '@/components/FolderListView'
@@ -295,7 +295,7 @@ export default function SavedScreen() {
   const load = useCallback(() => {
     getBookmarks().then(setBookmarks)
     getDownloads().then(setDownloads)
-    Promise.all([getFolders(), getFolderItemCounts()]).then(([f, c]) => {
+    Promise.all([getFolders(), getResolvedFolderItemCounts()]).then(([f, c]) => {
       setFolders(f)
       setFolderCounts(c)
     })
@@ -1157,7 +1157,7 @@ export default function SavedScreen() {
         // confirmation toast before; it now also re-pulls folder counts so
         // the Folders tab reflects the add immediately, not on some later,
         // unrelated focus event.
-        onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1); getFolderItemCounts().then(setFolderCounts) }}
+        onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1); getResolvedFolderItemCounts().then(setFolderCounts) }}
       />
 
       {/* Folder picker for offline downloads */}
@@ -1166,7 +1166,7 @@ export default function SavedScreen() {
         itemType={downloadItemType(downloads.find((x) => x.id === pickerDownloadId) ?? {})}
         itemId={pickerDownloadId ?? ''}
         onClose={() => setPickerDownloadId(null)}
-        onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1); getFolderItemCounts().then(setFolderCounts) }}
+        onAdded={(msg) => { setConfirmLabel(msg); setConfirmTick((t) => t + 1); getResolvedFolderItemCounts().then(setFolderCounts) }}
         acMeta={(() => {
           const d = downloads.find((x) => x.id === pickerDownloadId)
           return d ? {

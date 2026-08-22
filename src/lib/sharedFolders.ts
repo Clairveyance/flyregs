@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { syncPushFolder, syncPushFolderItems, syncPushNote, syncPushBookmark } from '@/lib/syncPush'
 import { getFolders, getItemsInFolder, markFolderShared, FolderItem, FolderItemType } from '@/lib/folders'
 import { getNotes, isSeedNote } from '@/lib/notes'
+import type { Note } from '@/lib/notes'
 import { getBookmarks } from '@/lib/bookmarks'
 import type { BookmarkAC } from '@/lib/bookmarks'
 
@@ -875,6 +876,42 @@ export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<
   }
 
   return results
+}
+
+// Note-type counterpart to resolveForeignFolderEntries above, used the same
+// way and for the same reason: folder/[id].tsx's own loadLocal() calls this
+// for ANY note item -- a collaborator's, or this SAME account's own note
+// added from a second device -- that's missing from THIS device's local
+// note cache, before concluding it's genuinely gone. 2026-08-21 fix: a note
+// item this account authored itself used to get treated as orphaned (and
+// permanently self-heal-deleted, locally AND on the server) the moment it
+// wasn't in the local note cache yet, with no chance to actually resolve --
+// syncFolderFromCloud (which DOES pull any note in this folder, regardless
+// of author) only runs AFTER loadLocal in folder/[id].tsx's own load(), so a
+// note pulled in by realtime/syncFolderFromCloud's OWN folder-item merge one
+// tick before its content synced down read as "doesn't exist." Only an item
+// that ALSO fails to resolve here is safe to self-heal.
+export async function resolveForeignNoteEntries(items: FolderItem[]): Promise<Note[]> {
+  const noteIds = items.filter((i) => i.item_type === 'note').map((i) => i.item_id)
+  if (!noteIds.length) return []
+  const { data: { user } } = await supabase.auth.getUser()
+  const myId = user?.id
+  const { data } = await supabase
+    .from('synced_notes')
+    .select('id, title, body, linked_ac, updated_at, user_id')
+    .in('id', noteIds)
+    .eq('deleted', false)
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    title: r.title,
+    body: r.body,
+    linked_ac: r.linked_ac,
+    updated_at: r.updated_at,
+    // See Note.authorId -- lets folder/[id].tsx's handleSaveNote route a
+    // later edit through updateSharedNote instead of syncPushNote the same
+    // way an already-locally-cached foreign note does.
+    ...(myId && r.user_id !== myId ? { authorId: r.user_id } : {}),
+  }))
 }
 
 // Everything above this line is pull-on-focus only (`useFocusEffect`) --
