@@ -160,6 +160,11 @@ type Tier = 'plus' | 'pro' | 'premium'
 const PLUS_FEATURES = [
   { icon: 'doc.text',          label: 'Complete text of every Advisory Circular' },
   { icon: 'wrench.and.screwdriver', label: 'Full text of every Airworthiness Directive' },
+  // Gating audit, 2026-08-22: 49 CFR (NTSB 830/TSA 1544+1552/HMR 175) is
+  // gated hasPlusAccess at 5+ call sites throughout cfr49/[id].tsx, same
+  // tier as AC/AD full text right above -- shipped but never appeared on
+  // any tier list on this screen.
+  { icon: 'shield.lefthalf.filled', label: 'Full text of 49 CFR (NTSB, TSA, hazmat)' },
   // Aviation Dictionary re-gated 2026-08-10 (base content free -> Plus,
   // Mnemonics specifically Plus -> Pro, see dictionary_terms_gated /
   // search_dictionary()) -- this list previously had only the Mnemonics
@@ -175,6 +180,12 @@ const PLUS_FEATURES = [
   // locally (not synced) is Plus, same as the folder cap itself
   // (PRO_FOLDER_CAP in lib/folders.ts, shared by Plus and Pro).
   { icon: 'highlighter',       label: 'Highlights, Notes, Bookmarks & Folders (up to 3)' },
+  // Gating audit, 2026-08-22: DailyWord (account.tsx, dictionary/index.tsx,
+  // notifications.ts) is gated hasPlusAccess -- a real, shipped daily
+  // notification toggle that was missing from every tier list here,
+  // same gap already found and fixed once for MagicLink/Ask FlyRegs/
+  // aircraft-sharing above.
+  { icon: 'text.book.closed',  label: 'Word of the Day — a new Aviation Dictionary term every day' },
 ]
 
 const PRO_ADDITIONS = [

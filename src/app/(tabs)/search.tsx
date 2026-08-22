@@ -398,10 +398,16 @@ export default function TheWingScreen() {
           {/* Ask FlyRegs (task #114) -- the semantic-search query UI, sitting
               apart from Home's own lexical SmartSearch (see
               smartsearch_architecture memory for why those stay separate).
-              Plus-gated same as the rest of this screen -- no extra lock
-              overlay needed here since hasPlusAccess is already required
-              just to see this screen at all (unlike Study/Duels below,
-              which need the higher isPro tier specifically). */}
+              Gating audit, 2026-08-22: this comment used to say Ask FlyRegs
+              was Plus-gated "same as the rest of this screen," so no lock
+              icon was needed -- stale since 2026-08-02, when Ask FlyRegs
+              specifically moved to Pro (RC: "It needs to be gated to Pro
+              for sure"; semantic-search.tsx's own gate moved with it) while
+              this whole screen stayed reachable at Plus. A Plus subscriber
+              tapped an unlocked-looking card and got a full-screen upsell
+              with no upfront signal, unlike Study Mode/Duels right next to
+              it, which both show a lock icon for exactly this reason. Added
+              the same lock icon here now. */}
           {isTablet ? (
             <>
               <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>PLAY &amp; STUDY</Text>
@@ -410,6 +416,7 @@ export default function TheWingScreen() {
                   style={[styles.hubTile, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
                   onPress={() => router.push('/semantic-search')}
                 >
+                  {!hasProAccess && <Icon name="lock.fill" size={fs(12)} color={tokens.t4} style={styles.hubTileLock} />}
                   <View style={[styles.hubTileIconWrap, { backgroundColor: tokens.gdim }]}>
                     <Icon name="text.bubble.fill" size={fs(26)} color={tokens.grn} />
                   </View>
@@ -466,6 +473,7 @@ export default function TheWingScreen() {
                     Ask a real question in plain English — get the passages that actually answer it
                   </Text>
                 </View>
+                {!hasProAccess && <Icon name="lock.fill" size={fs(13)} color={tokens.t4} />}
               </Pressable>
 
               <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), marginTop: 18 }]}>STUDY &amp; PRACTICE</Text>
