@@ -289,7 +289,26 @@ export default function PaywallScreen() {
     : proRequired
     ? 'pro'
     : downgradeMode
-    ? 'premium'
+    // Real bug, RC real-device report 2026-08-21 (Adrienne, via email):
+    // "trying to downgrade from premium to pro and it won't even let her
+    // click on the button." Root cause: this used to default to 'premium'
+    // -- the tier already owned -- so the very first thing a Premium
+    // subscriber saw on landing here (via manage-subscription.tsx's own
+    // "Change Plan" row) was the big, primary CTA disabled and relabeled
+    // "Current Plan" (viewingCurrentPlan below, which the CTA's own
+    // `disabled` prop reads directly). The ONLY way to reach the actually
+    // actionable "Downgrade to Pro" state was to first notice and tap the
+    // small "Pro" tab in the tier-picker row above -- a secondary control
+    // that never says "downgrade" anywhere on it. A real user tapping the
+    // obvious, prominent, colored button and getting nothing (Pressable
+    // with disabled=true doesn't fire onPress at all, no visual feedback
+    // either beyond a slightly dimmed 0.6 opacity) is exactly "won't even
+    // let me click on it." 'pro' is the only real, purchasable choice in
+    // downgrade mode anyway -- default straight to it so the CTA is live
+    // the moment this screen opens; tapping back to the "Premium" tab
+    // still correctly shows the disabled "Current Plan" state for anyone
+    // who wants to review what they already have first.
+    ? 'pro'
     : paramTier === 'pro' && availableTiers.includes('pro')
     ? 'pro'
     : paramTier === 'plus' && availableTiers.includes('plus')
