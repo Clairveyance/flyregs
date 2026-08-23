@@ -122,7 +122,20 @@ export default function AircraftDetailScreen() {
   // screen was invisible during Browser-pane QA and the actions behind
   // them untestable. See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
-  const { session, isPremium, hasProAccess } = useAuth()
+  // `loading: authLoading` -- every tier gate in this file is guarded with
+  // `if (!authLoading)` before it navigates. isPro/isPremium/isUnlocked all
+  // START false and only become authoritative once auth's own `loading`
+  // resolves: on cold launch, and again on the SIGNED_IN event a Face ID
+  // sign-in raises (see context/auth.tsx's own comment on that). This screen
+  // is reachable by share link and by push-notification deep link, so a real
+  // subscriber genuinely can be looking at it, and tapping its header
+  // controls, inside that window -- and the un-guarded gates would have sent
+  // them to a paywall for a tier they already pay for. Doing nothing for the
+  // fraction of a second it takes to resolve is the lesser evil; a second tap
+  // once entitlements land behaves normally. Same principle as
+  // (tabs)/index.tsx's HobbsHeaderButton, which refuses to act on the same
+  // transient false.
+  const { session, isPremium, hasProAccess, loading: authLoading } = useAuth()
   // Collaborator display names on this screen can run long and get cut off
   // the same way FAR Part titles do -- same hook/card pair as far/index.tsx's
   // own long-press preview.
@@ -286,7 +299,7 @@ export default function AircraftDetailScreen() {
   // instead of ever mounting two.
   const handleShare = () => {
     if (!aircraft) return
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     confirm({
       title: 'Share this aircraft',
       choices: [
@@ -545,7 +558,7 @@ export default function AircraftDetailScreen() {
   }
 
   const openAddEquipment = () => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     setEditingEquipment(null)
     setPartPickerVisible(true)
   }
@@ -555,7 +568,7 @@ export default function AircraftDetailScreen() {
   // part picker -- swapping which part this is is the rare case now,
   // reachable via "Change Part" inside PartTrackingModal instead.
   const openTrackEquipment = (e: AircraftEquipment) => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     setTrackingTarget({ mode: 'edit', equipment: e })
   }
 
@@ -597,7 +610,7 @@ export default function AircraftDetailScreen() {
     // blocking every Pro user from creating a reminder at all, contradicting
     // the FAQ's own "Reminders you set yourself push to your device on Pro
     // and Premium" line.
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
     setEditingReminder(null)
     setReminderFormVisible(true)
   }

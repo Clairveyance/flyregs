@@ -39,7 +39,7 @@ const AD_NUM_RE = /^\d{4}-\d{2}-\d{2}$/
 
 export default function AdIndexScreen() {
   const { tokens } = useTheme()
-  const { hasPlusAccess, hasProAccess } = useAuth()
+  const { hasPlusAccess, hasProAccess, loading: authLoading } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
   // `q` -- deep-link from My Aircraft's "widen your search" prompt
@@ -85,7 +85,16 @@ export default function AdIndexScreen() {
   // missing entirely; skip the fetch too, not just the render, for a
   // free-tier viewer.
   const loadNewAds = useCallback(() => {
-    if (!hasPlusAccess) { setNewAds([]); return }
+    if (!hasPlusAccess) {
+      // Only actually clear once auth is DONE resolving -- hasPlusAccess
+      // starts false for everyone (see context/auth.tsx), and this callback
+      // is also the pull-to-refresh handler, so a real Plus subscriber who
+      // pulled to refresh inside the launch window would have watched their
+      // already-loaded "New ADs" list blank out. Same shape and same fix as
+      // (tabs)/index.tsx's HobbsHeaderButton.
+      if (!authLoading) setNewAds([])
+      return
+    }
     const cutoffDate = new Date()
     cutoffDate.setDate(cutoffDate.getDate() - badgeDays)
     const cutoff = cutoffDate.toISOString().split('T')[0]
@@ -103,7 +112,7 @@ export default function AdIndexScreen() {
       .order('citation_publish_date', { ascending: false })
       .limit(20)
       .then(({ data }) => setNewAds((data ?? []) as NewAd[]))
-  }, [badgeDays, hasPlusAccess])
+  }, [badgeDays, hasPlusAccess, authLoading])
 
   useEffect(() => {
     loadNewAds()
@@ -266,7 +275,12 @@ export default function AdIndexScreen() {
                   // subscriber (isPro:false/isPremium:true) to the paywall
                   // before ever reaching the screen, even after
                   // my-aircraft/index.tsx's own self-guard was fixed.
-                  if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+                  // !authLoading: hasProAccess is false for everyone until
+                  // auth resolves, and my-aircraft/index.tsx's own self-guard
+                  // now waits for that too -- so this pre-tap check has to
+                  // as well, or it becomes the one thing still bouncing a
+                  // real Pro/Premium owner to a paywall on a fast tap.
+                  if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
                   router.push('/my-aircraft' as any)
                 }}
               >

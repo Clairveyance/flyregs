@@ -77,7 +77,7 @@ export default function StudyScreen() {
   // false, isPremium: true) hit this exact bug elsewhere (saved.tsx/
   // notes.tsx's Back up & sync toggle) and it was present here too, locking
   // a paying Premium customer out of Study Mode entirely.
-  const { hasProAccess } = useAuth()
+  const { hasProAccess, loading: authLoading } = useAuth()
   // Entry point from a RefPack's "Study This Rating" button (see
   // refPackKnowledgeLevel() in refPackets.ts) -- pre-scopes the Knowledge
   // Level filter to that rating so the user lands in an already-relevant
@@ -407,6 +407,25 @@ export default function StudyScreen() {
       })
       .catch(() => {}) // best-effort -- don't block the study flow on a network blip
     getCurrency().then(setCurrency).catch(() => {})
+  }
+
+  // isPro/isPremium both start false and only become authoritative once
+  // auth's own `loading` resolves (cold launch, and the SIGNED_IN event a
+  // Face ID sign-in raises -- see context/auth.tsx). Deep links and push
+  // notifications can land a real Pro subscriber here inside that window, so
+  // don't commit to the locked render until the answer is real; a neutral
+  // spinner self-corrects the same way, without telling a paying customer
+  // their own feature is locked. Also covers this screen's handleToggleBookmark
+  // gate, which can't be reached while this branch renders.
+  if (!hasProAccess && authLoading) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="Study Mode" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      </View>
+    )
   }
 
   if (!hasProAccess) {

@@ -37,7 +37,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
-  const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
+  const { hasPlusAccess, hasProAccess, isPremium, loading: authLoading } = useAuth()
   // Plus and Pro share the same folder cap (PRO_FOLDER_CAP) -- same rule
   // FolderPicker.tsx and saved.tsx's own "New Folder" already enforce.
   const planName = hasProAccess ? 'Pro' : 'Plus'
@@ -60,6 +60,11 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
     // setting visible=true. Immediate push, not delayed -- see FolderPicker's
     // matching comment for why a delayed push here is fragile (BB-006).
     if (!hasPlusAccess) {
+      // Same authLoading guard as FolderPicker's identical backstop -- see
+      // its comment. This branch closes the sheet and navigates, so acting
+      // on a transient false is destructive to the user's flow, not just
+      // cosmetic. The effect re-runs when authLoading flips.
+      if (authLoading) return
       onClose()
       router.push('/paywall?tier=plus')
       return
@@ -69,7 +74,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
     setSelected(new Set())
     setCreating(false)
     setNewName('')
-  }, [visible, hasPlusAccess, excludeFolderId])
+  }, [visible, hasPlusAccess, excludeFolderId, authLoading])
 
   useEffect(() => {
     if (creating) setTimeout(() => inputRef.current?.focus(), 80)
@@ -238,7 +243,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
             <Pressable
               style={[styles.newFolderRow, { borderTopColor: tokens.bdr }]}
               onPress={() => {
-                if (!hasPlusAccess) { onClose(); router.push('/paywall?tier=plus'); return }
+                if (!hasPlusAccess) { if (!authLoading) { onClose(); router.push('/paywall?tier=plus') } return }
                 setCreating(true)
               }}
             >

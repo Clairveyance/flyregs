@@ -1027,7 +1027,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   const { tokens } = useTheme()
   const fs = useFS()
   const ifs = useInputFS()
-  const { session, isPro, isPremium, hasProAccess } = useAuth()
+  const { session, isPro, isPremium, hasProAccess, loading: authLoading } = useAuth()
   const confirm = useConfirm()
   const [aircraft, setAircraft] = useState<FleetAircraftSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -1469,6 +1469,24 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   // (2026-08-14 gating re-audit) which would wrongly lock out a real
   // Premium subscriber shaped isPro:false/isPremium:true. Fixed to
   // hasProAccess to match.
+  // hasProAccess is false for everyone until auth's own `loading` resolves
+  // (cold launch, and the SIGNED_IN event a Face ID sign-in raises -- see
+  // context/auth.tsx). This screen is reachable by deep link and from an AD
+  // push notification, so a real Pro/Premium owner could land on the lock
+  // screen for their OWN fleet. Wait for the real answer before committing
+  // to the lock; this also covers handleAdd and the "Add Aircraft" trigger
+  // further down, neither of which can be tapped while this branch renders.
+  if (!hasProAccess && authLoading) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="My Aircraft" onBack={embedded ? (onClose ?? (() => {})) : () => router.back()} />
+        <View style={styles.lockCenter}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      </View>
+    )
+  }
+
   if (!hasProAccess) {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>

@@ -47,7 +47,7 @@ export default function PartsLookupScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
   const ifs = useInputFS()
-  const { hasPlusAccess } = useAuth()
+  const { hasPlusAccess, loading: authLoading } = useAuth()
   const [query, setQuery] = useState('')
   const queryWords = query.trim().split(/\s+/).filter(Boolean)
   const [results, setResults] = useState<AdPart[]>([])
@@ -117,7 +117,16 @@ export default function PartsLookupScreen() {
         }
       />
       <TabletContainer>
-        {!hasPlusAccess ? (
+        {/* authLoading: hasPlusAccess reads false for everyone (subscribers
+            included) until auth resolves -- see context/auth.tsx. Show a
+            neutral spinner rather than a "Parts Lookup is a Plus feature"
+            gate that a paying Plus user would be looking at for a beat, and
+            that would send them to a paywall if they tapped it. */}
+        {!hasPlusAccess && authLoading ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={tokens.blu} />
+          </View>
+        ) : !hasPlusAccess ? (
           <Pressable
             style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
             onPress={() => router.push('/paywall?tier=plus')}

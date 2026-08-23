@@ -156,7 +156,7 @@ function WingSign() {
 export default function TheWingScreen() {
   const { tokens, redShift } = useTheme()
   const fs = useFS()
-  const { session, isPremium, hasPlusAccess, hasProAccess, avatarOverride } = useAuth()
+  const { session, isPremium, hasPlusAccess, hasProAccess, avatarOverride, loading: authLoading } = useAuth()
   // RC, iPad: "our community screen is a great place for an ipad redesign.
   // all kinds of cool stuff to place and sort and divide up on a big
   // screen. be creative." Phone keeps the exact original stacked-list hub
@@ -281,6 +281,26 @@ export default function TheWingScreen() {
   // Ready Room, RefPacks and Challenge Coins all live here and none of them
   // are free. Previously the screen rendered for everyone with per-row locks,
   // which advertised a wall of padlocks instead of the feature set.
+  // hasPlusAccess is false for EVERYONE (paying subscribers included) until
+  // auth's own `loading` resolves -- cold launch, and again on the SIGNED_IN
+  // event a Face ID sign-in raises (see context/auth.tsx). This is a tab, so
+  // it's one tap from Home during exactly that window; committing to the
+  // locked render there flashed "The Wing is a paid feature" at people who
+  // had already paid for it. Neutral spinner until the answer is real. This
+  // also structurally covers every gated handler further down the file
+  // (openStudy/openDuels/the hub tiles) -- none of them can be tapped while
+  // this branch is showing.
+  if (!hasPlusAccess && authLoading) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <ScreenHeader titleElement={<WingSign />} />
+        <View style={styles.lockedWrap}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      </View>
+    )
+  }
+
   if (!hasPlusAccess) {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>

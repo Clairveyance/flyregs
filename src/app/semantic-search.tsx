@@ -53,7 +53,7 @@ export default function SemanticSearchScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
   const ifs = useInputFS()
-  const { hasProAccess } = useAuth()
+  const { hasProAccess, loading: authLoading } = useAuth()
   const [query, setQuery] = useState('')
   const [submittedQuery, setSubmittedQuery] = useState('')
   const [results, setResults] = useState<SemanticSearchResult[]>([])
@@ -143,6 +143,20 @@ export default function SemanticSearchScreen() {
         setError(e?.message ?? 'Search failed. Try again.')
         setSearching(false)
       })
+  }
+
+  // Same reasoning as study.tsx's own guard -- hasProAccess reads false for
+  // everyone until auth's `loading` resolves, so don't show a real Pro
+  // subscriber an upsell for something they already own.
+  if (!hasProAccess && authLoading) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="Ask FlyRegs" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      </View>
+    )
   }
 
   if (!hasProAccess) {

@@ -1806,6 +1806,11 @@ function HomeHeader({
   consumeLongPress: ReturnType<typeof useLongPressPreview>['consumeLongPress']
 }) {
   const fs = useFS()
+  // hasPlusAccess arrives as a prop (the parent screen reads it), but the
+  // "is that value trustworthy yet" half of the answer doesn't -- read it
+  // straight from the context here rather than threading a second prop
+  // through both call sites. See the locked branch below for what it fixes.
+  const { loading: authLoading } = useAuth()
 
   // Merge AC (richer NEW/UPD/VER badge data) with AD/LOI (simpler "NEW"
   // badge, real dates) into one feed sorted by date, most recent first --
@@ -1836,6 +1841,19 @@ function HomeHeader({
         <View style={[styles.sectionLabel, { justifyContent: 'flex-start', gap: 8 }]}>
           <Text style={[styles.sectionTitle, { color: tokens.t1, fontSize: fs(16.5) }]}>What's New</Text>
         </View>
+        {/* Separate bug from HobbsHeaderButton's (already fixed above), same
+            root cause: hasPlusAccess is false for EVERYONE until auth's own
+            `loading` resolves, so a real Plus/Pro/Premium subscriber's Home
+            screen showed this "Unlock Plus" card for the length of the
+            entitlement fetch before the real strip replaced it. Swapping
+            only the card (not the whole branch) keeps the section label and
+            the DailyRegCard placements below exactly where they are, so
+            nothing shifts when the real answer lands. */}
+        {authLoading ? (
+          <View style={[styles.wnLockedCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
+            <ActivityIndicator color={tokens.blu} />
+          </View>
+        ) : (
         <Pressable
           style={[styles.wnLockedCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
           onPress={() => router.push('/paywall?tier=plus')}
@@ -1851,6 +1869,7 @@ function HomeHeader({
           </View>
           <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
         </Pressable>
+        )}
         {!isTablet && <DailyRegCard dailyReg={dailyReg} tokens={tokens} />}
       </>
     )
@@ -2000,9 +2019,18 @@ function DailyRegCard({ dailyReg, tokens }: { dailyReg: DailyReg | null; tokens:
   // for an admin/comp-granted entitlement) a permanently-locked "unlock
   // with Pro" card on the Home tab despite already owning Pro-tier access.
   // Same bug class as saved.tsx/notes.tsx/study.tsx/my-aircraft/index.tsx.
-  const { hasProAccess } = useAuth()
+  const { hasProAccess, loading: authLoading } = useAuth()
   const [expanded, setExpanded] = useState(false)
   if (!dailyReg) return null
+  // Separate bug from HobbsHeaderButton's, same root cause: dailyReg is
+  // served cache-first (it lands in a millisecond or two), while
+  // isPro/isPremium stay false until auth's own `loading` resolves several
+  // hundred ms later -- so a real Pro/Premium subscriber's Home reliably
+  // painted the "unlock with Pro" lock card first and only then swapped in
+  // their actual Daily Reg. Rendering nothing for that window is what this
+  // card already does before dailyReg arrives, so it costs no extra layout
+  // shift and never shows a paying customer an upsell for what they own.
+  if (!hasProAccess && authLoading) return null
   // Brushed-silver shimmer frame -- RC, 2026-08-05, after seeing a static
   // diagonal-gradient first pass: "the DR box silver shimmer is just the
   // edge border - it should be like the ML, but in silver instead, same

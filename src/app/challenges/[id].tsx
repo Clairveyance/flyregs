@@ -94,7 +94,7 @@ function FilterSummary({ challenge, tokens, fs }: { challenge: MyChallenge; toke
 export default function ChallengeGameScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { tokens } = useTheme()
-  const { isPremium } = useAuth()
+  const { isPremium, loading: authLoading } = useAuth()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web, so every dialog here was invisible in the Browser pane.
   // See components/ConfirmDialog.tsx.
@@ -217,8 +217,15 @@ export default function ChallengeGameScreen() {
     // to actually upgrade. Decline never requires Premium (respond_to_
     // challenge only checks entitlement when p_accept is true), so it's
     // untouched.
+    // !authLoading: isPremium starts false and stays false until auth's own
+    // `loading` resolves (see context/auth.tsx). This screen is the direct
+    // landing spot for a duel-invite push notification, so "cold launch,
+    // tap Accept immediately" is the single most likely real-world way to
+    // hit that window -- and it would send a paying Premium subscriber to a
+    // Premium paywall instead of into their duel. Swallow the tap for that
+    // fraction of a second; tapping again once auth has landed works.
     if (accept && !isPremium) {
-      router.push('/paywall?tier=premium' as any)
+      if (!authLoading) router.push('/paywall?tier=premium' as any)
       return
     }
     try {
@@ -324,7 +331,10 @@ export default function ChallengeGameScreen() {
     // no upgrade path, found in the same post-build-31 sweep that caught
     // handleRespond's version of this gap.
     if (!isPremium) {
-      router.push('/paywall?tier=premium' as any)
+      // Same authLoading reasoning as handleRespond above -- a results-screen
+      // deep link from a "duel finished" push can put a real Premium
+      // subscriber on this button before entitlements have resolved.
+      if (!authLoading) router.push('/paywall?tier=premium' as any)
       return
     }
     setRematching(true)

@@ -18,7 +18,7 @@ import { highlightSpans } from '@/lib/searchHighlight'
 export default function RefPacketTaskScreen() {
   const { taskId } = useLocalSearchParams<{ taskId: string }>()
   const { tokens, redShift } = useTheme()
-  const { hasPlusAccess, hasProAccess } = useAuth()
+  const { hasPlusAccess, hasProAccess, loading: authLoading } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
   const [task, setTask] = useState<RefPacketTask | null>(null)
@@ -100,6 +100,21 @@ export default function RefPacketTaskScreen() {
     setQuery(v)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => runSearch(v), 300)
+  }
+
+  // Same guard as ref-packets/[code].tsx and multi-engine.tsx -- the effect
+  // above fixed the "access resolved late" half of this race; this is the
+  // other half, where the lock renders at a real Plus subscriber for as long
+  // as auth's `loading` is still true.
+  if (!hasPlusAccess && authLoading) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="RefPack" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      </View>
+    )
   }
 
   if (!hasPlusAccess) {

@@ -93,7 +93,7 @@ export default function SavedScreen() {
   // Only "Back up & sync" -- the literal toggle further down this screen --
   // requires Pro. Shared/collaborative folders and offline stay
   // Premium-only, unrelated and untouched.
-  const { session, isPro, isPremium, hasPlusAccess, hasProAccess } = useAuth()
+  const { session, isPro, isPremium, hasPlusAccess, hasProAccess, loading: authLoading } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const { shareAC, shareReg, shareMany } = useShareActions()
   const [tab, setTab] = useState<Tab>('all')
@@ -350,11 +350,28 @@ export default function SavedScreen() {
   // already includes.
   const displaySyncEnabled = syncEnabled && hasProAccess
   useEffect(() => {
+    // !authLoading is load-bearing, not defensive padding. isPro/isPremium
+    // both START false and only become authoritative once auth's own
+    // `loading` resolves (cold launch, and again on the SIGNED_IN event a
+    // Face ID sign-in raises -- see context/auth.tsx). syncEnabled, by
+    // contrast, comes from a local AsyncStorage read that resolves in
+    // milliseconds, so it reliably lands FIRST and this effect would fire
+    // with hasProAccess still transiently false for a real Pro/Premium
+    // subscriber. Unlike every other gate in this file that just flickers,
+    // disableSync() is a PERSISTENT write (SYNC_ENABLED_KEY locally AND
+    // sync_enabled:false on the account's user_metadata) -- it silently and
+    // permanently turned Back up & sync off for a paying subscriber who
+    // merely opened this tab in the first second after launch, and
+    // applyRemoteSyncPreference would then propagate that "off" to their
+    // other devices on the next launch. Only self-correct once auth has
+    // actually resolved, exactly like (tabs)/index.tsx's HobbsHeaderButton
+    // refuses to blank its cached fleet on the same transient false.
+    if (authLoading) return
     if (syncEnabled && !hasProAccess) {
       disableSync()
       setSyncEnabled(false)
     }
-  }, [syncEnabled, hasProAccess])
+  }, [syncEnabled, hasProAccess, authLoading])
 
   const toggleSync = async (v: boolean) => {
     if (v && !hasProAccess) { router.push('/paywall?tier=pro'); return }
@@ -783,7 +800,16 @@ export default function SavedScreen() {
               key={t}
               style={[styles.segBtn, tab === t && { backgroundColor: tokens.blu }]}
               onPress={() => {
-                if (t === 'offline' && !isPremium) { router.push('/paywall?tier=premium'); return }
+                // The segmented control renders for everyone, so it is the
+                // one control on this screen a subscriber can hit while
+                // isPremium is still transiently false (cold launch /
+                // post-Face-ID -- see this file's sync effect above).
+                // Swallow the tap for that fraction of a second rather than
+                // sending a paying Premium customer to a Premium paywall.
+                if (t === 'offline' && !isPremium) {
+                  if (!authLoading) router.push('/paywall?tier=premium')
+                  return
+                }
                 setTab(t)
                 setSelectMode(false)
                 setSelected(new Set())
@@ -1750,7 +1776,21 @@ function ProWall({
   tierLabel?: 'Plus' | 'Pro'
 }) {
   const fs = useFS()
+  // Both call sites below render this the instant !hasPlusAccess -- which is
+  // true for EVERYONE (real subscribers included) until auth's own `loading`
+  // resolves on cold launch / after a Face ID sign-in. Show a neutral
+  // spinner for that window instead of telling a paying customer their own
+  // Bookmarks/Folders are locked. Read here rather than at each call site so
+  // both get it, and so the surrounding tab logic is untouched.
+  const { loading: authLoading } = useAuth()
   const tierParam = tierLabel.toLowerCase()
+  if (authLoading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={tokens.blu} />
+      </View>
+    )
+  }
   return (
     <View style={styles.center}>
       <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />

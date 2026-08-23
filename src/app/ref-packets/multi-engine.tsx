@@ -30,7 +30,7 @@ const CERTS = [
 export default function MultiEngineRefPackScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasPlusAccess } = useAuth()
+  const { hasPlusAccess, loading: authLoading } = useAuth()
   // RC: two separate RefPack cards now (Private / Commercial), each
   // deep-linking here with `?cert=` so the right one opens directly --
   // falls back to Private if the param's missing or doesn't match either
@@ -65,6 +65,21 @@ export default function MultiEngineRefPackScreen() {
       setLoading(false)
     })
   }, [hasPlusAccess])
+
+  // Same guard as ref-packets/[code].tsx -- the effect above already handles
+  // the "access resolved late" half of this race; this handles the other
+  // half, where the LOCK (not the spinner) is what a real Plus subscriber
+  // sees while auth's `loading` is still true.
+  if (!hasPlusAccess && authLoading) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="RefPack" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      </View>
+    )
+  }
 
   if (!hasPlusAccess) {
     return (

@@ -41,7 +41,7 @@ export default function ReadyRoomScreen() {
   // Room entirely even though it's a Pro-tier-and-above feature they're
   // fully entitled to. isPremium itself stays bare below (the Duels button)
   // since Duels really is Premium-only, not Pro-and-above.
-  const { isPremium, hasProAccess } = useAuth()
+  const { isPremium, hasProAccess, loading: authLoading } = useAuth()
   const confirm = useConfirm()
   const [tab, setTab] = useState<LbTab>('study')
   const [loading, setLoading] = useState(true)
@@ -98,6 +98,21 @@ export default function ReadyRoomScreen() {
   useEffect(() => {
     if (hasProAccess) load(tab)
   }, [hasProAccess, tab, load])
+
+  // Same reasoning as study.tsx's own guard: hasProAccess is false for
+  // everyone until auth's `loading` resolves, so the locked render would
+  // flash at a real Pro/Premium subscriber arriving here inside that window.
+  // Spinner until the entitlement answer is actually real.
+  if (!hasProAccess && authLoading) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="Ready Room" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      </View>
+    )
+  }
 
   if (!hasProAccess) {
     return (

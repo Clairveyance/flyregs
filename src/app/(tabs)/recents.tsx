@@ -72,7 +72,7 @@ export default function RecentsScreen() {
   const fs = useFS()
   // Bookmarks/Folders require Pro (RC, 2026-08-11: "back up sync is Pro" --
   // corrected from an earlier Plus-tier gate); sharing stays Premium.
-  const { isPremium, hasPlusAccess } = useAuth()
+  const { isPremium, hasPlusAccess, loading: authLoading } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const { shareAC, shareReg, shareMany } = useShareActions()
   const [groups, setGroups] = useState<Group[]>([])
@@ -132,8 +132,18 @@ export default function RecentsScreen() {
   // Reload on focus so newly-viewed ACs appear immediately
   useFocusEffect(load)
 
+  // authLoading guard on all four gated handlers in this file: unlike
+  // Saved/Notes, this screen renders its full list (and every row's
+  // bookmark/folder/share control) to everyone, so it has no whole-screen
+  // lock to hide behind while entitlements resolve. isPremium/hasPlusAccess
+  // are both false during the cold-launch and post-Face-ID window (see
+  // context/auth.tsx), and Recents is one tab-tap from Home at launch --
+  // the most realistic place in the app for a paying subscriber to get
+  // bounced to a paywall for something they already own. Swallow the tap
+  // for that fraction of a second instead; the deps arrays already re-run
+  // these once the real value lands.
   const handleToggleBookmark = useCallback(async (item: RecentAC) => {
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     const isNowBookmarked = await toggleBookmark({
       id: item.id,
       itemType: recentItemType(item),
@@ -148,7 +158,7 @@ export default function RecentsScreen() {
       isNowBookmarked ? next.add(item.id) : next.delete(item.id)
       return next
     })
-  }, [hasPlusAccess])
+  }, [hasPlusAccess, authLoading])
 
   const handleRemove = useCallback((item: RecentAC) => {
     setGroups((prev) =>
@@ -270,7 +280,7 @@ export default function RecentsScreen() {
   }
 
   const handleShare = (item: RecentAC) => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     const type = recentItemType(item)
     if (type === 'ac') { shareAC(item); return }
     const reg = toShareableReg(item)
@@ -286,12 +296,12 @@ export default function RecentsScreen() {
   // while that effect's queued navigation was still resolving, so it silently
   // no-op'd instead of opening the paywall again.
   const handleFolder = (item: RecentAC) => {
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     setPickerItem(item)
   }
 
   const handleBulkShare = () => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     const all = groups.flatMap((g) => g.data)
     const selectedItems = all.filter((r) => selected.has(r.id))
     const acs = selectedItems.filter((r) => recentItemType(r) === 'ac')
@@ -398,7 +408,7 @@ export default function RecentsScreen() {
           <Text style={[styles.selectCount, { color: tokens.t2, fontSize: fs(13) }]}>({selected.size})</Text>
           <View style={styles.selectIconRow}>
             <Pressable
-              onPress={() => { if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return } setFolderSheetVisible(true) }}
+              onPress={() => { if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return } setFolderSheetVisible(true) }}
               disabled={selected.size === 0}
               hitSlop={8}
               style={{ opacity: selected.size > 0 ? 1 : 0.4 }}

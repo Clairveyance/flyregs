@@ -74,7 +74,20 @@ export default function LoiDetailScreen() {
   // See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
-  const { hasProAccess, isPremium } = useAuth()
+  // `loading: authLoading` -- every tier gate in this file is guarded with
+  // `if (!authLoading)` before it navigates. isPro/isPremium/isUnlocked all
+  // START false and only become authoritative once auth's own `loading`
+  // resolves: on cold launch, and again on the SIGNED_IN event a Face ID
+  // sign-in raises (see context/auth.tsx's own comment on that). This screen
+  // is reachable by share link and by push-notification deep link, so a real
+  // subscriber genuinely can be looking at it, and tapping its header
+  // controls, inside that window -- and the un-guarded gates would have sent
+  // them to a paywall for a tier they already pay for. Doing nothing for the
+  // fraction of a second it takes to resolve is the lesser evil; a second tap
+  // once entitlements land behaves normally. Same principle as
+  // (tabs)/index.tsx's HobbsHeaderButton, which refuses to act on the same
+  // transient false.
+  const { hasProAccess, isPremium, loading: authLoading } = useAuth()
   const [loi, setLoi] = useState<LegalInterpretation | null>(null)
   // Split so the interpretation text can render as soon as the fast
   // citation query resolves, without waiting on the much slower semantic
@@ -240,7 +253,7 @@ export default function LoiDetailScreen() {
   // interpretation they can't even read would be incoherent.
   const handleToggleBookmark = async () => {
     if (!loi) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
     setBookmarked((prev) => !prev)
     const next = await toggleBookmark({
       id: loi.slug,
@@ -259,7 +272,7 @@ export default function LoiDetailScreen() {
   const lastToggleAt = useRef(0)
   const handleToggleHighlight = useCallback(async (paraText: string) => {
     if (!loi) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
     if (toggleInFlight.current) return
     if (Date.now() - lastToggleAt.current < 800) return
     lastToggleAt.current = Date.now()
@@ -289,7 +302,7 @@ export default function LoiDetailScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [loi, hasProAccess])
+  }, [loi, hasProAccess, authLoading])
 
   const handleCopyBlock = useCallback(async (paraText: string) => {
     await Clipboard.setStringAsync(paraText)
@@ -297,7 +310,7 @@ export default function LoiDetailScreen() {
   }, [])
 
   const handleBlockLongPress = useCallback((paraText: string) => {
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
     setPendingHighlight(paraText)
     const isHighlighted = highlightedBlockTexts.has(paraText)
     confirm({
@@ -311,11 +324,11 @@ export default function LoiDetailScreen() {
       ],
       onCancel: () => setPendingHighlight(null),
     })
-  }, [hasProAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
+  }, [hasProAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, authLoading])
 
   const handleOpenFolderPicker = () => {
     if (!loi) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
     setFolderPickerVisible(true)
   }
 
@@ -323,7 +336,7 @@ export default function LoiDetailScreen() {
   // promise app-wide -- but see the hasProAccess comment above for why
   // LOI specifically is the one exception, gated at Pro instead.
   const handlePrint = async () => {
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
     if (!loi) return
     try {
       await printReg({
@@ -345,7 +358,7 @@ export default function LoiDetailScreen() {
   const handleShare = async () => {
     // Share/export is a PLUS feature app-wide (paywall PLUS_FEATURES), but
     // LOI is gated at Pro instead -- see the hasProAccess comment above.
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
     if (!loi) return
     try {
       // No 4th (title/description) arg: loi.summary is a raw OCR sentence,
@@ -370,7 +383,7 @@ export default function LoiDetailScreen() {
   // DownloadedItemType comment.
   const handleDownload = async () => {
     if (!loi) return
-    if (!isPremium && !downloaded) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium && !downloaded) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     if (downloaded) {
       setDownloaded(false)
       await removeDownload(loi.slug)
@@ -527,7 +540,7 @@ export default function LoiDetailScreen() {
               // every other action on this screen already checks
               // hasProAccess before this one did.
               onOpenPdf={async () => {
-                if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+                if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
                 // pdf_url_cached lives in the private legal-interpretations
                 // bucket now -- needs a freshly-signed URL. Falls back to
                 // source_url (the FAA DRS original, already public) if
@@ -601,7 +614,7 @@ export default function LoiDetailScreen() {
             // reader what this interpretation is about.)
             <Pressable
               style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
-              onPress={() => router.push('/paywall?tier=pro')}
+              onPress={() => { if (!authLoading) router.push('/paywall?tier=pro') }}
             >
               <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
               <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Read the full interpretation with Pro</Text>

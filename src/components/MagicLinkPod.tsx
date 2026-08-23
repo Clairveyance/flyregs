@@ -5,6 +5,7 @@ import Reanimated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, E
 import { LinearGradient } from 'expo-linear-gradient'
 import * as Haptics from 'expo-haptics'
 import { useTheme } from '@/context/theme'
+import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { routeForCitedItem } from '@/lib/citedItems'
@@ -301,6 +302,11 @@ function PodRow({
   tokens: ReturnType<typeof useTheme>['tokens']
 }) {
   const fs = useFS()
+  // hasProAccess arrives as a prop from whichever detail screen renders the
+  // pod, but "is that value final yet" doesn't -- read it from the context
+  // here rather than threading a second prop through ACBody/PlainTextBody's
+  // call chain. See handlePressBar below for what it guards.
+  const { loading: authLoading } = useAuth()
   const [expanded, setExpanded] = useState(false)
   const [showAll, setShowAll] = useState(false)
   const [titles, setTitles] = useState<Record<string, string>>({})
@@ -318,7 +324,13 @@ function PodRow({
 
   const handlePressBar = () => {
     if (!hasItems) return
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    // !authLoading: isPro/isPremium start false and only become authoritative
+    // once auth's own `loading` resolves (see context/auth.tsx). The pod sits
+    // right under the header on every detail screen -- including ones a push
+    // notification or share link cold-launches straight into -- so this is a
+    // realistic first tap. Swallow it for that fraction of a second instead
+    // of sending a real Pro/Premium subscriber to a Pro paywall.
+    if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
     setExpanded((e) => !e)
   }
 

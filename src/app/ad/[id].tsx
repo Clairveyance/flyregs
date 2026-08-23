@@ -77,7 +77,20 @@ export default function AdScreen() {
   // See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
-  const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
+  // `loading: authLoading` -- every tier gate in this file is guarded with
+  // `if (!authLoading)` before it navigates. isPro/isPremium/isUnlocked all
+  // START false and only become authoritative once auth's own `loading`
+  // resolves: on cold launch, and again on the SIGNED_IN event a Face ID
+  // sign-in raises (see context/auth.tsx's own comment on that). This screen
+  // is reachable by share link and by push-notification deep link, so a real
+  // subscriber genuinely can be looking at it, and tapping its header
+  // controls, inside that window -- and the un-guarded gates would have sent
+  // them to a paywall for a tier they already pay for. Doing nothing for the
+  // fraction of a second it takes to resolve is the lesser evil; a second tap
+  // once entitlements land behaves normally. Same principle as
+  // (tabs)/index.tsx's HobbsHeaderButton, which refuses to act on the same
+  // transient false.
+  const { hasPlusAccess, hasProAccess, isPremium, loading: authLoading } = useAuth()
   const [ad, setAd] = useState<AirworthinessDirective | null>(null)
   // Split so the AD text can render as soon as the fast citation query
   // resolves, without waiting on the much slower semantic "related content"
@@ -301,7 +314,7 @@ export default function AdScreen() {
     // straight past it to the real thing. Every other action on this
     // screen (bookmark, folder, print, share) already checks this; this
     // one was the one gap.
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     // Used to window.open() the raw URL on web -- found live: govinfo.gov
     // (where every AD's pdf_url points) serves its PDFs in a way that
     // triggers an OS-level file-download prompt instead of opening as a
@@ -320,7 +333,7 @@ export default function AdScreen() {
   // AC's fuller pipeline.
   const handleDownload = async () => {
     if (!ad) return
-    if (!isPremium && !downloaded) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium && !downloaded) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     if (downloaded) {
       setDownloaded(false)
       await removeDownload(ad.ad_number)
@@ -350,7 +363,7 @@ export default function AdScreen() {
 
   const handleToggleBookmark = async () => {
     if (!ad) return
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     setBookmarked((prev) => !prev) // optimistic
     const next = await toggleBookmark({
       id: ad.ad_number,
@@ -369,7 +382,7 @@ export default function AdScreen() {
   const lastToggleAt = useRef(0)
   const handleToggleHighlight = useCallback(async (paraText: string) => {
     if (!ad) return
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     if (toggleInFlight.current) return
     if (Date.now() - lastToggleAt.current < 800) return
     lastToggleAt.current = Date.now()
@@ -399,7 +412,7 @@ export default function AdScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [ad, hasPlusAccess])
+  }, [ad, hasPlusAccess, authLoading])
 
   const handleCopyBlock = useCallback(async (paraText: string) => {
     await Clipboard.setStringAsync(paraText)
@@ -407,7 +420,7 @@ export default function AdScreen() {
   }, [])
 
   const handleBlockLongPress = useCallback((paraText: string) => {
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     setPendingHighlight(paraText)
     const isHighlighted = highlightedBlockTexts.has(paraText)
     confirm({
@@ -421,11 +434,11 @@ export default function AdScreen() {
       ],
       onCancel: () => setPendingHighlight(null),
     })
-  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
+  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, authLoading])
 
   const handleOpenFolderPicker = () => {
     if (!ad) return
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     setFolderPickerVisible(true)
   }
 
@@ -433,7 +446,7 @@ export default function AdScreen() {
   // promise -- until now the app had no print at all, only the share
   // sheet (which exports a LINK, not the text).
   const handlePrint = async () => {
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     if (!ad) return
     try {
       await printReg({
@@ -457,7 +470,7 @@ export default function AdScreen() {
     // Share/export is a PLUS feature (paywall PLUS_FEATURES), not Premium.
     // Gating it on isPremium bounced a Plus buyer to a Premium upsell for
     // something they had already paid for.
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     if (!ad) return
     try {
       await Share.share({
@@ -741,7 +754,7 @@ export default function AdScreen() {
             // DO about it) is Plus-only, with no partial preview at all.
             <Pressable
               style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
-              onPress={() => router.push('/paywall?tier=plus')}
+              onPress={() => { if (!authLoading) router.push('/paywall?tier=plus') }}
             >
               <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
               <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Read the full AD with Plus</Text>

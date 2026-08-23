@@ -37,7 +37,7 @@ export default function ChallengesScreen() {
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
-  const { isPremium } = useAuth()
+  const { isPremium, loading: authLoading } = useAuth()
   const [challenges, setChallenges] = useState<MyChallenge[]>([])
   const [myStats, setMyStats] = useState<DuelStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -325,6 +325,23 @@ export default function ChallengesScreen() {
         }
       },
     })
+  }
+
+  // isPremium starts false and only becomes authoritative once auth's own
+  // `loading` resolves (cold launch, and the SIGNED_IN event a Face ID
+  // sign-in raises -- see context/auth.tsx). A duel-invite push notification
+  // deep-links straight into this area, so a real Premium subscriber
+  // genuinely can land here inside that window and be told Duels is a
+  // feature they don't have. Wait for the real answer.
+  if (!isPremium && authLoading) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="Duels" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      </View>
+    )
   }
 
   if (!isPremium) {

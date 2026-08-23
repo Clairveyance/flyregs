@@ -161,7 +161,20 @@ export default function ACDetailScreen() {
   // Only the separate "Back up & sync" toggle (cross-device sync, in
   // saved.tsx/notes.tsx) requires Pro. Offline downloads and sharing stay
   // Premium-only, unchanged from before.
-  const { isPremium, hasPlusAccess, hasProAccess } = useAuth()
+  // `loading: authLoading` -- every tier gate in this file is guarded with
+  // `if (!authLoading)` before it navigates. isPro/isPremium/isUnlocked all
+  // START false and only become authoritative once auth's own `loading`
+  // resolves: on cold launch, and again on the SIGNED_IN event a Face ID
+  // sign-in raises (see context/auth.tsx's own comment on that). This screen
+  // is reachable by share link and by push-notification deep link, so a real
+  // subscriber genuinely can be looking at it, and tapping its header
+  // controls, inside that window -- and the un-guarded gates would have sent
+  // them to a paywall for a tier they already pay for. Doing nothing for the
+  // fraction of a second it takes to resolve is the lesser evil; a second tap
+  // once entitlements land behaves normally. Same principle as
+  // (tabs)/index.tsx's HobbsHeaderButton, which refuses to act on the same
+  // transient false.
+  const { isPremium, hasPlusAccess, hasProAccess, loading: authLoading } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
   const isTabletLandscape = useIsTabletLandscape()
@@ -512,7 +525,7 @@ export default function ACDetailScreen() {
   const handleDownload = async () => {
     if (!ac) return
     if (!isPremium && !downloaded) {
-      router.push('/paywall?tier=premium')
+      if (!authLoading) router.push('/paywall?tier=premium')
       return
     }
     if (hasNoSourceAtAll) {
@@ -586,7 +599,7 @@ export default function ACDetailScreen() {
   // promise. An AC's text lives in pdf_blocks rather than one body column,
   // so flatten it with the same blockText() the reader renders from.
   const handlePrint = async () => {
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     if (!ac) return
     const body = (ac.pdf_blocks ?? []).map((b) => blockText(b)).filter(Boolean).join('\n\n')
     try {
@@ -617,7 +630,7 @@ export default function ACDetailScreen() {
     // Gating it on isPremium bounced a Plus buyer to a Premium upsell for
     // something they had already paid for.
     if (!hasPlusAccess) {
-      router.push('/paywall?tier=plus')
+      if (!authLoading) router.push('/paywall?tier=plus')
       return
     }
     if (!ac) return
@@ -636,7 +649,7 @@ export default function ACDetailScreen() {
   const handleToggleBookmark = async () => {
     if (!ac) return
     if (!hasPlusAccess) {
-      router.push('/paywall?tier=plus')
+      if (!authLoading) router.push('/paywall?tier=plus')
       return
     }
     setBookmarked((prev) => !prev) // optimistic
@@ -657,7 +670,7 @@ export default function ACDetailScreen() {
   // the paywall rather than risking a silent no-op.
   const handleOpenFolderPicker = () => {
     if (!ac) return
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     setFolderPickerVisible(true)
   }
 
@@ -681,7 +694,7 @@ export default function ACDetailScreen() {
   const handleToggleHighlight = useCallback(async (block: ACBlock) => {
     if (!ac) return
     if (!hasPlusAccess) {
-      router.push('/paywall?tier=plus')
+      if (!authLoading) router.push('/paywall?tier=plus')
       return
     }
     if (toggleInFlight.current) return
@@ -715,7 +728,7 @@ export default function ACDetailScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [ac, hasPlusAccess])
+  }, [ac, hasPlusAccess, authLoading])
 
   // Copy is deliberately NOT gated, unlike highlighting — it only ever
   // copies a block that's already rendered on screen for this reader (Free
@@ -743,7 +756,7 @@ export default function ACDetailScreen() {
   // mismatch -- the menu label itself says "(Premium)" for anyone below that
   // tier instead of silently bouncing with no warning.
   const handleSharePassage = useCallback(async (block: ACBlock) => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     if (!ac) return
     const text = blockText(block)
     if (!text) return
@@ -758,12 +771,12 @@ export default function ACDetailScreen() {
     } catch {
       // User cancelled or share unavailable
     }
-  }, [ac, isPremium])
+  }, [ac, isPremium, authLoading])
 
   const handleBlockLongPress = useCallback((block: ACBlock, index: number) => {
     const meta = highlightMeta(block)
     if (!meta) return
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     const isHighlighted = highlightedBlockTexts.has(blockText(block))
     confirm({
       title: 'Passage',
@@ -785,7 +798,7 @@ export default function ACDetailScreen() {
         { label: isPremium ? 'Share Passage' : 'Share Passage (Premium)', onPress: () => handleSharePassage(block) },
       ],
     })
-  }, [hasPlusAccess, isPremium, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, handleSharePassage])
+  }, [hasPlusAccess, isPremium, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, handleSharePassage, authLoading])
 
   // Jump nav between the blocks the "What's New" diff flagged as changed —
   // mirrors the existing in-doc search prev/next pattern below (goToPrev/
@@ -835,7 +848,7 @@ export default function ACDetailScreen() {
 
   const openPDF = async () => {
     if (!hasPlusAccess) {
-      router.push('/paywall?tier=plus')
+      if (!authLoading) router.push('/paywall?tier=plus')
       return
     }
     if (hasNoSourceAtAll) {
@@ -1228,7 +1241,7 @@ export default function ACDetailScreen() {
               {!hasPlusAccess && (ac.pdf_blocks_total_count ?? ac.pdf_blocks.length) > previewBlockCount(ac.pdf_blocks_total_count ?? ac.pdf_blocks.length) && (
                 <Pressable
                   style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
-                  onPress={() => router.push('/paywall?tier=plus')}
+                  onPress={() => { if (!authLoading) router.push('/paywall?tier=plus') }}
                 >
                   <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
                   <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Continue reading with Plus</Text>

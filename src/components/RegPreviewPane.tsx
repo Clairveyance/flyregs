@@ -29,7 +29,7 @@ interface PreviewFigure {
 // persistent side pane (RegPreviewInline, for the iPad landscape
 // master-detail split -- see SplitPane.tsx callers).
 function useRegPreviewContent(route: string | null, onClose: () => void, highlightQuery?: string) {
-  const { hasPlusAccess, hasProAccess } = useAuth()
+  const { hasPlusAccess, hasProAccess, loading: authLoading } = useAuth()
   const [data, setData] = useState<RegPreviewData | null>(null)
   // Carries the search term the user typed into a RefPack task's "Related
   // Regulations" box (or any other future caller) into this peek so the
@@ -111,9 +111,14 @@ function useRegPreviewContent(route: string | null, onClose: () => void, highlig
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route])
 
+  // !authLoading on both gates below: hasPlusAccess is false for everyone
+  // until context/auth.tsx's `loading` resolves, and each of these doesn't
+  // just refuse -- it CLOSES this preview pane and navigates away. Swallow
+  // the tap for that window instead of tearing a real subscriber's preview
+  // down and dropping them on a paywall.
   const handleToggleBookmark = async () => {
     if (!data) return
-    if (!hasPlusAccess) { onClose(); router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) { onClose(); router.push('/paywall?tier=plus') } return }
     setBookmarked((prev) => !prev) // optimistic
     const next = await toggleBookmark({
       id: data.id,
@@ -129,7 +134,7 @@ function useRegPreviewContent(route: string | null, onClose: () => void, highlig
 
   const handleOpenFolderPicker = () => {
     if (!data) return
-    if (!hasPlusAccess) { onClose(); router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) { onClose(); router.push('/paywall?tier=plus') } return }
     setFolderPickerOpen(true)
   }
 

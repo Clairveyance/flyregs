@@ -15,7 +15,7 @@ export default function RefPacketDetailScreen() {
   const { code: routeCode } = useLocalSearchParams<{ code: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasPlusAccess } = useAuth()
+  const { hasPlusAccess, loading: authLoading } = useAuth()
   // Separate from the route param: tapping a sibling section below updates
   // this in place (no navigation) instead of pushing a new /ref-packets/X
   // screen, so switching sections doesn't stack the back button.
@@ -61,6 +61,22 @@ export default function RefPacketDetailScreen() {
   // straight into a correctly-scoped flashcard deck. null for certs that
   // don't cleanly map onto the 6-level taxonomy (see refPackKnowledgeLevel).
   const studyLevel = title ? refPackKnowledgeLevel(splitPacketTitle(title).mainTitle) : null
+
+  // hasPlusAccess reads false for everyone until auth's `loading` resolves
+  // (see context/auth.tsx) -- the effect above already keeps this screen's
+  // own spinner up through that window, so showing the lock instead of the
+  // spinner was the only thing making a real Plus subscriber see "RefPacks
+  // are a Plus feature."
+  if (!hasPlusAccess && authLoading) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="RefPack" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      </View>
+    )
+  }
 
   if (!hasPlusAccess) {
     return (

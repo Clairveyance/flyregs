@@ -74,7 +74,20 @@ export default function Cfr49SectionScreen() {
   const { tokens } = useTheme()
   const confirm = useConfirm()
   const fs = useFS()
-  const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
+  // `loading: authLoading` -- every tier gate in this file is guarded with
+  // `if (!authLoading)` before it navigates. isPro/isPremium/isUnlocked all
+  // START false and only become authoritative once auth's own `loading`
+  // resolves: on cold launch, and again on the SIGNED_IN event a Face ID
+  // sign-in raises (see context/auth.tsx's own comment on that). This screen
+  // is reachable by share link and by push-notification deep link, so a real
+  // subscriber genuinely can be looking at it, and tapping its header
+  // controls, inside that window -- and the un-guarded gates would have sent
+  // them to a paywall for a tier they already pay for. Doing nothing for the
+  // fraction of a second it takes to resolve is the lesser evil; a second tap
+  // once entitlements land behaves normally. Same principle as
+  // (tabs)/index.tsx's HobbsHeaderButton, which refuses to act on the same
+  // transient false.
+  const { hasPlusAccess, hasProAccess, isPremium, loading: authLoading } = useAuth()
   const [section, setSection] = useState<Cfr49Section | null>(null)
   const [part, setPart] = useState<Cfr49Part | null>(null)
   // Split so the section text can render as soon as the fast citation query
@@ -270,7 +283,7 @@ export default function Cfr49SectionScreen() {
 
   const handleToggleBookmark = async () => {
     if (!section) return
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     setBookmarked((prev) => !prev)
     const next = await toggleBookmark({
       id: section.section_number,
@@ -288,7 +301,7 @@ export default function Cfr49SectionScreen() {
   const lastToggleAt = useRef(0)
   const handleToggleHighlight = useCallback(async (paraText: string) => {
     if (!section) return
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     if (toggleInFlight.current) return
     if (Date.now() - lastToggleAt.current < 800) return
     lastToggleAt.current = Date.now()
@@ -318,7 +331,7 @@ export default function Cfr49SectionScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [section, hasPlusAccess])
+  }, [section, hasPlusAccess, authLoading])
 
   const handleCopyBlock = useCallback(async (paraText: string) => {
     await Clipboard.setStringAsync(paraText)
@@ -326,7 +339,7 @@ export default function Cfr49SectionScreen() {
   }, [])
 
   const handleBlockLongPress = useCallback((paraText: string) => {
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     setPendingHighlight(paraText)
     const isHighlighted = highlightedBlockTexts.has(paraText)
     confirm({
@@ -340,17 +353,17 @@ export default function Cfr49SectionScreen() {
       ],
       onCancel: () => setPendingHighlight(null),
     })
-  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
+  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, authLoading])
 
   const handleOpenFolderPicker = () => {
     if (!section) return
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     setFolderPickerVisible(true)
   }
 
   const handleDownload = async () => {
     if (!section) return
-    if (!isPremium && !downloaded) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium && !downloaded) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     if (downloaded) {
       setDownloaded(false)
       await removeDownload(section.section_number)
@@ -375,7 +388,7 @@ export default function Cfr49SectionScreen() {
   }
 
   const handlePrint = async () => {
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     if (!section) return
     try {
       await printReg({

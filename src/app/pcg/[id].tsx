@@ -60,7 +60,20 @@ export default function PcgTermScreen() {
   // See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
-  const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
+  // `loading: authLoading` -- every tier gate in this file is guarded with
+  // `if (!authLoading)` before it navigates. isPro/isPremium/isUnlocked all
+  // START false and only become authoritative once auth's own `loading`
+  // resolves: on cold launch, and again on the SIGNED_IN event a Face ID
+  // sign-in raises (see context/auth.tsx's own comment on that). This screen
+  // is reachable by share link and by push-notification deep link, so a real
+  // subscriber genuinely can be looking at it, and tapping its header
+  // controls, inside that window -- and the un-guarded gates would have sent
+  // them to a paywall for a tier they already pay for. Doing nothing for the
+  // fraction of a second it takes to resolve is the lesser evil; a second tap
+  // once entitlements land behaves normally. Same principle as
+  // (tabs)/index.tsx's HobbsHeaderButton, which refuses to act on the same
+  // transient false.
+  const { hasPlusAccess, hasProAccess, isPremium, loading: authLoading } = useAuth()
   const [term, setTerm] = useState<PcgTerm | null>(null)
   // A P/CG definition is a single short block (no separate paragraphs to
   // split, usually already fully visible), so unlike PlainTextBody's
@@ -318,7 +331,7 @@ export default function PcgTermScreen() {
 
   const handleToggleBookmark = async () => {
     if (!term) return
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     setBookmarked((prev) => !prev) // optimistic
     const next = await toggleBookmark({
       id: term.slug,
@@ -337,7 +350,7 @@ export default function PcgTermScreen() {
   const lastToggleAt = useRef(0)
   const handleToggleHighlight = useCallback(async (paraText: string) => {
     if (!term) return
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     if (toggleInFlight.current) return
     if (Date.now() - lastToggleAt.current < 800) return
     lastToggleAt.current = Date.now()
@@ -367,7 +380,7 @@ export default function PcgTermScreen() {
     } finally {
       toggleInFlight.current = false
     }
-  }, [term, hasPlusAccess])
+  }, [term, hasPlusAccess, authLoading])
 
   const handleCopyBlock = useCallback(async (paraText: string) => {
     await Clipboard.setStringAsync(paraText)
@@ -375,7 +388,7 @@ export default function PcgTermScreen() {
   }, [])
 
   const handleBlockLongPress = useCallback((paraText: string) => {
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     setPendingHighlight(paraText)
     const isHighlighted = highlightedBlockTexts.has(paraText)
     confirm({
@@ -389,11 +402,11 @@ export default function PcgTermScreen() {
       ],
       onCancel: () => setPendingHighlight(null),
     })
-  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight])
+  }, [hasPlusAccess, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, authLoading])
 
   const handleOpenFolderPicker = () => {
     if (!term) return
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     setFolderPickerVisible(true)
   }
 
@@ -403,7 +416,7 @@ export default function PcgTermScreen() {
   // undeletable offline copies behind a paywall.
   const handleDownload = async () => {
     if (!term) return
-    if (!isPremium && !downloaded) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium && !downloaded) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     if (downloaded) {
       setDownloaded(false)
       await removeDownload(term.slug)
@@ -431,7 +444,7 @@ export default function PcgTermScreen() {
   // promise -- until now the app had no print at all, only the share
   // sheet (which exports a LINK, not the text).
   const handlePrint = async () => {
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     if (!term) return
     try {
       await printReg({
@@ -454,7 +467,7 @@ export default function PcgTermScreen() {
     // Share/export is a PLUS feature (paywall PLUS_FEATURES), not Premium.
     // Gating it on isPremium bounced a Plus buyer to a Premium upsell for
     // something they had already paid for.
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     if (!term) return
     try {
       await Share.share({
@@ -576,7 +589,7 @@ export default function PcgTermScreen() {
                         <Text
                           key={si}
                           onPress={() => {
-                            if (!hasProAccess) { router.push('/paywall?tier=pro' as any); return }
+                            if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro' as any); return }
                             setPendingBreadcrumb(term.term)
                             router.push(seg.route as any)
                           }}

@@ -138,7 +138,7 @@ export default function DictionaryTermScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>()
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasPlusAccess, hasProAccess } = useAuth()
+  const { hasPlusAccess, hasProAccess, loading: authLoading } = useAuth()
   const [entry, setEntry] = useState<DictTerm | null>(null)
   const [loading, setLoading] = useState(true)
   const [bookmarked, setBookmarked] = useState(false)
@@ -343,6 +343,23 @@ export default function DictionaryTermScreen() {
   // whole-screen lock as the other two Dictionary screens -- the mnemonic-
   // specific Pro gate above only matters once a Plus user is already past
   // this one.
+  // Same guard as the other two Dictionary screens: hasPlusAccess is false
+  // for everyone until auth's `loading` resolves (see context/auth.tsx), and
+  // a dictionary term is a shareable deep link -- so a real Plus subscriber
+  // opening one from a share/push cold-launch would land on the lock. This
+  // also covers handleToggleBookmark/handleOpenFolderPicker/handleShare
+  // above, whose header row can't be tapped while this branch renders.
+  if (!hasPlusAccess && authLoading) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="Aviation Dictionary" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      </View>
+    )
+  }
+
   if (!hasPlusAccess) {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>

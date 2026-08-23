@@ -57,7 +57,7 @@ export default function NotesScreen() {
   // Supabase via "Back up & sync" requires Pro. RC, 2026-08-14, direct
   // correction to the 2026-08-11 pass above, which wrongly moved the whole
   // family to Pro -- see migrations_fix_folders_are_plus_not_pro.sql.
-  const { isPro, isPremium, hasPlusAccess, hasProAccess, session } = useAuth()
+  const { isPro, isPremium, hasPlusAccess, hasProAccess, session, loading: authLoading } = useAuth()
   const { shareNote, shareMany } = useShareActions()
   const { openId } = useLocalSearchParams<{ openId?: string }>()
   const [notes, setNotes] = useState<Note[]>([])
@@ -272,11 +272,19 @@ export default function NotesScreen() {
   // this exact bug, since bare `isPro` is false for them.
   const displaySyncEnabled = syncEnabled && hasProAccess
   useEffect(() => {
+    // !authLoading is load-bearing -- same bug, same reasoning as saved.tsx's
+    // identical effect (see its comment for the full trace). isPro/isPremium
+    // start false until auth's own `loading` resolves, while syncEnabled
+    // comes from a millisecond-fast local AsyncStorage read, so this fired
+    // with a transiently-false hasProAccess and disableSync() PERSISTED
+    // "sync off" both locally and on the account for a real subscriber who
+    // just happened to open this tab during launch.
+    if (authLoading) return
     if (syncEnabled && !hasProAccess) {
       disableSync()
       setSyncEnabled(false)
     }
-  }, [syncEnabled, hasProAccess])
+  }, [syncEnabled, hasProAccess, authLoading])
 
   const toggleSync = async (v: boolean) => {
     // Cross-device sync is a Pro feature — turning it on without Pro opens
@@ -350,6 +358,17 @@ export default function NotesScreen() {
       <TabletContainer disabled={isTablet}>
 
       {!hasPlusAccess ? (
+        // Don't commit to the locked render until auth has actually
+        // resolved -- hasPlusAccess is false for everyone during the cold-
+        // launch / post-Face-ID window, so a real Plus subscriber tapping
+        // into this tab saw "Notes is a Plus feature" for a beat before
+        // their own notes appeared. Neutral spinner instead; the lock is
+        // only the truth once `loading` is done.
+        authLoading ? (
+          <View style={[styles.empty, { padding: 32 }]}>
+            <ActivityIndicator color={tokens.blu} />
+          </View>
+        ) : (
         <View style={[styles.empty, { padding: 32 }]}>
           <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Notes is a Plus feature</Text>
@@ -363,6 +382,7 @@ export default function NotesScreen() {
             <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
           </Pressable>
         </View>
+        )
       ) : (
         <>
           {/* Back up & sync row */}

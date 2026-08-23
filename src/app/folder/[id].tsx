@@ -69,7 +69,20 @@ export default function FolderDetail() {
   const fs = useFS()
   const insets = useSafeAreaInsets()
   const ifs = useInputFS()
-  const { isPremium } = useAuth()
+  // `loading: authLoading` -- every tier gate in this file is guarded with
+  // `if (!authLoading)` before it navigates. isPro/isPremium/isUnlocked all
+  // START false and only become authoritative once auth's own `loading`
+  // resolves: on cold launch, and again on the SIGNED_IN event a Face ID
+  // sign-in raises (see context/auth.tsx's own comment on that). This screen
+  // is reachable by share link and by push-notification deep link, so a real
+  // subscriber genuinely can be looking at it, and tapping its header
+  // controls, inside that window -- and the un-guarded gates would have sent
+  // them to a paywall for a tier they already pay for. Doing nothing for the
+  // fraction of a second it takes to resolve is the lesser evil; a second tap
+  // once entitlements land behaves normally. Same principle as
+  // (tabs)/index.tsx's HobbsHeaderButton, which refuses to act on the same
+  // transient false.
+  const { isPremium, loading: authLoading } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const { shareAC, shareNote, shareReg } = useShareActions()
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -491,7 +504,7 @@ export default function FolderDetail() {
   // "fade" on ConfirmDialog's Modal) guarantees the ordering without
   // touching the shared ConfirmDialog component.
   const handleInviteChoice = () => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     confirm({
       title: 'Invite to this folder',
       choices: [
@@ -509,7 +522,7 @@ export default function FolderDetail() {
   // SMS compose sheet per selected person -- never one message to a shared
   // thread, which would expose every invitee's number to every other one.
   const openBulkInvite = async () => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     if (!folder) return
     try {
       const { token } = await getOrCreateShareLink(folder.id)
@@ -539,7 +552,7 @@ export default function FolderDetail() {
   }
 
   const openCallsignInvite = () => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     setInviteCallsign('')
     setInviteError(null)
     setFindFriendsStep(false)
@@ -574,7 +587,7 @@ export default function FolderDetail() {
   }
 
   const handleInvite = async () => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     if (!folder) return
     setInvitingBusy(true)
     let link: string, token: string
@@ -672,7 +685,7 @@ export default function FolderDetail() {
   // the recipient's app could never resolve ("AC not found"). See
   // resolveBookmarkACId's comment in lib/bookmarks.ts.
   const handleShareAC = (item: BookmarkAC) => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     const type = bookmarkItemType(item)
     // Non-AC folder items now route through buildRegShareLink, same as
     // Saved/Recents' own fix -- was a silent no-op before (see saved.tsx's
@@ -692,7 +705,7 @@ export default function FolderDetail() {
   }
 
   const handleShareNote = (note: Note) => {
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     shareNote(note)
   }
 

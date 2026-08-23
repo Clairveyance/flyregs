@@ -213,9 +213,24 @@ function groupDiff(removed: string[], added: string[]): DiffGroup[] {
 export default function UpdatesScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
-  const { hasPlusAccess } = useAuth()
+  const { hasPlusAccess, loading: authLoading } = useAuth()
   const { badgeDays } = useBadgeLifespan()
   const [tab, setTab] = useState<Tab>('new')
+
+  // hasPlusAccess reads false for everyone until auth's `loading` resolves
+  // (cold launch / post-Face-ID -- see context/auth.tsx), so a real Plus
+  // subscriber deep-linked or tapped in here inside that window saw
+  // "Updates is a Plus feature" before their own content appeared.
+  if (!hasPlusAccess && authLoading) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="Updates" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      </View>
+    )
+  }
 
   if (!hasPlusAccess) {
     return (

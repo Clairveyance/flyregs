@@ -68,7 +68,7 @@ export default function AccountScreen() {
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
-  const { session, isPro, setIsPro, isPremium, setIsPremium, isUnlocked, setIsUnlocked, hasPlusAccess, hasProAccess, signOut, avatarOverride, setAvatarOverride, clearAvatarOverride } = useAuth()
+  const { session, isPro, setIsPro, isPremium, setIsPremium, isUnlocked, setIsUnlocked, hasPlusAccess, hasProAccess, signOut, avatarOverride, setAvatarOverride, clearAvatarOverride, loading: authLoading } = useAuth()
   const insets = useSafeAreaInsets()
   const backToMenu = useReturnToMenu()
   // iPad: RC, "there's plenty of room for Account to open fully to the
@@ -273,12 +273,21 @@ export default function AccountScreen() {
       isAcUpdateAlertsEnabled(session.user.id).then(setAlertsEnabled)
       isDailyRegEnabled(session.user.id).then(setDailyRegEnabled)
       isDuelNotificationsEnabled(session.user.id).then(setDuelNotifEnabled)
+    } else if (session?.user?.id && authLoading) {
+      // Signed in, but hasProAccess isn't trustworthy yet -- isPro/isPremium
+      // both start false and only become authoritative once auth's own
+      // `loading` resolves (see context/auth.tsx). Blanking the toggles on
+      // that transient false showed a real Pro/Premium subscriber every
+      // notification switch as OFF, which reads as "my settings were lost"
+      // rather than "still loading." Leave them as-is and let the effect
+      // re-run with the real value; same reasoning as (tabs)/index.tsx's
+      // HobbsHeaderButton refusing to blank its cached fleet.
     } else {
       setAlertsEnabled(false)
       setDailyRegEnabled(false)
       setDuelNotifEnabled(false)
     }
-  }, [session?.user?.id, hasProAccess])
+  }, [session?.user?.id, hasProAccess, authLoading])
 
   // DailyWord is its own effect, keyed on hasPlusAccess rather than folded
   // into the hasProAccess one above -- DailyWord's real content gate is
@@ -290,10 +299,12 @@ export default function AccountScreen() {
   useEffect(() => {
     if (session?.user?.id && hasPlusAccess) {
       isDailyWordEnabled(session.user.id).then(setDailyWordEnabled)
+    } else if (session?.user?.id && authLoading) {
+      // Same transient-false guard as the hasProAccess effect above.
     } else {
       setDailyWordEnabled(false)
     }
-  }, [session?.user?.id, hasPlusAccess])
+  }, [session?.user?.id, hasPlusAccess, authLoading])
 
   // RC: "let's put a small version of the color wheel on the actual
   // Account bar for them. this will let them see at a glance if they have
@@ -302,6 +313,11 @@ export default function AccountScreen() {
   // gate -- Pro's single aircraft doesn't get the "fleet" framing.
   const [fleetStatus, setFleetStatus] = useState<'clear' | 'attention' | 'overdue' | null>(null)
   useEffect(() => {
+    // authLoading: isPremium is false for everyone until auth resolves, so
+    // without this the fleet-status dot was cleared out from under a real
+    // Premium owner on every cold launch before being re-fetched. Leave the
+    // last value alone until the entitlement answer is real.
+    if (session?.user?.id && !isPremium && authLoading) return
     if (!session?.user?.id || !isPremium) { setFleetStatus(null); return }
     let live = true
     getFleetSummary()
@@ -313,7 +329,7 @@ export default function AccountScreen() {
       })
       .catch(() => setFleetStatus(null))
     return () => { live = false }
-  }, [session?.user?.id, isPremium])
+  }, [session?.user?.id, isPremium, authLoading])
 
   // Ratings are visible to anyone (public SELECT policy) but only load/edit
   // them for the signed-in owner here -- not gated on isPro for *reading*
@@ -330,7 +346,15 @@ export default function AccountScreen() {
 
   const handleToggleLeaderboard = async (v: boolean) => {
     if (!session?.user?.id) return
-    if (v && !hasProAccess) { router.push('/paywall?tier=pro'); return }
+    // !authLoading on every tier gate in this file: isPro/isPremium/
+    // isUnlocked all start false and only become authoritative once auth's
+    // own `loading` resolves (cold launch, and the SIGNED_IN event a Face
+    // ID sign-in raises -- see context/auth.tsx). Account is two taps from
+    // Home via the drawer, so a real subscriber genuinely can tap one of
+    // these controls inside that window; doing nothing for that fraction of
+    // a second is far better than bouncing them to a paywall for a tier
+    // they already pay for. Retapping once auth has landed works normally.
+    if (v && !hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
     // Every leaderboard RPC's display name falls back to a generic "Member"
     // when no Callsign is set (see sync/migrations_fix_leaderboard_email_
     // exposure.sql) -- safe, but not personalized. Require a real Callsign
@@ -356,7 +380,7 @@ export default function AccountScreen() {
   const handleToggleRating = async (code: RatingCode) => {
     if (!session?.user?.id) return
     const has = myRatings.includes(code)
-    if (!has && !hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!has && !hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
     setRatingBusy(code)
     try {
       if (has) {
@@ -373,7 +397,7 @@ export default function AccountScreen() {
   }
 
   const handleToggleAlerts = async (v: boolean) => {
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
     if (!session?.user?.id) return
     setAlertsBusy(true)
     try {
@@ -401,7 +425,7 @@ export default function AccountScreen() {
   }
 
   const handleToggleDailyReg = async (v: boolean) => {
-    if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+    if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
     if (!session?.user?.id) return
     setDailyRegBusy(true)
     try {
@@ -435,7 +459,7 @@ export default function AccountScreen() {
     // mistake for a different toggle: copy-pasting handleToggleDailyReg's
     // gate check verbatim silently mis-gated a lower/different-tier
     // feature. Checked, not assumed, before writing this line.
-    if (!hasPlusAccess) { router.push('/paywall?tier=plus'); return }
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     if (!session?.user?.id) return
     setDailyWordBusy(true)
     try {
@@ -468,7 +492,7 @@ export default function AccountScreen() {
     // it and inherited that function's `isPro` check, which let a Pro
     // (non-Premium) account enable alerts for a feature it can't even play.
     // BB-090, real device beta report, 2026-08-08.
-    if (!isPremium) { router.push('/paywall?tier=premium'); return }
+    if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     if (!session?.user?.id) return
     setDuelNotifBusy(true)
     try {
@@ -950,7 +974,7 @@ export default function AccountScreen() {
               // straight into the real screen; Free/Plus go straight to
               // the paywall instead of into a screen that would only
               // block them once they try to add an aircraft.
-              if (!hasProAccess) { router.push('/paywall?tier=pro'); return }
+              if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
               // iPad: open beside Account as a 3rd rail pane instead of
               // pushing full-screen over it. Phone has no rail to extend,
               // so it keeps the original push.

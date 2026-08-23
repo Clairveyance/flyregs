@@ -24,7 +24,7 @@ interface DictTermRow {
 export default function DictionaryLetterScreen() {
   const { letter } = useLocalSearchParams<{ letter: string }>()
   const { tokens } = useTheme()
-  const { hasPlusAccess } = useAuth()
+  const { hasPlusAccess, loading: authLoading } = useAuth()
   const fs = useFS()
   const [terms, setTerms] = useState<DictTermRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -49,6 +49,21 @@ export default function DictionaryLetterScreen() {
 
   // RC, 2026-08-10: "Plus gets the A/D, not the Mnemonics." Same
   // whole-screen lock as dictionary/index.tsx.
+  // Same guard as dictionary/index.tsx -- hasPlusAccess reads false for
+  // everyone until auth's `loading` resolves, and the effect above already
+  // holds `loading` true through that window, so the lock is the only thing
+  // that would have shown.
+  if (!hasPlusAccess && authLoading) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title={`Aviation Dictionary — ${letter}`} onBack={() => router.back()} />
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      </View>
+    )
+  }
+
   if (!hasPlusAccess) {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>

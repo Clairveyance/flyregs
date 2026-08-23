@@ -34,7 +34,7 @@ export const MNEMONIC_UNGROUPED = 'Other'
 // unrelated screens.
 export default function DictionaryIndexScreen() {
   const { tokens } = useTheme()
-  const { hasPlusAccess } = useAuth()
+  const { hasPlusAccess, loading: authLoading } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
   const [counts, setCounts] = useState<Record<string, number>>({})
@@ -114,6 +114,20 @@ export default function DictionaryIndexScreen() {
   // dictionary_terms_gated and search_dictionary both already redact real
   // content server-side regardless of this client gate; this is purely the
   // "don't even show the browse UI" layer.
+  // hasPlusAccess is false for everyone until auth's `loading` resolves (see
+  // context/auth.tsx) -- don't hand a real Plus subscriber the whole-screen
+  // lock while the entitlement fetch is still in flight.
+  if (!hasPlusAccess && authLoading) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="Aviation Dictionary" onBack={() => router.back()} />
+        <View style={styles.center}>
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      </View>
+    )
+  }
+
   if (!hasPlusAccess) {
     return (
       <View style={[styles.root, { backgroundColor: tokens.bg }]}>

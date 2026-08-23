@@ -73,7 +73,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
-  const { hasPlusAccess, hasProAccess, isPremium } = useAuth()
+  const { hasPlusAccess, hasProAccess, isPremium, loading: authLoading } = useAuth()
   // Plus and Pro share the same folder cap (PRO_FOLDER_CAP) -- the
   // "you've hit the cap" messaging below needs the reader's OWN current
   // plan name, not a hardcoded "Pro" that would misname it for a Plus
@@ -148,12 +148,21 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
     // one; a second tap shortly after the first, while that delayed push was
     // still pending, landed mid-close and silently no-op'd (BB-006).
     if (!hasPlusAccess) {
+      // Wait for auth before acting on this backstop. hasPlusAccess is false
+      // for everyone until context/auth.tsx's own `loading` resolves, and
+      // this branch doesn't just render differently -- it CLOSES the sheet
+      // out from under the user and navigates. Firing it on the transient
+      // false meant a real Plus subscriber who opened the folder picker in
+      // the first second after launch had it slammed shut and replaced by a
+      // paywall. Doing nothing here is safe: the effect re-runs the moment
+      // authLoading flips, and takes the correct branch then.
+      if (authLoading) return
       onClose()
       router.push('/paywall?tier=plus')
       return
     }
     load()
-  }, [visible, itemId, hasPlusAccess])
+  }, [visible, itemId, hasPlusAccess, authLoading])
 
   useEffect(() => {
     if (creating) setTimeout(() => inputRef.current?.focus(), 80)
@@ -510,7 +519,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
             <Pressable
               style={[styles.newFolderRow, { borderTopColor: tokens.bdr }]}
               onPress={() => {
-                if (!hasPlusAccess) { handleCancel(); router.push('/paywall?tier=plus'); return }
+                if (!hasPlusAccess) { if (!authLoading) { handleCancel(); router.push('/paywall?tier=plus') } return }
                 setCreating(true)
               }}
             >
