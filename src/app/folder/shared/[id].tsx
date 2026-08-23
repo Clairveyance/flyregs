@@ -230,8 +230,14 @@ export default function SharedFolderDetail() {
 
     const acIds = acItems.map((i) => i.item_id)
     if (acIds.length) {
+      // advisory_circulars_gated, not the raw table -- `authenticated` has
+      // no column-level SELECT grant on changed_block_indices, so this
+      // 403'd every time (acRows always []) and every real shared-folder AC
+      // fell into the resolveMissingAsHighlights fallback below instead of
+      // rendering as a normal AC row. Found live, 2026-08-23 QA sweep; see
+      // series/[prefix].tsx's fix for the full repro.
       const { data: acRows } = await supabase
-        .from('advisory_circulars')
+        .from('advisory_circulars_gated')
         .select('id, document_number, title, cancels, changed_block_indices, date_issued')
         .in('id', acIds)
       const matched = new Set((acRows ?? []).map((r) => r.id))

@@ -474,8 +474,13 @@ export default function HomeScreen() {
           // of paginated selects.
           .select('id', { count: 'exact', head: true })
           .eq('status', 'active'),
+        // advisory_circulars_gated, not the raw table -- `authenticated` has
+        // no column-level SELECT grant on changed_block_indices, so this
+        // query 403'd every time (whatsNew.ts's getWhatsNewItems has the
+        // identical query and the full repro/fix writeup; this is Home's own
+        // inline copy of the same shape). Found live, 2026-08-23 QA sweep.
         supabase
-          .from('advisory_circulars')
+          .from('advisory_circulars_gated')
           .select('id, document_number, title, date_issued, cancels, changed_block_indices')
           .eq('status', 'active')
           .gte('date_issued', cutoff)

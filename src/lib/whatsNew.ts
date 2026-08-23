@@ -31,8 +31,16 @@ export async function getWhatsNewItems(badgeDays: number): Promise<WhatsNewItem[
   const cutoff = cutoffDate.toISOString().split('T')[0]
 
   const [acRes, adRes, loiRes] = await Promise.all([
+    // advisory_circulars_gated, not the raw table -- `authenticated` has no
+    // column-level SELECT grant on advisory_circulars.changed_block_indices
+    // (found live, 2026-08-23 QA sweep: confirmed via direct PostgREST call,
+    // see series/[prefix].tsx's identical fix for the full repro). Since
+    // changed_block_indices is selected here, the whole query 403'd on
+    // every call -- this screen's What's New strip / /updates "New" tab
+    // silently got nothing back (caught by the existing error handling
+    // below, not a crash, but genuinely zero real data every time).
     supabase
-      .from('advisory_circulars')
+      .from('advisory_circulars_gated')
       .select('id, document_number, title, date_issued, changed_block_indices, cancels')
       .eq('status', 'active')
       .gte('date_issued', cutoff)

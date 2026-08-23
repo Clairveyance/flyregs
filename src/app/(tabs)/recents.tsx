@@ -118,8 +118,13 @@ export default function RecentsScreen() {
       groups.flatMap((g) => g.data).filter((r) => recentItemType(r) === 'ac').map((r) => r.id)
     )]
     if (ids.length === 0) { setBadgeDataById({}); return }
+    // advisory_circulars_gated, not the raw table -- `authenticated` has no
+    // column-level SELECT grant on changed_block_indices, so this 403'd
+    // every time and silently produced an empty badge map (no error branch
+    // below). Found live, 2026-08-23 QA sweep; see series/[prefix].tsx's fix
+    // for the full repro.
     supabase
-      .from('advisory_circulars')
+      .from('advisory_circulars_gated')
       .select('id, document_number, cancels, changed_block_indices, date_issued')
       .in('id', ids)
       .then(({ data }) => {

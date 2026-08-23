@@ -84,8 +84,28 @@ export default function SeriesScreen() {
     setLoading(true)
     setLoadError(false)
     Promise.all([
+      // advisory_circulars_gated, not the raw advisory_circulars table --
+      // found live 2026-08-23 QA sweep: `authenticated` has no column-level
+      // SELECT grant on advisory_circulars.changed_block_indices (verified
+      // via a direct PostgREST call: selecting `id,changed_block_indices`
+      // 403s with "permission denied for table advisory_circulars" while
+      // every OTHER column in this same select list -- id/document_number/
+      // title/date_issued/office/cancels/change_number -- individually
+      // succeeds). Since this query selects changed_block_indices (needed
+      // for the UPD/VER/NEW badge -- see acBadge.ts's getBadgeKind), the
+      // one ungranted column poisons the WHOLE select and this screen 403s
+      // on every single load, for every series, for every user, always --
+      // which is exactly the failure shape e8302a5's new loadError/"Couldn't
+      // load this series" state was built to surface distinctly from a
+      // genuinely-empty series, but that fix never addressed why the load
+      // itself was failing. ac/[id].tsx already reads this exact column via
+      // advisory_circulars_gated (see its own load effect's comment) --
+      // that view already works for this exact filter shape (verified live:
+      // same subject_series/status filter, 200 with real changed_block_
+      // indices data), so this switches to the same sanctioned gated read
+      // path instead of the raw table other AC screens correctly avoid.
       supabase
-        .from('advisory_circulars')
+        .from('advisory_circulars_gated')
         .select('id, document_number, title, date_issued, office, cancels, change_number, changed_block_indices')
         .eq('subject_series', prefix)
         .eq('status', 'active'),

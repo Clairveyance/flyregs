@@ -43,8 +43,15 @@ async function _load(): Promise<ACIndexEntry[]> {
     }
   } catch {}
 
+  // advisory_circulars_gated, not the raw table -- `authenticated` has no
+  // column-level SELECT grant on changed_block_indices, so this 403'd every
+  // time (falls into the `error || !data` branch below, returning [] --
+  // the local AC index was silently empty this whole time, degrading every
+  // AC-number search to the full RPC path with no instant local results).
+  // Found live, 2026-08-23 QA sweep; see series/[prefix].tsx's fix for the
+  // full repro.
   const { data, error } = await supabase
-    .from('advisory_circulars')
+    .from('advisory_circulars_gated')
     .select('id, document_number, title, subject_series, date_issued, description, cancels, changed_block_indices')
     .eq('status', 'active')
     .order('document_number')

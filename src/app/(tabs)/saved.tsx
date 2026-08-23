@@ -191,8 +191,14 @@ export default function SavedScreen() {
       bookmarks.filter((b) => bookmarkItemType(b) === 'ac').map((b) => b.acId ?? b.id)
     )]
     if (ids.length === 0) { setBadgeDataById({}); return }
+    // advisory_circulars_gated, not the raw table -- `authenticated` has no
+    // column-level SELECT grant on changed_block_indices, so this whole
+    // query 403'd every time and the .then(({ data }) => ...) below (no
+    // error branch) silently turned that into an empty badge map -- every
+    // saved AC quietly lost its NEW/UPD/VER badge. Found live, 2026-08-23 QA
+    // sweep; see series/[prefix].tsx's fix for the full repro.
     supabase
-      .from('advisory_circulars')
+      .from('advisory_circulars_gated')
       .select('id, document_number, cancels, changed_block_indices, date_issued')
       .in('id', ids)
       .then(({ data }) => {
