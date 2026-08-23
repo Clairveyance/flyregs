@@ -356,8 +356,16 @@ export default function PaywallScreen() {
   // the tier, to tell "already exactly this" apart from "same tier,
   // different period -- a real, purchasable change."
   const [currentPeriod, setCurrentPeriod] = useState<'monthly' | 'annual' | null>(null)
+  // Real renewal date for the deferred-crossgrade messaging below -- RC,
+  // 2026-08-23: confirmed live against Apple/RevenueCat's own documented
+  // behavior that a same-tier monthly<->annual switch is a "crossgrade"
+  // deferred to the CURRENT period's end (different durations never take
+  // effect immediately, unlike a real tier upgrade) -- fair to the
+  // subscriber (no lost paid days, no double charge) but silently wrong to
+  // say nothing about, since the CTA used to read like an instant switch.
+  const [currentExpiration, setCurrentExpiration] = useState<string | null>(null)
   useEffect(() => {
-    getSubscriptionDetails().then((d) => setCurrentPeriod(d.plan))
+    getSubscriptionDetails().then((d) => { setCurrentPeriod(d.plan); setCurrentExpiration(d.expirationDate) })
   }, [])
 
   // isPro/isPremium/isUnlocked load asynchronously in AuthProvider — all still
@@ -385,6 +393,10 @@ export default function PaywallScreen() {
   // other period's product; confirmSubscribe() below doesn't need to know
   // the difference, only the label and confirm-copy do.
   const switchingPeriod = viewingOwnTier && !viewingCurrentPlan
+  // Same format manage-subscription.tsx already uses for this exact date.
+  const switchDateLabel = currentExpiration
+    ? new Date(currentExpiration).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : null
 
   // Pro/Premium always show as marginal additions on top of the tier below --
   // "Everything in Plus, plus:" / "Everything in Plus and Pro, plus:" -- not
@@ -463,6 +475,24 @@ export default function PaywallScreen() {
       })
       return
     }
+    if (switchingPeriod) {
+      // RC, 2026-08-23: confirmed against Apple/RevenueCat's own documented
+      // behavior -- a same-tier monthly<->annual switch is a "crossgrade,"
+      // and because the two periods have different durations it is ALWAYS
+      // deferred to the current period's end, never immediate, regardless
+      // of direction. Said out loud here, with the real date, before the
+      // purchase sheet opens -- not just left to the post-purchase ack
+      // below, since RC wants this known "at the time they make the
+      // change," not only after.
+      const whenLabel = switchDateLabel ? ` on ${switchDateLabel}` : ' at the end of your current billing period'
+      confirm({
+        title: `Switch to ${plan === 'annual' ? 'Annual' : 'Monthly'}?`,
+        message: `You'll keep your current ${currentPeriod ?? 'plan'} billing until it renews${whenLabel} -- no charge today. From then on you'll be billed ${plan === 'annual' ? 'annually' : 'monthly'} at the ${plan === 'annual' ? 'annual' : 'monthly'} rate instead. Your tier and access don't change at all during this.`,
+        confirmLabel: 'Switch',
+        onConfirm: () => confirmSubscribe(),
+      })
+      return
+    }
     await confirmSubscribe()
   }
 
@@ -487,14 +517,27 @@ export default function PaywallScreen() {
       // dismiss here -- someone who just tapped through a destructive,
       // two-step confirm got zero acknowledgment that anything happened,
       // a real "did that work?" moment and a plausible source of a repeat
-      // tap or a support ticket. Doesn't apply to switchingPeriod (that's
-      // typically immediate, and its own confirm-dialog copy already set
-      // the right expectation) or a genuine tier upgrade (state visibly
-      // changes on its own).
+      // tap or a support ticket.
       if (downgradeMode && tier === 'pro') {
         confirm({
           title: 'Downgrade Scheduled',
           message: "You'll keep Premium until your current billing period ends, then move to Pro automatically. You can change your mind any time before then from Manage Subscription.",
+          cancelLabel: null,
+          onConfirm: () => router.dismiss(),
+        })
+        return
+      }
+      // 2026-08-23: switchingPeriod is the SAME deferred-timing shape as
+      // the downgrade above (a real, same-duration-mismatched crossgrade,
+      // confirmed against Apple/RevenueCat's own docs -- never immediate),
+      // so it needs the identical post-purchase acknowledgment, not just
+      // the pre-purchase confirm in handleSubscribe above. tier/plan state
+      // here still reads the OLD period until the real switch lands.
+      if (switchingPeriod) {
+        const whenLabel = switchDateLabel ? ` on ${switchDateLabel}` : ' at the end of your current billing period'
+        confirm({
+          title: 'Switch Scheduled',
+          message: `You'll keep ${currentPeriod ?? 'your current'} billing until it renews${whenLabel}, then switch to ${plan === 'annual' ? 'annual' : 'monthly'} automatically. You can change your mind any time before then from Manage Subscription.`,
           cancelLabel: null,
           onConfirm: () => router.dismiss(),
         })
@@ -745,6 +788,21 @@ export default function PaywallScreen() {
               <Text style={[styles.ctaText, { fontSize: fs(16) }]}>{ctaLabel}</Text>
             )}
           </Pressable>
+        )}
+
+        {/* Deferred-crossgrade note -- RC, 2026-08-23: "we need to make sure
+            this is reported to the end user... at the time they make the
+            change, so they know what to expect." Shown on-screen BEFORE the
+            tap (the confirm dialogs in handleSubscribe/confirmSubscribe say
+            the same thing at the moment of and right after the purchase --
+            this is the version visible the whole time the button is). Real
+            date when known; falls back to generic "your current billing
+            period" wording on the rare render where currentExpiration
+            hasn't loaded yet. */}
+        {switchingPeriod && (
+          <Text style={[styles.switchNote, { color: tokens.t3, fontSize: fs(12.5) }]}>
+            {`Takes effect ${switchDateLabel ? `on ${switchDateLabel}` : 'at the end of your current billing period'} — no charge today, and your plan and access stay exactly the same until then.`}
+          </Text>
         )}
 
         {/* Restore */}
@@ -1065,6 +1123,8 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.6 },
   ctaText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  switchNote: { textAlign: 'center', marginTop: 10, marginHorizontal: 12, lineHeight: 17 },
 
   restoreRow: { alignItems: 'center', paddingVertical: 4 },
   restoreText: { fontSize: 13 },
