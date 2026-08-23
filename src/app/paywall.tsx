@@ -164,7 +164,10 @@ const PLUS_FEATURES = [
   // gated hasPlusAccess at 5+ call sites throughout cfr49/[id].tsx, same
   // tier as AC/AD full text right above -- shipped but never appeared on
   // any tier list on this screen.
-  { icon: 'shield.lefthalf.filled', label: 'Full text of 49 CFR (NTSB, TSA, hazmat)' },
+  // RC, 2026-08-23: dropped "hazmat" from the label -- HMR 175 (carriage by
+  // aircraft) is live, but HMR 172 (the actual Hazmat Table) isn't built
+  // yet, so calling this "hazmat" overpromises what's really here.
+  { icon: 'shield.lefthalf.filled', label: 'Full text of 49 CFR (NTSB, TSA)' },
   // Aviation Dictionary re-gated 2026-08-10 (base content free -> Plus,
   // Mnemonics specifically Plus -> Pro, see dictionary_terms_gated /
   // search_dictionary()) -- this list previously had only the Mnemonics
