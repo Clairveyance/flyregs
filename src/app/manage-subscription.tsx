@@ -62,7 +62,7 @@ export default function ManageSubscriptionScreen() {
       } catch { /* best-effort -- don't block cancellation on this lookup failing */ }
     }
     const aircraftNote = aircraftCount > 0
-      ? ` You currently have ${aircraftCount} saved aircraft${aircraftCount === 1 ? '' : 's'} -- Aircraft Manager isn't part of Plus or Free, so ${aircraftCount === 1 ? 'it' : 'all of them'}, and their equipment/reminders/AD history, will be permanently deleted.`
+      ? ` You currently have ${aircraftCount} saved aircraft -- Aircraft Manager isn't part of Plus or Free, so ${aircraftCount === 1 ? 'it' : 'all of them'}, and their equipment/reminders/AD history, will be permanently deleted.`
       : ''
     // Cancelling drops the subscriber to whatever they separately own
     // (isUnlocked) -- if they never bought Plus on its own, that's a full
