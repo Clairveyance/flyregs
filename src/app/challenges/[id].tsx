@@ -285,6 +285,14 @@ export default function ChallengeGameScreen() {
       markCoinsSeen(r.newCoins).catch(() => {})
     }
     if (r.challengeCompleted && id) sendDuelPush(id, 'completed')
+    // mySetCompleted without challengeCompleted: this user just finished
+    // their own questions but at least one other participant hasn't --
+    // nudge whoever's still playing. If this finish WAS the last one
+    // needed, challengeCompleted is already true and the branch above
+    // covers it -- get_duel_push_target's own targeting for 'answered'
+    // also excludes anyone who's already finished, so there's no double
+    // push either way.
+    else if (r.mySetCompleted && id) sendDuelPush(id, 'answered')
   }
 
   const handleNext = () => {

@@ -126,6 +126,13 @@ export interface AnswerResult {
   othersAnsweredCount: number
   othersTotalCount: number
   challengeCompleted: boolean
+  // True the moment THIS user has answered every question in the duel --
+  // independent of challengeCompleted, which only goes true once EVERY
+  // active participant has. Lets the caller push 'answered' ("your move")
+  // to whoever's still playing without waiting for the whole duel to
+  // finalize -- see sendDuelPush's own header for why this is a separate
+  // event from 'completed', not a duplicate.
+  mySetCompleted: boolean
   newCoins: string[]
 }
 
@@ -318,11 +325,13 @@ export async function submitChallengeAnswer(
     othersAnsweredCount: row.others_answered_count,
     othersTotalCount: row.others_total_count,
     challengeCompleted: row.challenge_completed,
+    mySetCompleted: row.my_set_completed,
     newCoins: row.new_coins ?? [],
   }
 }
 
-// Best-effort push on a Duel event (invite sent / accepted / completed) --
+// Best-effort push on a Duel event (invite sent / accepted / opponent
+// finished their answers / completed) --
 // looks up whether the OTHER participant has opted in via
 // get_duel_push_target() (SECURITY DEFINER, so this works even though
 // push_tokens' own RLS only lets a user read their own row), then hits
@@ -359,7 +368,15 @@ export async function submitChallengeAnswer(
 // awaited beyond what already happens, never surfaced to the user, never
 // changes the fire-and-forget behavior -- just stops the next one from
 // being undiagnosable.
-export async function sendDuelPush(challengeId: string, event: 'invited' | 'accepted' | 'completed'): Promise<void> {
+// 2026-08-23: 'answered' added -- RC flagged a real gap (nothing told a
+// 2-player duel's other participant that their opponent had finished and
+// was waiting) but deliberately NOT per-question (up to 5 pushes/opponent/
+// duel otherwise). Fires exactly once, when a participant finishes their
+// OWN full set of questions (see AnswerResult.mySetCompleted) -- get_duel_
+// push_target's own 'answered' targeting already excludes anyone who's
+// also already finished, so this can't misfire as a "your move" to someone
+// with nothing left to answer.
+export async function sendDuelPush(challengeId: string, event: 'invited' | 'accepted' | 'answered' | 'completed'): Promise<void> {
   try {
     const { data, error } = await supabase.rpc('get_duel_push_target', { p_challenge_id: challengeId, p_event: event })
     if (error) {
