@@ -35,16 +35,28 @@ interface CandidateMatch {
   isFigure?: boolean
 }
 
+// The document currently being rendered -- only needed to disambiguate a
+// BARE "§ N.N" citation (no "FAR"/"14 CFR" prefix), which is real-corpus
+// self-citation shorthand in more than one title (confirmed live,
+// 2026-08-23 QA sweep: cfr49_sections' own body text, e.g. § 1544.101,
+// literally reads "...meets the requirements of § 1544.103...", matching
+// sync/cfr49_citations.py's own extraction regex for that exact bare form).
+// Omitted (or 'far') preserves this file's original behavior everywhere
+// except a 49 CFR document, where a bare "§" now means "this same title,"
+// not FAR -- an explicit "FAR "/"14 CFR " prefix is never ambiguous and
+// always still means FAR regardless of selfType.
+export type SelfType = 'far' | 'cfr49'
+
 interface LinkPattern {
   regex: RegExp
-  buildRoute?: (m: RegExpExecArray) => string
+  buildRoute?: (m: RegExpExecArray, selfType?: SelfType) => string
   isFigure?: boolean
   // For an enumeration match ("§§ 133.19, 133.21, and 133.23") -- returns
   // one candidate per individual citation found inside the whole match,
   // instead of treating the whole span as a single link. Whatever text sits
   // between them (", ", " and ") is left unlinked, same as any other gap.
   // Mutually exclusive with buildRoute (a pattern uses one or the other).
-  buildSubMatches?: (m: RegExpExecArray) => { text: string; offset: number; route: string }[]
+  buildSubMatches?: (m: RegExpExecArray, selfType?: SelfType) => { text: string; offset: number; route: string }[]
 }
 
 // Order doesn't matter for correctness (overlap resolution below sorts by
@@ -90,7 +102,25 @@ const PATTERNS: LinkPattern[] = [
   // 91.181", which this pattern's "FAR " branch never allowed a "Section "
   // word after (only the "14 CFR" branch did) -- confirmed corpus-wide,
   // 15 ACs use this exact phrasing.
-  { regex: /(?:§\s*|\bFAR\s+(?:[Ss]ection\s+)?|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b/g, buildRoute: (m) => `/far/${m[1]}` },
+  {
+    regex: /(?:§\s*|\bFAR\s+(?:[Ss]ection\s+)?|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b/g,
+    // A BARE "§ N.N" (nothing precedes the § in the match itself) is the
+    // only ambiguous case -- "FAR "/"14 CFR " are unambiguous prefixes and
+    // always mean FAR. See this file's SelfType comment for the real
+    // cfr49-body-text repro this fixes (was always routing to a
+    // nonexistent /far/1544.103-style section instead of /cfr49/1544.103).
+    buildRoute: (m, selfType) =>
+      selfType === 'cfr49' && m[0].trimStart().startsWith('§') ? `/cfr49/${m[1]}` : `/far/${m[1]}`,
+  },
+  // 49 CFR section mention ("49 CFR 175.10", "49 CFR part 175.10") --
+  // mirrors sync/ac_citations.py's and sync/aim_far_citations.py's own
+  // CFR49_RE exactly (same server-side extraction that already produces a
+  // real cited_type='cfr49' document_citations row for this text -- 98 real
+  // rows confirmed live, 2026-08-23 QA sweep), but nothing rendered these as
+  // tappable links in body text -- same "extracted but never linkified" gap
+  // this file's own header comment describes for the patterns above, just
+  // never closed for 49 CFR specifically.
+  { regex: /\b49\s*CFR\s*(?:part\s+)?(\d+\.\d+)\b/gi, buildRoute: (m) => `/cfr49/${m[1]}` },
   // FAR section ENUMERATION ("§§ 133.19, 133.21, and 133.23", "§§ 133.41
   // and 133.43", "§§ 91.1 through 91.21") -- confirmed live, RC: "in FAR
   // 133, in the text body, there are 3 other FARs referenced. only the
@@ -118,14 +148,18 @@ const PATTERNS: LinkPattern[] = [
   // section numbers alone (they aren't sequential integers).
   {
     regex: /(?:§§?\s*|\bFAR\s+|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+(?:\([a-zA-Z0-9]+\))?(?:(?:\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or|through)\s+)\d+\.\d+(?:\([a-zA-Z0-9]+\))?)+)/g,
-    buildSubMatches: (m) => {
+    // Same bare-"§§" ambiguity as the single-citation pattern above, same
+    // fix -- see this file's SelfType comment.
+    buildSubMatches: (m, selfType) => {
       const list = m[1]
       const offset = m[0].length - list.length
+      const bareSection = m[0].trimStart().startsWith('§')
+      const prefix = selfType === 'cfr49' && bareSection ? '/cfr49/' : '/far/'
       const subs: { text: string; offset: number; route: string }[] = []
       const numRe = /\d+\.\d+/g
       let sm: RegExpExecArray | null
       while ((sm = numRe.exec(list))) {
-        subs.push({ text: sm[0], offset: offset + sm.index, route: `/far/${sm[0]}` })
+        subs.push({ text: sm[0], offset: offset + sm.index, route: `${prefix}${sm[0]}` })
       }
       return subs
     },
@@ -187,18 +221,18 @@ const PATTERNS: LinkPattern[] = [
   { regex: /\b(?:Table|Figure)\s+\d+[a-zA-Z]?\s+to\s+[Pp]aragraph\s*\([a-zA-Z0-9]+\)/gi, buildRoute: () => 'ad-figure', isFigure: true },
 ]
 
-export function linkifyText(text: string): LinkSegment[] {
+export function linkifyText(text: string, selfType?: SelfType): LinkSegment[] {
   const candidates: CandidateMatch[] = []
   for (const { regex, buildRoute, isFigure, buildSubMatches } of PATTERNS) {
     regex.lastIndex = 0
     let m: RegExpExecArray | null
     while ((m = regex.exec(text))) {
       if (buildSubMatches) {
-        for (const sub of buildSubMatches(m)) {
+        for (const sub of buildSubMatches(m, selfType)) {
           candidates.push({ start: m.index + sub.offset, end: m.index + sub.offset + sub.text.length, text: sub.text, route: sub.route })
         }
       } else {
-        candidates.push({ start: m.index, end: m.index + m[0].length, text: m[0], route: buildRoute!(m), isFigure })
+        candidates.push({ start: m.index, end: m.index + m[0].length, text: m[0], route: buildRoute!(m, selfType), isFigure })
       }
       if (m[0].length === 0) regex.lastIndex++ // guard against a zero-length match looping forever
     }

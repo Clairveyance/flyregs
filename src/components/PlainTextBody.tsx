@@ -4,7 +4,7 @@ import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { normalizeRegBody } from '@/lib/regTextFormat'
 import { useFS } from '@/context/fontScale'
-import { linkifyText } from '@/lib/crossRefLinks'
+import { linkifyText, SelfType } from '@/lib/crossRefLinks'
 import { TableGrid } from '@/components/TableGrid'
 import { softWrapParagraph } from '@/lib/softWrap'
 import { setPendingBreadcrumb } from '@/lib/navBreadcrumb'
@@ -532,6 +532,11 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
    * right before an in-doc hyperlink jumps elsewhere, same mechanism as
    * MagicLinkPod's currentLabel prop. */
   currentLabel?: string
+  /** Which title this body text's own bare "§ N.N" citations belong to --
+   * see crossRefLinks.ts's SelfType comment. Omit for every content type
+   * except cfr49/[id].tsx, which passes 'cfr49' so a 49 CFR section's own
+   * bare-§ self-citations route to /cfr49/N.N instead of /far/N.N. */
+  selfType?: SelfType
   /** IN DOC search -- see InDocSearchBar/useInDocSearch. Mirrors ACBody's
    * own highlightQuery/activeMatch/onMatchCount contract exactly, so every
    * content type's detail screen wires this up the same way. */
@@ -595,7 +600,7 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
    * behavior of simply never surfacing a table nav at all (no screen
    * should do that today, but keeps the prop optional/backward-safe). */
   onActiveTableChange?: (info: { ord: number; total: number; prevIndex: number | null; nextIndex: number | null } | null) => void
-}>(function PlainTextBody({ text, figures, onOpenFigure, resolveFigureGlobally, onNavigate, hasProAccess, currentLabel, highlightQuery, activeMatch, onMatchCount, scrollRef, viewportHeight, changedIndices, mnemonicAnchors, highlightedBlockTexts, onToggleHighlight, pendingBlockText, scrollY, onActiveTableChange }, ref) {
+}>(function PlainTextBody({ text, figures, onOpenFigure, resolveFigureGlobally, onNavigate, hasProAccess, currentLabel, selfType, highlightQuery, activeMatch, onMatchCount, scrollRef, viewportHeight, changedIndices, mnemonicAnchors, highlightedBlockTexts, onToggleHighlight, pendingBlockText, scrollY, onActiveTableChange }, ref) {
   const { tokens, redShift } = useTheme()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web, so every dialog here was invisible in the Browser pane.
@@ -1081,7 +1086,7 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
         // as a whole is still one logical unit for change-tracking (the
         // UPDATED rail below still wraps the group), just not for highlighting.
         const rendered = chunks.map((chunk, ci) => {
-          const segments = linkifyText(chunk)
+          const segments = linkifyText(chunk, selfType)
           const chunkKey = chunk.trim()
           const isHl = !!highlightedBlockTexts?.has(chunkKey)
           // Pending: this exact chunk was just long-pressed and the
