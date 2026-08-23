@@ -23,7 +23,7 @@ export default function JoinFolder() {
   const insets = useSafeAreaInsets()
   const { session, loading, isPremium } = useAuth()
   const { token } = useLocalSearchParams<{ token: string }>()
-  const [state, setState] = useState<'joining' | 'done' | 'error' | 'needs_premium'>('joining')
+  const [state, setState] = useState<'joining' | 'done' | 'error' | 'needs_premium' | 'signed_out'>('joining')
   const [kind, setKind] = useState<'folder' | 'aircraft'>('folder')
   const [folderName, setFolderName] = useState('')
   const [aircraftJoined, setAircraftJoined] = useState<JoinedAircraft | null>(null)
@@ -48,10 +48,22 @@ export default function JoinFolder() {
     if (loading || typeof token !== 'string') return
     if (joinedRef.current === token) return
     if (!session) {
-      // Come back here once signed in.
-      router.replace({ pathname: '/auth' })
+      // Found live, 2026-08-23 QA sweep: this used to be
+      // router.replace({ pathname: '/auth' }), which destroys THIS screen
+      // (and the token it's holding) rather than stacking auth on top of
+      // it -- auth.tsx's own router.dismiss() on a successful sign-in then
+      // reveals whatever's now underneath, which was Home, not this screen,
+      // so the invite silently never got accepted. Rendering a distinct
+      // signed_out state instead (with its own explicit "Sign In" button
+      // that PUSHES auth on top) means this screen survives regardless of
+      // whether the user signs in or cancels out -- no auto-navigation, no
+      // risk of a stuck spinner if they back out of auth without signing
+      // in (they just see this same screen again, not a permanent
+      // "joining" state to a request that never actually started).
+      setState('signed_out')
       return
     }
+    setState('joining')
     joinSharedFolder(token)
       .then((result) => {
         joinedRef.current = token
@@ -117,6 +129,18 @@ export default function JoinFolder() {
         <>
           <ActivityIndicator size="large" color={tokens.blu} />
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(18) }]}>Opening invite…</Text>
+        </>
+      )}
+      {state === 'signed_out' && (
+        <>
+          <Icon name="person.crop.circle" size={fs(44)} color={tokens.blu} />
+          <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Sign in to accept this invite</Text>
+          <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+            You'll need your own FlyRegs account before this invite can be accepted.
+          </Text>
+          <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/auth')}>
+            <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>Sign In</Text>
+          </Pressable>
         </>
       )}
       {state === 'needs_premium' && (
