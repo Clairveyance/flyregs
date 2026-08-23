@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import Reanimated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, useReducedMotion, interpolateColor,
 } from 'react-native-reanimated'
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Modal, KeyboardAvoidingView, Platform } from 'react-native'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Modal, KeyboardAvoidingView, Platform, AppState } from 'react-native'
 import { router, useFocusEffect, useIsFocused } from 'expo-router'
 import { useTheme, type ThemeTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -585,12 +585,17 @@ const PRO_HERO_ECHO1_START = PRO_HERO_BREATHE_END
 const PRO_HERO_ECHO2_START = PRO_HERO_BREATHE_END + 0.08 // trails echo 1 for the ripple feel
 
 function ProHero({
-  aircraft, reminderUrgency, nextDueDays, dueSoonCount, tokens, fs, onPressRing,
+  aircraft, reminderUrgency, nextDueDays, dueSoonCount, overdueCount, tokens, fs, onPressRing,
 }: {
   aircraft: FleetAircraftSummary
   reminderUrgency: 'overdue' | 'soon' | 'clear'
   nextDueDays: number | null
   dueSoonCount: number
+  // Passed in rather than read off `aircraft` directly -- see
+  // overdueByAircraft in MyAircraftBody for why the server's own
+  // out_overdue_reminder_count can't be trusted to agree with the
+  // due-soon/next-due numbers sitting beside it in this same row.
+  overdueCount: number
   tokens: ThemeTokens
   fs: (n: number) => number
   onPressRing: () => void
@@ -700,7 +705,7 @@ function ProHero({
           only now, matching Premium's REMINDERS section content exactly. */}
       <Text style={[styles.legendSectionLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>REMINDERS</Text>
       <View style={styles.statBoxRow}>
-        <StatBox value={aircraft.overdueReminderCount} label="OVERDUE" color={tokens.red} tokens={tokens} fs={fs} />
+        <StatBox value={overdueCount} label="OVERDUE" color={tokens.red} tokens={tokens} fs={fs} />
         <StatBox value={dueSoonCount} label="DUE SOON" color={tokens.amb} tokens={tokens} fs={fs} />
         <StatBox value={nextDueDays !== null ? `${nextDueDays}d` : '—'} label="NEXT DUE" color={tokens.grn} tokens={tokens} fs={fs} />
       </View>
@@ -1048,6 +1053,29 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   // for why this needs to be a real 3-state value, not just the RPC's
   // overdueReminderCount, to catch "due soon" too).
   const [reminderUrgency, setReminderUrgency] = useState<Record<string, 'overdue' | 'soon' | 'clear'>>({})
+  // Per-aircraft overdue-reminder count computed from the SAME local
+  // daysUntil() the row ring, the expand panel, and the detail screen all
+  // use -- deliberately preferred over get_fleet_summary()'s own
+  // out_overdue_reminder_count, which cannot agree with them.
+  //
+  // The RPC's test is `due_date < current_date`, and Supabase's Postgres
+  // runs in UTC (verified live: at 2026-08-23 01:44Z, current_date was
+  // already 2026-08-23 while a US-Pacific user's local date was still
+  // 2026-08-22). So for the whole evening in any behind-UTC timezone, a
+  // reminder due TODAY is `< current_date` server-side and gets counted as
+  // overdue -- while daysUntil() correctly returns 0 and paints it amber
+  // "due soon" everywhere else on the same screen. Ahead-of-UTC timezones
+  // get the mirror image after local midnight: a genuinely overdue reminder
+  // shows red on its row while the OVERDUE stat box still says 0. Either
+  // way the card contradicts the list right under it, which is exactly the
+  // "these things need to be in sync and properly associative" problem RC
+  // already caught once in RowStatusBadge.
+  //
+  // Keyed by aircraftId and consulted through overdueFor() below, which
+  // falls back to the server's number for any aircraft whose reminders
+  // fetch actually failed -- an unreachable network must not silently
+  // report "0 overdue".
+  const [overdueByAircraft, setOverdueByAircraft] = useState<Record<string, number>>({})
   // Fleet-wide count of individual reminders due within 30 days (not yet
   // overdue) -- RC, real device: once the stat-box row became Reminders-
   // only, asked directly what belongs in the middle box between OVERDUE and
@@ -1248,6 +1276,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
       setAircraft([])
       setNextDueDays(null)
       setReminderUrgency({})
+      setOverdueByAircraft({})
       setDueSoonCount(0)
       setExpandedDetails({})
       setExpandedId(null)
@@ -1285,27 +1314,36 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
             .then(([ads, reminders]) => setExpandedDetails((prev) => ({ ...prev, [openId]: { ads, reminders } })))
             .catch(() => {})
         }
-        Promise.all(rows.map((a) => getAircraftReminders(a.aircraftId).catch(() => [] as AircraftReminder[])))
+        // null (not []) on a failed per-aircraft fetch -- an empty list and
+        // an unreachable one produce very different overdue counts, and
+        // conflating them would report a confident "0 overdue" for an
+        // aircraft whose reminders simply didn't load. See overdueFor().
+        Promise.all(rows.map((a) => getAircraftReminders(a.aircraftId).catch(() => null)))
           .then((lists) => {
             let soonest: number | null = null
             let soonCount = 0
             const urgency: Record<string, 'overdue' | 'soon' | 'clear'> = {}
+            const overdue: Record<string, number> = {}
             lists.forEach((list, i) => {
+              if (!list) return
               let worst: 'overdue' | 'soon' | 'clear' = 'clear'
+              let overdueCount = 0
               for (const r of list) {
                 const days = daysUntil(r.dueDate)
                 if (days >= 0 && (soonest === null || days < soonest)) soonest = days
                 if (days >= 0 && days <= 30) soonCount++
-                if (days < 0) worst = 'overdue'
+                if (days < 0) { worst = 'overdue'; overdueCount++ }
                 else if (days <= 30 && worst !== 'overdue') worst = 'soon'
               }
               urgency[rows[i].aircraftId] = worst
+              overdue[rows[i].aircraftId] = overdueCount
             })
             setNextDueDays(soonest)
             setReminderUrgency(urgency)
+            setOverdueByAircraft(overdue)
             setDueSoonCount(soonCount)
           })
-          .catch(() => { setNextDueDays(null); setReminderUrgency({}); setDueSoonCount(0) })
+          .catch(() => { setNextDueDays(null); setReminderUrgency({}); setOverdueByAircraft({}); setDueSoonCount(0) })
       })
       .catch((e) => console.error('Failed to load fleet summary:', e?.message ?? e))
       .finally(() => setLoading(false))
@@ -1320,6 +1358,23 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   // smart - and adjusts live to the number (%) of Compliant, Open, and
   // Overdue items across the fleet."
   useFocusEffect(useCallback(() => { load() }, [load]))
+
+  // ...plus a foreground refresh, which useFocusEffect alone does NOT give:
+  // React Navigation fires focus on screen transitions, never on the app
+  // coming back from the background. This screen deliberately stays mounted
+  // and is one people leave sitting open, so without this every number on
+  // it froze at whatever it was when the phone was locked -- and these are
+  // date-derived numbers, so simply crossing midnight makes "NEXT DUE 1d"
+  // and every green/amber/red reminder color wrong until something else
+  // happens to navigate. my-aircraft/[id].tsx already got exactly this
+  // listener (for collaborator access changes propagating immediately);
+  // the list screen it sits behind never did.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') load()
+    })
+    return () => sub.remove()
+  }, [load])
 
   // See autoExpandedRef's declaration for why this is keyed on "exactly one
   // aircraft" rather than on tier. toggleExpand is deliberately not in the
@@ -1430,7 +1485,13 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   const aircraftCap = aircraftCapForTier(isPro, isPremium)
   const atProCap = aircraft.length >= aircraftCap
   const totalOpenAds = aircraft.reduce((sum, a) => sum + a.openAdCount, 0)
-  const totalOverdue = aircraft.reduce((sum, a) => sum + a.overdueReminderCount, 0)
+  // See overdueByAircraft's own comment: the locally-computed count wins
+  // wherever we actually have one, so every overdue number on this screen
+  // (stat box, Pro hero, urgency sort) is derived from the same daysUntil()
+  // the row rings and the detail screen use. Falls back to the server's
+  // count only for an aircraft whose reminders genuinely failed to load.
+  const overdueFor = (a: FleetAircraftSummary) => overdueByAircraft[a.aircraftId] ?? a.overdueReminderCount
+  const totalOverdue = aircraft.reduce((sum, a) => sum + overdueFor(a), 0)
   // Ring/legend counts USED TO be AIRCRAFT counted in exactly one bucket
   // each (its worst status) -- e.g. an aircraft with both an overdue
   // reminder and an open AD counted once, under Overdue, not both -- so the
@@ -1447,7 +1508,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   // overdue first, then open, then compliant; alphabetical by make/model as
   // the tiebreak within each bucket (get_fleet_summary()'s own default
   // order, preserved via a stable sort rather than re-sorted).
-  const urgency = (a: FleetAircraftSummary) => (a.overdueReminderCount > 0 ? 0 : a.openAdCount > 0 ? 1 : 2)
+  const urgency = (a: FleetAircraftSummary) => (overdueFor(a) > 0 ? 0 : a.openAdCount > 0 ? 1 : 2)
   const sortedAircraft = [...aircraft].sort((a, b) => urgency(a) - urgency(b))
 
   // Destination-level guard, added after a live audit found this screen is
@@ -1624,6 +1685,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                   reminderUrgency={reminderUrgency[aircraft[0].aircraftId] ?? 'clear'}
                   nextDueDays={nextDueDays}
                   dueSoonCount={dueSoonCount}
+                  overdueCount={overdueFor(aircraft[0])}
                   tokens={tokens}
                   fs={fs}
                   onPressRing={() => handleQuickComplied(aircraft[0])}

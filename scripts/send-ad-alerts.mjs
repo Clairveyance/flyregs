@@ -93,7 +93,17 @@ const [{ data: allAircraft, error: acErr }, { data: tokens, error: tokErr }, { d
   sb.from('push_tokens').select('user_id, expo_push_token').eq('enabled', true),
   sb.from('ad_part_mentions').select('ad_number, part_id').in('ad_number', touchedAdNumbers),
   sb.from('user_aircraft_equipment').select('user_aircraft_id, part_id'),
-  sb.from('aircraft_collaborators').select('aircraft_id, user_id').is('left_at', null),
+  // accepted_at NOT NULL as well as left_at NULL -- a pending Callsign
+  // invite is a row on this table too (invite_aircraft_collaborator()
+  // inserts it with accepted_at null and only join_shared_aircraft() stamps
+  // it), so filtering on left_at alone treated INVITED-but-never-joined
+  // people as active team members and pushed them "New AD for your
+  // aircraft" for an aircraft they have no access to and cannot open --
+  // has_aircraft_access() requires accepted_at, so the in-app follow-through
+  // is a dead end for them. Every other reader of this table pairs the two
+  // conditions (has_aircraft_access, get_fleet_summary, get_my_shared_
+  // aircraft, getMyAircraftRole); this was the one place that didn't.
+  sb.from('aircraft_collaborators').select('aircraft_id, user_id').is('left_at', null).not('accepted_at', 'is', null),
   sb.from('user_entitlements').select('user_id, is_premium'),
 ])
 if (acErr) {

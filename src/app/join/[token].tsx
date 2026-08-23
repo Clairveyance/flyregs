@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -29,8 +29,24 @@ export default function JoinFolder() {
   const [aircraftJoined, setAircraftJoined] = useState<JoinedAircraft | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
 
+  // A successful join must never be attempted twice for the same token.
+  // onAuthStateChange fires SIGNED_IN repeatedly for the SAME signed-in user
+  // with a brand-new session object each time (confirmed live 2026-08-18 --
+  // see my-aircraft/index.tsx's load() and AircraftDowngradeGate for the
+  // same root cause), and isPremium can flip false->true a beat later, so
+  // this effect genuinely re-runs after it has already succeeded. The
+  // second run is harmless for a share-LINK token (join_shared_aircraft's
+  // share_code branch upserts) but not for a Callsign invite, which is the
+  // path every push-notification invite uses: that branch deliberately
+  // raises "This invite has already been accepted", which this screen would
+  // then render as a hard error over the success it had just shown.
+  // Deliberately latched on SUCCESS, not on first attempt -- a needs_premium
+  // result must still be able to retry once entitlements actually land.
+  const joinedRef = useRef<string | null>(null)
+
   useEffect(() => {
     if (loading || typeof token !== 'string') return
+    if (joinedRef.current === token) return
     if (!session) {
       // Come back here once signed in.
       router.replace({ pathname: '/auth' })
@@ -38,6 +54,7 @@ export default function JoinFolder() {
     }
     joinSharedFolder(token)
       .then((result) => {
+        joinedRef.current = token
         setKind('folder')
         setFolderName(result.folder_name)
         setState('done')
@@ -75,6 +92,7 @@ export default function JoinFolder() {
         if (!isPremium) { setKind('aircraft'); setState('needs_premium'); return }
         joinSharedAircraft(token)
           .then((result) => {
+            joinedRef.current = token
             setKind('aircraft')
             setAircraftJoined(result)
             setState('done')
@@ -85,7 +103,11 @@ export default function JoinFolder() {
             setState('error')
           })
       })
-  }, [token, session, loading, isPremium])
+    // session?.user?.id, not the raw session object -- same fix, same
+    // reason as my-aircraft/index.tsx's load(): a repeated SIGNED_IN event
+    // for an unchanged user hands back a new object every time, and this
+    // effect only ever uses `session` as a truthy signed-in check.
+  }, [token, session?.user?.id, loading, isPremium])
 
   const aircraftLabel = aircraftJoined ? (aircraftJoined.nickname || `${aircraftJoined.make} ${aircraftJoined.model}`) : ''
 

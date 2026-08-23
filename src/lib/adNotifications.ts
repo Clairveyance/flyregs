@@ -109,3 +109,27 @@ export async function backfillAircraftAds(userAircraftId: string): Promise<numbe
   if (error) throw error
   return (data as number) ?? 0
 }
+
+// backfillAircraftAds above only ever ADDS -- correct for "catch up on
+// history when an aircraft or part is first added", but it meant an
+// aircraft's Applicable ADs list could never recover from a corrected
+// make/model/type_designator. Confirmed live 2026-08-22: a saved Cessna
+// 172S (13 matched ADs) edited into a Piper PA-28-181 kept all 13 Cessna
+// ADs and gained none of the Piper's, and the in-app refresh control only
+// pushed it to 22 -- 13 of which a real PA-28-181 never matches. The type
+// designator is the one field AD applicability is actually keyed on and
+// the one most likely to be corrected after the fact, so the list being
+// append-only made the app's headline promise ("ADs matched to what you
+// actually fly") wrong for anyone who ever fixed a typo.
+//
+// resync clears the open airframe matches and lets the SAME matcher
+// rebuild them from the aircraft's current identity -- see
+// sync/migrations_aircraft_ad_resync.sql for what it deliberately spares
+// (equipment matches, complied records, dismissed false positives) and why
+// read/push state is preserved across the rebuild.
+export async function resyncAircraftAds(userAircraftId: string): Promise<{ removed: number; added: number }> {
+  const { data, error } = await supabase.rpc('resync_aircraft_ad_notifications', { p_user_aircraft_id: userAircraftId })
+  if (error) throw error
+  const row = (data as any[])?.[0]
+  return { removed: row?.out_removed ?? 0, added: row?.out_added ?? 0 }
+}

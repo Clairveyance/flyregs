@@ -181,13 +181,52 @@ export async function updateCollaboratorRole(aircraftId: string, userId: string,
   if (error) throw error
 }
 
+// Deleting the membership row genuinely does revoke access on the spot --
+// has_aircraft_access() goes false immediately, verified live -- but that
+// alone did NOT make the confirm's own promise true. my-aircraft/[id].tsx
+// says, verbatim: "Remove X from this aircraft? They'll need a new invite
+// to get back in." For someone invited by Callsign that holds (their row,
+// and the invite_token on it, is gone). For someone who joined through the
+// aircraft's OPEN share link it did not: user_aircraft.share_code was left
+// live, and join_shared_aircraft()'s share_code branch happily re-inserts
+// the exact collaborator the owner just removed. Confirmed live 2026-08-22:
+// remove -> read access gone -> re-run join_shared_aircraft with the same
+// token -> straight back in, same role.
+//
+// There is no "revoke link" control anywhere in the aircraft UI to fix it
+// by hand either (folders have one -- saved.tsx's "Stop Sharing" ->
+// unshareFolder -- aircraft never got the equivalent), so the owner had no
+// way at all to close this. Retiring the link only when the removed person
+// actually came in through it keeps a Callsign-only revoke from
+// invalidating a link the owner is still circulating; the link is
+// regenerated on the next Share tap either way (getOrCreateShareLink mints
+// a fresh token when share_code is null), so nothing is lost permanently.
 export async function removeCollaborator(aircraftId: string, userId: string): Promise<void> {
+  // Read before the delete -- invite_token is what distinguishes a targeted
+  // Callsign invite from an open-link join, and it disappears with the row.
+  const { data: row } = await supabase
+    .from('aircraft_collaborators')
+    .select('invite_token')
+    .eq('aircraft_id', aircraftId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
   const { error } = await supabase
     .from('aircraft_collaborators')
     .delete()
     .eq('aircraft_id', aircraftId)
     .eq('user_id', userId)
   if (error) throw error
+
+  if (row && !row.invite_token) {
+    const { error: linkErr } = await supabase
+      .from('user_aircraft')
+      .update({ share_code: null, share_code_role: null })
+      .eq('id', aircraftId)
+    // Best-effort: access is already revoked above, this only closes the
+    // re-entry path. Loud rather than silent so a failure is diagnosable.
+    if (linkErr) console.error('Failed to retire the aircraft share link after a removal:', linkErr.message)
+  }
 }
 
 export async function leaveSharedAircraft(aircraftId: string): Promise<void> {

@@ -419,7 +419,21 @@ export function YearPickerModal({
 // The one place aircraft make/model/nickname/year/type get edited -- RC:
 // "the editing takes place once inside the a/c page. Make sure editing IS
 // available inside for all things."
-export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: UserAircraft | null; onClose: () => void; onSaved: () => void }) {
+export function EditAircraftModal({ aircraft, onClose, onSaved }: {
+  aircraft: UserAircraft | null
+  onClose: () => void
+  /**
+   * `identityChanged` is true when make, model or type_designator actually
+   * moved -- i.e. when the aircraft's AD applicability changed. Those three
+   * fields are the ENTIRE input to backfill_aircraft_ad_notifications()'s
+   * match, so an edit that touches any of them invalidates the Applicable
+   * ADs list, and one that only renames a nickname or fixes a year does
+   * not. The caller uses this to decide whether to re-derive the AD list
+   * (see my-aircraft/[id].tsx) rather than re-running a full AD resync on
+   * every trivial edit.
+   */
+  onSaved: (identityChanged: boolean) => void
+}) {
   const { tokens } = useTheme()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
   // Native Web, so every dialog here was invisible in the Browser pane.
@@ -495,7 +509,11 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: { aircraft: Us
       confirm({ title: 'Could not save changes', message: error.message, cancelLabel: null })
       return
     }
-    onSaved()
+    onSaved(
+      trimmedMake !== aircraft.make
+      || trimmedModel !== aircraft.model
+      || trimmedType !== (aircraft.type_designator ?? ''),
+    )
   }
 
   return (

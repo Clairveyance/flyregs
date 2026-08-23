@@ -382,9 +382,42 @@ export async function updateAircraftEquipmentTracking(id: string, tracking: Part
   if (error) throw error
 }
 
+// Deleting the tag alone was never enough. Every AD that mentions a tagged
+// part also has its own user_ad_notifications row (matched_via =
+// 'equipment', written by backfill_aircraft_ad_notifications() /
+// send-ad-alerts.mjs), and nothing removed those when the tag went away --
+// so the remove-equipment confirm's own promise ("AD alerts matched only by
+// this equipment will stop appearing") was simply false, and a mistagged
+// part left its ADs permanently inflating the aircraft's open-AD count on
+// both the Fleet list and the detail screen. Confirmed live 2026-08-22: tag
+// a part, backfill, delete the tag -> all 4 equipment-matched rows still
+// present. prune_orphaned_equipment_ad_notifications() (see
+// sync/migrations_fleet_sweep_2026_08_22.sql) removes exactly the rows no
+// remaining tag can still justify -- never airframe matches, never a
+// complied compliance record, never an already-dismissed row.
+//
+// Runs AFTER the delete, and reads the row's aircraft id BEFORE it, since
+// the prune's own "is any still-tagged part responsible for this AD?" test
+// has to see the post-delete tag set. Ordering also matters at the one call
+// site that swaps a part (PartPickerModal's editing branch adds the new tag
+// before removing the old one), so an AD shared by both parts is correctly
+// kept rather than pruned and re-added.
 export async function removeAircraftEquipment(id: string): Promise<void> {
+  const { data: row, error: readErr } = await supabase
+    .from('user_aircraft_equipment')
+    .select('user_aircraft_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (readErr) throw readErr
   const { error } = await supabase.from('user_aircraft_equipment').delete().eq('id', id)
   if (error) throw error
+  if (!row?.user_aircraft_id) return
+  const { error: pruneErr } = await supabase.rpc('prune_orphaned_equipment_ad_notifications', {
+    p_user_aircraft_id: row.user_aircraft_id,
+  })
+  // Best-effort, but not silent: the tag itself is already gone either way,
+  // this only affects whether its stale AD rows got cleaned up with it.
+  if (pruneErr) console.error('Failed to prune orphaned equipment AD matches:', pruneErr.message)
 }
 
 // ─── Maintenance reminders ──────────────────────────────────────────────────
@@ -459,6 +492,20 @@ export async function removeAircraftReminder(id: string): Promise<void> {
   if (error) throw error
 }
 
+// NOTE on notified_at: this deliberately does NOT send it. Rolling a
+// recurring reminder's due date forward is the only "I did this, schedule
+// the next one" action the app offers (there is no complete/reset button --
+// the form's own field is literally labelled "LENGTH (RECURS EVERY)"), and
+// send-reminder-alerts.mjs pushes once per row, tracked by notified_at. So
+// an edited-forward reminder used to keep its old notified_at stamp and
+// never push again for the life of the row -- confirmed live 2026-08-22.
+// Fixed in the DB instead of here (trg_rearm_reminder_on_due_date_change,
+// sync/migrations_fleet_sweep_2026_08_22.sql): the rule belongs to the row,
+// not to this one form -- an editor collaborator writes the same table, and
+// a trigger can't be forgotten by a future call site the way an extra
+// argument here could. It fires only when due_date actually changes, so
+// editing a title/notes/interval on an already-pushed reminder still
+// doesn't re-notify.
 export async function updateAircraftReminder(
   id: string,
   title: string,

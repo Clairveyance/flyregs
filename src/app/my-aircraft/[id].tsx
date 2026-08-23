@@ -23,7 +23,7 @@ import {
 } from '@/lib/adParts'
 import {
   getAircraftAdNotifications, markAdNotificationRead, dismissAdNotification, backfillAircraftAds,
-  markAdComplied, unmarkAdComplied, type AircraftAdNotification,
+  resyncAircraftAds, markAdComplied, unmarkAdComplied, type AircraftAdNotification,
 } from '@/lib/adNotifications'
 import {
   getMyAircraftRole, getAircraftCollaborators, removeCollaborator, leaveSharedAircraft,
@@ -254,6 +254,18 @@ export default function AircraftDetailScreen() {
       if (resolvedRole === 'owner') {
         getAircraftCollaborators(id).then(setCollaborators).catch(() => setCollaborators([]))
       }
+    }).catch((e) => {
+      // Promise.all rejects as a whole, and three of its five legs throw on
+      // error (getAircraftAdNotifications / getAircraftEquipment /
+      // getAircraftReminders all `throw error`). With no catch here, a
+      // single transient network blip meant setLoading(false) never ran and
+      // this screen sat on its spinner forever -- and the AppState 'active'
+      // listener below would just set loading true again on every
+      // foreground, so backgrounding and returning couldn't clear it either.
+      // Falling through to the "Aircraft not found" state is recoverable
+      // (Back, then re-open) instead of a dead screen.
+      console.error('Failed to load aircraft detail:', e?.message ?? e)
+      setLoading(false)
     })
   }, [id])
 
@@ -460,16 +472,26 @@ export default function AircraftDetailScreen() {
     router.push(`/ad/${n.adNumber}` as any)
   }
 
+  // resync, not backfill: backfill is INSERT-only, so this control could
+  // only ever grow the list -- an aircraft whose make/model/type was
+  // corrected kept every AD matched under its OLD identity forever, with
+  // no way to clear them but dismissing each one by hand (confirmed live,
+  // see resyncAircraftAds' own comment). Now it re-derives the airframe
+  // matches from what the aircraft actually is, which is what "recheck"
+  // always looked like it did.
   const handleBackfillAds = async () => {
     if (!aircraft) return
     setBackfilling(true)
     try {
-      const count = await backfillAircraftAds(aircraft.id)
+      const { removed, added } = await resyncAircraftAds(aircraft.id)
       const ads = await getAircraftAdNotifications(aircraft.id)
       setAdNotifications(ads)
+      const parts: string[] = []
+      if (added > 0) parts.push(`Found ${added} more Airworthiness Directive${added === 1 ? '' : 's'}.`)
+      if (removed > 0) parts.push(`Removed ${removed} that no longer match this aircraft.`)
       confirm({
-        title: count > 0 ? 'Applicable ADs updated' : 'Up to date',
-        message: count > 0 ? `Found ${count} more Airworthiness Directive${count === 1 ? '' : 's'}.` : 'No additional applicable ADs found.',
+        title: parts.length > 0 ? 'Applicable ADs updated' : 'Up to date',
+        message: parts.length > 0 ? parts.join(' ') : 'No changes — this list already matches your aircraft.',
         cancelLabel: null,
       })
     } catch (e: any) {
@@ -1249,7 +1271,22 @@ export default function AircraftDetailScreen() {
       <EditAircraftModal
         aircraft={editingAircraft}
         onClose={() => setEditingAircraft(null)}
-        onSaved={() => { setEditingAircraft(null); load() }}
+        // A make/model/type_designator edit changes what this aircraft
+        // actually IS, and those three fields are the whole input to the AD
+        // match -- so the Applicable ADs list underneath is now describing a
+        // different aircraft until it's re-derived. Nothing did that before:
+        // a saved 172S corrected to a PA-28-181 kept all 13 of its Cessna
+        // ADs and showed none of the Piper's, confirmed live. Fires only on
+        // a real identity change (see EditAircraftModal's own prop doc), so
+        // renaming a nickname or fixing a year still costs nothing.
+        onSaved={(identityChanged) => {
+          setEditingAircraft(null)
+          if (!identityChanged) { load(); return }
+          setBackfilling(true)
+          resyncAircraftAds(aircraft.id)
+            .catch((e) => { console.error('AD resync after aircraft edit failed:', e?.message ?? e) })
+            .finally(() => { setBackfilling(false); load() })
+        }}
       />
       <HobbsUpdateModal
         visible={hobbsModalVisible}
