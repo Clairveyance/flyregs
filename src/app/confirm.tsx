@@ -53,7 +53,14 @@ export default function ConfirmScreen() {
       }
       markJustConfirmed()
       setState('signedIn')
-      setTimeout(() => router.replace('/'), 900)
+      // dismissTo (not replace) -- if the "Check Your Email" modal (auth.tsx,
+      // presentation: 'modal') is still presented from before the app was
+      // backgrounded to tap the email link, replace() only swaps the screen
+      // underneath it, leaving that modal on top and requiring the user to
+      // manually close it to reach the Home screen it's now hiding.
+      // dismissTo collapses any presented modal/pushed screens on the way to
+      // the target, landing directly on Home either way.
+      setTimeout(() => router.dismissTo('/'), 900)
     })
   }, [access_token, refresh_token, incomingUrl])
 
@@ -81,7 +88,7 @@ export default function ConfirmScreen() {
       <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
         Your email is verified. Sign in to start using FlyRegs.
       </Text>
-      <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.replace('/auth')}>
+      <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.dismissTo('/auth')}>
         <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>Sign In</Text>
       </Pressable>
     </View>
