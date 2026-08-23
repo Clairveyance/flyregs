@@ -89,6 +89,12 @@ SOURCES = {
     "loi": ("legal_interpretations", "slug", ["body_text"], "title"),
     "ac": ("advisory_circulars", "document_number", ["pdf_text"], "title"),
     "ad": ("airworthiness_directives", "ad_number", ["body_text"], "subject_heading"),
+    # cfr49_sections was never added here -- confirmed live 2026-08-23
+    # (scraper-automation audit): 49 CFR has had zero rows in content_chunks
+    # since its sync went live, so semantic search has never covered it at
+    # all despite the content being fully scraped and readable in the app.
+    # Same shape as far_sections (single-chunk, small rows).
+    "cfr49": ("cfr49_sections", "section_number", ["body_text"], "title"),
     # Mnemonics don't have a flat text column to embed -- `senses` is a
     # structured breakdown (letter/concept/detail per row). Rendered to
     # natural language below (render_mnemonic_text) instead of a straight

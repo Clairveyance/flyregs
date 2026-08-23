@@ -1,0 +1,69 @@
+name: Weekly Embeddings Refresh
+
+# Runs build_embeddings.py to keep semantic search (content_chunks,
+# hybrid_search) current. Confirmed a real gap 2026-08-23 (scraper-
+# automation audit RC asked for): embeddings were built once 2026-07-30
+# and never refreshed since, despite AC/AD/P-CG all having confirmed real
+# weekly content changes in the meantime, and 49 CFR had zero embeddings
+# ever (it was missing from build_embeddings.py's own SOURCES entirely --
+# fixed the same day). Nothing else scheduled would have caught this --
+# a stale/missing embedding produces no error, just quietly worse search.
+#
+# Scheduled at 17:30 UTC Monday -- after all seven content syncs have
+# landed for the week (last one, 49 CFR, runs 16:00 UTC) and around the
+# Master Audit (17:00 UTC), so this always picks up the week's real
+# content changes across every type in one pass.
+#
+# Cost: real, not free, but genuinely small -- OpenAI text-embedding-3-
+# small at $0.02/1M tokens, and build_embeddings.py only ever re-embeds
+# rows whose text content-hash changed since last time, so a normal
+# weekly run (as opposed to the first full-corpus catch-up) touches a
+# small fraction of the corpus. Real numbers from the 2026-08-23 catch-up
+# run are in PROJECT_NOTES/flyregs_pending.md.
+#
+# Alerting: build_embeddings.py doesn't use `set -euo pipefail` internally
+# the way the scraper wrapper scripts do, but a real API/DB failure still
+# raises and exits non-zero -- check via
+# `gh run list --workflow=weekly-embeddings-refresh.yml` any time.
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '30 17 * * 1'
+  workflow_dispatch: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install -r sync/requirements.txt
+
+      - name: Write env files from secrets
+        run: |
+          cat > .env.scraper <<EOF
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          EOF
+          cat > .env.embeddings <<EOF
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          EOF
+
+      - name: Refresh embeddings (all content types)
+        run: python3 sync/build_embeddings.py --types far aim pcg loi ac ad cfr49 mnemonic
+
+      - name: Clean up secrets files
+        if: always()
+        run: rm -f .env.scraper .env.embeddings

@@ -36,24 +36,33 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r sync/requirements.txt
 
+      - name: Install headless Chromium (for DRS session auto-refresh)
+        run: python -m playwright install --with-deps chromium
+
       - name: Write .env.scraper from secrets
         run: |
           cat > .env.scraper <<EOF
           SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
-          DRS_JWT=${{ secrets.DRS_JWT }}
-          DRS_USER=${{ secrets.DRS_USER }}
           EOF
-          # DRS_JWT/DRS_USER were missing here entirely -- confirmed live
-          # 2026-08-23 (manually dispatched to verify this workflow ahead
-          # of its first real Monday cron): loi_scraper.py silently no-op'd
-          # for lack of them (see that script's own fix for why it used to
-          # exit 0 instead of failing), so this job reported "success"
-          # while writing nothing new. This alone isn't sufficient -- the
-          # DRS_JWT/DRS_USER repository secrets themselves still need to
-          # exist and hold RC's own captured DRS session (see loi_scraper.py's
-          # header for how to capture one; it's a personal, expiring token,
-          # not something this workflow can generate on its own).
+
+      - name: Refresh DRS session (auto -- no manual capture needed)
+        run: |
+          set -a; source .env.scraper; set +a
+          python3 sync/refresh_drs_jwt.py --env-file .env.scraper
+          # DRS's guest JWT lives ~12 hours, so a secret-based DRS_JWT
+          # always eventually goes stale between Monday runs -- confirmed
+          # live 2026-08-23, and RC (rightly) called manual weekly
+          # re-capture "unacceptable" for an automated pipeline. This
+          # mints a fresh one every run instead: refresh_drs_jwt.py drives
+          # headless Chromium through the same page load a real browser
+          # does (DRS sits behind Akamai bot detection, which a plain HTTP
+          # client can't pass -- confirmed live that bare `requests` calls
+          # to the same endpoints still 403 regardless of which one), reads
+          # the jwt/user cookies DRS issues automatically on that load, and
+          # writes them into .env.scraper. Fails the job loudly (non-zero
+          # exit) if DRS doesn't issue them, rather than proceeding on a
+          # stale/missing token.
 
       - name: Run LOI sync
         run: |
