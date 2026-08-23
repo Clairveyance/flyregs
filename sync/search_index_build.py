@@ -106,6 +106,12 @@ SOURCES = [
     ("advisory_circulars", ["title", "description"]),
     ("airworthiness_directives", ["subject_heading", "unsafe_condition"]),
     ("legal_interpretations", ["title", "summary"]),
+    # Added 2026-08-23 (scraper-automation audit) -- cfr49_sections existed
+    # and was searchable/readable in the app well before this list was
+    # touched, but was never added here, so none of its content could ever
+    # feed SmartSearch vocabulary/concept-anchor suggestions, silently, with
+    # no error to reveal the gap.
+    ("cfr49_sections", ["title", "body_text"]),
 ]
 
 

@@ -353,9 +353,15 @@ def run_full(session: requests.Session):
     run_record.update({
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "status": "success" if errors == 0 else "partial",
-        "far_parts_total": len(TARGET_PARTS),
-        "far_sections_total": total_sections,
-        "far_errors": errors,
+        # Was far_parts_total/far_sections_total/far_errors -- piggybacked
+        # on FAR's own columns since cfr49 never had any of its own, making
+        # a real CFR49 run indistinguishable from a real FAR run by column
+        # alone. Dedicated columns added
+        # (sync/migrations_scraper_runs_loi_cfr49_columns.sql), found in the
+        # 2026-08-23 scraper-automation audit.
+        "cfr49_total": len(TARGET_PARTS),
+        "cfr49_added": total_sections,
+        "cfr49_errors": errors,
         "error_details": error_details,
     })
     log_scraper_run(run_record)

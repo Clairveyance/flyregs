@@ -70,7 +70,7 @@ import os
 import re
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import fitz  # PyMuPDF
 import requests
@@ -430,6 +430,29 @@ def write_citations(loi_id: str, slug: str, citations: list[dict]) -> None:
     )
 
 
+def log_scraper_run(run: dict) -> None:
+    # Never existed before -- confirmed in the 2026-08-23 scraper-automation
+    # audit: this scraper had zero scraper_runs columns of its own (unlike
+    # far/aim/pcg/ad, each with a dedicated column set) and never logged a
+    # run at all, so even a real, successful weekly sync left no queryable
+    # trail. See sync/migrations_scraper_runs_loi_cfr49_columns.sql for the
+    # new loi_* columns this writes into.
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return
+    try:
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/scraper_runs",
+            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
+                     "Content-Type": "application/json", "Prefer": "return=minimal"},
+            json=run,
+            timeout=10,
+        )
+        if not r.ok:
+            log.error(f"log_scraper_run: insert failed ({r.status_code}): {r.text[:500]}")
+    except Exception as e:
+        log.error(f"log_scraper_run: insert raised: {e}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["test", "full"], default="test")
@@ -438,14 +461,29 @@ def main():
 
     if not DRS_JWT:
         log.error("DRS_JWT must be set (see this file's header comment for how to capture one).")
-        return
+        # Was a bare `return` -- confirmed live 2026-08-23, the first-ever
+        # scheduled run of this script (weekly-loi-sync.yml, manually
+        # dispatched to verify it before its real Monday cron): the DRS_JWT
+        # repo secret was never actually set, this branch fired, and the
+        # script exited 0 having done NOTHING -- which `sync_loi.sh`'s
+        # `set -euo pipefail` cannot catch (bash only sees a clean exit),
+        # so steps 2-4 ran against stale data and the whole workflow
+        # reported "success". A missing required credential must fail
+        # loudly, not silently no-op.
+        sys.exit(1)
     if args.mode == "full" and (not SUPABASE_URL or not SUPABASE_KEY):
         log.error("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set for full mode.")
-        return
+        sys.exit(1)
 
     known_far_sections = fetch_known_far_sections() if SUPABASE_URL and SUPABASE_KEY else None
     if known_far_sections:
         log.info(f"Loaded {len(known_far_sections)} known FAR sections for citation validation.")
+
+    run_record = {
+        "mode": args.mode,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "status": "running",
+    }
 
     try:
         count = 0
@@ -478,8 +516,29 @@ def main():
             time.sleep(0.2)
 
         log.info(f"\nDone. {ok} processed, {errors} error(s), mode={args.mode}.")
+        if args.mode == "full":
+            run_record.update({
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "status": "success" if errors == 0 else "partial",
+                "loi_total": count,
+                "loi_added": ok,
+                "loi_errors": errors,
+            })
+            log_scraper_run(run_record)
     except DrsAuthExpired as e:
         log.error(f"\n{e}")
+        # This is the one failure mode a silent scraper_runs gap would hide
+        # completely -- a real, known-recurring blocker (RC's own captured
+        # DRS_JWT expires) where the scheduled workflow would otherwise just
+        # go quiet with zero trail of WHY. Log it as a failed run before
+        # exiting so the audit trail shows an attempt was made, not nothing.
+        if args.mode == "full":
+            run_record.update({
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "status": "failed",
+                "error_details": {"error": str(e)},
+            })
+            log_scraper_run(run_record)
         sys.exit(1)
 
 
