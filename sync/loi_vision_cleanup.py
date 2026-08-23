@@ -284,7 +284,18 @@ def main():
             errors += 1
             continue
         try:
-            pdf_resp = requests.get(pdf_url, timeout=30)
+            # pdf_url_cached still holds the OLD /object/public/... path from
+            # before the storage-bucket lockdown (4 buckets flipped to
+            # private + signed URLs, see memory/gotcha_storage_buckets_
+            # gated -- confirmed live 2026-08-23: a bare GET on the stored
+            # URL now 400s). The bucket name and slug are still right, so
+            # swap in the authenticated /object/{bucket}/... path (service
+            # key bypasses storage RLS) rather than re-deriving a signed URL.
+            auth_pdf_url = pdf_url.replace("/storage/v1/object/public/", "/storage/v1/object/")
+            pdf_resp = requests.get(
+                auth_pdf_url, timeout=30,
+                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+            )
             pdf_resp.raise_for_status()
             pdf_bytes = pdf_resp.content
             page_count = fitz.open(stream=pdf_bytes, filetype="pdf").page_count

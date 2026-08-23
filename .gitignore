@@ -139,3 +139,10 @@ scripts/.date_trivia_id_map.json
 # regenerates these on each run
 scripts/.knowledge_level_batch_state*.json
 scripts/.knowledge_level_id_map*.json
+
+# LOI mild/moderate-tier text-only OCR cleanup (Anthropic Batches API) —
+# same resumable checkpoint-state pattern; loi_text_cleanup.py regenerates
+# these on each run
+scripts/.loi_text_cleanup_batch_state.json
+scripts/.loi_text_cleanup_id_map.json
+scripts/.loi_text_cleanup_sources_snapshot.json
