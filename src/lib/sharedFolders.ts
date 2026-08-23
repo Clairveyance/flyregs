@@ -704,8 +704,15 @@ export async function updateSharedNote(noteId: string, updates: { title?: string
 // sync/migrations_shared_folder_highlights.sql.
 export async function resolveMissingAsHighlights(itemType: FolderItemType, missedIds: string[], savedAtFor: (id: string) => string): Promise<BookmarkAC[]> {
   if (!missedIds.length) return []
+  // synced_bookmarks_gated, not the raw table -- same reasoning as
+  // sync.ts's mergeBookmarks (see sync/migrations_fix_synced_bookmarks_
+  // highlight_gate_leak.sql). A no-op in practice for a real collaborator
+  // here specifically (has_folder_access()'s RLS already requires them to
+  // currently hold Premium, which implies every other tier's access too),
+  // but the raw table shouldn't be read for gated body text from a second
+  // place that has to independently stay correct if that RLS ever changes.
   const { data: hlRows } = await supabase
-    .from('synced_bookmarks')
+    .from('synced_bookmarks_gated')
     .select('id, ac_id, block_kind, block_label, block_snippet, block_text')
     .eq('item_type', itemType)
     .in('id', missedIds)

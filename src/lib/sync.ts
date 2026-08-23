@@ -92,8 +92,17 @@ export async function pullAndMergeAll(userId: string): Promise<void> {
 }
 
 async function mergeBookmarks(userId: string) {
+  // synced_bookmarks_gated, not the raw table -- a highlight's block_text/
+  // block_snippet is a verbatim copy of real Plus/Pro-gated body text (see
+  // sync/migrations_fix_synced_bookmarks_highlight_gate_leak.sql), and this
+  // pull runs on every "Back up & sync" enable/app-launch/reinstall
+  // regardless of the CURRENT tier -- reading the raw table here would
+  // silently resurrect a downgraded user's old highlights, full gated text
+  // and all, straight into local storage. The view redacts those two
+  // columns to null when the current session's tier no longer qualifies;
+  // every other column (plain bookmark metadata) is unaffected.
   const [{ data: remote }, local] = await Promise.all([
-    supabase.from('synced_bookmarks').select('*').eq('user_id', userId),
+    supabase.from('synced_bookmarks_gated').select('*').eq('user_id', userId),
     getBookmarks(),
   ])
   const localById = new Map(local.map((b) => [b.id, b]))
