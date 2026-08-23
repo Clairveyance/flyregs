@@ -281,7 +281,16 @@ export default function DictionaryTermScreen() {
 
   const handleToggleBookmark = async () => {
     if (!entry || !slug) return
-    if (!hasPlusAccess) { router.push('/paywall' as any); return }
+    // Explicit ?tier=plus -- every other paywall call site in the app passes
+    // its required tier (see e.g. loi/[slug].tsx's own handlers); these 3
+    // Dictionary action handlers (bookmark/folder/share) were the one gap,
+    // found in the 2026-08-22/23 night-rules search/MagicLink sweep. Not
+    // currently visibly wrong (paywall.tsx's own defaultTier still resolves
+    // to 'plus' for a hasPlusAccess=false caller even with no param, since
+    // 'plus' is availableTiers[0] in that case) -- fixed anyway per the
+    // sitewide convention and as defense-in-depth against paywall.tsx's
+    // default-tier logic ever changing.
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus' as any); return }
     setBookmarked((prev) => !prev) // optimistic
     const next = await toggleBookmark({
       id: slug,
@@ -297,7 +306,7 @@ export default function DictionaryTermScreen() {
 
   const handleOpenFolderPicker = () => {
     if (!entry) return
-    if (!hasPlusAccess) { router.push('/paywall' as any); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus' as any); return }
     setFolderPickerVisible(true)
   }
 
@@ -309,7 +318,7 @@ export default function DictionaryTermScreen() {
   // loi/[slug].tsx's identical handler); flyregs.com/reg/ now accepts
   // type=dictionary, so the recipient actually lands in the app.
   const handleShare = async () => {
-    if (!hasPlusAccess) { router.push('/paywall' as any); return }
+    if (!hasPlusAccess) { router.push('/paywall?tier=plus' as any); return }
     if (!entry || typeof slug !== 'string') return
     try {
       await Share.share({

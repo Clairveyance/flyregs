@@ -175,8 +175,7 @@ def category_counts():
       -- branch exactly (migrations_dictionary_quiz_integration.sql) --
       -- category='handbook'/'mnemonic' only (not every dictionary_terms
       -- row -- 'informal'/other categories aren't in the study pool at
-      -- all), a real first-sense definition required, classified by
-      -- category_classes_from_text(term) same as P/CG. Added 2026-08-22:
+      -- all), a real first-sense definition required. Added 2026-08-22:
       -- this branch was missing entirely, which silently folded every
       -- category-tagged dictionary item (HELI/GLIDER/BALLOON/etc mnemonics
       -- and terms) into "neutral" below, producing a uniform false FAIL on
@@ -184,7 +183,28 @@ def category_counts():
       -- Study Mode (fcbfb28) -- same failure shape this file's own FAR/AIM/
       -- AC comments already describe for the wrong-classifier-function
       -- version of this bug, just via an entirely missing source instead.
-      select category_classes_from_text(d.term) from dictionary_terms d
+      --
+      -- Classifier swapped 2026-08-22, same day, second fix: RC caught
+      -- COMBATS/SMACFUM/PAST (the 3 multi-engine-only Vmc mnemonics, per
+      -- 14 CFR 23.149/25.149) leaking into every single-engine/rotorcraft/
+      -- LTA category filter -- category_classes_from_text(term) only
+      -- matches formal phrases like "multi-engine land/sea" against the
+      -- bare mnemonic NAME ("COMBATS" never contains that phrase), so it
+      -- always came back NULL == "applies to everyone." The live fix
+      -- (migrations_fix_mnemonic_category_leak.sql) added
+      -- dictionary_category_classes(slug), which checks the curated
+      -- mnemonic_group column first and falls back to
+      -- category_classes_from_text(term) for the other 49 mnemonics +
+      -- all handbook terms. This independent check must call the SAME
+      -- function get_study_pool_count actually uses now, or it grades the
+      -- fixed RPC against the pre-fix classification and produces a false
+      -- FAIL on exactly the 8 categories the real fix correctly excludes
+      -- these 3 items from (found live, 2026-08-22: ASEL/ASES/HELI/GYRO/
+      -- GLIDER/AIRSHIP/BALLOON/POWLIFT all short by exactly 3; AMEL/AMES
+      -- passed by coincidence since the old "neutral" miscount and the
+      -- new "AMEL/AMES-specific" reality both count these 3 items under
+      -- an AMEL/AMES filter, just for different reasons).
+      select dictionary_category_classes(d.slug) from dictionary_terms d
         where d.category in ('handbook', 'mnemonic')
           and d.senses->0->>'definition' is not null and d.senses->0->>'definition' <> ''
     )
