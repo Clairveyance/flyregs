@@ -74,7 +74,18 @@ export default function ResetPasswordScreen() {
       return
     }
     setState('done')
-    setTimeout(() => router.replace('/'), 1200)
+    // dismissTo (not replace) -- same fix as confirm.tsx: this screen is
+    // reached via the flyregs://reset-password Universal Link, and the
+    // "forgot password" flow that sends that email starts from INSIDE the
+    // auth.tsx modal (mode 'forgot' -> 'forgot-sent', itself titled "Check
+    // Your Email"). If the app was backgrounded with that modal still
+    // presented while the user went to tap the email link, replace() here
+    // only swaps this screen for '/', leaving the still-presented auth
+    // modal stacked on top of Home -- reachable but hidden until manually
+    // dismissed, exactly the bug fixed in confirm.tsx (fdd741c). dismissTo
+    // collapses any presented modal/pushed screens on the way to '/',
+    // landing directly on Home either way.
+    setTimeout(() => router.dismissTo('/'), 1200)
   }
 
   if (state === 'working') {
@@ -93,7 +104,10 @@ export default function ResetPasswordScreen() {
         <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
           This reset link is invalid or has expired. Request a new one from the sign-in screen.
         </Text>
-        <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.replace('/auth')}>
+        {/* dismissTo, same reasoning as the 'done' branch above -- a stale
+            auth modal (e.g. still sitting in 'forgot-sent') can be presented
+            underneath this deep-link screen; replace() would leave it there. */}
+        <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.dismissTo('/auth')}>
           <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>Back to Sign In</Text>
         </Pressable>
       </View>

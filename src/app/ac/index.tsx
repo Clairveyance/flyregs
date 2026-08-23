@@ -15,11 +15,21 @@ export default function ACLinkRedirect() {
   const { id, hl } = useLocalSearchParams<{ id?: string; hl?: string }>()
 
   useEffect(() => {
+    // dismissTo (not replace) -- same fix as confirm.tsx/reset-password.tsx:
+    // this screen is one of the app's Universal Link landing points
+    // (app.json pathPrefix "/ac"), reached straight from a background/
+    // foreground transition just like those. If some modal (auth, paywall)
+    // was already presented when the link was tapped, replace() here would
+    // only swap this screen for the target, leaving that modal stacked on
+    // top of it, unreachable without a manual dismiss. dismissTo collapses
+    // any presented modal/pushed screens on the way to the target, and
+    // degrades to the exact same behavior as replace() when there's nothing
+    // to collapse (confirmed via expo-router's StackRouter POP_TO handling).
     if (typeof id !== 'string') {
-      router.replace('/')
+      router.dismissTo('/')
       return
     }
-    router.replace(hl ? `/ac/${id}?hlText=${encodeURIComponent(hl)}` : `/ac/${id}`)
+    router.dismissTo(hl ? `/ac/${id}?hlText=${encodeURIComponent(hl)}` : `/ac/${id}`)
   }, [id, hl])
 
   return (
