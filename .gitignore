@@ -133,3 +133,9 @@ scripts/.dictionary_facts_verify_id_map.json
 # these on each run
 scripts/.date_trivia_batch_state.json
 scripts/.date_trivia_id_map.json
+
+# per-item knowledge-level classification pass (Anthropic Batches API) —
+# same resumable checkpoint-state pattern; classify_knowledge_levels.py
+# regenerates these on each run
+scripts/.knowledge_level_batch_state*.json
+scripts/.knowledge_level_id_map*.json
