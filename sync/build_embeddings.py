@@ -223,16 +223,39 @@ SOURCE_TYPE_OVERRIDE = {"mnemonic": "dictionary"}
 def embed_batch(texts: list[str]) -> list[list[float]]:
     if not OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY not set (.env.embeddings) -- cannot call the embeddings API")
-    resp = requests.post(
-        "https://api.openai.com/v1/embeddings",
-        headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
-        json={"model": EMBEDDING_MODEL, "input": texts},
-        timeout=120,
-    )
-    resp.raise_for_status()
-    data = resp.json()["data"]
-    data.sort(key=lambda d: d["index"])
-    return [d["embedding"] for d in data]
+    # Retry on 429/5xx with exponential backoff -- confirmed live 2026-08-23:
+    # the weekly-embeddings-refresh.yml GH Actions run and a local catch-up
+    # run happened to overlap and hit OpenAI's rate limit, and the whole job
+    # died on the first 429 with zero retry. Even without a collision, a
+    # multi-thousand-chunk run pushing this many requests can transiently
+    # trip a rate limit on its own -- this was a real gap for the ongoing
+    # weekly job, not just today's specific overlap.
+    last_err = None
+    for attempt in range(5):
+        try:
+            resp = requests.post(
+                "https://api.openai.com/v1/embeddings",
+                headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+                json={"model": EMBEDDING_MODEL, "input": texts},
+                timeout=120,
+            )
+            if resp.status_code == 429 or resp.status_code >= 500:
+                retry_after = resp.headers.get("retry-after")
+                wait = float(retry_after) if retry_after else (2 ** attempt) * 2
+                log.warning(f"  embeddings API {resp.status_code}, retrying in {wait:.0f}s (attempt {attempt + 1}/5)")
+                time.sleep(wait)
+                last_err = requests.exceptions.HTTPError(f"{resp.status_code} after retries", response=resp)
+                continue
+            resp.raise_for_status()
+            data = resp.json()["data"]
+            data.sort(key=lambda d: d["index"])
+            return [d["embedding"] for d in data]
+        except requests.exceptions.RequestException as e:
+            last_err = e
+            wait = (2 ** attempt) * 2
+            log.warning(f"  embeddings API request failed ({e}), retrying in {wait:.0f}s (attempt {attempt + 1}/5)")
+            time.sleep(wait)
+    raise RuntimeError(f"embed_batch failed after 5 attempts: {last_err}")
 
 
 def existing_hashes(doc_type: str) -> dict[str, str]:
