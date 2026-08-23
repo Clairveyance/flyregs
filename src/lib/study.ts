@@ -37,7 +37,66 @@ export async function getStudyQueue(
     p_category_classes: categoryClasses && categoryClasses.length > 0 ? categoryClasses : null,
   })
   if (error) throw error
-  return (data ?? []) as StudyCard[]
+  return withSeeRefListItems((data ?? []) as StudyCard[])
+}
+
+// A handful of P/CG entries are defined as a bare lead-in plus a list, where
+// the FAA marks the list items up as "See" cross-references rather than as
+// prose -- so pcg_terms.definition really is just "Any of the following:"
+// and the four items live in see_refs. The detail screen has always shown
+// both, but a study card renders `definition` alone, which is how a beta
+// tester got a flashcard whose entire text was "Any of the following:"
+// (2026-08-22: "The answer says any of the following and there's nothing
+// following."). She was looking at APPROPRIATE OBSTACLE CLEARANCE MINIMUM
+// ALTITUDE or its TERRAIN twin -- corpus-wide those are now the only two
+// left, since the other 46 bare lead-ins were the pcg_scraper.py <ol> bug
+// fixed alongside this.
+//
+// Kept here rather than in get_study_queue() so it stays reviewable app-side
+// code instead of another RPC to keep in sync, and rather than folding the
+// refs into pcg_terms.definition itself -- the scraper re-upserts that
+// column verbatim from the FAA's HTML every week (sync_pcg.sh documents two
+// separate fixes already lost that way), and the detail screen would then
+// render the same four items twice, once as text and once as its own
+// see_refs links.
+//
+// One extra query, only when such a card is actually dealt.
+async function withSeeRefListItems(cards: StudyCard[]): Promise<StudyCard[]> {
+  const bare = cards.filter((c) => c.item_type === 'pcg' && /:\s*$/.test(c.definition ?? ''))
+  if (bare.length === 0) return cards
+  const { data, error } = await supabase
+    .from('pcg_terms')
+    .select('slug, see_refs')
+    .in('slug', bare.map((c) => c.item_id))
+  // Non-fatal: a card showing only its lead-in is exactly today's behavior,
+  // and is a far better outcome than failing the whole study session.
+  if (error || !data) return cards
+  const refsBySlug = new Map<string, string[]>(
+    data.map((r) => [r.slug as string, (r.see_refs ?? []) as string[]])
+  )
+  const bareIds = new Set(bare.map((c) => c.item_id))
+  return cards.map((c) => {
+    if (c.item_type !== 'pcg' || !bareIds.has(c.item_id)) return c
+    const refs = refsBySlug.get(c.item_id)
+    if (!refs || refs.length === 0) return c
+    // Two constraints decide this exact shape, and they pull opposite ways:
+    //
+    // \n\n between items is load-bearing, NOT cosmetic. Bookmarking a card
+    // snippets from `normalizeRegBody(definition).split('\n\n')[0]` (see
+    // study.tsx) precisely so the captured span can't cross a paragraph the
+    // detail screen's search treats as absolute. Everything appended here
+    // is app-side only -- it is deliberately not in pcg_terms.definition --
+    // so it must stay out of that first paragraph, or the bookmark would
+    // highlight text the detail screen has no way to find.
+    //
+    // The bullet is what makes the card readable: buildStudyCard runs the
+    // text through condenseDefinition, which flattens all whitespace to
+    // single spaces, so \n\n alone would run four altitude names together
+    // into one unreadable line. A leading "• " survives that flattening and
+    // still reads as a list. Purely a display affordance added in app code;
+    // the stored FAA text is untouched either way.
+    return { ...c, definition: `${c.definition}\n\n${refs.map((r) => `• ${r}`).join('\n\n')}` }
+  })
 }
 
 // Separate from getStudyMastery()'s total_available (always the full,

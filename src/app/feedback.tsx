@@ -83,11 +83,29 @@ export default function FeedbackScreen() {
     setAttachment({ uri: asset.uri, mimeType: asset.mimeType ?? 'image/jpeg' })
   }
 
+  // Hold matches Home's own "welcome" toast (app/(tabs)/index.tsx: 2600ms
+  // between a ~200ms fade in and a ~300ms fade out) -- the only other
+  // transient toast in the app, so this is the established convention
+  // rather than a new duration invented for this one screen.
+  //
+  // Was 1400ms, which a beta tester reported as a real problem (2026-08-22,
+  // Adriana): "When I sent feedback the sent message shows up for a short
+  // time so [I] thought it didn't send it and sent it again." Confirmed in
+  // the support inbox, not just taken on her word: "The login doesn't work"
+  // arrived TWICE that morning, 19 seconds apart (02:15:52 and 02:16:11
+  // UTC, submission ids 19e8236f and 56a304ac) -- two real rows, exactly the
+  // double-send she described.
+  //
+  // Distinct from the earlier keyboard-covers-the-toast bug (927d93d): that
+  // one made the toast invisible, this one made it visible but unreadably
+  // brief. 1400ms is under the ~2s a short confirmation needs to be noticed
+  // and read when the user's eyes are still up on the Send button, not down
+  // at the bottom of the screen where the toast appears.
   useEffect(() => {
     if (!showSentToast) return
     Animated.sequence([
       Animated.timing(toastOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
-      Animated.delay(1400),
+      Animated.delay(2600),
       Animated.timing(toastOpacity, { toValue: 0, duration: 220, useNativeDriver: true }),
     ]).start(() => setShowSentToast(false))
   }, [showSentToast])

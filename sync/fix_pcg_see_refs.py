@@ -126,6 +126,27 @@ def main():
             target_slug = stripped_lookup[direct]
             target_term = next(t["term"] for t in all_terms if t["slug"] == target_slug)
             return target_term
+        # Singular/plural tolerance. The FAA writes the cross-reference in
+        # the singular while the target entry is titled in the plural (or
+        # vice versa) -- "See MINIMUM IFR ALTITUDE" pointing at the real
+        # entry "MINIMUM IFR ALTITUDES (MIA)". Nothing above matches that,
+        # so the ref was DROPped as unresolvable and the content silently
+        # disappeared: APPROPRIATE OBSTACLE/TERRAIN CLEARANCE MINIMUM
+        # ALTITUDE are defined as "Any of the following:" plus exactly four
+        # See-refs, and this dropped one of the four, leaving a list of
+        # three where the FAA publishes four.
+        #
+        # Only ever an s-suffix flip on the whole slug, checked against the
+        # same two authoritative lookups as above -- it can only ever land
+        # on a term that really exists, never invent a target.
+        for variant in (direct + "S", direct[:-1] if direct.endswith("S") else ""):
+            if not variant:
+                continue
+            if variant in all_slugs:
+                return next(t["term"] for t in all_terms if t["slug"] == variant)
+            if variant in stripped_lookup:
+                target_slug = stripped_lookup[variant]
+                return next(t["term"] for t in all_terms if t["slug"] == target_slug)
         return "DROP"
 
     rows = [r for r in all_terms if r.get("see_refs")]

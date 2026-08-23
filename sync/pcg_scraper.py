@@ -99,6 +99,54 @@ def _slugify_term(term: str) -> str:
     return re.sub(r"[^A-Z0-9]+", "_", term.upper()).strip("_")
 
 
+def _append_sub_list(current: dict, ol) -> None:
+    r"""
+    Fold one <ol class="glossary-sub-list"> into the term's definition.
+
+    Reported by a beta tester 2026-08-22, on a P/CG Study Mode card: "The
+    answer says any of the following and there's nothing following." She was
+    exactly right, and it was not a one-off. The FAA marks a definition's
+    continuation list up as a SIBLING <ol> after the term's <p>, e.g.:
+
+        <p class="...glossary-term-definition..." id="FERRY_FLIGHT">
+          <dfn class="term-name">FERRY FLIGHT</dfn>- A flight for the purpose of:
+        </p>
+        <ol type="a" class="glossary-sub-list">
+          <li>Returning an aircraft to base.</li>
+          ...
+
+    parse_letter_page only ever walked <p> children, so every one of those
+    lists was dropped on the floor. Measured against all 23 live letter
+    pages: 99 terms lost 378 list items, and for 48 of them the stored
+    definition is nothing BUT the lead-in ("Any of the following:", "A
+    flight for the purpose of:", "In radar:") -- a card, a search result and
+    a detail screen that promise a list and then show nothing at all.
+
+    Items are appended as their own paragraphs (\n\n-joined), which is what
+    the app's splitIntoParagraphs already renders as separate blocks.
+
+    Deliberately NO synthesized "a."/"b." prefixes. The enumeration exists
+    only as an <ol type="a"> markup attribute, and regTextFormat.ts's
+    contract for this corpus is explicit that stored source text stays
+    byte-for-byte intact -- formatting may decide WHERE to break, never what
+    the words say. Inventing list markers would also actively misinform on
+    the ~9 terms whose one logical list is split across several <ol>s, since
+    none of them carry a `start` attribute and each would restart at "a."
+    """
+    items = [
+        li.get_text(separator=" ", strip=True)
+        for li in ol.find_all("li", recursive=False)
+    ]
+    # The FAA ships the occasional empty <li></li> (AIRPORT MARKING AIDS has
+    # one where "Visual." plainly belongs) -- carry the real items, don't
+    # manufacture a blank paragraph out of a hole in the source.
+    items = [i for i in items if i]
+    if not items:
+        return
+    body = "\n\n".join(items)
+    current["definition"] = f"{current['definition']}\n\n{body}" if current["definition"] else body
+
+
 def parse_letter_page(html: str, letter: str) -> list[dict]:
     """
     Parse one glossary-{letter}.html page into term records.
@@ -106,6 +154,12 @@ def parse_letter_page(html: str, letter: str) -> list[dict]:
     Cross-reference <p> tags immediately follow the term <p> they belong to,
     so we walk the article's direct children in document order and attach
     each cross-reference to the most recently seen term.
+
+    The walk covers <ol> as well as <p>. A definition that continues into a
+    lettered list ("FERRY FLIGHT- A flight for the purpose of:" + a. b. c.)
+    puts that list in a SIBLING <ol class="glossary-sub-list">, not inside
+    the term's own <p> -- so a p-only walk silently dropped every one of
+    them. See _append_sub_list below for the full damage assessment.
     """
     soup = BeautifulSoup(html, "html.parser")
     article = soup.find("article", class_="pcg-content")
@@ -116,15 +170,60 @@ def parse_letter_page(html: str, letter: str) -> list[dict]:
     terms: list[dict] = []
     current: Optional[dict] = None
 
-    for p in article.find_all("p", recursive=False):
+    for p in article.find_all(["p", "ol"], recursive=False):
         classes = p.get("class") or []
 
-        if "glossary-term-definition" in classes:
+        # A definition's continuation list. Belongs to the most recently seen
+        # term, exactly like the cross-reference <p>s below -- and genuinely
+        # interleaves with them (ATCSCC's single a./b./c./d. list is split
+        # across four <ol>s with "See"/"Refer to" <p>s in between), so this
+        # deliberately does NOT require the <ol> to sit adjacent to the term.
+        if p.name == "ol":
+            if "glossary-sub-list" in classes and current is not None:
+                _append_sub_list(current, p)
+            continue
+
+        # "glossary-term-entry", not "glossary-term-definition": 52 real
+        # terms -- AIRMET, HAZMAT, VFR-ON-TOP, PILOT'S DISCRETION, "HOW DO
+        # YOU HEAR ME?", and ~45 [ICAO] variants -- carry only the former
+        # class and were skipped outright, never reaching pcg_terms at all
+        # (1,342 rows stored vs 1,394 terms actually on the FAA's pages).
+        # Verified across all 23 letter pages: every <p> carrying
+        # glossary-term-definition also carries glossary-term-entry, so this
+        # is a strict superset -- it cannot drop a term the old test kept.
+        # The `dfn` guard below is what actually decides "is this a term."
+        if "glossary-term-entry" in classes:
             dfn = p.find("dfn", class_="term-name")
             if not dfn:
+                # A third markup shape: the term label is bare text with no
+                # <dfn> wrapper at all ("GRAPHICAL AIRMEN'S METEOROLOGICAL
+                # INFORMATION- A graphical depiction of..."). 165 paragraphs
+                # across the 23 pages look like this and are all invisible to
+                # this parser -- a real, SEPARATE content gap (TFR, LSA,
+                # sUAS, MOUNTAIN WAVE, POWERED-LIFT, CLIMB VIA/DESCEND VIA,
+                # WAAS and ~150 more). Some of them do still exist in
+                # pcg_terms from older syncs that predate the FAA's markup
+                # change, which means they are now silently frozen -- never
+                # updated again. Recovering them needs its own pass: without
+                # a <dfn> boundary the term/definition split has to be
+                # inferred, and the same 165 include genuine fragments
+                # ("CHA", "MRP", "Types of icing are:") that are not clean
+                # standalone terms. Deliberately not guessed at here.
+                #
+                # What DOES matter for this parser's correctness: drop
+                # `current`, so a <ol class="glossary-sub-list"> belonging to
+                # one of these unparsed terms can never silently land on the
+                # last term we happened to parse. Caught exactly that way --
+                # G-AIRMET's 7-item weather list attaching itself to the
+                # unrelated "GPS" see-ref stub two entries earlier.
+                current = None
                 continue
             raw_term = dfn.get_text(strip=True).rstrip("-").strip()
             if not raw_term:
+                # Same reasoning as the no-<dfn> branch above: this <p> was a
+                # term we failed to read, so nothing after it belongs to the
+                # previous term any more.
+                current = None
                 continue
 
             # Definition is everything in the <p> after the <dfn> tag --
