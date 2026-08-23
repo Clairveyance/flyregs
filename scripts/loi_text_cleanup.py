@@ -39,6 +39,7 @@ Usage:
   python3 scripts/loi_text_cleanup.py --poll
 """
 import argparse, json, os, re, sys, time, urllib.error, urllib.request
+from datetime import datetime, timezone
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE_PATH = os.path.join(BASE, "scripts", ".loi_text_cleanup_batch_state.json")
@@ -290,8 +291,12 @@ def cmd_poll(limit):
 
     written = 0
     for slug, cleaned in writes:
+        # ocr_cleaned_at: real data-loss bug, 2026-08-23 -- without this
+        # flag, loi_scraper.py's next weekly re-sync unconditionally
+        # overwrites body_text from DRS's raw OCR layer again, silently
+        # reverting this exact fix. See migrations_loi_ocr_cleaned_flag.sql.
         status, err = rest("PATCH", f"/rest/v1/legal_interpretations?slug=eq.{slug}",
-                            body={"body_text": cleaned})
+                            body={"body_text": cleaned, "ocr_cleaned_at": datetime.now(timezone.utc).isoformat()})
         if status >= 300:
             print(f"  write {slug}: HTTP {status}: {err}")
         else:

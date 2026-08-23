@@ -52,6 +52,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime, timezone
 
 import fitz  # PyMuPDF
 import requests
@@ -324,7 +325,13 @@ def main():
                 f"{SUPABASE_URL}/rest/v1/legal_interpretations",
                 headers={**HEADERS, "Content-Type": "application/json", "Prefer": "return=minimal"},
                 params={"id": f"eq.{row['id']}"},
-                json={"body_text": new_text, "text_quality": "poor" if still_bad else "ocr"},
+                # ocr_cleaned_at: real data-loss bug, 2026-08-23 -- without
+                # this flag, loi_scraper.py's next weekly re-sync
+                # unconditionally overwrites body_text from DRS's raw OCR
+                # layer again, silently reverting this exact fix. See
+                # migrations_loi_ocr_cleaned_flag.sql for the full incident.
+                json={"body_text": new_text, "text_quality": "poor" if still_bad else "ocr",
+                      "ocr_cleaned_at": datetime.now(timezone.utc).isoformat()},
                 timeout=30,
             )
             write_citations(row["id"], slug, citations)

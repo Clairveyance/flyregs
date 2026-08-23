@@ -265,6 +265,36 @@ def _fix_known_ocr_misreads(text: str) -> str:
     return text
 
 
+def _existing_cleaned_body(doc_unique_id: str) -> tuple[bool, str | None]:
+    """(is_cleaned, body_text) for the row already in the DB, if any.
+
+    Real data-loss bug, 2026-08-23: this scraper's upsert unconditionally
+    overwrote body_text from DRS's raw OCR layer on every re-sync -- exactly
+    right for genuinely new/changed content, but DRS's own scan quality
+    never improves on its own, so this silently reverted a same-day Vision/
+    text-only OCR cleanup pass (217 of 226 cleaned documents, confirmed live
+    via ocr_quality_score jumping back to its exact pre-cleanup value) the
+    very first time this ran afterward. See
+    migrations_loi_ocr_cleaned_flag.sql for the full incident.
+    """
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return False, None
+    try:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/legal_interpretations",
+            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+            params={"doc_unique_id": f"eq.{doc_unique_id}", "select": "ocr_cleaned_at,body_text", "limit": 1},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        if rows and rows[0].get("ocr_cleaned_at"):
+            return True, rows[0]["body_text"]
+    except Exception as e:
+        log.warning(f"  _existing_cleaned_body lookup failed for {doc_unique_id}: {e}")
+    return False, None
+
+
 def process_one(hit: dict, mode: str, known_far_sections: set[str] | None) -> dict | None:
     doc_unique_id = hit["docUniqueId"]
     file_id = hit["id"]
@@ -279,9 +309,14 @@ def process_one(hit: dict, mode: str, known_far_sections: set[str] | None) -> di
 
     pdf_bytes = fetch_pdf_bytes(file_id)
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    body_text = "\n".join(p.get_text() for p in doc)
-    body_text = _fix_known_ocr_misreads(body_text)
+    raw_body_text = "\n".join(p.get_text() for p in doc)
+    raw_body_text = _fix_known_ocr_misreads(raw_body_text)
     page_count = len(doc)
+
+    # Preserve a prior OCR-cleanup pass instead of silently reverting it --
+    # see _existing_cleaned_body's own comment for the incident this fixes.
+    is_cleaned, cleaned_body_text = _existing_cleaned_body(doc_unique_id)
+    body_text = cleaned_body_text if is_cleaned else raw_body_text
 
     parsed = parse_letter_text(body_text)
     year_str = _subtext(hit, "Document Issue Year")
@@ -321,14 +356,26 @@ def process_one(hit: dict, mode: str, known_far_sections: set[str] | None) -> di
         "cfr_part_reference": _subtext(hit, "CFR Part Reference") or None,
         "cfr_section_reference": cfr_section_reference,
         "summary": parsed["summary"],
-        "body_text": body_text,
         "size_bytes": len(pdf_bytes) or None,
-        "text_quality": "ocr",  # every sample checked so far is a scanned letter
     }
+    if is_cleaned:
+        # Deliberately NOT included: body_text, text_quality, ocr_cleaned_at.
+        # PostgREST's merge-duplicates upsert only touches columns present
+        # in this dict on the UPDATE branch -- omitting them here leaves the
+        # already-cleaned values in the DB untouched, rather than
+        # overwriting them with DRS's raw (never-improving) OCR text again.
+        pass
+    else:
+        record["body_text"] = body_text
+        record["text_quality"] = "ocr"  # every sample checked so far is a scanned letter
 
     if mode == "test":
         citations = extract_far_citations(body_text, known_far_sections)
-        return {**record, "_pages": page_count, "_citations": citations}
+        # body_text always included in the returned dict here regardless of
+        # is_cleaned -- test mode never reaches the DB, so there's no
+        # overwrite risk; omitting it from `record` above only matters for
+        # what gets sent to the real upsert below.
+        return {**record, "body_text": body_text, "_pages": page_count, "_citations": citations}
 
     cached_url = upload_pdf(pdf_bytes, slug)
     record["pdf_url_cached"] = cached_url
