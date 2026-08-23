@@ -182,8 +182,15 @@ export default function Cfr49SectionScreen() {
     // retrieval... taking too long, several seconds just to get a page
     // open... tighten all flows, reduce waste."
     Promise.all([
+      // cfr49_sections_gated, not the raw table -- found live, 2026-08-23 QA
+      // sweep: paywall.tsx sells full 49 CFR text as a Plus perk, but this
+      // screen's only gating was client-side action buttons (copy/print/
+      // etc.) -- the actual body_text read had no server-side gate at all,
+      // confirmed via a fully unauthenticated anon request returning the
+      // complete, untruncated text. See migrations_cfr49_sections_gated_
+      // view.sql for the fix, mirrored from airworthiness_directives_gated.
       supabase
-        .from('cfr49_sections')
+        .from('cfr49_sections_gated')
         .select('section_number, part, subpart_letter, subpart_title, title, body_text')
         .eq('section_number', id)
         .single(),
@@ -543,31 +550,65 @@ export default function Cfr49SectionScreen() {
             />
           </View>
 
-          {body ? (
-            <PlainTextBody
-              ref={bodyRef}
-              text={body}
-              currentLabel={currentLabel}
-              hasProAccess={hasProAccess}
-              highlightQuery={inDocSearch.debounced}
-              activeMatch={inDocSearch.matchIdx}
-              changedIndices={changedIdx}
-              onMatchCount={inDocSearch.setMatchCount}
-              scrollRef={scrollRef}
-              viewportHeight={scrollViewportHeight}
-              mnemonicAnchors={mnemonicAnchors}
-              highlightedBlockTexts={highlightedBlockTexts}
-              onToggleHighlight={(paraText) => handleBlockLongPress(paraText)}
-              pendingBlockText={pendingHighlight}
-              scrollY={scrollY}
-              onActiveTableChange={setActiveTable}
-            />
-          ) : /reserved/i.test(section.title || '') ? (
-            <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>
-              This section is currently reserved — it has no active regulatory text.
-            </Text>
+          {/* Branch on hasPlusAccess FIRST, not on body's truthiness -- same
+              fix as ad/[id].tsx's identical comment: body_text is redacted
+              server-side for non-Plus tiers now (cfr49_sections_gated), so
+              body is ALWAYS falsy for a genuine free-tier viewer post-fix.
+              This screen previously had no pay-gate branch here at all --
+              every real section has body_text, so free users were just
+              silently reading the full, real text with only the secondary
+              action buttons (copy/print/etc.) gated. Found live, 2026-08-23
+              QA sweep. */}
+          {hasPlusAccess ? (
+            body ? (
+              <PlainTextBody
+                ref={bodyRef}
+                text={body}
+                currentLabel={currentLabel}
+                // A bare "§ N.N" self-citation inside a 49 CFR section's own
+                // body text (e.g. "...requirements of § 1544.103...") means
+                // this same title, not FAR -- see crossRefLinks.ts's SelfType
+                // comment for the real live repro this fixes.
+                selfType="cfr49"
+                hasProAccess={hasProAccess}
+                highlightQuery={inDocSearch.debounced}
+                activeMatch={inDocSearch.matchIdx}
+                changedIndices={changedIdx}
+                onMatchCount={inDocSearch.setMatchCount}
+                scrollRef={scrollRef}
+                viewportHeight={scrollViewportHeight}
+                mnemonicAnchors={mnemonicAnchors}
+                highlightedBlockTexts={highlightedBlockTexts}
+                onToggleHighlight={(paraText) => handleBlockLongPress(paraText)}
+                pendingBlockText={pendingHighlight}
+                scrollY={scrollY}
+                onActiveTableChange={setActiveTable}
+              />
+            ) : /reserved/i.test(section.title || '') ? (
+              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>
+                This section is currently reserved — it has no active regulatory text.
+              </Text>
+            ) : (
+              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No text available for this section.</Text>
+            )
           ) : (
-            <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No text available for this section.</Text>
+            // Same firm cutoff as ad/[id].tsx -- no partial preview. The
+            // section number, title, and part/subpart nav above already
+            // tell a free user this section exists; the regulatory text
+            // itself (what to actually comply with) is Plus-only.
+            <Pressable
+              style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
+              onPress={() => { if (!authLoading) router.push('/paywall?tier=plus') }}
+            >
+              <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
+              <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Read the full text with Plus</Text>
+              <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+                Unlock Plus to read the full text of every 49 CFR section.
+              </Text>
+              <View style={[styles.proGateBtn, { backgroundColor: tokens.blu }]}>
+                <Text style={[styles.proGateBtnText, { fontSize: fs(15) }]}>Unlock Plus</Text>
+              </View>
+            </Pressable>
           )}
         </ScrollView>
         </TabletContainer>
@@ -625,4 +666,21 @@ const styles = StyleSheet.create({
   tablesList: { borderRadius: 12, borderWidth: 1, marginTop: -4, overflow: 'hidden' },
   tablesListRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 11 },
   body: { fontSize: 14.5, lineHeight: 22 },
+  proGate: {
+    marginTop: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 24,
+    alignItems: 'center',
+    gap: 8,
+  },
+  proGateTitle: { fontWeight: '700', fontSize: 16, marginTop: 4 },
+  proGateSub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 260 },
+  proGateBtn: {
+    marginTop: 8,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+  },
+  proGateBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 })
