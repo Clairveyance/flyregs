@@ -96,6 +96,14 @@ const ALL_LOCAL_KEYS = [
   '@flyregs/sync-enabled',
 ]
 
+// Shared by claimDeviceIfMismatched below and by account.tsx's account-
+// deletion flow -- see wipeAllLocalDataForAccountDeletion's own comment for
+// why deletion needs this same list but can't just call
+// claimDeviceIfMismatched itself.
+async function wipeAllLocalKeys(): Promise<void> {
+  await Promise.all(ALL_LOCAL_KEYS.map((k) => AsyncStorage.removeItem(k)))
+}
+
 // Call once per confirmed session -- both a fresh sign-in and an app-launch
 // session restore, see context/auth.tsx -- as early as possible, before any
 // screen reads or writes local data. If this device's cache belongs to a
@@ -119,11 +127,38 @@ export async function claimDeviceIfMismatched(userId: string): Promise<void> {
   try {
     const owner = await getSyncOwner()
     if (owner === null || owner === userId) return
-    await Promise.all(ALL_LOCAL_KEYS.map((k) => AsyncStorage.removeItem(k)))
+    await wipeAllLocalKeys()
     await setSyncOwner(userId)
   } catch {
     // Non-fatal -- the per-read guards in folders.ts/bookmarks.ts/notes.ts
     // still hide a mismatch from view even if this proactive clear fails;
     // worst case is a stale write-clobber risk, not a read-side leak.
+  }
+}
+
+// Real production report, 2026-08-22: "I deleted my account and came back
+// in the free account and it still shows the recents that I had when I was
+// logged in." localDataBelongsTo()'s own contract is deliberately
+// permissive for a SIGNED-OUT session ("signed-out browsing is
+// unaffected") -- correct for the normal sign-out case (bookmarks/recents
+// have to keep working with no account at all), but wrong for account
+// DELETION specifically: the user explicitly asked to remove everything
+// tied to them, not just their server-side rows. claimDeviceIfMismatched
+// can't be reused as-is here -- it only wipes on a genuine OWNER MISMATCH
+// against a new userId, and there's no new account to compare against yet
+// at the moment of deletion (the caller is about to sign out, not sign
+// into someone else). This wipes unconditionally and clears the owner tag
+// entirely, so the device reads as "never claimed" afterward -- exactly
+// the state a brand-new device would be in, and exactly what
+// claimDeviceIfMismatched's own `owner === null` fast path already treats
+// as safe to leave alone for whoever signs in next.
+export async function wipeAllLocalDataForAccountDeletion(): Promise<void> {
+  try {
+    await wipeAllLocalKeys()
+    await AsyncStorage.removeItem(SYNC_OWNER_KEY)
+  } catch {
+    // Non-fatal -- the account itself is already gone server-side by the
+    // time this runs; a failed local wipe leaves stale data visible to
+    // this same signed-out device only, not a network-reachable leak.
   }
 }

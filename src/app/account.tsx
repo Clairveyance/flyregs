@@ -17,6 +17,7 @@ import { restorePurchases } from '@/lib/revenuecat'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { SUPPORT_EMAIL } from '@/lib/appInfo'
 import { supabase, isEdgeFunctionTimeout } from '@/lib/supabase'
+import { wipeAllLocalDataForAccountDeletion } from '@/lib/syncOwner'
 import { getAvatarUrl, getAvatarPresetId, resolveAvatarUrl, resolveAvatarPresetId, pickAndUploadAvatar, takeAndUploadAvatar, removeAvatar, selectAvatarPreset, getDisplayName } from '@/lib/avatar'
 import { getAvatarPreset, avatarColorFor } from '@/lib/avatarPresets'
 import { useCachedImage } from '@/lib/imageCache'
@@ -669,6 +670,16 @@ export default function AccountScreen() {
       // biometric credential pointing at it would just be a dead "Sign in
       // with Face ID" button on this device's sign-in screen forever after.
       await Biometric.disableBiometricSignIn().catch(() => {})
+      // Real production report, 2026-08-22: "I deleted my account and came
+      // back in the free account and it still shows the recents that I had
+      // when I was logged in." A plain signOut() deliberately leaves local
+      // data alone (bookmarks/recents/etc. work with no account at all,
+      // by design) -- correct for a normal sign-out, wrong here: deleting
+      // the account is an explicit "remove everything tied to me," not
+      // just a session change. Wipe local-first storage BEFORE signOut()
+      // clears the session, since claimDeviceIfMismatched-style wiping
+      // only ever runs on a subsequent SIGN-IN, never on the way out.
+      await wipeAllLocalDataForAccountDeletion()
       await signOut()
       backToMenu()
     } catch (err: any) {
