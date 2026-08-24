@@ -1,0 +1,41 @@
+-- EMERGENCY: restore synced_bookmarks direct SELECT grant -- live regression, real users affected   2026-08-24
+--
+-- migrations_synced_bookmarks_write_rpc.sql (earlier today) revoked
+-- anon/authenticated's direct table-level SELECT on synced_bookmarks,
+-- on the assumption that the client had already moved to the new
+-- push_bookmark/soft_delete_bookmarks RPCs and the synced_bookmarks_gated
+-- view. That assumption was WRONG for every currently-installed build:
+-- B35 (and every earlier build) was compiled BEFORE that client-side fix
+-- was written, so the app on real devices still calls the raw table
+-- directly for both the push (INSERT ... ON CONFLICT, needs table SELECT
+-- to evaluate the conflict) and pull (a plain SELECT) sides of bookmark/
+-- highlight sync. Revoking the grant broke that live, in-use code path
+-- outright -- confirmed live: RC reported the real app "kicked me out...
+-- sign in just spins... everything is slow" (a Promise.all-based sync
+-- step throwing on bookmarks likely cascades into whatever awaits it),
+-- and a direct re-test of the exact request shape B35's client makes
+-- returned "permission denied for table synced_bookmarks" immediately
+-- after this morning's revoke.
+--
+-- Fix: restore the grant. This does NOT reopen the original highlight-
+-- text leak this whole effort was about -- that leak was in the DATA
+-- (block_text/block_snippet showing real gated content to a downgraded
+-- reader), and it's still fixed: the two real CURRENTLY-SHIPPED client
+-- read paths for DISPLAYING a highlight already use synced_bookmarks_gated
+-- (see migrations_fix_synced_bookmarks_highlight_gate_leak.sql, which
+-- shipped its CLIENT change in the same commit as the DB fix, unlike the
+-- write-RPC follow-up). Only the write-RPC follow-up's grant revoke was
+-- premature -- it should never have shipped ahead of a real build.
+--
+-- Sequencing lesson, logged so it isn't repeated: a DB migration takes
+-- effect for every client INSTANTLY, but a client-code fix only takes
+-- effect once a NEW BUILD is cut, submitted, and actually installed on
+-- real devices. Revoking/removing anything the CURRENTLY-SHIPPED client
+-- still depends on is not safe just because the *repo* has a fix for it --
+-- it's only safe once that fix is confirmed live on real installed
+-- devices. The raw table's block_text/block_snippet remain reachable via
+-- a hand-crafted API call for now (the original, smaller residual gap,
+-- unchanged from before today) -- revoking it again is deferred until
+-- B36 (or later) actually ships and a real rollout window has passed.
+
+GRANT SELECT ON public.synced_bookmarks TO anon, authenticated;
