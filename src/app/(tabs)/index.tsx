@@ -317,6 +317,14 @@ export default function HomeScreen() {
   const [filterApplied, setFilterApplied] = useState(false)
   const [filterResults, setFilterResults] = useState<FilterResultRow[]>([])
   const [filterResultsLoading, setFilterResultsLoading] = useState(false)
+  const [filterLoadingMore, setFilterLoadingMore] = useState(false)
+  // Same stale-response guard as searchSeq above, for the same reason:
+  // re-applying a filter (Edit -> Show results) while a loadMoreFilterResults
+  // page is still in flight for the PREVIOUS filter would otherwise append
+  // that stale page's rows onto the new filter's fresh result list once it
+  // resolves -- there's no other signal tying a page fetch to which filter
+  // it was for.
+  const filterSeq = useRef(0)
 
   const activeFilterParams = useMemo<FilterParams>(() => ({
     contentTypes: filterContentTypes,
@@ -406,18 +414,54 @@ export default function HomeScreen() {
     setFilterVisible(false)
     setFilterApplied(true)
     setFilterResultsLoading(true)
+    const seq = ++filterSeq.current
     try {
       const rows = await filterDocuments(activeFilterParams, 50, 0)
+      if (seq !== filterSeq.current) return // superseded by a newer apply
       setFilterResults(rows)
     } catch (_) {
-      setFilterResults([])
+      if (seq === filterSeq.current) setFilterResults([])
     }
-    setFilterResultsLoading(false)
+    if (seq === filterSeq.current) setFilterResultsLoading(false)
   }
 
   const dismissFilterResults = () => {
     setFilterApplied(false)
     setFilterResults([])
+  }
+
+  // Filter results are `ORDER BY item_type, item_id` server-side, and the
+  // first page is only ever the first 50 of THAT ordering -- confirmed live,
+  // 2026-08-24: filtering FAR+AIM together (no other narrowing) returns
+  // total_count 4731, but the unpaginated single fetch below used to return
+  // only the first 50 rows, which alphabetical item_type ordering ('aim' <
+  // 'far') made 50 AIM rows and ZERO far rows -- FAR, 4,293 of those 4,731
+  // matches, was completely unreachable even though the status bar's "50 of
+  // 4731" was technically honest about there being more. Any combined-type
+  // filter whose alphabetically-earlier type alone has >=50 matches hits
+  // this -- not a rare edge case, the everyday 2-content-type case. Fixed
+  // with real pagination instead of a one-shot fetch.
+  const loadMoreFilterResults = async () => {
+    if (filterLoadingMore || filterResultsLoading) return
+    const total = filterResults[0]?.totalCount ?? 0
+    if (filterResults.length === 0 || filterResults.length >= total) return
+    const seq = filterSeq.current
+    setFilterLoadingMore(true)
+    try {
+      const rows = await filterDocuments(activeFilterParams, 50, filterResults.length)
+      // Filter re-applied (Edit -> Show results) while this page was still
+      // in flight -- its own fresh fetch already replaced filterResults;
+      // appending this stale page now would corrupt that new list.
+      if (seq === filterSeq.current) setFilterResults((prev) => [...prev, ...rows])
+    } catch (_) {
+      // Leave what's already on screen as-is; a failed "load more" page
+      // shouldn't wipe results the user can already see.
+    }
+    // Always clear the in-flight flag (not seq-guarded) -- it gates the NEXT
+    // loadMoreFilterResults call ever running at all (see the entry guard
+    // above), so leaving it stuck true after a superseded fetch would
+    // silently disable "load more" for the new filter too.
+    setFilterLoadingMore(false)
   }
 
   // Live "N results" readout while the sheet is open -- debounced so rapid
@@ -1205,6 +1249,15 @@ export default function HomeScreen() {
           keyExtractor={(item) => `${item.itemType}-${item.itemId}`}
           contentContainerStyle={styles.listContent}
           keyboardDismissMode="interactive"
+          onEndReached={loadMoreFilterResults}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={
+            filterLoadingMore ? (
+              <View style={{ paddingVertical: 16 }}>
+                <ActivityIndicator color={tokens.blu} />
+              </View>
+            ) : null
+          }
           ListHeaderComponent={
             <View style={[styles.filterStatusBar, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
               <Text style={[styles.filterStatusText, { color: tokens.t2, fontSize: fs(13) }]}>
@@ -1356,7 +1409,7 @@ export default function HomeScreen() {
         )}
         <View style={{ gap: 8 }}>
           <Text style={[styles.filterSectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>CITES THIS DOCUMENT</Text>
-          <Text style={[styles.citesHint, { color: tokens.t4, fontSize: fs(11.5) }]}>
+          <Text style={[styles.citesHint, { color: tokens.t4, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.25 }]}>
             Narrows results to only items that reference the FAR section, AIM paragraph, P/CG term, AC, or LOI you pick below.
           </Text>
           {filterCitesDoc ? (
@@ -1388,7 +1441,7 @@ export default function HomeScreen() {
                 {citesLoading && <ActivityIndicator size="small" color={tokens.t3} style={{ marginRight: 10 }} />}
               </View>
               {!citesLoading && citesCandidates.length === 0 && citesQuery.trim().length >= 2 && (
-                <Text style={[styles.citesHint, { color: tokens.t4, fontSize: fs(12) }]}>No matches for "{citesQuery}".</Text>
+                <Text style={[styles.citesHint, { color: tokens.t4, fontSize: fs(12), lineHeight: fs(12) * 1.25 }]}>No matches for "{citesQuery}".</Text>
               )}
               {citesCandidates.map((c) => (
                 <Pressable
@@ -1883,7 +1936,7 @@ function HomeHeader({
             <Text style={[styles.wnLockedTitle, { color: tokens.t1, fontSize: fs(13.5) }]}>
               See what's new and changed
             </Text>
-            <Text style={[styles.wnLockedSub, { color: tokens.t3, fontSize: fs(12) }]}>
+            <Text style={[styles.wnLockedSub, { color: tokens.t3, fontSize: fs(12), lineHeight: fs(12) * 1.33 }]}>
               Unlock Plus to track new and updated ACs, with real diffs of exactly what changed.
             </Text>
           </View>
@@ -1985,7 +2038,7 @@ function HomeHeader({
         )
       ) : (
         <View style={[styles.wnEmpty, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-          <Text style={[styles.wnEmptyText, { color: tokens.t3, fontSize: fs(12.5) }]}>
+          <Text style={[styles.wnEmptyText, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.44 }]}>
             Nothing issued or updated in the last {badgeDays} day{badgeDays === 1 ? '' : 's'}. Try a longer Badge Duration in the menu to see more.
           </Text>
         </View>
@@ -2103,7 +2156,7 @@ function DailyRegCard({ dailyReg, tokens }: { dailyReg: DailyReg | null; tokens:
                 key={i}
                 style={[
                   styles.dailyRegDef,
-                  { color: tokens.t2, fontSize: fs(13.5) },
+                  { color: tokens.t2, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 },
                   i < arr.length - 1 && { marginBottom: 8 },
                 ]}
               >
@@ -2576,7 +2629,10 @@ const styles = StyleSheet.create({
 
   filterSectionTitle: { fontWeight: '700', letterSpacing: 0.5 },
   filterDateInput: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
-  citesHint: { lineHeight: 15, marginTop: -2 },
+  // lineHeight NOT set here -- always overridden inline with fs(size) * 1.25
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  citesHint: { marginTop: -2 },
   citesInputWrap: {
     flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 10, paddingRight: 4,
   },
@@ -2686,8 +2742,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 14,
   },
   wnLockedTitle: { fontWeight: '600', marginBottom: 2 },
-  wnLockedSub: { lineHeight: 16 },
-  wnEmptyText: { lineHeight: 18 },
+  // lineHeight NOT set here -- always overridden inline with fs(12) * 1.33
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  wnLockedSub: {},
+  // Same fix, fs(12.5) * 1.44.
+  wnEmptyText: {},
   // Same outer/clip/spin/inner shape as MagicLinkPod's own styles (see
   // SilverShimmerFrame above) -- the 1.5px padding is what reveals the
   // rotating ring underneath; dailyRegCard has no borderWidth of its own
@@ -2718,7 +2778,10 @@ const styles = StyleSheet.create({
   dailyRegIcon: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   dailyRegLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 1 },
   dailyRegTerm: { fontWeight: '700' },
-  dailyRegDef: { lineHeight: 19, marginTop: 10 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  dailyRegDef: { marginTop: 10 },
   dailyRegCitation: { marginTop: 10, fontWeight: '600', letterSpacing: 0.3 },
   dailyRegJump: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4,
