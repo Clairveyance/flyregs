@@ -193,7 +193,7 @@ export default function FeedbackScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
       >
-        <Text style={[styles.intro, { color: tokens.t2, fontSize: fs(14) }]}>
+        <Text style={[styles.intro, { color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>
           We read every message. Pick a category and tell us what's on your mind.
         </Text>
 
@@ -226,7 +226,7 @@ export default function FeedbackScreen() {
         <TextInput
           style={[
             styles.input,
-            { backgroundColor: tokens.bg2, borderColor: tokens.bdr, color: tokens.t1, fontSize: ifs(14.5) },
+            { backgroundColor: tokens.bg2, borderColor: tokens.bdr, color: tokens.t1, fontSize: ifs(14.5), lineHeight: ifs(14.5) * 1.45 },
           ]}
           placeholder={MESSAGE_PLACEHOLDER[category]}
           placeholderTextColor={tokens.t3}
@@ -267,7 +267,7 @@ export default function FeedbackScreen() {
           <Text style={[styles.submitText, { fontSize: fs(15.5) }]}>{sending ? 'Sending…' : 'Send'}</Text>
         </Pressable>
 
-        <Text style={[styles.note, { color: tokens.t4, fontSize: fs(11.5) }]}>
+        <Text style={[styles.note, { color: tokens.t4, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.48 }]}>
           This sends to {SUPPORT_EMAIL}. We include your app version to help us debug.
         </Text>
       </ScrollView>
@@ -291,7 +291,10 @@ export default function FeedbackScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { padding: 16 },
-  intro: { fontSize: 14, lineHeight: 21, marginBottom: 18, paddingHorizontal: 2 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.5
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  intro: { fontSize: 14, marginBottom: 18, paddingHorizontal: 2 },
   label: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, marginBottom: 8, paddingLeft: 2 },
   catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   catCard: {
@@ -305,13 +308,15 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
   },
   catLabel: { fontSize: 13, fontWeight: '600', flex: 1 },
+  // lineHeight NOT set here -- always overridden inline with ifs(14.5) * 1.45
+  // (StyleSheet.create is module-scope, ifs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
   input: {
     minHeight: 140,
     borderRadius: 12,
     borderWidth: 1,
     padding: 14,
     fontSize: 14.5,
-    lineHeight: 21,
   },
   attachBtn: {
     flexDirection: 'row',
@@ -344,7 +349,10 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
   submitText: { color: '#fff', fontSize: 15.5, fontWeight: '700' },
-  note: { fontSize: 11.5, lineHeight: 17, textAlign: 'center', marginTop: 14 },
+  // lineHeight NOT set here -- always overridden inline with fs(11.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  note: { fontSize: 11.5, textAlign: 'center', marginTop: 14 },
   toast: {
     position: 'absolute',
     alignSelf: 'center',

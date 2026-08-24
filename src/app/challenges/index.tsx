@@ -351,7 +351,7 @@ export default function ChallengesScreen() {
         <View style={styles.center}>
           <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Duels are a Premium feature</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             Challenge 1-7 other players to a free-for-all multiple-choice quiz across FAR, AIM, P/CG, and ACs — most correct answers wins, with time as the tiebreaker.
           </Text>
           {/* This lock screen had no CTA at all -- a free user who found
@@ -394,7 +394,7 @@ export default function ChallengesScreen() {
         <View style={styles.center}>
           <Icon name="trophy" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No duels yet</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             Tap + to challenge one or more players from Ready Room.
           </Text>
         </View>
@@ -683,7 +683,7 @@ export default function ChallengesScreen() {
                 <Icon name="person.2.fill" size={fs(20)} color={tokens.t3} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.noOpponentsTitle, { color: tokens.t2, fontSize: fs(13.5) }]}>No recent opponents</Text>
-                  <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(12.5), textAlign: 'left', marginTop: 3 }]}>
+                  <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.41, textAlign: 'left', marginTop: 3 }]}>
                     Use Callsign search or Find Friends above to add someone.
                   </Text>
                 </View>
@@ -710,7 +710,7 @@ export default function ChallengesScreen() {
             {createError && (
               <View style={[styles.createError, { backgroundColor: tokens.bg2, borderColor: tokens.red }]}>
                 <Icon name="exclamationmark.triangle" size={fs(14)} color={tokens.red} />
-                <Text style={[styles.createErrorText, { color: tokens.t2, fontSize: fs(12.5) }]}>{createError}</Text>
+                <Text style={[styles.createErrorText, { color: tokens.t2, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>{createError}</Text>
               </View>
             )}
 
@@ -860,7 +860,10 @@ const styles = StyleSheet.create({
   emptyTitle: { fontWeight: '600', marginTop: 6 },
   upgradeBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
   upgradeBtnText: { color: '#fff', fontWeight: '700' },
-  emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },
+  // lineHeight NOT set here -- always overridden inline with fs(size) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptySub: { textAlign: 'center', maxWidth: 300 },
 
   myStatsBar: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -911,7 +914,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8,
     borderRadius: 12, borderWidth: 1, padding: 11, marginTop: 14,
   },
-  createErrorText: { flex: 1, lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  createErrorText: { flex: 1 },
   startBtn: { borderRadius: 20, alignItems: 'center', paddingVertical: 13, marginTop: 16 },
   startBtnText: { color: '#000', fontWeight: '800', letterSpacing: 0.6, fontSize: 13.5 },
 })

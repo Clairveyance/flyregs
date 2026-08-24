@@ -747,7 +747,7 @@ export default function AccountScreen() {
             <Icon name="person.crop.circle" size={fs(34)} color={tokens.t2} />
           </View>
           <Text style={[styles.signedOutTitle, { color: tokens.t1, fontSize: fs(18) }]}>You're not signed in</Text>
-          <Text style={[styles.signedOutSub, { color: tokens.t3, fontSize: fs(14) }]}>
+          <Text style={[styles.signedOutSub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>
             Sign in to sync bookmarks and notes across your devices.
           </Text>
           <Pressable
@@ -1343,7 +1343,10 @@ const styles = StyleSheet.create({
   // signed out
   signedOut: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 10 },
   signedOutTitle: { fontSize: 18, fontWeight: '700', marginTop: 8 },
-  signedOutSub: { fontSize: 14, textAlign: 'center', lineHeight: 21, maxWidth: 280 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.5
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  signedOutSub: { fontSize: 14, textAlign: 'center', maxWidth: 280 },
   primaryBtn: {
     borderRadius: 13,
     paddingHorizontal: 22,

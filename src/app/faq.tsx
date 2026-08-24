@@ -472,7 +472,7 @@ export default function FAQScreen() {
                       ]}
                     >
                       <Pressable style={styles.qRow} onPress={() => toggle(i)}>
-                        <Text style={[styles.q, { color: tokens.t1, fontSize: fs(14.5) }]}>{item.q}</Text>
+                        <Text style={[styles.q, { color: tokens.t1, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.38 }]}>{item.q}</Text>
                         <Icon
                           name={expanded ? 'chevron.up' : 'chevron.down'}
                           size={fs(15)}
@@ -519,7 +519,7 @@ export default function FAQScreen() {
                                     <View style={styles.tierBulletList}>
                                       {bullets.map((b, bi) => (
                                         <View key={bi} style={styles.bulletLine}>
-                                          <Text style={[styles.bulletDot, { color: tokens.t2, fontSize: fs(14) }]}>•</Text>
+                                          <Text style={[styles.bulletDot, { color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>•</Text>
                                           <Text style={[styles.a, { flex: 1, color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>
                                             {inlineTierText(b.slice(2), tokens)}
                                           </Text>
@@ -543,7 +543,7 @@ export default function FAQScreen() {
                             if (para.startsWith('• ')) {
                               return (
                                 <View key={pi} style={[styles.bulletLine, spacing]}>
-                                  <Text style={[styles.bulletDot, { color: tokens.t2, fontSize: fs(14) }]}>•</Text>
+                                  <Text style={[styles.bulletDot, { color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>•</Text>
                                   <Text style={[styles.a, { flex: 1, color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>
                                     {inlineTierText(para.slice(2), tokens)}
                                   </Text>
@@ -603,12 +603,15 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     gap: 12,
   },
-  q: { flex: 1, fontSize: 14.5, fontWeight: '600', lineHeight: 20 },
+  // lineHeight NOT set on q/a/bulletDot below -- always overridden inline
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  q: { flex: 1, fontSize: 14.5, fontWeight: '600' },
   aWrap: { paddingBottom: 14, paddingRight: 8 },
-  a: { fontSize: 14, lineHeight: 21 },
+  a: { fontSize: 14 },
   aSpacing: { marginBottom: 10 },
   bulletLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  bulletDot: { width: 10, lineHeight: 21 },
+  bulletDot: { width: 10 },
   tierBulletList: { marginTop: 6, marginLeft: 10, gap: 5 },
   badgeLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   badgePill: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 2, marginTop: 1 },

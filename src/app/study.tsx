@@ -435,7 +435,7 @@ export default function StudyScreen() {
         <View style={styles.center}>
           <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Study Mode is a Pro feature</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             Flashcards, mastery tracking, and daily practice — join Pro to start building real recall, not just lookups.
           </Text>
           <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall?tier=pro')}>
@@ -725,7 +725,7 @@ export default function StudyScreen() {
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>
             {deck.length === 0 ? 'Nothing due right now' : 'Session complete'}
           </Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             {deck.length === 0
               ? "You've reviewed everything that's due. Check back later, or come back tomorrow for more."
               : 'Come back tomorrow — cards you missed will resurface sooner than the ones you know cold.'}
@@ -1027,6 +1027,13 @@ function FlashCard({
   const backColor = direction === 'defFirst' ? tokens.t1 : tokens.t2
   const frontFs = isLongFace(frontText) ? fs(15) : fs(22)
   const backFs = isLongFace(backText) ? fs(15) : fs(22)
+  // cardDef's own lineHeight (22, tuned for a static 15px font) doesn't
+  // scale with fs() -- same fixed-lineHeight-vs-scaled-fontSize clipping
+  // risk as today's other fixes, just conditional on which face style is
+  // actually in play (cardTerm, the short-answer style, never set a static
+  // lineHeight at all, so it's left alone -- undefined here is a no-op).
+  const frontLineHeight = isLongFace(frontText) ? frontFs * 1.47 : undefined
+  const backLineHeight = isLongFace(backText) ? backFs * 1.47 : undefined
 
   // RC: "Q/As are better. but for FAR AIM etc, when the worded answer is
   // revealed, underneath that and smaller it should show the FAR or AIM
@@ -1068,12 +1075,12 @@ function FlashCard({
           the max) means the card is sized for the longer of the two,
           whichever one that is. */}
       <View style={styles.cardSizer} pointerEvents="none">
-        <Text style={[frontStyleText, { fontSize: frontFs, opacity: 0 }]}>{frontText}</Text>
+        <Text style={[frontStyleText, { fontSize: frontFs, lineHeight: frontLineHeight, opacity: 0 }]}>{frontText}</Text>
         {/* Sized in here too, or a citation line pushes the real content
             past the sizer's own height and has to scroll for the extra
             ~20px instead of just fitting. */}
         {showCitation && <Text style={[styles.cardCitation, itemType === 'pcg' && styles.cardCitationItalic, { fontSize: fs(11), opacity: 0 }]}>{citationText}</Text>}
-        <Text style={[backStyleText, { fontSize: backFs, opacity: 0 }]}>{backText}</Text>
+        <Text style={[backStyleText, { fontSize: backFs, lineHeight: backLineHeight, opacity: 0 }]}>{backText}</Text>
       </View>
       <Reanimated.View
         style={[styles.card, styles.cardFace, frontStyle, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
@@ -1085,7 +1092,7 @@ function FlashCard({
             height of the longest possible question. Overflow scrolls
             inside the card instead of growing it further. */}
         <ScrollView style={styles.cardTextScroll} contentContainerStyle={styles.cardTextScrollContent}>
-          <Text style={[frontStyleText, { color: frontColor, fontSize: frontFs }]}>{frontText}</Text>
+          <Text style={[frontStyleText, { color: frontColor, fontSize: frontFs, lineHeight: frontLineHeight }]}>{frontText}</Text>
           {showCitation && frontText === faces.answer && (
             <Text style={[styles.cardCitation, itemType === 'pcg' && styles.cardCitationItalic, { color: tokens.t4, fontSize: fs(11) }]}>{citationText}</Text>
           )}
@@ -1096,7 +1103,7 @@ function FlashCard({
         style={[styles.card, styles.cardFace, styles.cardBack, backStyle, { backgroundColor: tokens.bg2, borderColor: tokens.goldbdr }]}
       >
         <ScrollView style={styles.cardTextScroll} contentContainerStyle={styles.cardTextScrollContent}>
-          <Text style={[backStyleText, { color: backColor, fontSize: backFs }]}>{backText}</Text>
+          <Text style={[backStyleText, { color: backColor, fontSize: backFs, lineHeight: backLineHeight }]}>{backText}</Text>
           {showCitation && backText === faces.answer && (
             <Text style={[styles.cardCitation, itemType === 'pcg' && styles.cardCitationItalic, { color: tokens.t4, fontSize: fs(11) }]}>{citationText}</Text>
           )}
@@ -1119,7 +1126,10 @@ const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1, paddingBottom: 24 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
   emptyTitle: { fontWeight: '600', marginTop: 6 },
-  emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 280 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptySub: { textAlign: 'center', maxWidth: 280 },
   upgradeBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
   upgradeBtnText: { color: '#fff', fontWeight: '700' },
 
@@ -1238,7 +1248,10 @@ const styles = StyleSheet.create({
   // width instead of the card's -- a long passage then overflowed the card
   // and was clipped at BOTH edges rather than wrapping.
   cardTerm: { fontWeight: '700', textAlign: 'center', width: '100%' },
-  cardDef: { textAlign: 'center', lineHeight: 22, width: '100%' },
+  // lineHeight NOT set here -- always overridden inline with frontFs/backFs
+  // * 1.47 (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  cardDef: { textAlign: 'center', width: '100%' },
   cardCitation: { textAlign: 'center', marginTop: 10, fontWeight: '600', letterSpacing: 0.3 },
   // RC, 2026-08-13: "maybe in italics, if that helps" -- for the P/CG
   // source term specifically, distinguishing "this is the glossary entry
