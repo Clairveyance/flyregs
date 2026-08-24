@@ -132,6 +132,13 @@ export async function searchRefPackTopic(
   query: string,
   limitPerType = 5,
   referencesText?: string | null,
+  // True for a query the SCREEN generated from fixed FAA-authored ACS text
+  // (the task's own title on load, or a Knowledge/Risk/Skill bullet's body
+  // text on tap) -- never for a query a person actually typed themselves.
+  // See this function's own FAR/AIM/PCG-suppression comment below for why
+  // the distinction matters. Defaults false so a real free-typed search
+  // always runs unconstrained, exactly as before.
+  isAcsSeeded = false,
 ): Promise<RefPackSearchGroup[]> {
   const trimmed = query.trim()
   if (trimmed.length < 2) return []
@@ -216,7 +223,50 @@ export async function searchRefPackTopic(
   // filtered just because it keyword-matches the query poorly -- an
   // authoritative citation, not a guess, doesn't need to clear this bar.
   const MIN_AC_RANK = 0.15
-  const filtered = flat.filter((r) => r.type !== 'ac' || r.rank >= MIN_AC_RANK)
+  let filtered = flat.filter((r) => r.type !== 'ac' || r.rank >= MIN_AC_RANK)
+
+  // RC, real-device bug report: ACS Task "Effects of Human Behavior and
+  // Communication on the Learning Process" (references_text cites only
+  // handbooks -- FAA-H-8083-2/9/25, no "14 CFR part"/"AC N.N" at all, so
+  // farParts/namedAcs above are both empty) auto-showed FAR 91.185/135.165/
+  // 121.99 as "Related Regulations" -- all genuinely about aircraft radio
+  // communications equipment, matched purely because the word
+  // "communication" appears in both the task title and those section
+  // titles, with zero actual topical relevance to human-factors/teaching
+  // psychology (which FAR simply doesn't cover -- that's what the cited
+  // handbooks are FOR).
+  //
+  // AC already has real protection against this exact failure mode
+  // (MIN_AC_RANK above, added after an identical false-positive on
+  // "Chandelles"). FAR/AIM/P-CG never got the same treatment, and
+  // calibrating an equivalent rank floor for them turned out not to work --
+  // confirmed live against real ts_rank output for several ACS task
+  // titles: genuinely on-topic queries score in the hundreds-to-thousands
+  // (e.g. "Airplane Preflight Assessment" -> § 91.103 Preflight action,
+  // 2171; "Risk Management" -> Fatigue risk management system, ~595), but
+  // OTHER genuinely-bad matches (e.g. "Stall Awareness" -> § 61.195 Flight
+  // instructor limitations, 118; "Human Factors" -> § 61.155 Aeronautical
+  // knowledge, 110) scored HIGHER than this task's bad matches (~47) while
+  // still being wrong -- there's no single rank value that reliably
+  // separates "real match" from "incidental word overlap" across
+  // arbitrary natural-language task titles.
+  //
+  // What IS a reliable signal: whether the ACS document's OWN References
+  // field cites any FAR part or AC number at all (farParts/namedAcs,
+  // above). Where it does, that's ground truth from the FAA itself, worth
+  // trusting even over a middling keyword score. Where it doesn't --
+  // ~1,422 of 1,885 acs_tasks corpus-wide, confirmed live -- the task's
+  // real subject just isn't FAR/AIM/P-CG material, and an ACS-SEEDED query
+  // (the task's own title, or a Knowledge/Risk/Skill bullet's fixed text --
+  // never something a person actually typed) has no business asserting a
+  // regulatory citation that doesn't exist. A person's own free-typed
+  // search is untouched either way -- they get the same unconstrained
+  // results and the same honest "may only be covered in other FAA
+  // materials" empty state this screen already shows for a literal
+  // zero-result query.
+  if (isAcsSeeded && farParts.length === 0 && namedAcs.length === 0) {
+    filtered = filtered.filter((r) => r.type === 'ac')
+  }
 
   const order: RegType[] = ['far', 'aim', 'ac', 'pcg']
   const groups: RefPackSearchGroup[] = order

@@ -38,9 +38,14 @@ export default function RefPacketTaskScreen() {
   // the FAR parts the ACS actually cites, and so ACs it names by number get
   // pinned above keyword hits. Without it, "Pilot Qualifications" returned
   // § 135.23 (air carrier manual contents) purely on the word match.
-  const runSearch = useCallback((q: string) => {
+  // isAcsSeeded: true when q comes from fixed FAA-authored ACS text (the
+  // task's own title, or a Knowledge/Risk/Skill bullet's body) rather than
+  // something a person actually typed -- see refPackSearch.ts's own
+  // isAcsSeeded comment for why that distinction matters (a real free-typed
+  // search always runs unconstrained).
+  const runSearch = useCallback((q: string, isAcsSeeded = false) => {
     setSearchLoading(true)
-    searchRefPackTopic(q, 4, taskRefsRef.current)
+    searchRefPackTopic(q, 4, taskRefsRef.current, isAcsSeeded)
       .then(setGroups)
       .finally(() => setSearchLoading(false))
   }, [])
@@ -56,7 +61,7 @@ export default function RefPacketTaskScreen() {
   // not a second disconnected search UI.
   const handleTapElement = (bodyText: string) => {
     setQuery(bodyText)
-    runSearch(bodyText)
+    runSearch(bodyText, true)
     scrollRef.current?.scrollTo({ y: Math.max(0, searchSectionY.current - 12), animated: true })
   }
 
@@ -91,7 +96,7 @@ export default function RefPacketTaskScreen() {
       // its real placeholder and start with an actually-empty value; the
       // title-seeded results still populate below via runSearch alone.
       if (t) {
-        runSearch(cleanAcsTaskTitleQuery(t.title))
+        runSearch(cleanAcsTaskTitleQuery(t.title), true)
       }
     })
   }, [taskId, runSearch, hasPlusAccess])
