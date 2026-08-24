@@ -1549,7 +1549,7 @@ function OfflineListView({
         <Icon name="arrow.down.circle" size={fs(40)} color={tokens.t4} />
         <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No downloads yet</Text>
         <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
-          Open any AC, FAR, AIM, P/CG, AD, or LOI and tap "Download" to save it here for reading with no connection.
+          Open any AC, FAR, AIM, P/CG, AD, LOI, or 49 CFR section and tap "Download" to save it here for reading with no connection.
         </Text>
       </View>
     )
