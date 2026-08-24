@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase'
 // text to preview -- parsePreviewRoute returns null for those, and callers
 // should fall back to normal navigation.
 
-export type PreviewKind = 'ac' | 'far' | 'aim' | 'pcg' | 'ad'
+export type PreviewKind = 'ac' | 'far' | 'aim' | 'pcg' | 'ad' | 'loi' | 'cfr49'
 
 export interface RegPreviewData {
   kind: PreviewKind
@@ -29,6 +29,12 @@ export function parsePreviewRoute(route: string): { kind: PreviewKind; id: strin
   if ((m = route.match(/^\/aim\/([^/]+)$/))) return { kind: 'aim', id: decodeURIComponent(m[1]) }
   if ((m = route.match(/^\/pcg\/([^/]+)$/))) return { kind: 'pcg', id: decodeURIComponent(m[1]) }
   if ((m = route.match(/^\/ad\/([^/]+)$/))) return { kind: 'ad', id: decodeURIComponent(m[1]) }
+  // Found 2026-08-24: this pane silently fell back to full navigation for
+  // any /loi/ or /cfr49/ route (RegPreviewPane's own caller already handles
+  // a null return that way), degrading gracefully but never actually
+  // previewing either content type inline the way the other 5 do.
+  if ((m = route.match(/^\/loi\/([^/]+)$/))) return { kind: 'loi', id: decodeURIComponent(m[1]) }
+  if ((m = route.match(/^\/cfr49\/([^/]+)$/))) return { kind: 'cfr49', id: decodeURIComponent(m[1]) }
   return null
 }
 
@@ -93,6 +99,34 @@ export async function fetchRegPreview(kind: PreviewKind, id: string): Promise<Re
         body: data.summary || data.body_text || '',
         fullRoute: `/ad/${data.ad_number}`,
       }
+    }
+    case 'loi': {
+      // legal_interpretations_gated, not the raw table -- same reasoning as
+      // the 'ad' case above: this pane has no hasPlusAccess/hasProAccess
+      // gate of its own, so the raw table would leak a Pro-gated LOI's full
+      // body_text through any MagicLink hover/long-press preview.
+      const { data } = await supabase
+        .from('legal_interpretations_gated')
+        .select('slug, title, summary, body_text')
+        .eq('slug', id)
+        .single()
+      if (!data) return null
+      const cleanTitle = (data.title as string).replace(/_Legal_Interpretation$/i, '').replace(/_/g, ' ')
+      return { kind, id: data.slug, label: cleanTitle, title: cleanTitle, body: data.summary || data.body_text || '', fullRoute: `/loi/${data.slug}` }
+    }
+    case 'cfr49': {
+      // cfr49_sections_gated, not the raw table -- same reasoning as 'ad'/
+      // 'loi' above (see sync/migrations_cfr49_sections_gated_view.sql for
+      // the real leak this exact raw-table shape had on the detail screen
+      // itself, fixed 2026-08-23 -- this pane is a second, separate read
+      // path into the same column that needed the same protection).
+      const { data } = await supabase
+        .from('cfr49_sections_gated')
+        .select('section_number, title, body_text')
+        .eq('section_number', id)
+        .single()
+      if (!data) return null
+      return { kind, id: data.section_number, label: `§ ${data.section_number}`, title: data.title, body: data.body_text ?? '', fullRoute: `/cfr49/${data.section_number}` }
     }
   }
 }
