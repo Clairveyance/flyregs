@@ -740,7 +740,7 @@ function RefPacketGrid({
                   </Text>
                 </View>
               )}
-              <Text style={[styles.packetTitle, { color: tokens.t1, fontSize: fs(13) }]} numberOfLines={3}>
+              <Text style={[styles.packetTitle, { color: tokens.t1, fontSize: fs(13), lineHeight: fs(13) * 1.25 }]} numberOfLines={3}>
                 {mainTitle}
               </Text>
               <Text style={[styles.packetMeta, { color: tokens.t4, fontSize: fs(10.5) }]}>
@@ -775,7 +775,7 @@ function RefPacketGrid({
               delayLongPress={350}
             >
               <Icon name="rosette" size={fs(18)} color={tokens.gold} />
-              <Text style={[styles.packetTitle, { color: tokens.t1, fontSize: fs(13) }]} numberOfLines={3}>
+              <Text style={[styles.packetTitle, { color: tokens.t1, fontSize: fs(13), lineHeight: fs(13) * 1.25 }]} numberOfLines={3}>
                 Multiengine Operations — Private
               </Text>
               <Text style={[styles.packetMeta, { color: tokens.t4, fontSize: fs(10.5) }]}>AMEL · AMES</Text>
@@ -792,7 +792,7 @@ function RefPacketGrid({
               delayLongPress={350}
             >
               <Icon name="rosette" size={fs(18)} color={tokens.gold} />
-              <Text style={[styles.packetTitle, { color: tokens.t1, fontSize: fs(13) }]} numberOfLines={3}>
+              <Text style={[styles.packetTitle, { color: tokens.t1, fontSize: fs(13), lineHeight: fs(13) * 1.25 }]} numberOfLines={3}>
                 Multiengine Operations — Commercial
               </Text>
               <Text style={[styles.packetMeta, { color: tokens.t4, fontSize: fs(10.5) }]}>AMEL · AMES</Text>
@@ -899,7 +899,12 @@ const styles = StyleSheet.create({
   packetCard: {
     width: '47%', borderRadius: 14, borderWidth: 1, padding: 10, gap: 6, minHeight: 92,
   },
-  packetTitle: { fontWeight: '600', lineHeight: 16 },
+  // lineHeight NOT set here -- StyleSheet.create is module-scope, fs() is a
+  // hook only available inside the component. See this file's 3
+  // `styles.packetTitle` JSX call sites for the actual scaled lineHeight --
+  // same fixed-lineHeight-vs-scaled-fontSize clipping risk as
+  // (tabs)/index.tsx's wnTitle, same fix.
+  packetTitle: { fontWeight: '600' },
   packetMeta: { marginTop: 'auto' },
   packetSuffixBadge: {
     alignSelf: 'flex-start', borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2,

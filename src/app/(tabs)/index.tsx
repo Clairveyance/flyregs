@@ -2346,7 +2346,7 @@ function WhatsNewCard({
           {ac.document_number}{isOcrScanned(ac.document_number) ? ' *' : ''}
         </Text>
       </View>
-      <Text style={[styles.wnTitle, { color: tokens.t2, fontSize: fs(11.5) }]} numberOfLines={2}>
+      <Text style={[styles.wnTitle, { color: tokens.t2, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.4 }]} numberOfLines={2}>
         {ac.title}
       </Text>
     </Pressable>
@@ -2401,7 +2401,7 @@ function OtherWhatsNewCard({
           {item.documentNumber}
         </Text>
       </View>
-      <Text style={[styles.wnTitle, { color: tokens.t2, fontSize: fs(11.5) }]} numberOfLines={2}>
+      <Text style={[styles.wnTitle, { color: tokens.t2, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.4 }]} numberOfLines={2}>
         {title}
       </Text>
     </Pressable>
@@ -2726,7 +2726,12 @@ const styles = StyleSheet.create({
   wnTypeTagText: { fontWeight: '700', letterSpacing: 0.3 },
   wnDate: { fontSize: 10.5 },
   wnAcNum: { fontWeight: '700', fontSize: 15, marginBottom: 3 },
-  wnTitle: { fontSize: 11.5, lineHeight: 16 },
+  // lineHeight NOT set here -- StyleSheet.create is module-scope, fs() is a
+  // hook only available inside the component. See this file's two
+  // `styles.wnTitle` JSX call sites for the actual scaled lineHeight, same
+  // fix pattern as NoteEditor.tsx's bodyInput: fs(size) * ratio, applied
+  // inline where fs() is actually in scope.
+  wnTitle: { fontSize: 11.5 },
 
   badge: {
     borderRadius: 5,
