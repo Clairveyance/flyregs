@@ -74,38 +74,41 @@ async function currentUserId(force = false): Promise<string | null> {
 export async function syncPushBookmark(b: BookmarkAC, force = false) {
   const userId = await currentUserId(force)
   if (!userId) return
-  const { error } = await supabase.from('synced_bookmarks').upsert(
-    {
-      id: b.id,
-      user_id: userId,
-      document_number: b.document_number,
-      title: b.title,
-      date_issued: b.date_issued,
-      office: b.office,
-      subject_series: b.subject_series,
-      saved_at: b.savedAt,
-      updated_at: new Date().toISOString(),
-      deleted: false,
-      item_type: b.itemType ?? null,
-      ac_id: b.acId ?? b.id,
-      block_kind: b.blockKind ?? null,
-      block_label: b.blockLabel ?? null,
-      block_snippet: b.blockSnippet ?? null,
-      block_text: b.blockText ?? null,
-    },
-    { onConflict: 'user_id,id' }
-  )
+  // push_bookmark RPC, not a raw upsert -- see
+  // sync/migrations_synced_bookmarks_write_rpc.sql. A raw INSERT ... ON
+  // CONFLICT needs table-level SELECT to evaluate the conflict, which was
+  // the last reason anon/authenticated still had any direct grant on
+  // synced_bookmarks' gated columns (block_text/block_snippet) at all --
+  // this SECURITY DEFINER RPC does the identical write server-side (user_id
+  // taken from auth.uid() internally, never trusted from the caller) so no
+  // caller needs table access anymore.
+  const { error } = await supabase.rpc('push_bookmark', {
+    p_id: b.id,
+    p_document_number: b.document_number,
+    p_title: b.title,
+    p_date_issued: b.date_issued,
+    p_office: b.office,
+    p_subject_series: b.subject_series,
+    p_saved_at: b.savedAt,
+    p_item_type: b.itemType ?? null,
+    p_ac_id: b.acId ?? b.id,
+    p_block_kind: b.blockKind ?? null,
+    p_block_label: b.blockLabel ?? null,
+    p_block_snippet: b.blockSnippet ?? null,
+    p_block_text: b.blockText ?? null,
+  })
   reportSyncError('bookmark upsert', error)
 }
 
 export async function syncPushBookmarkDeletes(ids: string[]) {
   const userId = await currentUserId()
   if (!userId || !ids.length) return
-  const { error } = await supabase
-    .from('synced_bookmarks')
-    .update({ deleted: true, updated_at: new Date().toISOString() })
-    .eq('user_id', userId)
-    .in('id', ids)
+  // soft_delete_bookmarks RPC, not a raw UPDATE -- same reason as
+  // syncPushBookmark's push_bookmark RPC above (sync/migrations_synced_
+  // bookmarks_write_rpc.sql): this plain UPDATE also turned out to need
+  // table-level SELECT once that grant was revoked, confirmed live before
+  // shipping this change.
+  const { error } = await supabase.rpc('soft_delete_bookmarks', { p_ids: ids })
   reportSyncError('bookmark delete', error)
 }
 
