@@ -970,7 +970,7 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
               {isHl && <Text style={[styles.highlightTag, { fontSize: fs(9.5) }]}> HIGHLIGHTED </Text>}
               {isPending && <Text style={[styles.pendingTag, { fontSize: fs(9.5) }]}> SELECTED </Text>}
               {withChangedRail(i,
-                <Text style={[styles.para, { color: tokens.t2, fontSize: fs(14.5) }]}>
+                <Text style={[styles.para, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.52 }]}>
                   {highlightSpans(para, hq, { base: paraBase.get(i) ?? 0, active: activeMatch, redShift })}
                 </Text>
               )}
@@ -1103,7 +1103,7 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
             >
               {isHl && <Text style={[styles.highlightTag, { fontSize: fs(9.5) }]}> HIGHLIGHTED </Text>}
               {isPending && <Text style={[styles.pendingTag, { fontSize: fs(9.5) }]}> SELECTED </Text>}
-              <Text style={[styles.para, { color: tokens.t2, fontSize: fs(14.5) }]}>
+              <Text style={[styles.para, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.52 }]}>
                 {ci === 0 && marker && <Text style={{ fontWeight: '700', color: tokens.t1 }}>{marker} </Text>}
                 {ci === 0 && headerText && <Text style={{ fontWeight: '700', color: tokens.t1 }}>{headerText} </Text>}
                 {segments.map((seg, j) =>

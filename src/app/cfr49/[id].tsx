@@ -585,11 +585,11 @@ export default function Cfr49SectionScreen() {
                 onActiveTableChange={setActiveTable}
               />
             ) : /reserved/i.test(section.title || '') ? (
-              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>
+              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.52 }]}>
                 This section is currently reserved — it has no active regulatory text.
               </Text>
             ) : (
-              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No text available for this section.</Text>
+              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.52 }]}>No text available for this section.</Text>
             )
           ) : (
             // Same firm cutoff as ad/[id].tsx -- no partial preview. The

@@ -484,7 +484,7 @@ function renderBodyContent(
   // body has an intro paragraph immediately before an auto-detected
   // numbered list (e.g. AC 120-49B's "2.2.1 Definitions" section).
   if (intro) nodes.push(
-    <Text key="intro" style={[styles.para, { color: tokens.t2, fontSize: fs(13.5) }]}>{linkify(intro)}</Text>
+    <Text key="intro" style={[styles.para, { color: tokens.t2, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.56 }]}>{linkify(intro)}</Text>
   )
 
   runs.forEach((run, r) => {
@@ -495,7 +495,7 @@ function renderBodyContent(
       nodes.push(
         <View key={`${r}-${item.num}`} style={styles.autoListRow}>
           <Text style={[styles.autoListNum, { color: tokens.t1, fontSize: fs(13) }]}>{item.num}.</Text>
-          <Text style={[styles.autoListBody, { color: tokens.t2, fontSize: fs(13.5) }]}>{linkify(content)}</Text>
+          <Text style={[styles.autoListBody, { color: tokens.t2, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.56 }]}>{linkify(content)}</Text>
         </View>
       )
     })
@@ -998,7 +998,7 @@ export const ACBody = React.forwardRef<
 
   if (!blocks.length) {
     if (!text && !(precomputed && precomputed.length)) return null
-    return <Text style={[styles.para, { color: tokens.t3, fontSize: fs(13.5) }]}>No readable text available.</Text>
+    return <Text style={[styles.para, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.56 }]}>No readable text available.</Text>
   }
 
   return (
@@ -1266,7 +1266,7 @@ export const ACBody = React.forwardRef<
                     )}
                     {rawBody ? (
                       activeHq ? (
-                        <Text selectable style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13) }]}>
+                        <Text selectable style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13), lineHeight: fs(13) * 1.62 }]}>
                           {highlightSpans(rawBody, activeHq, hOpts(bodyBase))}
                         </Text>
                       ) : (
@@ -1274,7 +1274,7 @@ export const ACBody = React.forwardRef<
                           <Text
                             key={ci}
                             selectable
-                            style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13) }, ci > 0 && { marginTop: 8 }]}
+                            style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13), lineHeight: fs(13) * 1.62 }, ci > 0 && { marginTop: 8 }]}
                           >
                             {linkifyChange(chunk)}
                           </Text>
@@ -1319,7 +1319,7 @@ export const ACBody = React.forwardRef<
                 </Text>
                 {rawBody ? (
                   activeHq ? (
-                    <Text selectable style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13.5) }]}>
+                    <Text selectable style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.56 }]}>
                       {highlightSpans(rawBody, activeHq, hOpts(bodyBase))}
                     </Text>
                   ) : sectionListRuns.length ? (
@@ -1335,7 +1335,7 @@ export const ACBody = React.forwardRef<
                       <Text
                         key={ci}
                         selectable
-                        style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13.5) }, ci > 0 && { marginTop: 8 }]}
+                        style={[styles.sectionBody, { color: tokens.t2, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.56 }, ci > 0 && { marginTop: 8 }]}
                       >
                         {linkify(chunk)}
                       </Text>
@@ -1408,7 +1408,7 @@ export const ACBody = React.forwardRef<
                 {UpdatedTag}
                 {HighlightTag}
                 {activeHq ? (
-                  <Text selectable style={[styles.para, { color: tokens.t2, fontSize: fs(13.5) }]}>
+                  <Text selectable style={[styles.para, { color: tokens.t2, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.56 }]}>
                     {highlightSpans(b.text, activeHq, hOpts(base))}
                   </Text>
                 ) : (
@@ -1416,7 +1416,7 @@ export const ACBody = React.forwardRef<
                     <Text
                       key={ci}
                       selectable
-                      style={[styles.para, { color: tokens.t2, fontSize: fs(13.5) }, ci > 0 && { marginTop: 8 }]}
+                      style={[styles.para, { color: tokens.t2, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.56 }, ci > 0 && { marginTop: 8 }]}
                     >
                       {linkify(chunk)}
                     </Text>

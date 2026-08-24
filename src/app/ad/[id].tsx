@@ -742,7 +742,7 @@ export default function AdScreen() {
                 onActiveTableChange={setActiveTable}
               />
             ) : (
-              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No further text available for this AD.</Text>
+              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.52 }]}>No further text available for this AD.</Text>
             )
           ) : (
             // RC, 2026-08-03: "ADs shouldn't come alive until Plus. ADs are

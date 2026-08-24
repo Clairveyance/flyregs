@@ -599,7 +599,7 @@ export default function LoiDetailScreen() {
                 onActiveTableChange={setActiveTable}
               />
             ) : (
-              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No text available for this interpretation.</Text>
+              <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.52 }]}>No text available for this interpretation.</Text>
             )
           ) : (
             // No partial preview -- same call as AD's, and for the same

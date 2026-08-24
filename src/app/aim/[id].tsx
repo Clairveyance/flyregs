@@ -663,7 +663,7 @@ export default function AimParagraphScreen() {
               onActiveTableChange={setActiveTable}
             />
           ) : (
-            <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No text available for this paragraph.</Text>
+            <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.52 }]}>No text available for this paragraph.</Text>
           )}
 
           {/* AIM's own "REFERENCE-" boxes — e.g. "REFERENCE- FAA Advisory

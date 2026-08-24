@@ -691,13 +691,13 @@ export default function FarSectionScreen() {
               onActiveTableChange={setActiveTable}
             />
           ) : /reserved/i.test(section.title || '') ? (
-            <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>
+            <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.52 }]}>
               This section is currently reserved by the FAA — it has no active regulatory text.
               Documents citing it did so while it held different content, or reference it for
               numbering purposes only.
             </Text>
           ) : (
-            <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>No text available for this section.</Text>
+            <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.52 }]}>No text available for this section.</Text>
           )}
         </ScrollView>
         </TabletContainer>

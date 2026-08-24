@@ -575,7 +575,7 @@ export default function PcgTermScreen() {
                 <Text
                   style={[
                     styles.def,
-                    { color: tokens.t2, fontSize: fs(15) },
+                    { color: tokens.t2, fontSize: fs(15), lineHeight: fs(15) * 1.47 },
                   ]}
                 >
                   {hq ? (
@@ -607,7 +607,7 @@ export default function PcgTermScreen() {
               )
             })
           ) : (
-            <Text style={[styles.def, { color: tokens.t2, fontSize: fs(15) }]}>
+            <Text style={[styles.def, { color: tokens.t2, fontSize: fs(15), lineHeight: fs(15) * 1.47 }]}>
               See related term below — no standalone definition.
             </Text>
           )}
