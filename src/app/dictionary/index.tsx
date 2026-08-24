@@ -135,7 +135,7 @@ export default function DictionaryIndexScreen() {
         <View style={styles.center}>
           <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.lockTitle, { color: tokens.t2, fontSize: fs(16) }]}>The Aviation Dictionary is a Plus feature</Text>
-          <Text style={[styles.lockSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.lockSub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             9,800+ terms, acronyms, and contractions from FAA/NOAA sources — searchable and cross-linked
             to the rest of the app.
           </Text>
@@ -193,7 +193,7 @@ export default function DictionaryIndexScreen() {
                   </Text>
                 }
                 ListEmptyComponent={
-                  <Text style={[styles.emptyText, { color: tokens.t3, fontSize: fs(13.5) }]}>
+                  <Text style={[styles.emptyText, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
                     No terms found. Not every contraction has a plain-English match — try the raw code (e.g. "ACARS").
                   </Text>
                 }
@@ -215,7 +215,7 @@ export default function DictionaryIndexScreen() {
                           older "no numberOfLines cap" rule to just this
                           screen; the term detail page still shows full text. */}
                       {item.definition && (
-                        <Text style={[styles.defText, { color: tokens.t3, fontSize: fs(12.5) }]} numberOfLines={3}>{item.definition}</Text>
+                        <Text style={[styles.defText, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]} numberOfLines={3}>{item.definition}</Text>
                       )}
                     </View>
                     <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
@@ -350,7 +350,7 @@ function DailyWordCard({ wordOfDay, tokens }: { wordOfDay: WordOfTheDay | null; 
                 key={i}
                 style={[
                   styles.wordCardDef,
-                  { color: tokens.t2, fontSize: fs(13.5) },
+                  { color: tokens.t2, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 },
                   i < arr.length - 1 && { marginBottom: 8 },
                 ]}
               >
@@ -492,7 +492,10 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
   lockTitle: { fontWeight: '600', marginTop: 6 },
-  lockSub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  lockSub: { textAlign: 'center', maxWidth: 300 },
   lockBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
   lockBtnText: { color: '#fff', fontWeight: '700' },
 
@@ -512,7 +515,10 @@ const styles = StyleSheet.create({
   },
   wordCardLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 2 },
   wordCardTerm: { fontWeight: '600' },
-  wordCardDef: { marginTop: 10, lineHeight: 19 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  wordCardDef: { marginTop: 10 },
   wordCardJump: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     marginTop: 10, alignSelf: 'flex-start', borderBottomWidth: 1, paddingBottom: 2,
@@ -535,14 +541,20 @@ const styles = StyleSheet.create({
   flatList: { flex: 1 },
   list: { padding: 12, paddingBottom: 32 },
   groupLabel: { fontWeight: '600', letterSpacing: 0.5, marginBottom: 8, paddingLeft: 2 },
-  emptyText: { textAlign: 'center', marginTop: 20, lineHeight: 19, paddingHorizontal: 8 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptyText: { textAlign: 'center', marginTop: 20, paddingHorizontal: 8 },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     borderRadius: 12, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 6,
   },
   letter: { fontWeight: '700', width: 24 },
   termText: { fontWeight: '500' },
-  defText: { marginTop: 2, lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  defText: { marginTop: 2 },
   countPill: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
   countText: { fontWeight: '600' },
 })

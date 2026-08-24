@@ -239,7 +239,7 @@ export default function AdIndexScreen() {
                   rows before 2000) rather than assume a round number. */}
               <View style={[styles.coverageNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                 <Icon name="info.circle" size={fs(13)} color={tokens.t3} />
-                <Text style={[styles.coverageNoteText, { color: tokens.t3, fontSize: fs(11.5) }]}>
+                <Text style={[styles.coverageNoteText, { color: tokens.t3, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.39 }]}>
                   FlyRegs' Airworthiness Directives cover from the year 2000 to the present. We may extend coverage further back over time.
                 </Text>
               </View>
@@ -252,7 +252,7 @@ export default function AdIndexScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Search by Part</Text>
-                  <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                  <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
                     Find ADs by named engine, propeller, or avionics part — not just aircraft model
                   </Text>
                 </View>
@@ -289,7 +289,7 @@ export default function AdIndexScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>My Aircraft</Text>
-                  <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                  <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
                     Save an aircraft to get alerted when a new or updated AD applies to it
                   </Text>
                 </View>
@@ -342,7 +342,7 @@ export default function AdIndexScreen() {
                     >
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.adNum, { color: tokens.blu, fontSize: fs(13) }]}>AD {item.ad_number}</Text>
-                        <Text style={[styles.adTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
+                        <Text style={[styles.adTitle, { color: tokens.t1, fontSize: fs(14), lineHeight: fs(14) * 1.29 }]} numberOfLines={2}>
                           {stripAdSubjectPrefix(item.subject_heading)}
                         </Text>
                       </View>
@@ -388,7 +388,7 @@ export default function AdIndexScreen() {
                           >
                             <View style={{ flex: 1 }}>
                               <Text style={[styles.adNum, { color: tokens.blu, fontSize: fs(13) }]}>AD {item.ad_number}</Text>
-                              <Text style={[styles.adTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
+                              <Text style={[styles.adTitle, { color: tokens.t1, fontSize: fs(14), lineHeight: fs(14) * 1.29 }]} numberOfLines={2}>
                                 {stripAdSubjectPrefix(item.subject_heading)}
                               </Text>
                             </View>
@@ -413,7 +413,7 @@ export default function AdIndexScreen() {
                     >
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.adNum, { color: tokens.blu, fontSize: fs(13) }]}>AD {item.ad_number}</Text>
-                        <Text style={[styles.adTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
+                        <Text style={[styles.adTitle, { color: tokens.t1, fontSize: fs(14), lineHeight: fs(14) * 1.29 }]} numberOfLines={2}>
                           {stripAdSubjectPrefix(item.subject_heading)}
                         </Text>
                       </View>
@@ -457,7 +457,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
     borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, marginTop: 10,
   },
-  coverageNoteText: { flex: 1, lineHeight: 16 },
+  // lineHeight NOT set here -- always overridden inline with fs(11.5) * 1.39
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  coverageNoteText: { flex: 1 },
 
   hubCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -465,7 +468,10 @@ const styles = StyleSheet.create({
   },
   hubIconWrap: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   hubTitle: { fontWeight: '600' },
-  hubSub: { marginTop: 2, lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  hubSub: { marginTop: 2 },
 
   recentWrap: { marginTop: 18 },
   // Same root cause as updates.tsx's filter chips (see that file's
@@ -485,5 +491,8 @@ const styles = StyleSheet.create({
     borderRadius: 12, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 6,
   },
   adNum: { fontWeight: '700', marginBottom: 2 },
-  adTitle: { fontWeight: '500', lineHeight: 18 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.29
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  adTitle: { fontWeight: '500' },
 })

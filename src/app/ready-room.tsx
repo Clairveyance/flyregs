@@ -121,7 +121,7 @@ export default function ReadyRoomScreen() {
         <View style={styles.center}>
           <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Ready Room is a Pro feature</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             See how your weekly practice stacks up against other players training toward the same ratings and certifications.
           </Text>
           {/* Same gap already found and fixed once for Duels' own lock
@@ -219,7 +219,7 @@ export default function ReadyRoomScreen() {
         <View style={styles.center}>
           <Icon name={empty.icon} size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>{empty.title}</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>{empty.sub}</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>{empty.sub}</Text>
         </View>
       ) : (
         <TabletContainer>
@@ -341,7 +341,10 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
   emptyTitle: { fontWeight: '600', marginTop: 6 },
-  emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 280 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptySub: { textAlign: 'center', maxWidth: 280 },
   upgradeBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
   upgradeBtnText: { color: '#fff', fontWeight: '700' },
   tabPicker: {

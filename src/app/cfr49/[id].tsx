@@ -488,7 +488,7 @@ export default function Cfr49SectionScreen() {
           )}
           <Text style={[styles.secNum, { color: tokens.blu, fontSize: fs(15) }]}>§ {section.section_number}</Text>
           {section.title && (
-            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>{(section.title ?? '').replace(/^§\s*[\d.]+\s*/, '')}</Text>
+            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17), lineHeight: fs(17) * 1.35 }]}>{(section.title ?? '').replace(/^§\s*[\d.]+\s*/, '')}</Text>
           )}
 
           <View style={{ marginTop: 18 }}>
@@ -602,7 +602,7 @@ export default function Cfr49SectionScreen() {
             >
               <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
               <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Read the full text with Plus</Text>
-              <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+              <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
                 Unlock Plus to read the full text of every 49 CFR section.
               </Text>
               <View style={[styles.proGateBtn, { backgroundColor: tokens.blu }]}>
@@ -655,7 +655,10 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 40 },
   subpart: { fontSize: 12, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.3 },
   secNum: { fontWeight: '600', fontSize: 15 },
-  title: { fontWeight: '600', fontSize: 17, marginTop: 2, marginBottom: 14, lineHeight: 23 },
+  // lineHeight NOT set here -- always overridden inline with fs(17) * 1.35
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  title: { fontWeight: '600', fontSize: 17, marginTop: 2, marginBottom: 14 },
   barsWrap: { gap: 10, marginTop: 10, marginBottom: 22 },
   tablesBar: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -675,7 +678,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   proGateTitle: { fontWeight: '700', fontSize: 16, marginTop: 4 },
-  proGateSub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 260 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  proGateSub: { fontSize: 13.5, textAlign: 'center', maxWidth: 260 },
   proGateBtn: {
     marginTop: 8,
     borderRadius: 12,

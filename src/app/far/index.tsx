@@ -208,7 +208,7 @@ export default function FarIndexScreen() {
                       fallback here (same bug shape as AIM's original paraNum
                       report). */}
                   <Text style={[styles.recentChipNum, { color: tokens.blu, fontSize: fs(12.5) }]} numberOfLines={1}>{r.document_number}</Text>
-                  <Text style={[styles.recentChipTitle, { color: tokens.t2, fontSize: fs(11) }]} numberOfLines={1}>
+                  <Text style={[styles.recentChipTitle, { color: tokens.t2, fontSize: fs(11), lineHeight: fs(11) * 1.27 }]} numberOfLines={1}>
                     {stripFarPrefix(r.title)}
                   </Text>
                 </Pressable>
@@ -348,7 +348,10 @@ const styles = StyleSheet.create({
     width: 130, borderRadius: 12, borderWidth: 1, padding: 10, gap: 3,
   },
   recentChipNum: { fontWeight: '700' },
-  recentChipTitle: { lineHeight: 14 },
+  // lineHeight NOT set here -- always overridden inline with fs(11) * 1.27
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  recentChipTitle: {},
 
   flatList: { flex: 1 },
   list: { padding: 12, paddingBottom: 32 },

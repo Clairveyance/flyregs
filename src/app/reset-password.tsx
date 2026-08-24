@@ -101,7 +101,7 @@ export default function ResetPasswordScreen() {
       <View style={[styles.root, { backgroundColor: tokens.bg, paddingTop: insets.top + 40 }]}>
         <Icon name="xmark.circle" size={fs(44)} color={tokens.red} />
         <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Link expired</Text>
-        <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+        <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
           This reset link is invalid or has expired. Request a new one from the sign-in screen.
         </Text>
         {/* dismissTo, same reasoning as the 'done' branch above -- a stale
@@ -184,7 +184,10 @@ export default function ResetPasswordScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, alignItems: 'center', paddingHorizontal: 32, gap: 12 },
   title: { fontWeight: '700', textAlign: 'center', marginTop: 8 },
-  sub: { textAlign: 'center', lineHeight: 20, maxWidth: 320 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.43
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  sub: { textAlign: 'center', maxWidth: 320 },
   inputWrap: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -173,7 +173,7 @@ export function AircraftDowngradeGate() {
             <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>
               {pending ? `Keep ${label(pending)} only?` : `Delete all ${going.length} aircraft?`}
             </Text>
-            <Text style={[styles.body, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            <Text style={[styles.body, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
               {pending
                 ? `${going.length === 1 ? 'This aircraft' : `These ${going.length} aircraft`} will be permanently deleted, with their equipment, reminders, and AD history. This cannot be undone.`
                 : "Your plan doesn't include Aircraft Manager, so none of these can stay. They'll be permanently deleted, with their equipment, reminders, and AD history. This cannot be undone."}
@@ -263,7 +263,7 @@ export function AircraftDowngradeGate() {
             <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>
               Your plan doesn't include Aircraft Manager
             </Text>
-            <Text style={[styles.body, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            <Text style={[styles.body, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
               Saved aircraft are stored on our servers, and come with Pro or Premium. Your current plan can't keep any of these {locked.length} — upgrade to keep them, or delete them to continue.
             </Text>
             <Pressable
@@ -304,7 +304,7 @@ export function AircraftDowngradeGate() {
               <Text style={[styles.primaryBtnText, { fontSize: fs(14.5) }]}>Delete All {locked.length} Aircraft</Text>
             </Pressable>
 
-            <Text style={[styles.footnote, { color: tokens.t4, fontSize: fs(11.5) }]}>
+            <Text style={[styles.footnote, { color: tokens.t4, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.39 }]}>
               Nothing is deleted until you choose. Your aircraft stay locked, not lost — upgrading restores all of them.
             </Text>
           </View>
@@ -329,7 +329,7 @@ export function AircraftDowngradeGate() {
           </Text>
           {/* RC: "the CTA says 'upgrade' but if a user has 4 a/c they're
               already Prem. so this box should say 'Stay with Premium'." */}
-          <Text style={[styles.body, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.body, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             Saved aircraft are stored on our servers, so they come with Premium. Your plan no longer includes {locked.length} — pick the one that comes with you to Pro, or stay on Premium and keep them all.
           </Text>
           <Pressable
@@ -366,7 +366,7 @@ export function AircraftDowngradeGate() {
             ))}
           </ScrollView>
 
-          <Text style={[styles.footnote, { color: tokens.t4, fontSize: fs(11.5) }]}>
+          <Text style={[styles.footnote, { color: tokens.t4, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.39 }]}>
             Nothing is deleted until you choose. Your aircraft stay locked, not lost — resubscribing restores all of them.
           </Text>
         </View>
@@ -400,7 +400,10 @@ const styles = StyleSheet.create({
     padding: 22, alignItems: 'center', gap: 10,
   },
   title: { fontWeight: '700', textAlign: 'center' },
-  body: { textAlign: 'center', lineHeight: 19 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  body: { textAlign: 'center' },
   primaryBtn: { borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12, marginTop: 4 },
   primaryBtnText: { color: '#000', fontWeight: '700' },
   list: { alignSelf: 'stretch', maxHeight: 240, marginTop: 4 },
@@ -410,5 +413,8 @@ const styles = StyleSheet.create({
   },
   rowText: { flex: 1, fontWeight: '600' },
   rowAction: { fontWeight: '700' },
-  footnote: { textAlign: 'center', lineHeight: 16, marginTop: 2 },
+  // lineHeight NOT set here -- always overridden inline with fs(11.5) * 1.39
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  footnote: { textAlign: 'center', marginTop: 2 },
 })

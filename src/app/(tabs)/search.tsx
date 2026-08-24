@@ -311,7 +311,7 @@ export default function TheWingScreen() {
             <Text style={[styles.lockedTitle, { color: tokens.t1, fontSize: fs(17) }]}>
               The Wing is a paid feature
             </Text>
-            <Text style={[styles.lockedBody, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            <Text style={[styles.lockedBody, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
               Study Mode flashcards, Duels against other players, RefPacks for your
               certificate, Challenge Coins and the Ready Room leaderboard all live here
               — and much more.
@@ -407,7 +407,7 @@ export default function TheWingScreen() {
                 <Text style={[styles.signInTitle, { color: tokens.t1, fontSize: fs(14) }]}>
                   Sign in to track your progress
                 </Text>
-                <Text style={[styles.signInSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                <Text style={[styles.signInSub, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
                   Study mastery, your Duel record, and Challenge Coins all live on your account.
                 </Text>
               </View>
@@ -441,7 +441,7 @@ export default function TheWingScreen() {
                     <Icon name="text.bubble.fill" size={fs(26)} color={tokens.grn} />
                   </View>
                   <Text style={[styles.hubTileTitle, { color: tokens.t1, fontSize: fs(15) }]}>Ask FlyRegs</Text>
-                  <Text style={[styles.hubTileSub, { color: tokens.t3, fontSize: fs(12) }]}>
+                  <Text style={[styles.hubTileSub, { color: tokens.t3, fontSize: fs(12), lineHeight: fs(12) * 1.33 }]}>
                     Plain-English answers to real questions
                   </Text>
                 </Pressable>
@@ -455,7 +455,7 @@ export default function TheWingScreen() {
                     <Icon name="rectangle.stack" size={fs(26)} color={tokens.blu} />
                   </View>
                   <Text style={[styles.hubTileTitle, { color: tokens.t1, fontSize: fs(15) }]}>Study Mode</Text>
-                  <Text style={[styles.hubTileSub, { color: tokens.t3, fontSize: fs(12) }]}>
+                  <Text style={[styles.hubTileSub, { color: tokens.t3, fontSize: fs(12), lineHeight: fs(12) * 1.33 }]}>
                     {mastery && mastery.seen > 0
                       ? `${mastery.mastered} of ${mastery.total_available} mastered`
                       : 'Spaced-repetition flashcards'}
@@ -471,7 +471,7 @@ export default function TheWingScreen() {
                     <Icon name="trophy" size={fs(26)} color={tokens.gold} />
                   </View>
                   <Text style={[styles.hubTileTitle, { color: tokens.t1, fontSize: fs(15) }]}>Challenge a friend</Text>
-                  <Text style={[styles.hubTileSub, { color: tokens.t3, fontSize: fs(12) }]}>
+                  <Text style={[styles.hubTileSub, { color: tokens.t3, fontSize: fs(12), lineHeight: fs(12) * 1.33 }]}>
                     Multiple-choice quiz, most correct wins
                   </Text>
                 </Pressable>
@@ -489,7 +489,7 @@ export default function TheWingScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Ask FlyRegs</Text>
-                  <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                  <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
                     Ask a real question in plain English — get the passages that actually answer it
                   </Text>
                 </View>
@@ -506,7 +506,7 @@ export default function TheWingScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>Study Mode</Text>
-                  <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                  <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
                     {mastery && mastery.seen > 0
                       ? `${mastery.mastered} of ${mastery.total_available} items mastered`
                       : 'Spaced-repetition flashcards across FAR, AIM, P/CG, and ACs'}
@@ -529,7 +529,7 @@ export default function TheWingScreen() {
                       descrip" -- the score already shows on the identity card
                       above (W-L chip) and on Profile's own Duel record section,
                       so this line stays the plain generic descriptor always. */}
-                  <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                  <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
                     Multiple-choice quiz across FAR, AIM, P/CG, AC — most correct wins, time breaks ties
                   </Text>
                 </View>
@@ -815,7 +815,10 @@ const styles = StyleSheet.create({
   },
   lockedWrap: { alignItems: 'center', justifyContent: 'center', padding: 28, gap: 10, paddingTop: 80 },
   lockedTitle: { fontWeight: '700', marginTop: 6 },
-  lockedBody: { textAlign: 'center', lineHeight: 20, maxWidth: 330 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  lockedBody: { textAlign: 'center', maxWidth: 330 },
   lockedBtn: { borderRadius: 22, paddingHorizontal: 24, paddingVertical: 12, marginTop: 12 },
   lockedBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   root: { flex: 1 },
@@ -834,7 +837,10 @@ const styles = StyleSheet.create({
     borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 18,
   },
   signInTitle: { fontWeight: '600' },
-  signInSub: { marginTop: 2, lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  signInSub: { marginTop: 2 },
 
   identityCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -858,7 +864,10 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   hubTitle: { fontWeight: '600' },
-  hubSub: { marginTop: 2, lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  hubSub: { marginTop: 2 },
 
   // iPad tile grid (see isTablet branch above) -- icon-forward, centered,
   // taller tiles instead of the phone's icon-left list rows.
@@ -873,7 +882,10 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginBottom: 2,
   },
   hubTileTitle: { fontWeight: '700', textAlign: 'center' },
-  hubTileSub: { textAlign: 'center', lineHeight: 16 },
+  // lineHeight NOT set here -- always overridden inline with fs(12) * 1.33
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  hubTileSub: { textAlign: 'center' },
   hubTileLock: { position: 'absolute', top: 12, right: 12 },
 
   // Ref Packet grid

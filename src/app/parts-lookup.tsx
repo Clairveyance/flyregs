@@ -133,7 +133,7 @@ export default function PartsLookupScreen() {
           >
             <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
             <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Parts Lookup is a Plus feature</Text>
-            <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
               Search ADs by a specific part — an engine model, a muffler, an avionics box — across the entire AD catalog. Unlock Plus to use it.
             </Text>
             <View style={[styles.proGateBtn, { backgroundColor: tokens.blu }]}>
@@ -165,7 +165,7 @@ export default function PartsLookupScreen() {
           <View style={styles.center}>
             <Icon name="wrench" size={fs(34)} color={tokens.t4} />
             <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Search by part or component</Text>
-            <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
               Some ADs apply to a specific part — a muffler, an engine model, an avionics box — regardless of what
               aircraft it's installed on. Search here to find those.
             </Text>
@@ -177,7 +177,7 @@ export default function PartsLookupScreen() {
         ) : results.length === 0 ? (
           <View style={styles.center}>
             <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No parts found</Text>
-            <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
               This catalog only covers parts that have actually been named in an AD's applicability text — try a
               different term, or browse ADs directly from Home.
             </Text>
@@ -193,21 +193,21 @@ export default function PartsLookupScreen() {
               partialMatch ? (
                 <View style={[styles.relatedNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                   <Icon name="info.circle" size={fs(14)} color={tokens.t3} />
-                  <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                  <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
                     No direct match for "{partialMatch.droppedWords.join(' ')}" — showing results for "{partialMatch.usedWords.join(' ')}" instead. Double-check the model number?
                   </Text>
                 </View>
               ) : fuzzyMatch ? (
                 <View style={[styles.relatedNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                   <Icon name="info.circle" size={fs(14)} color={tokens.t3} />
-                  <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                  <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
                     No exact match for "{fuzzyMatch.originalQuery}" — showing the closest matches instead.
                   </Text>
                 </View>
               ) : relatedTo ? (
                 <View style={[styles.relatedNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                   <Icon name="info.circle" size={fs(14)} color={tokens.t3} />
-                  <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                  <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
                     No exact match for "{query.trim()}" — showing {TYPE_LABELS[relatedTo]} parts, the closest category.
                   </Text>
                 </View>
@@ -241,7 +241,7 @@ export default function PartsLookupScreen() {
                       {loadingAds === item.id ? (
                         <ActivityIndicator color={tokens.blu} style={{ paddingVertical: 12 }} />
                       ) : ads.length === 0 ? (
-                        <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(12.5), padding: 12 }]}>No ADs found</Text>
+                        <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.41, padding: 12 }]}>No ADs found</Text>
                       ) : (
                         <>
                           {/* Previously the count was only visible by counting
@@ -295,7 +295,10 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 8 },
   emptyTitle: { fontWeight: '600', marginTop: 6 },
-  emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 320 },
+  // lineHeight NOT set here -- always overridden inline with fs(size) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptySub: { textAlign: 'center', maxWidth: 320 },
   proGate: {
     marginTop: 16,
     borderRadius: 16,
@@ -305,7 +308,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   proGateTitle: { fontWeight: '700', fontSize: 16, marginTop: 4 },
-  proGateSub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 280 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  proGateSub: { fontSize: 13.5, textAlign: 'center', maxWidth: 280 },
   proGateBtn: {
     marginTop: 8,
     borderRadius: 12,
@@ -317,7 +323,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'flex-start', gap: 7,
     borderRadius: 10, borderWidth: 1, padding: 10, marginBottom: 10,
   },
-  relatedNoteText: { flex: 1, lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  relatedNoteText: { flex: 1 },
   upgradeBtn: { borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12, marginTop: 12 },
   upgradeBtnText: { color: '#fff', fontWeight: '700', fontSize: 14.5 },
 

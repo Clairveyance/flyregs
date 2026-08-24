@@ -367,7 +367,7 @@ export default function RecentsScreen() {
         <View style={styles.center}>
           <Icon name="clock" size={fs(40)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No history yet</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
             Anything you open will appear here so you can jump back quickly
           </Text>
         </View>
@@ -602,7 +602,7 @@ function SwipeableRecentRow({
                     )
                   })()}
                 </View>
-                <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
+                <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.38 }]} numberOfLines={2}>
                   {rowTitle(item.document_number, item.title)}
                 </Text>
                 <View style={styles.metaActionRow}>
@@ -649,7 +649,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   emptyTitle: { fontWeight: '600', fontSize: 16, marginTop: 8, textAlign: 'center' },
-  emptySub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, marginTop: 4 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptySub: { fontSize: 13.5, textAlign: 'center', marginTop: 4 },
 
   // Same tap-target fix as notes.tsx/saved.tsx's All/None-vs-Done: Select
   // and Clear All both carry hitSlop={8}, so gap:14 still let their real
@@ -709,7 +712,10 @@ const styles = StyleSheet.create({
   rowNumBadgeWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   rowBadge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 1.5 },
   rowBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
-  rowTitle: { fontWeight: '500', fontSize: 14.5, lineHeight: 20 },
+  // lineHeight NOT set here -- always overridden inline with fs(14.5) * 1.38
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  rowTitle: { fontWeight: '500', fontSize: 14.5 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   meta: { fontSize: 11 },
   time: { fontSize: 11 },

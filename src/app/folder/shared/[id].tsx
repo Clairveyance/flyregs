@@ -677,7 +677,7 @@ export default function SharedFolderDetail() {
                   <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
                     {item.title || 'Untitled'}
                   </Text>
-                  <Text style={[styles.noteBody, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={2}>
+                  <Text style={[styles.noteBody, { color: tokens.t2, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.44 }]} numberOfLines={2}>
                     {item.body}
                   </Text>
                   <View style={styles.rowFooter}>
@@ -731,7 +731,7 @@ export default function SharedFolderDetail() {
                     placeholderTextColor={tokens.t3}
                   />
                   <TextInput
-                    style={[styles.modalBodyInput, { color: tokens.t2, fontSize: ifs(14.5), borderColor: tokens.bdr2 }]}
+                    style={[styles.modalBodyInput, { color: tokens.t2, fontSize: ifs(14.5), lineHeight: ifs(14.5) * 1.45, borderColor: tokens.bdr2 }]}
                     value={noteEditBody}
                     onChangeText={setNoteEditBody}
                     placeholder="Note"
@@ -744,7 +744,7 @@ export default function SharedFolderDetail() {
                   <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(18) }]}>
                     {openNote?.title || 'Untitled'}
                   </Text>
-                  <Text style={[styles.modalBody, { color: tokens.t2, fontSize: fs(14.5) }]}>{openNote?.body}</Text>
+                  <Text style={[styles.modalBody, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.45 }]}>{openNote?.body}</Text>
                 </>
               )}
 
@@ -909,7 +909,7 @@ export default function SharedFolderDetail() {
                   autoFocus
                 />
                 <TextInput
-                  style={[styles.modalBodyInput, { color: tokens.t2, fontSize: ifs(14.5), borderColor: tokens.bdr2 }]}
+                  style={[styles.modalBodyInput, { color: tokens.t2, fontSize: ifs(14.5), lineHeight: ifs(14.5) * 1.45, borderColor: tokens.bdr2 }]}
                   value={newNoteBody}
                   onChangeText={setNewNoteBody}
                   placeholder="Note"
@@ -954,7 +954,10 @@ const styles = StyleSheet.create({
   emptySub: { textAlign: 'center', marginTop: 2 },
   list: { padding: 16, gap: 10 },
   sectionHeader: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 6, marginTop: 4 },
-  noteBody: { marginTop: 3, lineHeight: 18 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.44
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  noteBody: { marginTop: 3 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1012,7 +1015,10 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   modalScroll: {},
   modalTitle: { fontWeight: '700', marginBottom: 10 },
-  modalBody: { lineHeight: 21 },
+  // lineHeight NOT set here -- always overridden inline with fs(14.5) * 1.45
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  modalBody: {},
   modalChipSection: { marginTop: 16 },
   detectedLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 8 },
   detectedChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -1022,7 +1028,10 @@ const styles = StyleSheet.create({
   modalEditBtn: { marginLeft: 'auto', marginRight: 12, padding: 2 },
   headerTitle: { flex: 1, fontWeight: '700' },
   modalTitleInput: { fontWeight: '700', marginBottom: 10, borderWidth: 1, borderRadius: 8, padding: 8 },
-  modalBodyInput: { lineHeight: 21, borderWidth: 1, borderRadius: 8, padding: 8, minHeight: 100, textAlignVertical: 'top' },
+  // lineHeight NOT set here -- always overridden inline with ifs(14.5) * 1.45
+  // (StyleSheet.create is module-scope, ifs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  modalBodyInput: { borderWidth: 1, borderRadius: 8, padding: 8, minHeight: 100, textAlignVertical: 'top' },
   saveNoteBtn: { borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   saveNoteBtnText: { color: '#fff', fontWeight: '600' },
 })

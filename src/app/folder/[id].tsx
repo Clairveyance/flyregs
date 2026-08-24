@@ -993,7 +993,7 @@ export default function FolderDetail() {
         <View style={styles.empty}>
           <Icon name="folder" size={fs(40)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Folder is empty</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
             Add bookmarks from the Saved tab or notes from the Notes tab using the folder icon on each card.
           </Text>
         </View>
@@ -1295,7 +1295,7 @@ function SwipeableACRow({
               })()}
             </View>
             {rowTitle(item.document_number, item.title) ? (
-              <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>{rowTitle(item.document_number, item.title)}</Text>
+              <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]} numberOfLines={2}>{rowTitle(item.document_number, item.title)}</Text>
             ) : null}
             {item.office && (
               <Text style={[styles.rowMeta, { color: tokens.t4, fontSize: fs(11) }]}>{item.office}</Text>
@@ -1415,10 +1415,10 @@ function SwipeableNoteRow({
             <Text style={[styles.typeBadgeText, { color: tokens.grn, fontSize: fs(9.5) }]}>NOTE</Text>
           </View>
           <View style={styles.rowBody}>
-            <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
+            <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]} numberOfLines={1}>
               {note.title || 'Untitled'}
             </Text>
-            <Text style={[styles.rowPreview, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={2}>
+            <Text style={[styles.rowPreview, { color: tokens.t2, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.44 }]} numberOfLines={2}>
               {note.body}
             </Text>
             <View style={styles.rowFooter}>
@@ -1509,7 +1509,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   emptyTitle: { fontWeight: '600', fontSize: 16, marginTop: 8, textAlign: 'center' },
-  emptySub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 300 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptySub: { fontSize: 13.5, textAlign: 'center', maxWidth: 300 },
 
   list: { padding: 12, paddingBottom: 40 },
   sectionLabel: {
@@ -1558,8 +1561,14 @@ const styles = StyleSheet.create({
   rowNumBadgeWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   rowNumBadge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 1.5 },
   rowNumBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
-  rowTitle: { fontWeight: '500', fontSize: 14, lineHeight: 20 },
-  rowPreview: { fontSize: 12.5, lineHeight: 18 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.43
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  rowTitle: { fontWeight: '500', fontSize: 14 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.44
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  rowPreview: { fontSize: 12.5 },
   rowFooter: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
   rowMeta: { fontSize: 11 },
   acChip: {

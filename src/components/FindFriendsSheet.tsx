@@ -235,7 +235,7 @@ export function FindFriendsPickerBody({
         <View style={[styles.phoneBanner, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
             <Icon name="iphone" size={fs(16)} color={tokens.blu} style={{ marginTop: 1 }} />
-            <Text style={[styles.phoneBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
+            <Text style={[styles.phoneBannerText, { color: tokens.t2, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
               Add your phone number so more of your contacts can find you.
             </Text>
             <Pressable onPress={dismissPhoneBanner} hitSlop={10}>
@@ -488,7 +488,10 @@ const styles = StyleSheet.create({
   searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginTop: 12, marginBottom: 6, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, borderWidth: 1 },
   searchInput: { flex: 1, padding: 0 },
   phoneBanner: { marginHorizontal: 14, marginTop: 12, padding: 12, borderRadius: 10, borderWidth: 1 },
-  phoneBannerText: { flex: 1, lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  phoneBannerText: { flex: 1 },
   phoneBannerInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   phoneBannerAddBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
   groupLabel: { fontWeight: '600', letterSpacing: 0.5, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6 },

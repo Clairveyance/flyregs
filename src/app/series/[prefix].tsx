@@ -265,7 +265,7 @@ function ACRow({
           <Text style={{ color: tokens.t4 }}> *</Text>
         )}
       </Text>
-      <Text style={[styles.title, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
+      <Text style={[styles.title, { color: tokens.t1, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.38 }]} numberOfLines={2}>
         {item.title}
       </Text>
       {(item.office || !!figureCount) && (
@@ -323,7 +323,10 @@ const styles = StyleSheet.create({
   change: { fontSize: 11 },
 
   acNum: { fontWeight: '700', fontSize: 13 },
-  title: { fontWeight: '500', fontSize: 14.5, lineHeight: 20 },
+  // lineHeight NOT set here -- always overridden inline with fs(14.5) * 1.38
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  title: { fontWeight: '500', fontSize: 14.5 },
   office: { fontSize: 11.5, marginTop: 2 },
   metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
   tidbit: { flexDirection: 'row', alignItems: 'center', gap: 3 },

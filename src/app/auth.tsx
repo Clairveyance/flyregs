@@ -309,7 +309,7 @@ export default function AuthScreen() {
           <>
             <Icon name="envelope" size={fs(40)} color={tokens.blu} style={{ alignSelf: 'center', marginBottom: 8 }} />
             <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(22) }]}>Check your email</Text>
-            <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+            <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
               We sent a confirmation link to {email.trim()}. Tap it, then come back and sign in.
             </Text>
 
@@ -339,7 +339,7 @@ export default function AuthScreen() {
           <>
             <Icon name="lock" size={fs(40)} color={tokens.blu} style={{ alignSelf: 'center', marginBottom: 8 }} />
             <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(22) }]}>Reset your password</Text>
-            <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+            <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
               Enter your account email and we'll send you a link to set a new password.
             </Text>
 
@@ -361,7 +361,7 @@ export default function AuthScreen() {
               <Text style={[styles.fieldError, { color: tokens.red, fontSize: fs(12.5) }]}>{emailError}</Text>
             ) : null}
             {formError ? (
-              <Text style={[styles.formError, { color: tokens.red, fontSize: fs(13) }]}>{formError}</Text>
+              <Text style={[styles.formError, { color: tokens.red, fontSize: fs(13), lineHeight: fs(13) * 1.38 }]}>{formError}</Text>
             ) : null}
 
             <Pressable
@@ -384,7 +384,7 @@ export default function AuthScreen() {
           <>
             <Icon name="envelope" size={fs(40)} color={tokens.blu} style={{ alignSelf: 'center', marginBottom: 8 }} />
             <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(22) }]}>Check your email</Text>
-            <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+            <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
               If an account exists for {email.trim()}, we've sent a link to reset your password.
             </Text>
 
@@ -415,7 +415,7 @@ export default function AuthScreen() {
             <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(22) }]}>
               {mode === 'signin' ? 'Welcome back' : 'Create your account'}
             </Text>
-            <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+            <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
               {mode === 'signin'
                 ? 'Sign in to manage your account and subscription.'
                 : "It's free to create an account — Pro and Premium features unlock once you subscribe."}
@@ -504,7 +504,7 @@ export default function AuthScreen() {
               <Text style={[styles.fieldError, { color: tokens.red, fontSize: fs(12.5) }]}>{passwordError}</Text>
             ) : null}
             {formError ? (
-              <Text style={[styles.formError, { color: tokens.red, fontSize: fs(13) }]}>{formError}</Text>
+              <Text style={[styles.formError, { color: tokens.red, fontSize: fs(13), lineHeight: fs(13) * 1.38 }]}>{formError}</Text>
             ) : null}
 
             {mode === 'signin' && (
@@ -545,7 +545,7 @@ export default function AuthScreen() {
               </Text>
             </Pressable>
 
-            <Text style={[styles.legal, { color: tokens.t4, fontSize: fs(11.5) }]}>
+            <Text style={[styles.legal, { color: tokens.t4, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.48 }]}>
               By continuing you agree to our{' '}
               <Text style={{ color: tokens.blu }} onPress={() => router.push('/terms')}>
                 Terms of Use
@@ -578,7 +578,10 @@ const styles = StyleSheet.create({
 
   inner: { padding: 24, gap: 14 },
   headline: { fontSize: 22, fontWeight: '700', textAlign: 'center' },
-  sub: { fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 4 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.43
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  sub: { fontSize: 14, textAlign: 'center', marginBottom: 4 },
 
   inputWrap: {
     flexDirection: 'row',
@@ -606,11 +609,17 @@ const styles = StyleSheet.create({
   dividerText: { fontWeight: '600' },
 
   fieldError: { marginTop: -8, marginLeft: 4 },
-  formError: { textAlign: 'center', lineHeight: 18, marginTop: 2 },
+  // lineHeight NOT set here -- always overridden inline with fs(13) * 1.38
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  formError: { textAlign: 'center', marginTop: 2 },
   forgotRow: { alignItems: 'flex-end', marginTop: -6 },
   switchRow: { flexDirection: 'row', justifyContent: 'center' },
   switchText: { fontSize: 14 },
   switchLink: { fontSize: 14, fontWeight: '600' },
 
-  legal: { fontSize: 11.5, textAlign: 'center', lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(11.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  legal: { fontSize: 11.5, textAlign: 'center' },
 })

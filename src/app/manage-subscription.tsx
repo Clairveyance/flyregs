@@ -276,7 +276,7 @@ export default function ManageSubscriptionScreen() {
         />
 
         {tier !== 'free' && (
-          <Text style={[styles.footnote, { color: tokens.t4, fontSize: fs(11.5) }]}>
+          <Text style={[styles.footnote, { color: tokens.t4, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.39 }]}>
             Subscriptions are billed through the {Platform.OS === 'android' ? 'Google Play' : 'App Store'}. Cancelling or
             changing your plan happens through your {Platform.OS === 'android' ? 'Google' : 'Apple'} account, not in FlyRegs directly.
           </Text>
@@ -331,5 +331,8 @@ const styles = StyleSheet.create({
   rowIcon: { width: 22, alignItems: 'center' },
   rowLabel: { flex: 1, fontWeight: '500' },
 
-  footnote: { lineHeight: 16, marginTop: 4, paddingHorizontal: 4 },
+  // lineHeight NOT set here -- always overridden inline with fs(11.5) * 1.39
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  footnote: { marginTop: 4, paddingHorizontal: 4 },
 })

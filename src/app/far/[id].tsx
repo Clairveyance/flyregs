@@ -591,7 +591,7 @@ export default function FarSectionScreen() {
           )}
           <Text style={[styles.secNum, { color: tokens.blu, fontSize: fs(15) }]}>§ {section.section_number}</Text>
           {section.title && (
-            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>{stripFarPrefix(section.title)}</Text>
+            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17), lineHeight: fs(17) * 1.35 }]}>{stripFarPrefix(section.title)}</Text>
           )}
 
           {/* Download only — the FARs come from eCFR XML and have no PDF to
@@ -744,7 +744,10 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 40 },
   subpart: { fontSize: 12, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.3 },
   secNum: { fontWeight: '600', fontSize: 15 },
-  title: { fontWeight: '600', fontSize: 17, marginTop: 2, marginBottom: 14, lineHeight: 23 },
+  // lineHeight NOT set here -- always overridden inline with fs(17) * 1.35
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  title: { fontWeight: '600', fontSize: 17, marginTop: 2, marginBottom: 14 },
   // Breathing room around the action/MagicLink stack. These bars used to
   // butt straight up against the Download button above and the body text
   // below, so the whole block read as one cramped slab.

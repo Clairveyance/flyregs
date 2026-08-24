@@ -129,7 +129,7 @@ export default function RefPacketTaskScreen() {
         <View style={styles.center}>
           <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.lockTitle, { color: tokens.t2, fontSize: fs(16) }]}>RefPacks are a Plus feature</Text>
-          <Text style={[styles.lockSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.lockSub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             Certificate and rating study guides, built from the FAA's own ACS/PTS standards — every reference
             already linked to the real FAR, AC, and AIM text.
           </Text>
@@ -163,7 +163,7 @@ export default function RefPacketTaskScreen() {
         <View style={styles.center}>
           <Icon name="questionmark.circle" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.lockTitle, { color: tokens.t2, fontSize: fs(16) }]}>Task not found</Text>
-          <Text style={[styles.lockSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.lockSub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             This task couldn't be loaded. Check your connection and go back to try again.
           </Text>
         </View>
@@ -184,14 +184,14 @@ export default function RefPacketTaskScreen() {
               </Text>
             </View>
 
-            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(19) }]}>{task.title}</Text>
+            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(19), lineHeight: fs(19) * 1.37 }]}>{task.title}</Text>
 
             {task.objective && (
               <Section label="OBJECTIVE" tokens={tokens} fs={fs}>
                 {splitIntoDisplayParagraphs(task.objective).map((para, i, arr) => (
                   <Text
                     key={i}
-                    style={[styles.body, { color: tokens.t2, fontSize: fs(14) }, i < arr.length - 1 && { marginBottom: 8 }]}
+                    style={[styles.body, { color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }, i < arr.length - 1 && { marginBottom: 8 }]}
                   >
                     {para}
                   </Text>
@@ -269,7 +269,7 @@ export default function RefPacketTaskScreen() {
                           )}
                         </Text>
                         {!!r.secondary && (
-                          <Text style={[styles.regSecondary, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={2}>
+                          <Text style={[styles.regSecondary, { color: tokens.t3, fontSize: fs(12), lineHeight: fs(12) * 1.33 }]} numberOfLines={2}>
                             {highlightSpans(r.secondary, query, { redShift })}
                           </Text>
                         )}
@@ -285,7 +285,7 @@ export default function RefPacketTaskScreen() {
                 {splitIntoDisplayParagraphs(task.referencesText).map((para, i, arr) => (
                   <Text
                     key={i}
-                    style={[styles.body, { color: tokens.t3, fontSize: fs(12.5) }, i < arr.length - 1 && { marginBottom: 8 }]}
+                    style={[styles.body, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.5 }, i < arr.length - 1 && { marginBottom: 8 }]}
                   >
                     {para}
                   </Text>
@@ -345,7 +345,7 @@ function ElementGroup({
   return (
     <View style={styles.section}>
       <Text style={[styles.sectionLabel, { color: tokens.t3, fontSize: fs(11) }]}>{label}</Text>
-      <Text style={[styles.elementHint, { color: tokens.t4, fontSize: fs(11.5) }]}>
+      <Text style={[styles.elementHint, { color: tokens.t4, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.3 }]}>
         Tap any item below to search Related Regulations above for it.
       </Text>
       <View style={[styles.elementCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
@@ -359,7 +359,7 @@ function ElementGroup({
             {splitIntoDisplayParagraphs(el.bodyText).map((para, pi, parr) => (
               <Text
                 key={pi}
-                style={[styles.elementBody, { color: tokens.t2, fontSize: fs(13.5) }, pi < parr.length - 1 && { marginBottom: 6 }]}
+                style={[styles.elementBody, { color: tokens.t2, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }, pi < parr.length - 1 && { marginBottom: 6 }]}
               >
                 {linkifyText(para).map((seg, i) =>
                   seg.route ? (
@@ -394,19 +394,31 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 48, gap: 4 },
 
   lockTitle: { fontWeight: '600', marginTop: 6 },
-  lockSub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  lockSub: { textAlign: 'center', maxWidth: 300 },
   lockBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
   lockBtnText: { color: '#fff', fontWeight: '700' },
 
   breadcrumbRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 10, flexWrap: 'wrap' },
   breadcrumbText: { fontWeight: '500' },
 
-  title: { fontWeight: '700', marginBottom: 4, lineHeight: 26 },
+  // lineHeight NOT set here -- always overridden inline with fs(19) * 1.37
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  title: { fontWeight: '700', marginBottom: 4 },
 
   section: { marginTop: 16 },
   sectionLabel: { fontWeight: '600', letterSpacing: 0.6, marginBottom: 8 },
-  elementHint: { marginTop: -4, marginBottom: 8, lineHeight: 15 },
-  body: { lineHeight: 21 },
+  // lineHeight NOT set here -- always overridden inline with fs(11.5) * 1.3
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  elementHint: { marginTop: -4, marginBottom: 8 },
+  // lineHeight NOT set here -- always overridden inline with fs(size) * 1.5
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  body: {},
   emptySub: { marginTop: 8 },
 
   searchBar: {
@@ -420,10 +432,16 @@ const styles = StyleSheet.create({
   regGroupLabel: { fontWeight: '700', letterSpacing: 0.6 },
   regRow: { borderRadius: 10, borderWidth: 1, padding: 10, gap: 2 },
   regPrimary: { fontWeight: '700' },
-  regSecondary: { lineHeight: 16 },
+  // lineHeight NOT set here -- always overridden inline with fs(12) * 1.33
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  regSecondary: {},
 
   elementCard: { borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
   elementRow: { flexDirection: 'row', gap: 10, padding: 12 },
   elementCode: { fontWeight: '700', width: 74 },
-  elementBody: { flex: 1, lineHeight: 19 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  elementBody: { flex: 1 },
 })

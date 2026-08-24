@@ -57,7 +57,7 @@ export function RatingPicker({
             <Icon name="xmark" size={fs(18)} color={tokens.t3} />
           </Pressable>
         </View>
-        <Text style={[styles.help, { color: tokens.t3, fontSize: fs(12) }]}>
+        <Text style={[styles.help, { color: tokens.t3, fontSize: fs(12), lineHeight: fs(12) * 1.42 }]}>
           Self-reported — shown alongside your callsign wherever it appears to other players.
           Not verified by FlyRegs.
         </Text>
@@ -105,7 +105,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth,
   },
   title: { fontWeight: '700' },
-  help: { paddingHorizontal: 18, paddingTop: 12, lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(12) * 1.42
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  help: { paddingHorizontal: 18, paddingTop: 12 },
   body: { padding: 18, paddingBottom: 40 },
   groupLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 },
   row: {

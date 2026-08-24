@@ -84,7 +84,7 @@ export default function LoiYearScreen() {
                     {humanizeLoiTitle(item.title)}
                   </Text>
                   {item.summary && (
-                    <Text style={[styles.summary, { color: tokens.t3, fontSize: fs(12.5) }]} numberOfLines={2}>
+                    <Text style={[styles.summary, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]} numberOfLines={2}>
                       {item.summary}
                     </Text>
                   )}
@@ -123,7 +123,10 @@ const styles = StyleSheet.create({
     borderRadius: 12, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 6, gap: 3,
   },
   title: { fontWeight: '600', textTransform: 'capitalize' },
-  summary: { lineHeight: 17, marginTop: 1 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  summary: { marginTop: 1 },
   metaRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
   metaText: { fontWeight: '500' },
   cfr: { fontWeight: '600' },

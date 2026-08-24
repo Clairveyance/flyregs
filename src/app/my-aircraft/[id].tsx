@@ -911,12 +911,12 @@ export default function AircraftDetailScreen() {
                 </Pressable>
               )}
               {adNotifications.length === 0 ? (
-                <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13) }]}>
+                <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13), lineHeight: fs(13) * 1.38 }]}>
                   No Airworthiness Directives currently match this aircraft's make/model or tagged equipment. New or
                   existing ADs that apply will show up here automatically.
                 </Text>
               ) : visibleAdNotifications.length === 0 ? (
-                <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13) }]}>
+                <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13), lineHeight: fs(13) * 1.38 }]}>
                   No applicable ADs in the selected time range — widen the range above to see older ones.
                 </Text>
               ) : (
@@ -1031,7 +1031,7 @@ export default function AircraftDetailScreen() {
           </View>
           {!equipmentCollapsed && (
             equipment.length === 0 ? (
-              <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13) }]}>
+              <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13), lineHeight: fs(13) * 1.38 }]}>
                 Tag a specific engine, prop, or avionics box so AD alerts also catch part-keyed ADs, not just ones for
                 your airframe model.
               </Text>
@@ -1118,7 +1118,7 @@ export default function AircraftDetailScreen() {
           </View>
           {!remindersCollapsed && (
             reminders.length === 0 ? (
-              <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13) }]}>
+              <Text style={[styles.emptyHint, { color: tokens.t3, fontSize: fs(13), lineHeight: fs(13) * 1.38 }]}>
                 Add a due date for anything you want a nudge on — ELT battery, transponder check, annual, 100-hour, or
                 a compliance part from an AD.
               </Text>
@@ -1449,7 +1449,7 @@ function PartPickerModal({ visible, editing, onClose, onPicked }: { visible: boo
             {relatedTo && results.length > 0 && (
               <View style={[styles.relatedNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                 <Icon name="info.circle" size={fs(14)} color={tokens.t3} />
-                <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5) }]}>
+                <Text style={[styles.relatedNoteText, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
                   No exact match for "{query.trim()}" — showing {PART_TYPE_LABELS[relatedTo]} parts, the closest category.
                 </Text>
               </View>
@@ -2146,7 +2146,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'flex-start', gap: 7,
     borderRadius: 10, borderWidth: 1, padding: 10, marginBottom: 10,
   },
-  relatedNoteText: { flex: 1, lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  relatedNoteText: { flex: 1 },
   headerActions: { flexDirection: 'row', alignItems: 'center' },
   acLineRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   acLine: { fontWeight: '700' },
@@ -2167,7 +2170,10 @@ const styles = StyleSheet.create({
   sectionTitleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
   groupLabel: { fontWeight: '600', letterSpacing: 0.5 },
   sectionCountBig: { fontWeight: '700' },
-  emptyHint: { lineHeight: 18, marginBottom: 4 },
+  // lineHeight NOT set here -- always overridden inline with fs(13) * 1.38
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptyHint: { marginBottom: 4 },
   rangePill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1 },
   rangeDropdown: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginBottom: 10 },
   rangePillText: { fontWeight: '600' },

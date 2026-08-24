@@ -165,7 +165,7 @@ export default function LoiIndexScreen() {
                   <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
                     {humanizeLoiTitle(r.document_number)}
                   </Text>
-                  <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={1}>
+                  <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12), lineHeight: fs(12) * 1.33 }]} numberOfLines={1}>
                     {r.title}
                   </Text>
                 </View>
@@ -214,7 +214,7 @@ export default function LoiIndexScreen() {
                       {humanizeLoiTitle(item.title)}
                     </Text>
                     {item.summary && (
-                      <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={2}>
+                      <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12), lineHeight: fs(12) * 1.33 }]} numberOfLines={2}>
                         {item.summary}
                       </Text>
                     )}
@@ -241,7 +241,7 @@ export default function LoiIndexScreen() {
               <>
                 <View style={styles.hintBar}>
                   <Icon name="magnifyingglass" size={fs(13)} color={tokens.t3} />
-                  <Text style={[styles.hintBarText, { color: tokens.t3, fontSize: fs(11.5) }]}>
+                  <Text style={[styles.hintBarText, { color: tokens.t3, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.3 }]}>
                     Interpretation letters are named after the requester, not the subject —
                     full-text search above is the fastest way to find one by topic.
                   </Text>
@@ -256,7 +256,7 @@ export default function LoiIndexScreen() {
               >
                 <Text style={[styles.yearText, { color: tokens.blu, fontSize: fs(16) }]}>{item.year}</Text>
                 <View style={{ flex: 1 }} />
-                <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12.5) }]}>{item.count}</Text>
+                <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.33 }]}>{item.count}</Text>
               </Pressable>
             )}
           />
@@ -279,7 +279,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'flex-start', gap: 6,
     marginHorizontal: 2, marginBottom: 14, paddingHorizontal: 2,
   },
-  hintBarText: { flex: 1, lineHeight: 15 },
+  // lineHeight NOT set here -- always overridden inline with fs(11.5) * 1.3
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  hintBarText: { flex: 1 },
   yearText: { fontWeight: '700' },
 
   searchWrap: {
@@ -319,7 +322,10 @@ const styles = StyleSheet.create({
     borderRadius: 12, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 6,
   },
   rowTitle: { fontWeight: '600', textTransform: 'capitalize' },
-  rowSub: { marginTop: 2, lineHeight: 16 },
+  // lineHeight NOT set here -- always overridden inline with fs(size) * 1.33
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  rowSub: { marginTop: 2 },
   rowCfr: { marginTop: 4, fontWeight: '600' },
 
   // Two-column year grid (RC: tapping a year always goes to another list

@@ -468,7 +468,7 @@ export function NoteEditor({
               <ActivityIndicator color={tokens.blu} style={{ marginTop: 24 }} />
             ) : paneData ? (
               <>
-                <Text style={[styles.paneACTitle, { color: tokens.t1, fontSize: fs(15) }]}>{paneData.title}</Text>
+                <Text style={[styles.paneACTitle, { color: tokens.t1, fontSize: fs(15), lineHeight: fs(15) * 1.47 }]}>{paneData.title}</Text>
                 {paneData.date_issued && (
                   <Text style={[styles.paneMeta, { color: tokens.t3, fontSize: fs(11.5) }]}>
                     {paneData.office ? `${paneData.office} · ` : ''}
@@ -479,7 +479,7 @@ export function NoteEditor({
                   ? splitIntoDisplayParagraphs(paneData.description).map((para, i, arr) => (
                       <Text
                         key={i}
-                        style={[styles.paneDesc, { color: tokens.t2, fontSize: fs(13) }, i < arr.length - 1 && { marginBottom: 8 }]}
+                        style={[styles.paneDesc, { color: tokens.t2, fontSize: fs(13), lineHeight: fs(13) * 1.54 }, i < arr.length - 1 && { marginBottom: 8 }]}
                       >
                         {para}
                       </Text>
@@ -525,13 +525,13 @@ export function NoteEditor({
                     )}
                   </>
                 ) : (
-                  <Text style={[styles.paneDrag, { color: tokens.t4, fontSize: fs(11) }]}>
+                  <Text style={[styles.paneDrag, { color: tokens.t4, fontSize: fs(11), lineHeight: fs(11) * 1.45 }]}>
                     Full text isn't available for this AC. Open it to view the PDF.
                   </Text>
                 )}
               </>
             ) : (
-              <Text style={[styles.paneDesc, { color: tokens.t3, fontSize: fs(13) }]}>
+              <Text style={[styles.paneDesc, { color: tokens.t3, fontSize: fs(13), lineHeight: fs(13) * 1.54 }]}>
                 AC {paneAC} not found in library.
               </Text>
             )}
@@ -584,10 +584,19 @@ const styles = StyleSheet.create({
   paneBadge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2, marginRight: 10 },
   paneBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
   paneBody: { padding: 14, paddingBottom: 24 },
-  paneACTitle: { fontWeight: '600', fontSize: 15, lineHeight: 22, marginBottom: 6 },
+  // lineHeight NOT set here -- always overridden inline with fs(15) * 1.47
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  paneACTitle: { fontWeight: '600', fontSize: 15, marginBottom: 6 },
   paneMeta: { fontSize: 11.5, marginBottom: 12 },
-  paneDesc: { fontSize: 13, lineHeight: 20 },
-  paneDrag: { fontSize: 11, marginTop: 20, textAlign: 'center', lineHeight: 16 },
+  // lineHeight NOT set here -- always overridden inline with fs(13) * 1.54
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  paneDesc: { fontSize: 13 },
+  // lineHeight NOT set here -- always overridden inline with fs(11) * 1.45
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  paneDrag: { fontSize: 11, marginTop: 20, textAlign: 'center' },
   paneOpenBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     borderRadius: 10, borderWidth: 1, paddingVertical: 10, paddingHorizontal: 12,

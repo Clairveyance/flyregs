@@ -372,7 +372,7 @@ export default function NotesScreen() {
         <View style={[styles.empty, { padding: 32 }]}>
           <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Notes is a Plus feature</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
             Unlock Plus to create personal notes and link them directly to any AC.
           </Text>
           <Pressable
@@ -433,7 +433,7 @@ export default function NotesScreen() {
             <View style={styles.empty}>
               <Icon name="square.and.pencil" size={fs(36)} color={tokens.t4} />
               <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No notes yet</Text>
-              <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+              <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
                 Tap + New to start. Mention an AC like "61-65K" and it auto-links.
               </Text>
             </View>
@@ -694,7 +694,7 @@ function NoteCard({
         <Text style={[styles.cardTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
           {note.title || 'Untitled'}
         </Text>
-        <Text style={[styles.cardPreview, { color: tokens.t2, fontSize: fs(13.5) }]} numberOfLines={2}>
+        <Text style={[styles.cardPreview, { color: tokens.t2, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]} numberOfLines={2}>
           {note.body}
         </Text>
         <View style={styles.cardFooter}>
@@ -760,7 +760,10 @@ const styles = StyleSheet.create({
 
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 8 },
   emptyTitle: { fontWeight: '600', fontSize: 16, marginTop: 8 },
-  emptySub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 280 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptySub: { fontSize: 13.5, textAlign: 'center', maxWidth: 280 },
   upgradeBtn: { marginTop: 8, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 28 },
   upgradeBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 
@@ -784,7 +787,10 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1, gap: 3 },
   cardBodyIndented: { marginLeft: 2 },
   cardTitle: { fontWeight: '600', fontSize: 14 },
-  cardPreview: { fontSize: 13.5, lineHeight: 19 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  cardPreview: { fontSize: 13.5 },
   cardFooter: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
   cardTime: { fontSize: 11 },
   acChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 1 },

@@ -48,7 +48,7 @@ export function CoinRevealModal({ coin, onClose }: { coin: CoinDef | null; onClo
         </Reanimated.View>
         <Text style={[styles.eyebrow, { color: tokens.gold, fontSize: fs(11.5) }]}>COIN EARNED</Text>
         <Text style={[styles.name, { color: '#fff', fontSize: fs(21) }]}>{coin.name}</Text>
-        <Text style={[styles.desc, { color: redShift ? '#D6553A' : 'rgba(255,255,255,0.7)', fontSize: fs(14) }]}>{coin.description}</Text>
+        <Text style={[styles.desc, { color: redShift ? '#D6553A' : 'rgba(255,255,255,0.7)', fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>{coin.description}</Text>
         <Pressable style={[styles.btn, { backgroundColor: tokens.gold }]} onPress={onClose}>
           <Text style={[styles.btnText, { fontSize: fs(15) }]}>Nice!</Text>
         </Pressable>
@@ -68,7 +68,10 @@ const styles = StyleSheet.create({
   },
   eyebrow: { fontWeight: '800', letterSpacing: 1.5, marginTop: 22 },
   name: { fontWeight: '800', marginTop: 4 },
-  desc: { textAlign: 'center', lineHeight: 20, maxWidth: 280, marginTop: 6 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.43
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  desc: { textAlign: 'center', maxWidth: 280, marginTop: 6 },
   btn: { borderRadius: 22, paddingHorizontal: 30, paddingVertical: 12, marginTop: 22 },
   btnText: { color: '#000', fontWeight: '800', fontSize: 15 },
 })

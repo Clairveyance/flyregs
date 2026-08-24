@@ -1555,7 +1555,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
         <View style={styles.lockCenter}>
           <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>My Aircraft is a Pro feature</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             Save your aircraft to get AD alerts, maintenance reminders, and part lookups matched to what you actually fly.
           </Text>
           <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall?tier=pro')}>
@@ -1605,7 +1605,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
             every other keyboard-behavior prop already on this ScrollView. */}
         <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}>
           <View style={styles.introRow}>
-            <Text style={[styles.intro, { color: tokens.t3, fontSize: fs(13) }]}>How this works</Text>
+            <Text style={[styles.intro, { color: tokens.t3, fontSize: fs(13), lineHeight: fs(13) * 1.38 }]}>How this works</Text>
             <InfoPopup
               id="my-aircraft-intro"
               title={screenTitle}
@@ -1969,7 +1969,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                   cap puts AircraftDowngradeGate's blocking modal on top of
                   this screen, so the "you have hidden aircraft" variant this
                   used to carry can't be reached from here any more. */}
-              <Text style={[styles.capBody, { color: tokens.t3, fontSize: fs(13.5) }]}>
+              <Text style={[styles.capBody, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
                 To swap to a different aircraft, delete this one first — swipe left on it in the list above. Premium tracks as many as you want, all at once.
               </Text>
               <Pressable
@@ -2045,12 +2045,18 @@ const styles = StyleSheet.create({
   // spinner) so adding padding/gap here can't shift that unrelated view.
   lockCenter: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
   emptyTitle: { fontWeight: '600', marginTop: 6 },
-  emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 300, paddingHorizontal: 24 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptySub: { textAlign: 'center', maxWidth: 300, paddingHorizontal: 24 },
   upgradeBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
   upgradeBtnText: { color: '#fff', fontWeight: '700' },
   content: { padding: 16, paddingBottom: 40 },
   introRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 },
-  intro: { lineHeight: 18 },
+  // lineHeight NOT set here -- always overridden inline with fs(13) * 1.38
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  intro: {},
   empty: { textAlign: 'center', paddingVertical: 20 },
   list: { borderRadius: 12, borderWidth: 1, marginBottom: 20, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 10 },
@@ -2109,7 +2115,10 @@ const styles = StyleSheet.create({
     alignItems: 'center', gap: 10,
   },
   capTitle: { fontWeight: '700', textAlign: 'center' },
-  capBody: { textAlign: 'center', lineHeight: 19 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  capBody: { textAlign: 'center' },
   capBtn: { borderRadius: 12, paddingHorizontal: 22, paddingVertical: 11, marginTop: 4 },
   capBtnText: { color: '#000', fontWeight: '700' },
   capDismiss: { fontWeight: '600', marginTop: 2 },

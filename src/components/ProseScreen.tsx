@@ -35,7 +35,7 @@ export function ProseScreen({
         {updated && (
           <Text style={[styles.updated, { color: tokens.t3, fontSize: fs(12) }]}>Last updated · {updated}</Text>
         )}
-        {intro && <Text style={[styles.intro, { color: tokens.t2, fontSize: fs(14.5) }]}>{intro}</Text>}
+        {intro && <Text style={[styles.intro, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.52 }]}>{intro}</Text>}
 
         {sections.map((section, i) => (
           <View key={i} style={styles.section}>
@@ -43,7 +43,7 @@ export function ProseScreen({
               <Text style={[styles.heading, { color: tokens.t1, fontSize: fs(15.5) }]}>{section.heading}</Text>
             )}
             {section.body.map((para, j) => (
-              <Text key={j} style={[styles.para, { color: tokens.t2, fontSize: fs(14) }]}>
+              <Text key={j} style={[styles.para, { color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.57 }]}>
                 {para}
               </Text>
             ))}
@@ -58,8 +58,14 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { padding: 20, gap: 4 },
   updated: { fontSize: 12, fontWeight: '500', marginBottom: 8 },
-  intro: { fontSize: 14.5, lineHeight: 22, marginBottom: 12 },
+  // lineHeight NOT set here -- always overridden inline with fs(14.5) * 1.52
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  intro: { fontSize: 14.5, marginBottom: 12 },
   section: { marginTop: 18, gap: 8 },
   heading: { fontSize: 15.5, fontWeight: '700' },
-  para: { fontSize: 14, lineHeight: 22 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.57
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  para: { fontSize: 14 },
 })

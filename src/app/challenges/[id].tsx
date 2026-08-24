@@ -449,7 +449,7 @@ export default function ChallengeGameScreen() {
         <View style={styles.center}>
           <Icon name="questionmark.circle" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Duel not found</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             This duel may have been deleted, or the link is out of date.
           </Text>
           <Pressable style={[styles.goBtnSmall, { backgroundColor: tokens.bg2, borderWidth: 1, borderColor: tokens.bdr, marginTop: 14 }]} onPress={() => router.back()}>
@@ -460,7 +460,7 @@ export default function ChallengeGameScreen() {
         <View style={styles.center}>
           <Icon name="exclamationmark.triangle" size={fs(36)} color={tokens.red} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Couldn't load this duel</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             {loadError ?? 'Something went wrong. Check your connection and try again.'}
           </Text>
           <Pressable style={[styles.goBtnSmall, { backgroundColor: tokens.gold, marginTop: 14 }]} onPress={() => loadState()}>
@@ -501,7 +501,7 @@ export default function ChallengeGameScreen() {
         <View style={styles.center}>
           <Icon name="hourglass" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Waiting for a response</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             {otherCount === 1
               ? `${challenge?.others[0]?.label ?? 'They'} haven't accepted your invite yet — the duel starts once they do.`
               : "Nobody's accepted your invite yet — the duel starts once at least one player does."}
@@ -517,7 +517,7 @@ export default function ChallengeGameScreen() {
         <View style={styles.center}>
           <Icon name="hourglass" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>You've answered every question</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>{waitingCopy}</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>{waitingCopy}</Text>
         </View>
       ) : phase === 'ready' ? (
         <View style={styles.center}>
@@ -525,7 +525,7 @@ export default function ChallengeGameScreen() {
             QUESTION {(question?.sortOrder ?? 0) + 1} OF {challenge?.questionCount}
           </Text>
           <Text style={[styles.readyTitle, { color: tokens.t1, fontSize: fs(22) }]}>Ready?</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             The clock starts the instant you hit GO. One shot at each answer.
           </Text>
           <Pressable style={[styles.goBtnSmall, { backgroundColor: tokens.gold }]} onPress={handleGo}>
@@ -549,7 +549,7 @@ export default function ChallengeGameScreen() {
             <Text style={[styles.questionLabel, { color: tokens.t3, fontSize: fs(10.5) }]}>
               {question ? QUESTION_LABEL[question.itemType] : ''}
             </Text>
-            <Text style={[styles.prompt, { color: tokens.t1, fontSize: fs(18) }]}>{question?.prompt}</Text>
+            <Text style={[styles.prompt, { color: tokens.t1, fontSize: fs(18), lineHeight: fs(18) * 1.33 }]}>{question?.prompt}</Text>
           </View>
 
           {/* RC, real duel screenshot: "put two columns for these answers so
@@ -577,12 +577,12 @@ export default function ChallengeGameScreen() {
           <Text style={[styles.readyTitle, { color: tokens.t1, fontSize: fs(17) }]}>
             {result?.isCorrect ? 'Correct!' : `Answer: ${result?.correctAnswer}`}
           </Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             Your time: {formatDuelSecondsLabel(myTimeMs)} (only counts if everyone tied with you got it right)
           </Text>
           {/* "0 of 0 others answered this one so far" is what this read
               before anyone accepted the invite -- seen live. */}
-          <Text style={[styles.emptySub, { color: tokens.t4, fontSize: fs(12.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t4, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.41 }]}>
             {(result?.othersTotalCount ?? 0) === 0
               ? "You're playing ahead — nobody else has joined yet"
               : `${result?.othersAnsweredCount ?? 0} of ${result?.othersTotalCount} other${result?.othersTotalCount === 1 ? '' : 's'} answered this one so far`}
@@ -741,7 +741,7 @@ function ResultsView({
             <Icon name="chevron.right" size={fs(12)} color={tokens.t4} />
           </View>
           {!!r.definition && (
-            <Text style={[styles.resultPrompt, { color: tokens.t3, fontSize: fs(12.5) }]} numberOfLines={3}>
+            <Text style={[styles.resultPrompt, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]} numberOfLines={3}>
               {r.definition}
             </Text>
           )}
@@ -779,7 +779,10 @@ const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1, paddingBottom: 24 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
   emptyTitle: { fontWeight: '600', marginTop: 6, textAlign: 'center' },
-  emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },
+  // lineHeight NOT set here -- always overridden inline with fs(size) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptySub: { textAlign: 'center', maxWidth: 300 },
 
   filterSummaryRow: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center',
@@ -809,7 +812,10 @@ const styles = StyleSheet.create({
   timerUnit: { fontWeight: '600' },
   questionArea: { borderRadius: 16, borderWidth: 1, padding: 18, gap: 8, minHeight: 110, justifyContent: 'center' },
   questionLabel: { fontWeight: '700', letterSpacing: 1 },
-  prompt: { fontWeight: '600', lineHeight: 24 },
+  // lineHeight NOT set here -- always overridden inline with fs(18) * 1.33
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  prompt: { fontWeight: '600' },
 
   choicesArea: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   choiceBtn: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 13, justifyContent: 'center' },
@@ -844,6 +850,9 @@ const styles = StyleSheet.create({
   typeBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 1.5 },
   typeBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
   resultTerm: { fontWeight: '700', flexShrink: 1 },
-  resultPrompt: { lineHeight: 17, marginBottom: 5 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  resultPrompt: { marginBottom: 5 },
   resultAnswer: { fontWeight: '600' },
 })

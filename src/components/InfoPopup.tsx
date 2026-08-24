@@ -158,16 +158,16 @@ export function InfoPopup({ id, title, body, footer, forceOnce = false, iconSize
                     const indent = typeof line !== 'string' && line.indent
                     return (
                       <View key={i} style={[styles.bulletRow, indent && styles.bulletRowIndent]}>
-                        <Text style={[styles.bulletDot, { color: indent ? color : tokens.t3, fontSize: fs(indent ? 13 : 14.5) }]}>
+                        <Text style={[styles.bulletDot, { color: indent ? color : tokens.t3, fontSize: fs(indent ? 13 : 14.5), lineHeight: fs(indent ? 13 : 14.5) * 1.45 }]}>
                           {indent ? '–' : '•'}
                         </Text>
-                        <Text style={[styles.body, styles.bulletText, { color, fontSize: fs(indent ? 13.5 : 14.5) }]}>{text}</Text>
+                        <Text style={[styles.body, styles.bulletText, { color, fontSize: fs(indent ? 13.5 : 14.5), lineHeight: fs(indent ? 13.5 : 14.5) * 1.45 }]}>{text}</Text>
                       </View>
                     )
                   })}
                 </View>
               ) : (
-                <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5) }]}>{body}</Text>
+                <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.45 }]}>{body}</Text>
               )}
               {footer}
             </ScrollView>
@@ -214,14 +214,20 @@ const styles = StyleSheet.create({
   // exceed the card's own maxHeight above.
   scrollBody: { flexShrink: 1 },
   scrollBodyContent: { gap: 14 },
-  body: { lineHeight: 21 },
+  // lineHeight NOT set here -- always overridden inline with fs(size) * 1.45
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  body: {},
   bulletList: {},
   bulletRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   // Tighter to the row above (its header bullet) than a fresh top-level
   // bullet would be, plus left padding so it visually nests underneath --
   // see the `indent` doc comment on Props.body above.
   bulletRowIndent: { marginTop: 4, marginLeft: 16 },
-  bulletDot: { lineHeight: 21 },
+  // lineHeight NOT set here -- always overridden inline with fs(size) * 1.45
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  bulletDot: {},
   bulletText: { flex: 1 },
   understandBtn: {
     borderRadius: 12,

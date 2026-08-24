@@ -85,7 +85,7 @@ export default function RefPacketDetailScreen() {
         <View style={styles.center}>
           <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>RefPacks are a Plus feature</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             Certificate and rating study guides, built from the FAA's own ACS/PTS standards — every reference
             already linked to the real FAR, AC, and AIM text.
           </Text>
@@ -112,7 +112,7 @@ export default function RefPacketDetailScreen() {
                 several packs, e.g. "...Sport Pilot Flight Instructor —
                 Section 2") get clipped there with no way to tell them
                 apart -- this shows the real, full, un-truncated title. */}
-            <Text style={[styles.fullTitle, { color: tokens.t1, fontSize: fs(17) }]}>{splitPacketTitle(title).mainTitle}</Text>
+            <Text style={[styles.fullTitle, { color: tokens.t1, fontSize: fs(17), lineHeight: fs(17) * 1.29 }]}>{splitPacketTitle(title).mainTitle}</Text>
 
             {studyLevel && (
               <Pressable
@@ -213,12 +213,18 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
   emptyTitle: { fontWeight: '600', marginTop: 6 },
-  emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptySub: { textAlign: 'center', maxWidth: 300 },
   upgradeBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
   upgradeBtnText: { color: '#fff', fontWeight: '700' },
 
   list: { padding: 12, paddingBottom: 32 },
-  fullTitle: { fontWeight: '700', lineHeight: 22, marginBottom: 10, paddingLeft: 2 },
+  // lineHeight NOT set here -- always overridden inline with fs(17) * 1.29
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  fullTitle: { fontWeight: '700', marginBottom: 10, paddingLeft: 2 },
   studyBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
     borderRadius: 12, paddingVertical: 11, marginBottom: 14,

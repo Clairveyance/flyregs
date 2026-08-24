@@ -232,7 +232,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               {onFinalStep && wantsTwoStep ? (opts?.finalTitle ?? opts?.title) : opts?.title}
             </Text>
             {opts?.message ? (
-              <Text style={[styles.message, { color: tokens.t3, fontSize: fs(13.5) }]}>{opts.message}</Text>
+              <Text style={[styles.message, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>{opts.message}</Text>
             ) : null}
             {opts?.linkMessage ? (
               <View style={styles.linkList}>
@@ -313,7 +313,10 @@ const styles = StyleSheet.create({
   scrim: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 26, backgroundColor: 'rgba(0,0,0,0.7)' },
   card: { width: '100%', maxWidth: 360, borderRadius: 18, borderWidth: 1, padding: 22, alignItems: 'center', gap: 9 },
   title: { fontWeight: '700', textAlign: 'center' },
-  message: { textAlign: 'center', lineHeight: 19 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  message: { textAlign: 'center' },
   linkList: { alignSelf: 'stretch', gap: 8, marginTop: 2 },
   linkBox: {
     flexDirection: 'row', alignItems: 'center', gap: 8,

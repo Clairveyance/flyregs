@@ -445,7 +445,7 @@ export default function FAQScreen() {
         scrollEventThrottle={16}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
       >
-        <Text style={[styles.intro, { color: tokens.t2, fontSize: fs(14) }]}>
+        <Text style={[styles.intro, { color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>
           Answers to common questions. Still stuck? Reach out and we'll help.
         </Text>
 
@@ -591,7 +591,10 @@ export default function FAQScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { padding: 16, gap: 14 },
-  intro: { fontSize: 14, lineHeight: 21, paddingHorizontal: 2 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.5
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  intro: { fontSize: 14, paddingHorizontal: 2 },
   categoryBlock: { gap: 8 },
   categoryLabel: { fontWeight: '700', letterSpacing: 0.6, paddingHorizontal: 4 },
   card: { borderRadius: 14, borderWidth: 1, overflow: 'hidden' },

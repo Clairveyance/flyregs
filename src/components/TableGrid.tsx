@@ -116,7 +116,7 @@ export function TableGrid({ captionLines, headerCells, rows, footnotes, onPress 
   const footnoteBlock = footnotes.length > 0 && (
     <View style={styles.footnotes}>
       {footnotes.map((f, i) => (
-        <Text key={i} style={[styles.footnoteText, { color: tokens.t3, fontSize: fs(11.5) }]}>{f}</Text>
+        <Text key={i} style={[styles.footnoteText, { color: tokens.t3, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.3 }]}>{f}</Text>
       ))}
     </View>
   )
@@ -140,7 +140,7 @@ export function TableGrid({ captionLines, headerCells, rows, footnotes, onPress 
                   onPress on a data row anywhere in this component), so
                   coloring it the app's link-blue misleadingly reads as one. */}
               <Text style={[styles.defTerm, { color: tokens.t1, fontSize: fs(13) }]}>{row[0]}</Text>
-              <Text style={[styles.defBody, { color: tokens.t2, fontSize: fs(13) }]}>{row[1]}</Text>
+              <Text style={[styles.defBody, { color: tokens.t2, fontSize: fs(13), lineHeight: fs(13) * 1.46 }]}>{row[1]}</Text>
             </View>
           ))}
         </View>
@@ -165,7 +165,7 @@ export function TableGrid({ captionLines, headerCells, rows, footnotes, onPress 
                     ci === headerCells.length - 1 && { borderRightWidth: 0 },
                   ]}
                 >
-                  <Text style={[styles.cellText, { color: tokens.t1, fontSize: fs(12) }]}>{cell}</Text>
+                  <Text style={[styles.cellText, { color: tokens.t1, fontSize: fs(12), lineHeight: fs(12) * 1.42 }]}>{cell}</Text>
                 </View>
               ))}
             </View>
@@ -191,7 +191,7 @@ export function TableGrid({ captionLines, headerCells, rows, footnotes, onPress 
                   <Text
                     style={[
                       styles.cellText,
-                      { fontSize: fs(12.5) },
+                      { fontSize: fs(12.5), lineHeight: fs(12.5) * 1.42 },
                       // First column is almost always the row's own identifier
                       // (a number, a device/facility name) — contrasting it
                       // gives the grid a real visual anchor to scan down,
@@ -239,11 +239,20 @@ const styles = StyleSheet.create({
   // short 1-2 line value. `justifyContent: 'center'` on the wrapping View
   // is what actually centers the Text within the row's real height.
   cellWrap: { paddingHorizontal: 10, paddingVertical: 8, borderRightWidth: StyleSheet.hairlineWidth, justifyContent: 'center' },
-  cellText: { lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(size) * 1.42
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  cellText: {},
   defList: { borderWidth: 1, borderRadius: 8, overflow: 'hidden' },
   defRow: { paddingHorizontal: 12, paddingVertical: 10, gap: 4 },
   defTerm: { fontWeight: '700' },
-  defBody: { lineHeight: 19 },
+  // lineHeight NOT set here -- always overridden inline with fs(13) * 1.46
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  defBody: {},
   footnotes: { marginTop: 6, gap: 3 },
-  footnoteText: { lineHeight: 15 },
+  // lineHeight NOT set here -- always overridden inline with fs(11.5) * 1.3
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  footnoteText: {},
 })

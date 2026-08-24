@@ -583,21 +583,21 @@ export default function PaywallScreen() {
           {premiumRequired ? (
             <>
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>This is a Premium feature</Text>
-              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
                 Upgrade to Premium to unlock this — plus shared folders, aircraft sharing, offline downloads, and unlimited aircraft.
               </Text>
             </>
           ) : proRequired ? (
             <>
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>This is a Pro feature</Text>
-              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
                 Upgrade to Pro to unlock this — plus sync, AD alerts, and Study Mode.
               </Text>
             </>
           ) : upgradeMode ? (
             <>
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>Take FlyRegs further</Text>
-              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
                 Add shared folders, aircraft sharing, offline downloads, and unlimited saved aircraft to your Pro subscription.
               </Text>
             </>
@@ -606,7 +606,7 @@ export default function PaywallScreen() {
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>
                 {viewingCurrentPlan ? 'Your current plan' : 'Switch to Pro'}
               </Text>
-              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
                 {viewingCurrentPlan
                   ? 'You\'re on Premium. Select Pro below to see what changes if you switch down.'
                   : 'You\'ll keep Premium features until your current billing period ends, then move to Pro automatically.'}
@@ -615,7 +615,7 @@ export default function PaywallScreen() {
           ) : hasPlusAccess ? (
             <>
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>Take FlyRegs further</Text>
-              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
                 You already have Plus. Add sync, alerts, sharing, and offline access with a subscription.
               </Text>
             </>
@@ -633,7 +633,7 @@ export default function PaywallScreen() {
             // it's a required first step.
             <>
               <Text style={[styles.headline, { color: tokens.t1, fontSize: fs(20) }]}>The complete FAA reference</Text>
-              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+              <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
                 {tier === 'plus' ? (
                   <>
                     FAR, AIM, P/CG & ADs are free. Unlock these extras forever with a one-time purchase — or skip
@@ -803,7 +803,7 @@ export default function PaywallScreen() {
             period" wording on the rare render where currentExpiration
             hasn't loaded yet. */}
         {switchingPeriod && (
-          <Text style={[styles.switchNote, { color: tokens.t3, fontSize: fs(12.5) }]}>
+          <Text style={[styles.switchNote, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
             {`Takes effect ${switchDateLabel ? `on ${switchDateLabel}` : 'at the end of your current billing period'} — no charge today, and your plan and access stay exactly the same until then.`}
           </Text>
         )}
@@ -860,7 +860,7 @@ export default function PaywallScreen() {
           )}
         </Pressable>
 
-        <Text style={[styles.legal, { color: tokens.t4, fontSize: fs(11) }]}>
+        <Text style={[styles.legal, { color: tokens.t4, fontSize: fs(11), lineHeight: fs(11) * 1.45 }]}>
           {tier === 'plus'
             ? 'One-time purchase, billed once through the App Store. Prices shown in USD.'
             : 'Subscription renews automatically. Cancel anytime in App Store or Google Play settings. Prices shown in USD.'}
@@ -1034,7 +1034,10 @@ const styles = StyleSheet.create({
 
   hero: { gap: 6, alignItems: 'center', paddingVertical: 4 },
   headline: { fontWeight: '700', fontSize: 20, textAlign: 'center' },
-  sub: { fontSize: 14, textAlign: 'center', lineHeight: 20, maxWidth: 300 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.43
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  sub: { fontSize: 14, textAlign: 'center', maxWidth: 300 },
 
   tierPicker: {
     flexDirection: 'row',
@@ -1127,9 +1130,15 @@ const styles = StyleSheet.create({
   ctaDisabled: { opacity: 0.6 },
   ctaText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 
-  switchNote: { textAlign: 'center', marginTop: 10, marginHorizontal: 12, lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  switchNote: { textAlign: 'center', marginTop: 10, marginHorizontal: 12 },
 
   restoreRow: { alignItems: 'center', paddingVertical: 4 },
   restoreText: { fontSize: 13 },
-  legal: { fontSize: 11, textAlign: 'center', lineHeight: 16 },
+  // lineHeight NOT set here -- always overridden inline with fs(11) * 1.45
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  legal: { fontSize: 11, textAlign: 'center' },
 })

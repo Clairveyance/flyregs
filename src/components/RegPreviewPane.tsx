@@ -217,7 +217,7 @@ function RegPreviewChrome({ route, onClose, variant, highlightQuery }: RegPrevie
           onLayout={(e) => c.setViewportHeight(e.nativeEvent.layout.height)}
         >
           {!!c.data.title && (
-            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16) }]}>{stripFarPrefix(c.data.title)}</Text>
+            <Text style={[styles.title, { color: tokens.t1, fontSize: fs(16), lineHeight: fs(16) * 1.38 }]}>{stripFarPrefix(c.data.title)}</Text>
           )}
           {/* Real paragraph/table rendering + inline citation hyperlinks --
               same component the full FAR/AIM/P-CG detail screens use.
@@ -334,7 +334,10 @@ const styles = StyleSheet.create({
   notFound: {},
   emptyPane: { fontWeight: '500' },
   body: { padding: 16, paddingBottom: 40, gap: 14 },
-  title: { fontWeight: '700', lineHeight: 22 },
+  // lineHeight NOT set here -- always overridden inline with fs(16) * 1.38
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  title: { fontWeight: '700' },
   bodyText: { lineHeight: 21 },
   openBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,

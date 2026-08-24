@@ -239,7 +239,7 @@ export default function UpdatesScreen() {
         <View style={styles.center}>
           <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Updates is a Plus feature</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             See every new document, and a real, browsable diff of exactly what changed in existing ones.
           </Text>
           <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall?tier=plus')}>
@@ -385,7 +385,7 @@ function NewTab({ badgeDays }: { badgeDays: number }) {
       <View style={styles.center}>
         <Icon name="sparkles" size={fs(36)} color={tokens.t4} />
         <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Nothing new</Text>
-        <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+        <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
           Nothing issued or updated in the last {badgeDays} day{badgeDays === 1 ? '' : 's'}. Try a longer Badge Duration in the menu to see more.
         </Text>
       </View>
@@ -398,7 +398,7 @@ function NewTab({ badgeDays }: { badgeDays: number }) {
       {filtered.length === 0 ? (
         <View style={styles.center}>
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No {filter ? CHIP_LABELS[filter] : ''} items</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>Try a different filter above.</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>Try a different filter above.</Text>
         </View>
       ) : (
         <SectionList
@@ -465,7 +465,7 @@ function NewRow({
           <Text style={[styles.durationChipText, { color: badge.color, fontSize: fs(9.5) }]}>{badge.label}</Text>
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.cardTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={2}>
+          <Text style={[styles.cardTitle, { color: tokens.t1, fontSize: fs(14), lineHeight: fs(14) * 1.36 }]} numberOfLines={2}>
             {item.documentNumber}{item.kind === 'ac' && isOcrScanned(item.documentNumber) ? ' *' : ''} — {title}
           </Text>
         </View>
@@ -539,7 +539,7 @@ function ChangedTab({ badgeDays }: { badgeDays: number }) {
       <View style={styles.center}>
         <Icon name="exclamationmark.triangle" size={fs(36)} color={tokens.t4} />
         <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Couldn't load changes</Text>
-        <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>Check your connection and try again.</Text>
+        <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>Check your connection and try again.</Text>
         <Pressable
           style={[styles.retryBtn, { borderColor: tokens.blu }]}
           onPress={() => {
@@ -568,14 +568,14 @@ function ChangedTab({ badgeDays }: { badgeDays: number }) {
         <View style={styles.center}>
           <Icon name="doc.badge.clock" size={fs(36)} color={tokens.t4} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No changes in this window</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             Try a longer Badge Duration in the menu to see further back.
           </Text>
         </View>
       ) : filteredRevisions.length === 0 ? (
         <View style={styles.center}>
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No {filter ? CHIP_LABELS[filter] : ''} changes</Text>
-          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>Try a different filter above.</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>Try a different filter above.</Text>
         </View>
       ) : (
         <TabletContainer>
@@ -630,7 +630,7 @@ function RevisionRow({
           <Text style={[styles.typeChipText, { color: tokens.blu, fontSize: fs(10.5) }]}>{labelForDocType(item.docType)}</Text>
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.cardTitle, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={expanded ? undefined : 3}>
+          <Text style={[styles.cardTitle, { color: tokens.t1, fontSize: fs(14), lineHeight: fs(14) * 1.36 }]} numberOfLines={expanded ? undefined : 3}>
             {title}
           </Text>
           <Text style={[styles.diffCounts, { color: tokens.t4, fontSize: fs(11.5) }]}>
@@ -649,7 +649,7 @@ function RevisionRow({
               return (
                 <View key={`g${i}`} style={[styles.diffLine, { backgroundColor: tokens.gdim, borderColor: tokens.gbdr }]}>
                   <Text style={[styles.diffMark, { color: tokens.grn, fontSize: fs(13) }]}>+</Text>
-                  <Text style={[styles.diffText, { color: tokens.t1, fontSize: fs(13) }]}>{g.text}</Text>
+                  <Text style={[styles.diffText, { color: tokens.t1, fontSize: fs(13), lineHeight: fs(13) * 1.46 }]}>{g.text}</Text>
                 </View>
               )
             }
@@ -660,7 +660,7 @@ function RevisionRow({
                   {/* RC: "anything Out is in red, so we don't need to
                       strikethrough on those (it's too hard to read w/ it
                       anyway)" -- red alone already signals removed. */}
-                  <Text style={[styles.diffText, { color: tokens.t3, fontSize: fs(13) }]}>{g.text}</Text>
+                  <Text style={[styles.diffText, { color: tokens.t3, fontSize: fs(13), lineHeight: fs(13) * 1.46 }]}>{g.text}</Text>
                 </View>
               )
             }
@@ -676,7 +676,7 @@ function RevisionRow({
             return (
               <View key={`g${i}`} style={[styles.diffLine, { backgroundColor: tokens.bg3, borderColor: tokens.bdr }]}>
                 <Icon name="arrow.triangle.2.circlepath" size={fs(12)} color={tokens.t3} />
-                <Text style={[styles.diffText, { color: tokens.t1, fontSize: fs(13) }]}>
+                <Text style={[styles.diffText, { color: tokens.t1, fontSize: fs(13), lineHeight: fs(13) * 1.46 }]}>
                   {tokensDiff.map((t, ti) => {
                     if (t.type === 'same') return <Text key={ti}>{t.text} </Text>
                     if (t.type === 'add') return <Text key={ti} style={{ color: tokens.grn, fontWeight: '700', backgroundColor: tokens.gdim }}>{t.text} </Text>
@@ -703,7 +703,10 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
   emptyTitle: { fontWeight: '600', marginTop: 6 },
-  emptySub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptySub: { textAlign: 'center', maxWidth: 300 },
   retryBtn: { marginTop: 14, borderWidth: 1, borderRadius: 18, paddingHorizontal: 18, paddingVertical: 9 },
   retryBtnText: { fontWeight: '700' },
   upgradeBtn: { borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11, marginTop: 10 },
@@ -747,13 +750,19 @@ const styles = StyleSheet.create({
   typeChipText: { fontWeight: '700', letterSpacing: 0.3 },
   durationChip: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 3 },
   durationChipText: { fontWeight: '700', letterSpacing: 0.3 },
-  cardTitle: { fontWeight: '600', lineHeight: 19 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  cardTitle: { fontWeight: '600' },
   diffCounts: { marginTop: 2, fontWeight: '600' },
 
   diffBody: { paddingHorizontal: 13, paddingBottom: 13, gap: 6 },
   diffLine: { flexDirection: 'row', gap: 8, borderRadius: 8, borderWidth: 1, padding: 9 },
   diffMark: { fontWeight: '700', width: 12 },
-  diffText: { flex: 1, lineHeight: 19 },
+  // lineHeight NOT set here -- always overridden inline with fs(13) * 1.46
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  diffText: { flex: 1 },
 
   openBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,

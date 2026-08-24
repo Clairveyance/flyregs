@@ -85,7 +85,7 @@ export default function ConfirmScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg, paddingTop: insets.top + 40 }]}>
       <Icon name="checkmark.seal.fill" size={fs(44)} color={tokens.gold} />
       <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Email confirmed</Text>
-      <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+      <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
         Your email is verified. Sign in to start using FlyRegs.
       </Text>
       <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.dismissTo('/auth')}>
@@ -98,7 +98,10 @@ export default function ConfirmScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, alignItems: 'center', paddingHorizontal: 32, gap: 12 },
   title: { fontWeight: '700', textAlign: 'center', marginTop: 8 },
-  sub: { textAlign: 'center', lineHeight: 20, maxWidth: 320 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.43
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  sub: { textAlign: 'center', maxWidth: 320 },
   btn: { marginTop: 16, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 14 },
   btnText: { color: '#fff', fontWeight: '700' },
 })

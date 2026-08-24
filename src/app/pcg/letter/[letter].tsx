@@ -54,7 +54,7 @@ export default function PcgLetterScreen() {
             >
               <Text style={[styles.term, { color: tokens.t1, fontSize: fs(14.5) }]}>{item.term}</Text>
               {item.definition ? (
-                <Text style={[styles.def, { color: tokens.t3, fontSize: fs(12.5) }]} numberOfLines={2}>
+                <Text style={[styles.def, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]} numberOfLines={2}>
                   {item.definition}
                 </Text>
               ) : null}
@@ -76,5 +76,8 @@ const styles = StyleSheet.create({
     borderRadius: 12, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 6, gap: 3,
   },
   term: { fontWeight: '600' },
-  def: { lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  def: {},
 })

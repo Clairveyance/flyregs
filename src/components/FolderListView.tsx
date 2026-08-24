@@ -179,7 +179,7 @@ export function FolderListView({
         {listHeader}
         <Icon name="folder" size={fs(40)} color={tokens.t4} />
         <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No folders yet</Text>
-        <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+        <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
           Folders let you organize saved regulations and notes together — great for training syllabi, study sets, and reference packs.
         </Text>
         <Pressable
@@ -527,7 +527,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   emptyTitle: { fontWeight: '600', fontSize: 16, marginTop: 8, textAlign: 'center' },
-  emptySub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 300 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptySub: { fontSize: 13.5, textAlign: 'center', maxWidth: 300 },
   createCta: {
     flexDirection: 'row',
     alignItems: 'center',

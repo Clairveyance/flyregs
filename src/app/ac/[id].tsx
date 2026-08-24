@@ -1091,19 +1091,19 @@ export default function ACDetailScreen() {
               <Icon name="doc.text" size={fs(14)} color={tokens.t3} style={{ marginTop: 2 }} />
               <View style={{ flex: 1 }}>
                 {isOcrScanned(ac.document_number) && (
-                  <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
+                  <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
                     * This AC's source is a scanned original — some words in the extracted text may be
                     misread from the scan. The original PDF is the authoritative source.
                   </Text>
                 )}
                 {isOcrScanned(ac.document_number) && figures && figures.length > 0 && (
-                  <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
+                  <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
                     Figures and tables are best viewed as page images in the "Figures & Tables" section
                     below rather than the extracted text.
                   </Text>
                 )}
                 {formulaRefs && formulaRefs.length > 0 && (
-                  <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
+                  <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
                     Formulas flagged as too complex to transcribe reliably are available to view
                     directly in the "Formulas to Verify" section below.
                   </Text>
@@ -1245,7 +1245,7 @@ export default function ACDetailScreen() {
                 >
                   <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
                   <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Continue reading with Plus</Text>
-                  <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+                  <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
                     You're reading a preview. Unlock Plus for the complete text, with full search and navigation.
                   </Text>
                   <View style={[styles.proGateBtn, { backgroundColor: tokens.blu }]}>
@@ -1255,7 +1255,7 @@ export default function ACDetailScreen() {
               )}
             </View>
           ) : (
-            <Text style={[styles.body, { color: tokens.t4, marginTop: 8, textAlign: 'center', fontSize: fs(13) }]}>
+            <Text style={[styles.body, { color: tokens.t4, marginTop: 8, textAlign: 'center', fontSize: fs(13), lineHeight: fs(13) * 1.44 }]}>
               {hasNoSourceAtAll
                 ? 'The FAA has not published public content for this document.'
                 : 'Full text is not available for this AC — use Open PDF above.'}
@@ -1403,7 +1403,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginTop: 4,
   },
-  scanBannerText: { flex: 1, lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  scanBannerText: { flex: 1 },
   scanBannerSeq: { marginTop: 4, fontWeight: '600' },
 
   acNum: { fontWeight: '800', fontSize: 17, marginTop: 4 },
@@ -1422,7 +1425,10 @@ const styles = StyleSheet.create({
 
   section: { gap: 6, marginTop: 4 },
   sectionTitle: { fontSize: 11, fontWeight: '600', letterSpacing: 0.7, marginBottom: 2 },
-  body: { fontSize: 16, lineHeight: 23 },
+  // lineHeight NOT set here -- always overridden inline with fs(size) * 1.44
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  body: { fontSize: 16 },
   cancelItem: { fontSize: 14 },
 
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
@@ -1509,7 +1515,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   proGateTitle: { fontWeight: '700', fontSize: 16, marginTop: 4 },
-  proGateSub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 260 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  proGateSub: { fontSize: 13.5, textAlign: 'center', maxWidth: 260 },
   proGateBtn: {
     marginTop: 8,
     borderRadius: 12,

@@ -581,7 +581,7 @@ export default function AdScreen() {
               </View>
             ) : null}
           </View>
-          <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>{ad.subject_heading}</Text>
+          <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17), lineHeight: fs(17) * 1.35 }]}>{ad.subject_heading}</Text>
 
           {/* Unified with AC/LOI's own meta-chip row -- was a vertical
               label:value card, visually and positionally inconsistent
@@ -624,7 +624,7 @@ export default function AdScreen() {
                   key={i}
                   style={[
                     styles.summary,
-                    { color: tokens.t2, fontSize: fs(14.5) },
+                    { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.45 },
                     i < arr.length - 1 && { marginBottom: 10 },
                   ]}
                 >
@@ -758,7 +758,7 @@ export default function AdScreen() {
             >
               <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
               <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Read the full AD with Plus</Text>
-              <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+              <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
                 The summary above tells you this AD exists — unlock Plus to read the full compliance text.
               </Text>
               <View style={[styles.proGateBtn, { backgroundColor: tokens.blu }]}>
@@ -833,7 +833,10 @@ const styles = StyleSheet.create({
   adNum: { fontWeight: '700' },
   statusPill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   statusText: { fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.3 },
-  title: { fontWeight: '600', marginTop: 4, marginBottom: 14, lineHeight: 23 },
+  // lineHeight NOT set here -- always overridden inline with fs(17) * 1.35
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  title: { fontWeight: '600', marginTop: 4, marginBottom: 14 },
   infoCard: { borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 12, gap: 8 },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   infoLabel: { fontWeight: '500' },
@@ -867,7 +870,10 @@ const styles = StyleSheet.create({
   pdfButtonText: { fontWeight: '600' },
   sectionLabel: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 },
   summaryToggle: { fontWeight: '600', marginTop: 6 },
-  summary: { lineHeight: 21, marginBottom: 18 },
+  // lineHeight NOT set here -- always overridden inline with fs(14.5) * 1.45
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  summary: { marginBottom: 18 },
   body: { fontSize: 14.5, lineHeight: 22 },
   proGate: {
     marginTop: 16,
@@ -878,7 +884,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   proGateTitle: { fontWeight: '700', fontSize: 16, marginTop: 4 },
-  proGateSub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 260 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  proGateSub: { fontSize: 13.5, textAlign: 'center', maxWidth: 260 },
   proGateBtn: {
     marginTop: 8,
     borderRadius: 12,

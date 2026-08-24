@@ -135,7 +135,7 @@ export default function JoinFolder() {
         <>
           <Icon name="person.crop.circle" size={fs(44)} color={tokens.blu} />
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Sign in to accept this invite</Text>
-          <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+          <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
             You'll need your own FlyRegs account before this invite can be accepted.
           </Text>
           <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/auth')}>
@@ -147,7 +147,7 @@ export default function JoinFolder() {
         <>
           <Icon name="lock.fill" size={fs(44)} color={tokens.blu} />
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Premium required</Text>
-          <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+          <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
             {kind === 'folder'
               ? 'Joining a shared folder requires your own Premium subscription.'
               : 'Viewing or editing a shared aircraft requires your own Premium subscription.'}
@@ -161,7 +161,7 @@ export default function JoinFolder() {
         <>
           <Icon name="checkmark.seal.fill" size={fs(44)} color={tokens.gold} />
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>You've joined "{folderName}"</Text>
-          <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+          <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
             You have view-only access to what's in this folder. You'll still need your own Pro or Premium
             subscription to read full AC text.
           </Text>
@@ -181,7 +181,7 @@ export default function JoinFolder() {
               spot folders use for their own access-level sentence -- shown
               once, right when it's actually decided, not a persistent
               banner cluttering the aircraft screen afterward. */}
-          <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>
+          <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
             {aircraftJoined.role === 'editor'
               ? "You have edit access to this aircraft's equipment, reminders, and ADs."
               : 'You have view-only access to this aircraft.'}
@@ -198,7 +198,7 @@ export default function JoinFolder() {
         <>
           <Icon name="xmark.circle" size={fs(44)} color={tokens.red} />
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(18) }]}>Couldn't join</Text>
-          <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14) }]}>{errorMsg}</Text>
+          <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>{errorMsg}</Text>
           <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.replace('/')}>
             <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>Back to FlyRegs</Text>
           </Pressable>
@@ -211,7 +211,10 @@ export default function JoinFolder() {
 const styles = StyleSheet.create({
   root: { flex: 1, alignItems: 'center', paddingHorizontal: 32, gap: 12 },
   title: { fontWeight: '700', textAlign: 'center', marginTop: 8 },
-  sub: { textAlign: 'center', lineHeight: 20, maxWidth: 320 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.43
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  sub: { textAlign: 'center', maxWidth: 320 },
   btn: { marginTop: 16, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 14 },
   btnText: { color: '#fff', fontWeight: '700' },
 })

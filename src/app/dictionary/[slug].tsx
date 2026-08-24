@@ -438,7 +438,7 @@ export default function DictionaryTermScreen() {
               >
                 <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
                 <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Unlock this mnemonic with Pro</Text>
-                <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+                <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
                   See the full letter-by-letter breakdown for every memory aid in the Aviation Dictionary.
                 </Text>
                 <View style={[styles.proGateBtn, { backgroundColor: tokens.blu }]}>
@@ -450,7 +450,7 @@ export default function DictionaryTermScreen() {
                 {(entry.senses?.length ?? 0) > 1 && (
                   <Text style={[styles.senseNum, { color: tokens.t4, fontSize: fs(11) }]}>SENSE {i + 1}</Text>
                 )}
-                <LinkedText text={s.definition} style={[styles.definition, { color: tokens.t1, fontSize: fs(16) }]} linkColor={tokens.blu} hasProAccess={hasProAccess} />
+                <LinkedText text={s.definition} style={[styles.definition, { color: tokens.t1, fontSize: fs(16), lineHeight: fs(16) * 1.44 }]} linkColor={tokens.blu} hasProAccess={hasProAccess} />
                 {s.breakdown && s.breakdown.length > 0 && (
                   <View style={styles.breakdownList}>
                     {s.breakdown.map((b, bi) => (
@@ -459,7 +459,7 @@ export default function DictionaryTermScreen() {
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.breakdownConcept, { color: tokens.t1, fontSize: fs(15) }]}>{b.concept}</Text>
                           {b.detail ? (
-                            <LinkedText text={b.detail} style={[styles.breakdownDetail, { color: tokens.t2, fontSize: fs(13.5) }]} linkColor={tokens.blu} hasProAccess={hasProAccess} />
+                            <LinkedText text={b.detail} style={[styles.breakdownDetail, { color: tokens.t2, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]} linkColor={tokens.blu} hasProAccess={hasProAccess} />
                           ) : null}
                         </View>
                       </View>
@@ -544,13 +544,19 @@ const styles = StyleSheet.create({
   term: { fontWeight: '700', marginBottom: 16 },
   senseCard: { borderRadius: 14, borderWidth: 1, padding: 16, marginBottom: 10, gap: 8 },
   senseNum: { fontWeight: '700', letterSpacing: 0.6 },
-  definition: { lineHeight: 23 },
+  // lineHeight NOT set here -- always overridden inline with fs(16) * 1.44
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  definition: {},
   paraSpacing: { marginBottom: 12 },
   breakdownList: { gap: 12, marginTop: 4 },
   breakdownRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   breakdownLetter: { fontWeight: '800', width: 26 },
   breakdownConcept: { fontWeight: '700' },
-  breakdownDetail: { marginTop: 2, lineHeight: 19 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  breakdownDetail: { marginTop: 2 },
   usagePill: { alignSelf: 'flex-start', borderRadius: 8, paddingHorizontal: 9, paddingVertical: 4 },
   usageText: { fontWeight: '600' },
   pcgLinkCard: {
@@ -569,7 +575,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   proGateTitle: { fontWeight: '700', fontSize: 16, marginTop: 4 },
-  proGateSub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 260 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  proGateSub: { fontSize: 13.5, textAlign: 'center', maxWidth: 260 },
   proGateBtn: {
     marginTop: 8,
     borderRadius: 12,

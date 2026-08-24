@@ -477,7 +477,7 @@ export default function LoiDetailScreen() {
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={() => Keyboard.dismiss()}
         >
-          <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>{humanizeLoiTitle(loi.title)}</Text>
+          <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17), lineHeight: fs(17) * 1.41 }]}>{humanizeLoiTitle(loi.title)}</Text>
 
           {/* Unified with AC/AD's own meta-chip row -- was a bare text
               line for addressee/year plus a separate CFR-ref line, visually
@@ -506,7 +506,7 @@ export default function LoiDetailScreen() {
           {loi.ocr_quality_score != null && loi.ocr_quality_score >= 3.0 && (
             <View style={[styles.scanBanner, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
               <Icon name="doc.text" size={fs(14)} color={tokens.t3} style={{ marginTop: 2 }} />
-              <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5) }]}>
+              <Text style={[styles.scanBannerText, { color: tokens.t2, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
                 * This letter's source is a scanned original — some words in the extracted text may be
                 misread from the scan. The original PDF is the authoritative source.
               </Text>
@@ -520,7 +520,7 @@ export default function LoiDetailScreen() {
                   key={i}
                   style={[
                     styles.summary,
-                    { color: tokens.t2, fontSize: fs(14.5) },
+                    { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.45 },
                     i < arr.length - 1 && { marginBottom: 10 },
                   ]}
                 >
@@ -618,7 +618,7 @@ export default function LoiDetailScreen() {
             >
               <Icon name="lock.fill" size={fs(20)} color={tokens.blu} />
               <Text style={[styles.proGateTitle, { color: tokens.t1, fontSize: fs(16) }]}>Read the full interpretation with Pro</Text>
-              <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+              <Text style={[styles.proGateSub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
                 The summary above tells you what this interpretation covers — unlock Pro to read the full text.
               </Text>
               <View style={[styles.proGateBtn, { backgroundColor: tokens.blu }]}>
@@ -663,7 +663,10 @@ const styles = StyleSheet.create({
   empty: {},
   content: { padding: 16, paddingBottom: 48 },
   meta: { marginBottom: 4, textTransform: 'capitalize' },
-  title: { fontWeight: '700', lineHeight: 24, marginBottom: 4, textTransform: 'capitalize' },
+  // lineHeight NOT set here -- always overridden inline with fs(17) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  title: { fontWeight: '700', marginBottom: 4, textTransform: 'capitalize' },
   cfrRef: { marginBottom: 4 },
   // Same shape as ac/[id].tsx's scanBanner -- kept visually identical
   // across content types per the feature-consistency standing rule.
@@ -677,7 +680,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginTop: 10,
   },
-  scanBannerText: { flex: 1, lineHeight: 17 },
+  // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.36
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  scanBannerText: { flex: 1 },
   // Breathing room around the action/MagicLink stack. These bars used to
   // butt straight up against the Download button above and the body text
   // below, so the whole block read as one cramped slab.
@@ -691,7 +697,10 @@ const styles = StyleSheet.create({
   pdfButtonText: { fontWeight: '600' },
   section: { marginBottom: 18 },
   sectionLabel: { fontWeight: '600', letterSpacing: 0.6, marginBottom: 8 },
-  summary: { lineHeight: 21 },
+  // lineHeight NOT set here -- always overridden inline with fs(14.5) * 1.45
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  summary: {},
   body: { lineHeight: 22 },
   proGate: {
     marginTop: 16,
@@ -702,7 +711,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   proGateTitle: { fontWeight: '700', fontSize: 16, marginTop: 4 },
-  proGateSub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, maxWidth: 260 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  proGateSub: { fontSize: 13.5, textAlign: 'center', maxWidth: 260 },
   proGateBtn: {
     marginTop: 8,
     borderRadius: 12,

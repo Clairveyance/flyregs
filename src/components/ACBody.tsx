@@ -494,7 +494,7 @@ function renderBodyContent(
       const content = text.slice(item.contentStart, contentEnd).trim()
       nodes.push(
         <View key={`${r}-${item.num}`} style={styles.autoListRow}>
-          <Text style={[styles.autoListNum, { color: tokens.t1, fontSize: fs(13) }]}>{item.num}.</Text>
+          <Text style={[styles.autoListNum, { color: tokens.t1, fontSize: fs(13), lineHeight: fs(13) * 1.62 }]}>{item.num}.</Text>
           <Text style={[styles.autoListBody, { color: tokens.t2, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.56 }]}>{linkify(content)}</Text>
         </View>
       )
@@ -1032,7 +1032,7 @@ export const ACBody = React.forwardRef<
                       numberOfLines={1}
                       style={[
                         styles.tocEntry,
-                        { fontSize: fs(13) },
+                        { fontSize: fs(13), lineHeight: fs(13) * 1.38 },
                         h.kind === 'chapter'
                           ? { color: tokens.t1, fontWeight: '700' }
                           : { color: tokens.t2, paddingLeft: 14 },
@@ -1094,7 +1094,7 @@ export const ACBody = React.forwardRef<
                       onPressOut={hideTocPreview}
                       delayLongPress={350}
                     >
-                      <Text numberOfLines={1} style={[styles.tocEntry, { color: tokens.t2, fontSize: fs(13) }]}>
+                      <Text numberOfLines={1} style={[styles.tocEntry, { color: tokens.t2, fontSize: fs(13), lineHeight: fs(13) * 1.38 }]}>
                         <Text style={{ color: tokens.t1, fontWeight: '700' }}>{f.label}</Text>
                         {f.caption ? (
                           ` ${f.caption}`
@@ -1142,7 +1142,7 @@ export const ACBody = React.forwardRef<
                       onPressOut={hideTocPreview}
                       delayLongPress={350}
                     >
-                      <Text numberOfLines={2} style={[styles.tocEntry, { color: tokens.t2, fontSize: fs(13) }]}>
+                      <Text numberOfLines={2} style={[styles.tocEntry, { color: tokens.t2, fontSize: fs(13), lineHeight: fs(13) * 1.38 }]}>
                         <Text style={{ color: tokens.t1, fontWeight: '700' }}>{r.label}</Text>
                         {r.note ? ` — ${r.note}` : ''}
                       </Text>
@@ -1251,7 +1251,7 @@ export const ACBody = React.forwardRef<
                   >
                     {HighlightTag}
                     {activeHq ? (
-                      <Text style={[styles.sectionLabel, { color: tokens.t1, fontWeight: '700', fontSize: fs(13.5) }]}>
+                      <Text style={[styles.sectionLabel, { color: tokens.t1, fontWeight: '700', fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
                         {highlightSpans(headingText, activeHq, hOpts(base))}
                       </Text>
                     ) : (
@@ -1314,7 +1314,7 @@ export const ACBody = React.forwardRef<
               >
                 {UpdatedTag}
                 {HighlightTag}
-                <Text style={[styles.sectionLabel, { color: tokens.t1, fontWeight, fontSize, marginTop }]}>
+                <Text style={[styles.sectionLabel, { color: tokens.t1, fontWeight, fontSize, marginTop, lineHeight: fontSize * 1.48 }]}>
                   {activeHq ? highlightSpans(headingText, activeHq, hOpts(base)) : headingText}
                 </Text>
                 {rawBody ? (
@@ -1365,7 +1365,7 @@ export const ACBody = React.forwardRef<
                 {UpdatedTag}
                 {HighlightTag}
                 {activeHq ? (
-                  <Text selectable style={[styles.item, { color: tokens.t2, paddingLeft: 6 + b.level * 14, fontSize: fs(13) }]}>
+                  <Text selectable style={[styles.item, { color: tokens.t2, paddingLeft: 6 + b.level * 14, fontSize: fs(13), lineHeight: fs(13) * 1.54 }]}>
                     <Text style={{ color: tokens.t1, fontWeight: '600' }}>
                       {highlightSpans(labelText, activeHq, hOpts(base))}{' '}
                     </Text>
@@ -1385,7 +1385,7 @@ export const ACBody = React.forwardRef<
                     <Text
                       key={ci}
                       selectable
-                      style={[styles.item, { color: tokens.t2, paddingLeft: 6 + b.level * 14, fontSize: fs(13) }, ci > 0 && { marginTop: 6 }]}
+                      style={[styles.item, { color: tokens.t2, paddingLeft: 6 + b.level * 14, fontSize: fs(13), lineHeight: fs(13) * 1.54 }, ci > 0 && { marginTop: 6 }]}
                     >
                       {ci === 0 && <Text style={{ color: tokens.t1, fontWeight: '600' }}>{labelText}{' '}</Text>}
                       {linkify(chunk)}
@@ -1444,10 +1444,16 @@ const styles = StyleSheet.create({
   tocCount: { fontSize: 12, fontWeight: '600' },
   tocList: { borderTopWidth: 1, paddingVertical: 4 },
   tocRow: { paddingHorizontal: 14, paddingVertical: 7 },
-  tocEntry: { fontSize: 13, lineHeight: 18 },
+  // lineHeight NOT set here -- always overridden inline with fs(13) * 1.38
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  tocEntry: { fontSize: 13 },
 
   chapter: { fontSize: 14.5, fontWeight: '800', letterSpacing: 0.3, marginTop: 20, marginBottom: 8 },
-  sectionLabel: { lineHeight: 20 },
+  // lineHeight NOT set here -- always overridden inline with fs(size) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  sectionLabel: {},
   amendmentDivider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 26, marginBottom: 10 },
   amendmentDividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
   amendmentDividerText: { fontWeight: '700', letterSpacing: 1.2 },
@@ -1456,9 +1462,15 @@ const styles = StyleSheet.create({
   changeChip: { color: '#fff', fontWeight: '800', letterSpacing: 0.4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 5, overflow: 'hidden' },
   changeDate: { fontWeight: '500' },
   sectionBody: { fontSize: 13.5, lineHeight: 21, marginTop: 4 },
-  item: { fontSize: 13, lineHeight: 20, marginTop: 8 },
+  // lineHeight NOT set here -- always overridden inline with fs(13) * 1.54
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  item: { fontSize: 13, marginTop: 8 },
   autoListRow: { flexDirection: 'row', marginTop: 6, paddingLeft: 4 },
-  autoListNum: { fontWeight: '700', width: 22, lineHeight: 21 },
+  // lineHeight NOT set here -- always overridden inline with fs(13) * 1.62
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  autoListNum: { fontWeight: '700', width: 22 },
   autoListBody: { flex: 1, lineHeight: 21 },
   para: { fontSize: 13.5, lineHeight: 21, marginTop: 10 },
   highlight: { backgroundColor: 'rgba(255, 213, 0, 0.45)', borderRadius: 2 },

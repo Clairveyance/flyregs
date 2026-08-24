@@ -597,7 +597,7 @@ export default function ProfileScreen() {
             {!visible ? (
               <View style={[styles.privateCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                 <Icon name="eye.slash" size={fs(22)} color={tokens.t4} />
-                <Text style={[styles.privateText, { color: tokens.t3, fontSize: fs(13) }]}>
+                <Text style={[styles.privateText, { color: tokens.t3, fontSize: fs(13), lineHeight: fs(13) * 1.38 }]}>
                   {displayLabel} hasn't made ratings, badges, or aircraft visible to other players yet.
                 </Text>
               </View>
@@ -681,7 +681,7 @@ export default function ProfileScreen() {
                               )}
                             </View>
                             <View style={styles.coinNameSlot}>
-                              <Text style={[styles.coinName, { color: earned ? tokens.t1 : tokens.t4, fontSize: fs(12) }]} numberOfLines={2}>
+                              <Text style={[styles.coinName, { color: earned ? tokens.t1 : tokens.t4, fontSize: fs(12), lineHeight: fs(12) * 1.33 }]} numberOfLines={2}>
                                 {coin.name}
                               </Text>
                             </View>
@@ -717,7 +717,7 @@ export default function ProfileScreen() {
                               onPressOut={hidePreview}
                               delayLongPress={350}
                             >
-                              <Text style={[styles.coinName, { color: tokens.t1, fontSize: fs(12) }]} numberOfLines={2}>{def.name}</Text>
+                              <Text style={[styles.coinName, { color: tokens.t1, fontSize: fs(12), lineHeight: fs(12) * 1.33 }]} numberOfLines={2}>{def.name}</Text>
                             </Pressable>
                           </View>
                         )
@@ -910,7 +910,7 @@ export default function ProfileScreen() {
                 <Text style={[styles.coinDetailStatus, { color: earned ? tokens.gold : tokens.t3, fontSize: fs(12) }]}>
                   {earned ? 'EARNED' : 'LOCKED — HOW TO UNLOCK'}
                 </Text>
-                <Text style={[styles.coinDetailDesc, { color: tokens.t2, fontSize: fs(14) }]}>{coinDetail.description}</Text>
+                <Text style={[styles.coinDetailDesc, { color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>{coinDetail.description}</Text>
                 <Pressable style={[styles.coinDetailClose, { borderColor: tokens.bdr }]} onPress={() => setCoinDetail(null)}>
                   <Text style={{ color: tokens.t2, fontWeight: '600' }}>Close</Text>
                 </Pressable>
@@ -988,7 +988,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 12,
     borderRadius: 14, borderWidth: 1, padding: 16,
   },
-  privateText: { flex: 1, lineHeight: 18 },
+  // lineHeight NOT set here -- always overridden inline with fs(13) * 1.38
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  privateText: { flex: 1 },
 
   section: { gap: 8 },
   sectionDivided: { paddingTop: 22, borderTopWidth: StyleSheet.hairlineWidth },
@@ -1047,7 +1050,10 @@ const styles = StyleSheet.create({
   // see CoinMedal.tsx's shadow/glow comment). Both the box and the
   // line-height itself now have real headroom instead of a razor-exact fit.
   coinNameSlot: { height: 34, justifyContent: 'flex-start', overflow: 'visible' },
-  coinName: { fontWeight: '600', textAlign: 'center', lineHeight: 16 },
+  // lineHeight NOT set here -- always overridden inline with fs(12) * 1.33
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  coinName: { fontWeight: '600', textAlign: 'center' },
   // "Trophy case" -- The Ace / The Master, deliberately its own row below
   // the regular coinGrid, not a 3rd/4th column squeezed into it: RC's own
   // spec was "side by side," just the two of them, bigger than the rest.
@@ -1069,6 +1075,9 @@ const styles = StyleSheet.create({
   coinDetailCard: { width: '100%', maxWidth: 400, borderRadius: 18, borderWidth: 1, padding: 10, alignItems: 'center', gap: 8 },
   coinDetailName: { fontWeight: '700' },
   coinDetailStatus: { fontWeight: '700', letterSpacing: 0.6 },
-  coinDetailDesc: { textAlign: 'center', lineHeight: 20, marginTop: 4, marginBottom: 8 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.43
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  coinDetailDesc: { textAlign: 'center', marginTop: 4, marginBottom: 8 },
   coinDetailClose: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 9, marginTop: 4 },
 })

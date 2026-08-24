@@ -106,7 +106,7 @@ export function DictionarySearchBar() {
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.termText, { color: tokens.t1, fontSize: fs(14) }]}>{item.term}</Text>
                     {item.definition && (
-                      <Text style={[styles.defText, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={2}>
+                      <Text style={[styles.defText, { color: tokens.t3, fontSize: fs(12), lineHeight: fs(12) * 1.25 }]} numberOfLines={2}>
                         {item.definition}
                       </Text>
                     )}
@@ -142,5 +142,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth,
   },
   termText: { fontWeight: '600' },
-  defText: { marginTop: 2, lineHeight: 15 },
+  // lineHeight NOT set here -- always overridden inline with fs(12) * 1.25
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  defText: { marginTop: 2 },
 })

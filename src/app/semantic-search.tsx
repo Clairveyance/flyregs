@@ -168,7 +168,7 @@ export default function SemanticSearchScreen() {
           <Text style={[styles.upsellTitle, { color: tokens.t1, fontSize: fs(17) }]}>
             Ask FlyRegs a real question
           </Text>
-          <Text style={[styles.upsellSub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.upsellSub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             Type a full question in plain English and get the FAR, AIM, P/CG, AC, AD, or LOI passages
             that actually answer it — not just whatever contains the same keywords.
           </Text>
@@ -293,7 +293,7 @@ export default function SemanticSearchScreen() {
               {EXAMPLE_PROMPTS.map((p) => (
                 <Pressable key={p} style={[styles.exampleRow, { borderColor: tokens.bdr }]} onPress={() => { setQueryText(p); runSearch(p) }}>
                   <Icon name="text.bubble.fill" size={fs(13)} color={tokens.t3} />
-                  <Text style={[styles.exampleText, { color: tokens.t2, fontSize: fs(13.5) }]}>{p}</Text>
+                  <Text style={[styles.exampleText, { color: tokens.t2, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.33 }]}>{p}</Text>
                 </Pressable>
               ))}
             </View>
@@ -306,11 +306,11 @@ export default function SemanticSearchScreen() {
           )}
 
           {!searching && error && (
-            <Text style={[styles.errorText, { color: tokens.amb, fontSize: fs(13.5) }]}>{error}</Text>
+            <Text style={[styles.errorText, { color: tokens.amb, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>{error}</Text>
           )}
 
           {!searching && !error && submittedQuery.length > 0 && results.length === 0 && (
-            <Text style={[styles.emptyText, { color: tokens.t3, fontSize: fs(13.5) }]}>
+            <Text style={[styles.emptyText, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
               No close matches found. Try rephrasing, or use Home's regular search for exact terms.
             </Text>
           )}
@@ -351,10 +351,10 @@ export default function SemanticSearchScreen() {
                         {Math.round(r.similarity * 100)}% match
                       </Text>
                     </View>
-                    <Text style={[styles.resultTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
+                    <Text style={[styles.resultTitle, { color: tokens.t1, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.31 }]} numberOfLines={2}>
                       {formatResultTitle(r.sourceType, r.title) || formatSourceLabel(r.sourceType, r.sourceId) || meta.label}
                     </Text>
-                    <Text style={[styles.resultSnippet, { color: tokens.t2, fontSize: fs(13) }]} numberOfLines={3}>
+                    <Text style={[styles.resultSnippet, { color: tokens.t2, fontSize: fs(13), lineHeight: fs(13) * 1.38 }]} numberOfLines={3}>
                       {r.chunkText}
                     </Text>
                   </Pressable>
@@ -400,7 +400,10 @@ const styles = StyleSheet.create({
   dropRowRemove: { padding: 4 },
 
   upsellTitle: { fontWeight: '700', textAlign: 'center', marginTop: 4 },
-  upsellSub: { textAlign: 'center', lineHeight: 19, maxWidth: 300 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  upsellSub: { textAlign: 'center', maxWidth: 300 },
   upsellBtn: { borderRadius: 12, paddingVertical: 12, paddingHorizontal: 24, marginTop: 6 },
   upsellBtnText: { color: '#fff', fontWeight: '700', fontSize: 14.5 },
 
@@ -419,15 +422,30 @@ const styles = StyleSheet.create({
   examplesWrap: { marginTop: 20, gap: 8 },
   examplesLabel: { fontWeight: '600', letterSpacing: 0.5, marginBottom: 2 },
   exampleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 10, padding: 12 },
-  exampleText: { flex: 1, lineHeight: 18 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.33
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  exampleText: { flex: 1 },
 
-  errorText: { textAlign: 'center', marginTop: 24, lineHeight: 19 },
-  emptyText: { textAlign: 'center', marginTop: 24, lineHeight: 19 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  errorText: { textAlign: 'center', marginTop: 24 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptyText: { textAlign: 'center', marginTop: 24 },
 
   resultCard: { borderWidth: 1, borderRadius: 12, padding: 14, marginTop: 12, gap: 6 },
   resultHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   resultBadge: { fontWeight: '700', letterSpacing: 0.3 },
   resultSimilarity: { fontWeight: '600' },
-  resultTitle: { fontWeight: '600', lineHeight: 19 },
-  resultSnippet: { lineHeight: 18 },
+  // lineHeight NOT set here -- always overridden inline with fs(14.5) * 1.31
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  resultTitle: { fontWeight: '600' },
+  // lineHeight NOT set here -- always overridden inline with fs(13) * 1.38
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  resultSnippet: {},
 })

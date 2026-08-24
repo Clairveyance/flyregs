@@ -37,7 +37,7 @@ export default function AboutScreen() {
             style={[styles.logo, { borderColor: tokens.bdr2 }]}
           />
           <Text style={[styles.appName, { color: wordmarkGoldFor(resolved, redShift), fontSize: fs(24), fontFamily: WORDMARK_FONT }]}>{APP_NAME}</Text>
-          <Text style={[styles.tagline, { color: tokens.t3, fontSize: fs(13.5) }]}>
+          <Text style={[styles.tagline, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             The complete FAA regulatory reference
           </Text>
           <Text style={[styles.version, { color: tokens.t4, fontSize: fs(12) }]}>
@@ -47,7 +47,7 @@ export default function AboutScreen() {
 
         {/* Description */}
         <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-          <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14) }]}>
+          <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.57 }]}>
             {APP_NAME} puts the FARs, AIM, Pilot/Controller Glossary, Airworthiness Directives, Legal
             Interpretations, every active Advisory Circular, and a 9,800+ term Aviation Dictionary in
             your pocket — searchable, browsable, and linkable from your own notes. Built for pilots,
@@ -77,7 +77,7 @@ export default function AboutScreen() {
         </View>
 
         {/* Attribution */}
-        <Text style={[styles.attribution, { color: tokens.t4, fontSize: fs(11.5) }]}>
+        <Text style={[styles.attribution, { color: tokens.t4, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.48 }]}>
           All regulatory and guidance content is published by the U.S. Federal Aviation Administration
           and is in the public domain. {APP_NAME} is an independent product and is not affiliated with
           or endorsed by the FAA.
@@ -129,10 +129,16 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   appName: { fontSize: 24, letterSpacing: -0.3 },
-  tagline: { fontSize: 13.5, textAlign: 'center', maxWidth: 260, lineHeight: 19 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  tagline: { fontSize: 13.5, textAlign: 'center', maxWidth: 260 },
   version: { fontSize: 12, marginTop: 4 },
   card: { borderRadius: 14, borderWidth: 1, padding: 16 },
-  body: { fontSize: 14, lineHeight: 22 },
+  // lineHeight NOT set here -- always overridden inline with fs(14) * 1.57
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  body: { fontSize: 14 },
   linkRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -142,6 +148,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   linkLabel: { flex: 1, fontSize: 14.5, fontWeight: '500' },
-  attribution: { fontSize: 11.5, lineHeight: 17, textAlign: 'center' },
+  // lineHeight NOT set here -- always overridden inline with fs(11.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  attribution: { fontSize: 11.5, textAlign: 'center' },
   copyright: { fontSize: 11.5, textAlign: 'center' },
 })

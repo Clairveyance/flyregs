@@ -952,7 +952,7 @@ export default function SavedScreen() {
               <Text style={[styles.folderCapTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>
                 {lockedFolderCount} folder{lockedFolderCount === 1 ? '' : 's'} locked
               </Text>
-              <Text style={[styles.folderCapBody, { color: tokens.t3, fontSize: fs(13) }]}>
+              <Text style={[styles.folderCapBody, { color: tokens.t3, fontSize: fs(13), lineHeight: fs(13) * 1.38 }]}>
                 {`${planName} includes ${PRO_FOLDER_CAP} folders. Nothing has been deleted — use ⋯ › Reorder Folders to drag the ${PRO_FOLDER_CAP} you want to the top, or go Premium for unlimited.`}
               </Text>
               <Pressable
@@ -1007,7 +1007,7 @@ export default function SavedScreen() {
               <View style={styles.center}>
                 <Icon name="person.2.fill" size={fs(40)} color={tokens.t4} />
                 <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Nothing shared with you yet</Text>
-                <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+                <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
                   When someone invites you to a folder, it'll show up here.
                 </Text>
               </View>
@@ -1064,7 +1064,7 @@ export default function SavedScreen() {
             <View style={styles.center}>
               <Icon name="person.2.fill" size={fs(40)} color={tokens.t4} />
               <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>You haven't shared anything yet</Text>
-              <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+              <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
                 Open a folder in the Folders tab and tap the people icon to invite someone.
               </Text>
             </View>
@@ -1441,7 +1441,7 @@ function BookmarkRow({
                   })()}
                 </View>
                 {rowTitle(item.document_number, item.title) ? (
-                  <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={2}>
+                  <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(15), lineHeight: fs(15) * 1.4 }]} numberOfLines={2}>
                     {rowTitle(item.document_number, item.title)}
                   </Text>
                 ) : null}
@@ -1548,7 +1548,7 @@ function OfflineListView({
       <View style={styles.center}>
         <Icon name="arrow.down.circle" size={fs(40)} color={tokens.t4} />
         <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No downloads yet</Text>
-        <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+        <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
           Open any AC, FAR, AIM, P/CG, AD, LOI, or 49 CFR section and tap "Download" to save it here for reading with no connection.
         </Text>
       </View>
@@ -1698,7 +1698,7 @@ function OfflineRow({
                   {item.document_number}{isOcrScanned(item.document_number) ? ' *' : ''}
                 </Text>
               {rowTitle(item.document_number, item.title) ? (
-                <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(15) }]} numberOfLines={2}>
+                <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(15), lineHeight: fs(15) * 1.4 }]} numberOfLines={2}>
                   {rowTitle(item.document_number, item.title)}
                 </Text>
               ) : null}
@@ -1801,7 +1801,7 @@ function ProWall({
     <View style={styles.center}>
       <Icon name="lock.fill" size={fs(36)} color={tokens.blu} />
       <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>{label} is a {tierLabel} feature</Text>
-      <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+      <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
         Unlock {tierLabel} to use {label.toLowerCase()}.
       </Text>
       <Pressable
@@ -1826,7 +1826,7 @@ function EmptyState({
     <View style={styles.center}>
       <Icon name="bookmark" size={fs(40)} color={tokens.t4} />
       <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>No bookmarks yet</Text>
-      <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5) }]}>
+      <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
         Tap the bookmark icon on any FAR, AIM, AC, P/CG, AD, or LOI to save it here.
         {!signedIn ? ' Sign in to sync across devices.' : ''}
       </Text>
@@ -1850,7 +1850,10 @@ const styles = StyleSheet.create({
     alignItems: 'center', gap: 8,
   },
   folderCapTitle: { fontWeight: '700', textAlign: 'center' },
-  folderCapBody: { textAlign: 'center', lineHeight: 18 },
+  // lineHeight NOT set here -- always overridden inline with fs(13) * 1.38
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  folderCapBody: { textAlign: 'center' },
   folderCapBtn: { borderRadius: 11, paddingHorizontal: 18, paddingVertical: 9, marginTop: 2 },
   folderCapBtnText: { color: '#000', fontWeight: '700' },
   root: { flex: 1 },
@@ -1878,7 +1881,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   emptyTitle: { fontWeight: '600', fontSize: 16, marginTop: 8, textAlign: 'center' },
-  emptySub: { fontSize: 13.5, textAlign: 'center', lineHeight: 20, marginTop: 4, maxWidth: 300 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.48
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  emptySub: { fontSize: 13.5, textAlign: 'center', marginTop: 4, maxWidth: 300 },
   upgradeBtn: { marginTop: 8, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 28 },
   upgradeBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   signInBtn: {
@@ -2032,7 +2038,10 @@ const styles = StyleSheet.create({
   rowNumBadgeWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   rowBadge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 1.5 },
   rowBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
-  rowTitle: { fontWeight: '500', fontSize: 15, lineHeight: 21 },
+  // lineHeight NOT set here -- always overridden inline with fs(15) * 1.4
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
+  rowTitle: { fontWeight: '500', fontSize: 15 },
   savedAt: { fontSize: 11, flexShrink: 1 },
   rowActions: { flexDirection: 'column', alignItems: 'center', gap: 22, paddingTop: 2 },
   // Shares the metadata line with the AC's saved-date/office text instead of
