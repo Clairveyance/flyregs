@@ -1,0 +1,44 @@
+-- Remove 89 false-positive P/CG "revision" rows from a backfill re-run, not a real FAA change   2026-08-24
+--
+-- RC, real-device feedback report: "It seems weird that there's almost 100
+-- new changes and most of them are coming from the pilot controller
+-- glossary as additions that seems like a bug that you created rather than
+-- something in the FAA updated." Correct instinct.
+--
+-- Root cause: commit 6bef057 ("Fix P/CG scraper dropping continuation
+-- lists + missing terms") required re-running pcg_scraper.py against the
+-- live DB to actually recover the previously-dropped continuation-list
+-- text for terms already scraped under the old, buggy parser. That re-run
+-- happened locally around 2026-08-23 02:07:55 UTC (about 28 min before the
+-- fix commit itself landed) WITHOUT --no-revision-log/SKIP_REVISION_LOG --
+-- revision_log.py (sync/revision_log.py) has no way to distinguish "the
+-- real weekly cron found genuinely new FAA content" from "someone re-ran
+-- the scraper locally to recover already-known data" (its own docstring
+-- says exactly this, written after an near-identical 2026-08-06 AD
+-- incident this same opt-out was built for) -- so all 89 recovered
+-- continuation-list additions got logged as if the FAA had just published
+-- them.
+--
+-- Confirmed genuine false-positives, not guessed: spot-checked 7 of the 89
+-- rows directly -- every one is real P/CG continuation-list content (e.g.
+-- ADAPTED_ROUTES, AIR_TRAFFIC_CONTROL_SERVICE_ICAO, AIRCRAFT_APPROACH_
+-- CATEGORY), every added_text reads as a multi-part definition's later
+-- bullets, every removed_text is null (pure recovery of missing text, not
+-- an actual edit), and all 89 share the exact same millisecond timestamp
+-- (one single log_revisions() batch insert, not 89 independent real
+-- changes on different terms happening to land the same moment).
+--
+-- Fix: delete exactly this one batch (doc_type + exact timestamp, both
+-- required so this can't accidentally match any other real revision that
+-- happens to share either value alone). The underlying pcg_terms content
+-- itself is untouched -- only the incorrect "this changed" timeline entry
+-- is removed. Going forward, any future scraper-bug-fix backfill re-run
+-- MUST use --no-revision-log (see revision_log.py's own docstring) --
+-- this is the second time this exact failure mode has happened (AD
+-- 2026-08-06, P/CG 2026-08-23), so treat "did I pass --no-revision-log"
+-- as a required checklist item before any repair/backfill re-run, not an
+-- easy-to-forget option.
+
+DELETE FROM public.content_revisions
+WHERE doc_type = 'pcg'
+  AND created_at = '2026-08-23 02:07:55.43792+00';

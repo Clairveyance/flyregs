@@ -265,6 +265,32 @@ def log_revisions(
     if not to_insert:
         return 0
 
+    # Circuit breaker, added 2026-08-24 after this exact failure mode hit
+    # PRODUCTION for the second time (AD, 2026-08-06, 72 rows; P/CG,
+    # 2026-08-23, 89 rows -- see migrations_remove_false_pcg_revisions.sql
+    # for the real-user bug report that caught the second one) -- both were
+    # a scraper-bug-fix backfill re-run against already-known content,
+    # logged as if the FAA had just published dozens of real changes,
+    # because SKIP_REVISION_LOG is opt-out and both times nobody remembered
+    # to set it. Real historical batches (checked live against every batch
+    # ever logged, grouped by doc_type+timestamp) top out at 5 rows -- nothing
+    # close to REVISION_BATCH_LIMIT has ever been a genuine same-moment FAA
+    # change. Refuses instead of silently logging past this size; a
+    # genuinely large real batch (e.g. an unusually big single-day FAA
+    # rewrite) can still go through via FORCE_REVISION_LOG=1, an explicit,
+    # readable opt-IN for the rare real case, rather than relying on
+    # someone remembering an opt-OUT for the common backfill case.
+    REVISION_BATCH_LIMIT = 20
+    if len(to_insert) > REVISION_BATCH_LIMIT and not os.environ.get("FORCE_REVISION_LOG"):
+        log.warning(
+            f"  revision_log: {len(to_insert)} doc_type={doc_type!r} revisions in one batch "
+            f"(limit {REVISION_BATCH_LIMIT}) -- this almost always means a backfill/repair "
+            f"re-run, not a real same-moment FAA change (see this function's own comment). "
+            f"Skipping revision logging for this batch. If this really is a genuine large "
+            f"FAA update, re-run with FORCE_REVISION_LOG=1 to log it anyway."
+        )
+        return 0
+
     try:
         resp = requests.post(
             f"{supabase_url}/rest/v1/content_revisions",
