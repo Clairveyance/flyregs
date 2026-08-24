@@ -137,7 +137,7 @@ interface SearchResult {
 
 export default function HomeScreen() {
   const { tokens, resolved, redShift } = useTheme()
-  const { hasPlusAccess } = useAuth()
+  const { hasPlusAccess, loading: authLoading } = useAuth()
   const fs = useFS()
   const ifs = useInputFS()
   const isTabletLandscape = useIsTabletLandscape()
@@ -340,7 +340,22 @@ export default function HomeScreen() {
     filterHasFigures != null,
   ].filter(Boolean).length
 
+  // Advanced Filter is a Plus-tier tool -- filter_documents() itself has
+  // carried a `WHERE public.has_plus_access()` gate since the 2026-08-11
+  // gating sweep (sync/migrations_gating_sweep_batch1.sql), whose own
+  // comment says so explicitly ("The filter TOOL itself is the Plus-gated
+  // capability... blocks the whole function for non-Plus regardless of
+  // which content types are requested"). That migration fixed the RPC but
+  // never added a matching client-side gate here -- confirmed live,
+  // 2026-08-24: a real non-Plus account can still tap the Filter icon,
+  // fill in any chip combination, and always gets "0" / "No documents
+  // match these filters" with no explanation, because has_plus_access()
+  // silently zeroes every row server-side regardless of the filter chips
+  // chosen. Indistinguishable from a broken feature to that user -- same
+  // entry-point-gate pattern as every other Plus/Pro toggle in this app
+  // (e.g. account.tsx's handleToggleDailyWord).
   const openFilter = () => {
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     if (farPartOptions.length === 0) getFarPartOptions().then(setFarPartOptions).catch(() => {})
     if (acSeriesOptions.length === 0) getAcSeriesOptions().then(setAcSeriesOptions).catch(() => {})
     setFilterVisible(true)
@@ -1255,7 +1270,7 @@ export default function HomeScreen() {
         visible={filterVisible}
         onClose={() => setFilterVisible(false)}
         title="Filter"
-        subtitle="Everything is searched by default — pick chips only to narrow."
+        subtitle="Everything searched by default — pick chips to narrow."
         resultCount={liveCount}
         countLoading={liveCountLoading}
         onClearAll={clearFilters}
@@ -1490,7 +1505,7 @@ export default function HomeScreen() {
                         results, so the user couldn't tell which one they
                         needed. Uniform row height is worth less than being
                         able to read the result. */}
-                    <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5) }]} numberOfLines={3}>
+                    <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.33 }]} numberOfLines={3}>
                       {title}
                     </Text>
                   </View>
@@ -1581,7 +1596,7 @@ export default function HomeScreen() {
                   onPress={() => selectRecentSearch(q)}
                 >
                   <Icon name="clock" size={fs(14)} color={tokens.t3} />
-                  <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5), marginLeft: 10 }]} numberOfLines={1}>
+                  <Text style={[styles.dropTitle, { color: tokens.t1, fontSize: fs(13.5), marginLeft: 10, lineHeight: fs(13.5) * 1.33 }]} numberOfLines={1}>
                     {q}
                   </Text>
                 </Pressable>
@@ -2282,7 +2297,7 @@ function FilterResultRowView({
       </View>
       <Text style={[styles.filterRowPrimary, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>{item.primaryLabel}</Text>
       {item.secondaryLabel ? (
-          <Text style={[styles.filterRowSecondary, { color: tokens.t3, fontSize: fs(12) }]} numberOfLines={4}>{item.secondaryLabel}</Text>
+          <Text style={[styles.filterRowSecondary, { color: tokens.t3, fontSize: fs(12), lineHeight: fs(12) * 1.33 }]} numberOfLines={4}>{item.secondaryLabel}</Text>
       ) : null}
     </Pressable>
   )
@@ -2554,7 +2569,10 @@ const styles = StyleSheet.create({
   filterTypeTag: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
   filterTypeTagText: { fontWeight: '700', letterSpacing: 0.3 },
   filterRowPrimary: { fontWeight: '700' },
-  filterRowSecondary: { lineHeight: 16 },
+  // lineHeight NOT set here -- always overridden inline with fs(12) * 1.33
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as wnTitle above.
+  filterRowSecondary: {},
 
   filterSectionTitle: { fontWeight: '700', letterSpacing: 0.5 },
   filterDateInput: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
@@ -2620,7 +2638,10 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  dropTitle: { flex: 1, fontSize: 13.5, lineHeight: 18 },
+  // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.33
+  // (StyleSheet.create is module-scope, fs() is a hook), same
+  // fixed-lineHeight-vs-scaled-fontSize fix as wnTitle above.
+  dropTitle: { flex: 1, fontSize: 13.5 },
   dropTypeBadge: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 3, width: 44, alignItems: 'center' },
   dropTypeBadgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.3 },
   dropOtherPrimary: { fontSize: 12.5, fontWeight: '700', marginBottom: 1 },
