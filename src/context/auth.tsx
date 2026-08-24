@@ -6,6 +6,7 @@ import { initRevenueCat, getSubscriptionStatus, logOutRevenueCat, syncEntitlemen
 import { applyRemoteSyncPreference, claimLocalDataForSignedOutUser } from '@/lib/sync'
 import { claimDeviceIfMismatched } from '@/lib/syncOwner'
 import { getDeviceId } from '@/lib/deviceId'
+import { loadCachedEntitlement, saveCachedEntitlement } from '@/lib/entitlementCache'
 import type { AvatarOverride } from '@/lib/avatar'
 
 interface AuthContextType {
@@ -73,6 +74,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session)
       if (session?.user) {
+        // Fast path, RC real-device report (B35): "everything in the app is
+        // taking WAY TOO LONG to open... should not be dependent on
+        // internet speed." This whole block used to stay behind `loading`
+        // (which gates the ENTIRE app's render) until getSubscriptionStatus()
+        // resolved -- a real RevenueCat network call with up to 3 retries
+        // (300/600/900ms backoff) if it's slow. A poor connection could
+        // genuinely stall every screen behind a spinner for several seconds.
+        // A warm launch (this device has seen this account's tier before)
+        // now unblocks `loading` IMMEDIATELY from the last-known cached
+        // result -- see entitlementCache.ts's own comment for why trusting
+        // a few-seconds-stale tier client-side is safe (every real gated
+        // read is still enforced server-side, not by client trust). The
+        // real network fetch below still always runs, in the background
+        // now instead of blocking -- it corrects the UI (and the cache) the
+        // moment it resolves, same as before for a genuinely first-time
+        // launch (no cache yet, falls straight through to the original
+        // blocking behavior).
+        const cached = await loadCachedEntitlement(session.user.id)
+        if (cached) {
+          setIsPro(cached.isPro)
+          setIsPremium(cached.isPremium)
+          setIsUnlocked(cached.isUnlocked)
+          setLoading(false)
+        }
         try {
           // Must run before anything below reads or writes local-first
           // storage (folders/bookmarks/notes/recents/downloads/recent-
@@ -85,6 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsPro(status.isPro)
           setIsPremium(status.isPremium)
           setIsUnlocked(status.isUnlocked)
+          saveCachedEntitlement(session.user.id, status)
           // Self-healing catch-up for user_entitlements (the DB-backed
           // tier-of-record behind every *_gated view/RPC -- see
           // gotcha_tier_gate_client_side_only.md), in case revenuecat-webhook
@@ -116,7 +142,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // but initRevenueCat's Purchases.configure() is an unguarded
           // native bridge call; `loading` must not get stuck true forever
           // on cold launch (the whole app renders behind this flag) if it
-          // does throw.
+          // does throw. A no-op if the cache fast path above already
+          // cleared it.
           setLoading(false)
         }
       } else {
@@ -145,6 +172,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // extending it to cover this event is consistent with that, not a
         // new mechanism.
         if (event === 'SIGNED_IN') setLoading(true)
+        // Same cache-first fast path as the session-restore branch above --
+        // a returning account's last-known tier unblocks `loading`
+        // immediately instead of waiting on a real RevenueCat round trip.
+        if (event === 'SIGNED_IN') {
+          const cached = await loadCachedEntitlement(session.user.id)
+          if (cached) {
+            setIsPro(cached.isPro)
+            setIsPremium(cached.isPremium)
+            setIsUnlocked(cached.isUnlocked)
+            setLoading(false)
+          }
+        }
         try {
           // Same reasoning as the session-restore branch above.
           await claimDeviceIfMismatched(session.user.id)
@@ -153,6 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsPro(status.isPro)
           setIsPremium(status.isPremium)
           setIsUnlocked(status.isUnlocked)
+          saveCachedEntitlement(session.user.id, status)
         } finally {
           // finally, not a trailing call -- if anything above threw
           // (claimDeviceIfMismatched already catches its own errors, but
@@ -212,6 +252,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsPro(status.isPro)
         setIsPremium(status.isPremium)
         setIsUnlocked(status.isUnlocked)
+        saveCachedEntitlement(sessionUserIdRef.current, status)
       })
     })
     return () => sub.remove()
