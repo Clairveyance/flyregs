@@ -887,8 +887,17 @@ const styles = StyleSheet.create({
   },
   packetCatText: { fontWeight: '600' },
   packetGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  // RC real-device bug report: real acs_documents titles range 32-156
+  // chars ("Sport Pilot and Sport Pilot Flight Instructor Rating Practical
+  // Test Standards for..." is a real one), and a 3-column grid's ~31%
+  // width left so little room per line that even a single average word
+  // ("Airplane", "Instructor") didn't fit -- numberOfLines={3}'s ellipsis
+  // then landed mid-word ("Airpla...") instead of at a real word boundary,
+  // reading as broken/wrapped-wrong rather than a normal truncation. 2
+  // columns instead of 3 gives ~50% more width per card, enough for real
+  // titles to wrap at word boundaries within the same 3-line cap.
   packetCard: {
-    width: '31%', borderRadius: 14, borderWidth: 1, padding: 10, gap: 6, minHeight: 92,
+    width: '47%', borderRadius: 14, borderWidth: 1, padding: 10, gap: 6, minHeight: 92,
   },
   packetTitle: { fontWeight: '600', lineHeight: 16 },
   packetMeta: { marginTop: 'auto' },
