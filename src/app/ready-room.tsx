@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native'
 import { router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Sentry from '@sentry/react-native'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -20,6 +21,15 @@ import {
 } from '@/lib/leaderboard'
 
 type LbTab = 'study' | 'duels' | 'mastery'
+
+// Personalized leaderboard rows (each carries a real `isMe` flag relative to
+// the signed-in viewer), so uid-scoped -- same pattern as my-aircraft's own
+// MY_AIRCRAFT_CACHE_KEY_PREFIX and Home's FLEET_SUMMARY_CACHE_KEY. A bare
+// key would risk one account's cached rank/isMe flags flashing on screen for
+// a different account signing in right after on the same device -- the
+// documented cross-account leak class in
+// memory/gotcha_local_data_leaks_across_accounts.md.
+const READY_ROOM_CACHE_KEY_PREFIX = '@flyregs/ready-room-cache:'
 
 // Named and styled like a squadron roster, not a generic "Leaderboard" --
 // three global rankings now (RC: "can the RR have a 'global' leaderboard?
@@ -41,13 +51,26 @@ export default function ReadyRoomScreen() {
   // Room entirely even though it's a Pro-tier-and-above feature they're
   // fully entitled to. isPremium itself stays bare below (the Duels button)
   // since Duels really is Premium-only, not Pro-and-above.
-  const { isPremium, hasProAccess, loading: authLoading } = useAuth()
+  const { session, isPremium, hasProAccess, loading: authLoading } = useAuth()
   const confirm = useConfirm()
   const [tab, setTab] = useState<LbTab>('study')
   const [loading, setLoading] = useState(true)
   const [studyRows, setStudyRows] = useState<LeaderboardRow[]>([])
   const [duelsRows, setDuelsRows] = useState<DuelsLeaderboardRow[]>([])
   const [masteryRows, setMasteryRows] = useState<MasteryLeaderboardRow[]>([])
+  // Mirrors the 3 tabs' latest rows for load()'s own cache-write below.
+  // load() is deliberately stable-identity ([] deps -- see its own comment),
+  // so it can't safely close over fresh studyRows/duelsRows/masteryRows
+  // state without risking the stale-closure class this codebase has already
+  // been bitten by (memory/gotcha_stale_closure_runsearch.md); updated in
+  // lockstep with every setStudyRows/setDuelsRows/setMasteryRows call
+  // instead, including the cache-hydrate effect below, so a write for one
+  // freshly-fetched tab always merges in the other two tabs' latest known
+  // values rather than clobbering them with stale/empty ones. uidRef is the
+  // same "read latest value from inside a stable-identity callback" idiom
+  // already used by my-aircraft/index.tsx's expandedIdRef.
+  const rowsRef = useRef<{ study: LeaderboardRow[]; duels: DuelsLeaderboardRow[]; mastery: MasteryLeaderboardRow[] }>({ study: [], duels: [], mastery: [] })
+  const uidRef = useRef<string | null>(null)
   const [findFriendsVisible, setFindFriendsVisible] = useState(false)
   // A leaderboard row's display name can run long and get cut off the same
   // way FAR Part titles do -- same hook/card pair as far/index.tsx's own
@@ -87,9 +110,18 @@ export default function ReadyRoomScreen() {
       : getMasteryLeaderboard(50)
     fetcher
       .then((rows: any) => {
-        if (t === 'study') setStudyRows(rows)
-        else if (t === 'duels') setDuelsRows(rows)
-        else setMasteryRows(rows)
+        if (t === 'study') { setStudyRows(rows); rowsRef.current.study = rows }
+        else if (t === 'duels') { setDuelsRows(rows); rowsRef.current.duels = rows }
+        else { setMasteryRows(rows); rowsRef.current.mastery = rows }
+        // Cache for next open -- see READY_ROOM_CACHE_KEY_PREFIX's own
+        // comment for the uid-scoping rationale. Written per-tab as each
+        // resolves, always merging in whatever the OTHER two tabs' most
+        // recently fetched (or cache-hydrated) rows were via rowsRef, so a
+        // fast tab switch never overwrites an unrelated tab's cache with
+        // stale/empty data.
+        if (uidRef.current) {
+          AsyncStorage.setItem(READY_ROOM_CACHE_KEY_PREFIX + uidRef.current, JSON.stringify(rowsRef.current)).catch(() => {})
+        }
       })
       .catch((err) => Sentry.captureException(err))
       .finally(() => setLoading(false))
@@ -98,6 +130,35 @@ export default function ReadyRoomScreen() {
   useEffect(() => {
     if (hasProAccess) load(tab)
   }, [hasProAccess, tab, load])
+
+  // Cache-first paint, RC: "everything in the app... must always open very
+  // fast" -- hydrates all 3 tabs at once from this user's last-known
+  // snapshot so switching tabs right after opening doesn't need its own
+  // network round trip before showing anything. The real per-tab fetch
+  // above still always runs regardless (on mount and on every tab switch,
+  // unchanged) and overwrites these with fresh rows once it resolves.
+  useEffect(() => {
+    uidRef.current = session?.user?.id ?? null
+    if (!session) {
+      // Clear on sign-out -- this screen doesn't unmount between accounts on
+      // a shared device any more than my-aircraft/index.tsx's own fleet
+      // list does, so leftover rows here would be the same class of
+      // cross-account leak this whole prefix exists to avoid.
+      setStudyRows([]); setDuelsRows([]); setMasteryRows([])
+      rowsRef.current = { study: [], duels: [], mastery: [] }
+      return
+    }
+    AsyncStorage.getItem(READY_ROOM_CACHE_KEY_PREFIX + session.user.id).then((cached) => {
+      if (!cached) return
+      try {
+        const snap = JSON.parse(cached) as { study?: LeaderboardRow[]; duels?: DuelsLeaderboardRow[]; mastery?: MasteryLeaderboardRow[] }
+        if (snap.study?.length) { setStudyRows(snap.study); rowsRef.current.study = snap.study }
+        if (snap.duels?.length) { setDuelsRows(snap.duels); rowsRef.current.duels = snap.duels }
+        if (snap.mastery?.length) { setMasteryRows(snap.mastery); rowsRef.current.mastery = snap.mastery }
+        setLoading(false)
+      } catch (_) {}
+    }).catch(() => {})
+  }, [session?.user?.id])
 
   // Same reasoning as study.tsx's own guard: hasProAccess is false for
   // everyone until auth's `loading` resolves, so the locked render would

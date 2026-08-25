@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, Modal, ScrollView, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -27,6 +28,12 @@ const QUESTION_COUNTS = [3, 5, 10]
 const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac', 'dictionary']
 const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC', dictionary: 'A/D' }
 const MAX_OPPONENTS = 7
+// RC: "everything in the app... must always open very fast and move
+// between its own pages... this shouldn't be slowed down each time the
+// internet is slow." Duels' list/stats are real per-account data, so this
+// is uid-scoped -- same convention and cross-account-leak rationale as
+// ready-room.tsx's READY_ROOM_CACHE_KEY_PREFIX (memory/gotcha_local_data_leaks_across_accounts.md).
+const CHALLENGES_CACHE_KEY_PREFIX = '@flyregs/challenges-cache:'
 
 export default function ChallengesScreen() {
   const { tokens } = useTheme()
@@ -37,10 +44,18 @@ export default function ChallengesScreen() {
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
-  const { isPremium, loading: authLoading } = useAuth()
+  const { session, isPremium, loading: authLoading } = useAuth()
   const [challenges, setChallenges] = useState<MyChallenge[]>([])
   const [myStats, setMyStats] = useState<DuelStats | null>(null)
   const [loading, setLoading] = useState(true)
+  // Mirrors the latest challenges/myStats for load()'s own cache-write
+  // below. load() is deliberately stable-identity ([] deps), so it can't
+  // safely close over fresh challenges/myStats state without risking the
+  // stale-closure class this codebase has already been bitten by
+  // (memory/gotcha_stale_closure_runsearch.md) -- same idiom as
+  // ready-room.tsx's rowsRef/uidRef.
+  const dataRef = useRef<{ challenges: MyChallenge[]; myStats: DuelStats | null }>({ challenges: [], myStats: null })
+  const uidRef = useRef<string | null>(null)
   const [pickerVisible, setPickerVisible] = useState(false)
   // RC: the New Duel sheet used to be one long scroll -- filters, then
   // opponents, then Start -- with nothing marking the handoff between
@@ -126,8 +141,29 @@ export default function ChallengesScreen() {
     // disagrees with this screen's cached isPremium gate. Silent catch (not
     // a user-facing dialog) matches this function's own background-refresh
     // nature -- markCoinsSeen right below does the same.
-    getMyChallenges().then(setChallenges).catch(() => {}).finally(() => setLoading(false))
-    getDuelStats().then(setMyStats).catch(() => {})
+    getMyChallenges()
+      .then((rows) => {
+        setChallenges(rows)
+        dataRef.current.challenges = rows
+        // Cache for next open -- see CHALLENGES_CACHE_KEY_PREFIX's own
+        // comment for the uid-scoping rationale. Merges in myStats' latest
+        // known value via dataRef so a fast challenges-only refresh never
+        // overwrites stats with stale/empty data, and vice versa below.
+        if (uidRef.current) {
+          AsyncStorage.setItem(CHALLENGES_CACHE_KEY_PREFIX + uidRef.current, JSON.stringify(dataRef.current)).catch(() => {})
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+    getDuelStats()
+      .then((stats) => {
+        setMyStats(stats)
+        dataRef.current.myStats = stats
+        if (uidRef.current) {
+          AsyncStorage.setItem(CHALLENGES_CACHE_KEY_PREFIX + uidRef.current, JSON.stringify(dataRef.current)).catch(() => {})
+        }
+      })
+      .catch(() => {})
     // Catch-up path for the coin-toast timing bug (2026-08-11): a Duel win's
     // coin only reveals synchronously to whichever player's submission
     // happened to finish the challenge, not necessarily the real winner if
@@ -137,6 +173,33 @@ export default function ChallengesScreen() {
   }, [])
 
   useFocusEffect(useCallback(() => { if (isPremium) load() }, [isPremium, load]))
+
+  // Cache-first paint, RC: "everything in the app... must always open very
+  // fast" -- hydrates from this user's last-known snapshot so the Duels hub
+  // shows real content immediately instead of a spinner. The real fetch in
+  // `load()` above still always runs regardless (on every focus, unchanged)
+  // and overwrites this with fresh data once it resolves.
+  useEffect(() => {
+    uidRef.current = session?.user?.id ?? null
+    if (!session) {
+      // Clear on sign-out -- this screen doesn't unmount between accounts on
+      // a shared device any more than my-aircraft/index.tsx's own fleet
+      // list does, so leftover rows here would be the same class of
+      // cross-account leak this whole prefix exists to avoid.
+      setChallenges([]); setMyStats(null)
+      dataRef.current = { challenges: [], myStats: null }
+      return
+    }
+    AsyncStorage.getItem(CHALLENGES_CACHE_KEY_PREFIX + session.user.id).then((cached) => {
+      if (!cached) return
+      try {
+        const snap = JSON.parse(cached) as { challenges?: MyChallenge[]; myStats?: DuelStats | null }
+        if (snap.challenges?.length) { setChallenges(snap.challenges); dataRef.current.challenges = snap.challenges }
+        if (snap.myStats) { setMyStats(snap.myStats); dataRef.current.myStats = snap.myStats }
+        if (snap.challenges?.length || snap.myStats) setLoading(false)
+      } catch (_) {}
+    }).catch(() => {})
+  }, [session])
 
   const dismissUnseenCoin = () => {
     const [shown, ...rest] = unseenCoinQueue

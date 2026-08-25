@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { View, Text, FlatList, Pressable, TextInput, StyleSheet, ActivityIndicator, Keyboard, Platform } from 'react-native'
 import { router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -38,6 +39,14 @@ interface LoiHit {
 // without undermining the reasoning above: YEAR (not title) is the
 // browse key specifically because it sidesteps the "addressee name is a
 // useless label" problem entirely.
+//
+// Public, same-for-every-viewer content (year/count metadata only, no
+// gated body text) -- no uid-scoping needed, matching Home's own
+// HOME_CACHE_KEY convention. Only the year-browse grid is cached -- search
+// hits and recents (already device-local via getRecents()) aren't a
+// "browse on open" list.
+const LOI_INDEX_CACHE_KEY = '@flyregs/loi-index-cache'
+
 export default function LoiIndexScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -58,19 +67,42 @@ export default function LoiIndexScreen() {
 
   useEffect(() => {
     getRecents().then((rs) => setRecentLoi(rs.filter((r) => recentItemType(r) === 'loi').slice(0, 10)))
-    // One lightweight column across all ~1,055 rows, grouped client-side --
-    // not worth a dedicated RPC for a single int column at this volume.
-    supabase.from('legal_interpretations').select('year').not('year', 'is', null).then(({ data }) => {
-      if (!data) return
-      const counts = new Map<number, number>()
-      for (const row of data as { year: number }[]) {
-        counts.set(row.year, (counts.get(row.year) ?? 0) + 1)
-      }
-      setYearCounts(
-        Array.from(counts, ([year, count]) => ({ year, count })).sort((a, b) => b.year - a.year)
-      )
-    })
   }, [])
+
+  const loadYearCounts = useCallback(async () => {
+    // Show cached data immediately so the year-browse grid doesn't pop in a
+    // beat after the query resolves -- same reasoning as Home's own
+    // REG_OF_DAY_CACHE_KEY comment.
+    let lastGood: { year: number; count: number }[] = []
+    try {
+      const cached = await AsyncStorage.getItem(LOI_INDEX_CACHE_KEY)
+      if (cached) {
+        const parsed = JSON.parse(cached) as { year: number; count: number }[]
+        if (parsed?.length) { setYearCounts(parsed); lastGood = parsed }
+      }
+    } catch (_) {}
+
+    // Then fetch fresh data (existing query, unchanged) -- one lightweight
+    // column across all ~1,055 rows, grouped client-side -- not worth a
+    // dedicated RPC for a single int column at this volume.
+    try {
+      const { data, error } = await supabase.from('legal_interpretations').select('year').not('year', 'is', null)
+      if (!error && data) {
+        const counts = new Map<number, number>()
+        for (const row of data as { year: number }[]) {
+          counts.set(row.year, (counts.get(row.year) ?? 0) + 1)
+        }
+        const fresh = Array.from(counts, ([year, count]) => ({ year, count })).sort((a, b) => b.year - a.year)
+        setYearCounts(fresh)
+        AsyncStorage.setItem(LOI_INDEX_CACHE_KEY, JSON.stringify(fresh)).catch(() => {})
+      }
+      // else: query failed -- cached data (if any) stays visible, don't clear it
+    } catch (_) {
+      // Network failed -- cached data (if any) stays visible
+    }
+  }, [])
+
+  useEffect(() => { loadYearCounts() }, [loadYearCounts])
 
   const runSearch = useCallback((q: string) => {
     const trimmed = q.trim()

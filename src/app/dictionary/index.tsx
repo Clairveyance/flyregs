@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { View, Text, FlatList, Pressable, TextInput, StyleSheet, ActivityIndicator } from 'react-native'
 import { router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -24,6 +25,14 @@ interface MnemonicHit {
 }
 
 export const MNEMONIC_UNGROUPED = 'Other'
+
+// Same-for-every-viewer data (letter counts + mnemonic term/group names --
+// NOT the mnemonic body text itself, which this screen never fetches; see
+// dictionary/letter/[letter].tsx for the one query on this feature that
+// actually pulls gated body content). No uid prefix needed -- matches Home's
+// own HOME_CACHE_KEY pattern (src/app/(tabs)/index.tsx's `load`), just for
+// this screen's own browse index instead of the app's front door.
+const DICTIONARY_INDEX_CACHE_KEY = '@flyregs/dictionary-index-cache'
 
 // v1 scope (2026-08-01): FAA JO 7340.2's official Contractions table
 // (3,326 terms, category='contraction') -- see
@@ -56,21 +65,54 @@ export default function DictionaryIndexScreen() {
   // 'Mnemonic' filter inside the A/D which could house all the aviation
   // mnemonics." A handful of rows at most, so a direct client-side query
   // rather than a dedicated RPC.
-  useEffect(() => {
-    supabase.from('dictionary_terms').select('slug, term, mnemonic_group').eq('category', 'mnemonic').order('term')
-      .then(({ data }) => setMnemonics((data ?? []) as MnemonicHit[]))
-  }, [])
+  //
+  // Cache-first, same shape as Home's own `load` (HOME_CACHE_KEY) -- letter
+  // counts + the mnemonic term/group list are the two fetches this screen's
+  // browse view needs before it can paint anything, and both are identical
+  // for every viewer (see DICTIONARY_INDEX_CACHE_KEY's own comment), so a
+  // bare cache key is correct here. RC: "everything in the app... must
+  // always open very fast" -- this shows the last-known browse index
+  // instantly instead of a blank spinner on every open.
+  const load = useCallback(async () => {
+    let lastGoodCounts: Record<string, number> = {}
 
-  useEffect(() => {
-    supabase.rpc('count_dictionary_terms_by_letter').then(({ data }) => {
-      if (data) {
+    try {
+      const cached = await AsyncStorage.getItem(DICTIONARY_INDEX_CACHE_KEY)
+      if (cached) {
+        const { counts: cc, mnemonics: cm } = JSON.parse(cached)
+        if (cc && Object.keys(cc).length) { setCounts(cc); lastGoodCounts = cc }
+        if (cm?.length) setMnemonics(cm as MnemonicHit[])
+        setLoading(false)
+      }
+    } catch (_) {}
+
+    try {
+      const [countsRes, mnemonicsRes] = await Promise.all([
+        supabase.rpc('count_dictionary_terms_by_letter'),
+        supabase.from('dictionary_terms').select('slug, term, mnemonic_group').eq('category', 'mnemonic').order('term'),
+      ])
+      let freshCounts = lastGoodCounts
+      if (countsRes.data) {
         const c: Record<string, number> = {}
-        for (const row of data as { letter: string; cnt: number }[]) c[row.letter] = row.cnt
+        for (const row of countsRes.data as { letter: string; cnt: number }[]) c[row.letter] = row.cnt
+        freshCounts = c
         setCounts(c)
       }
+      const freshMnemonics = (mnemonicsRes.data ?? []) as MnemonicHit[]
+      setMnemonics(freshMnemonics)
+
+      AsyncStorage.setItem(DICTIONARY_INDEX_CACHE_KEY, JSON.stringify({
+        counts: freshCounts,
+        mnemonics: freshMnemonics,
+      })).catch(() => {})
+    } catch (_) {
+      // Network failed -- cached data (if any) stays visible
+    } finally {
       setLoading(false)
-    })
+    }
   }, [])
+
+  useEffect(() => { load() }, [load])
 
   // search_dictionary matches term OR definition text (senses jsonb is part
   // of its search_vector), not just the headword -- RC: "the dictionary

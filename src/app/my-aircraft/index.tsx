@@ -4,6 +4,7 @@ import Reanimated, {
 } from 'react-native-reanimated'
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Modal, KeyboardAvoidingView, Platform, AppState } from 'react-native'
 import { router, useFocusEffect, useIsFocused } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useTheme, type ThemeTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -1028,6 +1029,14 @@ function AddAircraftForm({
 // the exact values that make this behave byte-for-byte like the original
 // unexported component below -- the real route (phone and any non-rail
 // iPad case) never passes either, so nothing here changes for it.
+// This user's own saved fleet -- real per-account data (tail numbers,
+// compliance status), so uid-scoped, same pattern as Home's own
+// FLEET_SUMMARY_CACHE_KEY (src/app/(tabs)/index.tsx, "identityStatsCache's
+// own precedent") and search.tsx's IDENTITY_CACHE_KEY_PREFIX. A bare key
+// here would be exactly the cross-account local-data-leak class already
+// documented in memory/gotcha_local_data_leaks_across_accounts.md.
+const MY_AIRCRAFT_CACHE_KEY_PREFIX = '@flyregs/my-aircraft-cache:'
+
 export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boolean; onClose?: () => void }) {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -1284,6 +1293,31 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
       setLoading(false)
       return
     }
+    // Cache-first, same shape as Home's own `load` (HOME_CACHE_KEY) -- shows
+    // the last-known fleet + ring/badge numbers instantly (RC: "everything
+    // in the app... must always open very fast"), then the real fetch below
+    // still always runs, same as every focus already did before this. Fires
+    // fine alongside the isPro/isPremium check right after it -- a stale
+    // cached row that's since fallen outside a real cap change will just get
+    // sliced down a moment later when aircraftCapForTier below runs, same as
+    // any other now-stale cached field.
+    AsyncStorage.getItem(MY_AIRCRAFT_CACHE_KEY_PREFIX + session.user.id).then((cached) => {
+      if (!cached) return
+      try {
+        const snap = JSON.parse(cached) as {
+          aircraft: FleetAircraftSummary[]; nextDueDays: number | null
+          reminderUrgency: Record<string, 'overdue' | 'soon' | 'clear'>
+          overdueByAircraft: Record<string, number>; dueSoonCount: number
+        }
+        setAircraft(snap.aircraft ?? [])
+        setNextDueDays(snap.nextDueDays ?? null)
+        setReminderUrgency(snap.reminderUrgency ?? {})
+        setOverdueByAircraft(snap.overdueByAircraft ?? {})
+        setDueSoonCount(snap.dueSoonCount ?? 0)
+        setLoading(false)
+      } catch (_) {}
+    }).catch(() => {})
+
     // get_fleet_summary() returns owned AND shared aircraft in one call,
     // each with its own role and real (not invented) alert counts -- see
     // aircraftSharing.ts's own comment on why this replaced a plain
@@ -1342,6 +1376,15 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
             setReminderUrgency(urgency)
             setOverdueByAircraft(overdue)
             setDueSoonCount(soonCount)
+
+            // Cache for next open -- only written once BOTH the fleet list
+            // and the per-aircraft reminders fetch above have fully
+            // succeeded, so a partial/failed refresh never overwrites a
+            // good previous snapshot with incomplete data (same "preserve
+            // last-good" rule as Home's own HOME_CACHE_KEY write).
+            AsyncStorage.setItem(MY_AIRCRAFT_CACHE_KEY_PREFIX + session.user.id, JSON.stringify({
+              aircraft: rows, nextDueDays: soonest, reminderUrgency: urgency, overdueByAircraft: overdue, dueSoonCount: soonCount,
+            })).catch(() => {})
           })
           .catch(() => { setNextDueDays(null); setReminderUrgency({}); setOverdueByAircraft({}); setDueSoonCount(0) })
       })

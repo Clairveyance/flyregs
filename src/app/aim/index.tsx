@@ -1,6 +1,7 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { View, Text, FlatList, Pressable, TextInput, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
 import { router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -24,6 +25,11 @@ interface AimChapter {
 // already knows and wants to jump straight to, not a Chapter-list filter.
 const PARA_NUM_RE = /^\d+-\d+-\d+[a-z]?$/i
 
+// Public, same-for-every-viewer content (chapter/title/paragraph-count
+// metadata, no gated body text) -- no uid-scoping needed, matching Home's
+// own HOME_CACHE_KEY convention.
+const AIM_INDEX_CACHE_KEY = '@flyregs/aim-index-cache'
+
 export default function AimIndexScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -37,23 +43,57 @@ export default function AimIndexScreen() {
   // hook/card pair as far/index.tsx's own long-press preview.
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
-  useEffect(() => {
-    // Server-side GROUP BY RPC, not client-side counting -- see far/index.tsx's
-    // comment on why (PostgREST's project-wide 1000-row max-rows cap silently
-    // undercounts any query that fetches individual rows just to count them).
-    Promise.all([
-      supabase.from('aim_chapters').select('chapter, title, sort_order').order('sort_order'),
-      supabase.rpc('count_aim_paragraphs_by_chapter'),
-    ]).then(([chapRes, countRes]) => {
-      if (chapRes.data) setChapters(chapRes.data as AimChapter[])
+  const load = useCallback(async () => {
+    // Carries the last known-good values across both the cache-read and
+    // fresh-fetch blocks below -- same reason as Home's own lastGoodCount
+    // (see (tabs)/index.tsx), so a failed/slow fetch never blanks out data
+    // that was already showing.
+    let lastGoodChapters: AimChapter[] = []
+    let lastGoodCounts: Record<string, number> = {}
+
+    // Show cached data immediately so the screen appears in under 100 ms
+    try {
+      const cached = await AsyncStorage.getItem(AIM_INDEX_CACHE_KEY)
+      if (cached) {
+        const { chapters: cc, counts: ccc } = JSON.parse(cached)
+        if (cc?.length) { setChapters(cc); lastGoodChapters = cc }
+        if (ccc) { setCounts(ccc); lastGoodCounts = ccc }
+        setLoading(false)
+      }
+    } catch (_) {}
+
+    // Then fetch fresh data (existing query, unchanged) -- server-side GROUP
+    // BY RPC, not client-side counting -- see far/index.tsx's comment on why
+    // (PostgREST's project-wide 1000-row max-rows cap silently undercounts
+    // any query that fetches individual rows just to count them).
+    try {
+      const [chapRes, countRes] = await Promise.all([
+        supabase.from('aim_chapters').select('chapter, title, sort_order').order('sort_order'),
+        supabase.rpc('count_aim_paragraphs_by_chapter'),
+      ])
+
+      let freshChapters = lastGoodChapters
+      if (chapRes.data) { setChapters(chapRes.data as AimChapter[]); freshChapters = chapRes.data as AimChapter[] }
+
+      let freshCounts = lastGoodCounts
       if (countRes.data) {
         const c: Record<string, number> = {}
         for (const row of countRes.data as { chapter: string; cnt: number }[]) c[row.chapter] = row.cnt
         setCounts(c)
+        freshCounts = c
       }
+
       setLoading(false)
-    })
+
+      AsyncStorage.setItem(AIM_INDEX_CACHE_KEY, JSON.stringify({ chapters: freshChapters, counts: freshCounts }))
+    } catch (_) {
+      // Network failed -- cached data (if any) stays visible
+    } finally {
+      setLoading(false)
+    }
   }, [])
+
+  useEffect(() => { load() }, [load])
 
   // Device-local recently-viewed paragraphs, filtered to AIM -- an honest
   // "most used" proxy without needing any new server-side tracking.

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -26,6 +27,13 @@ interface LoiRow {
 // comment already explains why a title-alphabetical browse would be
 // useless here ("LOI titles are just the addressee/attorney's name...
 // worthless as a search key"). Year sidesteps that entirely.
+//
+// Public, same-for-every-viewer content (title/summary/cfr-reference
+// metadata only, no gated body text) -- no uid-scoping needed, matching
+// Home's own HOME_CACHE_KEY convention. Keyed per-year since this screen is
+// one year at a time.
+const LOI_YEAR_CACHE_KEY_PREFIX = '@flyregs/loi-year-cache/'
+
 export default function LoiYearScreen() {
   const { year } = useLocalSearchParams<{ year: string }>()
   const { tokens } = useTheme()
@@ -36,18 +44,51 @@ export default function LoiYearScreen() {
   // same hook/card pair as far/index.tsx's own long-press preview.
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!year) return
-    supabase
-      .from('legal_interpretations')
-      .select('slug, title, summary, cfr_part_reference, issued_date')
-      .eq('year', Number(year))
-      .order('issued_date', { ascending: false })
-      .then(({ data }) => {
-        if (data) setRows(data as LoiRow[])
+    setLoading(true)
+
+    // Carries the last known-good value across both the cache-read and
+    // fresh-fetch blocks below -- same reason as Home's own lastGoodCount
+    // (see (tabs)/index.tsx), so a failed/slow fetch never blanks out data
+    // that was already showing.
+    let lastGoodRows: LoiRow[] = []
+
+    // Show cached data immediately so the screen appears in under 100 ms
+    try {
+      const cached = await AsyncStorage.getItem(LOI_YEAR_CACHE_KEY_PREFIX + year)
+      if (cached) {
+        const parsed = JSON.parse(cached) as LoiRow[]
+        if (parsed?.length) { setRows(parsed); lastGoodRows = parsed }
         setLoading(false)
-      })
+      }
+    } catch (_) {}
+
+    // Then fetch fresh data (existing query, unchanged)
+    try {
+      const { data, error } = await supabase
+        .from('legal_interpretations')
+        .select('slug, title, summary, cfr_part_reference, issued_date')
+        .eq('year', Number(year))
+        .order('issued_date', { ascending: false })
+
+      let freshRows = lastGoodRows
+      if (!error && data) {
+        setRows(data as LoiRow[])
+        freshRows = data as LoiRow[]
+      }
+
+      setLoading(false)
+
+      AsyncStorage.setItem(LOI_YEAR_CACHE_KEY_PREFIX + year, JSON.stringify(freshRows))
+    } catch (_) {
+      // Network failed -- cached data (if any) stays visible
+    } finally {
+      setLoading(false)
+    }
   }, [year])
+
+  useEffect(() => { load() }, [load])
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>

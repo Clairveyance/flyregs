@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/auth'
 import { useTheme } from '@/context/theme'
@@ -36,6 +37,13 @@ interface NewAd {
 // instead of routing anywhere, which is the exact inconsistency this
 // screen fixes (see (tabs)/index.tsx's RegBodyItem for the routing change).
 const AD_NUM_RE = /^\d{4}-\d{2}-\d{2}$/
+
+// Public, same-for-every-viewer content (AD number/subject metadata only,
+// not gated body text) -- no uid-scoping needed, matching Home's own
+// HOME_CACHE_KEY convention. Only the "New" feed is cached here -- this
+// screen is search-first with no other pre-loaded browse list, and it
+// already renders instantly with no full-screen loading gate.
+const AD_NEWADS_CACHE_KEY = '@flyregs/ad-newads-cache'
 
 export default function AdIndexScreen() {
   const { tokens } = useTheme()
@@ -84,22 +92,37 @@ export default function AdIndexScreen() {
   // body-text boundary (Plus, see ad/[id].tsx), which this list was
   // missing entirely; skip the fetch too, not just the render, for a
   // free-tier viewer.
-  const loadNewAds = useCallback(() => {
+  const loadNewAds = useCallback(async () => {
     if (!hasPlusAccess) {
       // Only actually clear once auth is DONE resolving -- hasPlusAccess
       // starts false for everyone (see context/auth.tsx), and this callback
       // is also the pull-to-refresh handler, so a real Plus subscriber who
       // pulled to refresh inside the launch window would have watched their
       // already-loaded "New ADs" list blank out. Same shape and same fix as
-      // (tabs)/index.tsx's HobbsHeaderButton.
+      // (tabs)/index.tsx's HobbsHeaderButton. No cache read/write in this
+      // branch either -- this component only reaches the Plus-gated code
+      // path below when hasPlusAccess is actually true, so a non-Plus
+      // viewer on this device never sees a Plus viewer's earlier cache.
       if (!authLoading) setNewAds([])
       return
     }
+
+    // Show cached data immediately so the "New" section doesn't pop in a
+    // beat after the query resolves -- same reasoning as Home's own
+    // REG_OF_DAY_CACHE_KEY comment.
+    let lastGood: NewAd[] = []
+    try {
+      const cached = await AsyncStorage.getItem(AD_NEWADS_CACHE_KEY)
+      if (cached) {
+        const parsed = JSON.parse(cached) as NewAd[]
+        if (parsed?.length) { setNewAds(parsed); lastGood = parsed }
+      }
+    } catch (_) {}
+
     const cutoffDate = new Date()
     cutoffDate.setDate(cutoffDate.getDate() - badgeDays)
     const cutoff = cutoffDate.toISOString().split('T')[0]
-    supabase
-      .from('airworthiness_directives')
+    try {
       // citation_publish_date (Federal Register publication date, from the
       // API's own structured metadata) not effective_date -- confirmed
       // live that effective_date is null on all 5,013 rows (never parsed
@@ -107,11 +130,21 @@ export default function AdIndexScreen() {
       // populated and genuinely current (today's date shows up on a real
       // row). Same field ad_citations.py/sync_ad.sh already treat as this
       // corpus's authoritative "when was this touched" signal.
-      .select('ad_number, subject_heading, citation_publish_date')
-      .gte('citation_publish_date', cutoff)
-      .order('citation_publish_date', { ascending: false })
-      .limit(20)
-      .then(({ data }) => setNewAds((data ?? []) as NewAd[]))
+      const { data, error } = await supabase
+        .from('airworthiness_directives')
+        .select('ad_number, subject_heading, citation_publish_date')
+        .gte('citation_publish_date', cutoff)
+        .order('citation_publish_date', { ascending: false })
+        .limit(20)
+      if (!error) {
+        const fresh = (data ?? []) as NewAd[]
+        setNewAds(fresh)
+        AsyncStorage.setItem(AD_NEWADS_CACHE_KEY, JSON.stringify(fresh)).catch(() => {})
+      }
+      // else: query failed -- cached data (if any) stays visible, don't clear it
+    } catch (_) {
+      // Network failed -- cached data (if any) stays visible
+    }
   }, [badgeDays, hasPlusAccess, authLoading])
 
   useEffect(() => {

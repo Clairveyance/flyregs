@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -16,6 +17,11 @@ import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 // it to its own dedicated screen, matching the new far/aim/pcg index screens,
 // so Home can show the regulatory-body cards as its primary content instead.
 // series/[prefix].tsx (unchanged) is still where tapping a row lands.
+// Public, same-for-every-viewer content (series names/counts only, never
+// gated full text) -- no uid-scoping needed, matching Home's own
+// HOME_CACHE_KEY convention.
+const AC_LIBRARY_CACHE_KEY = '@flyregs/ac-library-cache'
+
 export default function AcLibraryScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -32,25 +38,62 @@ export default function AcLibraryScreen() {
   // same hook/card pair as far/index.tsx's own long-press preview.
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
-  const load = () => {
+  const load = async () => {
     setLoading(true)
     setLoadError(false)
-    Promise.all([
-      supabase.from('series_summary').select('*').order('sort_order'),
-      // 'id' not '*' -- see (tabs)/index.tsx's identical fix for why: a
-      // count(*)-only request still touches every matching row's data, and
-      // this table's pdf_text column is large enough to make that
-      // intermittently fail as a genuine 500 under select=*.
-      supabase.from('advisory_circulars').select('id', { count: 'exact', head: true }).eq('status', 'active'),
-    ]).then(([seriesRes, countRes]) => {
-      if (seriesRes.data) setSeries(seriesRes.data as ACSeries[])
-      else if (seriesRes.error) setLoadError(true)
-      setTotalCount(countRes.count)
+
+    // Carries the last known-good values across both the cache-read and
+    // fresh-fetch blocks below -- same reason as Home's own lastGoodCount
+    // (see (tabs)/index.tsx), so a failed fetch never blanks out (or
+    // errors-out) something that was already correctly showing. Also what
+    // lets a failed refresh distinguish "nothing to show, surface the real
+    // error" from "cache/previous data still stands, stay quiet" -- see this
+    // file's own loadError comment above for why that distinction exists.
+    let lastGoodSeries: ACSeries[] = []
+    let lastGoodCount: number | null = null
+
+    // Show cached data immediately so the screen appears in under 100 ms
+    try {
+      const cached = await AsyncStorage.getItem(AC_LIBRARY_CACHE_KEY)
+      if (cached) {
+        const { series: cs, totalCount: ct } = JSON.parse(cached)
+        if (cs?.length) { setSeries(cs); lastGoodSeries = cs }
+        if (ct != null) { setTotalCount(ct); lastGoodCount = ct }
+        setLoading(false)
+      }
+    } catch (_) {}
+
+    // Then fetch fresh data (existing query, unchanged)
+    try {
+      const [seriesRes, countRes] = await Promise.all([
+        supabase.from('series_summary').select('*').order('sort_order'),
+        // 'id' not '*' -- see (tabs)/index.tsx's identical fix for why: a
+        // count(*)-only request still touches every matching row's data, and
+        // this table's pdf_text column is large enough to make that
+        // intermittently fail as a genuine 500 under select=*.
+        supabase.from('advisory_circulars').select('id', { count: 'exact', head: true }).eq('status', 'active'),
+      ])
+
+      let freshSeries = lastGoodSeries
+      if (seriesRes.data) { setSeries(seriesRes.data as ACSeries[]); freshSeries = seriesRes.data as ACSeries[] }
+      else if (seriesRes.error && !lastGoodSeries.length) setLoadError(true)
+
+      const freshCount = countRes.count ?? lastGoodCount
+      if (countRes.count !== null) setTotalCount(countRes.count)
+
       setLoading(false)
-    })
+
+      AsyncStorage.setItem(AC_LIBRARY_CACHE_KEY, JSON.stringify({ series: freshSeries, totalCount: freshCount }))
+    } catch (_) {
+      // Network failed -- cached data (if any) stays visible; only surface
+      // the real error state when there's genuinely nothing cached to show.
+      if (!lastGoodSeries.length) setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(load, [])
+  useEffect(() => { load() }, [])
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>

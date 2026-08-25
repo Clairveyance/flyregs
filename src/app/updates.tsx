@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { View, Text, SectionList, Pressable, StyleSheet, ActivityIndicator, ScrollView } from 'react-native'
 import { router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
@@ -333,6 +334,27 @@ function TypeFilterChips({
 
 // ─── New tab ────────────────────────────────────────────────────────────────
 
+// Public, same-for-every-viewer content (document number/title/date
+// metadata only, no gated body text -- getWhatsNewItems() already reads
+// through advisory_circulars_gated internally) -- no uid-scoping needed,
+// matching Home's own HOME_CACHE_KEY convention. This whole screen is
+// Plus-gated, but NewTab only ever mounts once UpdatesScreen has already
+// confirmed hasPlusAccess is true (see the two early-return branches
+// above), so there's no risk of a non-Plus viewer's device ever reading a
+// Plus viewer's cache here -- same reasoning as ad/index.tsx's own
+// AD_NEWADS_CACHE_KEY.
+//
+// Only the "New" tab (the default/first-loaded one) is cached -- ChangedTab
+// below is left as a direct fetch. Its data (getRevisions(), a real
+// paragraph-level text diff) is a meaningfully heavier/rarer-to-revisit
+// payload than a simple document list, and wrapping it would also mean
+// caching the real-time-expensive diff computation's *inputs* per
+// badgeDays window, not a single stable shape -- not worth the added
+// complexity for a secondary tab most opens never reach; RC's own framing
+// of the bug ("everything in the app... moving around") is squarely about
+// the FIRST screen a tap lands on, which for Updates is always New.
+const UPDATES_NEW_CACHE_KEY = '@flyregs/updates-new-cache'
+
 function NewTab({ badgeDays }: { badgeDays: number }) {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -344,9 +366,33 @@ function NewTab({ badgeDays }: { badgeDays: number }) {
   // preview.
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
-  useEffect(() => {
-    getWhatsNewItems(badgeDays).then((r) => { setItems(r); setLoading(false) })
+  const loadItems = useCallback(async () => {
+    // Show cached data immediately so this tab doesn't pop in a beat after
+    // the query resolves -- same reasoning as Home's own REG_OF_DAY_CACHE_KEY
+    // comment.
+    let lastGood: WhatsNewItem[] = []
+    try {
+      const cached = await AsyncStorage.getItem(UPDATES_NEW_CACHE_KEY)
+      if (cached) {
+        const parsed = JSON.parse(cached) as WhatsNewItem[]
+        if (parsed?.length) { setItems(parsed); lastGood = parsed }
+        setLoading(false)
+      }
+    } catch (_) {}
+
+    // Then fetch fresh data (existing query, unchanged)
+    try {
+      const fresh = await getWhatsNewItems(badgeDays)
+      setItems(fresh)
+      setLoading(false)
+      AsyncStorage.setItem(UPDATES_NEW_CACHE_KEY, JSON.stringify(fresh)).catch(() => {})
+    } catch (_) {
+      // Network failed -- cached data (if any) stays visible
+      setLoading(false)
+    }
   }, [badgeDays])
+
+  useEffect(() => { loadItems() }, [loadItems])
 
   const counts = useMemo(() => {
     const c: Record<ChipFilter, number> = { ac: 0, ad: 0, other: 0 }

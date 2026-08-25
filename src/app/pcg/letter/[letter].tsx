@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -13,6 +14,13 @@ interface PcgTermRow {
   definition: string | null
 }
 
+// pcg_terms is public-read content (RLS: "pcg_terms public SELECT" policy,
+// see sync/migrations_pcg_terms_grants.sql) -- identical for every viewer,
+// no tier gate anywhere on this screen, so a bare per-letter cache key is
+// correct (unlike dictionary/letter/[letter].tsx's own gated `senses`
+// field). Same cache-first shape as Home's own `load` (HOME_CACHE_KEY).
+const PCG_LETTER_CACHE_KEY_PREFIX = '@flyregs/pcg-letter-cache:'
+
 export default function PcgLetterScreen() {
   const { letter } = useLocalSearchParams<{ letter: string }>()
   const { tokens } = useTheme()
@@ -20,14 +28,30 @@ export default function PcgLetterScreen() {
   const [terms, setTerms] = useState<PcgTermRow[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!letter) return
-    supabase.from('pcg_terms').select('term, slug, definition').eq('letter', letter).order('term')
-      .then(({ data }) => {
-        if (data) setTerms(data as PcgTermRow[])
+    try {
+      const cached = await AsyncStorage.getItem(PCG_LETTER_CACHE_KEY_PREFIX + letter)
+      if (cached) {
+        setTerms(JSON.parse(cached) as PcgTermRow[])
         setLoading(false)
-      })
+      }
+    } catch (_) {}
+
+    try {
+      const { data } = await supabase.from('pcg_terms').select('term, slug, definition').eq('letter', letter).order('term')
+      if (data) {
+        setTerms(data as PcgTermRow[])
+        AsyncStorage.setItem(PCG_LETTER_CACHE_KEY_PREFIX + letter, JSON.stringify(data)).catch(() => {})
+      }
+    } catch (_) {
+      // Network failed -- cached data (if any) stays visible
+    } finally {
+      setLoading(false)
+    }
   }, [letter])
+
+  useEffect(() => { load() }, [load])
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>

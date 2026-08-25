@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
 } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -53,6 +54,16 @@ function compareDocumentNumbers(a: SeriesAC, b: SeriesAC): number {
   return 0
 }
 
+// Public, same-for-every-viewer content -- this screen already reads
+// through advisory_circulars_gated (see the load() comment below on why),
+// which means the columns selected here are already exactly what this
+// viewer legitimately received back from the server; caching that same
+// already-redacted response for instant reopen isn't caching anything MORE
+// than they already saw. No uid-scoping needed, matching Home's own
+// HOME_CACHE_KEY convention. Keyed per-prefix since this screen is one
+// series at a time.
+const SERIES_CACHE_KEY_PREFIX = '@flyregs/series-cache/'
+
 export default function SeriesScreen() {
   const { prefix } = useLocalSearchParams<{ prefix: string }>()
   const { tokens } = useTheme()
@@ -80,44 +91,75 @@ export default function SeriesScreen() {
   // is passed down to ACRow below.
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
-  const load = () => {
+  const load = useCallback(async () => {
     setLoading(true)
     setLoadError(false)
-    Promise.all([
-      // advisory_circulars_gated, not the raw advisory_circulars table --
-      // found live 2026-08-23 QA sweep: `authenticated` has no column-level
-      // SELECT grant on advisory_circulars.changed_block_indices (verified
-      // via a direct PostgREST call: selecting `id,changed_block_indices`
-      // 403s with "permission denied for table advisory_circulars" while
-      // every OTHER column in this same select list -- id/document_number/
-      // title/date_issued/office/cancels/change_number -- individually
-      // succeeds). Since this query selects changed_block_indices (needed
-      // for the UPD/VER/NEW badge -- see acBadge.ts's getBadgeKind), the
-      // one ungranted column poisons the WHOLE select and this screen 403s
-      // on every single load, for every series, for every user, always --
-      // which is exactly the failure shape e8302a5's new loadError/"Couldn't
-      // load this series" state was built to surface distinctly from a
-      // genuinely-empty series, but that fix never addressed why the load
-      // itself was failing. ac/[id].tsx already reads this exact column via
-      // advisory_circulars_gated (see its own load effect's comment) --
-      // that view already works for this exact filter shape (verified live:
-      // same subject_series/status filter, 200 with real changed_block_
-      // indices data), so this switches to the same sanctioned gated read
-      // path instead of the raw table other AC screens correctly avoid.
-      supabase
-        .from('advisory_circulars_gated')
-        .select('id, document_number, title, date_issued, office, cancels, change_number, changed_block_indices')
-        .eq('subject_series', prefix)
-        .eq('status', 'active'),
-      supabase
-        .from('series_summary')
-        .select('display_name')
-        .eq('series_prefix', prefix)
-        .single(),
-    ]).then(async ([acsRes, seriesRes]) => {
+
+    const cacheKey = SERIES_CACHE_KEY_PREFIX + prefix
+    // Carries the last known-good values across both the cache-read and
+    // fresh-fetch blocks below -- same reason as Home's own lastGoodCount
+    // (see (tabs)/index.tsx). Also what lets a failed refresh distinguish
+    // "nothing to show, surface the real loadError" from "cache/previous
+    // data still stands, stay quiet" -- see this file's own loadError
+    // comment above for why that distinction exists; a network failure
+    // shouldn't downgrade a good cached list to the error screen.
+    let lastGoodAcs: SeriesAC[] = []
+    let lastGoodFigureCounts: Record<string, number> = {}
+    let lastGoodSeriesName = ''
+
+    // Show cached data immediately so the screen appears in under 100 ms
+    try {
+      const cached = await AsyncStorage.getItem(cacheKey)
+      if (cached) {
+        const { acs: ca, figureCounts: cf, seriesName: cn } = JSON.parse(cached)
+        if (ca?.length) { setACs(ca); lastGoodAcs = ca }
+        if (cf) { setFigureCounts(cf); lastGoodFigureCounts = cf }
+        if (cn) { setSeriesName(cn); lastGoodSeriesName = cn }
+        setLoading(false)
+      }
+    } catch (_) {}
+
+    // Then fetch fresh data (existing query, unchanged)
+    try {
+      const [acsRes, seriesRes] = await Promise.all([
+        // advisory_circulars_gated, not the raw advisory_circulars table --
+        // found live 2026-08-23 QA sweep: `authenticated` has no column-level
+        // SELECT grant on advisory_circulars.changed_block_indices (verified
+        // via a direct PostgREST call: selecting `id,changed_block_indices`
+        // 403s with "permission denied for table advisory_circulars" while
+        // every OTHER column in this same select list -- id/document_number/
+        // title/date_issued/office/cancels/change_number -- individually
+        // succeeds). Since this query selects changed_block_indices (needed
+        // for the UPD/VER/NEW badge -- see acBadge.ts's getBadgeKind), the
+        // one ungranted column poisons the WHOLE select and this screen 403s
+        // on every single load, for every series, for every user, always --
+        // which is exactly the failure shape e8302a5's new loadError/"Couldn't
+        // load this series" state was built to surface distinctly from a
+        // genuinely-empty series, but that fix never addressed why the load
+        // itself was failing. ac/[id].tsx already reads this exact column via
+        // advisory_circulars_gated (see its own load effect's comment) --
+        // that view already works for this exact filter shape (verified live:
+        // same subject_series/status filter, 200 with real changed_block_
+        // indices data), so this switches to the same sanctioned gated read
+        // path instead of the raw table other AC screens correctly avoid.
+        supabase
+          .from('advisory_circulars_gated')
+          .select('id, document_number, title, date_issued, office, cancels, change_number, changed_block_indices')
+          .eq('subject_series', prefix)
+          .eq('status', 'active'),
+        supabase
+          .from('series_summary')
+          .select('display_name')
+          .eq('series_prefix', prefix)
+          .single(),
+      ])
+
+      let freshAcs = lastGoodAcs
+      let freshFigureCounts = lastGoodFigureCounts
       if (!acsRes.error && acsRes.data) {
         const sorted = (acsRes.data as SeriesAC[]).sort(compareDocumentNumbers)
         setACs(sorted)
+        freshAcs = sorted
         // One batched query for every AC's Figures & Tables count instead of
         // one request per row -- counted client-side since this is a small
         // (a few hundred rows at most) per-series slice, not the whole table.
@@ -127,18 +169,39 @@ export default function SeriesScreen() {
           const counts: Record<string, number> = {}
           for (const f of figs ?? []) counts[f.ac_id] = (counts[f.ac_id] ?? 0) + 1
           setFigureCounts(counts)
+          freshFigureCounts = counts
+        } else {
+          setFigureCounts({})
+          freshFigureCounts = {}
         }
       } else if (acsRes.error) {
         // Distinguishes "the fetch failed" from "this series genuinely has
-        // zero active ACs" -- see this file's loadError comment above.
-        setLoadError(true)
+        // zero active ACs" -- see this file's loadError comment above. Only
+        // surfaced when there's genuinely nothing cached to show -- a
+        // network blip shouldn't replace an already-visible cached list
+        // with the error screen.
+        if (!lastGoodAcs.length) setLoadError(true)
       }
-      if (!seriesRes.error && seriesRes.data) setSeriesName(seriesRes.data.display_name)
-      setLoading(false)
-    })
-  }
 
-  useEffect(load, [prefix])
+      let freshSeriesName = lastGoodSeriesName
+      if (!seriesRes.error && seriesRes.data) {
+        setSeriesName(seriesRes.data.display_name)
+        freshSeriesName = seriesRes.data.display_name
+      }
+
+      setLoading(false)
+
+      AsyncStorage.setItem(cacheKey, JSON.stringify({ acs: freshAcs, figureCounts: freshFigureCounts, seriesName: freshSeriesName }))
+    } catch (_) {
+      // Network failed -- cached data (if any) stays visible; only surface
+      // the real error state when there's genuinely nothing cached to show.
+      if (!lastGoodAcs.length) setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [prefix])
+
+  useEffect(() => { load() }, [load])
 
   const headerTitle = seriesName ? `${prefix} — ${seriesName}` : `Series ${prefix}`
 

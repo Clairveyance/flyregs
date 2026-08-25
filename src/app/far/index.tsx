@@ -1,6 +1,7 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { View, Text, FlatList, Pressable, TextInput, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
 import { router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -50,6 +51,11 @@ const FAMILY_TITLE: Record<Family, string> = {
 // already knows and wants to jump straight to, not a Part-list filter term.
 const SECTION_NUM_RE = /^\d+\.\d+[a-z]?$/i
 
+// Public, same-for-every-viewer content (part/label/section-count metadata,
+// no gated body text) -- no uid-scoping needed, matching Home's own
+// HOME_CACHE_KEY convention.
+const FAR_INDEX_CACHE_KEY = '@flyregs/far-index-cache'
+
 export default function FarIndexScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -68,36 +74,84 @@ export default function FarIndexScreen() {
   // useLongPressPreview.ts's header comment.
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
-  useEffect(() => {
-    // count_far_sections_by_part is a server-side GROUP BY RPC, not a raw
-    // select() -- PostgREST's project-wide max-rows cap (1000, confirmed via
-    // a direct curl test with an explicit Range header that still truncated
-    // at 1000/4272) silently undercounts anything that fetches individual
-    // rows to count client-side. Aggregating in SQL sidesteps the cap
-    // entirely instead of trying to page around it. cfr49_sections is a
-    // small first pass (86 rows total) so a plain select+client reduce is
-    // fine there, well under the cap.
-    Promise.all([
-      supabase.from('far_parts').select('part, label, sort_order').order('sort_order'),
-      supabase.rpc('count_far_sections_by_part'),
-      supabase.from('cfr49_parts').select('part, label, family, sort_order').order('sort_order'),
-      supabase.from('cfr49_sections').select('part'),
-    ]).then(([partsRes, countRes, cfr49PartsRes, cfr49SecRes]) => {
-      if (partsRes.data) setParts(partsRes.data as FarPart[])
+  const load = useCallback(async () => {
+    // Carries the last known-good values across both the cache-read and
+    // fresh-fetch blocks below -- same reason as Home's own lastGoodCount
+    // (see (tabs)/index.tsx), so a failed/slow fetch never blanks out data
+    // that was already showing.
+    let lastGoodParts: FarPart[] = []
+    let lastGoodCounts: Record<string, number> = {}
+    let lastGoodCfr49Parts: Cfr49Part[] = []
+    let lastGoodCfr49Counts: Record<string, number> = {}
+
+    // Show cached data immediately so the screen appears in under 100 ms
+    try {
+      const cached = await AsyncStorage.getItem(FAR_INDEX_CACHE_KEY)
+      if (cached) {
+        const { parts: cp, counts: cc, cfr49Parts: ccp, cfr49Counts: ccc } = JSON.parse(cached)
+        if (cp?.length) { setParts(cp); lastGoodParts = cp }
+        if (cc) { setCounts(cc); lastGoodCounts = cc }
+        if (ccp?.length) { setCfr49Parts(ccp); lastGoodCfr49Parts = ccp }
+        if (ccc) { setCfr49Counts(ccc); lastGoodCfr49Counts = ccc }
+        setLoading(false)
+      }
+    } catch (_) {}
+
+    // Then fetch fresh data (existing query, unchanged) -- count_far_sections_by_part
+    // is a server-side GROUP BY RPC, not a raw select() -- PostgREST's
+    // project-wide max-rows cap (1000, confirmed via a direct curl test with
+    // an explicit Range header that still truncated at 1000/4272) silently
+    // undercounts anything that fetches individual rows to count
+    // client-side. Aggregating in SQL sidesteps the cap entirely instead of
+    // trying to page around it. cfr49_sections is a small first pass (86
+    // rows total) so a plain select+client reduce is fine there, well under
+    // the cap.
+    try {
+      const [partsRes, countRes, cfr49PartsRes, cfr49SecRes] = await Promise.all([
+        supabase.from('far_parts').select('part, label, sort_order').order('sort_order'),
+        supabase.rpc('count_far_sections_by_part'),
+        supabase.from('cfr49_parts').select('part, label, family, sort_order').order('sort_order'),
+        supabase.from('cfr49_sections').select('part'),
+      ])
+
+      let freshParts = lastGoodParts
+      if (partsRes.data) { setParts(partsRes.data as FarPart[]); freshParts = partsRes.data as FarPart[] }
+
+      let freshCounts = lastGoodCounts
       if (countRes.data) {
         const c: Record<string, number> = {}
         for (const row of countRes.data as { part: string; cnt: number }[]) c[row.part] = row.cnt
         setCounts(c)
+        freshCounts = c
       }
-      if (cfr49PartsRes.data) setCfr49Parts(cfr49PartsRes.data as Cfr49Part[])
+
+      let freshCfr49Parts = lastGoodCfr49Parts
+      if (cfr49PartsRes.data) { setCfr49Parts(cfr49PartsRes.data as Cfr49Part[]); freshCfr49Parts = cfr49PartsRes.data as Cfr49Part[] }
+
+      let freshCfr49Counts = lastGoodCfr49Counts
       if (cfr49SecRes.data) {
         const c: Record<string, number> = {}
         for (const row of cfr49SecRes.data as { part: string }[]) c[row.part] = (c[row.part] ?? 0) + 1
         setCfr49Counts(c)
+        freshCfr49Counts = c
       }
+
       setLoading(false)
-    })
+
+      AsyncStorage.setItem(FAR_INDEX_CACHE_KEY, JSON.stringify({
+        parts: freshParts,
+        counts: freshCounts,
+        cfr49Parts: freshCfr49Parts,
+        cfr49Counts: freshCfr49Counts,
+      }))
+    } catch (_) {
+      // Network failed -- cached data (if any) stays visible
+    } finally {
+      setLoading(false)
+    }
   }, [])
+
+  useEffect(() => { load() }, [load])
 
   // Device-local recently-VIEWED sections, filtered to FAR -- an honest
   // "most used" proxy without needing any new server-side tracking. Loaded

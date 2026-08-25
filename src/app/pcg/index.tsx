@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { View, Text, FlatList, Pressable, TextInput, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
 import { router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -15,6 +16,11 @@ interface TermHit {
   slug: string
   term: string
 }
+
+// Public, same-for-every-viewer content (letter/term-count metadata only,
+// no gated body text) -- no uid-scoping needed, matching Home's own
+// HOME_CACHE_KEY convention.
+const PCG_INDEX_CACHE_KEY = '@flyregs/pcg-index-cache'
 
 // P/CG's natural browse structure: alphabetical by first letter, matching
 // the source glossary's own one-page-per-letter structure
@@ -36,21 +42,47 @@ export default function PcgIndexScreen() {
   // same hook/card pair as far/index.tsx's own long-press preview.
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
-  useEffect(() => {
-    // Server-side GROUP BY RPC, not client-side counting -- confirmed live
-    // that select('letter') alone silently undercounted at "1000 TERMS"
-    // against the real 1,332 (PostgREST's project-wide 1000-row max-rows
-    // cap, which a client Range header can't override past). See
-    // far/index.tsx's comment for the full diagnosis.
-    supabase.rpc('count_pcg_terms_by_letter').then(({ data }) => {
+  const load = useCallback(async () => {
+    // Same lastGood-preservation reason as Home's own lastGoodCount (see
+    // (tabs)/index.tsx) -- a failed/slow fetch shouldn't blank out counts
+    // that were already showing.
+    let lastGoodCounts: Record<string, number> = {}
+
+    // Show cached data immediately so the screen appears in under 100 ms
+    try {
+      const cached = await AsyncStorage.getItem(PCG_INDEX_CACHE_KEY)
+      if (cached) {
+        const parsed = JSON.parse(cached)
+        if (parsed) { setCounts(parsed); lastGoodCounts = parsed }
+        setLoading(false)
+      }
+    } catch (_) {}
+
+    // Then fetch fresh data (existing query, unchanged) -- server-side GROUP
+    // BY RPC, not client-side counting -- confirmed live that
+    // select('letter') alone silently undercounted at "1000 TERMS" against
+    // the real 1,332 (PostgREST's project-wide 1000-row max-rows cap, which
+    // a client Range header can't override past). See far/index.tsx's
+    // comment for the full diagnosis.
+    try {
+      const { data } = await supabase.rpc('count_pcg_terms_by_letter')
+      let freshCounts = lastGoodCounts
       if (data) {
         const c: Record<string, number> = {}
         for (const row of data as { letter: string; cnt: number }[]) c[row.letter] = row.cnt
         setCounts(c)
+        freshCounts = c
       }
       setLoading(false)
-    })
+      AsyncStorage.setItem(PCG_INDEX_CACHE_KEY, JSON.stringify(freshCounts))
+    } catch (_) {
+      // Network failed -- cached data (if any) stays visible
+    } finally {
+      setLoading(false)
+    }
   }, [])
+
+  useEffect(() => { load() }, [load])
 
   // Device-local recently-viewed terms -- an honest "most used" proxy
   // without needing any new server-side tracking.

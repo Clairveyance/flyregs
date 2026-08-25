@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
@@ -10,6 +11,13 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { getRefPacket, getRefPackets, splitPacketTitle, refPackKnowledgeLevel, RefPacketArea, RefPacket } from '@/lib/refPackets'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
+
+// getRefPacket() is built straight from acs_documents/acs_areas_of_operation/
+// acs_tasks -- public FAA ACS/PTS structure, identical for every Plus viewer
+// (the screen-level hasPlusAccess gate below decides whether to show this at
+// all, not what's inside it), so a per-code cache key (no uid) is correct --
+// same reasoning as pcg/letter/[letter].tsx's own PCG_LETTER_CACHE_KEY_PREFIX.
+const REF_PACKET_CACHE_KEY_PREFIX = '@flyregs/ref-packet-cache:'
 
 export default function RefPacketDetailScreen() {
   const { code: routeCode } = useLocalSearchParams<{ code: string }>()
@@ -34,11 +42,29 @@ export default function RefPacketDetailScreen() {
   useEffect(() => {
     if (!activeCode || !hasPlusAccess) { setLoading(false); return }
     setLoading(true)
-    getRefPacket(activeCode).then((r) => {
-      if (r) { setTitle(r.title); setAreas(r.areas) }
-      setLoading(false)
-    })
     setExpanded(null)
+    ;(async () => {
+      try {
+        const cached = await AsyncStorage.getItem(REF_PACKET_CACHE_KEY_PREFIX + activeCode)
+        if (cached) {
+          const r = JSON.parse(cached) as { title: string; areas: RefPacketArea[] }
+          setTitle(r.title); setAreas(r.areas)
+          setLoading(false)
+        }
+      } catch (_) {}
+
+      try {
+        const r = await getRefPacket(activeCode)
+        if (r) {
+          setTitle(r.title); setAreas(r.areas)
+          AsyncStorage.setItem(REF_PACKET_CACHE_KEY_PREFIX + activeCode, JSON.stringify(r)).catch(() => {})
+        }
+      } catch (_) {
+        // Network failed -- cached data (if any) stays visible
+      } finally {
+        setLoading(false)
+      }
+    })()
   }, [activeCode, hasPlusAccess])
 
   // Siblings: other acs_documents rows from the same source PDF (see

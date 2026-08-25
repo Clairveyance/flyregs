@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -9,6 +10,23 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { TabletContainer } from '@/components/TabletContainer'
 import { DictionarySearchBar } from '@/components/DictionarySearchBar'
 import { Icon } from '@/components/Icon'
+
+// Keyed by BOTH letter and uid, unlike this feature's other browse screens
+// (dictionary/index.tsx, pcg/letter/[letter].tsx) -- this is the one query
+// in the Dictionary feature that selects a real gated field (`senses`, the
+// actual definition body) through dictionary_terms_gated, not just term
+// names. senses comes back null for a mnemonic-category row when the
+// signed-in viewer isn't Pro (see DictTermRow's own comment) -- caching
+// what THIS viewer already legitimately received is fine on its own (never
+// more than the gated view already handed them), but a bare cache key would
+// let a Pro account's cached senses flash on screen for a Plus-only account
+// signing in right after on the same shared device, before the fresh fetch
+// (correctly redacted for the new viewer) overwrites it -- the exact
+// cross-account-leak shape already documented in
+// memory/gotcha_local_data_leaks_across_accounts.md. uid-scoping closes that
+// gap the same way my-aircraft/ready-room/challenges do for their own
+// per-user data.
+const DICTIONARY_LETTER_CACHE_KEY_PREFIX = '@flyregs/dictionary-letter-cache:'
 
 interface DictTermRow {
   term: string
@@ -24,7 +42,7 @@ interface DictTermRow {
 export default function DictionaryLetterScreen() {
   const { letter } = useLocalSearchParams<{ letter: string }>()
   const { tokens } = useTheme()
-  const { hasPlusAccess, loading: authLoading } = useAuth()
+  const { hasPlusAccess, session, loading: authLoading } = useAuth()
   const fs = useFS()
   const [terms, setTerms] = useState<DictTermRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -40,12 +58,34 @@ export default function DictionaryLetterScreen() {
     // this session -- ref-packets/[code].tsx's identical effect already has
     // this line.
     setLoading(true)
-    supabase.from('dictionary_terms_gated').select('term, slug, category, senses').eq('letter', letter).order('term')
-      .then(({ data }) => {
-        if (data) setTerms(data as DictTermRow[])
+    // uid-scoped cache-read -- see DICTIONARY_LETTER_CACHE_KEY_PREFIX's own
+    // comment for why this screen (unlike its sibling browse screens) needs
+    // per-account keying. No session yet (shouldn't happen once hasPlusAccess
+    // is true, but guard anyway) just skips straight to the fresh fetch.
+    const uid = session?.user?.id
+    ;(async () => {
+      if (uid) {
+        try {
+          const cached = await AsyncStorage.getItem(DICTIONARY_LETTER_CACHE_KEY_PREFIX + letter + ':' + uid)
+          if (cached) {
+            setTerms(JSON.parse(cached) as DictTermRow[])
+            setLoading(false)
+          }
+        } catch (_) {}
+      }
+      try {
+        const { data } = await supabase.from('dictionary_terms_gated').select('term, slug, category, senses').eq('letter', letter).order('term')
+        if (data) {
+          setTerms(data as DictTermRow[])
+          if (uid) AsyncStorage.setItem(DICTIONARY_LETTER_CACHE_KEY_PREFIX + letter + ':' + uid, JSON.stringify(data)).catch(() => {})
+        }
+      } catch (_) {
+        // Network failed -- cached data (if any) stays visible
+      } finally {
         setLoading(false)
-      })
-  }, [letter, hasPlusAccess])
+      }
+    })()
+  }, [letter, hasPlusAccess, session?.user?.id])
 
   // RC, 2026-08-10: "Plus gets the A/D, not the Mnemonics." Same
   // whole-screen lock as dictionary/index.tsx.

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -22,6 +23,12 @@ interface Cfr49SectionRow {
   title: string | null
 }
 
+// Public, same-for-every-viewer content (section number/title metadata
+// only, no gated body text) -- no uid-scoping needed, matching Home's own
+// HOME_CACHE_KEY convention. Keyed per-part since this screen is one Part
+// at a time.
+const CFR49_PART_CACHE_KEY_PREFIX = '@flyregs/cfr49-part-cache/'
+
 export default function Cfr49PartScreen() {
   const { part } = useLocalSearchParams<{ part: string }>()
   const { tokens } = useTheme()
@@ -31,19 +38,60 @@ export default function Cfr49PartScreen() {
   const [loading, setLoading] = useState(true)
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!part) return
-    Promise.all([
-      supabase.from('cfr49_sections').select('section_number, subpart_letter, subpart_title, title').eq('part', part),
-      supabase.from('cfr49_parts').select('label').eq('part', part).single(),
-    ]).then(([secRes, partRes]) => {
-      if (secRes.data) {
-        setSections((secRes.data as Cfr49SectionRow[]).sort((a, b) => naturalCompare(a.section_number, b.section_number)))
+    setLoading(true)
+
+    // Carries the last known-good values across both the cache-read and
+    // fresh-fetch blocks below -- same reason as Home's own lastGoodCount
+    // (see (tabs)/index.tsx), so a failed/slow fetch never blanks out data
+    // that was already showing.
+    let lastGoodSections: Cfr49SectionRow[] = []
+    let lastGoodLabel = ''
+
+    // Show cached data immediately so the screen appears in under 100 ms
+    try {
+      const cached = await AsyncStorage.getItem(CFR49_PART_CACHE_KEY_PREFIX + part)
+      if (cached) {
+        const { sections: cs, partLabel: cl } = JSON.parse(cached)
+        if (cs?.length) { setSections(cs); lastGoodSections = cs }
+        if (cl) { setPartLabel(cl); lastGoodLabel = cl }
+        setLoading(false)
       }
-      if (partRes.data) setPartLabel((partRes.data as { label: string }).label)
+    } catch (_) {}
+
+    // Then fetch fresh data (existing query, unchanged)
+    try {
+      const [secRes, partRes] = await Promise.all([
+        supabase.from('cfr49_sections').select('section_number, subpart_letter, subpart_title, title').eq('part', part),
+        supabase.from('cfr49_parts').select('label').eq('part', part).single(),
+      ])
+
+      let freshSections = lastGoodSections
+      if (secRes.data) {
+        const sorted = (secRes.data as Cfr49SectionRow[]).sort((a, b) => naturalCompare(a.section_number, b.section_number))
+        setSections(sorted)
+        freshSections = sorted
+      }
+
+      let freshLabel = lastGoodLabel
+      if (partRes.data) {
+        const label = (partRes.data as { label: string }).label
+        setPartLabel(label)
+        freshLabel = label
+      }
+
       setLoading(false)
-    })
+
+      AsyncStorage.setItem(CFR49_PART_CACHE_KEY_PREFIX + part, JSON.stringify({ sections: freshSections, partLabel: freshLabel }))
+    } catch (_) {
+      // Network failed -- cached data (if any) stays visible
+    } finally {
+      setLoading(false)
+    }
   }, [part])
+
+  useEffect(() => { load() }, [load])
 
   const groups: { letter: string; title: string | null; items: Cfr49SectionRow[] }[] = []
   for (const s of sections) {
