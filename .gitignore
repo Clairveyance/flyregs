@@ -106,6 +106,11 @@ scripts/.question_bank_sources_snapshot*.json
 sync/.dictionary_contractions_source.html
 sync/.dictionary_prose_batch_state.json
 sync/.dictionary_prose_id_map.json
+sync/.contractions_defs_batch_state.json
+sync/.contractions_defs_id_map.json
+sync/.contractions_defs_results.json
+sync/.contractions_defs_unsure_review.json
+sync/.contractions_defs_final_review.json
 sync/.dictionary_sources/
 sync/.iph_appendix_b_raw.txt
 sync/.phak_appendix_b_outline.txt
