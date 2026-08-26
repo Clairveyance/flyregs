@@ -107,6 +107,24 @@ export function OverlayHeader({ title, onBack, right }: OverlayHeaderProps) {
               onLongPress={(e) => showPreview(title, e)}
               onPressOut={hidePreview}
               delayLongPress={350}
+              // `center`'s own minWidth:0/flex:1 fix (see its style comment
+              // below) only bounds *its own* box -- `center` has no explicit
+              // flexDirection, so it defaults to RN's column axis, which
+              // means `alignItems: 'center'` there governs this Pressable's
+              // WIDTH (the cross axis in a column container), not flexShrink
+              // (which only acts on the main/vertical axis). Unstretched,
+              // this Pressable sizes to its Text's full content width and
+              // overflows past `center`, overlapping the right-side icons
+              // again for any title longer than roughly "QA Test Folder"
+              // (~15-18 chars). alignSelf: 'stretch' overrides the parent's
+              // alignItems for just this child, forcing its width to match
+              // `center`'s (now properly shrinkable) box; Text then inherits
+              // that same bounded width via Pressable's own default
+              // alignItems: 'stretch', which is what numberOfLines={1} needs
+              // to actually ellipsize instead of overflowing. Confirmed live:
+              // renaming a folder to "QA Test Folder Renamed" (23 chars)
+              // visibly overlapped the header's people/pencil/trash icons.
+              style={{ alignSelf: 'stretch', minWidth: 0 }}
             >
               <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]} numberOfLines={1}>
                 {title}

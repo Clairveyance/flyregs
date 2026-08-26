@@ -234,20 +234,21 @@ export async function deleteFolder(id: string): Promise<void> {
   // NO force param at all until now, so deleting a shared folder with the
   // owner's OWN Back-up & Sync toggle off silently left synced_folders.deleted
   // false forever (confirmed live: folder/items/notes all orphaned in the
-  // cloud DB, never cleaned up), even though the collaborator correctly lost
-  // access via unshareFolder below. Found by tonight's QA sweep.
+  // cloud DB, never cleaned up). Found by tonight's QA sweep.
+  //
+  // Dropping anyone this folder was shared with -- clearing share_token and
+  // folder_collaborators -- now happens INSIDE soft_delete_own_folder itself
+  // (sync/migrations_fix_folder_delete_unshare_race.sql), not via a separate
+  // client-side unshareFolder() call here. That used to race this same RPC:
+  // folders_own_update's WITH CHECK requires is_folder_visible(id), which
+  // only counts deleted=false rows, so once soft_delete_own_folder committed
+  // deleted=true, the follow-up raw UPDATE clearing share_token was
+  // GUARANTEED to 403 (not an occasional flake) -- every folder delete
+  // logged a spurious error. unshareFolder() itself is unchanged and still
+  // used for its other real call site, explicitly "Stop Sharing" on a live
+  // (non-deleted) folder in saved.tsx, where it isn't racing a delete.
   syncPushFolderDelete(id, deletedFolder?.shared ?? false)
   syncPushFolderItemDeletes(itemsInFolder.map((i) => i.id), deletedFolder?.shared ?? false)
-  // Deleting a folder should also drop anyone it was shared with -- otherwise
-  // stale folder_collaborators rows linger forever with no owning folder,
-  // and has_folder_access() would keep granting a departed collaborator
-  // read access to a folder that looks deleted everywhere else. Report
-  // (not swallow) a failure here, matching every syncPush* sibling --
-  // fire-and-forget is fine, silent is not.
-  unshareFolder(id).catch((err) => {
-    console.error('[folders] unshare-on-delete failed:', err)
-    Sentry.captureException(err)
-  })
 }
 
 // BB-079, RC real-device beta report: "we need to allow creation of a
