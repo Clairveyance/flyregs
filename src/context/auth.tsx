@@ -103,8 +103,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // storage (folders/bookmarks/notes/recents/downloads/recent-
           // searches) -- see claimDeviceIfMismatched's own comment for why a
           // mismatch has to be resolved here, up front, rather than left to
-          // each read/write call to discover independently.
-          await claimDeviceIfMismatched(session.user.id)
+          // each read/write call to discover independently. Passes email so
+          // a same-person-different-backend-id case (see that function's
+          // own comment -- the 2026-08-26 real-data-loss incident) can be
+          // told apart from a genuine different person on this device.
+          await claimDeviceIfMismatched(session.user.id, session.user.email)
           initRevenueCat(session.user.id)
           const status = await getSubscriptionStatus()
           setIsPro(status.isPro)
@@ -185,8 +188,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
         try {
-          // Same reasoning as the session-restore branch above.
-          await claimDeviceIfMismatched(session.user.id)
+          // Same reasoning as the session-restore branch above, PLUS gated
+          // to a genuine new sign-in only -- this whole handler also fires
+          // on TOKEN_REFRESHED (roughly hourly for an already-signed-in
+          // session, see this handler's own comment above), and there is no
+          // legitimate reason to re-run a destructive device-ownership
+          // check on every one of those. Re-running it needlessly is what
+          // multiplied the exposure window for the 2026-08-26 real-data-
+          // loss incident (claimDeviceIfMismatched's own comment has the
+          // full story) -- narrowing this to SIGNED_IN doesn't fix that
+          // root cause by itself, but there's no reason to run a
+          // potentially-destructive check outside a real sign-in event
+          // either.
+          if (event === 'SIGNED_IN') await claimDeviceIfMismatched(session.user.id, session.user.email)
           initRevenueCat(session.user.id)
           const status = await getSubscriptionStatus()
           setIsPro(status.isPro)
@@ -311,7 +325,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // see SYNC_OWNER_KEY in lib/sync.ts.
     const departingUserId = session?.user?.id
     if (departingUserId) {
-      await claimLocalDataForSignedOutUser(departingUserId).catch(() => {})
+      await claimLocalDataForSignedOutUser(departingUserId, session?.user?.email).catch(() => {})
     }
     const { error } = await supabase.auth.signOut()
     if (error) throw error

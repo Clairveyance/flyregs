@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { getBookmarks } from '@/lib/bookmarks'
 import { getFolders, getFolderItems } from '@/lib/folders'
 import { getNotes, updateNotes, isSeedNote, type Note } from '@/lib/notes'
-import { getSyncOwner, setSyncOwner } from '@/lib/syncOwner'
+import { setSyncOwner, localDataBelongsTo } from '@/lib/syncOwner'
 import { withLock } from '@/lib/asyncMutex'
 import type { FolderItem } from '@/lib/folders'
 import {
@@ -72,8 +72,8 @@ const BOOKMARKS_KEY = '@flyregs/bookmarks'
 // from the genuinely common and desirable one -- browse anonymously, like
 // the app, create an account, and expect your saved work to come with you --
 // so it is left to upload on purpose rather than silently dropped.
-export async function claimLocalDataForSignedOutUser(userId: string): Promise<void> {
-  await setSyncOwner(userId)
+export async function claimLocalDataForSignedOutUser(userId: string, email?: string | null): Promise<void> {
+  await setSyncOwner(userId, email ?? null)
 }
 
 // ── Pull + merge (called when sync is turned on, and on app launch) ──────────
@@ -457,9 +457,13 @@ export async function enableSync(userId: string): Promise<void> {
     // is unchanged. A DIFFERENT owner means someone else's items are sitting
     // in the global local store (see SYNC_OWNER_KEY), and pushing them would
     // put their bookmarks and authored notes into this account. Skip the
-    // push in that case and pull only.
-    const owner = await getSyncOwner()
-    const localBelongsToThisUser = owner === null || owner === userId
+    // push in that case and pull only. Reuses localDataBelongsTo (not a
+    // second copy of the same owner-compare) so this inherits
+    // claimDeviceIfMismatched's own same-person-different-id reconciliation
+    // for free -- that already ran earlier in the same sign-in flow
+    // (context/auth.tsx), so by the time this runs the tag is already
+    // correctly resolved for the CURRENT session.
+    const localBelongsToThisUser = await localDataBelongsTo(userId)
 
     if (localBelongsToThisUser) {
       const [bookmarks, folders, folderItems, notes] = await Promise.all([

@@ -20,17 +20,64 @@ import { supabase } from '@/lib/supabase'
 // client-side stale-cache leak, not a network hole.
 export const SYNC_OWNER_KEY = '@flyregs/sync-owner'
 
-export async function getSyncOwner(): Promise<string | null> {
+// RC real-device report, 2026-08-26: upgraded Plus -> Pro, never signed
+// out, and every local bookmark he'd added that same morning vanished.
+// Root cause: this key used to store a BARE userId string, and
+// claimDeviceIfMismatched below treated ANY stored-id-vs-current-session-id
+// mismatch as proof of a genuinely different person on a shared device --
+// which is exactly the real scenario this file exists to guard against
+// (see the header comment above), but a raw auth.uid() isn't actually a
+// stable "same person" signal: his account (and the one other real beta
+// account, plus the shared preview account) had been recreated server-side
+// on 2026-08-23/24 during an unrelated auth.users-restore incident, so his
+// phone's already-stored id no longer matched his own account's new one --
+// same real person, new backend id, zero user action. The guard couldn't
+// tell that apart from a stranger's phone and wiped his local-only
+// bookmarks (Back-up & Sync requires Pro, so there was never a cloud copy
+// to restore from -- confirmed live, zero rows, before writing this fix).
+//
+// Fix: track email alongside the id. Two different ids under the SAME
+// email are almost certainly the same person (an id changed server-side,
+// not a device handed to someone else) -- re-claim the tag, never wipe.
+// Only a genuine, confirmed email mismatch destroys data; an inconclusive
+// comparison (either side missing an email -- always true for a tag
+// written before this fix shipped) deliberately errs toward NOT wiping,
+// since a false "wipe" here is irreversible and a false "don't wipe" just
+// leaves this same check to run again next sign-in.
+interface SyncOwner {
+  userId: string
+  email: string | null
+}
+
+async function getSyncOwnerRaw(): Promise<SyncOwner | null> {
   try {
-    return await AsyncStorage.getItem(SYNC_OWNER_KEY)
+    const raw = await AsyncStorage.getItem(SYNC_OWNER_KEY)
+    if (!raw) return null
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed.userId === 'string') {
+        return { userId: parsed.userId, email: typeof parsed.email === 'string' ? parsed.email : null }
+      }
+      return null
+    } catch {
+      // Pre-fix format: a bare userId string, written before this key
+      // carried an email. No email on file for a tag in this shape.
+      return { userId: raw, email: null }
+    }
   } catch {
     return null
   }
 }
 
-export async function setSyncOwner(userId: string): Promise<void> {
+export async function getSyncOwner(): Promise<string | null> {
+  const owner = await getSyncOwnerRaw()
+  return owner?.userId ?? null
+}
+
+export async function setSyncOwner(userId: string, email?: string | null): Promise<void> {
   try {
-    await AsyncStorage.setItem(SYNC_OWNER_KEY, userId)
+    const value: SyncOwner = { userId, email: email ?? null }
+    await AsyncStorage.setItem(SYNC_OWNER_KEY, JSON.stringify(value))
   } catch {
     // Non-fatal: a failed write just means the next check is treated as a
     // first-time/unknown owner, which is the conservative direction.
@@ -43,10 +90,13 @@ export async function setSyncOwner(userId: string): Promise<void> {
 // belongs to `userId`. False only for a genuine mismatch: local data left
 // behind by a DIFFERENT account. Signed-out browsing is unaffected --
 // callers only run this check once they have a real userId to compare
-// against.
+// against. Compares by id only (not email) -- by the time any read runs,
+// claimDeviceIfMismatched below has already resolved the tag for the
+// CURRENT session, email match included, so a plain id comparison here is
+// always checking against an already-reconciled tag.
 export async function localDataBelongsTo(userId: string): Promise<boolean> {
-  const owner = await getSyncOwner()
-  return owner === null || owner === userId
+  const owner = await getSyncOwnerRaw()
+  return owner === null || owner.userId === userId
 }
 
 // Shared by every local reader (folders.ts, bookmarks.ts, notes.ts) so the
@@ -123,12 +173,50 @@ async function wipeAllLocalKeys(): Promise<void> {
 // view, not the actual underlying array. Resolving the mismatch once, here,
 // means every later read AND write this session sees a real, consistent,
 // already-reset local store instead of racing to discover it mid-write.
-export async function claimDeviceIfMismatched(userId: string): Promise<void> {
+export async function claimDeviceIfMismatched(userId: string, email?: string | null): Promise<void> {
   try {
-    const owner = await getSyncOwner()
-    if (owner === null || owner === userId) return
-    await wipeAllLocalKeys()
-    await setSyncOwner(userId)
+    const owner = await getSyncOwnerRaw()
+    if (owner === null || owner.userId === userId) {
+      // Also true on a first-ever claim or an exact-match no-op -- (re)stamp
+      // the email either way, so a FUTURE id change for this same person
+      // (another backend incident, however unlikely) has something to
+      // confirm "same person" against next time, instead of starting from
+      // the same email-less blind spot that caused this fix to be needed.
+      // `email ?? owner?.email` -- this fires on more than just genuinely
+      // new claims (e.g. onAuthStateChange re-firing SIGNED_IN on a plain
+      // session restore, not just a fresh interactive sign-in), and some of
+      // those callers may not always have session.user.email populated;
+      // never let a call that's missing it regress an email this device
+      // already captured on a previous, better-informed call.
+      await setSyncOwner(userId, email ?? owner?.email ?? null)
+      return
+    }
+    // Ids differ. Before treating this as a genuine different-person
+    // device switch -- the only case this function should ever destroy
+    // data for -- check whether it's actually the same person under a
+    // changed backend id.
+    if (owner.email && email) {
+      // Both sides have a real email to compare -- a conclusive signal.
+      if (owner.email.toLowerCase() === email.toLowerCase()) {
+        await setSyncOwner(userId, email)
+        return
+      }
+      await wipeAllLocalKeys()
+      await setSyncOwner(userId, email)
+      return
+    }
+    // Inconclusive -- missing an email on one or both sides, always true
+    // for a tag written before this fix shipped. Deliberately does NOT
+    // wipe: a false "wipe" here is irreversible (the real incident this
+    // closes -- see this file's own header comment), while a false "don't
+    // wipe" only means a genuinely-different person's very first sign-in on
+    // a pre-fix-tagged device might see stale cached data until their own
+    // claim overwrites it -- a real but narrow, self-limiting exposure
+    // (every claim from here on carries an email, so this blind spot only
+    // exists once per device, on whichever sign-in first runs this updated
+    // logic). Re-tags to the new id/email either way so that one-time
+    // window closes for good the moment this runs.
+    await setSyncOwner(userId, email ?? null)
   } catch {
     // Non-fatal -- the per-read guards in folders.ts/bookmarks.ts/notes.ts
     // still hide a mismatch from view even if this proactive clear fails;
