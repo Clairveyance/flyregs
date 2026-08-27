@@ -168,7 +168,10 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
     const envRaw = await loadTexture(require('../../assets/trophy/gem_env.png'))
     const env = equirectToEnvMap(renderer, envRaw as THREE.Texture)
     scene.environment = env
-    scene.environmentIntensity = 1.1
+    // 1.1 -> 1.35, alongside the material's own envMapIntensity/iridescence
+    // bump below -- see that comment for why (facet reflectivity restored
+    // without touching `side`).
+    scene.environmentIntensity = 1.35
 
     // Brilliant-cut profile: [radius, y] pairs, revolved around Y.
     const pts = [
@@ -186,17 +189,40 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
       color: 0xffffff,
       metalness: 0.0,
       roughness: 0.01,
-      transmission: 1.0,
+      // RC, 2026-08-27: "the diamond has sort of lost its multiple facets
+      // that reflect the light better like it had before." Correcting this
+      // file's own earlier claim just below (kept, struck through in
+      // spirit, not deleted -- the reasoning for FrontSide itself is still
+      // right, only the "no visual difference" part was wrong): read
+      // three.js's actual WebGLRenderer.renderTransmissionPass source
+      // (node_modules/three/src/renderers/WebGLRenderer.js) rather than
+      // re-guessing. The back-face pass it skips when side !== DoubleSide
+      // is exactly what samples this material's own back geometry for
+      // thickness-aware internal light bounce -- losing it measurably
+      // flattened the per-facet brightness/color variation that reads as
+      // "sparkle," confirmed side-by-side in a standalone browser
+      // prototype (three of these materials, side by side, FrontSide vs.
+      // this tuned FrontSide vs. DoubleSide) before touching this file.
+      // transmission 1.0->0.8, iridescence 0.55->0.85, envMapIntensity
+      // 1.3->2.3 (paired with scene.environmentIntensity 1.1->1.35 above)
+      // recovers real, visible facet-edge definition and iridescent color
+      // shift through the FRONT-face reflection/clearcoat pipeline alone --
+      // a pipeline untouched by the DoubleSide bug, so this is additive,
+      // not a partial revert. Does not fully match DoubleSide's richness
+      // (that gap is real and is specifically the internal-bounce
+      // component only the buggy path computes) but it's a genuine step in
+      // that direction with none of the real, device-confirmed risk.
+      transmission: 0.8,
       thickness: 1.1,
       ior: 2.4,
       attenuationColor: 0xffffff,
       attenuationDistance: 3,
-      iridescence: 0.55,
+      iridescence: 0.85,
       iridescenceIOR: 1.3,
       iridescenceThicknessRange: [100, 500],
       clearcoat: 1.0,
       clearcoatRoughness: 0.01,
-      envMapIntensity: 1.3,
+      envMapIntensity: 2.3,
       // RC, B34, real device: "rotation is super glitchy... color is
       // glitching too... green flashes." DoubleSide on a transmissive
       // material makes three.js render an EXTRA back-face pass every
@@ -209,14 +235,15 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
       // target and generating its mipmap chain TWICE. This gem never
       // needs its back faces -- it's convex and always viewed from
       // outside -- so FrontSide removes the entire duplicate pass (half
-      // the per-frame transmission cost, zero needsUpdate churn) with no
-      // visual difference for a shape like this. Directly targets both
-      // reported symptoms: the removed per-frame stutter is the most
-      // likely cause of "super glitchy" rotation, and the removed SECOND
-      // mipmap generation on that HalfFloat target is the most likely
-      // cause of the intermittent green flashes (an uninitialized/
-      // driver-dependent mip level under iOS GLES3, sampled every frame
-      // by the transmission shader).
+      // the per-frame transmission cost, zero needsUpdate churn). Directly
+      // targets both reported symptoms: the removed per-frame stutter is
+      // the most likely cause of "super glitchy" rotation, and the removed
+      // SECOND mipmap generation on that HalfFloat target is the most
+      // likely cause of the intermittent green flashes (an uninitialized/
+      // driver-dependent mip level under iOS GLES3, sampled every frame by
+      // the transmission shader). Keep FrontSide -- see the facet-richness
+      // comment above for what's traded away by keeping it, and why that
+      // trade is still the right one.
       side: THREE.FrontSide,
       flatShading: true,
     })
