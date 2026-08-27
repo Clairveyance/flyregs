@@ -220,14 +220,13 @@ export async function markFolderShared(folderId: string): Promise<void> {
 }
 
 export async function deleteFolder(id: string): Promise<void> {
-  const { deletedFolder, itemsInFolder } = await withLock('folders', async () => {
+  const { deletedFolder } = await withLock('folders', async () => {
     const [folders, items] = await Promise.all([getFolders(), getFolderItems()])
-    const inFolder = items.filter((i) => i.folder_id === id)
     await Promise.all([
       AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(folders.filter((f) => f.id !== id))),
       AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(items.filter((i) => i.folder_id !== id))),
     ])
-    return { deletedFolder: folders.find((f) => f.id === id), itemsInFolder: inFolder }
+    return { deletedFolder: folders.find((f) => f.id === id) }
   })
   // force: folder.shared -- same reasoning as handleSaveNote's own
   // syncPushNote(updated, folder?.shared ?? false): syncPushFolderDelete had
@@ -237,18 +236,22 @@ export async function deleteFolder(id: string): Promise<void> {
   // cloud DB, never cleaned up). Found by tonight's QA sweep.
   //
   // Dropping anyone this folder was shared with -- clearing share_token and
-  // folder_collaborators -- now happens INSIDE soft_delete_own_folder itself
-  // (sync/migrations_fix_folder_delete_unshare_race.sql), not via a separate
-  // client-side unshareFolder() call here. That used to race this same RPC:
-  // folders_own_update's WITH CHECK requires is_folder_visible(id), which
-  // only counts deleted=false rows, so once soft_delete_own_folder committed
-  // deleted=true, the follow-up raw UPDATE clearing share_token was
-  // GUARANTEED to 403 (not an occasional flake) -- every folder delete
-  // logged a spurious error. unshareFolder() itself is unchanged and still
-  // used for its other real call site, explicitly "Stop Sharing" on a live
-  // (non-deleted) folder in saved.tsx, where it isn't racing a delete.
+  // folder_collaborators -- AND soft-deleting this folder's items now both
+  // happen INSIDE soft_delete_own_folder itself (sync/migrations_fix_
+  // folder_delete_unshare_race.sql, then sync/migrations_fix_folder_items_
+  // delete_visibility_race.sql for the items half), not via separate
+  // client-side calls here. Both used to race this same RPC the identical
+  // way: owners_synced_folder_items_update's (and folders_own_update's own)
+  // WITH CHECK requires is_folder_visible(id), which only counts
+  // deleted=false rows, so any raw UPDATE reaching either table AFTER
+  // soft_delete_own_folder committed deleted=true was GUARANTEED to 403 --
+  // not an occasional flake, every delete of a non-empty or shared folder
+  // logged a spurious error. syncPushFolderItemDeletes/unshareFolder
+  // themselves are unchanged and still used for their other real call
+  // sites (an item removed WITHOUT deleting its folder; explicit "Stop
+  // Sharing" on a live folder in saved.tsx) -- neither of those races a
+  // delete.
   syncPushFolderDelete(id, deletedFolder?.shared ?? false)
-  syncPushFolderItemDeletes(itemsInFolder.map((i) => i.id), deletedFolder?.shared ?? false)
 }
 
 // BB-079, RC real-device beta report: "we need to allow creation of a
