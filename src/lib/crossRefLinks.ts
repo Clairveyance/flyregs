@@ -176,6 +176,19 @@ const PATTERNS: LinkPattern[] = [
   // text, since this pattern didn't exist yet. Negative lookahead avoids
   // double-matching when a real dotted section immediately follows (the
   // FAR-section pattern above already handles that case on its own).
+  // A "49 CFR " prefix gets its own branch first, routed to /cfr49/part/N
+  // instead of /far/part/N -- confirmed live as a real MISLINK, not just a
+  // miss, 2026-08-27 CFI RefPack audit: without this branch, "49 CFR part
+  // 830" was matched by the generic (?:14 CFR|FAR)? branch below with its
+  // optional group simply skipped, silently dropping the "49 CFR" prefix
+  // and sending the reader to /far/part/830 -- a nonexistent FAR part,
+  // since 830 is a CFR49 part number, not a FAR one. /cfr49/part/[part].tsx
+  // already exists (mirrors far/part/[part].tsx) so this is a routing fix
+  // only. {1,4} digits, not {1,3} like the FAR branch below -- real CFR49
+  // parts run into 4 digits (TSA's 1544 and 1552, both real corpus parts,
+  // both named in RC's own CFI-oral checklist under Security/TSA), unlike
+  // FAR parts which never do.
+  { regex: /\b49\s*CFR\s*[Pp]art\s+(\d{1,4})\b(?!\.\d)/g, buildRoute: (m) => `/cfr49/part/${m[1]}` },
   { regex: /\b(?:14\s*CFR\s*|FAR\s+)?[Pp]art\s+(\d{1,3})\b(?!\.\d)/g, buildRoute: (m) => `/far/part/${m[1]}` },
   // Plural "Parts N, M, and O" / "Parts N or M" -- the singular pattern
   // above requires "Part" immediately followed by exactly one number, so a
@@ -185,6 +198,28 @@ const PATTERNS: LinkPattern[] = [
   // section enumeration pattern above: match the whole list as one span,
   // then hand back one sub-candidate per bare part number inside. Mirrors
   // sync/*_citations.py's own FAR_PART_ENUM_RE exactly.
+  //
+  // Same "49 CFR" branch-first fix as the singular pattern above, same real
+  // repro: ACS references_text routinely reads "49 CFR parts 175, 830, and
+  // 1544" (confirmed live, e.g. FAA-S-8081-10E Area I.A) -- without this
+  // branch every number in that list would mislink to /far/part/N instead
+  // of /cfr49/part/N. {1,4} digits for the same reason as the singular
+  // branch above -- this exact repro string's own "1544" would silently
+  // fail to match at all under a {1,3} cap.
+  {
+    regex: /\b49\s*CFR\s*[Pp]arts\s+(\d{1,4}(?:(?:\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or|through)\s+)\d{1,4})+)\b/g,
+    buildSubMatches: (m) => {
+      const list = m[1]
+      const offset = m[0].length - list.length
+      const subs: { text: string; offset: number; route: string }[] = []
+      const numRe = /\d{1,4}/g
+      let sm: RegExpExecArray | null
+      while ((sm = numRe.exec(list))) {
+        subs.push({ text: sm[0], offset: offset + sm.index, route: `/cfr49/part/${sm[0]}` })
+      }
+      return subs
+    },
+  },
   {
     regex: /\b(?:14\s*CFR\s*|FAR\s+)?[Pp]arts\s+(\d{1,3}(?:(?:\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or|through)\s+)\d{1,3})+)\b/g,
     buildSubMatches: (m) => {

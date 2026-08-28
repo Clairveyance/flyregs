@@ -3,21 +3,30 @@
 
 references_text on acs_tasks is real FAA-authored text like
 "14 CFR parts 1, 61, 91, 95, 97; 49 CFR part 830; AIM; FAA-H-8083-2, ..."
--- confirmed via a full-corpus regex-coverage check (2026-08-11) that every
-segment is one of: a 14 CFR part list, an AC number list, a bare "AIM"
-mention, an FAA handbook code, or a non-regulatory publication (Chart
-Supplements, POH/AFM, NOTAMs, Flight Manual) -- no LLM needed, this is a
-pure parse.
+-- the ORIGINAL version of this comment claimed a 2026-08-11 full-corpus
+regex-coverage check found every segment was one of: a 14 CFR part list, an
+AC number list, a bare "AIM" mention, an FAA handbook code, or a
+non-regulatory publication. That claim was wrong, caught 2026-08-27 while
+auditing why the CFI Ref Packet was missing 49 CFR 830 (accident
+reporting) entirely despite RC's own real-world CFI-oral checklist listing
+it as expected material: FAR_PARTS_RE below is hardcoded to "14\\s*CFR",
+so it structurally can never match a "49 CFR part 830" segment -- that
+whole segment shape was silently invisible to the original coverage
+check, not actually covered by one of the listed buckets. Confirmed at
+scale, not just for CFI: 15 real tasks corpus-wide cite 49 CFR in their
+references_text, and acs_task_citations had ZERO cfr49 rows before this
+fix -- every one of those citations was being silently dropped.
 
-Deliberately scoped to FAR/AC/AIM only (the three types this app has a
-knowledge-level taxonomy for) -- handbook/chart-supplement/POH mentions are
-real but don't map onto FlyRegs' own corpus, so they're not extracted.
+Deliberately scoped to FAR/AC/AIM/CFR49 (the content types this app has a
+knowledge-level taxonomy and/or real corpus for) -- handbook/chart-
+supplement/POH mentions are real but don't map onto FlyRegs' own corpus,
+so they're not extracted.
 
 FAR "14 CFR parts 1, 61, 91" cites a whole PART, not a specific section
-(ACS documents are written at that granularity) -- so cited_id for 'far' is
-a bare part number, not a section number. The consuming weight function
-(far_relevance_weight, see migrations_relevance_weighting.sql) looks up by
-part for exactly this reason.
+(ACS documents are written at that granularity) -- so cited_id for 'far'
+(and, the same way, 'cfr49') is a bare part number, not a section number.
+The consuming weight function (far_relevance_weight, see migrations_
+relevance_weighting.sql) looks up by part for exactly this reason.
 
 Usage:
   python3 sync/acs_reference_extract.py --dry-run
@@ -52,6 +61,7 @@ SUPABASE_KEY = env["SUPABASE_SERVICE_KEY"]
 HEADERS = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 
 FAR_PARTS_RE = re.compile(r"14\s*CFR\s*part(?:s)?\s*([\d,\s&andPARTS]+?)(?=;|$)", re.I)
+CFR49_PARTS_RE = re.compile(r"49\s*CFR\s*part(?:s)?\s*([\d,\s&andPARTS]+?)(?=;|$)", re.I)
 AC_RE = re.compile(r"\bAC\s+(\d+(?:/\d+)?(?:\.\d+)?[\-‐‑–]\d+[A-Za-z0-9]*)", re.I)
 # The FAA also spells this out in full ("Advisory Circular No. 120-12A",
 # "Advisory Circular 20-420") instead of abbreviating to "AC" -- confirmed
@@ -106,6 +116,10 @@ def extract_citations(task: dict) -> list[dict]:
     for m in FAR_PARTS_RE.finditer(text):
         for part in re.findall(r"\d+", m.group(1)):
             add("far", part)
+
+    for m in CFR49_PARTS_RE.finditer(text):
+        for part in re.findall(r"\d+", m.group(1)):
+            add("cfr49", part)
 
     for m in AC_RE.finditer(text):
         add("ac", _normalize_hyphens(m.group(1)))
