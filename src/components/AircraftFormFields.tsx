@@ -536,6 +536,26 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: {
               <Icon name="xmark" size={fs(18)} color={tokens.t3} />
             </Pressable>
           </View>
+          {/* RC, real device: "if you tap the edit pencil and then decide
+              you don't wanna make an edit... you can't exit out any other
+              way or hide the keyboard." The X above already existed, but
+              this card had no height cap and its fields weren't in a
+              ScrollView -- once the keyboard's up (this form is 5 fields
+              deep, bottom-pinned, on a small screen like RC's 13 mini),
+              the keyboard eating the lower half of the screen could push
+              the card's own natural height past what's left, with no way
+              to scroll up to reach the X or drag the keyboard back down.
+              Same fix shape as InfoPopup's own scroll cap, same
+              keyboardDismissMode="interactive" pattern already used on
+              the parent my-aircraft screen and feedback.tsx -- letting a
+              drag dismiss the keyboard is itself a way to "just look at
+              the whole screen" without needing to find a button first. */}
+          <ScrollView
+            style={styles.modalScrollBody}
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
           <MakeField label="MAKE" value={make} onChangeText={setMake} tokens={tokens} fs={fs} style={{ marginTop: 14 }} />
           <ModelField
             label="MODEL NAME"
@@ -589,6 +609,7 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: {
           <Pressable style={[styles.addButton, { backgroundColor: tokens.blu, marginTop: 14 }]} onPress={handleSave} disabled={saving}>
             {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Save Changes</Text>}
           </Pressable>
+          </ScrollView>
         </View>
       </KeyboardAvoidingView>
       <YearPickerModal
@@ -621,7 +642,16 @@ const styles = StyleSheet.create({
   addButton: { borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   addButtonText: { color: '#fff', fontWeight: '600', fontSize: 14.5 },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
-  modalCard: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, padding: 18, gap: 4 },
+  // maxHeight caps the card to a fraction of the SCREEN (backdrop is
+  // flex:1) same as InfoPopup's own card -- a short keyboard-down state
+  // never touches this, it only engages once the keyboard-shrunk
+  // available space genuinely can't fit the whole form.
+  modalCard: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, padding: 18, gap: 4, maxHeight: '92%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  // flexShrink (not flex/flexGrow), same reasoning as InfoPopup's
+  // scrollBody -- takes its natural height when there's room, shrinks
+  // (and becomes scrollable) once header + this + padding would exceed
+  // modalCard's own maxHeight above.
+  modalScrollBody: { flexShrink: 1 },
   modalTitle: { fontWeight: '700' },
 })
