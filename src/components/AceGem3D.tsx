@@ -168,10 +168,11 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
     const envRaw = await loadTexture(require('../../assets/trophy/gem_env.png'))
     const env = equirectToEnvMap(renderer, envRaw as THREE.Texture)
     scene.environment = env
-    // 1.1 -> 1.35, alongside the material's own envMapIntensity/iridescence
-    // bump below -- see that comment for why (facet reflectivity restored
-    // without touching `side`).
-    scene.environmentIntensity = 1.35
+    // 1.1 -> 1.15, alongside the material's own envMapIntensity/iridescence
+    // nudge below -- see that comment for the real fix (attenuation, not
+    // this) and why the FIRST attempt at this (1.1 -> 1.35, reverted) was
+    // wrong.
+    scene.environmentIntensity = 1.15
 
     // Brilliant-cut profile: [radius, y] pairs, revolved around Y.
     const pts = [
@@ -200,29 +201,55 @@ export function AceGem3D({ size = 300, backdropColor }: { size?: number; backdro
       // is exactly what samples this material's own back geometry for
       // thickness-aware internal light bounce -- losing it measurably
       // flattened the per-facet brightness/color variation that reads as
-      // "sparkle," confirmed side-by-side in a standalone browser
-      // prototype (three of these materials, side by side, FrontSide vs.
-      // this tuned FrontSide vs. DoubleSide) before touching this file.
-      // transmission 1.0->0.8, iridescence 0.55->0.85, envMapIntensity
-      // 1.3->2.3 (paired with scene.environmentIntensity 1.1->1.35 above)
-      // recovers real, visible facet-edge definition and iridescent color
-      // shift through the FRONT-face reflection/clearcoat pipeline alone --
-      // a pipeline untouched by the DoubleSide bug, so this is additive,
-      // not a partial revert. Does not fully match DoubleSide's richness
-      // (that gap is real and is specifically the internal-bounce
-      // component only the buggy path computes) but it's a genuine step in
-      // that direction with none of the real, device-confirmed risk.
-      transmission: 0.8,
-      thickness: 1.1,
+      // "sparkle." Confirmed via glGuards.ts's own header comment that this
+      // isn't a "maybe" on this platform: expo-gl's native
+      // renderbufferStorageMultisample is unconditionally unimplemented, so
+      // WEBGL_multisampled_render_to_texture (the extension three.js checks
+      // before deciding whether DoubleSide needs its per-frame side-toggle
+      // fallback) is guaranteed absent here -- DoubleSide's judder/green-
+      // flash bug isn't occasional on this platform, it's structural.
+      // Reverting `side` is not on the table.
+      //
+      // FIRST attempt at compensating (transmission 1.0->0.8, iridescence
+      // 0.55->0.85, envMapIntensity 1.3->2.3) shipped in B36 and was WRONG
+      // -- RC, real device: "diamond now looks silver... regressed away
+      // from the black diamond look." Root cause of THAT regression,
+      // confirmed side-by-side in a standalone browser prototype (4
+      // variants rendered at once: original, that first attempt, this
+      // fix, and real DoubleSide as the reference target): reducing
+      // transmission means LESS of the dark backdrop shows through, and
+      // raising envMapIntensity that much made the (necessarily bright, to
+      // read as "reflective") environment highlights dominate instead --
+      // together that reads as a lit, silvery/metallic surface, not a
+      // deep black transmissive gem. Wrong lever entirely: the actual
+      // "black diamond" character comes from Beer-Lambert attenuation
+      // (how much the transmitted light darkens over the distance it
+      // travels through the material), which is a per-pixel calculation
+      // driven by attenuationColor/attenuationDistance/thickness and does
+      // NOT depend on the back-face pass at all -- genuinely independent
+      // of the DoubleSide bug, unlike the first attempt's levers.
+      // attenuationColor white->near-black, attenuationDistance 3->1.1
+      // (attenuation kicks in over a much shorter path), thickness 1.1->1.6
+      // (more path length for it to act over) together darken the gem's
+      // own base tone back toward black while transmission stays at its
+      // original 1.0 (unchanged -- still fully see-through to the dark
+      // backdrop, unlike the reverted first attempt's 0.8). iridescence
+      // 0.55->0.7 and envMapIntensity 1.3->1.6 (much more modest bumps
+      // than the reverted first attempt) restore some real facet-edge
+      // highlight definition on top of that dark base without tipping back
+      // into "silver." Confirmed live in the same prototype: consistently
+      // black across a full rotation, not just one lucky frame angle.
+      transmission: 1.0,
+      thickness: 1.6,
       ior: 2.4,
-      attenuationColor: 0xffffff,
-      attenuationDistance: 3,
-      iridescence: 0.85,
+      attenuationColor: 0x0a1220,
+      attenuationDistance: 1.1,
+      iridescence: 0.7,
       iridescenceIOR: 1.3,
       iridescenceThicknessRange: [100, 500],
       clearcoat: 1.0,
       clearcoatRoughness: 0.01,
-      envMapIntensity: 2.3,
+      envMapIntensity: 1.6,
       // RC, B34, real device: "rotation is super glitchy... color is
       // glitching too... green flashes." DoubleSide on a transmissive
       // material makes three.js render an EXTRA back-face pass every
