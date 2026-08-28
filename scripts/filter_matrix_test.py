@@ -48,7 +48,7 @@ URL = SCRAPER["SUPABASE_URL"]
 SERVICE = SCRAPER["SUPABASE_SERVICE_KEY"]
 ANON = load_env(".env")["EXPO_PUBLIC_SUPABASE_ANON_KEY"]
 
-TYPES = ["far", "aim", "pcg", "ac", "dictionary"]
+TYPES = ["far", "aim", "pcg", "ac", "dictionary", "cfr49"]
 LEVELS = ["student", "private", "commercial", "atp", "cfi", "mechanic"]
 # Must match src/lib/profileRatings.ts CATEGORY_CLASSES exactly -- these are
 # the literal strings the app sends, and category_classes_from_text() returns
