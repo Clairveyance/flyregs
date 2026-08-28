@@ -170,6 +170,21 @@ export const USER_TO_FAA: Record<string, string[]> = {
   mechanic: ['mechanic', 'maintenance', 'technician'],
   controller: ['controller', 'atc'],
   dispatcher: ['dispatcher', 'dispatch'],
+  // RC, support email: searching "technologically advanced aircraft" found
+  // nothing relevant, even though sec 61.129 (real commercial-pilot
+  // aeronautical-experience credit for training in one) is right there.
+  // Root cause, confirmed directly against the corpus text: the FAA's own
+  // defined term is "technically advanced airplane" -- "technically", not
+  // "technologically", and "airplane", not "aircraft". A real, common
+  // colloquial-vs-regulatory wording mismatch, not a search engine bug --
+  // confirmed the lexical ranking works perfectly (61.129 ranks #1) once
+  // given the FAA's actual phrase. Bridges every plausible way a pilot
+  // would type this, both directions, so it round-trips regardless of
+  // which wording someone starts from.
+  'technologically advanced': ['technically advanced', 'TAA'],
+  'technologically advanced aircraft': ['technically advanced airplane', 'TAA'],
+  'technologically advanced airplane': ['technically advanced airplane', 'TAA'],
+  taa: ['technically advanced airplane'],
 
   // ── Medical / fitness ────────────────────────────────────────────────────
   drunk: ['alcohol', 'intoxicated'],
