@@ -212,8 +212,27 @@ def fetch_sources(only_types=None):
               )
             order by slug
         """)
+    # CFR49 extension (2026-08-28, part of the Study/Duel architecture
+    # completion -- CFR49 was never wired into Study Mode/Duels at all
+    # before this). No study_cfr49_sections gating table exists (CFR49's
+    # corpus is small, 86 sections across 4 parts -- get_study_queue/
+    # get_study_pool_count filter it inline instead, same shape mirrored
+    # here) -- just the same real-title/body-text/not-reserved guard
+    # every other type already applies.
+    if only_types is not None and "cfr49" in only_types:
+        pools["cfr49"] = mgmt_sql("""
+            select section_number as item_id, title, body_text
+            from cfr49_sections
+            where body_text is not null and body_text <> ''
+              and title is not null and title <> '' and title not ilike '%[reserved%'
+              and section_number not in (
+                select item_id from study_facts
+                where item_type = 'cfr49' and status in ('live', 'pending')
+              )
+            order by section_number
+        """)
     out = []
-    for t in ["far", "aim", "ac", "pcg"]:
+    for t in ["far", "aim", "ac", "pcg", "cfr49"]:
         if t in pools:
             out += [(t, r) for r in pools[t]]
     return out
@@ -227,7 +246,7 @@ def make_custom_id(item_type, item_id, seq):
     return f"{item_type}_{seq}"
 
 
-LABEL_PREFIX = {"far": "FAR §", "aim": "AIM", "ac": "AC", "pcg": "P/CG"}
+LABEL_PREFIX = {"far": "FAR §", "aim": "AIM", "ac": "AC", "pcg": "P/CG", "cfr49": "49 CFR §"}
 
 
 def build_request(item_type, row, custom_id):
@@ -493,6 +512,22 @@ def cmd_verify():
     """Second pass: grade every status='pending' fact against its source text,
     on a model chosen by RC per-run (see VERIFY_MODEL). Promotes pass -> live,
     applies corrected_answer when offered, discards the rest (never live)."""
+    # cmd_submit() has always refused to resubmit over a non-terminal batch
+    # (see its own docstring, memory/gotcha_double_background_process.md) --
+    # this command never had the same guard, confirmed live 2026-08-28: a
+    # verify batch was mid-flight when a second --verify call would have
+    # overwritten .fact_deck_verify_state.json, silently orphaning the
+    # first batch's id with no way to --verify-poll it again. Caught by
+    # hand that time; guarded here so it can't happen unattended.
+    vstate_path = os.path.join(BASE, "scripts", ".fact_deck_verify_state.json")
+    if os.path.exists(vstate_path):
+        vstate = json.load(open(vstate_path))
+        if "verify_batch_id" in vstate:
+            print(f"Refusing to resubmit -- verify batch {vstate['verify_batch_id']} may still be in "
+                  f"flight (this command doesn't track ended/non-terminal status the way --submit does). "
+                  f"Run --verify-poll first to check/ingest it, or delete {vstate_path} if you're certain "
+                  f"it's already been ingested.")
+            sys.exit(1)
     pending = rest_get_all("/rest/v1/study_facts?status=eq.pending&select=id,item_type,item_id,question,answer,source_quote")
     if not pending:
         print("No pending facts to verify.")
@@ -586,6 +621,11 @@ def cmd_verify_poll():
     print(f"Verification done: {passed} passed as-is, {corrected} corrected+passed, "
           f"{failed} flagged (never served), {skipped} left pending (no parseable "
           f"verdict -- re-run --verify to retry these).")
+    # This batch is fully resolved (ended + every result processed) --
+    # clear the state file so the guard in cmd_verify() doesn't block a
+    # legitimate future --verify call. Any `skipped` stragglers stay
+    # status='pending' in the DB and get picked up fresh next time.
+    os.remove(vstate_path)
 
 
 if __name__ == "__main__":
@@ -595,10 +635,11 @@ if __name__ == "__main__":
     ap.add_argument("--verify", action="store_true")
     ap.add_argument("--verify-poll", action="store_true")
     ap.add_argument("--types", default="far,aim",
-                     help="comma-separated subset of far,aim,ac,pcg (default: far,aim -- matches "
+                     help="comma-separated subset of far,aim,ac,pcg,cfr49 (default: far,aim -- matches "
                           "the ORIGINAL batch's scope exactly, never silently widens it). Use the "
-                          "SAME --types for --submit and its --poll. Pass --types=ac,pcg explicitly "
-                          "for the AC/P-CG extension -- it gets its own state files either way.")
+                          "SAME --types for --submit and its --poll. Pass --types=ac,pcg or "
+                          "--types=cfr49 explicitly for those extensions -- each gets its own state "
+                          "files either way.")
     args = ap.parse_args()
     types = args.types.split(",")
     if args.submit:
