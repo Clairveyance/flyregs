@@ -64,26 +64,42 @@ function addMonths(from: Date, months: number): Date {
   return d
 }
 
+function addDays(from: Date, days: number): Date {
+  const d = new Date(from)
+  d.setDate(d.getDate() + days)
+  return d
+}
+
 // Quick-select reminder types with hardcoded recurrence defaults -- RC:
 // "which schema is more flexible and easy to use for the user? if the
 // gating is better and more accurate and more hands off for the user,
 // that's good. but they should still be able to manually adjust a date if
-// needed to match their exact needs." No schema change: `months` here only
-// pre-fills a SUGGESTED due date at creation time (today + N months) via
-// DatePickerModal, which the user can still scroll to any date they want
-// before saving -- nothing about the interval is enforced or re-applied
-// later. 100-Hour is genuinely hobbs/tach-based, not calendar-based, so it
-// gets no smart default (`months: null`) -- a suggested date would just be
-// wrong. AD Compliance also gets no calendar default since compliance
-// intervals vary per AD and aren't modeled in this schema; picking that
-// type instead reveals the AD-link picker below.
+// needed to match their exact needs." No schema change: `months`/`days`
+// here only pre-fill a SUGGESTED due date at creation time (today + N
+// months/days) via DatePickerModal, which the user can still scroll to any
+// date they want before saving -- nothing about the interval is enforced or
+// re-applied later. 100-Hour is genuinely hobbs/tach-based, not calendar-
+// based, so it gets no smart default (`months: null`) -- a suggested date
+// would just be wrong. AD Compliance also gets no calendar default since
+// compliance intervals vary per AD and aren't modeled in this schema;
+// picking that type instead reveals the AD-link picker below.
+//
+// Pitot-Static and VOR Check added per RC (2026-08-28 in-app feedback).
+// Pitot-Static (14 CFR 91.411, IFR) is a real 24-CALENDAR-MONTH interval,
+// same shape as Transponder/ELT. VOR Check (14 CFR 91.171, IFR) is a real
+// 30-CALENDAR-DAY interval -- genuinely not month-granular, so it's the
+// first type here to use `days` instead of `months` (see
+// sync/migrations_reminder_interval_days.sql for why that's a separate
+// column rather than a rounded month value).
 const REMINDER_TYPES = [
-  { key: 'annual', label: 'Annual', icon: 'checkmark.seal.fill', defaultTitle: 'Annual Inspection', months: 12 },
-  { key: 'transponder', label: 'Transponder', icon: 'dot.radiowaves.left.and.right', defaultTitle: 'Transponder Check', months: 24 },
-  { key: 'elt', label: 'ELT Battery', icon: 'bolt.fill', defaultTitle: 'ELT Battery', months: 24 },
-  { key: '100hour', label: '100-Hour', icon: 'speedometer', defaultTitle: '100-Hour Inspection', months: null },
-  { key: 'ad', label: 'AD Compliance', icon: 'wrench.and.screwdriver.fill', defaultTitle: 'AD Compliance', months: null },
-  { key: 'custom', label: 'Custom', icon: 'pencil', defaultTitle: '', months: null },
+  { key: 'annual', label: 'Annual', icon: 'checkmark.seal.fill', defaultTitle: 'Annual Inspection', months: 12, days: null },
+  { key: 'transponder', label: 'Transponder', icon: 'dot.radiowaves.left.and.right', defaultTitle: 'Transponder Check', months: 24, days: null },
+  { key: 'elt', label: 'ELT Battery', icon: 'bolt.fill', defaultTitle: 'ELT Battery', months: 24, days: null },
+  { key: 'pitot-static', label: 'Pitot-Static', icon: 'waveform.path.ecg', defaultTitle: 'Pitot-Static Check', months: 24, days: null },
+  { key: 'vor-check', label: 'VOR Check', icon: 'location.north.line', defaultTitle: 'VOR Equipment Check', months: null, days: 30 },
+  { key: '100hour', label: '100-Hour', icon: 'speedometer', defaultTitle: '100-Hour Inspection', months: null, days: null },
+  { key: 'ad', label: 'AD Compliance', icon: 'wrench.and.screwdriver.fill', defaultTitle: 'AD Compliance', months: null, days: null },
+  { key: 'custom', label: 'Custom', icon: 'pencil', defaultTitle: '', months: null, days: null },
 ] as const
 type ReminderTypeKey = (typeof REMINDER_TYPES)[number]['key']
 
@@ -95,6 +111,10 @@ type ReminderTypeKey = (typeof REMINDER_TYPES)[number]['key']
 // not just at creation. "None" covers 100-Hour/AD/Custom reminders with no
 // fixed calendar recurrence.
 const LENGTH_PRESETS = [6, 12, 24, 36] as const
+// Day-based counterpart, for reminders on a real sub-month regulatory cycle
+// (VOR Check, 30 days). Same "None / presets / Custom" bar shape as
+// LENGTH_PRESETS above, just a different unit -- see intervalDays.
+const DAY_LENGTH_PRESETS = [30] as const
 
 // "how far back" view filter for Applicable ADs -- RC: "populate that a/c
 // profile with them... allowing them to choose how far back they want ADs
@@ -1179,6 +1199,7 @@ export default function AircraftDetailScreen() {
                               {overdue ? `${Math.abs(days)}d` : `${days}d`} · {r.dueDate}
                               {r.linkedAdNumber ? ` · AD ${r.linkedAdNumber}` : ''}
                               {r.intervalMonths ? ` · every ${r.intervalMonths}mo` : ''}
+                              {r.intervalDays ? ` · every ${r.intervalDays}d` : ''}
                               {hobbsText}
                             </Text>
                           </View>
@@ -1252,13 +1273,13 @@ export default function AircraftDetailScreen() {
         editing={editingReminder}
         applicableAds={adNotifications}
         onClose={() => { setReminderFormVisible(false); setEditingReminder(null) }}
-        onSaved={async ({ title, dueDate, notes, linkedAdNumber, intervalMonths, dueHobbsHours }) => {
+        onSaved={async ({ title, dueDate, notes, linkedAdNumber, intervalMonths, dueHobbsHours, intervalDays }) => {
           if (!aircraft || !session) return
           try {
             if (editingReminder) {
-              await updateAircraftReminder(editingReminder.id, title, dueDate, linkedAdNumber, notes, intervalMonths, dueHobbsHours)
+              await updateAircraftReminder(editingReminder.id, title, dueDate, linkedAdNumber, notes, intervalMonths, dueHobbsHours, intervalDays)
             } else {
-              await addAircraftReminder(session.user.id, aircraft.id, title, dueDate, linkedAdNumber, notes, intervalMonths, dueHobbsHours)
+              await addAircraftReminder(session.user.id, aircraft.id, title, dueDate, linkedAdNumber, notes, intervalMonths, dueHobbsHours, intervalDays)
             }
             setReminderFormVisible(false)
             setEditingReminder(null)
@@ -1679,7 +1700,7 @@ function ReminderFormModal({
   editing: AircraftReminder | null
   applicableAds: AircraftAdNotification[]
   onClose: () => void
-  onSaved: (input: { title: string; dueDate: string; notes: string; linkedAdNumber: string | null; intervalMonths: number | null; dueHobbsHours: number | null }) => Promise<void>
+  onSaved: (input: { title: string; dueDate: string; notes: string; linkedAdNumber: string | null; intervalMonths: number | null; intervalDays: number | null; dueHobbsHours: number | null }) => Promise<void>
 }) {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -1692,6 +1713,15 @@ function ReminderFormModal({
   const [notes, setNotes] = useState('')
   const [linkedAdNumber, setLinkedAdNumber] = useState<string | null>(null)
   const [intervalMonths, setIntervalMonths] = useState<number | null>(null)
+  // Which unit the LENGTH bar below is currently editing -- follows the
+  // selected TYPE chip (VOR Check -> days, everything else -> months) in
+  // ADD mode, or whichever field an existing reminder actually has set in
+  // EDIT mode. No separate unit toggle control: every type has one natural
+  // unit, so switching types (or loading an existing reminder) is the only
+  // way this changes -- matches RC's "flexible... but still simple" framing
+  // without adding UI surface beyond the 2 new chips he asked for.
+  const [intervalDays, setIntervalDays] = useState<number | null>(null)
+  const [lengthUnit, setLengthUnit] = useState<'months' | 'days'>('months')
   const [customLengthText, setCustomLengthText] = useState('')
   const [dueHobbsText, setDueHobbsText] = useState('')
   const [datePickerVisible, setDatePickerVisible] = useState(false)
@@ -1731,8 +1761,15 @@ function ReminderFormModal({
     setNotes(editing?.notes ?? '')
     setLinkedAdNumber(editing?.linkedAdNumber ?? null)
     const im = editing?.intervalMonths ?? null
+    const idays = editing?.intervalDays ?? null
     setIntervalMonths(im)
-    setCustomLengthText(im != null && !(LENGTH_PRESETS as readonly number[]).includes(im) ? String(im) : '')
+    setIntervalDays(idays)
+    setLengthUnit(idays != null ? 'days' : 'months')
+    setCustomLengthText(
+      idays != null && !(DAY_LENGTH_PRESETS as readonly number[]).includes(idays) ? String(idays)
+        : im != null && !(LENGTH_PRESETS as readonly number[]).includes(im) ? String(im)
+          : ''
+    )
     setDueHobbsText(editing?.dueHobbsHours != null ? String(editing.dueHobbsHours) : '')
   }, [visible, editing])
 
@@ -1740,9 +1777,18 @@ function ReminderFormModal({
     setTypeKey(key)
     const def = REMINDER_TYPES.find((t) => t.key === key)!
     setTitle(def.defaultTitle)
-    setDueDate(def.months != null ? toISODate(addMonths(new Date(), def.months)) : '')
-    setIntervalMonths(def.months)
     setCustomLengthText('')
+    if (def.days != null) {
+      setDueDate(toISODate(addDays(new Date(), def.days)))
+      setLengthUnit('days')
+      setIntervalDays(def.days)
+      setIntervalMonths(null)
+    } else {
+      setDueDate(def.months != null ? toISODate(addMonths(new Date(), def.months)) : '')
+      setLengthUnit('months')
+      setIntervalMonths(def.months)
+      setIntervalDays(null)
+    }
     if (key !== 'ad') setLinkedAdNumber(null)
   }
 
@@ -1761,19 +1807,25 @@ function ReminderFormModal({
     const dueHobbsHours = dueHobbsText.trim() ? parseFloat(dueHobbsText.trim()) : null
     setSaving(true)
     try {
-      await onSaved({ title: title.trim(), dueDate: dueDate.trim(), notes, linkedAdNumber, intervalMonths, dueHobbsHours })
+      await onSaved({ title: title.trim(), dueDate: dueDate.trim(), notes, linkedAdNumber, intervalMonths, intervalDays, dueHobbsHours })
     } finally {
       setSaving(false)
     }
   }
 
-  const isCustomLength = customLengthText !== '' || (intervalMonths != null && !(LENGTH_PRESETS as readonly number[]).includes(intervalMonths))
-  const selectPresetLength = (n: number | null) => { setIntervalMonths(n); setCustomLengthText('') }
+  const lengthPresets = lengthUnit === 'days' ? DAY_LENGTH_PRESETS : LENGTH_PRESETS
+  const activeIntervalValue = lengthUnit === 'days' ? intervalDays : intervalMonths
+  const isCustomLength = customLengthText !== '' || (activeIntervalValue != null && !(lengthPresets as readonly number[]).includes(activeIntervalValue))
+  const selectPresetLength = (n: number | null) => {
+    if (lengthUnit === 'days') { setIntervalDays(n); setIntervalMonths(null) } else { setIntervalMonths(n); setIntervalDays(null) }
+    setCustomLengthText('')
+  }
   const selectCustomLength = (text: string) => {
     const digitsOnly = text.replace(/[^0-9]/g, '')
     setCustomLengthText(digitsOnly)
     const n = parseInt(digitsOnly, 10)
-    setIntervalMonths(digitsOnly && n > 0 ? n : null)
+    const val = digitsOnly && n > 0 ? n : null
+    if (lengthUnit === 'days') { setIntervalDays(val); setIntervalMonths(null) } else { setIntervalMonths(val); setIntervalDays(null) }
   }
 
   return (
@@ -1844,26 +1896,26 @@ function ReminderFormModal({
             <Text style={[styles.formLabel, { color: tokens.t3, fontSize: fs(11) }]}>LENGTH (RECURS EVERY)</Text>
             <View style={styles.chipGrid}>
               <Pressable
-                style={[styles.typeChip, { backgroundColor: intervalMonths == null && !isCustomLength ? tokens.bdim : tokens.bg2, borderColor: intervalMonths == null && !isCustomLength ? tokens.blu : tokens.bdr }]}
+                style={[styles.typeChip, { backgroundColor: activeIntervalValue == null && !isCustomLength ? tokens.bdim : tokens.bg2, borderColor: activeIntervalValue == null && !isCustomLength ? tokens.blu : tokens.bdr }]}
                 onPress={() => selectPresetLength(null)}
               >
-                <Text style={[styles.typeChipText, { color: intervalMonths == null && !isCustomLength ? tokens.blu : tokens.t1, fontSize: fs(12.5) }]}>None</Text>
+                <Text style={[styles.typeChipText, { color: activeIntervalValue == null && !isCustomLength ? tokens.blu : tokens.t1, fontSize: fs(12.5) }]}>None</Text>
               </Pressable>
-              {LENGTH_PRESETS.map((n) => {
-                const active = intervalMonths === n && !isCustomLength
+              {lengthPresets.map((n) => {
+                const active = activeIntervalValue === n && !isCustomLength
                 return (
                   <Pressable
                     key={n}
                     style={[styles.typeChip, { backgroundColor: active ? tokens.bdim : tokens.bg2, borderColor: active ? tokens.blu : tokens.bdr }]}
                     onPress={() => selectPresetLength(n)}
                   >
-                    <Text style={[styles.typeChipText, { color: active ? tokens.blu : tokens.t1, fontSize: fs(12.5) }]}>{n}mo</Text>
+                    <Text style={[styles.typeChipText, { color: active ? tokens.blu : tokens.t1, fontSize: fs(12.5) }]}>{n}{lengthUnit === 'days' ? 'd' : 'mo'}</Text>
                   </Pressable>
                 )
               })}
               <Pressable
                 style={[styles.typeChip, { backgroundColor: isCustomLength ? tokens.bdim : tokens.bg2, borderColor: isCustomLength ? tokens.blu : tokens.bdr }]}
-                onPress={() => setCustomLengthText(intervalMonths != null ? String(intervalMonths) : '')}
+                onPress={() => setCustomLengthText(activeIntervalValue != null ? String(activeIntervalValue) : '')}
               >
                 <Text style={[styles.typeChipText, { color: isCustomLength ? tokens.blu : tokens.t1, fontSize: fs(12.5) }]}>Custom</Text>
               </Pressable>
@@ -1873,12 +1925,12 @@ function ReminderFormModal({
                 <TextInput
                   value={customLengthText}
                   onChangeText={selectCustomLength}
-                  placeholder="Months"
+                  placeholder={lengthUnit === 'days' ? 'Days' : 'Months'}
                   placeholderTextColor={tokens.t3}
                   keyboardType="number-pad"
                   style={{ flex: 1, color: tokens.t1, fontSize: ifs(14.5), paddingVertical: 12 }}
                 />
-                <Text style={{ color: tokens.t3, fontSize: fs(13) }}>months</Text>
+                <Text style={{ color: tokens.t3, fontSize: fs(13) }}>{lengthUnit === 'days' ? 'days' : 'months'}</Text>
               </View>
             )}
 

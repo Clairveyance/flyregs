@@ -438,6 +438,11 @@ export interface AircraftReminder {
   // See sync/migrations_reminder_interval.sql for why this now persists
   // (was a client-only creation-time convenience before).
   intervalMonths: number | null
+  // Parallel days-based interval for reminders whose real regulatory cycle
+  // isn't month-granular (VOR check, 14 CFR 91.171, is a strict 30-day
+  // currency). Mutually exclusive with intervalMonths -- see
+  // sync/migrations_reminder_interval_days.sql's CHECK constraint.
+  intervalDays: number | null
   // Optional usage-based due mark (100-hour, TBO, etc), compared live
   // against the aircraft's own current_hobbs_hours. See
   // sync/migrations_hobbs_tracking.sql -- v1 is manual-reset only, no
@@ -448,7 +453,7 @@ export interface AircraftReminder {
 export async function getAircraftReminders(userAircraftId: string): Promise<AircraftReminder[]> {
   const { data, error } = await supabase
     .from('user_aircraft_reminders')
-    .select('id, user_aircraft_id, title, due_date, linked_ad_number, notes, interval_months, due_hobbs_hours')
+    .select('id, user_aircraft_id, title, due_date, linked_ad_number, notes, interval_months, interval_days, due_hobbs_hours')
     .eq('user_aircraft_id', userAircraftId)
     .order('due_date')
   if (error) throw error
@@ -460,6 +465,7 @@ export async function getAircraftReminders(userAircraftId: string): Promise<Airc
     linkedAdNumber: r.linked_ad_number,
     notes: r.notes,
     intervalMonths: r.interval_months,
+    intervalDays: r.interval_days,
     dueHobbsHours: r.due_hobbs_hours,
   }))
 }
@@ -473,6 +479,7 @@ export async function addAircraftReminder(
   notes?: string | null,
   intervalMonths?: number | null,
   dueHobbsHours?: number | null,
+  intervalDays?: number | null,
 ): Promise<void> {
   const { error } = await supabase.from('user_aircraft_reminders').insert({
     user_id: userId,
@@ -482,6 +489,7 @@ export async function addAircraftReminder(
     linked_ad_number: linkedAdNumber || null,
     notes: notes?.trim() || null,
     interval_months: intervalMonths ?? null,
+    interval_days: intervalDays ?? null,
     due_hobbs_hours: dueHobbsHours ?? null,
   })
   if (error) throw error
@@ -514,6 +522,7 @@ export async function updateAircraftReminder(
   notes?: string | null,
   intervalMonths?: number | null,
   dueHobbsHours?: number | null,
+  intervalDays?: number | null,
 ): Promise<void> {
   const { error } = await supabase
     .from('user_aircraft_reminders')
@@ -523,6 +532,7 @@ export async function updateAircraftReminder(
       linked_ad_number: linkedAdNumber || null,
       notes: notes?.trim() || null,
       interval_months: intervalMonths ?? null,
+      interval_days: intervalDays ?? null,
       due_hobbs_hours: dueHobbsHours ?? null,
     })
     .eq('id', id)

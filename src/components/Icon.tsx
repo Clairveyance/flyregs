@@ -151,6 +151,12 @@ const SF_TO_IONICONS: Record<string, string> = {
   'megaphone.fill': 'megaphone',
   // Reminder type-chip icons (My Aircraft > Reminders quick-select).
   'dot.radiowaves.left.and.right': 'radio-outline',
+  // Pitot-Static and VOR Check chips (2026-08-28) -- both real SF Symbols,
+  // deliberately distinct from Transponder's radio-outline above and from
+  // 100-Hour's speedometer-outline below, so the 8 type chips read as 8
+  // visually distinct choices in the grid, not lookalikes.
+  'waveform.path.ecg': 'pulse-outline',
+  'location.north.line': 'compass-outline',
   // 'gauge' is a REAL, distinct SF Symbol on native (a full circle split by
   // a diagonal line) -- visually nothing like Ionicons' speedometer-outline
   // web fallback, which is what RC actually saw and liked in the Browser
