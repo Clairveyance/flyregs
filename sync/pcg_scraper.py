@@ -325,6 +325,30 @@ def parse_letter_page(html: str, letter: str) -> list[dict]:
                     current["external_refs"].append({"label": label, "url": absolute})
             continue
 
+        # A FOURTH cross-reference shape -- caught 2026-08-28 investigating
+        # why 394 real pcg_terms rows had a NULL definition. Most of those
+        # turned out fine (a term's real content legitimately lives on its
+        # see_refs target, not its own definition -- e.g. ACTIVE RUNWAY/DUTY
+        # RUNWAY both point at the combined "RUNWAY IN USE/ACTIVE RUNWAY/
+        # DUTY RUNWAY" entry) and just needed a re-scrape to pick up an
+        # already-fixed parser. But COPTER, spot-checked as one of the 48
+        # rows with NEITHER a definition NOR any see_refs at all, turned out
+        # to be a genuinely new gap: the FAA marks its "(See HELICOPTER.)"
+        # cross-reference as a bare, unclassed <p> -- no
+        # "glossary-cross-reference" class at all, so it fell through every
+        # branch above and was silently dropped. Confirmed corpus-wide, all
+        # 23 letter pages: exactly 9 real terms use this shape (COPTER,
+        # UNCONTROLLED AIRSPACE's own reverse ref, LAANC, LAHSO, a NAV SPEC
+        # [ICAO] ref, PAO, RADIO-CONTROLLED, AWNM, and UTM) -- small and
+        # fully enumerated, not a guess.
+        elif current is not None:
+            text = p.get_text(strip=True)
+            m = re.match(r"^\(?\s*See\s+(.+?)\s*\.?\s*\)?$", text, re.I)
+            if m:
+                ref_term = m.group(1).strip()
+                if ref_term and ref_term not in current["see_refs"]:
+                    current["see_refs"].append(ref_term)
+
     return terms
 
 
