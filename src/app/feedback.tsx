@@ -192,7 +192,20 @@ export default function FeedbackScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
+        onScrollBeginDrag={Keyboard.dismiss}
       >
+        {/* RC (2026-08-28, in-app feedback): "keyboard hard to dismiss when
+            typing a long report." `keyboardDismissMode="interactive"` above
+            needs a full continuous drag to fully retract the keyboard --
+            easy to undershoot, which reads as "stuck." `onScrollBeginDrag`
+            dismisses it the instant any scroll touch starts, and this
+            Pressable dismisses it on a plain tap anywhere in the empty
+            space around the category chips/input/button (nested Pressables
+            -- the chips, the input, Send -- still get their own taps first,
+            same as every other tap-to-dismiss screen in this app). Two
+            independent ways to get the keyboard out of the way, not just
+            one that requires exactly the right gesture. */}
+        <Pressable onPress={Keyboard.dismiss}>
         <Text style={[styles.intro, { color: tokens.t2, fontSize: fs(14), lineHeight: fs(14) * 1.5 }]}>
           We read every message. Pick a category and tell us what's on your mind.
         </Text>
@@ -270,6 +283,7 @@ export default function FeedbackScreen() {
         <Text style={[styles.note, { color: tokens.t4, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.48 }]}>
           This sends to {SUPPORT_EMAIL}. We include your app version to help us debug.
         </Text>
+        </Pressable>
       </ScrollView>
 
       {showSentToast && (
