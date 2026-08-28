@@ -18,7 +18,7 @@
 // matches wins, and `fallback` guarantees we never render a bare passage
 // again.
 
-export type QuizSourceType = 'pcg' | 'far' | 'aim' | 'ac' | 'ad' | 'loi' | 'dictionary'
+export type QuizSourceType = 'pcg' | 'far' | 'aim' | 'ac' | 'ad' | 'loi' | 'dictionary' | 'cfr49'
 
 export interface QuizSource {
   type: QuizSourceType
@@ -395,6 +395,18 @@ export function buildStudyCard(src: QuizSource): StudyCardFaces {
       const q = isQuestionTitle(src.title ?? '')
         ? (src.title ?? '').trim()
         : `Which Part ${part} rule covers ${midSentence(shortTopic(title))}?`
+      return { question: q, answer: label, reverseFront: label, reverseBack: title }
+    }
+    // Same shape as 'far' -- "Which 49 CFR Part N rule..." rather than
+    // "Which Part N rule..." specifically so it can't be misread as a
+    // 14 CFR (FAR) citation, since a bare part number alone doesn't
+    // disambiguate the two title systems.
+    case 'cfr49': {
+      const part = num.replace(/^§\s*/, '').split('.')[0]
+      const label = `49 CFR ${num.startsWith('§') ? num : `§ ${num}`}`
+      const q = isQuestionTitle(src.title ?? '')
+        ? (src.title ?? '').trim()
+        : `Which 49 CFR Part ${part} rule covers ${midSentence(shortTopic(title))}?`
       return { question: q, answer: label, reverseFront: label, reverseBack: title }
     }
     case 'aim': {

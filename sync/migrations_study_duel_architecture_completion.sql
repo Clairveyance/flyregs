@@ -774,3 +774,70 @@ end;
 $function$;
 
 grant execute on function public.get_next_challenge_question(uuid) to authenticated;
+
+-- ============================================================
+-- PART 10: get_challenge_results -- add cfr49's definition (title)
+-- lookup, mirroring far/aim/ac. term already worked with zero changes
+-- (falls through to the same `else cq.item_id` FAR already uses).
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.get_challenge_results(p_challenge_id uuid)
+ RETURNS TABLE(sort_order integer, item_type text, item_id text, term text, definition text, answers jsonb)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+declare
+  v_completed boolean;
+begin
+  if not exists (select 1 from challenge_participants cp where cp.challenge_id = p_challenge_id and cp.user_id = auth.uid()) then
+    raise exception 'Challenge not found';
+  end if;
+
+  select c.status = 'completed' into v_completed from challenges c where c.id = p_challenge_id;
+  v_completed := coalesce(v_completed, false);
+
+  return query
+  select
+    cq.sort_order, cq.item_type, cq.item_id,
+    case cq.item_type
+      when 'pcg' then (select pt.term from pcg_terms pt where pt.term = cq.item_id limit 1)
+      when 'dictionary' then (select d.term from dictionary_terms d where d.slug = cq.item_id)
+      else cq.item_id
+    end,
+    case cq.item_type
+      when 'pcg' then (select pt.definition from pcg_terms pt where pt.term = cq.item_id limit 1)
+      when 'far' then (select f.title from far_sections f where f.section_number = cq.item_id)
+      when 'aim' then (select a.title from aim_paragraphs a where a.paragraph_number = cq.item_id)
+      when 'ac' then (select c.title from advisory_circulars c where c.document_number = cq.item_id)
+      when 'cfr49' then (select f5.title from cfr49_sections f5 where f5.section_number = cq.item_id)
+      when 'dictionary' then (
+        select case when public.has_pro_access() then d.senses->0->>'definition' else null end
+        from dictionary_terms d where d.slug = cq.item_id
+      )
+    end,
+    (
+      select coalesce(jsonb_agg(jsonb_build_object(
+        'userId', cp.user_id,
+        'label', coalesce(cr.callsign, u.raw_user_meta_data->>'display_name', split_part(u.email, '@', 1)),
+        'isMe', cp.user_id = auth.uid(),
+        'isForfeited', cp.status = 'forfeited',
+        'answerText', case when v_completed or cp.user_id = auth.uid() then ca.answer_text else null end,
+        'isCorrect',  case when v_completed or cp.user_id = auth.uid() then ca.is_correct else null end,
+        'timeMs',     case when v_completed or cp.user_id = auth.uid() then ca.time_ms else null end
+      ) order by cp.is_creator desc, u.email), '[]'::jsonb)
+      from challenge_participants cp
+      join auth.users u on u.id = cp.user_id
+      left join callsign_registry cr on cr.user_id = cp.user_id
+      left join challenge_answers ca on ca.challenge_question_id = cq.id and ca.user_id = cp.user_id
+      where cp.challenge_id = p_challenge_id and cp.status in ('active', 'forfeited')
+    )
+  from challenge_questions cq
+  where cq.challenge_id = p_challenge_id
+    and (v_completed or exists (
+      select 1 from challenge_answers ca2
+      where ca2.challenge_question_id = cq.id and ca2.user_id = auth.uid()
+    ))
+  order by cq.sort_order;
+end;
+$function$;
+
+grant execute on function public.get_challenge_results(uuid) to authenticated;

@@ -25,8 +25,8 @@ import { FindFriendsPickerBody } from '@/components/FindFriendsSheet'
 import { AvatarCircle } from '@/components/AvatarCircle'
 
 const QUESTION_COUNTS = [3, 5, 10]
-const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac', 'dictionary']
-const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC', dictionary: 'A/D' }
+const ALL_TYPES: DuelItemType[] = ['far', 'aim', 'pcg', 'ac', 'dictionary', 'cfr49']
+const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC', dictionary: 'A/D', cfr49: '49 CFR' }
 const MAX_OPPONENTS = 7
 // RC: "everything in the app... must always open very fast and move
 // between its own pages... this shouldn't be slowed down each time the

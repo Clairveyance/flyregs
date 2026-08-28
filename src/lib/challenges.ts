@@ -62,7 +62,7 @@ export interface DuelStats {
   ties: number
 }
 
-export type DuelItemType = 'pcg' | 'far' | 'aim' | 'ac' | 'dictionary'
+export type DuelItemType = 'pcg' | 'far' | 'aim' | 'ac' | 'dictionary' | 'cfr49'
 
 // Grounded in real FAR structure, not a guess -- see far_knowledge_levels()/
 // ac_knowledge_levels() in the DB (Part 61's subparts are official FAA

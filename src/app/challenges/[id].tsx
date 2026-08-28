@@ -23,7 +23,7 @@ import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 type Phase = 'loading' | 'pending_response' | 'waiting_accept' | 'ready' | 'playing' | 'revealed' | 'waiting_opponent' | 'results' | 'declined' | 'not_found' | 'error'
 
-const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC', dictionary: 'A/D' }
+const TYPE_LABEL: Record<DuelItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC', dictionary: 'A/D', cfr49: '49 CFR' }
 // Phrased as the ACTUAL QUESTION being asked, not as a label for the data
 // type below it. Most questions now come from the authored study_facts bank
 // (real answer-text choices), but any item without a live fact still falls
@@ -36,6 +36,7 @@ const QUESTION_LABEL: Record<DuelItemType, string> = {
   aim: 'WHICH AIM PARAGRAPH IS THIS?',
   ac: 'WHICH ADVISORY CIRCULAR IS THIS?',
   dictionary: 'WHICH TERM IS THIS THE DEFINITION OF?',
+  cfr49: 'WHICH 49 CFR SECTION IS THIS?',
 }
 
 // RC, real duel screenshot circling a live timer stuck open at 553.0s (the

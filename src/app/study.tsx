@@ -18,8 +18,8 @@ import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { buildStudyCard, type QuizSourceType } from '@/lib/quizQuestion'
 import { normalizeRegBody } from '@/lib/regTextFormat'
 
-const TYPE_LABEL: Record<StudyItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC', dictionary: 'A/D' }
-const ALL_TYPES: StudyItemType[] = ['far', 'aim', 'pcg', 'ac', 'dictionary']
+const TYPE_LABEL: Record<StudyItemType, string> = { pcg: 'P/CG', far: 'FAR', aim: 'AIM', ac: 'AC', dictionary: 'A/D', cfr49: '49 CFR' }
+const ALL_TYPES: StudyItemType[] = ['far', 'aim', 'pcg', 'ac', 'dictionary', 'cfr49']
 
 // Neutral starting tone for the mastery ring at 0% -- interpolated toward
 // tokens.gold as mastery % rises (see masteryGlow above).
@@ -984,11 +984,13 @@ function FlashCard({
     itemType === 'far' ? `§ ${term.match(/^§?\s*([\d.]+)/)?.[1] ?? term}`
     : itemType === 'aim' ? (term.match(/^([\d-]+)/)?.[1] ?? term)
     : itemType === 'ac' ? (term.match(/^AC\s+([^:]+)/)?.[1] ?? term)
+    : itemType === 'cfr49' ? `49 CFR ${term.match(/^49 CFR\s+([\d.]+)/)?.[1] ?? term}`
     : term
   const docTitle =
     itemType === 'far' ? term.replace(/^§?\s*[\d.]+\s*/, '')
     : itemType === 'ac' ? term.replace(/^AC\s+[^:]+:\s*/, '')
     : itemType === 'aim' ? term.replace(/^[\d-]+\s*/, '')
+    : itemType === 'cfr49' ? term.replace(/^49 CFR\s+[\d.]+\s*/, '')
     : term
   // RC's flashcard contract (2026-07-31): Q is one short sentence, A is a
   // reg name/number — see buildStudyCard() for the full shape per type. The
@@ -1055,7 +1057,7 @@ function FlashCard({
   // treatment as FAR/AIM/AC now applies here too, specifically for this
   // fact-backed case, using the term itself (title-cased -- pcg_terms
   // stores it shouting-case, "CLEARED AS FILED") as the citation text.
-  const showCitation = itemType === 'far' || itemType === 'aim' || itemType === 'ac' || ((itemType === 'pcg' || itemType === 'dictionary') && !!fact)
+  const showCitation = itemType === 'far' || itemType === 'aim' || itemType === 'ac' || itemType === 'cfr49' || ((itemType === 'pcg' || itemType === 'dictionary') && !!fact)
   // dictionary_terms.term is already correctly cased in the source data
   // (unlike pcg_terms.term, always shouting-case) -- toTitleCase() would
   // wrongly lowercase real acronyms like "COMBATS" or "RAOB".
