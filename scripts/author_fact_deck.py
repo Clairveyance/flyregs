@@ -92,6 +92,7 @@ SYSTEM_PROMPT = """You write short fact-recall flashcards from FAA regulatory te
 
 CONTRACT (do not deviate):
 - Question: ONE short sentence or phrase, ending in "?", under 140 characters. It asks about a CONCRETE fact stated in the text -- a number, limit, distance, altitude, time period, threshold, or named requirement. Never a vague "what does this section require?" framing.
+- Question must be answerable on its own, with NO other context. Never say "this AC," "this section," "this paragraph," "this document," "this part," or any other bare self-reference to the source -- the user sees only the question text, not which document it came from. Name the actual document instead (e.g. "Per AC 33.28-3, ..." or "Under 14 CFR 91.211, ..."), or drop the reference entirely and just state the scenario/condition being asked about.
 - Answer: a short factual PHRASE, not a full sentence. Under 90 characters.
 - source_quote: copy the EXACT contiguous span of the provided BODY_TEXT (character-for-character, no paraphrasing) that supports your answer. This is used to programmatically verify you didn't invent the fact.
 
@@ -326,6 +327,13 @@ def normalize_ws(s):
     return re.sub(r"\s+", " ", (s or "")).strip().lower()
 
 
+# See the rejection site below for the incident this backstops -- a question
+# is worthless if the user can't tell what "this AC"/"this section" IS.
+VAGUE_SELF_REF_RE = re.compile(
+    r"\bthis\s+(ac|section|paragraph|document|reg(?:ulation)?|part)\b", re.I
+)
+
+
 def cmd_poll(only_types=None):
     state_path, id_map_path = _state_paths(only_types)
 
@@ -385,6 +393,18 @@ def cmd_poll(only_types=None):
         for fact in facts[:3]:
             q, a, quote = fact.get("question", ""), fact.get("answer", ""), fact.get("source_quote", "")
             if not (q.strip().endswith("?") and 8 <= len(q) <= 160 and 1 <= len(a) <= 110):
+                rejected_shape += 1
+                continue
+            # Real bug caught live 2026-08-28 (RC, a card he hit himself:
+            # "What type of engine components does this AC state it does NOT
+            # apply to?" -- unanswerable, the question never names WHICH AC).
+            # Confirmed corpus-wide, not a one-off: 522 already-live cards
+            # (far/aim/ac) used this exact "this AC"/"this section"/etc bare
+            # self-reference shape, all flagged and being re-authored. The
+            # system prompt above now explicitly forbids it, but a prompt
+            # instruction alone didn't stop the model from writing it the
+            # first time, so this is a hard backstop, not just a nudge.
+            if VAGUE_SELF_REF_RE.search(q):
                 rejected_shape += 1
                 continue
             if normalize_ws(quote) not in src_body_norm:
