@@ -87,18 +87,25 @@ def build_batch_prompt(terms: list[dict]) -> str:
     return "Generate colloquial phrasing bridges for these FAA P/CG terms:\n\n" + "\n\n".join(lines)
 
 
-def generate_batch(terms: list[dict]) -> list[dict]:
-    resp = client.messages.create(
-        model=MODEL,
-        max_tokens=4096,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": build_batch_prompt(terms)}],
-    )
-    text = next(b.text for b in resp.content if b.type == "text").strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0]
-    parsed = json.loads(text)
-    return parsed, resp.usage
+def generate_batch(terms: list[dict], retries: int = 2) -> list[dict]:
+    last_err = None
+    for attempt in range(retries + 1):
+        try:
+            resp = client.messages.create(
+                model=MODEL,
+                max_tokens=4096,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": build_batch_prompt(terms)}],
+            )
+            text = next(b.text for b in resp.content if b.type == "text").strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+            parsed = json.loads(text)
+            return parsed, resp.usage
+        except Exception as e:
+            last_err = e
+            log.warning(f"  batch attempt {attempt + 1} failed ({e}), {'retrying' if attempt < retries else 'giving up'}")
+    raise last_err
 
 
 def main():
@@ -111,20 +118,31 @@ def main():
 
     with open(args.sample_file) as f:
         terms = json.load(f)[: args.sample]
-    log.info(f"Loaded {len(terms)} terms for this test batch")
+    log.info(f"Loaded {len(terms)} terms for this run")
 
+    # Resume support -- this is a ~40min unattended run over real API spend;
+    # a transient failure partway through should pick back up, not silently
+    # re-spend on terms already done. Keyed on term text (stable, matches
+    # what's in the output already).
     results = []
+    done_terms = set()
+    if os.path.exists(args.out):
+        with open(args.out) as f:
+            results = json.load(f)
+        done_terms = {r["term"] for r in results}
+        log.info(f"Resuming: {len(done_terms)} terms already done from a prior run of {args.out}")
+    terms = [t for t in terms if t["term"] not in done_terms]
+
     total_in, total_out = 0, 0
     for i in range(0, len(terms), TERMS_PER_CALL):
         chunk = terms[i : i + TERMS_PER_CALL]
-        log.info(f"Batch {i // TERMS_PER_CALL + 1}: {[t['term'] for t in chunk]}")
+        log.info(f"Batch {i // TERMS_PER_CALL + 1}/{-(-len(terms) // TERMS_PER_CALL)}: {[t['term'] for t in chunk]}")
         parsed, usage = generate_batch(chunk)
         results.extend(parsed)
         total_in += usage.input_tokens
         total_out += usage.output_tokens
-
-    with open(args.out, "w") as f:
-        json.dump(results, f, indent=2)
+        with open(args.out, "w") as f:
+            json.dump(results, f, indent=2)
 
     n_with_bridges = sum(1 for r in results if r.get("phrasings"))
     n_total_phrasings = sum(len(r.get("phrasings", [])) for r in results)
