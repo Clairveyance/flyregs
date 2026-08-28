@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
-import { Modal, View, Text, Pressable, StyleSheet, ScrollView } from 'react-native'
+import { useEffect, useRef, useState } from 'react'
+import { Modal, View, Text, Pressable, StyleSheet, ScrollView, type NativeSyntheticEvent, type NativeScrollEvent } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { LinearGradient } from 'expo-linear-gradient'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
@@ -59,6 +60,18 @@ export function InfoPopup({ id, title, body, footer, forceOnce = false, iconSize
   const fs = useFS()
   const [visible, setVisible] = useState(false)
   const [forcing, setForcing] = useState(false)
+  // RC, real device (13 mini), re: My Aircraft's ring/AD-status legend
+  // footer: "the box doesn't show the information at the bottom... needs
+  // to be made much more adjustable and scrollable." The ScrollView below
+  // already scrolls (confirmed live) -- what's actually missing is any
+  // SIGNAL that it does. The last visible line before the cutoff reads as
+  // a complete sentence, so there's no visual cue more content follows,
+  // and a plain content-fills-the-card popup gives no reason to expect a
+  // long popup would need scrolling at all. A bottom fade is the
+  // standard, low-risk way to signal "there's more" without touching the
+  // scroll mechanism itself (which isn't broken) -- shown only while
+  // content genuinely overflows and the user hasn't scrolled to the end.
+  const [canScrollMore, setCanScrollMore] = useState(false)
 
   useEffect(() => {
     if (!forceOnce) return
@@ -114,6 +127,28 @@ export function InfoPopup({ id, title, body, footer, forceOnce = false, iconSize
     setVisible(false)
   }
 
+  // A fixed few px of slack -- onScroll's contentOffset can land a hair
+  // short of the true end (rounding, momentum) even when the user has
+  // genuinely reached the bottom, which would otherwise leave the fade
+  // shown forever over content there's nothing left to reveal.
+  const AT_BOTTOM_SLACK = 4
+  const containerHeightRef = useRef(0)
+  const contentHeightRef = useRef(0)
+  const recomputeCanScrollMore = (scrollY: number) => {
+    setCanScrollMore(contentHeightRef.current - containerHeightRef.current - scrollY > AT_BOTTOM_SLACK)
+  }
+  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    recomputeCanScrollMore(e.nativeEvent.contentOffset.y)
+  }
+  const onContentSizeChange = (_w: number, h: number) => {
+    contentHeightRef.current = h
+    recomputeCanScrollMore(0)
+  }
+  const onScrollBodyLayout = (e: { nativeEvent: { layout: { height: number } } }) => {
+    containerHeightRef.current = e.nativeEvent.layout.height
+    recomputeCanScrollMore(0)
+  }
+
   return (
     <>
       <Pressable onPress={() => setVisible(true)} hitSlop={10} style={styles.trigger}>
@@ -149,28 +184,45 @@ export function InfoPopup({ id, title, body, footer, forceOnce = false, iconSize
                 </Pressable>
               )}
             </View>
-            <ScrollView style={styles.scrollBody} contentContainerStyle={styles.scrollBodyContent} showsVerticalScrollIndicator={false}>
-              {Array.isArray(body) ? (
-                <View style={styles.bulletList}>
-                  {body.map((line, i) => {
-                    const text = typeof line === 'string' ? line : line.text
-                    const color = typeof line === 'string' ? tokens.t2 : line.color
-                    const indent = typeof line !== 'string' && line.indent
-                    return (
-                      <View key={i} style={[styles.bulletRow, indent && styles.bulletRowIndent]}>
-                        <Text style={[styles.bulletDot, { color: indent ? color : tokens.t3, fontSize: fs(indent ? 13 : 14.5), lineHeight: fs(indent ? 13 : 14.5) * 1.45 }]}>
-                          {indent ? '–' : '•'}
-                        </Text>
-                        <Text style={[styles.body, styles.bulletText, { color, fontSize: fs(indent ? 13.5 : 14.5), lineHeight: fs(indent ? 13.5 : 14.5) * 1.45 }]}>{text}</Text>
-                      </View>
-                    )
-                  })}
-                </View>
-              ) : (
-                <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.45 }]}>{body}</Text>
+            <View style={styles.scrollWrap}>
+              <ScrollView
+                style={styles.scrollBody}
+                contentContainerStyle={styles.scrollBodyContent}
+                showsVerticalScrollIndicator={false}
+                onLayout={onScrollBodyLayout}
+                onContentSizeChange={onContentSizeChange}
+                onScroll={onScroll}
+                scrollEventThrottle={16}
+              >
+                {Array.isArray(body) ? (
+                  <View style={styles.bulletList}>
+                    {body.map((line, i) => {
+                      const text = typeof line === 'string' ? line : line.text
+                      const color = typeof line === 'string' ? tokens.t2 : line.color
+                      const indent = typeof line !== 'string' && line.indent
+                      return (
+                        <View key={i} style={[styles.bulletRow, indent && styles.bulletRowIndent]}>
+                          <Text style={[styles.bulletDot, { color: indent ? color : tokens.t3, fontSize: fs(indent ? 13 : 14.5), lineHeight: fs(indent ? 13 : 14.5) * 1.45 }]}>
+                            {indent ? '–' : '•'}
+                          </Text>
+                          <Text style={[styles.body, styles.bulletText, { color, fontSize: fs(indent ? 13.5 : 14.5), lineHeight: fs(indent ? 13.5 : 14.5) * 1.45 }]}>{text}</Text>
+                        </View>
+                      )
+                    })}
+                  </View>
+                ) : (
+                  <Text style={[styles.body, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.45 }]}>{body}</Text>
+                )}
+                {footer}
+              </ScrollView>
+              {canScrollMore && (
+                <LinearGradient
+                  pointerEvents="none"
+                  colors={['transparent', tokens.bg2]}
+                  style={styles.scrollFade}
+                />
               )}
-              {footer}
-            </ScrollView>
+            </View>
             {forcing && (
               <Pressable style={[styles.understandBtn, { backgroundColor: tokens.blu }]} onPress={acknowledge}>
                 <Text style={[styles.understandText, { fontSize: fs(14.5) }]}>I Understand</Text>
@@ -211,9 +263,19 @@ const styles = StyleSheet.create({
   // there's room (a short popup doesn't stretch to fill empty space), but
   // is allowed to shrink below that -- which is what makes it scroll
   // internally -- once headerRow + this + the pinned button together would
-  // exceed the card's own maxHeight above.
-  scrollBody: { flexShrink: 1 },
+  // exceed the card's own maxHeight above. Moved here (was on the
+  // ScrollView itself) now that the ScrollView has scrollWrap as its own
+  // parent -- the wrapper is what needs to participate in the card's flex
+  // layout; the ScrollView inside it just fills whatever height the
+  // wrapper resolves to.
+  scrollWrap: { flexShrink: 1 },
+  scrollBody: {},
   scrollBodyContent: { gap: 14 },
+  // Bottom-edge fade signaling more content below -- only rendered while
+  // canScrollMore is true (see its own comment). height is a fixed value
+  // rather than a percentage: it only needs to be tall enough to read as
+  // a fade, not scale with the card's own size.
+  scrollFade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 28 },
   // lineHeight NOT set here -- always overridden inline with fs(size) * 1.45
   // (StyleSheet.create is module-scope, fs() is a hook), same
   // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
