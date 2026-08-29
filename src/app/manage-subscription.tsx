@@ -7,7 +7,7 @@ import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { useFS } from '@/context/fontScale'
-import { getSubscriptionDetails, restorePurchases, SubscriptionDetails } from '@/lib/revenuecat'
+import { getSubscriptionDetails, restorePurchases, getLivePricing, SubscriptionDetails } from '@/lib/revenuecat'
 import { getOwnedAircraftOldestFirst } from '@/lib/aircraftSharing'
 import { useConfirm } from '@/components/ConfirmDialog'
 
@@ -32,9 +32,17 @@ export default function ManageSubscriptionScreen() {
   const insets = useSafeAreaInsets()
   const [details, setDetails] = useState<SubscriptionDetails | null>(null)
   const [restoring, setRestoring] = useState(false)
+  // Fallback matches paywall.tsx's own FALLBACK_PRICING.plus.oneTime --
+  // replaced by the real current price if getLivePricing() resolves before
+  // the "Before you go" dialog below is ever shown. See revenuecat.ts's
+  // getLivePricing for why this exists (2026-08-29 sweep: was a second,
+  // independent hardcoded "$17.99" literal, not even sourced from the
+  // paywall's own pricing object).
+  const [plusPrice, setPlusPrice] = useState('$17.99')
 
   useEffect(() => {
     getSubscriptionDetails().then(setDetails)
+    getLivePricing().then((p) => { if (p) setPlusPrice(p.plus.oneTime) })
   }, [])
 
   const openManageURL = () => {
@@ -76,7 +84,7 @@ export default function ManageSubscriptionScreen() {
     if (!isUnlocked) {
       confirm({
         title: 'Before you go',
-        message: `Cancelling will remove access to your Highlights, Notes, and AC/LOI library. Keep that permanently for $17.99 instead?${aircraftNote}`,
+        message: `Cancelling will remove access to your Highlights, Notes, and AC/LOI library. Keep that permanently for ${plusPrice} instead?${aircraftNote}`,
         // Three real options, so `choices` rather than a confirm/cancel pair.
         // Order matters: "Continue to Cancel" must be as easy to reach as
         // "Get Plus" -- a genuine choice, not a buried escape hatch -- and

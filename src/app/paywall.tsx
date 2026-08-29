@@ -6,7 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { useAuth } from '@/context/auth'
 import { useTheme } from '@/context/theme'
 import { Icon } from '@/components/Icon'
-import { purchaseSubscription, purchaseUnlock, restorePurchases, getSubscriptionDetails } from '@/lib/revenuecat'
+import { purchaseSubscription, purchaseUnlock, restorePurchases, getSubscriptionDetails, getLivePricing } from '@/lib/revenuecat'
 import { getOwnedAircraftOldestFirst } from '@/lib/aircraftSharing'
 import { useFS } from '@/context/fontScale'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -248,7 +248,14 @@ const PREMIUM_ADDITIONS = [
 
 // ─── Pricing ──────────────────────────────────────────────────────────────────
 
-const PRICING = {
+// Fallback only, shown immediately (this screen "must always open fast" the
+// same as everywhere else in this app) and replaced the moment
+// getLivePricing() below resolves with RevenueCat's real current prices --
+// never left stale after a real App Store Connect/RevenueCat price change.
+// Keep this in sync with reality when you DO change a price on the RC
+// dashboard; it's what every user sees for the brief window before the live
+// fetch lands, and the only thing shown at all if that fetch ever fails.
+const FALLBACK_PRICING = {
   plus:    { oneTime: '$17.99' },
   pro:     { monthly: '$1.99', annual: '$12.99', annualSaving: 'Save 46%' },
   premium: { monthly: '$3.99', annual: '$24.99', annualSaving: 'Save 48%' },
@@ -348,6 +355,17 @@ export default function PaywallScreen() {
 
   const [tier, setTier] = useState<Tier>(defaultTier)
   const [plan, setPlan] = useState<Plan>('annual')
+  // FALLBACK_PRICING renders immediately (this screen must never open on a
+  // blank/loading price); getLivePricing() runs once in the background and
+  // replaces it if RevenueCat's real current prices resolve before this
+  // screen unmounts. Null/failed fetch (no network, offerings not yet
+  // configured, web has no real store) just leaves the fallback in place.
+  const [pricing, setPricing] = useState(FALLBACK_PRICING)
+  useEffect(() => {
+    let live = true
+    getLivePricing().then((p) => { if (live && p) setPricing(p) })
+    return () => { live = false }
+  }, [])
   const [loading, setLoading] = useState(false)
   const [restoring, setRestoring] = useState(false)
   // RC gating audit, 2026-08-22, P2-4: viewingCurrentPlan below used to key
@@ -411,7 +429,7 @@ export default function PaywallScreen() {
   const features = tier === 'plus' ? PLUS_FEATURES : tier === 'pro' ? PRO_ADDITIONS : PREMIUM_ADDITIONS
   // Plus has a different shape (one-time, no monthly/annual) -- only read
   // subscription pricing when the picker is actually showing a subscription.
-  const subPricing = tier === 'premium' ? PRICING.premium : PRICING.pro
+  const subPricing = tier === 'premium' ? pricing.premium : pricing.pro
 
   const tierLabel = tier === 'plus' ? 'Plus' : tier === 'pro' ? 'Pro' : 'Premium'
   const ctaLabel = viewingCurrentPlan
@@ -737,7 +755,7 @@ export default function PaywallScreen() {
             ]}
           >
             <Text style={[styles.planTitle, { color: tokens.amb, fontSize: fs(12) }]}>PLUS</Text>
-            <Text style={[styles.planPrice, { color: tokens.t1, fontSize: fs(28) }]}>{PRICING.plus.oneTime}</Text>
+            <Text style={[styles.planPrice, { color: tokens.t1, fontSize: fs(28) }]}>{pricing.plus.oneTime}</Text>
             <Text style={[styles.planPeriod, { color: tokens.t3, fontSize: fs(12) }]}>one-time — yours forever</Text>
           </Pressable>
         ) : (

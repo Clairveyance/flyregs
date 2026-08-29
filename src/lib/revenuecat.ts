@@ -199,6 +199,63 @@ export async function purchaseUnlock(): Promise<SubscriptionStatus> {
   return statusFromCustomerInfo(customerInfo)
 }
 
+export interface LivePricing {
+  plus: { oneTime: string }
+  pro: { monthly: string; annual: string; annualSaving: string }
+  premium: { monthly: string; annual: string; annualSaving: string }
+}
+
+// 2026-08-29 "built but inert" sweep: paywall.tsx/manage-subscription.tsx's
+// prices were 100% hardcoded string literals, never read from RevenueCat's
+// live offerings -- purchaseSubscription/purchaseUnlock above already fetch
+// this exact offerings object to find a package by product id, the real
+// price was sitting right there unused. A real App Store Connect/RevenueCat
+// price change would leave the paywall showing a stale number while the
+// actual charge is correct -- an advertised-price-!=-charged-price mismatch.
+// RC: "while prices wont change right away, we still should have our
+// system built to auto reflect [live pricing], in case we change that
+// later." Returns null on any failure (no offerings configured yet, no
+// network, web has no real store at all) -- every call site keeps its
+// existing hardcoded PRICING object as a fallback rather than ever showing
+// a blank/broken price, matching this app's "must always open fast, must
+// never show nothing" pattern elsewhere (see entitlementCache.ts).
+export async function getLivePricing(): Promise<LivePricing | null> {
+  try {
+    const offerings = await Purchases.getOfferings()
+    const current = offerings.current
+    if (!current) return null
+
+    const find = (id: string) => current.availablePackages.find((p) => p.product.identifier === id)
+    const unlock = find(PRODUCT_IDS.unlock)
+    const proMonthly = find(PRODUCT_IDS.pro_monthly)
+    const proAnnual = find(PRODUCT_IDS.pro_annual)
+    const premiumMonthly = find(PRODUCT_IDS.premium_monthly)
+    const premiumAnnual = find(PRODUCT_IDS.premium_annual)
+    if (!unlock || !proMonthly || !proAnnual || !premiumMonthly || !premiumAnnual) return null
+
+    // Real numeric prices for the "Save X%" badge, not string parsing --
+    // priceString is locale/currency-formatted for display only.
+    const savingPct = (monthly: number, annual: number) =>
+      `Save ${Math.round((1 - annual / (monthly * 12)) * 100)}%`
+
+    return {
+      plus: { oneTime: unlock.product.priceString },
+      pro: {
+        monthly: proMonthly.product.priceString,
+        annual: proAnnual.product.priceString,
+        annualSaving: savingPct(proMonthly.product.price, proAnnual.product.price),
+      },
+      premium: {
+        monthly: premiumMonthly.product.priceString,
+        annual: premiumAnnual.product.priceString,
+        annualSaving: savingPct(premiumMonthly.product.price, premiumAnnual.product.price),
+      },
+    }
+  } catch (_) {
+    return null
+  }
+}
+
 // Resets RevenueCat's own identity back to anonymous -- without this, the
 // SDK keeps whatever appUserID it was last configure()'d with (the account
 // that just signed out or got deleted), so a subsequent restorePurchases()

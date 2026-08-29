@@ -57,6 +57,12 @@ export async function syncEntitlements() { /* no-op */ }
 // clear on web, so this is a no-op like the rest of this stub.
 export async function logOutRevenueCat() { /* no-op */ }
 
+// No real store/offerings on web -- every call site already falls back to
+// its own hardcoded PRICING object when this returns null, same as a real
+// fetch failure on native. See revenuecat.ts's own getLivePricing for why
+// this exists at all.
+export async function getLivePricing(): Promise<null> { return null }
+
 export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
   // Mirrors the real entitlement hierarchy: the premium products grant BOTH
   // the `pro` and `premium` entitlements in RevenueCat (verified against the
