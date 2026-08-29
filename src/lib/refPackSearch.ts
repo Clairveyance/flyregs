@@ -153,8 +153,16 @@ export async function searchRefPackTopic(
   // hits are never buried behind a synonym's.
   const expansion = await expandQuery(trimmed)
   const searchTerms = [trimmed, ...expansion.terms]
+  // includeAd/includeDictionary explicitly false -- found in the 2026-08-29
+  // "built but inert" sweep: this file's own header comment says AD/figures
+  // are "stripped out of searchOtherSources' broader result set," but
+  // nothing was actually passing the flags that would stop those RPCs from
+  // running in the first place, so search_ads/search_dictionary fired on
+  // every search term for no reason (their hits were always discarded a few
+  // lines down, never a leak -- this is a wasted-round-trip fix, not a data
+  // gap). types stays undefined so far/aim/pcg are still all searched.
   const [otherResultSets, acResults] = await Promise.all([
-    Promise.all(searchTerms.map((t) => searchOtherSources(t, limitPerType * 3))),
+    Promise.all(searchTerms.map((t) => searchOtherSources(t, limitPerType * 3, undefined, false, false))),
     searchAcs(trimmed, limitPerType),
   ])
   const seenOther = new Set<string>()
