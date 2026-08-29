@@ -481,7 +481,21 @@ export default function ChallengesScreen() {
         />
       )}
 
-      <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
+      {/* RC (2026-08-29, real device): "the pop-up is compressed and not
+          showing all the proper data" -- this was the only bottom-sheet
+          Modal anywhere in the app using animationType="fade"; every other
+          KeyboardAvoidingView+TextInput bottom sheet (5 instances in
+          my-aircraft/[id].tsx alone) uses "slide". "fade" cross-dissolves
+          the whole Modal in place rather than sliding it in via a real
+          transform, which changes how/when its content's on-screen frame
+          settles relative to KeyboardAvoidingView's own padding
+          recalculation -- a real device with the keyboard already up (as
+          shown in the reported screenshot, mid Callsign-search) is exactly
+          where that timing gap would show up as compressed/overlapping
+          content, while this environment's web preview (no real keyboard
+          animation to race against) never could have caught it. Matched to
+          the proven-working pattern rather than left as the one outlier. */}
+      <Modal visible={pickerVisible} transparent animationType="slide" onRequestClose={() => setPickerVisible(false)}>
         {/* RC, real device: "can't access. k/b pops up covering everything
             and the box doesn't adjust up" -- the Callsign search input is
             new to this sheet (it never had a text field before), and the
