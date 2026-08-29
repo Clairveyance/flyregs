@@ -77,6 +77,7 @@ def probes(H):
     one("AC pdf_text",    "advisory_circulars_gated?select=pdf_text&pdf_text=not.is.null&limit=1")
     one("AD body_text",   "airworthiness_directives_gated?select=body_text&body_text=not.is.null&limit=1")
     one("LOI body_text",  "legal_interpretations_gated?select=body_text&body_text=not.is.null&limit=1")
+    one("CFR49 body_text","cfr49_sections_gated?select=body_text&body_text=not.is.null&limit=1")
     one("mnemonic senses","dictionary_terms_gated?select=senses&category=eq.mnemonic&limit=1")
     # Added 2026-08-19/20, full gating re-sweep -- search_dictionary() (the
     # RPC behind BOTH the Dictionary screen's own search bar and Home's
@@ -119,6 +120,19 @@ def probes(H):
     one("raw AC pdf_url_cached (blocked)", "advisory_circulars?select=pdf_url_cached&pdf_url_cached=not.is.null&limit=1")
     one("raw LOI pdf_url_cached (blocked)", "legal_interpretations?select=pdf_url_cached&pdf_url_cached=not.is.null&limit=1")
     one("raw AC changed_block_indices (blocked)", "advisory_circulars?select=changed_block_indices&limit=1")
+    # Added 2026-08-29, full-sweep pass 4 (Search/SmartSearch) -- cfr49_
+    # sections_gated (probed above) has correctly redacted body_text since
+    # it was created, but nobody had ever added the matching raw-table probe
+    # this exact bug shape needs, and the raw table's own column grant was
+    # never revoked -- live-confirmed exploitable with nothing but the
+    # public anon key: a raw `cfr49_sections?select=body_text` returned full
+    # real TSA-security-program text for every tier including anon. An
+    # earlier audit had grouped cfr49_sections with far_sections/aim_
+    # paragraphs/pcg_terms as "correctly open" (true for those three --
+    # 100% free content -- but CFR49 does have a real Plus gate). Fixed in
+    # sync/migrations_fix_cfr49_body_text_column_grant_leak.sql. Expect
+    # "HTTP 401"/"HTTP 403" for every tier including anon, never real text.
+    one("raw CFR49 body_text (blocked)", "cfr49_sections?select=body_text&body_text=not.is.null&limit=1")
     # search_acs() is SECURITY DEFINER, so the raw-table column-grant fix
     # above doesn't reach it -- it returns pdf_url_cached unconditionally on
     # every row, live-confirmed exploitable via a plain anon POST. Fixed in
