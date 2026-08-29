@@ -88,6 +88,9 @@ export default function FolderDetail() {
   const { id } = useLocalSearchParams<{ id: string }>()
 
   const [folder, setFolder] = useState<Folder | null>(null)
+  // Distinguishes "haven't checked local storage yet" from "checked, and
+  // this folder genuinely isn't there" -- see the not-found render below.
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [acEntries, setAcEntries] = useState<ACEntry[]>([])
   // Same live-lookup as Saved/Recents -- folder items resolve through local
   // bookmark snapshots with no cancels/changed_block_indices of their own.
@@ -129,6 +132,7 @@ export default function FolderDetail() {
     ])
 
     const thisFolder = folders.find((f) => f.id === id) ?? null
+    setHasLoadedOnce(true)
     setFolder(thisFolder)
 
     const bookmarkMap = new Map(bookmarks.map((b) => [b.id, b]))
@@ -808,6 +812,33 @@ export default function FolderDetail() {
       </Pressable>
     </View>
   )
+
+  // Found investigating a real WatchdogTermination (2026-08-29, RC + Adriana
+  // live testing, "app just froze up" navigating folders): Sentry breadcrumbs
+  // show Adriana's device opening a folder that no longer existed server-side
+  // (get_folder_collaborators correctly 400'd "Not authorized" twice in a
+  // row for it) moments before the OS killed the app for RAM. Before this
+  // fix, a genuinely-gone folder fell through to the ordinary "Folder is
+  // empty" state below (title bar just says generic "Folder") -- reading as
+  // a normal, addressable empty folder rather than "this is gone," with
+  // nothing to explain why nothing here works. Gated on hasLoadedOnce so
+  // this can't flash before the (near-instant, local-first) initial load
+  // has actually resolved -- matches my-aircraft/[id].tsx's own not-found
+  // pattern.
+  if (hasLoadedOnce && !folder) {
+    return (
+      <View style={[styles.root, { backgroundColor: tokens.bg }]}>
+        <OverlayHeader title="Folder" onBack={() => router.back()} />
+        <View style={styles.empty}>
+          <Icon name="exclamationmark.triangle" size={fs(40)} color={tokens.t4} />
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Folder no longer available</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.48 }]}>
+            This folder was deleted, or you no longer have access to it.
+          </Text>
+        </View>
+      </View>
+    )
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
