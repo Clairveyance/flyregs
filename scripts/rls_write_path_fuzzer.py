@@ -124,6 +124,18 @@ TABLE_CONFIGS = [
      lambda uid, ids: {"id": f"fuzz-note-{uid[:8]}", "user_id": uid, "title": "Fuzz",
                         "body": "test", "updated_at": NOW},
      {"title": "HACKED"}),
+    # 2026-08-29 "built but inert" sweep: synced_bookmarks writes no longer
+    # go through a raw table INSERT at all -- push_bookmark/soft_delete_
+    # bookmarks (SECURITY DEFINER RPCs) are the only write path now (see
+    # migrations_fix_synced_bookmarks_read_write_grant_leak.sql), so A's
+    # setup step below needs the RPC special-case in main()'s loop, not a
+    # plain payload dict -- a raw POST would now correctly 403 before this
+    # table's real B-vs-A checks (UPDATE/DELETE/SELECT against the raw
+    # table, which remain valid regardless of how the row was created) ever
+    # got to run, silently dropping coverage rather than reporting a false
+    # failure. p_id is a real, deterministic string so it can double as
+    # the id_col value below without reading it back from an RPC response
+    # (push_bookmark RETURNS void).
     ("synced_bookmarks", "id",
      lambda uid, ids: {"id": f"fuzz-bm-{uid[:8]}", "user_id": uid,
                         "document_number": "FUZZ-1", "title": "Fuzz", "saved_at": NOW},
@@ -164,11 +176,29 @@ def main():
 
     for table, id_col, payload_fn, update_payload in TABLE_CONFIGS:
         payload = payload_fn(a_id, created_ids)
-        status, body = rest("POST", table, a_token, payload, {"Prefer": "return=representation"})
-        if status not in (200, 201):
-            print(f"[SETUP FAILED] {table}: A couldn't create own test row ({status}) {body}")
-            continue
-        row_id = body[0][id_col] if isinstance(body, list) and body else payload.get(id_col, a_id)
+        if table == "synced_bookmarks":
+            # See TABLE_CONFIGS' own comment -- setup goes through the real
+            # write RPC, not a raw POST (which the raw table no longer
+            # grants at all). push_bookmark returns void, so row_id comes
+            # from the p_id we chose, not the response body.
+            rpc_payload = {
+                "p_id": payload["id"], "p_document_number": payload["document_number"],
+                "p_title": payload["title"], "p_date_issued": None, "p_office": None,
+                "p_subject_series": None, "p_saved_at": payload["saved_at"],
+                "p_item_type": "ac", "p_ac_id": None, "p_block_kind": None,
+                "p_block_label": None, "p_block_snippet": None, "p_block_text": None,
+            }
+            status, body = rest("POST", "rpc/push_bookmark", a_token, rpc_payload)
+            if status not in (200, 201, 204):
+                print(f"[SETUP FAILED] {table}: A couldn't create own test row via push_bookmark ({status}) {body}")
+                continue
+            row_id = payload["id"]
+        else:
+            status, body = rest("POST", table, a_token, payload, {"Prefer": "return=representation"})
+            if status not in (200, 201):
+                print(f"[SETUP FAILED] {table}: A couldn't create own test row ({status}) {body}")
+                continue
+            row_id = body[0][id_col] if isinstance(body, list) and body else payload.get(id_col, a_id)
         created_ids[table] = row_id
         cleanup.append((table, id_col, row_id))
 
@@ -184,7 +214,19 @@ def main():
 
         # B attempts to SELECT A's specific row by id
         sel_status, sel_body = rest("GET", f"{table}?{id_col}=eq.{row_id}&select=*", b_token)
-        sel_blocked = isinstance(sel_body, list) and len(sel_body) == 0
+        # Found live, 2026-08-29 sweep: unlike upd_blocked/del_blocked just
+        # above, this never had the `sel_status in (403, 404)` branch --
+        # every table checked here so far happened to block a stranger's
+        # SELECT via RLS filtering the row out (200 + empty list), never via
+        # a raw table-level grant denial (403), so the gap never surfaced.
+        # synced_bookmarks is the first table in this suite closed entirely
+        # at the GRANT level (no anon/authenticated SELECT on the raw table
+        # at all -- see migrations_fix_synced_bookmarks_read_write_grant_
+        # leak.sql), which correctly 403s ANY caller, not just a non-owner --
+        # without this, that correct, stronger block would have been
+        # reported as "B succeeded!", a false positive in the fuzzer's own
+        # logic, not a real security gap.
+        sel_blocked = sel_status in (403, 404) or (isinstance(sel_body, list) and len(sel_body) == 0)
 
         for op, blocked, raw_status in [("UPDATE", upd_blocked, upd_status), ("DELETE", del_blocked, del_status), ("SELECT", sel_blocked, sel_status)]:
             status_str = "PASS (blocked)" if blocked else "FAIL (B succeeded!)"

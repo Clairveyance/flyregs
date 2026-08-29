@@ -1,0 +1,52 @@
+-- 2026-08-29, full-sweep pass 7 (Bookmarks/Notes/Highlights), background
+-- agent audit. Closes a deferred revoke this codebase's own history already
+-- planned but never came back to finish.
+--
+-- Timeline, reconstructed from the migration files themselves:
+--   1. migrations_fix_synced_bookmarks_highlight_gate_leak.sql (2026-08-23):
+--      found the real leak -- a user who highlighted Plus/Pro-gated content
+--      could downgrade and still read the full ungated block_text/
+--      block_snippet of their own old highlights via the raw table, since
+--      RLS only checks ownership, not tier. Fixed the two real client READ
+--      paths to go through synced_bookmarks_gated instead, but had to leave
+--      the raw table's own anon/authenticated SELECT grant in place because
+--      the live write path (an INSERT ... ON CONFLICT upsert) needed
+--      table-level SELECT to evaluate the conflict.
+--   2. migrations_synced_bookmarks_write_rpc.sql (2026-08-24, same day):
+--      moved writes to a new push_bookmark() SECURITY DEFINER RPC and
+--      revoked the raw SELECT grant entirely, closing the residual gap.
+--   3. migrations_restore_synced_bookmarks_grant_emergency.sql (same day,
+--      hours later): had to re-grant SELECT back immediately -- B35 (the
+--      then-currently-shipped build) predated the client-side RPC switch,
+--      so real devices were still calling the raw table directly and broke
+--      in production the moment the grant was revoked. Its own comment
+--      explicitly deferred re-revoking "until B36 (or later) actually ships
+--      and a real rollout window has passed."
+--
+-- All three of that deferred re-revoke's own preconditions are now met, and
+-- it just never happened -- found sitting open during this sweep:
+--   - B36 shipped 2026-08-27, two days before this pass.
+--   - Current src/lib/syncPush.ts calls push_bookmark/soft_delete_bookmarks
+--     exclusively; a repo-wide grep found zero remaining client references
+--     to the raw table anywhere, read or write.
+--   - Both RPCs are confirmed live and correctly EXECUTE-granted.
+--
+-- Live-confirmed still open right up to this migration: authenticated (any
+-- tier, even Free) could read the full, ungated block_text/block_snippet of
+-- their own highlighted Plus/Pro-gated passages via a plain
+-- `GET .../synced_bookmarks?select=block_text,block_snippet` with their own
+-- real JWT -- the exact same-user paywall bypass the 2026-08-23 fix set out
+-- to close, reopened by an emergency patch that was correctly urgent at the
+-- time but never got its own follow-up. Same "a correct mechanism sitting
+-- right next to a leaky one" shape as this same sweep's CFR49 finding, one
+-- layer more subtle here: the view was always correct, the raw table
+-- underneath it just never got fully closed.
+--
+-- Revokes SELECT (anon/authenticated) and INSERT/UPDATE/DELETE
+-- (authenticated) -- all four are dead weight now that every real read goes
+-- through synced_bookmarks_gated and every real write goes through
+-- push_bookmark/soft_delete_bookmarks. Confirmed synced_bookmarks_gated is
+-- unaffected: it has security_invoker unset (Postgres default false,
+-- verified live via pg_class.reloptions), so it runs as the view owner and
+-- doesn't need the querying role's own grant on the base table.
+revoke select, insert, update, delete on public.synced_bookmarks from anon, authenticated;
