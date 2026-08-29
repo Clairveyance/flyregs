@@ -1,0 +1,72 @@
+-- 2026-08-29, full-sweep pass 9 aftermath -- RC-approved structural fix
+-- for the root cause behind tonight's whole run of grant-leak findings
+-- (CFR49, synced_bookmarks, quizzable_cfr49_sections, challenge_questions.
+-- correct_answer, quizzable_advisory_circulars). See PROJECT_NOTES/
+-- flyregs_gotchas.md's "ROOT CAUSE FOUND" entry for the full writeup.
+--
+-- Confirmed live via pg_default_acl (schema='public') exactly what's
+-- currently open, for both roles capable of creating objects here:
+--   postgres        / sequences : anon,authenticated get rwU  (read/write/usage)
+--   postgres        / functions : anon,authenticated get X    (execute)
+--   postgres        / relations : anon,authenticated get rxtm (select/references/trigger/maintain)
+--   supabase_admin  / sequences : anon,authenticated get rwU
+--   supabase_admin  / functions : anon,authenticated get X
+--   supabase_admin  / relations : anon,authenticated get arwdDxtm (EVERYTHING, incl. insert/update/delete)
+-- Every one of these is a DEFAULT applied automatically the moment a new
+-- object is created, with NO grant statement needed to trigger it -- this
+-- is why a brand-new gated view can come back already exposed even when
+-- its own migration file never mentions anon/authenticated at all.
+--
+-- This flips the default going forward to closed-unless-explicitly-opened,
+-- matching how every deliberately-free table in this schema already gets
+-- its access via an explicit GRANT anyway (this changes nothing about
+-- HOW you make something public -- you already had to write that GRANT
+-- line by hand for every free table; now you also don't get it by
+-- accident for every gated one).
+--
+-- Does NOT retroactively touch any EXISTING table/view/function's current
+-- grants -- ALTER DEFAULT PRIVILEGES only affects objects created AFTER
+-- this runs. Every table that's supposed to stay open (FAR/AIM/P-CG raw
+-- tables, callsign_registry, etc.) keeps working exactly as it does today,
+-- untouched. service_role is deliberately left alone in all six
+-- statements -- it's the backend/admin credential, bypasses RLS by
+-- design, never exposed to a client, and needs to keep its full access.
+--
+-- Going forward: every NEW free/public table or view needs its own
+-- explicit `GRANT SELECT ON <table> TO anon, authenticated` (or a
+-- narrower column list) the same way every already-correctly-built one in
+-- this schema does today -- this migration does not change that habit,
+-- it just makes the failure mode of FORGETTING it "silently still
+-- locked" instead of "silently wide open."
+alter default privileges for role postgres in schema public
+  revoke all on tables from anon, authenticated;
+alter default privileges for role postgres in schema public
+  revoke all on sequences from anon, authenticated;
+alter default privileges for role postgres in schema public
+  revoke execute on functions from anon, authenticated;
+
+-- The supabase_admin half of this could NOT be applied -- confirmed live:
+-- `ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin ...` fails with
+-- "42501: permission denied to change default privileges" no matter what
+-- it tries to revoke, since this project's own connecting role isn't a
+-- member of supabase_admin (Supabase's own reserved, more-privileged
+-- internal role -- not something a project's normal SQL access can alter,
+-- by Supabase's own platform design, presumably deliberately). Confirmed
+-- this isn't actually the load-bearing gap for THIS project's real
+-- workflow before accepting that limitation: created a genuine disposable
+-- test table with zero grant statements immediately after the postgres-
+-- role fix above landed, and it came back with ONLY postgres/service_role
+-- access -- no anon/authenticated at all. Every object this project's own
+-- migrations/tooling has ever created (confirmed by every fix earlier
+-- tonight showing the postgres-role rxtm/arwdDxtm pattern, never
+-- supabase_admin's) goes through the postgres role, so this is the fix
+-- that actually matters here. supabase_admin's own default staying open
+-- is a Supabase-platform-level fact outside this project's control, not a
+-- gap left in this fix.
+--
+-- alter default privileges for role supabase_admin in schema public
+--   revoke all on tables from anon, authenticated;
+-- alter default privileges for role supabase_admin in schema public
+--   revoke all on sequences from anon, authenticated;
+-- alter default privileges for role supabase_admin in schema public
+--   revoke execute on functions from anon, authenticated;
