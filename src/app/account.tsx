@@ -310,16 +310,20 @@ export default function AccountScreen() {
   // RC: "let's put a small version of the color wheel on the actual
   // Account bar for them. this will let them see at a glance if they have
   // any approaching or overdue (orange or red) ADs even before having to
-  // open the section." Premium/Fleet only, matching the feature's own
-  // gate -- Pro's single aircraft doesn't get the "fleet" framing.
+  // open the section." Pro AND Premium -- RC (2026-08-29, real device):
+  // "Pro doesn't get the full fleet framing, but they can still get the
+  // single colored ring identifier that sits on the My Aircraft button."
+  // Only the LABEL above ("My Fleet" vs "My Aircraft") stays tier-specific;
+  // the ring itself is just mimicking whatever's inside, same real
+  // getFleetSummary() data Pro's own My Aircraft screen already uses.
   const [fleetStatus, setFleetStatus] = useState<'clear' | 'attention' | 'overdue' | null>(null)
   useEffect(() => {
-    // authLoading: isPremium is false for everyone until auth resolves, so
-    // without this the fleet-status dot was cleared out from under a real
-    // Premium owner on every cold launch before being re-fetched. Leave the
-    // last value alone until the entitlement answer is real.
-    if (session?.user?.id && !isPremium && authLoading) return
-    if (!session?.user?.id || !isPremium) { setFleetStatus(null); return }
+    // authLoading: hasProAccess is false for everyone until auth resolves,
+    // so without this the fleet-status dot was cleared out from under a
+    // real Pro/Premium owner on every cold launch before being re-fetched.
+    // Leave the last value alone until the entitlement answer is real.
+    if (session?.user?.id && !hasProAccess && authLoading) return
+    if (!session?.user?.id || !hasProAccess) { setFleetStatus(null); return }
     let live = true
     getFleetSummary()
       .then((rows) => {
@@ -330,7 +334,7 @@ export default function AccountScreen() {
       })
       .catch(() => setFleetStatus(null))
     return () => { live = false }
-  }, [session?.user?.id, isPremium, authLoading])
+  }, [session?.user?.id, hasProAccess, authLoading])
 
   // Ratings are visible to anyone (public SELECT policy) but only load/edit
   // them for the signed-in owner here -- not gated on isPro for *reading*
