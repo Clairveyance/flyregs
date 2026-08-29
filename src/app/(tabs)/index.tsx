@@ -597,7 +597,17 @@ export default function HomeScreen() {
     }
   }, [badgeDays])
 
-  useEffect(() => { load() }, [load])
+  // useFocusEffect, not a plain mount-only useEffect -- found in the
+  // 2026-08-29 "built but inert" sweep: Home stays mounted in the
+  // background (expo-router's <Tabs> keeps every tab screen alive), so a
+  // mount-only fetch left the What's New strip and the AC "active" count
+  // showing whatever was true at last mount or last Badge Duration change
+  // -- new content published while the app sat backgrounded never
+  // appeared until a manual pull-to-refresh or a full relaunch. Every
+  // sibling fetch in this exact file (the Welcome banner, DailyReg just
+  // below, HobbsHeaderButton's fleet status) already got this fix; load()
+  // itself never did.
+  useFocusEffect(useCallback(() => { load() }, [load]))
 
   // Independent of `load()` above -- today's pick doesn't depend on
   // badgeDays/cutoff logic. useFocusEffect (not a plain mount-only
@@ -618,12 +628,15 @@ export default function HomeScreen() {
     }, [])
   )
 
-  // Regulatory-body card counts -- fetched once, not tied to badgeDays like
-  // load() above. head:true avoids PostgREST's project-wide 1000-row
-  // max-rows cap entirely (no rows are actually returned, just a count) --
-  // see far/index.tsx's comment for the full diagnosis of that cap biting a
-  // naive select().
-  useEffect(() => {
+  // Regulatory-body card counts -- not tied to badgeDays like load() above.
+  // head:true avoids PostgREST's project-wide 1000-row max-rows cap
+  // entirely (no rows are actually returned, just a count) -- see
+  // far/index.tsx's comment for the full diagnosis of that cap biting a
+  // naive select(). useFocusEffect, not a mount-only effect -- same 2026-
+  // 08-29 sweep finding as load() above: this had no refresh path at all,
+  // not even the manual pull-to-refresh (its RefreshControl only re-runs
+  // load()). Cheap head-count queries, safe to re-run on every focus.
+  useFocusEffect(useCallback(() => {
     Promise.all([
       supabase.from('far_sections').select('id', { count: 'exact', head: true }),
       supabase.from('aim_paragraphs').select('id', { count: 'exact', head: true }),
@@ -639,7 +652,7 @@ export default function HomeScreen() {
       setLoiCount(loiRes.count)
       setDictCount(dictRes.count)
     })
-  }, [])
+  }, []))
 
   // ── Search logic ─────────────────────────────────────────────────────────────
 
