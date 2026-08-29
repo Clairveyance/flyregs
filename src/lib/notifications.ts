@@ -72,6 +72,28 @@ export async function ensurePushTokenRegistered(userId: string): Promise<void> {
   if (Platform.OS === 'web') return
   try {
     const token = await getOrRequestPushToken()
+    // Claim this token exclusively for the signing-in user -- found in the
+    // 2026-08-29 "built but inert" sweep: push_tokens' primary key is
+    // (user_id, expo_push_token), which deliberately allows the SAME
+    // physical device to be registered under different accounts over time,
+    // but nothing ever deleted a PRIOR account's row for this token when a
+    // new one signed in. signOut() (context/auth.tsx) now also proactively
+    // unregisters on the way out, but this is the self-healing backstop for
+    // whenever that's skipped entirely -- a force-quit, a crash, an old
+    // build without the signOut fix yet. Without either, a departing
+    // account's row stayed `enabled` indefinitely, and every send script
+    // only ever looks up rows by user_id -- so a shared, resold, or
+    // handed-down device kept receiving the PREVIOUS owner's AC-update/
+    // DailyReg/DailyWord/duel/invite pushes after a new person signed in on
+    // it. RC's own dual-account testing practice is exactly the kind of
+    // activity that would trigger this.
+    // A plain client-side delete here would silently affect ZERO rows --
+    // push_tokens' RLS policy is `auth.uid() = user_id` for every command,
+    // so a row belonging to a DIFFERENT user is invisible to this delete
+    // before it ever runs. claim_push_token is a narrow SECURITY DEFINER
+    // RPC that can only ever delete "some other user's row for this exact
+    // token," never an arbitrary row -- see its own migration comment.
+    await supabase.rpc('claim_push_token', { p_token: token })
     const { data: existing } = await supabase
       .from('push_tokens')
       .select('enabled, duel_notifications_enabled, reg_of_day_enabled, word_of_day_enabled')
@@ -97,6 +119,32 @@ export async function ensurePushTokenRegistered(userId: string): Promise<void> {
     // to show and nothing else to do; the existing per-feature toggles
     // remain the user-facing retry path if they later change their mind
     // in iOS Settings.
+  }
+}
+
+// Called from context/auth.tsx's signOut(), before the session goes away --
+// same bug this file's ensurePushTokenRegistered() comment describes, this
+// is the immediate half of the fix rather than the self-healing one: a
+// departing user's push_tokens row for THIS device is removed right away,
+// instead of staying live (and `enabled`) until someone else happens to
+// sign in on the same device later. Reads the token directly rather than
+// through getOrRequestPushToken() so signing out never triggers the OS
+// permission dialog -- if permission was never granted there's no token and
+// nothing to clean up either way.
+export async function unregisterPushToken(userId: string): Promise<void> {
+  if (Platform.OS === 'web') return
+  try {
+    const { status } = await Notifications.getPermissionsAsync()
+    if (status !== 'granted') return
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId
+    const { data: token } = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId } : undefined
+    )
+    await supabase.from('push_tokens').delete().eq('user_id', userId).eq('expo_push_token', token)
+  } catch (_) {
+    // Best-effort, matching ensurePushTokenRegistered's own error handling --
+    // ensurePushTokenRegistered's claim-on-register above still closes the
+    // gap the next time anyone signs in on this device even if this fails.
   }
 }
 

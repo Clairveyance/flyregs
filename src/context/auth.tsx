@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { initRevenueCat, getSubscriptionStatus, logOutRevenueCat, syncEntitlements } from '@/lib/revenuecat'
 import { applyRemoteSyncPreference, claimLocalDataForSignedOutUser } from '@/lib/sync'
 import { claimDeviceIfMismatched } from '@/lib/syncOwner'
-import { ensurePushTokenRegistered } from '@/lib/notifications'
+import { ensurePushTokenRegistered, unregisterPushToken } from '@/lib/notifications'
 import { getDeviceId } from '@/lib/deviceId'
 import { loadCachedEntitlement, saveCachedEntitlement } from '@/lib/entitlementCache'
 import type { AvatarOverride } from '@/lib/avatar'
@@ -334,6 +334,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const departingUserId = session?.user?.id
     if (departingUserId) {
       await claimLocalDataForSignedOutUser(departingUserId, session?.user?.email).catch(() => {})
+      // 2026-08-29 "built but inert" sweep: nothing ever unregistered this
+      // device's push token on the way out -- a shared/resold/handed-down
+      // device kept receiving the DEPARTING account's pushes indefinitely,
+      // since every send script looks up push_tokens purely by user_id.
+      // Fire-and-forget, same as the other sign-out cleanup here -- must
+      // never block or fail sign-out itself. See notifications.ts's own
+      // comment for the self-healing half of this fix (claim-on-register).
+      unregisterPushToken(departingUserId).catch(() => {})
     }
     const { error } = await supabase.auth.signOut()
     if (error) throw error
