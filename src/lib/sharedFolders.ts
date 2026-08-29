@@ -13,13 +13,16 @@ function makeItemId(): string {
 
 // Real folder sharing: an owner generates an invite link, anyone who redeems
 // it gets access to that folder's bookmarks and notes across their own
-// devices -- read-only by default, or read/write if the owner sets this
-// folder's collab_mode to read_write (see setFolderCollabMode below; it's a
-// flag on the folder, not the person, so the same collaborator can be a
-// viewer on one shared folder and an editor on another). Collaborators
-// still need their own Pro/Premium subscription to see full AC/FAR/AIM/etc.
-// text -- this only shares which items to look at, never bypasses the
-// paywall.
+// devices -- read-only by default, or read/write if the owner sets it so.
+// Per BB-077 (migrations_per_invitee_collab_mode.sql), access is a role on
+// the PERSON (folder_collaborators.collab_mode, one row per invitee), not a
+// single flag on the folder -- synced_folders.collab_mode is only the
+// default a brand-new invite starts at, so the same collaborator can be a
+// viewer on one shared folder and an editor on another, AND two different
+// collaborators on the SAME folder can independently be read_only vs.
+// read_write. Collaborators still need their own Pro/Premium subscription
+// to see full AC/FAR/AIM/etc. text -- this only shares which items to look
+// at, never bypasses the paywall.
 
 export interface SharedFolderSummary {
   folder_id: string
@@ -31,11 +34,12 @@ export interface SharedFolderSummary {
    * unread dot in With Me, matching the unread-email convention. Never
    * re-appears after the first open, even if the owner adds more ACs later. */
   isUnread?: boolean
-  /** BB-082: whether THIS collaborator can write into the folder, not just
-   * read it -- read_write is a flag on the folder (synced_folders.collab_mode),
-   * not a role tied to the person, so the same account can be a viewer on one
-   * shared folder and an editor on another. FolderPicker.tsx uses this to
-   * decide which of a user's collaborations to even offer as an add target. */
+  /** BB-082, corrected 2026-08-29: whether THIS collaborator can write into
+   * the folder, not just read it -- a role on the person
+   * (folder_collaborators.collab_mode), not a flag on the folder, so the
+   * same account can be a viewer on one shared folder and an editor on
+   * another. FolderPicker.tsx uses this to decide which of a user's
+   * collaborations to even offer as an add target. */
   collabMode?: 'read_only' | 'read_write'
 }
 
@@ -196,23 +200,37 @@ export async function getMyCollaborations(): Promise<SharedFolderSummary[]> {
   // folders AND has joined someone else's would otherwise get both mixed
   // into one unfiltered select. Explicitly scope to rows where THIS user is
   // the joining collaborator, not the owner.
+  // RC (2026-08-29, live joint testing): per-collaborator mode changes
+  // (owner toggling one person read_only <-> read_write) weren't
+  // propagating, and a read_only collaborator's folder still showed up as
+  // an addable target. Root cause: this function was reading
+  // synced_folders.collab_mode below -- the folder-wide DEFAULT a brand-new
+  // invite starts at (see setFolderCollabMode's own comment) -- instead of
+  // THIS row's real, possibly-since-overridden collab_mode. BB-077
+  // (migrations_per_invitee_collab_mode.sql) moved per-person access onto
+  // folder_collaborators.collab_mode specifically so the owner's toggle for
+  // one person wouldn't retroactively change anyone else, but this function
+  // never got updated to read from there -- folder/shared/[id].tsx already
+  // had and fixed the identical bug for its own screen (see its own
+  // collaborator-mode read), this is the same fix applied here.
   const { data: memberships } = await supabase
     .from('folder_collaborators')
-    .select('folder_id, last_viewed_at')
+    .select('folder_id, last_viewed_at, collab_mode')
     .eq('user_id', user.id)
     .is('left_at', null)
   const folderIds = (memberships ?? []).map((m) => m.folder_id)
   if (!folderIds.length) return []
   const unreadMap = new Map((memberships ?? []).map((m) => [m.folder_id, m.last_viewed_at == null]))
+  const collabModeMap = new Map((memberships ?? []).map((m) => [m.folder_id, (m as any).collab_mode as FolderCollabMode | null]))
 
   // Exclude folders the owner has since (soft-)deleted -- deleteFolder() only
   // flips a `deleted` flag rather than removing the row, so without this
   // filter a collaborator would keep seeing a folder the owner thinks is gone.
   const { data: folders } = await supabase
     .from('synced_folders')
-    .select('id, name, collab_mode')
+    .select('id, name')
     .in('id', folderIds)
-    .eq('deleted', false) as { data: { id: string; name: string; collab_mode: FolderCollabMode | null }[] | null }
+    .eq('deleted', false) as { data: { id: string; name: string }[] | null }
   if (!folders?.length) return []
 
   // Best-effort: owner avatar/name is a nice-to-have, not load-bearing --
@@ -234,7 +252,7 @@ export async function getMyCollaborations(): Promise<SharedFolderSummary[]> {
     ownerAvatarPreset: ownerMap.get(f.id)?.avatarPreset ?? null,
     ownerDisplayName: ownerMap.get(f.id)?.displayName ?? null,
     isUnread: unreadMap.get(f.id) ?? false,
-    collabMode: f.collab_mode ?? 'read_only',
+    collabMode: collabModeMap.get(f.id) ?? 'read_only',
   }))
 }
 
@@ -563,13 +581,6 @@ export async function addExistingItemToSharedFolder(folderId: string, itemType: 
 
   if (itemType === 'note' && isSeedNote(itemId)) throw new Error(SEED_NOTE_NOT_SHAREABLE)
 
-  const { data: existing } = await supabase
-    .from('synced_folder_items')
-    .select('id')
-    .eq('folder_id', folderId).eq('item_type', itemType).eq('item_id', itemId).eq('deleted', false)
-    .maybeSingle()
-  if (existing) return
-
   // A note this account has never pushed to the cloud (Back-up & Sync off,
   // or on but this note predates it) has no synced_notes row for the
   // folder owner to read via owners_manage_shared_notes/editors_manage_
@@ -583,12 +594,22 @@ export async function addExistingItemToSharedFolder(folderId: string, itemType: 
     if (note) await syncPushNote(note, true)
   }
 
+  // The DB itself is the dedupe now (idx_synced_folder_items_unique_active,
+  // a partial unique index on (folder_id, item_type, item_id) WHERE deleted
+  // = false) -- a prior SELECT-then-INSERT here was a real TOCTOU race
+  // (confirmed live, 2026-08-29: a rapid double-tap/retry could create
+  // multiple active rows for the same item, each with its own fresh
+  // makeItemId(), since nothing tied them together). A real unique-
+  // violation (23505) here means someone else's concurrent call already
+  // won -- exactly the "silently no-op if already present" behavior this
+  // function has always promised, just enforced atomically instead of
+  // racily.
   const now = new Date().toISOString()
   const { error } = await supabase.from('synced_folder_items').insert({
     id: makeItemId(), user_id: user.id, folder_id: folderId, item_type: itemType, item_id: itemId,
     added_at: now, updated_at: now, deleted: false,
   })
-  if (error) throw error
+  if (error && error.code !== '23505') throw error
 }
 
 // The remove counterpart -- unlike removeSharedFolderItem (which targets a
