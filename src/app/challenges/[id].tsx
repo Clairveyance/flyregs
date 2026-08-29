@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView } from 'react-native'
-import { useLocalSearchParams, router } from 'expo-router'
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView, AppState } from 'react-native'
+import { useLocalSearchParams, router, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
@@ -102,6 +102,11 @@ export default function ChallengeGameScreen() {
   const confirm = useConfirm()
   const fs = useFS()
   const [phase, setPhase] = useState<Phase>('loading')
+  // Read by the focus/AppState refetch effects below, without making them
+  // re-subscribe on every phase change -- see their own comment for why
+  // they need the CURRENT phase without depending on it.
+  const phaseRef = useRef<Phase>('loading')
+  useEffect(() => { phaseRef.current = phase }, [phase])
   const [challenge, setChallenge] = useState<MyChallenge | null>(null)
   const [question, setQuestion] = useState<NextQuestion | null>(null)
   const [selectedChoice, setSelectedChoice] = useState<string | null>(null)
@@ -187,7 +192,36 @@ export default function ChallengeGameScreen() {
     }
   }, [id])
 
-  useEffect(() => { loadState() }, [loadState])
+  // useFocusEffect, not a plain mount-only useEffect -- found in the
+  // 2026-08-29 "built but inert" sweep: this screen only ever fetched once,
+  // so a duel that changed state while this screen was backgrounded or the
+  // user had tab-switched away (the opponent finishing while you're stuck
+  // on 'waiting_opponent', an invite finally getting accepted while stuck
+  // on 'waiting_accept') never updated on return -- the exact "screen
+  // stays mounted, needs a refetch on focus" gap already fixed on 8+ other
+  // screens across this app. Guarded on phaseRef, not the initial mount's
+  // own loadState() call -- 'playing'/'revealed' are purely client-driven
+  // (set by tapping GO / submitting an answer, never by loadState() itself,
+  // see those setPhase call sites), so refiring loadState() while either is
+  // current would silently reset a live, timed question back to 'ready'
+  // out from under the player. Every other phase is "waiting for something
+  // external" or idle, where re-syncing to the real server state is exactly
+  // the point.
+  useFocusEffect(useCallback(() => {
+    if (phaseRef.current !== 'playing' && phaseRef.current !== 'revealed') loadState()
+  }, [loadState]))
+
+  // ...plus a foreground refresh, matching the identical pair of listeners
+  // my-aircraft/index.tsx already has for the same reason -- useFocusEffect
+  // alone doesn't fire when the app comes back from the background, only on
+  // an actual screen transition, and a real duel can complete while the
+  // phone is simply locked mid-match. Same phaseRef guard as above.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active' && phaseRef.current !== 'playing' && phaseRef.current !== 'revealed') loadState()
+    })
+    return () => sub.remove()
+  }, [loadState])
 
   // Live-ticking stopwatch while playing -- the mockup specifically called
   // for a prominent, visibly-running timer, not just a value revealed after

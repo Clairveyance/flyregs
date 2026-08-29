@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native'
-import { router } from 'expo-router'
+import { router, useFocusEffect } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Sentry from '@sentry/react-native'
 import { useTheme } from '@/context/theme'
@@ -127,9 +127,17 @@ export default function ReadyRoomScreen() {
       .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => {
-    if (hasProAccess) load(tab)
-  }, [hasProAccess, tab, load])
+  // useFocusEffect, not a plain useEffect -- found in the 2026-08-29
+  // "built but inert" sweep: this screen's own header trophy button pushes
+  // straight to /challenges without unmounting Ready Room, so a real path
+  // (open Ready Room, tap the trophy, win a duel, come back) left this
+  // still-mounted screen showing whatever it last fetched instead of the
+  // real, just-changed rank -- the same "screen stays mounted, needs a
+  // refetch on return" gap already fixed on 8+ other screens across this
+  // app (challenges/index.tsx's own identical fix, my-aircraft/*,
+  // account.tsx, notes.tsx, saved.tsx, folder/*, recents.tsx). Ready Room
+  // was the one outlier that never got it.
+  useFocusEffect(useCallback(() => { if (hasProAccess) load(tab) }, [hasProAccess, tab, load]))
 
   // Cache-first paint, RC: "everything in the app... must always open very
   // fast" -- hydrates all 3 tabs at once from this user's last-known
