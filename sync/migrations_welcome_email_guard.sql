@@ -40,9 +40,17 @@ begin
       return NEW;
     end if;
 
+    -- SECURITY NOTE, 2026-08-29: this call originally hardcoded the
+    -- Authorization value as a literal string here -- found committed in
+    -- plaintext on this repo's public GitHub remote, rotated the same
+    -- session it was found, and redacted below (the real, current value
+    -- lives only in Supabase Vault now, never in a committed file). This
+    -- function definition is superseded by migrations_email_webhook_
+    -- secrets_use_vault.sql, which is what's actually live -- see that file
+    -- and PROJECT_NOTES/flyregs_gotchas.md for the full incident writeup.
     perform net.http_post(
       url := 'https://ljzcapedwjqnpmhzqzpz.supabase.co/functions/v1/send-welcome-email',
-      headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Mqgh1tUcQpIb8wx4dx4bmCeazU_JS6xonmoObPXb-jc'),
+      headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', '<redacted -- see migrations_email_webhook_secrets_use_vault.sql>'),
       body := jsonb_build_object('email', NEW.email)
     );
   end if;

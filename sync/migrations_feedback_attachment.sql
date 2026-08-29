@@ -34,6 +34,13 @@ create policy anyone_upload_feedback_attachment on storage.objects
   to anon, authenticated
   with check (bucket_id = 'feedback-attachments');
 
+-- SECURITY NOTE, 2026-08-29: this function's definition is superseded by
+-- migrations_email_webhook_secrets_use_vault.sql, which is what's actually
+-- live -- the version below is dead code kept only for the file's own
+-- history. Its hardcoded Authorization value (redacted below) was found
+-- committed in plaintext on this repo's public GitHub remote and has been
+-- rotated -- see PROJECT_NOTES/flyregs_gotchas.md for the full incident
+-- writeup.
 create or replace function public.trigger_send_feedback_email()
 returns trigger
 language plpgsql
@@ -43,7 +50,7 @@ as $function$
 begin
   perform net.http_post(
     url := 'https://ljzcapedwjqnpmhzqzpz.supabase.co/functions/v1/send-feedback-email',
-    headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'G855TluvowBgTcnrU7OgiG0h5wfC_wIIbhmED0APWXw'),
+    headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', '<redacted -- see migrations_email_webhook_secrets_use_vault.sql>'),
     body := jsonb_build_object(
       'id', NEW.id,
       'category', NEW.category,

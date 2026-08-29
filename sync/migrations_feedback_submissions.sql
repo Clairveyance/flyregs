@@ -75,6 +75,15 @@ create policy feedback_submissions_insert on public.feedback_submissions
 -- the existing client-insert convention in this schema).
 grant insert on public.feedback_submissions to anon, authenticated;
 
+-- SECURITY NOTE, 2026-08-29: this function's definition (and its
+-- Authorization value, redacted below) is superseded by the later CREATE
+-- OR REPLACE in migrations_feedback_attachment.sql (adds attachment_path),
+-- then again by migrations_email_webhook_secrets_use_vault.sql, which is
+-- what's actually live -- the version below is dead code kept only for the
+-- file's own history. The value originally hardcoded here was found
+-- committed in plaintext on this repo's public GitHub remote and has been
+-- rotated -- see PROJECT_NOTES/flyregs_gotchas.md for the full incident
+-- writeup.
 create or replace function public.trigger_send_feedback_email()
 returns trigger
 language plpgsql
@@ -84,7 +93,7 @@ as $function$
 begin
   perform net.http_post(
     url := 'https://ljzcapedwjqnpmhzqzpz.supabase.co/functions/v1/send-feedback-email',
-    headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'G855TluvowBgTcnrU7OgiG0h5wfC_wIIbhmED0APWXw'),
+    headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', '<redacted -- see migrations_email_webhook_secrets_use_vault.sql>'),
     body := jsonb_build_object(
       'id', NEW.id,
       'category', NEW.category,
