@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
-import { View, Text, TextInput, Image, Pressable, ScrollView, StyleSheet, ActivityIndicator, Platform, Linking, Switch, Modal, PanResponder } from 'react-native'
-import { router } from 'expo-router'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { View, Text, TextInput, Image, Pressable, ScrollView, StyleSheet, ActivityIndicator, Platform, Linking, Switch, Modal, PanResponder, AppState } from 'react-native'
+import { router, useFocusEffect } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -41,6 +41,7 @@ import {
 import { getMyRatings, addRating, removeRating, RATING_CODES, RATING_LABELS, RATING_SHORT_LABELS, RATING_GROUPS, RatingCode } from '@/lib/profileRatings'
 import { getLeaderboardOptIn, setLeaderboardOptIn } from '@/lib/leaderboard'
 import { getFleetSummary } from '@/lib/aircraftSharing'
+import { getAircraftReminders } from '@/lib/adParts'
 import { getMyPhoneNumber, setMyPhoneNumber } from '@/lib/contactMatch'
 
 // iPad: My Fleet's 3rd-pane width, resizable via a drag handle on its
@@ -317,24 +318,61 @@ export default function AccountScreen() {
   // the ring itself is just mimicking whatever's inside, same real
   // getFleetSummary() data Pro's own My Aircraft screen already uses.
   const [fleetStatus, setFleetStatus] = useState<'clear' | 'attention' | 'overdue' | null>(null)
-  useEffect(() => {
-    // authLoading: hasProAccess is false for everyone until auth resolves,
-    // so without this the fleet-status dot was cleared out from under a
-    // real Pro/Premium owner on every cold launch before being re-fetched.
-    // Leave the last value alone until the entitlement answer is real.
+  // 2026-08-29, "built but inert" sweep: this ring reproduced two bugs
+  // my-aircraft/index.tsx already found and fixed for itself the same
+  // night, in this sibling copy of the same feature.
+  //
+  // (1) get_fleet_summary()'s overdueReminderCount is computed server-side
+  // as `due_date < current_date` in UTC -- a reminder due "today" reads as
+  // already overdue for the rest of the evening in any timezone behind
+  // UTC (and the mirror case ahead of it). my-aircraft/index.tsx works
+  // around this by re-fetching each aircraft's real reminders and
+  // recomputing overdue/due-soon from daysUntil() in the DEVICE's local
+  // time -- this ring trusted the raw server field instead, so it could
+  // show red "overdue" here while My Aircraft, one tap away, correctly
+  // showed the same reminder as amber "due soon."
+  // (2) it also had no due-soon concept at all -- an aircraft with an
+  // imminent-but-not-yet-overdue reminder and no open ADs read as fully
+  // clear here.
+  const loadFleetStatus = useCallback(() => {
     if (session?.user?.id && !hasProAccess && authLoading) return
     if (!session?.user?.id || !hasProAccess) { setFleetStatus(null); return }
-    let live = true
     getFleetSummary()
-      .then((rows) => {
-        if (!live || rows.length === 0) { setFleetStatus(null); return }
+      .then(async (rows) => {
+        if (rows.length === 0) { setFleetStatus(null); return }
         const openAds = rows.reduce((sum, a) => sum + a.openAdCount, 0)
-        const overdue = rows.reduce((sum, a) => sum + a.overdueReminderCount, 0)
-        setFleetStatus(overdue > 0 ? 'overdue' : openAds > 0 ? 'attention' : 'clear')
+        const lists = await Promise.all(rows.map((a) => getAircraftReminders(a.aircraftId).catch(() => [])))
+        let overdue = 0
+        let dueSoon = 0
+        for (const list of lists) {
+          for (const r of list) {
+            const due = new Date(r.dueDate + 'T00:00:00')
+            const now = new Date()
+            now.setHours(0, 0, 0, 0)
+            const days = Math.round((due.getTime() - now.getTime()) / 86400000)
+            if (days < 0) overdue++
+            else if (days <= 30) dueSoon++
+          }
+        }
+        setFleetStatus(overdue > 0 ? 'overdue' : openAds > 0 || dueSoon > 0 ? 'attention' : 'clear')
       })
       .catch(() => setFleetStatus(null))
-    return () => { live = false }
   }, [session?.user?.id, hasProAccess, authLoading])
+
+  // useFocusEffect, not a plain mount-only useEffect: Account is a plain
+  // Stack.Screen that stays mounted in the background behind My Aircraft,
+  // so this must re-fetch on every return, not just once. Plus an
+  // AppState foreground listener, since useFocusEffect alone doesn't fire
+  // on unlocking the phone and these are date-derived numbers that go
+  // stale simply by crossing midnight. Matches the identical pair of
+  // listeners my-aircraft/index.tsx already has for the exact same reason.
+  useFocusEffect(useCallback(() => { loadFleetStatus() }, [loadFleetStatus]))
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') loadFleetStatus()
+    })
+    return () => sub.remove()
+  }, [loadFleetStatus])
 
   // Ratings are visible to anyone (public SELECT policy) but only load/edit
   // them for the signed-in owner here -- not gated on isPro for *reading*
