@@ -10,43 +10,55 @@ import { supabase } from '@/lib/supabase'
 import { markJustConfirmed } from '@/lib/justConfirmed'
 
 // Landing screen for flyregs://confirm -- reached after tapping the
-// confirmation-email link. Supabase confirms the account server-side BEFORE
-// ever redirecting here, and (via the website hand-off page) hands us the
-// fresh session's access_token/refresh_token as query params -- if present,
-// sign the user straight in instead of making them type their password
-// again right after they just created it. Falls back to the old "please
-// sign in" state if the tokens are missing (e.g. an older email link, or the
-// hand-off page couldn't parse them for some reason).
+// confirmation-email link.
 //
-// A Universal Link tap bypasses the website hand-off page entirely (iOS
-// opens the app directly on https://flyregs.com/confirm#access_token=...,
-// exactly as Supabase's own redirect appends them) -- useLocalSearchParams
-// only sees the query string, not the hash fragment, so that path needs its
-// own parse of the raw incoming URL as a fallback.
+// 2026-08-29: the email link now points at the website's hand-off page with
+// ?token_hash=...&type=signup -- NOT at Supabase's own {{ .ConfirmationURL }}
+// (the old raw /auth/v1/verify link). That raw link is single-use and gets
+// consumed by the FIRST GET from ANYONE -- an email security scanner or
+// link-preview fetch that visits it before the real user taps kills it
+// before they ever see it, the exact same failure mode reset-password.tsx's
+// own comment already documented and fixed for password recovery. This
+// screen now calls verifyOtp() itself (same as reset-password.tsx), which
+// both confirms the account AND automatically establishes this client's own
+// session -- confirmed live before shipping this: verifyOtp's returned
+// session is NOT just data to hand to setSession, the supabase-js client
+// sets it as its own active session internally, which is what lets
+// context/auth.tsx's onAuthStateChange 'SIGNED_IN' handler pick it up
+// naturally (entitlement sync, push registration, device-ownership claim --
+// all the same real sign-in machinery a password sign-in already gets).
+// Falls back to the old "please sign in" state if the token is missing or
+// invalid (e.g. an already-used link, or a genuinely malformed one).
+//
+// A Universal Link tap bypasses the website hand-off page's own JS entirely
+// (iOS opens the app directly on https://flyregs.com/confirm?token_hash=...,
+// exactly as the email link itself points) -- useLocalSearchParams should
+// see the query string in that case too, but a raw parse of the incoming
+// URL (query OR hash) is kept as a fallback for any path that doesn't.
 export default function ConfirmScreen() {
   const { tokens } = useTheme()
   const fs = useFS()
   const insets = useSafeAreaInsets()
-  const { access_token, refresh_token } = useLocalSearchParams<{ access_token?: string; refresh_token?: string }>()
+  const { token_hash, type } = useLocalSearchParams<{ token_hash?: string; type?: string }>()
   const incomingUrl = Linking.useURL()
   const [state, setState] = useState<'working' | 'signedIn' | 'needsSignIn'>('working')
 
   useEffect(() => {
-    let at = access_token
-    let rt = refresh_token
-    if ((typeof at !== 'string' || typeof rt !== 'string') && incomingUrl) {
+    let hash = token_hash
+    let verifyType = type
+    if (typeof hash !== 'string' && incomingUrl) {
       const hashIdx = incomingUrl.indexOf('#')
-      if (hashIdx !== -1) {
-        const hashParams = new URLSearchParams(incomingUrl.slice(hashIdx + 1))
-        at = hashParams.get('access_token') ?? undefined
-        rt = hashParams.get('refresh_token') ?? undefined
-      }
+      const queryIdx = incomingUrl.indexOf('?')
+      const paramString = hashIdx !== -1 ? incomingUrl.slice(hashIdx + 1) : queryIdx !== -1 ? incomingUrl.slice(queryIdx + 1) : ''
+      const params = new URLSearchParams(paramString)
+      hash = params.get('token_hash') ?? undefined
+      verifyType = (params.get('type') as typeof verifyType) ?? undefined
     }
-    if (typeof at !== 'string' || typeof rt !== 'string') {
+    if (typeof hash !== 'string') {
       setState('needsSignIn')
       return
     }
-    supabase.auth.setSession({ access_token: at, refresh_token: rt }).then(({ error }) => {
+    supabase.auth.verifyOtp({ token_hash: hash, type: (verifyType as 'signup') ?? 'signup' }).then(({ error }) => {
       if (error) {
         setState('needsSignIn')
         return
@@ -62,7 +74,7 @@ export default function ConfirmScreen() {
       // the target, landing directly on Home either way.
       setTimeout(() => router.dismissTo('/'), 900)
     })
-  }, [access_token, refresh_token, incomingUrl])
+  }, [token_hash, type, incomingUrl])
 
   if (state === 'working') {
     return (
@@ -81,12 +93,22 @@ export default function ConfirmScreen() {
     )
   }
 
+  // 2026-08-29: this copy used to just say "Your email is verified, sign in"
+  // -- a safe assumption under the OLD flow, where the raw {{ .ConfirmationURL
+  // }} link confirmed the account on its very FIRST hit from anyone, so any
+  // failure state necessarily meant an already-confirmed account (whoever hit
+  // it first, scanner or real user, both confirmed it). Under the new
+  // verifyOtp() flow, confirmation and this screen's own success are the SAME
+  // event -- a failure here can genuinely mean the account was never
+  // confirmed at all (a truly expired or malformed link), not just "already
+  // confirmed, come sign in." Worded to cover both real cases rather than
+  // asserting one that might not be true.
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg, paddingTop: insets.top + 40 }]}>
-      <Icon name="checkmark.seal.fill" size={fs(44)} color={tokens.gold} />
-      <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Email confirmed</Text>
+      <Icon name="exclamationmark.triangle.fill" size={fs(44)} color={tokens.amb} />
+      <Text style={[styles.title, { color: tokens.t1, fontSize: fs(20) }]}>Link expired</Text>
       <Text style={[styles.sub, { color: tokens.t3, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]}>
-        Your email is verified. Sign in to start using FlyRegs.
+        This confirmation link is invalid or has expired. If you already tapped it once, try signing in — otherwise, sign up again to get a new one.
       </Text>
       <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.dismissTo('/auth')}>
         <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>Sign In</Text>
