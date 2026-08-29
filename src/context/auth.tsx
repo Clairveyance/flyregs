@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { initRevenueCat, getSubscriptionStatus, logOutRevenueCat, syncEntitlements } from '@/lib/revenuecat'
 import { applyRemoteSyncPreference, claimLocalDataForSignedOutUser } from '@/lib/sync'
 import { claimDeviceIfMismatched } from '@/lib/syncOwner'
+import { ensurePushTokenRegistered } from '@/lib/notifications'
 import { getDeviceId } from '@/lib/deviceId'
 import { loadCachedEntitlement, saveCachedEntitlement } from '@/lib/entitlementCache'
 import type { AvatarOverride } from '@/lib/avatar'
@@ -201,6 +202,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // potentially-destructive check outside a real sign-in event
           // either.
           if (event === 'SIGNED_IN') await claimDeviceIfMismatched(session.user.id, session.user.email)
+          // Fire-and-forget, same as initRevenueCat below -- may show the
+          // real OS permission dialog on a genuinely first-ever ask, which
+          // shouldn't block `loading`/this screen transition. See this
+          // function's own comment (notifications.ts) for why every push
+          // feature needs this now rather than depending on the user
+          // separately finding one specific settings toggle first.
+          if (event === 'SIGNED_IN') ensurePushTokenRegistered(session.user.id)
           initRevenueCat(session.user.id)
           const status = await getSubscriptionStatus()
           setIsPro(status.isPro)

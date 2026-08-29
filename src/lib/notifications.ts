@@ -49,6 +49,57 @@ async function getOrRequestPushToken(): Promise<string> {
   return data
 }
 
+// RC (2026-08-29, real joint testing with Adriana, real Premium account):
+// "Adriana was on Prem last night... should have received everything" --
+// a real, non-tier-gated gap. Every push-consuming feature (collaboration
+// invites, Duel challenges, AC Update Alerts, DailyReg/DailyWord) required
+// the user to first find and flip ONE SPECIFIC settings toggle before this
+// device could ever be registered for push at all -- a brand-new user (or
+// anyone who'd never happened to visit that one toggle) had no working
+// path to receive ANY of them, regardless of tier. Requesting push
+// permission is not itself a paid feature or a per-content preference --
+// it's the underlying device capability every one of those toggles has
+// always silently depended on existing first. Called from context/auth.tsx
+// on every real sign-in (mirrors claimDeviceIfMismatched's own trigger
+// point) -- safe to call repeatedly: getOrRequestPushToken() only shows
+// the real OS dialog once ever per device (iOS remembers the answer,
+// requestPermissionsAsync() is a fast no-op re-read after that either way).
+// Deliberately does NOT flip any of the per-feature `_enabled` columns --
+// registering the device is not the same as opting into any specific
+// content stream, so an existing value (or false, for a first-ever row)
+// is always preserved rather than silently turned on.
+export async function ensurePushTokenRegistered(userId: string): Promise<void> {
+  if (Platform.OS === 'web') return
+  try {
+    const token = await getOrRequestPushToken()
+    const { data: existing } = await supabase
+      .from('push_tokens')
+      .select('enabled, duel_notifications_enabled, reg_of_day_enabled, word_of_day_enabled')
+      .eq('user_id', userId)
+      .eq('expo_push_token', token)
+      .maybeSingle()
+    await supabase.from('push_tokens').upsert(
+      {
+        user_id: userId,
+        expo_push_token: token,
+        platform: Platform.OS,
+        enabled: existing?.enabled ?? false,
+        duel_notifications_enabled: existing?.duel_notifications_enabled ?? false,
+        reg_of_day_enabled: existing?.reg_of_day_enabled ?? false,
+        word_of_day_enabled: existing?.word_of_day_enabled ?? false,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,expo_push_token' }
+    )
+  } catch (_) {
+    // PERMISSION_DENIED, or any other failure -- this is a proactive
+    // background call, not a user-initiated action, so there's no dialog
+    // to show and nothing else to do; the existing per-feature toggles
+    // remain the user-facing retry path if they later change their mind
+    // in iOS Settings.
+  }
+}
+
 // Registers this device for push + upserts the token into Supabase tied to
 // the signed-in user, marked enabled.
 export async function enableAcUpdateAlerts(userId: string): Promise<void> {
