@@ -26,6 +26,7 @@ export default function JoinFolder() {
   const [state, setState] = useState<'joining' | 'done' | 'error' | 'needs_premium' | 'signed_out'>('joining')
   const [kind, setKind] = useState<'folder' | 'aircraft'>('folder')
   const [folderName, setFolderName] = useState('')
+  const [folderId, setFolderId] = useState('')
   const [aircraftJoined, setAircraftJoined] = useState<JoinedAircraft | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
 
@@ -69,13 +70,15 @@ export default function JoinFolder() {
         joinedRef.current = token
         setKind('folder')
         setFolderName(result.folder_name)
+        setFolderId(result.folder_id)
         setState('done')
-        // Lands directly on Shared > With Me, where the folder itself now
-        // sits as an item -- not its contents, and not wherever Saved's
-        // tab state happened to be left from a previous visit. The button
-        // below does the same navigation immediately for anyone who taps
-        // through before this fires.
-        setTimeout(() => router.replace('/saved?tab=shared&sub=withMe'), 1200)
+        // RC (2026-08-29): tapping a callsign-invite push should take the
+        // recipient "directly into the app, to that share thing (folder,
+        // a/c, etc)" -- straight to the folder's own contents, not one tap
+        // short of it on the "With Me" list. The button below does the
+        // same navigation immediately for anyone who taps through before
+        // this fires.
+        setTimeout(() => router.replace(`/folder/shared/${result.folder_id}`), 1200)
       })
       .catch((err: any) => {
         // Only a token that matches no folder at all falls through to
@@ -108,7 +111,9 @@ export default function JoinFolder() {
             setKind('aircraft')
             setAircraftJoined(result)
             setState('done')
-            setTimeout(() => router.replace('/my-aircraft'), 1200)
+            // Same "land directly on the actual thing, not its list" fix
+            // as the folder branch above.
+            setTimeout(() => router.replace(`/my-aircraft/${result.aircraftId}`), 1200)
           })
           .catch((err: any) => {
             setErrorMsg(err?.message ?? 'This invite link is invalid or has expired.')
@@ -167,9 +172,9 @@ export default function JoinFolder() {
           </Text>
           <Pressable
             style={[styles.btn, { backgroundColor: tokens.blu }]}
-            onPress={() => router.replace('/saved?tab=shared&sub=withMe')}
+            onPress={() => router.replace(`/folder/shared/${folderId}`)}
           >
-            <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>View in With Me</Text>
+            <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>Open Folder</Text>
           </Pressable>
         </>
       )}
@@ -188,9 +193,9 @@ export default function JoinFolder() {
           </Text>
           <Pressable
             style={[styles.btn, { backgroundColor: tokens.blu }]}
-            onPress={() => router.replace('/my-aircraft')}
+            onPress={() => router.replace(`/my-aircraft/${aircraftJoined.aircraftId}`)}
           >
-            <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>View in My Fleet</Text>
+            <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>Open Aircraft</Text>
           </Pressable>
         </>
       )}
