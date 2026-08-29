@@ -79,6 +79,38 @@ const ABBREVIATION_WORDS = new Set([
   'st', 'ave', 'rd', 'approx', 'dept', 'est', 'fig', 'ed', 'pg', 'pp',
 ])
 
+// RC (2026-08-29, in-app feedback, real screenshot of FAR 61.87(d)):
+// "(d)" itself was already bold (LEADING_MARKER_RE below, unrelated), but
+// its own title -- "Maneuvers and procedures for pre-solo flight training
+// in a single-engine airplane." -- wasn't, unlike sibling (a)/(b)/(c),
+// whose shorter titles ("General.", "Aeronautical knowledge.", "Pre-solo
+// flight training.") fit the 42-char cap above. 61.87(e) through (m) share
+// the exact same >42-char title shape, all equally affected. Confirmed
+// corpus-wide before widening anything (measure first, same rigor as every
+// other corpus-wide fix this session): naively raising the cap is NOT
+// safe -- most >42-char candidates are genuine rule sentences ("The
+// airplane must have adequate directional control during taxiing.", "Each
+// certificate holder shall maintain..."), not titles, and bolding those
+// would be a real new mis-styling, not a fix. What actually distinguishes
+// a real title from a real sentence in this corpus is grammatical shape:
+// titles are noun phrases with no finite/modal verb; sentences state a
+// requirement with must/shall/is/etc, or open with a bare imperative verb
+// ("Maintain records...", "Display a label..."). Verified against the real
+// corpus: FAR 1,822 long candidates -> 534 pass this filter (broad manual
+// spot-check across every length bucket found consistently genuine
+// titles); CFR49 71 -> 25 pass; AIM has essentially none of this shape at
+// all (its own "a. Header." convention already stays under the cap).
+const SENTENCE_VERB_RE = /\b(must|shall|may|will|should|would|can|could|might|is|are|was|were|has|have|had|does|do|did|means|includes?|consists?)\b/i
+const IMPERATIVE_FIRST_WORDS = new Set([
+  'maintain', 'use', 'display', 'post', 'receive', 'provide', 'submit', 'conduct',
+  'obtain', 'retain', 'complete', 'install', 'remove', 'file', 'request', 'review',
+  'verify', 'inspect', 'record', 'ensure', 'comply', 'apply', 'issue', 'notify',
+  'report', 'perform', 'operate', 'follow', 'check', 'confirm', 'contact', 'enter',
+  'attach', 'affix', 'carry', 'wear', 'stow', 'secure', 'store', 'label', 'mark',
+  'test', 'calibrate', 'document', 'establish', 'implement', 'monitor', 'update',
+  'advise', 'coordinate', 'schedule', 'prepare', 'develop', 'identify',
+])
+
 function leadHeaderMatch(s: string, hasMarker: boolean): string | null {
   // Two shapes: "Header. Body text follows..." (lookahead requires more
   // text after it), OR a paragraph that IS just the header with nothing
@@ -101,11 +133,22 @@ function leadHeaderMatch(s: string, hasMarker: boolean): string | null {
   // item's remaining text, however short, is that item's own content, not
   // a label for something else, so the fallback never applies once a
   // marker was already stripped off this paragraph.
-  const m = s.match(/^([A-Z][^.]{1,42}\.)\s+(?=[A-Z"“])/) ?? (hasMarker ? null : s.match(/^([A-Z][^.]{1,42}\.)$/))
+  const shortMatch = s.match(/^([A-Z][^.]{1,42}\.)\s+(?=[A-Z"“])/) ?? (hasMarker ? null : s.match(/^([A-Z][^.]{1,42}\.)$/))
+  // Only attempted once the short cap fails, and only for a marked list
+  // item ("(d) Title. More text...") -- an unmarked paragraph gets no such
+  // allowance, since that shape was never validated past 42 chars and is
+  // exactly the "ordinary topic sentence" risk the short cap exists to
+  // avoid. See the constants above for why this is safe at this length.
+  const wideMatch = !shortMatch && hasMarker ? s.match(/^([A-Z][^.]{43,119}\.)\s+(?=[A-Z"“])/) : null
+  const m = shortMatch ?? wideMatch
   if (!m) return null
   const header = m[1]
   if (!header.includes(' ') && ABBREVIATION_WORDS.has(header.slice(0, -1).toLowerCase())) return null
   if (/\.[A-Z]\.$/.test(header)) return null // "...U.S." etc -- same abbreviation guard tidy() uses
+  if (wideMatch) {
+    const firstWord = header.match(/^([A-Za-z']+)/)?.[1]?.toLowerCase() ?? ''
+    if (SENTENCE_VERB_RE.test(header.slice(0, -1)) || IMPERATIVE_FIRST_WORDS.has(firstWord)) return null
+  }
   return header
 }
 
