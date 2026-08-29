@@ -1,0 +1,31 @@
+-- 2026-08-29, full-sweep pass 8 (Study Mode/Duels), background agent audit.
+-- Third recurrence tonight of the exact same shape (see migrations_fix_
+-- cfr49_body_text_column_grant_leak.sql and migrations_fix_synced_bookmarks_
+-- read_write_grant_leak.sql): quizzable_cfr49_sections is a raw, ungated
+-- view exposing full 49 CFR body_text to anon/authenticated with no tier
+-- check at all -- live-confirmed exploitable with nothing but the public
+-- anon key: `curl .../quizzable_cfr49_sections?select=section_number,
+-- body_text&limit=1` returned full real TSA-security-program text.
+--
+-- cfr49_sections (the base table) already has its own anon/authenticated
+-- grant correctly revoked, and cfr49_sections_gated (the properly-gated
+-- sibling view) redacts body_text correctly -- but quizzable_cfr49_sections
+-- is a SEPARATE, owner-privileged view that can still read the base table
+-- regardless of the caller's own grant, and nobody ever locked IT down.
+--
+-- Root cause, found by reading history rather than guessing: migrations_
+-- study_duel_architecture_completion.sql's own
+--   grant select on public.quizzable_cfr49_sections to anon, authenticated;
+-- was copy-pasted from migrations_duels_3.sql's identical pattern on
+-- quizzable_far_sections/aim_paragraphs/pcg_terms/advisory_circulars -- all
+-- four of which were CORRECTLY revoked in a later fix (confirmed live: none
+-- of the four carry this grant today). CFR49 was added to the quiz
+-- architecture after that revoke already happened, reused the older
+-- (already-superseded) pattern, and reintroduced the exact leak for the one
+-- content type that happens to be paid.
+--
+-- Confirmed safe to revoke: repo-wide grep found ZERO client-side (src/)
+-- references to this view or any other quizzable_* view -- the only real
+-- reader is create_challenge(), which is SECURITY DEFINER and needs no
+-- caller-side grant on tables/views it reads internally.
+revoke select on public.quizzable_cfr49_sections from anon, authenticated;
