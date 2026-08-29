@@ -159,5 +159,32 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // TRANSFER is the one event type this file's own header comment doesn't
+  // fully cover -- found in the 2026-08-29 "built but inert" sweep.
+  // RevenueCat's own docs: "The webhook is sent only for the destination
+  // user [event.app_user_id, re-synced above], although the event appears
+  // in both customer histories" -- the SOURCE account (event.transferred_
+  // from) never gets a webhook call of its own for this event. Real Apple-
+  // ID-level "restore purchases while signed into a different FlyRegs
+  // account" transfers an active subscription away from whoever held it,
+  // but without this, that departing account's user_entitlements row was
+  // never touched -- full server-side access with no subscription behind
+  // it, permanently, until that account happened to sign in again (the
+  // cold-launch sync-entitlements path this same sweep just fixed a gap in
+  // above). Re-syncing every id here re-fetches each one's CURRENT truth
+  // from RC's own customer API (same trust model as every other event --
+  // see this file's header comment), so it correctly lands on "no longer
+  // entitled" rather than assuming that outcome.
+  if (rcSecretKey && event.type === 'TRANSFER' && Array.isArray(event.transferred_from)) {
+    for (const sourceId of event.transferred_from) {
+      if (typeof sourceId !== 'string' || !UUID_RE.test(sourceId)) continue
+      try {
+        await syncEntitlements(supabaseUrl, serviceRoleKey, rcSecretKey, sourceId)
+      } catch (err) {
+        console.error('webhook: syncEntitlements (transferred_from) threw', err)
+      }
+    }
+  }
+
   return new Response('OK', { status: 200 })
 })

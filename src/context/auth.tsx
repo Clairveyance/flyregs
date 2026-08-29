@@ -215,6 +215,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsPremium(status.isPremium)
           setIsUnlocked(status.isUnlocked)
           saveCachedEntitlement(session.user.id, status)
+          // 2026-08-29 "built but inert" sweep: this branch is what actually
+          // fires on a real sign-in (password, biometric, sign-up auto-
+          // login, or a fresh account on a new device) -- the session-
+          // restore branch above only ever runs once, on cold launch of an
+          // ALREADY-signed-in session, and it's the only place that used to
+          // call syncEntitlements(). A brand-new-device sign-in correctly
+          // updated the client-side isPro/isPremium flags (a live RevenueCat
+          // SDK read), so the UI looked unlocked, but never touched the
+          // server-side user_entitlements row every *_gated view/RPC
+          // actually reads -- gated content/actions stayed denied on that
+          // device until an unrelated purchase, a webhook, or a LATER cold
+          // relaunch happened to trigger the sync this comment already
+          // claimed existed. Only on SIGNED_IN, matching every other real-
+          // sign-in-only call in this branch -- TOKEN_REFRESHED doesn't need
+          // a re-sync any more than session-restore's own comment says it does.
+          if (event === 'SIGNED_IN') syncEntitlements()
         } finally {
           // finally, not a trailing call -- if anything above threw
           // (claimDeviceIfMismatched already catches its own errors, but

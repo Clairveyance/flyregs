@@ -813,6 +813,18 @@ export default function PaywallScreen() {
           style={styles.restoreRow}
           disabled={restoring}
           onPress={async () => {
+            // Missing here until the 2026-08-29 "built but inert" sweep --
+            // every OTHER restorePurchases()/purchase call site in the app
+            // (account.tsx, Drawer.tsx, manage-subscription.tsx, and this
+            // same screen's own handleSubscribe above) already guards on
+            // Platform.OS === 'web' first, since restorePurchases() isn't
+            // exported by revenuecat.web.ts at all -- this one threw
+            // instead, landing on the generic "Error / Could not restore
+            // purchases" dialog below rather than the correct messaging.
+            if (Platform.OS === 'web') {
+              confirm({ title: 'Available on iOS', message: 'Restore purchases from the FlyRegs iOS app.', cancelLabel: null })
+              return
+            }
             // Same account-required rule as purchasing itself (see
             // handleSubscribe above) -- restoring must never hand out
             // entitlements to a signed-out session.
