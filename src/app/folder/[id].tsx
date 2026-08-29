@@ -673,12 +673,15 @@ export default function FolderDetail() {
 
   const handleRemoveCollaborator = (c: FolderCollaborator) => {
     if (!folder) return
-    // Same invite link works for anyone who has it, indefinitely (there's
-    // no per-person one-time token) -- correcting the earlier copy here,
-    // which implied a "new" link would be needed to rejoin.
+    // CORRECTION (2026-08-29, built-but-inert sweep): the comment this
+    // replaced was itself already a correction, and now needs its own --
+    // removeCollaborator no longer leaves an open-link join re-enterable
+    // (see its own comment in sharedFolders.ts), so "use the invite link
+    // again" was about to become actively wrong the moment that shipped.
+    // Matches my-aircraft/[id].tsx's identical copy for the identical case.
     confirm({
       title: 'Remove Access',
-      message: `Remove ${c.displayLabel} from "${folder.name}"? They'll need to use the invite link again to rejoin.`,
+      message: `Remove ${c.displayLabel} from "${folder.name}"? They'll need a new invite to get back in.`,
       confirmLabel: 'Remove',
       destructive: true,
       twoStep: false,

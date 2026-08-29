@@ -485,13 +485,41 @@ export async function inviteCollaboratorByCallsign(folderId: string, callsign: s
   return { token: row.out_token, userId: row.out_user_id, callsign: row.out_callsign }
 }
 
+// aircraftSharing.ts's removeCollaborator already had to solve this exact
+// problem (see its own comment) -- found missing here in the 2026-08-29
+// "built but inert" sweep: removing someone who joined via the open share
+// link (no invite_token -- a targeted Callsign invite has one, an anonymous
+// link-join doesn't) left the link itself untouched, so "Remove Access"
+// didn't actually remove access -- they could tap the same link again and
+// rejoin instantly with the same role. Only retiring the link when the
+// removed person actually came in through it (not on every removal) avoids
+// invalidating a link the owner is still actively circulating to others;
+// getOrCreateShareLink mints a fresh token on the next Share tap regardless,
+// so nothing is lost permanently.
 export async function removeCollaborator(folderId: string, userId: string): Promise<void> {
+  const { data: row } = await supabase
+    .from('folder_collaborators')
+    .select('invite_token')
+    .eq('folder_id', folderId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
   const { error } = await supabase
     .from('folder_collaborators')
     .delete()
     .eq('folder_id', folderId)
     .eq('user_id', userId)
   if (error) throw error
+
+  if (row && !row.invite_token) {
+    const { error: linkErr } = await supabase
+      .from('synced_folders')
+      .update({ share_token: null })
+      .eq('id', folderId)
+    // Best-effort: access is already revoked above, this only closes the
+    // re-entry path. Loud rather than silent so a failure is diagnosable.
+    if (linkErr) console.error('Failed to retire the folder share link after a removal:', linkErr.message)
+  }
 }
 
 // BB-077: each collaborator gets their own read/write mode -- the same

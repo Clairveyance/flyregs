@@ -1,0 +1,17 @@
+-- 2026-08-29, "built but inert" sweep (Sharing/Collaboration pass): live DB
+-- carries TWO overloads of get_collaboration_invite_push_target --
+-- (uuid,text,text) and (uuid,text,text,text). The 3-arg one still has the
+-- exact bug migrations_collaboration_invite_push_unlink_ac_alerts.sql fixed
+-- earlier tonight -- it filters recipients on `pt.enabled = true`, the
+-- unrelated Premium AC-alerts toggle, not a real "has a token" signal.
+--
+-- No live impact today: sendCollaborationInvitePush (src/lib/notifications.ts)
+-- always passes p_token, so PostgREST always resolves to the 4-arg overload,
+-- which is already correct. But this codebase has already been bitten once
+-- by CREATE OR REPLACE silently creating a second overload instead of
+-- replacing the intended one when a signature changes (see
+-- memory/gotcha_create_or_replace_signature_overload.md) -- leaving a dead
+-- overload with the old buggy body around is exactly the trap that bit us
+-- before: a future edit aimed at "the" function could target this one and
+-- appear to do nothing. Dropping it now that nothing calls it.
+drop function if exists public.get_collaboration_invite_push_target(uuid, text, text);
