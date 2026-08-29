@@ -67,12 +67,12 @@ function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [fontsLoaded])
 
-  // Routes a tapped notification to its content. DailyReg and Duels
-  // carry a routable payload today (AC/AD update alerts send
-  // documentNumbers/adNumbers with no `type` field and predate this
-  // listener entirely -- deliberately left as-is here rather than
-  // retrofitting their routing as a side effect of this feature; that's
-  // its own gap, tracked separately).
+  // Routes a tapped notification to its content. AC/AD/Reminder alerts
+  // used to send documentNumbers/adNumbers/reminderId with NO `type` field
+  // at all and predated this listener entirely -- found in the 2026-08-29
+  // "built but inert" sweep: all three now carry a real `type` (and, for
+  // AD/AC, a specific id when only one item was touched), matching the
+  // "land directly on the thing" fix already applied to collab-invite below.
   useEffect(() => {
     if (Platform.OS === 'web') return
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
@@ -82,7 +82,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
       // previous version of send-reg-of-day.mjs before this shipped still
       // routes correctly instead of silently no-op'ing.
       const data = response.notification.request.content.data as
-        { type?: string; slug?: string; sourceType?: string; pcgSlug?: string; challengeId?: string; token?: string } | undefined
+        {
+          type?: string; slug?: string; sourceType?: string; pcgSlug?: string; challengeId?: string; token?: string
+          documentNumber?: string; userAircraftId?: string; reminderId?: string
+        } | undefined
       if (data?.type === 'reg_of_day' && data.slug && data.sourceType) {
         router.push(`/${data.sourceType}/${data.slug}` as any)
       } else if (data?.type === 'reg_of_day' && data.pcgSlug) {
@@ -105,6 +108,12 @@ function AppShell({ children }: { children: React.ReactNode }) {
         router.navigate(`/challenges/${data.challengeId}` as any)
       } else if (data?.type === 'collab-invite' && data.token) {
         router.push(`/join/${data.token}` as any)
+      } else if (data?.type === 'ac_update') {
+        router.push((data.documentNumber ? `/ac/${data.documentNumber}` : '/updates') as any)
+      } else if (data?.type === 'ad_alert') {
+        router.push((data.userAircraftId ? `/my-aircraft/${data.userAircraftId}` : '/my-aircraft') as any)
+      } else if (data?.type === 'reminder' && data.userAircraftId) {
+        router.push(`/my-aircraft/${data.userAircraftId}` as any)
       }
     })
     return () => sub.remove()

@@ -90,7 +90,19 @@ if (!ads || ads.length === 0) {
 // simpler and plenty fast, rather than a per-AD SQL query in a loop.
 const [{ data: allAircraft, error: acErr }, { data: tokens, error: tokErr }, { data: equipMentions, error: mentErr }, { data: equipTags, error: tagErr }, { data: collabs, error: collabErr }, { data: entitlements, error: entErr }] = await Promise.all([
   sb.from('user_aircraft').select('id, user_id, make, model, type_designator, created_at'),
-  sb.from('push_tokens').select('user_id, expo_push_token').eq('enabled', true),
+  // NOT filtered on `enabled` -- found in tonight's "built but inert" sweep:
+  // `enabled` is specifically the Premium-gated "AC Update Alerts" toggle
+  // (the only code path that ever sets it), but faq.tsx tells users AD
+  // alerts are "automatic once you've saved an aircraft and have push
+  // notifications enabled" -- no separate toggle exists for this feature at
+  // all. A real Premium fleet owner who never happened to visit the
+  // unrelated AC-alerts toggle got zero AD pushes on a safety-relevant
+  // feature the app's own FAQ promises is automatic. Any row here means the
+  // device has SOME real registered token, which is what "automatic" means
+  // for a feature with no dedicated switch -- same fix shape already
+  // applied to collaboration invites (migrations_collaboration_invite_
+  // push_unlink_ac_alerts.sql) and already true of Duels.
+  sb.from('push_tokens').select('user_id, expo_push_token'),
   sb.from('ad_part_mentions').select('ad_number, part_id').in('ad_number', touchedAdNumbers),
   sb.from('user_aircraft_equipment').select('user_aircraft_id, part_id'),
   // accepted_at NOT NULL as well as left_at NULL -- a pending Callsign
@@ -218,7 +230,7 @@ const stripCessnaPrefix = (make, normalized) =>
 // your aircraft folder" marker needs to know WHICH aircraft matched, not
 // just which user, and it fires independent of whether that user has a
 // working push token (push is layered on top, not a precondition -- a
-// user with a matching aircraft but no enabled device still gets the
+// user with a matching aircraft but no registered device still gets the
 // in-app marker, just no push).
 // key: `${userAircraftId}:${adNumber}` -> { userId, userAircraftId, ad, matchedVia }
 const matches = new Map()
@@ -314,7 +326,7 @@ console.log(`${matches.size} aircraft/AD match(es) this run.`)
 
 // Write EVERY match to the durable log first, independent of push status --
 // this is what makes the in-app "new AD in your aircraft folder" marker
-// work for a user with no enabled push token, and what gives this run a
+// work for a user with no registered push token, and what gives this run a
 // real audit trail regardless of what happens with Expo below. on_conflict
 // does nothing on an existing (aircraft, AD) row so a re-touched AD never
 // resets an already-read notification back to unread.
@@ -363,14 +375,14 @@ for (const [key, m] of matches) {
     [m.userId, ...collaborators].filter((uid) => canReceiveAdPush(entByUser.get(uid))),
   )
   for (const recipientId of recipients) {
-    if (!tokensByUser.has(recipientId)) continue // no enabled device, nothing to push
+    if (!tokensByUser.has(recipientId)) continue // no registered device, nothing to push
     if (!matchKeysByUser.has(recipientId)) matchKeysByUser.set(recipientId, [])
     matchKeysByUser.get(recipientId).push(key)
   }
 }
 
 if (matchKeysByUser.size === 0) {
-  console.log('No matched user is Premium with an enabled push token — in-app AD markers written, nothing to push.')
+  console.log('No matched user is Premium with a registered push token — in-app AD markers written, nothing to push.')
   process.exit(0)
 }
 
@@ -379,6 +391,12 @@ console.log(`Sending targeted AD alerts to ${matchKeysByUser.size} user(s)...`)
 const messages = []
 for (const [userId, keys] of matchKeysByUser) {
   const uniqueAds = [...new Map(keys.map((k) => [matches.get(k).ad.ad_number, matches.get(k).ad])).values()]
+  // Which of this user's aircraft actually got a new AD this run -- lets a
+  // tap land on the one specific aircraft when there's only one, matching
+  // the "land directly on the thing, not a list" fix already applied to
+  // collaboration invites (2026-08-29). Falls back to the Fleet list itself
+  // when more than one aircraft is affected in the same push.
+  const uniqueAircraftIds = [...new Set(keys.map((k) => matches.get(k).userAircraftId))]
   const title =
     uniqueAds.length === 1 ? `New AD for your aircraft: ${uniqueAds[0].ad_number}` : `${uniqueAds.length} new ADs for your aircraft`
   const body =
@@ -391,7 +409,16 @@ for (const [userId, keys] of matchKeysByUser) {
       sound: 'default',
       title,
       body,
-      data: { adNumbers: uniqueAds.map((a) => a.ad_number) },
+      // type/userAircraftId: found in tonight's "built but inert" sweep --
+      // this payload had no `type` field at all, so _layout.tsx's tap
+      // handler fell through every branch and did nothing beyond opening
+      // the app wherever it last was. Same gap existed for AC Update
+      // Alerts and Reminder Alerts (all three now fixed together).
+      data: {
+        type: 'ad_alert',
+        adNumbers: uniqueAds.map((a) => a.ad_number),
+        userAircraftId: uniqueAircraftIds.length === 1 ? uniqueAircraftIds[0] : undefined,
+      },
       // Not sent to Expo -- stripped before the request below. Carried
       // alongside so a per-token delivery result can be folded back into
       // this user's own match keys once the batch response comes back.

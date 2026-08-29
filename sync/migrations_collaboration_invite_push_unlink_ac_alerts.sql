@@ -35,6 +35,18 @@
 -- a real, analogous latent gap (flagged to RC separately) but nothing
 -- reported it broken tonight, and touching an unreported path risks a
 -- regression in an area not actually being tested right now.
+--
+-- CORRECTION (2026-08-29, later same night, full notification-toggle
+-- sweep): the paragraph above was stale by the time it was written --
+-- get_duel_push_target had ALREADY been fixed 12 days earlier
+-- (migrations_fix_duel_push_target_enabled_gate.sql, 2026-08-17) and
+-- carried forward correctly by migrations_duel_answered_push.sql
+-- (2026-08-22). Confirmed live: the deployed function checks only
+-- `pt.duel_notifications_enabled = true`, no `pt.enabled` dependency at
+-- all. Left the paragraph above in place rather than deleting it (matches
+-- this project's own "preserve history, don't overwrite" convention) --
+-- it accurately records what was believed true at the moment this file
+-- was written, just not what was actually true in the DB.
 create or replace function public.get_collaboration_invite_push_target(p_target_user_id uuid, p_resource_type text, p_resource_label text, p_token text)
  returns table(expo_push_token text, title text, body text)
  language plpgsql

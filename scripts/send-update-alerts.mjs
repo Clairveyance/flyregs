@@ -111,12 +111,22 @@ if (!eligible || eligible.length === 0) {
 console.log(`Sending update alert to ${eligible.length} device(s) for: ${touchedDocs.join(', ')}`)
 
 // ── Send via Expo's Push API (batches of 100 per their limit) ───────────────
+// type/documentNumber: found missing in tonight's "built but inert" sweep --
+// with no `type` field at all, _layout.tsx's tap handler fell through every
+// branch and did nothing beyond opening the app wherever it last was. Same
+// gap existed for Reminder and AD alerts (all three fixed together).
+// Routes to the specific AC when only one was touched, matching the "land
+// directly on the thing" fix already applied to collaboration invites.
 const messages = eligible.map((t) => ({
   to: t.expo_push_token,
   sound: 'default',
   title,
   body,
-  data: { documentNumbers: touchedDocs },
+  data: {
+    type: 'ac_update',
+    documentNumbers: touchedDocs,
+    documentNumber: touchedDocs.length === 1 ? touchedDocs[0] : undefined,
+  },
 }))
 
 const BATCH = 100

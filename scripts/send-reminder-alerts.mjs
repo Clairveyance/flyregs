@@ -81,10 +81,16 @@ if (reminders.length === 0) {
   process.exit(0)
 }
 
+// NOT filtered on `enabled` -- found in tonight's "built but inert" sweep,
+// same root cause as send-ad-alerts.mjs: `enabled` is specifically the
+// Premium-gated "AC Update Alerts" toggle, not a general "device has a
+// working token" signal. Reminders have no dedicated toggle of their own
+// either, so this was silently dropping a Pro+ user's maintenance reminder
+// forever (see the "mark as notified" comment below) unless they'd
+// separately touched an unrelated settings toggle.
 const { data: tokens, error: tokErr } = await sb
   .from('push_tokens')
   .select('user_id, expo_push_token')
-  .eq('enabled', true)
 if (tokErr) {
   console.error('Failed to fetch push_tokens:', tokErr.message)
   process.exit(1)
@@ -102,7 +108,7 @@ const messages = []
 const notifiedIds = []
 for (const r of reminders) {
   const deviceTokens = tokensByUser.get(r.user_id)
-  if (!deviceTokens || deviceTokens.length === 0) continue // no enabled device -- still mark notified below so it isn't re-checked forever
+  if (!deviceTokens || deviceTokens.length === 0) continue // no registered device at all -- still mark notified below so it isn't re-checked forever
 
   const due = new Date(r.due_date + 'T00:00:00')
   const daysUntil = Math.round((due.getTime() - today.getTime()) / 86400000)
@@ -122,7 +128,9 @@ for (const r of reminders) {
         : `Due in ${daysUntil} day${daysUntil === 1 ? '' : 's'} for ${acLabel}.`
 
   for (const expoPushToken of deviceTokens) {
-    messages.push({ to: expoPushToken, sound: 'default', title, body, data: { reminderId: r.id, userAircraftId: r.user_aircraft_id } })
+    // type: found missing in tonight's sweep -- with no `type` field,
+    // _layout.tsx's tap handler fell through every branch and did nothing.
+    messages.push({ to: expoPushToken, sound: 'default', title, body, data: { type: 'reminder', reminderId: r.id, userAircraftId: r.user_aircraft_id } })
   }
   notifiedIds.push(r.id)
 }
@@ -140,7 +148,7 @@ if (allDueIds.length > 0) {
 }
 
 if (messages.length === 0) {
-  console.log(`${allDueIds.length} reminder(s) entered their window, but no recipient has push enabled — marked notified, nothing sent.`)
+  console.log(`${allDueIds.length} reminder(s) entered their window, but no recipient has a registered push token — marked notified, nothing sent.`)
   process.exit(0)
 }
 
