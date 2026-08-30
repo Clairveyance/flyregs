@@ -18,8 +18,9 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { BackToBreadcrumb, PrevNextFooter, TableNavBar } from '@/components/DocNavBar'
+import { BackToBreadcrumb, PrevNextFooter, TableNavBar, ChangedBanner } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
+import { getLatestRevision, changedParagraphIndices, type ContentRevision } from '@/lib/whatsChanged'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { MetaChip, MetaChipRow, DetailSection, DetailActionRow } from '@/components/DetailMeta'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
@@ -284,6 +285,32 @@ export default function AdScreen() {
 
   const body = ad?.body_text ?? ''
 
+  // What's Changed -- found missing in the 2026-08-29 "built but inert"
+  // sweep: FAR/AIM/CFR49 all have this exact wiring (whatsChanged.ts's
+  // RevisionDocType has always included 'ad', and sync/ad_scraper.py has
+  // always called sync/revision_log.py to write real content_revisions
+  // rows for AD -- this screen just never read them back). Confirmed live
+  // right up to this fix: 4 real AD revisions dated 2026-08-17 were
+  // already visible in Updates -> Changed and tapping into this exact
+  // screen, landing with zero banner or highlighting -- a real, currently-
+  // occurring gap, not a latent one.
+  const [revision, setRevision] = useState<ContentRevision | null>(null)
+  useEffect(() => {
+    if (!id) return
+    getLatestRevision('ad', id).then(setRevision).catch(() => setRevision(null))
+  }, [id])
+  const changedIdx = useMemo(
+    () => changedParagraphIndices(body, revision?.addedText ?? null),
+    [body, revision],
+  )
+  const [changedCursor, setChangedCursor] = useState(0)
+  const jumpToChanged = (dir: 1 | -1) => {
+    if (changedIdx.length === 0) return
+    const next = (changedCursor + dir + changedIdx.length) % changedIdx.length
+    setChangedCursor(next)
+    setTimeout(() => bodyRef.current?.scrollToParagraph(changedIdx[next]), 60)
+  }
+
   const related = mergeRelated(citationRelated, semanticRelated)
   const aimRefs = related.filter((r) => r.cited_type === 'aim')
   const acRefs = related.filter((r) => r.cited_type === 'ac')
@@ -533,6 +560,15 @@ export default function AdScreen() {
           onNext={inDocSearch.goToNext}
         />
       )}
+      {!loading && ad && (
+        <ChangedBanner
+          count={changedIdx.length}
+          currentIdx={changedCursor}
+          onPrev={() => jumpToChanged(-1)}
+          onNext={() => jumpToChanged(1)}
+          label={`Updated — ${changedIdx.length} paragraph${changedIdx.length === 1 ? '' : 's'} changed`}
+        />
+      )}
 
       {loading ? (
         <View style={styles.center}>
@@ -730,6 +766,7 @@ export default function AdScreen() {
                 // per-mention label match AD doesn't have.
                 figures={figures.length > 0 ? [{ id: figures[0].id, label: '', caption: null, image_url: figures[0].image_url }] : undefined}
                 onOpenFigure={() => figures[0] && setViewerFigure({ id: figures[0].id, label: `Page 1 of ${figures.length}`, caption: null, page: figures[0].page_index, image_url: figures[0].image_url })}
+                changedIndices={changedIdx}
                 highlightQuery={inDocSearch.debounced}
                 activeMatch={inDocSearch.matchIdx}
                 onMatchCount={inDocSearch.setMatchCount}
