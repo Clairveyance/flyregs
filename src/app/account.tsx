@@ -747,8 +747,13 @@ export default function AccountScreen() {
         confirmLabel: 'Email Support',
         cancelLabel: 'OK',
         onConfirm: () =>
+          // .catch(), not left bare -- same real Sentry-confirmed gap as
+          // faq.tsx's identical Email Support link (a real user with no
+          // Mail account configured), fixed the same way there.
           Linking.openURL(
             `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Delete my account')}`
+          ).catch(() =>
+            confirm({ title: 'Could not open mail', message: `Please email us at ${SUPPORT_EMAIL}.`, cancelLabel: null })
           ),
       })
     }

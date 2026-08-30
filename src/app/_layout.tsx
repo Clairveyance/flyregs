@@ -1,5 +1,6 @@
 import { Stack, router } from 'expo-router'
-import { View, StyleSheet, Platform } from 'react-native'
+import { View, Text, Pressable, StyleSheet, Platform } from 'react-native'
+import * as Sentry from '@sentry/react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { StatusBar } from 'expo-status-bar'
 import * as Notifications from 'expo-notifications'
@@ -156,7 +157,33 @@ function AppShell({ children }: { children: React.ReactNode }) {
   )
 }
 
-export default function RootLayout() {
+// Confirmed a real, total gap in the 2026-08-29 crash-resistance sweep: zero
+// React error boundaries exist anywhere in this app (grepped the whole
+// tree). A synchronous render throw ANYWHERE currently means the whole app
+// goes blank with no recovery -- Sentry.wrap() (not used here either) only
+// adds breadcrumbs/profiling, it does NOT catch render errors; the actual
+// mechanism for that is Sentry.ErrorBoundary, already installed
+// (@sentry/react-native re-exports it from @sentry/react) and simply never
+// used. Deliberately placed OUTSIDE every provider below -- ThemeProvider
+// included -- so a crash inside any one of them still has something above
+// it to catch it; the fallback below uses only hardcoded colors/plain RN
+// primitives for that same reason (it can't safely assume ANY app context
+// is in a working state when it renders).
+function RootErrorFallback({ resetError }: { resetError: () => void }) {
+  return (
+    <View style={fallbackStyles.root}>
+      <Text style={fallbackStyles.title}>Something went wrong</Text>
+      <Text style={fallbackStyles.body}>
+        FlyRegs hit an unexpected error. This has been reported automatically.
+      </Text>
+      <Pressable style={fallbackStyles.button} onPress={resetError}>
+        <Text style={fallbackStyles.buttonText}>Try Again</Text>
+      </Pressable>
+    </View>
+  )
+}
+
+function RootLayoutInner() {
   if (IPAD_SPLITVIEW_EXPERIMENT && Platform.OS === 'ios') {
     return <IPadSplitViewExperiment />
   }
@@ -207,6 +234,22 @@ export default function RootLayout() {
   )
 }
 
+export default function RootLayout() {
+  return (
+    <Sentry.ErrorBoundary fallback={RootErrorFallback}>
+      <RootLayoutInner />
+    </Sentry.ErrorBoundary>
+  )
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
+})
+
+const fallbackStyles = StyleSheet.create({
+  root: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, backgroundColor: '#0A1420', gap: 12 },
+  title: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  body: { color: '#9AA8B8', fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  button: { marginTop: 12, backgroundColor: '#2F7DE1', borderRadius: 22, paddingHorizontal: 24, paddingVertical: 12 },
+  buttonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 })

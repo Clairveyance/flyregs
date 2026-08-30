@@ -19,6 +19,7 @@ import { Icon } from '@/components/Icon'
 import { SUPPORT_EMAIL, APP_NAME } from '@/lib/appInfo'
 import { getBadgeStyle, BadgeKind } from '@/lib/acBadge'
 import { TierChip, inlineTierText, type Tier } from '@/components/TierChip'
+import { useConfirm } from '@/components/ConfirmDialog'
 
 if (
   Platform.OS === 'android' &&
@@ -376,6 +377,7 @@ export default function FAQScreen() {
   const insets = useSafeAreaInsets()
   const backToMenu = useReturnToMenu()
   const fs = useFS()
+  const confirm = useConfirm()
   // RC: "leave everything closed by default. let the user open things."
   // This defaulted to index 0 (the first Getting Started question) open,
   // which meant a long answer was always the first thing on screen
@@ -577,7 +579,16 @@ export default function FAQScreen() {
         <Pressable
           style={[styles.contactBtn, { backgroundColor: tokens.bdim, borderColor: tokens.bbdr }]}
           onPress={() =>
-            Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`${APP_NAME} Support`)}`)
+            // .catch(), not left bare -- confirmed live 2026-08-29 (real
+            // Sentry event, iPhone17,1, a real user with no Mail account
+            // configured): openURL rejects on any device with no mail
+            // client set up, and an unhandled rejection here surfaced as a
+            // genuine crash report. Same fix as about.tsx's own identical
+            // Contact link -- that one was already correct, this one and
+            // account.tsx's were the two remaining unguarded copies.
+            Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`${APP_NAME} Support`)}`).catch(() =>
+              confirm({ title: 'Could not open mail', message: `Please email us at ${SUPPORT_EMAIL}.`, cancelLabel: null })
+            )
           }
         >
           <Icon name="envelope" size={fs(17)} color={tokens.blu} />
