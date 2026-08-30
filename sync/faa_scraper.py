@@ -972,6 +972,7 @@ def run_full(session: requests.Session):
     })
     log_scraper_run(run_record)
     log.info(f"\nDone. Added={added} Updated={updated} Cancelled={cancelled} Errors={errors}/{total}")
+    return errors
 
 
 def run_incremental(session: requests.Session):
@@ -1025,7 +1026,7 @@ def run_incremental(session: requests.Session):
             "acs_errors": 0,
         })
         log_scraper_run(run_record)
-        return
+        return 0
 
     added = updated = errors = 0
     error_details = []
@@ -1063,6 +1064,7 @@ def run_incremental(session: requests.Session):
     })
     log_scraper_run(run_record)
     log.info(f"\nDone. Added={added} Updated={updated} Cancelled={cancelled} Errors={errors}")
+    return errors
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1101,12 +1103,13 @@ def main():
 
     session = make_session()
 
+    errors = 0
     if args.mode == "test":
         run_test(session, n=args.test_count)
     elif args.mode == "full":
-        run_full(session)
+        errors = run_full(session)
     elif args.mode == "incremental":
-        run_incremental(session)
+        errors = run_incremental(session)
 
     if args.vision_recovered_out:
         with open(args.vision_recovered_out, "w") as f:
@@ -1120,6 +1123,17 @@ def main():
             "itself shows as failed (check `gh run list`/`gh run view --log`), not just "
             "a warning buried in this log."
         )
+        sys.exit(1)
+
+    # A logged status="partial" run (per-AC exceptions during the scrape)
+    # used to exit 0 unconditionally -- the GH Actions job stayed green even
+    # though the corpus is now silently behind for whichever ACs errored,
+    # with nothing else in the pipeline ever surfacing that. Confirmed live
+    # 2026-08-29 as a real, not hypothetical, gap in this exact bug's
+    # SIBLING (cfr49_scraper.py's Part 830 eCFR timeout: silently a full
+    # day stale, job green throughout).
+    if errors:
+        log.error(f"{errors} error(s) this run (status=partial) -- exiting non-zero so CI shows it.")
         sys.exit(1)
 
 

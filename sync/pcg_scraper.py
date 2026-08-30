@@ -571,6 +571,7 @@ def run_full(session: requests.Session):
     })
     log_scraper_run(run_record)
     log.info(f"\nDone. Upserted={added} Errors={errors}/{total}")
+    return errors
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -616,7 +617,12 @@ def main():
     if args.mode == "test":
         run_test(session, n=args.test_count)
     elif args.mode == "full":
-        run_full(session)
+        # A logged status="partial" run used to exit 0 unconditionally --
+        # see far_scraper.py's identical comment for the real live incident
+        # (cfr49_scraper.py's Part 830 eCFR timeout) that motivated this.
+        errors = run_full(session)
+        if errors:
+            sys.exit(1)
 
 
 if __name__ == "__main__":

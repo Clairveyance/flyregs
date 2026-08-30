@@ -1230,6 +1230,15 @@ def run_full(session: requests.Session):
                   f"(see 'upsert failed' lines above) -- failing so this shows red in Actions "
                   f"instead of silently writing nothing.")
         sys.exit(1)
+    if errors:
+        # This general per-page errors count used to only affect the logged
+        # status="partial" field, never the exit code -- the GH Actions job
+        # stayed green even though the corpus is silently behind for
+        # whichever page(s) failed. Confirmed live 2026-08-29 as a real gap
+        # in this exact bug's SIBLING (cfr49_scraper.py's Part 830 eCFR
+        # timeout: silently a full day stale, job green throughout).
+        log.error(f"{errors} page(s) failed this run (status=partial) -- exiting non-zero so CI shows it.")
+        sys.exit(1)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

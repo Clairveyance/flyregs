@@ -366,6 +366,7 @@ def run_full(session: requests.Session):
     })
     log_scraper_run(run_record)
     log.info(f"\nDone. Parts={len(TARGET_PARTS)} Sections={total_sections} Errors={errors}")
+    return errors
 
 
 def main():
@@ -382,7 +383,16 @@ def main():
     if args.mode == "test":
         run_test(session, args.part)
     elif args.mode == "full":
-        run_full(session)
+        # A logged status="partial" run used to exit 0 unconditionally --
+        # confirmed live 2026-08-29 as the reason a real eCFR read-timeout
+        # on Part 830 (2026-08-24) left those 6 sections silently a full
+        # day stale while the GH Actions job stayed green throughout, with
+        # nothing else in the pipeline ever surfacing that. See
+        # far_scraper.py's identical comment on the other 6 scrapers this
+        # same fix was applied to.
+        errors = run_full(session)
+        if errors:
+            sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -583,12 +583,20 @@ def main():
         log.info(f"Done. Total ADs upserted={total_rows}")
         run_record.update({
             "completed_at": datetime.now(timezone.utc).isoformat(),
-            "status": "success" if upsert_failures == 0 else "partial",
+            "status": "success" if (total_ad_errors == 0 and upsert_failures == 0) else "partial",
             "ad_total": total_rows,
             "ad_added": total_rows,
             "ad_errors": total_ad_errors + upsert_failures,
         })
         log_scraper_run(run_record)
+        if total_ad_errors or upsert_failures:
+            # A logged status="partial" run used to exit 0 unconditionally --
+            # see far_scraper.py's identical comment for the real live
+            # incident (cfr49_scraper.py's Part 830 eCFR timeout) that
+            # motivated this fix across all 7 content scrapers.
+            log.error(f"{total_ad_errors} AD error(s), {upsert_failures} upsert failure(s) this run "
+                      f"(status=partial) -- exiting non-zero so CI shows it.")
+            sys.exit(1)
         return
 
     run_record = {
@@ -639,7 +647,11 @@ def main():
         })
         log_scraper_run(run_record)
 
-    if upsert_failed:
+    if upsert_failed or (args.mode != "test" and ad_errors):
+        # ad_errors alone (real per-AD processing failures, not just a hard
+        # upsert failure) used to only affect the logged status="partial"
+        # field, never the exit code, for the actual weekly incremental
+        # cron mode -- see the "full" mode branch's identical fix above.
         sys.exit(1)
 
 

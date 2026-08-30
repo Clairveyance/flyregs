@@ -586,6 +586,7 @@ def run_full(session: requests.Session):
         f"\nDone. Parts={len(parts)} Sections={total_sections} "
         f"Dated={amended} Removed={removed} Errors={errors}"
     )
+    return errors
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -625,7 +626,16 @@ def main():
     if args.mode == "test":
         run_test(session)
     elif args.mode == "full":
-        run_full(session)
+        # A logged status="partial" run (some eCFR part failed) used to
+        # exit 0 unconditionally -- the GH Actions job stayed green even
+        # though the corpus is now silently behind for whichever part
+        # errored, with nothing else in the pipeline ever surfacing that.
+        # Confirmed live 2026-08-29 as a real, not hypothetical, gap in
+        # this exact bug's SIBLING (cfr49_scraper.py's Part 830 eCFR
+        # timeout: silently a full day stale, job green throughout).
+        errors = run_full(session)
+        if errors:
+            sys.exit(1)
 
 
 if __name__ == "__main__":
