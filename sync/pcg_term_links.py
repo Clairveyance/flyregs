@@ -203,6 +203,14 @@ SOURCES = [
     ("ac", "advisory_circulars", "document_number", ["title", "description"]),
     ("ad", "airworthiness_directives", "ad_number", ["subject_heading", "unsafe_condition"]),
     ("loi", "legal_interpretations", "slug", ["title", "summary"]),
+    # Added 2026-08-29, "built but inert" sweep: cfr49_sections didn't exist
+    # yet when this script was first written, so it was never added here --
+    # cfr49/[id].tsx has always faithfully rendered a "P/CG terms" MagicLink
+    # bar identical to every sibling screen, and it's shown 0 forever
+    # regardless of content (confirmed live: 0 rows exist for
+    # citing_type=cfr49, cited_type=pcg), even for TSA-security sections that
+    # plausibly use real P/CG-defined terminology.
+    ("cfr49", "cfr49_sections", "section_number", ["title", "body_text"]),
 ]
 
 
