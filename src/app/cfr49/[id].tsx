@@ -287,6 +287,12 @@ export default function Cfr49SectionScreen() {
   const pcgRefs = related.filter((r) => r.cited_type === 'pcg')
   const adRefs = related.filter((r) => r.cited_type === 'ad')
   const loiRefs = related.filter((r) => r.cited_type === 'loi')
+  // Found in the 2026-08-29 "built but inert" sweep: every sibling screen
+  // (far/aim/pcg/ac/ad/loi) has its own "Related 49 CFR" self-type bar --
+  // this screen never got one, silently dropping 77 real citing_type=cfr49,
+  // cited_type=cfr49 rows (confirmed live) that are already fetched into
+  // `related` above and just never rendered.
+  const cfr49Refs = related.filter((r) => r.cited_type === 'cfr49')
 
   const handleToggleBookmark = async () => {
     if (!section) return
@@ -544,6 +550,7 @@ export default function Cfr49SectionScreen() {
                 { icon: 'headset', label: 'P/CG terms', items: pcgRefs },
                 { icon: 'wrench.and.screwdriver.fill', label: 'Related ADs', items: adRefs },
                 { icon: 'envelope.open.fill', label: 'Related LOIs', items: loiRefs },
+                { icon: 'building.columns.fill', label: 'Related 49 CFR', items: cfr49Refs },
               ]}
               currentLabel={currentLabel}
               hasProAccess={hasProAccess}
