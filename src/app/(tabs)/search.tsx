@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { View, Text, Image, ScrollView, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { router } from 'expo-router'
+import { router, useFocusEffect } from 'expo-router'
 import { useTheme, redshiftTokens, lightTokens } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
@@ -195,7 +195,16 @@ export default function TheWingScreen() {
   // Stats are best-effort — a signed-in Free/Plus user (no Pro/Premium yet)
   // still has a real session and may still have Duel/coin history from a
   // past subscription, so this doesn't gate on tier, only on being signed in.
-  useEffect(() => {
+  //
+  // useFocusEffect, not useEffect -- this is a persistent tab screen
+  // (expo-router's <Tabs> keeps every tab mounted), so a plain mount-only
+  // effect only ever ran once per session id. Confirmed live as a real
+  // staleness bug: finish a Study Mode review or a Duel on another tab
+  // (bumping the real streak/mastery/W-L server-side), come back here, and
+  // the card kept showing whatever it read the FIRST time this tab was
+  // visited -- same class of bug already fixed on Ready Room, Home, and
+  // the Duel game screen this session, just not caught here yet.
+  useFocusEffect(useCallback(() => {
     if (!session) {
       setMastery(null); setCurrency(null); setDuelStats(null); setRatings([]); setCoins([])
       return
@@ -243,7 +252,7 @@ export default function TheWingScreen() {
     // object meant every one of those no-op events re-ran all 5 of these
     // queries again -- see AircraftDowngradeGate.tsx for the same root
     // cause and fix.
-  }, [session?.user?.id])
+  }, [session?.user?.id]))
 
   const hasAnyStats = !!(
     (mastery && mastery.seen > 0) ||
