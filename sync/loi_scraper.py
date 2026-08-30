@@ -77,6 +77,7 @@ import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
 from loi_citation_extract import extract_far_citations
+from revision_log import log_revisions
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
@@ -377,6 +378,32 @@ def process_one(hit: dict, mode: str, known_far_sections: set[str] | None) -> di
         # what gets sent to the real upsert below.
         return {**record, "body_text": body_text, "_pages": page_count, "_citations": citations}
 
+    # What's Changed timeline logging -- must run BEFORE the upsert below,
+    # which is about to overwrite whatever's currently live. Every other
+    # content scraper (far/aim/pcg/ad) already wires this; LOI never did
+    # (confirmed live 2026-08-29 -- zero content_revisions rows for
+    # doc_type='loi' despite real title/body_text updates in the same
+    # window). Uses the local `body_text` variable, not `record` -- an
+    # already-cleaned document's `record` deliberately OMITS body_text (see
+    # the is_cleaned branch above, so a repeat scrape can't clobber a manual
+    # OCR cleanup), but the real current DRS text is still what should be
+    # diffed against whatever's stored. `slug`, not `doc_unique_id` -- the
+    # same human-facing key this file's own addDownload-equivalent route
+    # (`/loi/[slug]`) already uses, matching every other doc_type's own
+    # doc_key convention (far's section_number, ad's ad_number, etc).
+    try:
+        n = log_revisions(
+            SUPABASE_URL,
+            {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"},
+            doc_type="loi", table="legal_interpretations",
+            key_field="slug", text_field="body_text", title_field="title",
+            new_rows=[{"slug": slug, "body_text": body_text, "title": title}],
+        )
+        if n:
+            log.info(f"  Logged {n} LOI revision(s) for What's Changed")
+    except Exception as e:
+        log.warning(f"  revision logging failed (non-fatal): {e}")
+
     cached_url = upload_pdf(pdf_bytes, slug)
     record["pdf_url_cached"] = cached_url
 
@@ -504,7 +531,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["test", "full"], default="test")
     ap.add_argument("--limit", type=int, default=5)
+    ap.add_argument(
+        "--no-revision-log", action="store_true",
+        help=(
+            "Skip content_revisions logging for this run (sets SKIP_REVISION_LOG=1, "
+            "read by revision_log.log_revisions()). Use for a manual backfill/repair "
+            "run over already-known data, so it can't log bogus What's Changed "
+            "entries. Leave unset for the real scheduled cron sync."
+        ),
+    )
     args = ap.parse_args()
+    if args.no_revision_log:
+        os.environ["SKIP_REVISION_LOG"] = "1"
 
     if not DRS_JWT:
         log.error("DRS_JWT must be set (see this file's header comment for how to capture one).")
@@ -572,6 +610,14 @@ def main():
                 "loi_errors": errors,
             })
             log_scraper_run(run_record)
+            if errors:
+                # A logged status="partial" run used to exit 0
+                # unconditionally -- see far_scraper.py's identical comment
+                # for the real live incident (cfr49_scraper.py's Part 830
+                # eCFR timeout) that motivated this fix across all 7
+                # content scrapers.
+                log.error(f"{errors} error(s) this run (status=partial) -- exiting non-zero so CI shows it.")
+                sys.exit(1)
     except DrsAuthExpired as e:
         log.error(f"\n{e}")
         # This is the one failure mode a silent scraper_runs gap would hide

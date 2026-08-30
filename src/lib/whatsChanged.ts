@@ -11,7 +11,7 @@ import { TABLE_HEADER_MARK } from '@/lib/regTextFormat'
 // retained before this table existed, so each type's timeline starts from
 // whenever its own logging shipped, not retroactively.
 
-export type RevisionDocType = 'ac' | 'far' | 'aim' | 'pcg' | 'ad' | 'cfr49'
+export type RevisionDocType = 'ac' | 'far' | 'aim' | 'pcg' | 'ad' | 'cfr49' | 'loi'
 
 export interface ContentRevision {
   id: string
@@ -32,6 +32,7 @@ export function routeForRevision(r: ContentRevision): string {
     case 'pcg': return `/pcg/${r.docKey}`
     case 'ad': return `/ad/${r.docKey}`
     case 'cfr49': return `/cfr49/${r.docKey}`
+    case 'loi': return `/loi/${r.docKey}`
     default: return `/ac/${key}`
   }
 }
@@ -43,6 +44,7 @@ export function labelForDocType(t: RevisionDocType): string {
     case 'pcg': return 'P/CG'
     case 'ad': return 'AD'
     case 'cfr49': return '49 CFR'
+    case 'loi': return 'LOI'
     default: return 'AC'
   }
 }

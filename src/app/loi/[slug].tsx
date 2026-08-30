@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Keyboard } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
@@ -18,9 +18,10 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { BackToBreadcrumb, TableNavBar, OfflineCopyBanner } from '@/components/DocNavBar'
+import { BackToBreadcrumb, TableNavBar, OfflineCopyBanner, ChangedBanner } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
+import { getLatestRevision, changedParagraphIndices, type ContentRevision } from '@/lib/whatsChanged'
 import { MetaChip, MetaChipRow, DetailSection, DetailActionRow } from '@/components/DetailMeta'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
 import { addRecent } from '@/lib/recents'
@@ -247,6 +248,26 @@ export default function LoiDetailScreen() {
   }, [slug])
 
   const body = loi?.body_text ?? ''
+  // What's Changed -- sync/loi_scraper.py only started logging real
+  // content_revisions rows for LOI in the 2026-08-29 corpus-freshness
+  // sweep (every other content scraper already did); this is the read
+  // side, same pattern as ad/[id].tsx's identical addition.
+  const [revision, setRevision] = useState<ContentRevision | null>(null)
+  useEffect(() => {
+    if (!slug) return
+    getLatestRevision('loi', slug).then(setRevision).catch(() => setRevision(null))
+  }, [slug])
+  const changedIdx = useMemo(
+    () => changedParagraphIndices(body, revision?.addedText ?? null),
+    [body, revision],
+  )
+  const [changedCursor, setChangedCursor] = useState(0)
+  const jumpToChanged = (dir: 1 | -1) => {
+    if (changedIdx.length === 0) return
+    const next = (changedCursor + dir + changedIdx.length) % changedIdx.length
+    setChangedCursor(next)
+    setTimeout(() => bodyRef.current?.scrollToParagraph(changedIdx[next]), 60)
+  }
   const currentLabel = loi ? humanizeLoiTitle(loi.title) : undefined
   const related = mergeRelated(citationRelated, semanticRelated)
   const farRefs = related.filter((r) => r.cited_type === 'far' || r.cited_type === 'far_part')
@@ -441,6 +462,15 @@ export default function LoiDetailScreen() {
       <OverlayHeader title="Legal Interpretation" onBack={() => router.back()} right={headerRight} />
       {backTo && <BackToBreadcrumb label={backTo} onPress={() => router.back()} />}
       {offlineCopy && <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={false} />}
+      {!loading && loi && changedIdx.length > 0 && (
+        <ChangedBanner
+          count={changedIdx.length}
+          currentIdx={changedCursor}
+          onPrev={() => jumpToChanged(-1)}
+          onNext={() => jumpToChanged(1)}
+          label={`Updated — ${changedIdx.length} paragraph${changedIdx.length === 1 ? '' : 's'} changed`}
+        />
+      )}
       {/* Pro-gated, matching ac/[id].tsx's own sticky search -- LOI body
           text has NO free preview at all, so a lower-tier user previously
           saw a live, typable "IN DOC" search bar above a locked document:
@@ -599,6 +629,7 @@ export default function LoiDetailScreen() {
                 hasProAccess={hasProAccess}
                 highlightQuery={inDocSearch.debounced}
                 activeMatch={inDocSearch.matchIdx}
+                changedIndices={changedIdx}
                 onMatchCount={inDocSearch.setMatchCount}
                 scrollRef={scrollRef}
                 viewportHeight={scrollViewportHeight}
