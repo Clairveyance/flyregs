@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text, Image, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Keyboard } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Keyboard } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import * as Haptics from 'expo-haptics'
@@ -14,6 +14,7 @@ import { printReg } from '@/lib/printReg'
 import { PlainTextBody, PlainTextBodyHandle } from '@/components/PlainTextBody'
 import { MagicLinkPod } from '@/components/MagicLinkPod'
 import { FigureViewer } from '@/components/FigureViewer'
+import { FigureThumb } from '@/components/FigureThumb'
 import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
@@ -721,7 +722,7 @@ export default function AdScreen() {
                       style={[styles.figCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
                       onPress={() => setViewerFigure({ id: f.id, label: `Page ${i + 1} of ${figures.length}`, caption: null, page: f.page_index, image_url: f.image_url })}
                     >
-                      <Image source={{ uri: f.image_url }} style={styles.figThumb} resizeMode="cover" />
+                      <FigureThumb id={f.id} imageUrl={f.image_url} style={styles.figThumb} />
                       <Text style={[styles.figLabel, { color: tokens.t1, fontSize: fs(11.5) }]} numberOfLines={1}>Page {i + 1}</Text>
                     </Pressable>
                   ))}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Image, Share, Keyboard } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Share, Keyboard } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import * as Haptics from 'expo-haptics'
@@ -12,6 +12,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { printReg } from '@/lib/printReg'
 import { FigureViewer } from '@/components/FigureViewer'
+import { FigureThumb } from '@/components/FigureThumb'
 import { PlainTextBody, PlainTextBodyHandle } from '@/components/PlainTextBody'
 import { resolveAimFigureGlobally } from '@/lib/regPreview'
 import { MagicLinkPod } from '@/components/MagicLinkPod'
@@ -634,7 +635,7 @@ export default function AimParagraphScreen() {
                     style={[styles.figCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
                     onPress={() => setViewerFigure({ id: f.id, label: f.label ?? '', caption: f.caption, page: 0, image_url: f.image_url })}
                   >
-                    <Image source={{ uri: f.image_url }} style={styles.figThumb} resizeMode="cover" />
+                    <FigureThumb id={f.id} imageUrl={f.image_url} style={styles.figThumb} />
                     <Text style={[styles.figLabel, { color: tokens.t1, fontSize: fs(11.5) }]} numberOfLines={1}>{f.label}</Text>
                   </Pressable>
                 ))}

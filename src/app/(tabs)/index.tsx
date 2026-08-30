@@ -691,30 +691,39 @@ export default function HomeScreen() {
     const phraseForOther = isPhrasedQuery(trimmed) ? extractPhrase(trimmed) : trimmed
     // "Smart Search": expand the query into related regulatory vocabulary
     // (bridge -> corpus associations -> morphology; see searchSynonyms.ts)
-    // and search every expansion alongside the literal query. One await, and
-    // the result is reused by the AC branch below so expansion happens once
-    // per search, not twice.
-    const expansion = phraseForOther && phraseForOther.length >= 2
-      ? await expandQuery(phraseForOther)
-      : { terms: [] as string[], expanded: false }
-    const synonymTerms = expansion.terms
+    // and search every expansion alongside the literal query.
+    //
+    // Deliberately NOT awaited here -- expand_search_terms is a real network
+    // RPC, and every literal-query search below (the phrase branch, and the
+    // AC branch's rpcRes/prefixRes/numRes/titleRes) has zero dependency on
+    // its result. Awaiting it first, as this used to, held EVERY search in
+    // the app (the single highest-frequency interaction) hostage to one
+    // full extra round trip it usually didn't need. Left as a bare promise;
+    // only the genuinely synonym-dependent consumers below (this block, and
+    // the AC branch's second wave further down) wait on it, via .then()/a
+    // later await, never blocking the literal results from showing first.
+    const expansionPromise = phraseForOther && phraseForOther.length >= 2
+      ? expandQuery(phraseForOther)
+      : Promise.resolve({ terms: [] as string[], expanded: false })
     if (phraseForOther && phraseForOther.length >= 2) {
-      const searchTerms = [phraseForOther, ...synonymTerms]
-      Promise.all(searchTerms.map((t) => searchOtherSources(t, 20, otherTypes, hasPlusAccess, hasPlusAccess))).then((resultSets) => {
-        if (seq !== searchSeq.current) return
-        const seen = new Set<string>()
-        const merged: UnifiedResult[] = []
-        resultSets.forEach((set, i) => {
-          for (const r of set) {
-            const key = `${r.type}-${r.id}`
-            // Remember WHICH term found this. The merge is a concatenation
-            // (literal query's results, then each expansion's), so without
-            // this a bridge-found answer sat behind every weak literal match
-            // -- "flying drunk" put § 91.17 at #26.
-            if (!seen.has(key)) { seen.add(key); merged.push({ ...r, matchedTerm: searchTerms[i] }) }
-          }
+      expansionPromise.then((expansion) => {
+        const searchTerms = [phraseForOther, ...expansion.terms]
+        Promise.all(searchTerms.map((t) => searchOtherSources(t, 20, otherTypes, hasPlusAccess, hasPlusAccess))).then((resultSets) => {
+          if (seq !== searchSeq.current) return
+          const seen = new Set<string>()
+          const merged: UnifiedResult[] = []
+          resultSets.forEach((set, i) => {
+            for (const r of set) {
+              const key = `${r.type}-${r.id}`
+              // Remember WHICH term found this. The merge is a concatenation
+              // (literal query's results, then each expansion's), so without
+              // this a bridge-found answer sat behind every weak literal match
+              // -- "flying drunk" put § 91.17 at #26.
+              if (!seen.has(key)) { seen.add(key); merged.push({ ...r, matchedTerm: searchTerms[i] }) }
+            }
+          })
+          setOtherResults(merged)
         })
-        setOtherResults(merged)
       })
     } else {
       setOtherResults([])
@@ -761,9 +770,11 @@ export default function HomeScreen() {
     // an exact/partial title match is fetched even when the RPC tokenises it poorly
     // (e.g. a title with a colon returns nothing). rankSearchResults orders all of
     // it so any exact match — number OR title — lands first.
-    // Reuses the single expansion computed above rather than expanding again.
-    const acSynonymTerms = synonymTerms
-    const [rpcRes, prefixRes, numRes, titleRes, ...synonymRpcResList] = await Promise.all([
+    //
+    // Wave 1 (this Promise.all): the literal query only, no synonym
+    // dependency — fires immediately rather than waiting on
+    // expansionPromise, so results land as fast as the DB can answer them.
+    const [rpcRes, prefixRes, numRes, titleRes] = await Promise.all([
       supabase.rpc('search_acs', { query: trimmed, result_limit: 50 }),
       supabase
         .from('advisory_circulars')
@@ -777,7 +788,6 @@ export default function HomeScreen() {
         .from('advisory_circulars')
         .select(cols).eq('status', 'active')
         .ilike('title', `%${trimmed}%`).order('document_number').limit(20),
-      ...acSynonymTerms.map((t) => supabase.rpc('search_acs', { query: t, result_limit: 20 })),
     ])
 
     // RPC failed + nothing from the direct queries → broad ilike fallback
@@ -799,21 +809,41 @@ export default function HomeScreen() {
       return
     }
 
-    const seenIds = new Set<string>()
-    const merged: SearchResult[] = []
+    if (seq !== searchSeq.current) return // a newer search started while awaiting
+    const literalSeenIds = new Set<string>()
+    const literalMerged: SearchResult[] = []
     // RPC first within its tier (relevance-ranked), then the direct doc/title
     // queries; rankSearchResults re-tiers so exact matches still win regardless.
-    // Synonym RPC results go last -- they're a bonus expansion, not the
-    // user's literal query, so an exact match on the real query always wins.
-    for (const src of [prefixRes.data, numRes.data, rpcRes.data, titleRes.data, ...synonymRpcResList.map((r) => r.data)]) {
+    for (const src of [prefixRes.data, numRes.data, rpcRes.data, titleRes.data]) {
       for (const r of (src ?? []) as SearchResult[]) {
-        if (!seenIds.has(r.id)) { seenIds.add(r.id); merged.push(r) }
+        if (!literalSeenIds.has(r.id)) { literalSeenIds.add(r.id); literalMerged.push(r) }
       }
     }
-
-    if (seq !== searchSeq.current) return // a newer search started while awaiting
-    setSearchResults(rankSearchResults(trimmed, merged))
+    setSearchResults(rankSearchResults(trimmed, literalMerged))
     setSearchLoading(false)
+
+    // Wave 2: synonym-expanded AC results merge in once expansion resolves.
+    // Never blocks wave 1's setSearchResults/setSearchLoading above — that's
+    // the entire point of this split. rankSearchResults scores every item
+    // against the user's LITERAL typed query (not whichever synonym term
+    // found it), so a synonym-sourced result essentially never outranks a
+    // wave-1 literal match — it can only append below, never reshuffle what
+    // the user is already looking at.
+    expansionPromise.then(async (expansion) => {
+      if (seq !== searchSeq.current || expansion.terms.length === 0) return
+      const synonymResList = await Promise.all(
+        expansion.terms.map((t) => supabase.rpc('search_acs', { query: t, result_limit: 20 })),
+      )
+      if (seq !== searchSeq.current) return
+      const seenIds = new Set<string>(literalSeenIds)
+      const merged: SearchResult[] = [...literalMerged]
+      for (const res of synonymResList) {
+        for (const r of (res.data ?? []) as SearchResult[]) {
+          if (!seenIds.has(r.id)) { seenIds.add(r.id); merged.push(r) }
+        }
+      }
+      setSearchResults(rankSearchResults(trimmed, merged))
+    })
     // filterContentTypes: this callback reads it (skipAC/otherTypes above) --
     // an empty dep array here was a real stale-closure bug, confirmed live:
     // it froze the closure at mount (filterContentTypes = []), so selecting
