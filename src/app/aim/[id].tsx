@@ -445,6 +445,7 @@ export default function AimParagraphScreen() {
         title: para.title,
         body: para.body_text ?? '',
         kindLabel: 'AIM',
+        figures: figures.map((f) => ({ id: f.id, label: f.label, caption: f.caption, imageUrl: f.image_url })),
       })
     } catch (err) {
       // See ac/[id].tsx's handlePrint for the full reasoning -- expo-print

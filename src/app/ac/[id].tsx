@@ -608,6 +608,7 @@ export default function ACDetailScreen() {
         title: ac.title,
         body: body || ac.description || '',
         kindLabel: 'Advisory Circular',
+        figures: (figures ?? []).map((f) => ({ id: f.id, label: f.label, caption: f.caption, imageUrl: f.image_url })),
       })
     } catch (err) {
       // RC, real device: "when you tap print it opens the phone's print

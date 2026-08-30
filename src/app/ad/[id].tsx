@@ -482,6 +482,9 @@ export default function AdScreen() {
         subtitle: ad.effective_date ? `Effective ${ad.effective_date}` : null,
         body: ad.body_text ?? '',
         kindLabel: 'AD',
+        // figuresForViewer already normalizes AdFigureRow (no label/caption
+        // of its own -- see its own comment) into the shared shape.
+        figures: figuresForViewer.map((f) => ({ id: f.id, label: f.label, caption: f.caption, imageUrl: f.image_url })),
       })
     } catch (err) {
       // See ac/[id].tsx's handlePrint for the full reasoning -- expo-print
