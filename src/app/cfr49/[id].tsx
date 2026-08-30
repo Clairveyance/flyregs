@@ -17,11 +17,11 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { BackToBreadcrumb, PrevNextFooter, TableNavBar, ChangedBanner } from '@/components/DocNavBar'
+import { BackToBreadcrumb, PrevNextFooter, TableNavBar, ChangedBanner, OfflineCopyBanner } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
-import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
+import { isDownloaded, addDownload, removeDownload, findDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
 import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
@@ -89,6 +89,10 @@ export default function Cfr49SectionScreen() {
   // transient false.
   const { hasPlusAccess, hasProAccess, isPremium, loading: authLoading } = useAuth()
   const [section, setSection] = useState<Cfr49Section | null>(null)
+  // Set only when `section` above is being served from the offline cache,
+  // not a live fetch -- see far/[id].tsx's identical comment.
+  const [offlineCopy, setOfflineCopy] = useState<DownloadedAC | null>(null)
+  const [offlineStale, setOfflineStale] = useState(false)
   const [part, setPart] = useState<Cfr49Part | null>(null)
   // Split so the section text can render as soon as the fast citation query
   // resolves, without waiting on the much slower semantic "related content"
@@ -202,6 +206,7 @@ export default function Cfr49SectionScreen() {
       if (!secRes.error && secRes.data) {
         const s = secRes.data as Cfr49Section
         setSection(s)
+        setOfflineCopy(null)
         supabase.from('cfr49_parts').select('part, label, family').eq('part', s.part).single()
           .then(({ data }) => { if (data) setPart(data as Cfr49Part) })
         addRecent({
@@ -223,6 +228,7 @@ export default function Cfr49SectionScreen() {
             title: cached.title,
             body_text: cached.body_text ?? null,
           })
+          setOfflineCopy(cached)
         }
       }
       if (!citRes.error && citRes.data) {
@@ -245,6 +251,14 @@ export default function Cfr49SectionScreen() {
     // resolve.
     getSemanticRelated('cfr49', id).then(setSemanticRelated)
   }, [id])
+
+  // Opportunistic staleness check -- see downloads.ts's isDownloadStale.
+  useEffect(() => {
+    if (!offlineCopy) { setOfflineStale(false); return }
+    let cancelled = false
+    isDownloadStale(offlineCopy).then((s) => { if (!cancelled) setOfflineStale(s) })
+    return () => { cancelled = true }
+  }, [offlineCopy])
 
   useEffect(() => {
     if (!section?.part) return
@@ -458,6 +472,9 @@ export default function Cfr49SectionScreen() {
           onPrev={inDocSearch.goToPrev}
           onNext={inDocSearch.goToNext}
         />
+      )}
+      {!loading && offlineCopy && (
+        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} />
       )}
       {!loading && section && (
         <ChangedBanner

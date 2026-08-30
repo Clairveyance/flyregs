@@ -3,6 +3,7 @@ import type { ACBlock } from '@/lib/acFormat'
 import type { AcFigure, FormulaRef } from '@/types'
 import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
 import { supabase } from '@/lib/supabase'
+import { getLatestRevision, type RevisionDocType } from '@/lib/whatsChanged'
 
 const KEY = '@flyregs/downloads'
 
@@ -80,6 +81,49 @@ export function routeForDownload(item: DownloadedAC): string {
 export async function findDownload(id: string): Promise<DownloadedAC | undefined> {
   const list = await getDownloads()
   return list.find((d) => d.id === id)
+}
+
+// far/aim/ad/cfr49's own docKey is the exact same identifier already stored
+// as DownloadedAC.id for those 4 types (confirmed against every addDownload
+// call site: e.g. far/[id].tsx's `id: section.section_number`, the same
+// value that screen's own getLatestRevision('far', id) call already uses).
+const REVISION_TYPES: DownloadedItemType[] = ['far', 'aim', 'ad', 'cfr49']
+
+/**
+ * True only when there is POSITIVE evidence a newer version of this
+ * download's source content exists — never a guess. Real scenario this
+ * closes: a pilot downloads an AD for offline preflight reading, the FAA
+ * supersedes it weeks later, and every offline detail-screen render used
+ * to be visually IDENTICAL to a live one — no signal whatsoever that the
+ * text on screen might no longer reflect the current rule. See "Data Is
+ * King" — for a document class where compliance is legally mandated,
+ * silent staleness is a real accuracy gap, not a cosmetic one.
+ *
+ * Deliberately returns false (not an error, not a guess) for 'ac' when its
+ * own updated_at lookup fails, and for 'pcg'/'loi', which have no revision-
+ * tracking infrastructure at all yet (content_revisions has no 'loi'
+ * doc_type, and 'pcg' has never logged a row in production) — "false" here
+ * means "no evidence of staleness found," never "confirmed current." A
+ * network failure (the common reason this is even being checked — the
+ * offline fallback usually renders because there's NO connection) also
+ * resolves false, silently: this is a best-effort upgrade to the always-
+ * shown "Downloaded {date}" disclosure, never a blocking check.
+ */
+export async function isDownloadStale(item: DownloadedAC): Promise<boolean> {
+  const type = downloadItemType(item)
+  try {
+    if (REVISION_TYPES.includes(type)) {
+      const rev = await getLatestRevision(type as RevisionDocType, item.id)
+      return !!rev && new Date(rev.revisedAt).getTime() > new Date(item.downloadedAt).getTime()
+    }
+    if (type === 'ac') {
+      const { data } = await supabase.from('advisory_circulars').select('updated_at').eq('id', item.id).single()
+      return !!data?.updated_at && new Date(data.updated_at).getTime() > new Date(item.downloadedAt).getTime()
+    }
+    return false
+  } catch {
+    return false
+  }
 }
 
 // In-memory cache of the parsed list -- getDownloads() used to do a full

@@ -9,13 +9,13 @@ import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
-import { BackToBreadcrumb, ChangedBanner } from '@/components/DocNavBar'
+import { BackToBreadcrumb, ChangedBanner, OfflineCopyBanner } from '@/components/DocNavBar'
 import { Icon } from '@/components/Icon'
 import { printReg } from '@/lib/printReg'
 import { ACBody, ACBodyHandle } from '@/components/ACBody'
 import { addRecent } from '@/lib/recents'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
-import { getDownloads, isDownloaded, addDownload, removeDownload } from '@/lib/downloads'
+import { getDownloads, isDownloaded, addDownload, removeDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
 import { downloadGatedImageToCache } from '@/lib/imageCache'
 import { resolveGatedStorageUrl } from '@/lib/gatedStorage'
 import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
@@ -182,6 +182,10 @@ export default function ACDetailScreen() {
   const scrollRef = useRef<ScrollView>(null)
   const acBodyRef = useRef<ACBodyHandle>(null)
   const [ac, setAC] = useState<AdvisoryCircular | null>(null)
+  // Set only when `ac` above is being served from the offline cache, not a
+  // live fetch -- see far/[id].tsx's identical comment.
+  const [offlineCopy, setOfflineCopy] = useState<DownloadedAC | null>(null)
+  const [offlineStale, setOfflineStale] = useState(false)
   const [backTo, setBackTo] = useState<string | null>(null)
   // Split so citation-derived related links can show up as soon as the fast
   // document_citations_gated query resolves, without waiting on the slower
@@ -336,6 +340,7 @@ export default function ACDetailScreen() {
         if (!error && data) {
           const loaded = data as AdvisoryCircular
           setAC(loaded)
+          setOfflineCopy(null)
           addRecent({
             id: loaded.id,
             document_number: loaded.document_number,
@@ -397,6 +402,7 @@ export default function ACDetailScreen() {
             })
             setFigures(cached.figures ?? [])
             setFormulaRefs(cached.formulaRefs ?? [])
+            setOfflineCopy(cached)
           }
         }
         setLoading(false)
@@ -405,6 +411,14 @@ export default function ACDetailScreen() {
     isDownloaded(id).then(setDownloaded)
     getHighlightsForAC(id).then((hs) => setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!))))
   }, [id])
+
+  // Opportunistic staleness check -- see downloads.ts's isDownloadStale.
+  useEffect(() => {
+    if (!offlineCopy) { setOfflineStale(false); return }
+    let cancelled = false
+    isDownloadStale(offlineCopy).then((s) => { if (!cancelled) setOfflineStale(s) })
+    return () => { cancelled = true }
+  }, [offlineCopy])
 
   // MagicLink cross-references -- confirmed a total, real gap: document_citations
   // had zero rows with citing_type='ac' anywhere in the corpus (no extraction
@@ -1003,6 +1017,9 @@ export default function ACDetailScreen() {
             )}
           </View>
         </View>
+      )}
+      {!loading && offlineCopy && (
+        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} />
       )}
       {!loading && ac && changedList.length > 0 && (
         <ChangedBanner

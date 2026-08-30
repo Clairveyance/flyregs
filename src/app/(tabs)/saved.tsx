@@ -18,7 +18,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { Icon } from '@/components/Icon'
 import { getBookmarks, removeBookmark, removeManyBookmarks, routeForBookmark, bookmarkItemType, BookmarkAC } from '@/lib/bookmarks'
 import { highlightSnippet } from '@/lib/acShare'
-import { getDownloads, removeDownload, formatBytes, DownloadedAC, downloadItemType, routeForDownload } from '@/lib/downloads'
+import { getDownloads, removeDownload, formatBytes, DownloadedAC, downloadItemType, routeForDownload, isDownloadStale } from '@/lib/downloads'
 import { REG_TYPE, RegType } from '@/lib/regTypes'
 import {
   getFolders,
@@ -129,6 +129,13 @@ export default function SavedScreen() {
     return m
   }, [bookmarks])
   const [downloads, setDownloads] = useState<DownloadedAC[]>([])
+  // Which downloaded ids have a known-newer live revision -- see
+  // isDownloadStale's own comment. Checked here (not just on the detail
+  // screen) because this list is the one place a user actively reviewing
+  // their offline library is likely to have connectivity, so it's the
+  // right place to surface "you may want to re-download this" BEFORE they
+  // find themselves relying on it with no signal to check.
+  const [staleDownloadIds, setStaleDownloadIds] = useState<Set<string>>(new Set())
   const [folders, setFolders] = useState<Folder[]>([])
   const [collaborations, setCollaborations] = useState<SharedFolderSummary[]>([])
   const [sharedByMe, setSharedByMe] = useState<SharedByMeFolder[]>([])
@@ -318,6 +325,18 @@ export default function SavedScreen() {
       setSharedLoading(false)
     }
   }, [session?.user?.id])
+
+  // Runs whenever the download list changes (a fresh `load()`, or an
+  // add/remove) rather than gating on focus separately -- degrades
+  // silently to "none flagged" with no network, same as isDownloadStale's
+  // own design; never blocks the list from rendering while it resolves.
+  useEffect(() => {
+    if (downloads.length === 0) { setStaleDownloadIds(new Set()); return }
+    let cancelled = false
+    Promise.all(downloads.map((d) => isDownloadStale(d).then((stale) => (stale ? d.id : null))))
+      .then((ids) => { if (!cancelled) setStaleDownloadIds(new Set(ids.filter((x): x is string => !!x))) })
+    return () => { cancelled = true }
+  }, [downloads])
 
   useFocusEffect(useCallback(() => {
     load()
@@ -1106,6 +1125,7 @@ export default function SavedScreen() {
       ) : (
         <OfflineListView
           downloads={downloads}
+          staleDownloadIds={staleDownloadIds}
           tokens={tokens}
           onOpen={(item) => router.push(routeForDownload(item) as any)}
           onFolder={(item) => setPickerDownloadId(item.id)}
@@ -1509,6 +1529,7 @@ type OfflineSort = 'recent' | 'az'
 // this replaces it with a real list, matching every other list in the app.
 function OfflineListView({
   downloads,
+  staleDownloadIds,
   tokens,
   onOpen,
   onFolder,
@@ -1520,6 +1541,7 @@ function OfflineListView({
   consumeLongPress,
 }: {
   downloads: DownloadedAC[]
+  staleDownloadIds: Set<string>
   tokens: ReturnType<typeof useTheme>['tokens']
   onOpen: (item: DownloadedAC) => void
   onFolder: (item: DownloadedAC) => void
@@ -1585,6 +1607,7 @@ function OfflineListView({
       renderItem={({ item }) => (
         <OfflineRow
           item={item}
+          stale={staleDownloadIds.has(item.id)}
           tokens={tokens}
           onPress={() => onOpen(item)}
           onFolder={() => onFolder(item)}
@@ -1601,6 +1624,7 @@ function OfflineListView({
 
 function OfflineRow({
   item,
+  stale,
   tokens,
   onPress,
   onFolder,
@@ -1611,6 +1635,7 @@ function OfflineRow({
   consumeLongPress,
 }: {
   item: DownloadedAC
+  stale: boolean
   tokens: ReturnType<typeof useTheme>['tokens']
   onPress: () => void
   onFolder: () => void
@@ -1706,6 +1731,14 @@ function OfflineRow({
                 {formatBytes(item.size)} · Downloaded{' '}
                 {new Date(item.downloadedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               </Text>
+              {stale && (
+                <View style={styles.staleRow}>
+                  <Icon name="exclamationmark.triangle.fill" size={fs(10.5)} color={tokens.amb} />
+                  <Text style={[styles.staleText, { color: tokens.amb, fontSize: fs(11) }]}>
+                    Updated since download — re-download for the latest text
+                  </Text>
+                </View>
+              )}
             </View>
             <View style={styles.rowActions}>
               <Pressable onPress={onFolder} hitSlop={8} style={styles.actionBtn}>
@@ -2043,6 +2076,8 @@ const styles = StyleSheet.create({
   // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
   rowTitle: { fontWeight: '500', fontSize: 15 },
   savedAt: { fontSize: 11, flexShrink: 1 },
+  staleRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
+  staleText: { fontSize: 11, flexShrink: 1 },
   rowActions: { flexDirection: 'column', alignItems: 'center', gap: 22, paddingTop: 2 },
   // Shares the metadata line with the AC's saved-date/office text instead of
   // a separate divided row below — cuts the extra vertical space each card

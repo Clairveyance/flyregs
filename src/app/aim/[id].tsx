@@ -20,11 +20,11 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { BackToBreadcrumb, PrevNextFooter, TableNavBar, ChangedBanner } from '@/components/DocNavBar'
+import { BackToBreadcrumb, PrevNextFooter, TableNavBar, ChangedBanner, OfflineCopyBanner } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
-import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
+import { isDownloaded, addDownload, removeDownload, findDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
 import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
@@ -93,6 +93,10 @@ export default function AimParagraphScreen() {
   // transient false.
   const { hasPlusAccess, hasProAccess, isPremium, loading: authLoading } = useAuth()
   const [para, setPara] = useState<AimParagraph | null>(null)
+  // Set only when `para` above is being served from the offline cache, not
+  // a live fetch -- see far/[id].tsx's identical comment.
+  const [offlineCopy, setOfflineCopy] = useState<DownloadedAC | null>(null)
+  const [offlineStale, setOfflineStale] = useState(false)
   const [figures, setFigures] = useState<AimFigureRow[]>([])
   const [figuresExpanded, setFiguresExpanded] = useState(false)
   // Split so the paragraph text can render as soon as the fast citation
@@ -222,6 +226,7 @@ export default function AimParagraphScreen() {
       if (!paraRes.error && paraRes.data) {
         const p = paraRes.data as AimParagraph
         setPara(p)
+        setOfflineCopy(null)
         addRecent({
           id: p.paragraph_number,
           itemType: 'aim',
@@ -247,6 +252,7 @@ export default function AimParagraphScreen() {
             body_text: cached.body_text ?? null,
             reference_text: null,
           })
+          setOfflineCopy(cached)
         }
       }
       if (!figRes.error && figRes.data) setFigures(figRes.data as AimFigureRow[])
@@ -277,6 +283,14 @@ export default function AimParagraphScreen() {
     // resolve.
     getSemanticRelated('aim', id).then(setSemanticRelated)
   }, [id])
+
+  // Opportunistic staleness check -- see downloads.ts's isDownloadStale.
+  useEffect(() => {
+    if (!offlineCopy) { setOfflineStale(false); return }
+    let cancelled = false
+    isDownloadStale(offlineCopy).then((s) => { if (!cancelled) setOfflineStale(s) })
+    return () => { cancelled = true }
+  }, [offlineCopy])
 
   // Sibling paragraph numbers within this paragraph's own chapter, for
   // Prev/Next -- a lightweight second query once the chapter is known.
@@ -526,6 +540,9 @@ export default function AimParagraphScreen() {
           onPrev={inDocSearch.goToPrev}
           onNext={inDocSearch.goToNext}
         />
+      )}
+      {!loading && offlineCopy && (
+        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} />
       )}
       {!loading && para && (
         <ChangedBanner

@@ -18,7 +18,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { BackToBreadcrumb, TableNavBar } from '@/components/DocNavBar'
+import { BackToBreadcrumb, TableNavBar, OfflineCopyBanner } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { MetaChip, MetaChipRow, DetailSection, DetailActionRow } from '@/components/DetailMeta'
@@ -27,7 +27,7 @@ import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { getSemanticRelated, mergeRelated } from '@/lib/relatedContent'
 import { buildRegShareLink } from '@/lib/regShare'
-import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
+import { isDownloaded, addDownload, removeDownload, findDownload, type DownloadedAC } from '@/lib/downloads'
 import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { humanizeLoiTitle } from '@/lib/titleFormat'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -89,6 +89,13 @@ export default function LoiDetailScreen() {
   // transient false.
   const { hasProAccess, isPremium, loading: authLoading } = useAuth()
   const [loi, setLoi] = useState<LegalInterpretation | null>(null)
+  // Set only when `loi` above is being served from the offline cache, not
+  // a live fetch -- see far/[id].tsx's identical comment. Legal
+  // interpretations have no content_revisions logging AT ALL (RevisionDocType
+  // doesn't include 'loi' -- they're point-in-time legal opinions, not
+  // amended text the way FAR/AD are), so this only ever drives the plain
+  // "Downloaded on {date}" disclosure, never a staleness claim.
+  const [offlineCopy, setOfflineCopy] = useState<DownloadedAC | null>(null)
   // Split so the interpretation text can render as soon as the fast
   // citation query resolves, without waiting on the much slower semantic
   // "related content" RPC -- see the loading effect below for why.
@@ -194,6 +201,7 @@ export default function LoiDetailScreen() {
       if (!loiRes.error && loiRes.data) {
         const l = loiRes.data as LegalInterpretation
         setLoi(l)
+        setOfflineCopy(null)
         addRecent({
           id: l.slug,
           itemType: 'loi',
@@ -214,6 +222,7 @@ export default function LoiDetailScreen() {
             title: cached.document_number,
             body_text: cached.body_text ?? null,
           } as LegalInterpretation)
+          setOfflineCopy(cached)
         }
       }
       if (!citRes.error && citRes.data) {
@@ -431,6 +440,7 @@ export default function LoiDetailScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title="Legal Interpretation" onBack={() => router.back()} right={headerRight} />
       {backTo && <BackToBreadcrumb label={backTo} onPress={() => router.back()} />}
+      {offlineCopy && <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={false} />}
       {/* Pro-gated, matching ac/[id].tsx's own sticky search -- LOI body
           text has NO free preview at all, so a lower-tier user previously
           saw a live, typable "IN DOC" search bar above a locked document:

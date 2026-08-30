@@ -75,6 +75,32 @@ export function ChangedBanner({
   )
 }
 
+// Shown when a detail screen is rendering a DownloadedAC fallback instead
+// of a live fetch (see isDownloadStale's own comment for the full
+// reasoning) -- every offline render used to be visually IDENTICAL to a
+// live one, with no signal the text on screen was a snapshot rather than
+// current. `stale` is only ever true/false on POSITIVE or absent evidence,
+// never a guess -- see isDownloadStale in downloads.ts. Always renders
+// (unlike ChangedBanner, which hides on count===0) since "you're reading a
+// saved copy from a date" is worth saying even when nothing is known to
+// have changed since.
+export function OfflineCopyBanner({ downloadedAt, stale }: { downloadedAt: string; stale: boolean }) {
+  const { tokens } = useTheme()
+  const fs = useFS()
+  const dateStr = new Date(downloadedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const color = stale ? tokens.amb : tokens.t3
+  return (
+    <View style={[styles.changedWrap, { backgroundColor: tokens.bdim, borderBottomColor: tokens.bbdr }]}>
+      <Icon name={stale ? 'exclamationmark.triangle.fill' : 'icloud'} size={fs(13)} color={color} />
+      <Text style={[styles.changedText, { color, fontSize: fs(12.5) }]} numberOfLines={2}>
+        {stale
+          ? `Offline copy from ${dateStr} — a newer version may be available`
+          : `Offline copy — saved ${dateStr}`}
+      </Text>
+    </View>
+  )
+}
+
 // Prev/Next footer for browsing sequentially through a document's own
 // natural order (FAR section within a Part, AIM paragraph within a
 // chapter) -- independent of the breadcrumb above, which is only about

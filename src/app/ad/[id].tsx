@@ -19,7 +19,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { BackToBreadcrumb, PrevNextFooter, TableNavBar, ChangedBanner } from '@/components/DocNavBar'
+import { BackToBreadcrumb, PrevNextFooter, TableNavBar, ChangedBanner, OfflineCopyBanner } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { getLatestRevision, changedParagraphIndices, type ContentRevision } from '@/lib/whatsChanged'
 import { useInDocSearch } from '@/lib/useInDocSearch'
@@ -29,7 +29,7 @@ import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
 import { getSemanticRelated, mergeRelated } from '@/lib/relatedContent'
-import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
+import { isDownloaded, addDownload, removeDownload, findDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
 import { condenseAdSummary, adSummaryWasCondensed, stripAdArtifacts } from '@/lib/adSummary'
 import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -94,6 +94,12 @@ export default function AdScreen() {
   // transient false.
   const { hasPlusAccess, hasProAccess, isPremium, loading: authLoading } = useAuth()
   const [ad, setAd] = useState<AirworthinessDirective | null>(null)
+  // Set only when `ad` above is being served from the offline cache, not a
+  // live fetch -- see far/[id].tsx's identical comment. Especially load-
+  // bearing here: AD compliance is legally mandated, so a silently stale
+  // offline copy is a real accuracy gap, not a cosmetic one.
+  const [offlineCopy, setOfflineCopy] = useState<DownloadedAC | null>(null)
+  const [offlineStale, setOfflineStale] = useState(false)
   // Split so the AD text can render as soon as the fast citation query
   // resolves, without waiting on the much slower semantic "related content"
   // RPC -- see the loading effect below for why. mergeRelated() is pure and
@@ -238,6 +244,7 @@ export default function AdScreen() {
       if (!adRes.error && adRes.data) {
         const a = adRes.data as AirworthinessDirective
         setAd(a)
+        setOfflineCopy(null)
         addRecent({
           id: a.ad_number,
           itemType: 'ad',
@@ -258,6 +265,7 @@ export default function AdScreen() {
             subject_heading: cached.title,
             body_text: cached.body_text ?? null,
           } as AirworthinessDirective)
+          setOfflineCopy(cached)
         }
       }
       if (!citRes.error && citRes.data) {
@@ -283,6 +291,14 @@ export default function AdScreen() {
     // it merges into the MagicLink pod whenever it happens to resolve.
     getSemanticRelated('ad', id).then(setSemanticRelated)
   }, [id])
+
+  // Opportunistic staleness check -- see downloads.ts's isDownloadStale.
+  useEffect(() => {
+    if (!offlineCopy) { setOfflineStale(false); return }
+    let cancelled = false
+    isDownloadStale(offlineCopy).then((s) => { if (!cancelled) setOfflineStale(s) })
+    return () => { cancelled = true }
+  }, [offlineCopy])
 
   const body = ad?.body_text ?? ''
 
@@ -563,6 +579,9 @@ export default function AdScreen() {
           onPrev={inDocSearch.goToPrev}
           onNext={inDocSearch.goToNext}
         />
+      )}
+      {!loading && offlineCopy && (
+        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} />
       )}
       {!loading && ad && (
         <ChangedBanner

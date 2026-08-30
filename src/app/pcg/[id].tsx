@@ -9,7 +9,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
-import { BackToBreadcrumb, PrevNextFooter } from '@/components/DocNavBar'
+import { BackToBreadcrumb, PrevNextFooter, OfflineCopyBanner } from '@/components/DocNavBar'
 import { Icon } from '@/components/Icon'
 import { printReg } from '@/lib/printReg'
 import { slugifyPcgTerm } from '@/lib/pcg'
@@ -19,7 +19,7 @@ import { FolderPicker } from '@/components/FolderPicker'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
-import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
+import { isDownloaded, addDownload, removeDownload, findDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
 import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
 import { linkifyText } from '@/lib/crossRefLinks'
@@ -75,6 +75,13 @@ export default function PcgTermScreen() {
   // transient false.
   const { hasPlusAccess, hasProAccess, isPremium, loading: authLoading } = useAuth()
   const [term, setTerm] = useState<PcgTerm | null>(null)
+  // Set only when `term` above is being served from the offline cache, not
+  // a live fetch -- see far/[id].tsx's identical comment. P/CG has no
+  // content_revisions logging yet, so isDownloadStale always resolves
+  // false here (no known-stale claim), but the plain "Downloaded on {date}"
+  // disclosure is still real, honest information the screen had none of.
+  const [offlineCopy, setOfflineCopy] = useState<DownloadedAC | null>(null)
+  const [offlineStale, setOfflineStale] = useState(false)
   // A P/CG definition is a single short block (no separate paragraphs to
   // split, usually already fully visible), so unlike PlainTextBody's
   // per-paragraph scrollToMatch, matches here just need re-highlighting in
@@ -175,7 +182,7 @@ export default function PcgTermScreen() {
       .eq('slug', id)
       .single()
       .then(async ({ data, error }) => {
-        if (!error && data) { setTerm(data as PcgTerm); setLoading(false); return }
+        if (!error && data) { setTerm(data as PcgTerm); setOfflineCopy(null); setLoading(false); return }
         // Inline cross-reference links (LinkedBody, see crossRefLinks.ts)
         // only have the raw term TEXT from body prose to work with — e.g.
         // "Pilot/Controller Glossary Term- Light Gun" — not the real slug
@@ -188,7 +195,7 @@ export default function PcgTermScreen() {
             .select('slug, term, definition, frequently_used, see_refs, external_refs')
             .eq('slug', normalized)
             .single()
-          if (!retry.error && retry.data) { setTerm(retry.data as PcgTerm); setLoading(false); return }
+          if (!retry.error && retry.data) { setTerm(retry.data as PcgTerm); setOfflineCopy(null); setLoading(false); return }
         }
         // Still nothing -- most often no network. Fall back to the offline
         // copy if this term was downloaded; without this branch "Download"
@@ -204,10 +211,19 @@ export default function PcgTermScreen() {
             see_refs: [],
             external_refs: [],
           })
+          setOfflineCopy(cached)
         }
         setLoading(false)
       })
   }, [id])
+
+  // Opportunistic staleness check -- see downloads.ts's isDownloadStale.
+  useEffect(() => {
+    if (!offlineCopy) { setOfflineStale(false); return }
+    let cancelled = false
+    isDownloadStale(offlineCopy).then((s) => { if (!cancelled) setOfflineStale(s) })
+    return () => { cancelled = true }
+  }, [offlineCopy])
 
   // MagicLink cross-references -- confirmed a real gap: pcg/[id].tsx had no
   // Related ACs/FAR/AIM/AD bars at all (only its own separate see_refs/
@@ -522,6 +538,7 @@ export default function PcgTermScreen() {
       ) : (
         <TabletContainer>
         {backTo && <BackToBreadcrumb label={backTo} onPress={() => router.back()} />}
+        {offlineCopy && <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} />}
         <InDocSearchBar
           query={inDocSearch.query}
           onQueryChange={inDocSearch.onQueryChange}

@@ -17,11 +17,11 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { FolderPicker } from '@/components/FolderPicker'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { ConfirmCheck } from '@/components/ConfirmCheck'
-import { BackToBreadcrumb, PrevNextFooter, TableNavBar, ChangedBanner } from '@/components/DocNavBar'
+import { BackToBreadcrumb, PrevNextFooter, TableNavBar, ChangedBanner, OfflineCopyBanner } from '@/components/DocNavBar'
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
-import { isDownloaded, addDownload, removeDownload, findDownload } from '@/lib/downloads'
+import { isDownloaded, addDownload, removeDownload, findDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
 import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
@@ -77,6 +77,12 @@ export default function FarSectionScreen() {
   // transient false.
   const { hasPlusAccess, hasProAccess, isPremium, loading: authLoading } = useAuth()
   const [section, setSection] = useState<FarSection | null>(null)
+  // Set only when `section` above is being served from the offline cache
+  // (see the fetch effect's fallback branch below), not a live fetch --
+  // drives OfflineCopyBanner so a downloaded section reads visibly
+  // differently from a live one instead of looking identical to it.
+  const [offlineCopy, setOfflineCopy] = useState<DownloadedAC | null>(null)
+  const [offlineStale, setOfflineStale] = useState(false)
   // Split so the reg text can render as soon as the fast citation query
   // resolves, without waiting on the much slower semantic "related content"
   // RPC -- see the loading effect below for why. mergeRelated() is pure and
@@ -208,6 +214,7 @@ export default function FarSectionScreen() {
       if (!secRes.error && secRes.data) {
         const s = secRes.data as FarSection
         setSection(s)
+        setOfflineCopy(null)
         addRecent({
           id: s.section_number,
           itemType: 'far',
@@ -234,6 +241,7 @@ export default function FarSectionScreen() {
             title: cached.title,
             body_text: cached.body_text ?? null,
           })
+          setOfflineCopy(cached)
         }
       }
       if (!citRes.error && citRes.data) {
@@ -259,6 +267,17 @@ export default function FarSectionScreen() {
     // it merges into the MagicLink pod whenever it happens to resolve.
     getSemanticRelated('far', id).then(setSemanticRelated)
   }, [id])
+
+  // Opportunistic staleness check -- see isDownloadStale's own comment.
+  // Only fires when actually rendering the offline fallback; degrades
+  // silently to `false` (no claim made) if there's genuinely no network to
+  // check with, which is the common reason this branch is rendering at all.
+  useEffect(() => {
+    if (!offlineCopy) { setOfflineStale(false); return }
+    let cancelled = false
+    isDownloadStale(offlineCopy).then((s) => { if (!cancelled) setOfflineStale(s) })
+    return () => { cancelled = true }
+  }, [offlineCopy])
 
   // Sibling section numbers within this section's own Part, for Prev/Next --
   // a lightweight second query once the Part is known, not blocking the
@@ -542,6 +561,9 @@ export default function FarSectionScreen() {
           onPrev={inDocSearch.goToPrev}
           onNext={inDocSearch.goToNext}
         />
+      )}
+      {!loading && offlineCopy && (
+        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} />
       )}
       {!loading && section && (
         <ChangedBanner
