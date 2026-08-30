@@ -151,3 +151,8 @@ scripts/.knowledge_level_id_map*.json
 scripts/.loi_text_cleanup_batch_state.json
 scripts/.loi_text_cleanup_id_map.json
 scripts/.loi_text_cleanup_sources_snapshot.json
+
+# reauthor_vague_ref_facts.py (Anthropic Batches API) — same resumable
+# checkpoint-state pattern; regenerates these on each run
+scripts/.reauthor_vague_batch_state.json
+scripts/.reauthor_vague_id_map.json
