@@ -276,6 +276,60 @@ def main():
                         key=ANON, jwt=invitee["jwt"])
         check("invitee cannot read the aircraft BEFORE accepting", not rows, str(rows))
 
+        print("\n=== PENDING INVITE INBOX (recipient can discover it without push) ===")
+        # RC, real device: "even if a person is somehow able to send an
+        # invite... the invite never comes to the intended recipient. Not
+        # through call sign, not through a text message, nothing." The DB
+        # row was never the problem (proven above -- it exists, pending,
+        # correct owner/role/token); what was missing is any way for the
+        # RECIPIENT to discover it if the one-shot push missed. This is the
+        # exact query getMyPendingAircraftInvites() (src/lib/aircraftSharing.ts)
+        # runs -- needs no new migration, since users_view_own_aircraft_
+        # collaborations already lets the invitee read their own row.
+        st, own_pending = http(
+            "GET",
+            f"/rest/v1/aircraft_collaborators?user_id=eq.{invitee['id']}&aircraft_id=eq.{aircraft_id}"
+            f"&left_at=is.null&accepted_at=is.null&invite_token=not.is.null"
+            f"&select=aircraft_id,invite_token,joined_at",
+            key=ANON, jwt=invitee["jwt"],
+        )
+        check("invitee can read their OWN pending invite row directly (no push needed)",
+              bool(own_pending) and len(own_pending) == 1, str(own_pending))
+        check("that row carries the real invite token",
+              bool(own_pending) and own_pending[0].get("invite_token") == invite_token,
+              str(own_pending))
+
+        st, stranger_pending = http(
+            "GET",
+            f"/rest/v1/aircraft_collaborators?user_id=eq.{stranger['id']}&aircraft_id=eq.{aircraft_id}"
+            f"&select=aircraft_id",
+            key=ANON, jwt=stranger["jwt"],
+        )
+        check("a stranger's own-row query returns nothing for someone else's invite",
+              not stranger_pending, str(stranger_pending))
+
+        # get_my_pending_aircraft_invites() -- the label-enrichment RPC from
+        # sync/migrations_aircraft_pending_invite_inbox.sql. NOT YET APPLIED
+        # (see that file's own header) -- this is a best-effort check, same
+        # as the client's own degrade-to-generic-label behavior, not a hard
+        # requirement for the inbox mechanism itself to work.
+        try:
+            pending_meta = rpc("get_my_pending_aircraft_invites", invitee["jwt"])
+            meta_row = next((m for m in (pending_meta or [])
+                              if str(m.get("out_aircraft_id")) == aircraft_id), None)
+            check("get_my_pending_aircraft_invites() returns this invite's label (migration applied)",
+                  bool(meta_row), str(pending_meta))
+            if meta_row:
+                check("label's inviter_label resolves to the owner's Callsign/name",
+                      bool(meta_row.get("out_inviter_label")), str(meta_row))
+                owner_meta = rpc("get_my_pending_aircraft_invites", owner["jwt"])
+                check("the OWNER calling the same RPC gets zero rows (self-scoped to the invitee only)",
+                      not owner_meta, str(owner_meta))
+        except RuntimeError as e:
+            print(f"  SKIP  get_my_pending_aircraft_invites() not callable yet -- "
+                  f"sync/migrations_aircraft_pending_invite_inbox.sql not applied ({e}). "
+                  f"Inbox still works via the raw-row check above; this is cosmetic-only.")
+
         hidden = rpc("get_fleet_hidden_count", invitee["jwt"])
         check("a pending, unaccepted invite does NOT inflate get_fleet_hidden_count",
               hidden == 0, f"got {hidden}, expected 0")
@@ -313,6 +367,15 @@ def main():
                                if str(c.get("out_user_id")) == invitee["id"]), {})
         check("roster now shows accepted=true",
               bool(inv_row_after.get("out_accepted")), str(inv_row_after))
+
+        st, own_pending_after = http(
+            "GET",
+            f"/rest/v1/aircraft_collaborators?user_id=eq.{invitee['id']}&aircraft_id=eq.{aircraft_id}"
+            f"&accepted_at=is.null&select=aircraft_id",
+            key=ANON, jwt=invitee["jwt"],
+        )
+        check("the pending-invite inbox query no longer returns it once accepted",
+              not own_pending_after, str(own_pending_after))
 
         print("\n=== AN INVITE ADDRESSED TO SOMEONE ELSE CANNOT BE REDEEMED ===")
         try:

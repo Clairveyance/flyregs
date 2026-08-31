@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Modal, Share, KeyboardAvoidingView, Platform, Keyboard, AppState } from 'react-native'
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Modal, Share, Image, Linking, KeyboardAvoidingView, Platform, Keyboard, AppState } from 'react-native'
+import * as Sentry from '@sentry/react-native'
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
@@ -35,6 +36,7 @@ import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 import { sendCollaborationInvitePush } from '@/lib/notifications'
 import { resolveCallsignToUserId } from '@/lib/contactMatch'
+import { getAircraftImageUrl, pickAndUploadAircraftImage, takeAndUploadAircraftImage, removeAircraftImage } from '@/lib/aircraftImage'
 
 // Equipment tags are Premium; reminders are Pro+ (see openAddReminder's own
 // comment below -- this used to say both were Premium, but that was wrong
@@ -254,7 +256,7 @@ export default function AircraftDetailScreen() {
     if (!id) return
     setLoading(true)
     Promise.all([
-      supabase.from('user_aircraft').select('id, make, model, nickname, type_designator, year, current_hobbs_hours, hobbs_updated_at').eq('id', id).single(),
+      supabase.from('user_aircraft').select('id, make, model, nickname, type_designator, year, current_hobbs_hours, hobbs_updated_at, image_path').eq('id', id).single(),
       getAircraftAdNotifications(id),
       getAircraftEquipment(id),
       getAircraftReminders(id),
@@ -315,6 +317,62 @@ export default function AircraftDetailScreen() {
   const isOwner = role === 'owner'
   const canEdit = role === 'owner' || role === 'editor'
 
+  // Ryan (Suggest a feature, 2026-08-30, submission 71a906b7): "utilize the
+  // same code that we used in the user profile avatars." Same error
+  // handling as account.tsx's own runAvatarPick (PERMISSION_DENIED ->
+  // Settings prompt, CANCELLED -> silent, anything else -> Sentry + a real
+  // error dialog) -- no optimistic local-uri override here, unlike avatars,
+  // since this photo only ever renders on this one screen at a time rather
+  // than several screens needing to agree on it simultaneously.
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const runAircraftImagePick = async (source: (onLocalUri: (uri: string) => void) => Promise<string>) => {
+    if (!aircraft || photoBusy) return
+    setPhotoBusy(true)
+    try {
+      const path = await source(() => {})
+      setAircraft((prev) => (prev ? { ...prev, image_path: path } : prev))
+    } catch (err: any) {
+      if (err?.message === 'PERMISSION_DENIED') {
+        confirm({
+          title: 'Access Disabled',
+          message: 'FlyRegs needs access to your camera or photos to set an aircraft photo. Enable it in Settings.',
+          confirmLabel: 'Open Settings',
+          onConfirm: () => Linking.openSettings(),
+        })
+      } else if (err?.message !== 'CANCELLED') {
+        Sentry.captureException(err)
+        confirm({ title: 'Error', message: 'Could not update this aircraft’s photo.', cancelLabel: null })
+      }
+    }
+    setPhotoBusy(false)
+  }
+
+  const handlePickAircraftImage = () => {
+    if (!aircraft || photoBusy) return
+    confirm({
+      title: 'Aircraft Photo',
+      choices: [
+        { label: 'Take Photo', onPress: () => { setTimeout(() => runAircraftImagePick((onLocalUri) => takeAndUploadAircraftImage(aircraft.id, onLocalUri)), 300) } },
+        { label: 'Choose from Library', onPress: () => { setTimeout(() => runAircraftImagePick((onLocalUri) => pickAndUploadAircraftImage(aircraft.id, onLocalUri)), 300) } },
+        ...(aircraft.image_path ? [{
+          label: 'Remove Photo', destructive: true, onPress: () => {
+            setTimeout(async () => {
+              setPhotoBusy(true)
+              try {
+                await removeAircraftImage(aircraft.id)
+                setAircraft((prev) => (prev ? { ...prev, image_path: null } : prev))
+              } catch (err) {
+                Sentry.captureException(err)
+                confirm({ title: 'Error', message: 'Could not remove this photo.', cancelLabel: null })
+              }
+              setPhotoBusy(false)
+            }, 300)
+          },
+        }] : []),
+      ],
+    })
+  }
+
   // RC: "make sure to fix the owner sharing perms for Fleet - Prem only,
   // both ends." The joiner side was already gated on isPremium
   // (join/[token].tsx) but this owner side wasn't -- a plain Pro owner
@@ -329,15 +387,41 @@ export default function AircraftDetailScreen() {
   // invisible on web, where Modal is just a portal div with no native
   // presentation stack to wedge. Folded both steps into the ONE modal below
   // instead of ever mounting two.
+  //
+  // RC, real device, a SEPARATE report the same night: "The sharing an
+  // invitation process inside the Aircraft section is completely broken...
+  // if a screen does pop up to select how you want to invite them, like as
+  // a viewer or editor, if you select one of those, then there's no screen
+  // that pops up for you to actually select who you want to invite." This
+  // is the exact same deadlock class as the paragraph above, just ONE STEP
+  // EARLIER and never caught by that fix: handleShare's own confirm() sheet
+  // (Callsign/Link/Multiple) is ConfirmDialog's <Modal>; its runChoice()
+  // calls `await c.onPress()` and only closes that Modal (via closeIfCurrent)
+  // AFTER onPress returns. Every choice below used to call setShareStep('role')
+  // SYNCHRONOUSLY, which sets the 'role' Modal's own visible=true in the
+  // SAME commit runChoice's `setBusy(true)` renders with opts (and therefore
+  // this sheet's Modal) still non-null -- two RN <Modal>s both wanting to be
+  // visible at once, the identical deadlock, just at the method-choice ->
+  // role-picker handoff instead of the role-picker -> Callsign-field handoff.
+  // folder/[id].tsx's handleInviteChoice hit and fixed this same shape for
+  // its own "Invite by Callsign" choice (see that function's own comment,
+  // 2026-08-22 re-report) by deferring past this sheet's own fade-out
+  // (animationType "fade" on ConfirmDialog's Modal) with a setTimeout --
+  // applying the identical fix here, since this call site was never audited
+  // against that fix (different file, different choice list). This alone
+  // explains RC's blanket "not through call sign, not through a text
+  // message, nothing" for the separate can't-even-send-it complaint too --
+  // ALL THREE invite methods route through this same confirm() sheet, so
+  // all three were equally blocked at this single choke point.
   const handleShare = () => {
     if (!aircraft) return
     if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
     confirm({
       title: 'Share this aircraft',
       choices: [
-        { label: 'Invite by Callsign', onPress: () => { setInviteMethod('callsign'); setShareStep('role') } },
-        { label: 'Invite by Link', onPress: () => { setInviteMethod('link'); setShareStep('role') } },
-        { label: 'Invite Multiple (Contacts)', onPress: () => { setInviteMethod('multiple'); setShareStep('role') } },
+        { label: 'Invite by Callsign', onPress: () => { setTimeout(() => { setInviteMethod('callsign'); setShareStep('role') }, 300) } },
+        { label: 'Invite by Link', onPress: () => { setTimeout(() => { setInviteMethod('link'); setShareStep('role') }, 300) } },
+        { label: 'Invite Multiple (Contacts)', onPress: () => { setTimeout(() => { setInviteMethod('multiple'); setShareStep('role') }, 300) } },
       ],
     })
   }
@@ -362,22 +446,39 @@ export default function AircraftDetailScreen() {
       return
     }
     setSharingBusy(false)
+    // Both branches below close THIS modal, then hand off to a second
+    // presenter (the OS share sheet, or BulkInviteContactPicker's own real
+    // RN <Modal>) -- deferred 300ms, same value and same reason as
+    // handleShare's own fix above. closeShareModal() and the hand-off used
+    // to fire in the exact same commit (no await between them), which for
+    // 'multiple' is the identical two-RN-<Modal>-at-once deadlock (this
+    // modal's slide-out dismiss racing BulkInviteContactPicker's own
+    // present), and for 'link' is the same iOS UIKit collision one level
+    // down: Share.share() presents a UIActivityViewController through the
+    // same present/dismiss API family RN's <Modal> uses under the hood, so
+    // calling it while this modal is still mid-dismiss carries the same
+    // risk. Not something this file's own 2026-08-15 real-device report
+    // called out by name, but the exact same shape as the two deadlocks that
+    // WERE reported (see handleShare above) -- fixed alongside them rather
+    // than left as a live landmine one tap further into the same flow.
     if (inviteMethod === 'link') {
       closeShareModal()
-      try {
-        await Share.share({ message: link })
-      } catch {
-        // Link is already live either way -- a cancelled/unavailable share
-        // sheet isn't a real failure, same reasoning as submitInvite below.
-        confirm({ title: 'Invite link ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
-      }
+      setTimeout(async () => {
+        try {
+          await Share.share({ message: link })
+        } catch {
+          // Link is already live either way -- a cancelled/unavailable share
+          // sheet isn't a real failure, same reasoning as submitInvite below.
+          confirm({ title: 'Invite link ready', message: 'Copy or share this link:', linkMessage: link, cancelLabel: null })
+        }
+      }, 300)
       return
     }
     // 'multiple' -- hand the same link's token to the real multi-select
     // contact picker, same as folder's own openBulkInvite.
     bulkInviteTokenRef.current = token
     closeShareModal()
-    setBulkInviteVisible(true)
+    setTimeout(() => setBulkInviteVisible(true), 300)
   }
 
   const closeShareModal = () => {
@@ -709,6 +810,38 @@ export default function AircraftDetailScreen() {
       />
       <TabletContainer>
         <ScrollView contentContainerStyle={styles.content}>
+          {/* Ryan (Suggest a feature, 2026-08-30, submission 590f4a48): "when
+              you actually open up the Aircraft page itself, we could
+              probably put that Aircraft image here in this empty space at
+              the top." Owner/editor with no photo yet sees a tappable
+              placeholder that opens the same picker; a viewer with no photo
+              sees nothing at all, matching every other edit-only affordance
+              on this screen. */}
+          {aircraft.image_path ? (
+            <Pressable onPress={canEdit ? handlePickAircraftImage : undefined} disabled={photoBusy}>
+              <Image source={{ uri: getAircraftImageUrl(aircraft.image_path) ?? undefined }} style={styles.heroImage} />
+              {photoBusy && (
+                <View style={[styles.heroImageOverlay, { backgroundColor: tokens.bg + 'aa' }]}>
+                  <ActivityIndicator color={tokens.blu} />
+                </View>
+              )}
+            </Pressable>
+          ) : canEdit ? (
+            <Pressable
+              style={[styles.heroPlaceholder, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}
+              onPress={handlePickAircraftImage}
+              disabled={photoBusy}
+            >
+              {photoBusy ? (
+                <ActivityIndicator color={tokens.blu} />
+              ) : (
+                <>
+                  <Icon name="camera" size={fs(22)} color={tokens.t3} />
+                  <Text style={[styles.heroPlaceholderText, { color: tokens.t3, fontSize: fs(13) }]}>Add a photo</Text>
+                </>
+              )}
+            </Pressable>
+          ) : null}
           <View style={styles.acLineRow}>
             <Text style={[styles.acLine, { color: tokens.t1, fontSize: fs(17) }]}>{aircraft.make} {aircraft.model}</Text>
             {!isOwner && role && (
@@ -2194,6 +2327,13 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   content: { padding: 16, paddingBottom: 40 },
+  heroImage: { width: '100%', height: 200, borderRadius: 14, marginBottom: 14 },
+  heroImageOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  heroPlaceholder: {
+    width: '100%', height: 140, borderRadius: 14, borderWidth: 1, borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 14,
+  },
+  heroPlaceholderText: { fontWeight: '600' },
   relatedNote: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 7,
     borderRadius: 10, borderWidth: 1, padding: 10, marginBottom: 10,

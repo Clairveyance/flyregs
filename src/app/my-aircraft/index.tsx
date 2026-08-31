@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import Reanimated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, useReducedMotion, interpolateColor,
 } from 'react-native-reanimated'
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Modal, KeyboardAvoidingView, Platform, AppState } from 'react-native'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Modal, Image, KeyboardAvoidingView, Platform, AppState } from 'react-native'
 import { router, useFocusEffect, useIsFocused } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useTheme, type ThemeTokens } from '@/context/theme'
@@ -19,8 +19,13 @@ import { backfillAircraftAds, getAircraftAdNotifications, markAdComplied, unmark
 import { getAircraftReminders, type AircraftReminder } from '@/lib/adParts'
 import {
   getFleetSummary,
+  getMyPendingAircraftInvites,
+  joinSharedAircraft,
+  leaveSharedAircraft,
   type FleetAircraftSummary,
+  type PendingAircraftInvite,
 } from '@/lib/aircraftSharing'
+import { getAircraftImageUrl } from '@/lib/aircraftImage'
 import { SwipeToDelete } from '@/components/SwipeToDelete'
 import { HobbsUpdateModal } from '@/components/HobbsUpdateModal'
 import {
@@ -1045,6 +1050,22 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   const confirm = useConfirm()
   const [aircraft, setAircraft] = useState<FleetAircraftSummary[]>([])
   const [loading, setLoading] = useState(true)
+  // RC, real device: "even if a person is somehow able to send an invite in
+  // the Aircraft section the invite never comes to the intended recipient.
+  // Not through call sign, not through a text message, nothing." Root
+  // cause: invite_aircraft_collaborator already writes a real, durable row
+  // (see aircraftSharing.ts's own comment on getMyPendingAircraftInvites) --
+  // the only DELIVERY channel was a best-effort push, and nothing else in
+  // the app ever surfaced a pending invite if that push missed. Same fix,
+  // same place in the flow, as saved.tsx's renderPendingInvites for folders.
+  const [pendingInvites, setPendingInvites] = useState<PendingAircraftInvite[]>([])
+  const [pendingInvitesBusy, setPendingInvitesBusy] = useState<Set<string>>(new Set())
+  // Ryan (Suggest a feature, 2026-08-30, submission 71a906b7): "utilize the
+  // same code that we used in the user profile avatars... allow you to tap
+  // on that image and have it show up in a larger pop-up window on screen."
+  // A single shared full-screen viewer for the whole list, rather than one
+  // per row -- only ever one photo can be zoomed at a time.
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null)
   // RC: "make sure the Icon and h/t time also appear here" -- the same
   // self-reported hobbs/tach value shown on the aircraft detail screen,
   // now also visible (and editable inline, no navigation) on the list row.
@@ -1290,9 +1311,18 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
       setExpandedDetails({})
       setExpandedId(null)
       expandedIdRef.current = null
+      setPendingInvites([])
       setLoading(false)
       return
     }
+
+    // Independent of the fleet fetch below and of tier -- a Callsign invite
+    // can exist for an account before it has Premium (join_shared_aircraft
+    // is what actually enforces that gate, at Accept time), and this list
+    // needs to show up even for a fleet of zero owned/joined aircraft (a
+    // freshly-invited user with nothing else in My Aircraft yet is exactly
+    // who most needs to see it).
+    getMyPendingAircraftInvites().then(setPendingInvites).catch(() => setPendingInvites([]))
     // Cache-first, same shape as Home's own `load` (HOME_CACHE_KEY) -- shows
     // the last-known fleet + ring/badge numbers instantly (RC: "everything
     // in the app... must always open very fast"), then the real fetch below
@@ -1391,6 +1421,67 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
       .catch((e) => console.error('Failed to load fleet summary:', e?.message ?? e))
       .finally(() => setLoading(false))
   }, [session?.user?.id, isPro, isPremium])
+
+  // Accept/decline for a pending Callsign invite -- same pair of actions,
+  // same reasoning, as saved.tsx's own handleAcceptInvite/handleDeclineInvite
+  // for folders. joinSharedAircraft is the exact same RPC join/[token].tsx
+  // runs when someone taps an invite link or a push notification, so
+  // accepting from this list and accepting from the notification are
+  // literally the same server-side operation.
+  const setPendingInviteBusy = (aircraftId: string, busy: boolean) =>
+    setPendingInvitesBusy((prev) => {
+      const next = new Set(prev)
+      if (busy) next.add(aircraftId)
+      else next.delete(aircraftId)
+      return next
+    })
+
+  const handleAcceptInvite = async (invite: PendingAircraftInvite) => {
+    if (pendingInvitesBusy.has(invite.aircraftId)) return
+    setPendingInviteBusy(invite.aircraftId, true)
+    try {
+      const joined = await joinSharedAircraft(invite.token)
+      setPendingInvites((prev) => prev.filter((p) => p.aircraftId !== invite.aircraftId))
+      load()
+      router.push(`/my-aircraft/${joined.aircraftId}`)
+    } catch (e: any) {
+      // join_shared_aircraft raises real, specific messages worth showing
+      // verbatim ("Aircraft sharing requires Premium", "This invite has
+      // already been accepted") rather than a generic retry prompt -- none
+      // of them get better by trying again.
+      confirm({ title: "Couldn't join", message: e?.message ?? 'Try again in a moment.', cancelLabel: null })
+    } finally {
+      setPendingInviteBusy(invite.aircraftId, false)
+    }
+  }
+
+  const handleDeclineInvite = (invite: PendingAircraftInvite) => {
+    const label = invite.nickname || (invite.make && invite.model ? `${invite.make} ${invite.model}` : 'this aircraft')
+    confirm({
+      title: 'Decline invite',
+      message: `Turn down the invite to ${label}? The owner will need to invite you again.`,
+      confirmLabel: 'Decline',
+      destructive: true,
+      twoStep: false,
+      onConfirm: async () => {
+        setPendingInviteBusy(invite.aircraftId, true)
+        try {
+          // Reuses leaveSharedAircraft as-is -- unlike folders' soft-delete
+          // (left_at UPDATE), aircraft_collaborators' own self-leave policy
+          // (users_leave_shared_aircraft) is a real DELETE regardless of
+          // acceptance state, which is exactly what declining an invite
+          // that was never accepted needs too. No separate function to
+          // duplicate the same one-line query.
+          await leaveSharedAircraft(invite.aircraftId)
+          setPendingInvites((prev) => prev.filter((p) => p.aircraftId !== invite.aircraftId))
+        } catch {
+          confirm({ title: 'Error', message: 'Could not decline that invite. Try again in a moment.', cancelLabel: null })
+        } finally {
+          setPendingInviteBusy(invite.aircraftId, false)
+        }
+      },
+    })
+  }
 
   // useFocusEffect, not a plain mount-only useEffect: this screen stays
   // mounted in the background while you're on an aircraft's detail screen,
@@ -1696,9 +1787,65 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
             />
           </View>
 
-          {aircraft.length === 0 ? (
+          {/* Rendered above the fleet list, and also on its own when there's
+              nothing else in My Aircraft yet -- a freshly-invited user with
+              zero owned/joined aircraft is exactly who most needs to see
+              this, and the empty state below used to short-circuit the
+              whole screen before reaching it. */}
+          {pendingInvites.length > 0 && (
+            <View style={styles.pendingWrap}>
+              <Text style={[styles.pendingHeader, { color: tokens.t3, fontSize: fs(11) }]}>
+                PENDING INVITE{pendingInvites.length === 1 ? '' : 'S'}
+              </Text>
+              {pendingInvites.map((invite) => {
+                const busy = pendingInvitesBusy.has(invite.aircraftId)
+                const label = invite.nickname || (invite.make && invite.model ? `${invite.make} ${invite.model}` : 'An aircraft')
+                return (
+                  <View
+                    key={invite.aircraftId}
+                    style={[styles.pendingRow, { backgroundColor: tokens.bg2, borderColor: tokens.blu }]}
+                  >
+                    <Icon name="envelope" size={fs(18)} color={tokens.blu} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.pendingRowText, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
+                        {label}
+                      </Text>
+                      <Text style={[styles.pendingRowSub, { color: tokens.t3, fontSize: fs(11.5) }]} numberOfLines={1}>
+                        {invite.inviterLabel ? `Invited by ${invite.inviterLabel}` : 'You were invited to collaborate'}
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => handleDeclineInvite(invite)}
+                      disabled={busy}
+                      hitSlop={8}
+                      style={styles.pendingDecline}
+                      accessibilityRole="button"
+                      accessibilityLabel="Decline invite"
+                    >
+                      <Text style={[styles.pendingDeclineText, { color: tokens.t3, fontSize: fs(12.5) }]}>Decline</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => handleAcceptInvite(invite)}
+                      disabled={busy}
+                      style={[styles.pendingAccept, { backgroundColor: tokens.blu, opacity: busy ? 0.6 : 1 }]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Accept invite"
+                    >
+                      {busy ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Text style={[styles.pendingAcceptText, { fontSize: fs(12.5) }]}>Accept</Text>
+                      )}
+                    </Pressable>
+                  </View>
+                )
+              })}
+            </View>
+          )}
+
+          {aircraft.length === 0 && pendingInvites.length === 0 ? (
             <Text style={[styles.empty, { color: tokens.t3, fontSize: fs(14) }]}>No aircraft saved yet</Text>
-          ) : (
+          ) : aircraft.length === 0 ? null : (
             <>
               {/* Fleet compliance card -- Premium only. RC: "you said you
                   were going to redesign Pro to have a similar feel as
@@ -1823,9 +1970,15 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                       disabled={a.role !== 'owner'}
                     >
                     <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
-                      <View style={[styles.rowIconBadge, { backgroundColor: tokens.bdim }]}>
-                        <Icon name="airplane" size={fs(15)} color={tokens.t2} />
-                      </View>
+                      {a.imagePath ? (
+                        <Pressable onPress={(e) => { e.stopPropagation(); setZoomedImage(getAircraftImageUrl(a.imagePath)) }}>
+                          <Image source={{ uri: getAircraftImageUrl(a.imagePath) ?? undefined }} style={styles.rowImage} />
+                        </Pressable>
+                      ) : (
+                        <View style={[styles.rowIconBadge, { backgroundColor: tokens.bdim }]}>
+                          <Icon name="airplane" size={fs(15)} color={tokens.t2} />
+                        </View>
+                      )}
                       <View style={{ flex: 1 }}>
                         <View style={styles.rowMakeLine}>
                           <Text style={[styles.rowMake, { color: tokens.t1, fontSize: fs(14.5) }]}>{primaryLabel}</Text>
@@ -2072,6 +2225,16 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
           setHobbsEditing(null)
         }}
       />
+
+      {/* Full-screen photo viewer -- see zoomedImage's own comment above. */}
+      <Modal visible={!!zoomedImage} transparent animationType="fade" onRequestClose={() => setZoomedImage(null)}>
+        <Pressable style={styles.zoomBackdrop} onPress={() => setZoomedImage(null)}>
+          {zoomedImage && <Image source={{ uri: zoomedImage }} style={styles.zoomImage} resizeMode="contain" />}
+          <Pressable style={styles.zoomClose} onPress={() => setZoomedImage(null)} hitSlop={12}>
+            <Icon name="xmark" size={fs(20)} color="#fff" />
+          </Pressable>
+        </Pressable>
+      </Modal>
     </KeyboardAvoidingView>
   )
 }
@@ -2104,6 +2267,7 @@ const styles = StyleSheet.create({
   list: { borderRadius: 12, borderWidth: 1, marginBottom: 20, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 10 },
   rowIconBadge: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  rowImage: { width: 32, height: 32, borderRadius: 16 },
   rowMakeLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   rowMake: { fontWeight: '600' },
   rowNickname: { marginTop: 2 },
@@ -2207,4 +2371,23 @@ const styles = StyleSheet.create({
   modalCard: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, padding: 18, gap: 4 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   modalTitle: { fontWeight: '700' },
+  // Pending Callsign invites -- same card shape/behavior as saved.tsx's own
+  // renderPendingInvites for folders (that file's sharedRow + pendingRow
+  // combined into one self-contained style here, since this screen has no
+  // sharedRow of its own to borrow).
+  pendingWrap: { gap: 10, marginBottom: 16 },
+  pendingHeader: { fontWeight: '700', letterSpacing: 0.6, paddingLeft: 2, marginBottom: 2 },
+  pendingRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    padding: 14, borderRadius: 14, borderWidth: 1,
+  },
+  pendingRowText: { fontWeight: '600' },
+  pendingRowSub: { marginTop: 2 },
+  pendingDecline: { paddingHorizontal: 6, paddingVertical: 8 },
+  pendingDeclineText: { fontWeight: '600' },
+  pendingAccept: { borderRadius: 16, paddingHorizontal: 14, paddingVertical: 7, minWidth: 68, alignItems: 'center', justifyContent: 'center' },
+  pendingAcceptText: { color: '#fff', fontWeight: '700' },
+  zoomBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', alignItems: 'center', justifyContent: 'center' },
+  zoomImage: { width: '100%', height: '80%' },
+  zoomClose: { position: 'absolute', top: 60, right: 20, padding: 8 },
 })

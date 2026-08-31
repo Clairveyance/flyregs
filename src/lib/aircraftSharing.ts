@@ -255,6 +255,7 @@ export interface FleetAircraftSummary {
   compliantAdCount: number
   overdueReminderCount: number
   currentHobbsHours: number | null
+  imagePath: string | null
 }
 
 // The single data source for My Fleet's list screen -- owned AND shared
@@ -276,7 +277,7 @@ export async function getFleetSummary(): Promise<FleetAircraftSummary[]> {
     aircraftId: row.out_aircraft_id, make: row.out_make, model: row.out_model, nickname: row.out_nickname,
     typeDesignator: row.out_type_designator, year: row.out_year, role: row.out_role,
     openAdCount: row.out_open_ad_count, compliantAdCount: row.out_compliant_ad_count, overdueReminderCount: row.out_overdue_reminder_count,
-    currentHobbsHours: row.out_current_hobbs_hours,
+    currentHobbsHours: row.out_current_hobbs_hours, imagePath: row.out_image_path,
   }))
 }
 
@@ -381,6 +382,81 @@ export async function getMyAircraftRole(aircraftId: string): Promise<Collaborato
     .maybeSingle()
   if (error) throw error
   return (data?.role as CollaboratorRole) ?? null
+}
+
+// RC, real device, two separate reports the same night: (1) "the sharing an
+// invitation process inside the Aircraft section is completely broken" and
+// (2) "even if a person is somehow able to send an invite... the invite
+// never comes to the intended recipient. Not through call sign, not through
+// a text message, nothing." (1) turned out to be a modal-presentation
+// deadlock in my-aircraft/[id].tsx's handleShare -- see that function's own
+// comment. This is the fix for (2), and it's the EXACT same bug class
+// sharedFolders.ts's getMyPendingFolderInvites was just built to fix for
+// folders tonight (sync/migrations_folder_pending_invite_inbox.sql): the
+// only delivery channel a Callsign invite ever had was a best-effort Expo
+// push (sendCollaborationInvitePush), which is a silent no-op for a brand
+// new account with no push_tokens row yet, anyone who declined the
+// notification prompt, or a push that simply didn't arrive -- and nothing
+// else in the app ever listed a pending invite. The row itself was never the
+// problem (invite_aircraft_collaborator already writes a real, durable
+// aircraft_collaborators row with accepted_at NULL); it was completely
+// undiscoverable if the one-shot push missed.
+//
+// users_view_own_aircraft_collaborations (auth.uid() = user_id) already lets
+// the invitee read their own pending row including invite_token, so the
+// list itself needs no migration. The aircraft's OWN name does --
+// has_aircraft_access() (and therefore collaborators_view_shared_aircraft)
+// deliberately requires accepted_at IS NOT NULL, so a plain embedded select
+// can't see it -- the label is best-effort via an optional RPC (see
+// sync/migrations_aircraft_pending_invite_inbox.sql) and degrades to a
+// generic title if that migration hasn't been applied yet, rather than
+// gating the whole feature on it.
+export interface PendingAircraftInvite {
+  aircraftId: string
+  /** The per-person invite token -- what join_shared_aircraft needs to
+   * accept. Never the aircraft's anonymous share_code. */
+  token: string
+  /** Null until sync/migrations_aircraft_pending_invite_inbox.sql is
+   * applied (RLS correctly hides an unaccepted aircraft's own row). */
+  nickname: string | null
+  make: string | null
+  model: string | null
+  inviterLabel: string | null
+  invitedAt: string
+}
+
+export async function getMyPendingAircraftInvites(): Promise<PendingAircraftInvite[]> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  const { data: rows } = await supabase
+    .from('aircraft_collaborators')
+    .select('aircraft_id, invite_token, joined_at')
+    .eq('user_id', user.id)
+    .is('left_at', null)
+    .is('accepted_at', null)
+    .not('invite_token', 'is', null)
+  if (!rows?.length) return []
+
+  // Best-effort enrichment, same shape (and same reason) as
+  // getAircraftCollaborators' own owner-side lookup: a missing label is a
+  // cosmetic downgrade, never a reason to hide a real invite.
+  const { data: meta } = await supabase
+    .rpc('get_my_pending_aircraft_invites')
+    .then((res) => res, () => ({ data: null as any[] | null }))
+  const metaMap = new Map<string, { nickname: string | null; make: string | null; model: string | null; inviter: string | null }>(
+    (meta ?? []).map((m: any) => [m.out_aircraft_id, { nickname: m.out_nickname, make: m.out_make, model: m.out_model, inviter: m.out_inviter_label }])
+  )
+
+  return rows.map((r: any) => ({
+    aircraftId: r.aircraft_id,
+    token: r.invite_token as string,
+    nickname: metaMap.get(r.aircraft_id)?.nickname ?? null,
+    make: metaMap.get(r.aircraft_id)?.make ?? null,
+    model: metaMap.get(r.aircraft_id)?.model ?? null,
+    inviterLabel: metaMap.get(r.aircraft_id)?.inviter ?? null,
+    invitedAt: r.joined_at,
+  }))
 }
 
 // Same gap, same fix as sharedFolders.ts's useFolderRealtime: this screen

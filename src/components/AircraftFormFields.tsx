@@ -48,6 +48,9 @@ export interface UserAircraft {
   // select() (e.g. the Fleet list doesn't need it), so both are optional.
   current_hobbs_hours?: number | null
   hobbs_updated_at?: string | null
+  // Not present on every screen's select() (e.g. the invite/role pickers
+  // don't need it) -- optional for the same reason as the hobbs fields above.
+  image_path?: string | null
 }
 
 // Typeahead against the real FAA registry catalog (task #12, backed by
