@@ -35,7 +35,7 @@ import {
 } from '@/lib/folders'
 import { getResolvedFolderItemCounts } from '@/lib/folderCounts'
 import { isSyncEnabled, enableSync, disableSync } from '@/lib/sync'
-import { getMyCollaborations, getMySharedFolders, getOrCreateShareLink, confirmFolderShared, SharedFolderSummary, SharedByMeFolder } from '@/lib/sharedFolders'
+import { getMyCollaborations, getMySharedFolders, getOrCreateShareLink, confirmFolderShared, getMyPendingFolderInvites, declineFolderInvite, joinSharedFolder, SharedFolderSummary, SharedByMeFolder, PendingFolderInvite } from '@/lib/sharedFolders'
 import { FolderListView } from '@/components/FolderListView'
 import { HeaderOverflowMenu } from '@/components/HeaderOverflowMenu'
 import { FolderPicker } from '@/components/FolderPicker'
@@ -149,6 +149,15 @@ export default function SavedScreen() {
   // saved.tsx never did. Found in the post-build-31 sweep.
   const [sharedLoading, setSharedLoading] = useState(true)
   const [sharedSubTab, setSharedSubTab] = useState<'withMe' | 'fromMe'>('withMe')
+  // Callsign invites this account has been sent but not yet accepted. Kept
+  // separate from `collaborations` on purpose: an unaccepted invite has no
+  // readable folder yet (collaborators_view_shared_folders requires
+  // accepted_at IS NOT NULL) so it can't be opened, only accepted or
+  // declined. See getMyPendingFolderInvites for the four real reports this
+  // exists to answer -- before it, a Callsign invite whose push notification
+  // didn't land was completely undiscoverable in the app.
+  const [pendingInvites, setPendingInvites] = useState<PendingFolderInvite[]>([])
+  const [invitesBusy, setInvitesBusy] = useState<Set<string>>(new Set())
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({})
   const [pickerAC, setPickerAC] = useState<BookmarkAC | null>(null)
   const [pickerDownloadId, setPickerDownloadId] = useState<string | null>(null)
@@ -316,13 +325,23 @@ export default function SavedScreen() {
     // Premium to create one), so this is gated on being signed in, not Premium.
     if (session?.user?.id) {
       setSharedLoading(true)
-      Promise.all([getMyCollaborations(), getMySharedFolders()]).then(([c, s]) => {
+      // The pending-invite fetch is .catch'd to [] on its own rather than
+      // riding on this Promise.all's (already un-caught) rejection path --
+      // a new, secondary list must never be able to leave the whole Shared
+      // tab stuck on its spinner.
+      Promise.all([
+        getMyCollaborations(),
+        getMySharedFolders(),
+        getMyPendingFolderInvites().catch(() => [] as PendingFolderInvite[]),
+      ]).then(([c, s, p]) => {
         setCollaborations(c)
         setSharedByMe(s)
+        setPendingInvites(p)
         setSharedLoading(false)
       })
     } else {
       setSharedLoading(false)
+      setPendingInvites([])
     }
   }, [session?.user?.id])
 
@@ -671,6 +690,114 @@ export default function SavedScreen() {
       },
     })
   }
+
+  // Accept/decline for a pending Callsign invite. joinSharedFolder is the
+  // exact same RPC join/[token].tsx runs when someone taps an invite link or
+  // a push notification -- this just reaches it from a list instead of a
+  // deep link, so accepting here and accepting from the notification are
+  // literally the same server-side operation.
+  const setInviteBusy = (folderId: string, busy: boolean) =>
+    setInvitesBusy((prev) => {
+      const next = new Set(prev)
+      if (busy) next.add(folderId)
+      else next.delete(folderId)
+      return next
+    })
+
+  const handleAcceptInvite = async (invite: PendingFolderInvite) => {
+    if (invitesBusy.has(invite.folderId)) return
+    setInviteBusy(invite.folderId, true)
+    try {
+      await joinSharedFolder(invite.token)
+      setPendingInvites((prev) => prev.filter((p) => p.folderId !== invite.folderId))
+      load()
+      router.push(`/folder/shared/${invite.folderId}`)
+    } catch (e: any) {
+      // join_shared_folder raises real, specific messages worth showing
+      // verbatim ("Folder sharing requires Premium", "This invite has
+      // already been accepted") rather than a generic retry prompt -- none
+      // of them get better by trying again.
+      confirm({ title: "Couldn't join", message: e?.message ?? 'Try again in a moment.', cancelLabel: null })
+    } finally {
+      setInviteBusy(invite.folderId, false)
+    }
+  }
+
+  const handleDeclineInvite = (invite: PendingFolderInvite) => {
+    confirm({
+      title: 'Decline invite',
+      message: `Turn down the invite to "${invite.folderName ?? 'this folder'}"? The owner will need to invite you again.`,
+      confirmLabel: 'Decline',
+      destructive: true,
+      twoStep: false,
+      onConfirm: async () => {
+        setInviteBusy(invite.folderId, true)
+        try {
+          await declineFolderInvite(invite.folderId)
+          setPendingInvites((prev) => prev.filter((p) => p.folderId !== invite.folderId))
+        } catch {
+          confirm({ title: 'Error', message: 'Could not decline that invite. Try again in a moment.', cancelLabel: null })
+        } finally {
+          setInviteBusy(invite.folderId, false)
+        }
+      },
+    })
+  }
+
+  // Rendered above the joined-folder list in With Me, and also on its own
+  // when there are no joined folders yet -- the empty state below used to
+  // short-circuit the whole tab, which would have hidden the one thing a
+  // freshly-invited user opens this screen to find.
+  const renderPendingInvites = () =>
+    pendingInvites.length === 0 ? null : (
+      <View style={styles.pendingWrap}>
+        <Text style={[styles.pendingHeader, { color: tokens.t3, fontSize: fs(11) }]}>
+          PENDING INVITE{pendingInvites.length === 1 ? '' : 'S'}
+        </Text>
+        {pendingInvites.map((invite) => {
+          const busy = invitesBusy.has(invite.folderId)
+          return (
+            <View
+              key={invite.folderId}
+              style={[styles.sharedRow, styles.pendingRow, { backgroundColor: tokens.bg2, borderColor: tokens.blu }]}
+            >
+              <Icon name="envelope" size={fs(18)} color={tokens.blu} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sharedRowText, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>
+                  {invite.folderName ?? 'A shared folder'}
+                </Text>
+                <Text style={[styles.sharedRowSub, { color: tokens.t3, fontSize: fs(11.5) }]} numberOfLines={1}>
+                  {invite.inviterLabel ? `Invited by ${invite.inviterLabel}` : 'You were invited to collaborate'}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => handleDeclineInvite(invite)}
+                disabled={busy}
+                hitSlop={8}
+                style={styles.pendingDecline}
+                accessibilityRole="button"
+                accessibilityLabel="Decline invite"
+              >
+                <Text style={[styles.pendingDeclineText, { color: tokens.t3, fontSize: fs(12.5) }]}>Decline</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => handleAcceptInvite(invite)}
+                disabled={busy}
+                style={[styles.pendingAccept, { backgroundColor: tokens.blu, opacity: busy ? 0.6 : 1 }]}
+                accessibilityRole="button"
+                accessibilityLabel="Accept invite"
+              >
+                {busy ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={[styles.pendingAcceptText, { fontSize: fs(12.5) }]}>Accept</Text>
+                )}
+              </Pressable>
+            </View>
+          )
+        })}
+      </View>
+    )
 
   // Real folder sharing -- generates the same persistent join/<token> invite
   // link folder/[id].tsx's own "Invite" button does, so it actually creates
@@ -1022,7 +1149,7 @@ export default function SavedScreen() {
               <View style={styles.center}>
                 <ActivityIndicator color={tokens.blu} />
               </View>
-            ) : collaborations.length === 0 ? (
+            ) : collaborations.length === 0 && pendingInvites.length === 0 ? (
               <View style={styles.center}>
                 <Icon name="person.2.fill" size={fs(40)} color={tokens.t4} />
                 <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Nothing shared with you yet</Text>
@@ -1036,6 +1163,10 @@ export default function SavedScreen() {
                 keyExtractor={(c) => c.folder_id}
                 contentContainerStyle={styles.sharedList}
                 keyboardDismissMode="interactive"
+                // Pending Callsign invites sit above the folders already
+                // joined -- an invite is the thing that needs an action, a
+                // joined folder is just there to open.
+                ListHeaderComponent={renderPendingInvites()}
                 refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={tokens.t3} />}
                 renderItem={({ item }) => (
                   <Pressable
@@ -1900,6 +2031,17 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   sharedRowTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  // Pending Callsign invites (see renderPendingInvites). Reuses sharedRow's
+  // card shape so an invite reads as the same kind of object as the folders
+  // under it, with a blue border and its own two actions instead of a
+  // chevron.
+  pendingWrap: { gap: 10, marginBottom: 4 },
+  pendingHeader: { fontWeight: '700', letterSpacing: 0.6, paddingLeft: 2 },
+  pendingRow: { borderWidth: 1 },
+  pendingDecline: { paddingHorizontal: 6, paddingVertical: 8 },
+  pendingDeclineText: { fontWeight: '600' },
+  pendingAccept: { borderRadius: 16, paddingHorizontal: 14, paddingVertical: 7, minWidth: 68, alignItems: 'center', justifyContent: 'center' },
+  pendingAcceptText: { color: '#fff', fontWeight: '700' },
   unreadDot: { width: 7, height: 7, borderRadius: 3.5 },
   sharedRowText: { fontWeight: '600' },
   sharedRowSub: { marginTop: 2 },

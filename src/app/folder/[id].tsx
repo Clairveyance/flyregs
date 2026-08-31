@@ -37,7 +37,7 @@ import { toRegShareType } from '@/lib/regShare'
 import { REG_TYPE, RegType } from '@/lib/regTypes'
 import { highlightSnippet } from '@/lib/acShare'
 import {
-  getOrCreateShareLink, confirmFolderShared, getFolderCollaborators, removeCollaborator, FolderCollaborator,
+  getOrCreateShareLink, confirmFolderShared, confirmFolderSharedByInvite, getFolderCollaborators, removeCollaborator, FolderCollaborator,
   getFolderCollabMode, setFolderCollabMode, setCollaboratorMode, FolderCollabMode, resolveForeignFolderEntries, resolveForeignNoteEntries, updateSharedNote,
   useFolderRealtime, inviteCollaboratorByCallsign, buildShareLink,
 } from '@/lib/sharedFolders'
@@ -279,8 +279,21 @@ export default function FolderDetail() {
   // refresh that never reaches the channel (supabase-js requires an
   // explicit realtime.setAuth() call this codebase doesn't make), a
   // carrier/Wi-Fi handoff, or any other silent drop -- with nothing here to
-  // notice or recover until the next focus/background cycle. A periodic
-  // re-sync while this screen is genuinely focused closes that gap: worst
+  // notice or recover until the next focus/background cycle.
+  //
+  // CORRECTION (2026-08-30, verified directly against
+  // node_modules/@supabase/supabase-js/dist/index.mjs at the pinned 2.108.2):
+  // the "an hourly access-token refresh that never reaches the channel
+  // (supabase-js requires an explicit realtime.setAuth() call this codebase
+  // doesn't make)" clause above is NOT true for this version.
+  // SupabaseClient._listenForAuthEvents/_handleTokenChanged already calls
+  // this.realtime.setAuth(token) on both TOKEN_REFRESHED and SIGNED_IN, so a
+  // refreshed token does reach an open channel on its own. The rest of the
+  // reasoning stands unchanged (a silently-dropped socket, a carrier/Wi-Fi
+  // handoff, or simply staying on this screen for a long stretch), and so
+  // does the fix -- kept rather than deleted, since a stale-token diagnosis
+  // being wrong doesn't make an unbounded no-refresh window acceptable.
+  // A periodic re-sync while this screen is genuinely focused closes it: worst
   // case, an edit is picked up within one interval instead of only on the
   // next navigation or app-switch, regardless of whether Realtime happens
   // to still be alive.
@@ -585,12 +598,29 @@ export default function FolderDetail() {
     // handleInvite (which only counts as shared once the owner actually
     // sends/copies it) -- there's no equivalent ambiguity here: creating
     // this row already required knowing exactly who it's for.
-    await confirmFolderShared(folder.id, invite.token)
+    //
+    // confirmFolderSharedByInvite, NOT confirmFolderShared(folder.id,
+    // invite.token) -- this used to write the invitee's PERSONAL invite
+    // token into synced_folders.share_token, which broke this folder's
+    // anonymous "Invite by Link" path outright and invalidated any link
+    // already circulating. See that function's own comment for the full
+    // mechanism.
+    await confirmFolderSharedByInvite(folder.id)
     // Push the resolved user directly instead of the OS share sheet --
     // same fix and same reasoning as my-aircraft/[id].tsx's submitInvite
-    // (RC, real device, 2026-08-15).
+    // (RC, real device, 2026-08-15). Best-effort by design and it always
+    // was: a recipient with no registered push token (a brand-new account,
+    // or anyone who declined the iOS prompt) simply gets nothing here. That
+    // used to make the whole invite undiscoverable -- Saved > Shared > With
+    // Me now lists the pending invite itself, so the push is a nicety on top
+    // of a durable in-app invite rather than the only delivery channel. See
+    // getMyPendingFolderInvites in lib/sharedFolders.ts.
     sendCollaborationInvitePush(invite.userId, 'folder', folder.name, invite.token).catch(() => {})
-    confirm({ title: 'Invite sent', message: `Sent to @${invite.callsign}.`, cancelLabel: null })
+    confirm({
+      title: 'Invite sent',
+      message: `Sent to @${invite.callsign}. They'll see it under Saved › Shared › With Me, and get a notification if they have them turned on.`,
+      cancelLabel: null,
+    })
     getFolderCollaborators(folder.id).then(setCollaborators).catch(() => {})
     setCallsignBusy(false)
   }
@@ -969,19 +999,31 @@ export default function FolderDetail() {
                     // independent of the "new invites get" default above and
                     // of any other collaborator on this same folder.
                     <View style={[styles.collabModeToggle, { borderColor: tokens.bbdr }]}>
+                      {/* RC (real device, 2026-08-29, feedback 0d73eb1f):
+                          "the icons are too small for the read only box and
+                          the right box next to each person's name so make
+                          them a little bit wider so they're slightly easier
+                          to tap on and see." Wider/taller segments (see
+                          collabModeSeg), a bigger glyph, and a real hitSlop
+                          -- the previous 8x5 padding around a 12pt icon was
+                          well under the 44pt iOS minimum even with hitSlop. */}
                       <Pressable
                         style={[styles.collabModeSeg, { backgroundColor: c.collabMode === 'read_only' ? tokens.bdim : 'transparent' }]}
                         onPress={() => handleSetCollaboratorMode(c, 'read_only')}
-                        hitSlop={4}
+                        hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Give ${c.displayLabel} read-only access`}
                       >
-                        <Icon name="eye" size={fs(12)} color={c.collabMode === 'read_only' ? tokens.blu : tokens.t4} />
+                        <Icon name="eye" size={fs(15)} color={c.collabMode === 'read_only' ? tokens.blu : tokens.t4} />
                       </Pressable>
                       <Pressable
                         style={[styles.collabModeSeg, { backgroundColor: c.collabMode === 'read_write' ? tokens.bdim : 'transparent' }]}
                         onPress={() => handleSetCollaboratorMode(c, 'read_write')}
-                        hitSlop={4}
+                        hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Give ${c.displayLabel} read and write access`}
                       >
-                        <Icon name="pencil" size={fs(12)} color={c.collabMode === 'read_write' ? tokens.blu : tokens.t4} />
+                        <Icon name="pencil" size={fs(15)} color={c.collabMode === 'read_write' ? tokens.blu : tokens.t4} />
                       </Pressable>
                     </View>
                   ) : (
@@ -1498,7 +1540,10 @@ const styles = StyleSheet.create({
   modeBtnText: { fontWeight: '600' },
   modeSectionLabel: { fontWeight: '700', letterSpacing: 0.4, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4, borderTopWidth: StyleSheet.hairlineWidth },
   collabModeToggle: { flexDirection: 'row', alignItems: 'center', borderRadius: 8, borderWidth: 1, overflow: 'hidden' },
-  collabModeSeg: { paddingHorizontal: 8, paddingVertical: 5 },
+  // Widened from 8x5 (RC, 2026-08-29 -- see the toggle's own comment):
+  // minWidth gives each segment a real, consistently-sized target instead of
+  // one that shrinks to whatever the glyph happens to measure.
+  collabModeSeg: { paddingHorizontal: 14, paddingVertical: 8, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
   callsignInviteRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 12 },
   callsignInviteText: { fontWeight: '600' },
   roleBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 3 },

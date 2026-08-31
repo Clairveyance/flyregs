@@ -475,8 +475,31 @@ export default function SharedFolderDetail() {
     }
   }
 
+  // RC (real device, 2026-08-29, feedback 8bcb7a33): "When I added a new
+  // note to a shared folder, it populated that same note and essentially
+  // duplicated it four times inside Adriana's folder."
+  //
+  // The main duplication mechanism that night was one folder_items row per
+  // repeated add-attempt of the SAME item, since nothing tied the attempts
+  // together -- structurally closed since by the partial unique index on
+  // (folder_id, item_type, item_id) WHERE deleted = false (see
+  // addExistingItemToSharedFolder). That index CANNOT protect this path
+  // though: addSharedFolderNote mints a brand-new note id on every call, so
+  // two calls are two genuinely different notes and two legitimately
+  // distinct rows -- exactly the shape "the same note, four times" takes.
+  //
+  // savingNote alone was not a real guard: setSavingNote(true) is async
+  // React state, so two taps landing in the same frame both read the old
+  // `false` and both get past `disabled` before the re-render lands. A ref
+  // flips synchronously, which is the same fix this codebase already applied
+  // to printReg.ts (BB-083), ReminderFormModal (BB-094) and FolderPicker's
+  // own handleCreate (BB-070).
+  const addingNoteRef = useRef(false)
+
   const handleAddNote = async () => {
     if (typeof id !== 'string' || !newNoteTitle.trim()) return
+    if (addingNoteRef.current) return
+    addingNoteRef.current = true
     setSavingNote(true)
     try {
       await addSharedFolderNote(id, newNoteTitle.trim(), newNoteBody)
@@ -487,6 +510,7 @@ export default function SharedFolderDetail() {
     } catch {
       confirm({ title: 'Error', message: 'Could not add the note. Try again in a moment.', cancelLabel: null })
     }
+    addingNoteRef.current = false
     setSavingNote(false)
   }
 

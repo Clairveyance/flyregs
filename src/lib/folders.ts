@@ -1,10 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Sentry from '@sentry/react-native'
 import { supabase } from '@/lib/supabase'
-import { syncPushFolder, syncPushFolderDelete, syncPushFolderItems, syncPushFolderItemDeletes, syncPushNote } from '@/lib/syncPush'
+import { syncPushFolder, syncPushFolderDelete, syncPushFolderItems, syncPushFolderItemDeletes, syncPushNote, syncPushBookmark } from '@/lib/syncPush'
 import { getNotes } from '@/lib/notes'
 import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
 import { withLock } from '@/lib/asyncMutex'
+// TYPE-ONLY import -- erased at compile time, so it can never create the
+// folders.ts <-> bookmarks.ts require cycle this file (and folderCounts.ts,
+// and syncPush.ts) all deliberately avoid. See getLocalBookmarksForShare
+// below for why the runtime read is done inline here instead of calling
+// bookmarks.ts's getBookmarks().
+import type { BookmarkAC } from '@/lib/bookmarks'
 
 // Revokes sharing entirely: removes every collaborator and invalidates the
 // share link (a new one is generated next time the owner shares again). The
@@ -25,6 +31,24 @@ export async function unshareFolder(folderId: string): Promise<void> {
 
 const FOLDERS_KEY = '@flyregs/folders'
 const FOLDER_ITEMS_KEY = '@flyregs/folder_items'
+// bookmarks.ts's own storage key, read directly here rather than by calling
+// its getBookmarks() -- bookmarks.ts imports removeItemsFromAllFolders from
+// THIS file, so importing it back at runtime would close a require cycle
+// (the same hazard folderCounts.ts exists as a separate module to avoid).
+// Same account-mismatch guard as getFolders()/getFolderItems() above it, for
+// the same reason: this store is global, not per-user namespaced.
+const BOOKMARKS_KEY = '@flyregs/bookmarks'
+
+async function getLocalBookmarksForShare(): Promise<BookmarkAC[]> {
+  try {
+    const userId = await currentUserId()
+    if (userId && !(await localDataBelongsTo(userId))) return []
+    const raw = await AsyncStorage.getItem(BOOKMARKS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
 
 // Plus and Pro are both capped at this many folders; Premium is unlimited.
 // RC, 2026-08-14, direct correction: "my quote has nothing to do with
@@ -367,6 +391,37 @@ export async function addManyToFolder(
     for (const item of newItems) {
       const note = noteMap.get(item.item_id)
       if (note) syncPushNote(note, true)
+    }
+  }
+  // The owner-side half of the same gap sharedFolders.ts's
+  // addExistingItemToSharedFolder documents for the collaborator side
+  // (2026-08-29/30, real device + real DB evidence). A HIGHLIGHT is an
+  // ordinary folder item whose content exists ONLY in synced_bookmarks --
+  // never in a public reference table the way a plain AC/FAR/AIM/AD/P-CG/LOI
+  // bookmark's does -- so a collaborator can only ever render it via
+  // resolveMissingAsHighlights, which reads exactly that row.
+  //
+  // ensureFolderPushed (sharedFolders.ts) force-pushes every 'ac'-type item's
+  // backing bookmark, but it only runs at INVITE time. Anything the owner
+  // adds to an already-shared folder afterwards pushed its POINTER with
+  // force (syncPushFolderItems above, correctly) while its backing bookmark
+  // still went through the ordinary, toggle-gated path -- so for any owner
+  // with "Back up & sync" off (RC: zero rows in synced_bookmarks, confirmed
+  // live), every highlight added to a live shared folder after the invite was
+  // silently invisible to every collaborator. Fixed here rather than in each
+  // of the five call sites that add items (FolderPicker, Saved's bulk add,
+  // Recents' bulk add, folder/[id].tsx's move-to-folder, duplicateFolder), so
+  // it can't be forgotten by the sixth.
+  //
+  // Non-'note' covers every bookmark-backed type at once; a plain bookmark
+  // that has no highlight body is harmless (and cheap) to push too, and
+  // pushing it also fixes the collaborator's own title/metadata fallback.
+  if (isShared && itemType !== 'note' && newItems.length) {
+    const bookmarks = await getLocalBookmarksForShare()
+    const bookmarkMap = new Map(bookmarks.map((b) => [b.id, b]))
+    for (const item of newItems) {
+      const bm = bookmarkMap.get(item.item_id)
+      if (bm) syncPushBookmark(bm, true)
     }
   }
 }

@@ -183,6 +183,151 @@ export async function confirmFolderShared(folderId: string, token: string): Prom
   if (error) throw error
 }
 
+// The Callsign-invite counterpart to confirmFolderShared above. Same job
+// (push this folder's content, mark it shared locally, make it visible in
+// From Me) but it must NOT write the invite's own token into
+// synced_folders.share_token, which is what submitCallsignInvite used to do
+// by calling confirmFolderShared(folderId, invite.token) directly.
+//
+// Two real bugs came out of that aliasing, both found 2026-08-30 while
+// tracing the four separate "invite by callsign does nothing" reports:
+//
+//  1. join_shared_folder checks folder_collaborators.invite_token FIRST and
+//     only falls through to the anonymous share_token branch if no invite
+//     row matches. So once share_token held a Callsign invite's token, the
+//     folder's "Invite by Link" link (getOrCreateShareLink returns the
+//     EXISTING share_token) resolved to that one person's invite row --
+//     everyone else who tapped it got "This invite was sent to a different
+//     FlyRegs account," and after the invitee accepted, "This invite has
+//     already been accepted." A folder first shared by Callsign therefore
+//     had a permanently broken link-invite path.
+//  2. Each new Callsign invite overwrote share_token again, silently killing
+//     any anonymous link the owner had already circulated.
+//
+// Minting an independent anonymous token here (only when the folder doesn't
+// already have one) keeps From Me's share_token-is-not-null definition of
+// "shared" working -- see getMySharedFolders -- without ever letting the two
+// kinds of token be the same value.
+export async function confirmFolderSharedByInvite(folderId: string): Promise<void> {
+  await ensureFolderPushed(folderId)
+  await markFolderShared(folderId)
+  const { data: existing } = await supabase
+    .from('synced_folders')
+    .select('share_token')
+    .eq('id', folderId)
+    .maybeSingle()
+  if (existing?.share_token) return
+  const { error } = await supabase
+    .from('synced_folders')
+    .update({ share_token: makeShareToken() })
+    .eq('id', folderId)
+  if (error) throw error
+}
+
+// ── Pending (not-yet-accepted) Callsign invites ─────────────────────────────
+// RC, four separate real-device reports across three testing sessions
+// (2026-08-17; 2026-08-22 ea844156; 2026-08-29 e94a988c and 0d73eb1f), the
+// last and most diagnostic being: "it says it actually found the Call sign
+// ... I send the invite and it gives me a notification that the invite was
+// sent ... BUT it doesn't seem like it actually sends anything. The other
+// person never gets any kind of notification."
+//
+// Root cause, confirmed against the live DB rather than inferred: the invite
+// itself was never the thing failing. folder_collaborators really does carry
+// RC's 2026-08-29 04:12:07 invite to Adriana on folder mtduuv1moovst, with a
+// valid invite_token -- still sitting there, accepted_at NULL, days later.
+// What was missing is any way for the RECIPIENT to find out about it:
+//
+//   * The ONLY delivery channel was an Expo push (sendCollaborationInvitePush).
+//     Adriana's account was ~13 minutes old at that moment and had no
+//     push_tokens row at all, so get_collaboration_invite_push_target
+//     returned zero rows and sendCollaborationInvitePush's own
+//     `if (rows.length === 0) return` made it a silent no-op. The same
+//     happens for anyone who declined the iOS notification prompt, or whose
+//     push simply doesn't arrive.
+//   * The invite is invisible in the app until it is accepted:
+//     collaborators_view_shared_folders (see sync/migrations_fix_folder_
+//     pending_invite_leak.sql) requires accepted_at IS NOT NULL, so
+//     getMyCollaborations' synced_folders lookup returns nothing for a
+//     pending row and Shared > With Me stays empty.
+//   * Nothing anywhere else in the app listed pending invites -- grep for
+//     accepted_at in src/ before this change: aircraftSharing.ts filters
+//     them OUT, and no screen fetched them.
+//
+// So a Callsign invite whose push didn't land was unrecoverable: correct in
+// the database, undiscoverable in the app, exactly "it doesn't seem like it
+// actually sends anything." A push is a notification, not a delivery
+// mechanism -- this makes the invite itself durable and self-serve.
+//
+// users_view_own_collaborations (auth.uid() = user_id) already lets the
+// invitee read their own pending row including invite_token, so the list
+// itself needs no migration. The folder NAME does -- collaborators_view_
+// shared_folders deliberately hides an unaccepted folder -- so the label is
+// best-effort via an optional RPC (sync/migrations_folder_pending_invite_
+// inbox.sql) and degrades to a generic title if that migration hasn't been
+// applied yet, rather than gating the whole feature on it.
+export interface PendingFolderInvite {
+  folderId: string
+  /** The per-person invite token -- what join_shared_folder needs to accept.
+   * Never the folder's anonymous share_token; see confirmFolderSharedByInvite. */
+  token: string
+  /** Null until sync/migrations_folder_pending_invite_inbox.sql is applied
+   * (RLS hides an unaccepted folder's row) -- callers show a generic label. */
+  folderName: string | null
+  inviterLabel: string | null
+  invitedAt: string
+}
+
+export async function getMyPendingFolderInvites(): Promise<PendingFolderInvite[]> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  const { data: rows } = await supabase
+    .from('folder_collaborators')
+    .select('folder_id, invite_token, joined_at')
+    .eq('user_id', user.id)
+    .is('left_at', null)
+    .is('accepted_at', null)
+    .not('invite_token', 'is', null)
+  if (!rows?.length) return []
+
+  // Best-effort enrichment, same shape (and same reason) as
+  // getMyCollaborations' get_shared_folder_owners call: a missing name is a
+  // cosmetic downgrade, never a reason to hide a real invite.
+  const { data: meta } = await supabase
+    .rpc('get_my_pending_folder_invites')
+    .then((res) => res, () => ({ data: null as any[] | null }))
+  const metaMap = new Map<string, { name: string | null; inviter: string | null }>(
+    (meta ?? []).map((m: any) => [m.out_folder_id, { name: m.out_folder_name, inviter: m.out_inviter_label }])
+  )
+
+  return rows.map((r: any) => ({
+    folderId: r.folder_id,
+    token: r.invite_token as string,
+    folderName: metaMap.get(r.folder_id)?.name ?? null,
+    inviterLabel: metaMap.get(r.folder_id)?.inviter ?? null,
+    invitedAt: r.joined_at,
+  }))
+}
+
+// Turning down an invite without accepting it. Reuses the same self-leave
+// path leaveSharedFolder uses -- guard_folder_collaborator_self_update
+// (sync/migrations_fix_collaborator_self_escalation.sql) explicitly permits
+// a collaborator to set their OWN left_at on the null -> non-null
+// transition, and nothing else, so this needs no new policy or RPC. The
+// owner still sees the row (soft, not deleted), same as someone leaving.
+export async function declineFolderInvite(folderId: string): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
+  const { error } = await supabase
+    .from('folder_collaborators')
+    .update({ left_at: new Date().toISOString() })
+    .eq('folder_id', folderId)
+    .eq('user_id', user.id)
+    .is('accepted_at', null)
+  if (error) throw error
+}
+
 export async function joinSharedFolder(token: string): Promise<SharedFolderSummary> {
   const { data, error } = await supabase.rpc('join_shared_folder', { p_token: token })
   if (error) throw error
@@ -622,6 +767,41 @@ export async function addExistingItemToSharedFolder(folderId: string, itemType: 
     if (note) await syncPushNote(note, true)
   }
 
+  // Exactly the same gap for every NON-note type -- found and PROVEN live,
+  // 2026-08-29/30, from three independent pieces of real evidence rather
+  // than inspection:
+  //   1. RC (real device, feedback 16558ccd, 2026-08-29 04:35 UTC): "I tried
+  //      to add a shared highlighted document ... to a folder that somebody
+  //      shared with me, but it never made it into that folder."
+  //   2. synced_folder_items really does carry his rows for it -- two of
+  //      them, folder mrsfnty7ya5sj, item_id
+  //      46e2399d-...-hl-1787977820654-r62kqe, added 04:31:19 and 04:33:20
+  //      (he retried, because nothing appeared). The POINTER insert always
+  //      worked; that was never the failure.
+  //   3. synced_bookmarks has ZERO rows for his account. His personal
+  //      "Back up & sync" toggle is off, so syncPushBookmark's non-force
+  //      path (currentUserId's `!force && !isSyncEnabled()` check in
+  //      syncPush.ts) has never pushed a single bookmark of his.
+  // A highlight's content (ac_id + block_text/block_label/block_snippet)
+  // exists ONLY in synced_bookmarks -- see resolveMissingAsHighlights, which
+  // is the sole way any shared-folder screen can render one. With no row
+  // there, the pointer resolves to nothing and the item is invisible to
+  // EVERYONE, including the person who just added it. Plain (non-highlight)
+  // bookmarks were unaffected, which is exactly why this reads as a
+  // type-specific silent failure rather than "sharing is broken."
+  //
+  // ensureFolderPushed above already does precisely this for the OWNER's own
+  // folder at invite time (see its 2026-08-21 'ac'-type comment) -- this is
+  // the same fix for the cross-account write path, which never got it.
+  // Force, not a plain push, for the same reason: the adder's own global
+  // Back-up & Sync toggle is irrelevant to whether a folder they're actively
+  // sharing into needs this row.
+  if (itemType !== 'note') {
+    const bookmarks = await getBookmarks()
+    const bm = bookmarks.find((b) => b.id === itemId)
+    if (bm) await syncPushBookmark(bm, true)
+  }
+
   // The DB itself is the dedupe now (idx_synced_folder_items_unique_active,
   // a partial unique index on (folder_id, item_type, item_id) WHERE deleted
   // = false) -- a prior SELECT-then-INSERT here was a real TOCTOU race
@@ -985,6 +1165,47 @@ export async function resolveForeignNoteEntries(items: FolderItem[]): Promise<No
 // arrives; it just means a completely unrelated note edit can trigger one
 // extra (harmless, idempotent) reload of an open folder screen. Debounced
 // so a burst of changes (e.g. adding 5 items) triggers one reload, not 5.
+// The user-scoped counterpart to useFolderRealtime below: fires onChange
+// whenever ANY of this account's own folder_collaborators rows change,
+// rather than one folder's.
+//
+// RC (2026-08-29, feedback 685c98e4): "if they change that permission
+// setting back-and-forth, then that folder will need to appear disappear and
+// reappear in your list of folder selections each time they make that
+// change." FolderPicker already re-reads getMyCollaborations() every time it
+// opens, so a mode flip is picked up on the NEXT open -- but a picker that
+// is already on screen when the owner flips the toggle kept offering a
+// folder the user can no longer write to (or kept hiding one they now can),
+// with the tap failing server-side on editors_manage_shared_folder_items.
+//
+// Filtered to user_id=eq.<me>, which is also exactly what
+// users_view_own_collaborations authorizes, so this can never deliver
+// another collaborator's access change. `enabled` gates the subscription so
+// the many mounted-but-invisible FolderPickers across the app don't each
+// hold an open channel. Per-mount-unique topic name for the same
+// channel-reuse race documented on useFolderRealtime below.
+export function useMyCollaborationsRealtime(enabled: boolean, userId: string | undefined, onChange: () => void): void {
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+
+  useEffect(() => {
+    if (!enabled || !userId) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const debounced = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => onChangeRef.current(), 400)
+    }
+    const channel = supabase
+      .channel(`my-collabs-${userId}-${Math.random().toString(36).slice(2, 9)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'folder_collaborators', filter: `user_id=eq.${userId}` }, debounced)
+      .subscribe()
+    return () => {
+      if (timer) clearTimeout(timer)
+      supabase.removeChannel(channel)
+    }
+  }, [enabled, userId])
+}
+
 export function useFolderRealtime(folderId: string | undefined, onChange: () => void): void {
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange

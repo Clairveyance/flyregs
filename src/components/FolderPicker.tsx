@@ -22,6 +22,7 @@ import {
   addExistingItemToSharedFolder,
   removeExistingItemFromSharedFolder,
   getSharedFolderMembership,
+  useMyCollaborationsRealtime,
   SharedFolderSummary,
   SEED_NOTE_NOT_SHAREABLE,
 } from '@/lib/sharedFolders'
@@ -73,7 +74,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   const confirm = useConfirm()
   const fs = useFS()
   const ifs = useInputFS()
-  const { hasPlusAccess, hasProAccess, isPremium, loading: authLoading } = useAuth()
+  const { hasPlusAccess, hasProAccess, isPremium, loading: authLoading, session } = useAuth()
   // Plus and Pro share the same folder cap (PRO_FOLDER_CAP) -- the
   // "you've hit the cap" messaging below needs the reader's OWN current
   // plan name, not a hardcoded "Pro" that would misname it for a Plus
@@ -167,6 +168,24 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   useEffect(() => {
     if (creating) setTimeout(() => inputRef.current?.focus(), 80)
   }, [creating])
+
+  // RC (2026-08-29, feedback 685c98e4): a shared folder must "appear
+  // disappear and reappear in your list of folder selections each time"
+  // the owner flips that person between read-only and read/write. load()
+  // above already re-reads getMyCollaborations() on every open, which covers
+  // the flip-then-reopen case; this covers the flip while this sheet is
+  // ALREADY open, using the same Realtime infrastructure the shared-folder
+  // screens use. Only subscribes while visible -- see
+  // useMyCollaborationsRealtime's own comment.
+  //
+  // Re-running the full load() is deliberate rather than patching
+  // sharedFolders in place: a mode change can also mean this item's
+  // membership in that folder is no longer readable, and load() already
+  // recomputes memberIds/initialMemberIds together and consistently.
+  // Staged-but-uncommitted taps on OTHER rows are reset by that, which is
+  // the correct trade -- committing a stale selection into a folder the user
+  // has just lost write access to would fail server-side anyway.
+  useMyCollaborationsRealtime(visible && hasPlusAccess, session?.user?.id, () => { load() })
 
   const load = async () => {
     const [allFolders, memberFolderIds, counts, collaborations] = await Promise.all([
