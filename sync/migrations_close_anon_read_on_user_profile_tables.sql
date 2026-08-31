@@ -1,0 +1,133 @@
+-- ============================================================================
+-- SECURITY (MEDIUM-HIGH): four user-data tables are readable by ANY caller
+-- holding the public anon key, with no session at all          2026-08-31
+-- ============================================================================
+--
+-- NOT YET APPLIED. Found by the corpus-wide sweep for the synced_bookmarks_
+-- gated leak class (B1). Written for RC to review and apply.
+--
+-- WHAT
+-- ----
+-- The synced_bookmarks_gated incident (c564e4f) was a VIEW with no row filter
+-- plus a SELECT grant to anon. This is the same end state reached by a
+-- different route: four BASE tables each carry a `USING (true)`-style
+-- permissive SELECT policy scoped to role `public` (which includes anon),
+-- AND a SELECT grant to anon. Nothing anywhere requires a session.
+--
+--   user_coins            user_coins_read_all             USING true
+--   user_duel_stats       user_duel_stats_read_all        USING true
+--   user_profile_ratings  user_profile_ratings_read_all   USING true
+--   user_streaks          user_streaks_public_stats_read  USING (stats_visible = true)
+--
+-- Proven live, 2026-08-31, UNAUTHENTICATED (apikey header only, no
+-- Authorization header, no session):
+--
+--   GET /rest/v1/user_profile_ratings?select=user_id,rating_code&limit=5
+--   -> 200 [{"user_id":"4fb26b2a-...","rating_code":"COMM"},
+--           {"user_id":"4fb26b2a-...","rating_code":"ASEL"},
+--           {"user_id":"4fb26b2a-...","rating_code":"AMEL"},
+--           {"user_id":"4fb26b2a-...","rating_code":"IR"},
+--           {"user_id":"4fb26b2a-...","rating_code":"AGI"}]
+--
+--   GET /rest/v1/user_coins?select=user_id,coin_code&limit=5
+--   -> 200 [{"user_id":"292ea333-...","coin_code":"FIRST_REP"},
+--           {"user_id":"4fb26b2a-...","coin_code":"FIRST_REP"},
+--           {"user_id":"bb05dcdc-...","coin_code":"DUEL_FIRST_WIN"}]
+--
+--   GET /rest/v1/user_duel_stats?select=user_id,wins,losses&limit=5
+--   -> 200 [{"user_id":"bb05dcdc-...","wins":1,"losses":0},
+--           {"user_id":"4fb26b2a-...","wins":0,"losses":1}]
+--
+--   GET /rest/v1/user_streaks?select=user_id,current_streak,current_aircraft,stats_visible&limit=5
+--   -> 200 [{"user_id":"bb05dcdc-...","current_streak":0,"current_aircraft":null,"stats_visible":true},
+--           {"user_id":"4fb26b2a-...","current_streak":2,"current_aircraft":null,"stats_visible":true}]
+--
+-- Rows from three different real accounts came back to a caller with no
+-- session. `user_profile_ratings` is the sharpest one: a pilot's held
+-- certificates and ratings (COMM/ASEL/AMEL/IR/AGI) are real personal data,
+-- and src/app/profile/[userId].tsx's own comment says this set "stays hidden
+-- until opted in" -- that promise is enforced CLIENT-SIDE only (the
+-- `isSelf || realVisible` branch in its load()), never in the database.
+--
+-- These four were the ONLY relations in `public` that returned rows to an
+-- unauthenticated caller. Every one of the other 67 anon-SELECT-granted
+-- relations was probed the same way and returned either [] (RLS denies) or
+-- public reference content with paid text correctly NULLed by
+-- has_plus_access()/has_pro_access() -- both of which fail closed for a null
+-- auth.uid(). synced_bookmarks_gated itself now correctly returns
+-- 401 42501, confirming c564e4f is live.
+--
+-- FIX
+-- ---
+-- Deliberately MINIMAL and behavior-preserving for real users: keep each
+-- policy's row filter exactly as-is and only stop `anon` from reaching it,
+-- two ways (belt and braces, same shape as c564e4f):
+--
+--   1. ALTER POLICY ... TO authenticated -- so the permissive read no longer
+--      applies to the anon role even if a grant reappears. ALTER POLICY (not
+--      DROP+CREATE) so there is never a window with no policy present.
+--   2. REVOKE SELECT ... FROM anon -- so the table is not reachable at all.
+--
+-- Signed-in clients are unaffected: the Supabase JS client sends
+-- `apikey: <publishable key>` PLUS `Authorization: Bearer <user JWT>`, which
+-- makes PostgREST run as `authenticated`, not `anon`.
+--
+-- SHIPPED-BUILD RISK: checked, LOW. Every call site that touches these four
+-- tables directly requires a session, and there is no anonymous/guest mode
+-- (no signInAnonymously anywhere in src/):
+--   src/lib/coins.ts getCoinsForUser        -> profile/[userId].tsx (session)
+--   src/lib/profileRatings.ts getMyRatings/addRating/removeRating
+--                                           -> account.tsx:382 (session.user.id),
+--                                              (tabs)/search.tsx:241 (uid),
+--                                              profile/[userId].tsx:370
+--   src/lib/leaderboard.ts set/getLeaderboardOptIn, set/getStatsVisible,
+--                          set/getCurrentAircraft -> account/profile (session)
+--   user_duel_stats has NO direct client SELECT at all -- it is only read
+--   through get_duel_stats()/get_duels_leaderboard(), both SECURITY DEFINER,
+--   which run with owner rights and are untouched by these grants.
+-- The public website's only Supabase call (01_Website/flyregs-website/join/
+-- index.php) hits get_shared_folder_preview/get_shared_aircraft_preview via
+-- RPC and never touches these tables. Edge functions and scrapers use the
+-- service key. Nothing in the shipped build reads these tables as `anon`.
+--
+-- NOT DONE HERE, ON PURPOSE -- a product decision for RC, not a security fix:
+-- this migration does NOT make the database enforce the "Show my stats"
+-- promise. After it, any SIGNED-IN user can still read any other user's
+-- coins/ratings/current aircraft regardless of that toggle, exactly as today;
+-- only the client hides it. Closing that would mean adding
+--   user_id = auth.uid()
+--   OR exists (select 1 from user_streaks us
+--              where us.user_id = <tbl>.user_id and us.stats_visible = true)
+-- to the three read_all policies. The `user_id = auth.uid()` arm is NOT
+-- optional -- account.tsx and search.tsx both read the CALLER'S OWN ratings
+-- and would go blank without it. Left out of this file because it changes
+-- what real users can see, and this file is meant to be safe to apply now.
+-- ============================================================================
+
+-- 1. Scope the permissive read policies to signed-in callers only.
+--    Row filters below are UNCHANGED from the live definitions
+--    (pg_policies, 2026-08-31).
+alter policy user_coins_read_all            on public.user_coins            to authenticated;
+alter policy user_duel_stats_read_all       on public.user_duel_stats       to authenticated;
+alter policy user_profile_ratings_read_all  on public.user_profile_ratings  to authenticated;
+alter policy user_streaks_public_stats_read on public.user_streaks          to authenticated;
+
+-- 2. Remove the grant that let an unauthenticated caller reach them at all.
+revoke select on public.user_coins            from anon;
+revoke select on public.user_duel_stats       from anon;
+revoke select on public.user_profile_ratings  from anon;
+revoke select on public.user_streaks          from anon;
+
+-- VERIFY AFTER APPLYING:
+--  1. Unauthenticated, publishable key only -- all four must now 401 with
+--     42501 "permission denied for table ...":
+--       curl "$URL/rest/v1/user_coins?select=user_id&limit=1"           -H "apikey: $ANON"
+--       curl "$URL/rest/v1/user_duel_stats?select=user_id&limit=1"      -H "apikey: $ANON"
+--       curl "$URL/rest/v1/user_profile_ratings?select=user_id&limit=1" -H "apikey: $ANON"
+--       curl "$URL/rest/v1/user_streaks?select=user_id&limit=1"         -H "apikey: $ANON"
+--  2. As a real signed-in user, in the app: Account screen still lists the
+--     user's own ratings; the Community profile page (profile/[userId].tsx)
+--     still renders another opted-in pilot's badges, ratings, Duel record
+--     and current aircraft; Ready Room / Duels leaderboards still populate.
+--  3. python3 scripts/tier_matrix_test.py  (no expected change, but it is
+--     the standing gate check after any policy edit).
