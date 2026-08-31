@@ -125,8 +125,18 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
 
   const reset = () => { setOpts(null); setBusy(false); setError(null); setTyped(''); setCopiedIndex(null); setStep(1); setStepArmed(true) }
 
+  // try/catch, not a bare await: this is wired straight to an onPress below,
+  // so a Clipboard.setStringAsync rejection (no clipboard permission, web
+  // without a secure context) had nowhere to land -- the same unhandled-
+  // rejection class as the mailto: crash fixed in 24e7400. Surfaced in the
+  // dialog's own error line, which is already on screen.
   const handleCopyLink = async (link: string, index: number) => {
-    await Clipboard.setStringAsync(link)
+    try {
+      await Clipboard.setStringAsync(link)
+    } catch {
+      setError('Could not copy to the clipboard.')
+      return
+    }
     setCopiedIndex(index)
     setTimeout(() => setCopiedIndex((cur) => (cur === index ? null : cur)), 2000)
   }

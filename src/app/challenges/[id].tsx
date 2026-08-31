@@ -156,7 +156,12 @@ export default function ChallengeGameScreen() {
       const list = await getMyChallenges()
       const c = list.find((x) => x.challengeId === id) ?? null
       setChallenge(c)
-      if (c) getDuelStats().then(setMyStats)
+      // .catch(() => {}) on both getDuelStats() calls in this file --
+    // get_duel_stats() throws when the server's live entitlement check
+    // disagrees with this screen's cached gate (challenges/index.tsx's
+    // load() documents the same race and already guards for it there), and
+    // neither of these chains had a catch. Best-effort stats refresh.
+    if (c) getDuelStats().then(setMyStats).catch(() => {})
       // Previously fell back to 'loading' here, which is indistinguishable
       // from a still-in-flight fetch -- a stale deep link, an old push
       // notification pointing at an already-purged duel, or a genuine data
@@ -315,7 +320,7 @@ export default function ChallengeGameScreen() {
     setPhase('revealed')
     revealedAt.current = Date.now()
     if (r.newCoins.length) {
-      getDuelStats().then(setMyStats)
+      getDuelStats().then(setMyStats).catch(() => {})
       // Same reveal moment Study Mode uses (see CoinRevealModal) -- fires
       // after the answer-correct/incorrect state above so it doesn't cover
       // that feedback the instant you tap an answer.

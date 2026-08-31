@@ -560,7 +560,15 @@ export default function FolderDetail() {
     if (sentCount > 0 && folder && bulkInviteTokenRef.current) {
       // Same "shared" signal as handleInvite -- only counts once a real
       // send actually happened, not just because the picker was opened.
-      await confirmFolderShared(folder.id, bulkInviteTokenRef.current)
+      // .catch, not a bare await: this runs inside BulkInviteContactPicker's
+      // onSent() callback, which it calls from a bare onPress={handleSend},
+      // so a rejection here had nowhere to land -- an unhandled rejection
+      // that also swallowed the "Invites sent" confirmation below. The
+      // invites really did go out either way; only this bookkeeping flag
+      // failed, so report it and carry on rather than aborting.
+      await confirmFolderShared(folder.id, bulkInviteTokenRef.current).catch((e) =>
+        Sentry.captureException(e, { tags: { feature: 'folder_confirm_shared' }, extra: { folderId: folder.id } })
+      )
     }
     if (sentCount > 0) {
       confirm({ title: 'Invites sent', message: `Sent to ${sentCount} contact${sentCount === 1 ? '' : 's'}.`, cancelLabel: null })
@@ -605,7 +613,15 @@ export default function FolderDetail() {
     // anonymous "Invite by Link" path outright and invalidated any link
     // already circulating. See that function's own comment for the full
     // mechanism.
-    await confirmFolderSharedByInvite(folder.id)
+    // .catch, not a bare await: submitCallsignInvite is wired straight to an
+    // onPress, so a rejection was both an unhandled rejection AND skipped
+    // everything below it -- the "Invite sent" confirm, the collaborator
+    // refresh, and setCallsignBusy(false), leaving the invite button stuck
+    // busy. The invite row itself was already created above, so this is
+    // bookkeeping: report it and carry on.
+    await confirmFolderSharedByInvite(folder.id).catch((e) =>
+      Sentry.captureException(e, { tags: { feature: 'folder_confirm_shared_by_invite' }, extra: { folderId: folder.id } })
+    )
     // Push the resolved user directly instead of the OS share sheet --
     // same fix and same reasoning as my-aircraft/[id].tsx's submitInvite
     // (RC, real device, 2026-08-15). Best-effort by design and it always

@@ -176,10 +176,22 @@ export function FindFriendsPickerBody({
     setState('ready')
   }
 
+  // try/catch, not left bare: this is wired straight to an onPress below, so
+  // a rejection from either native call was an unhandled promise rejection
+  // (the crash class fixed in 24e7400). The mount effect below already
+  // guards its own identical calls this way; this handler was the one copy
+  // that didn't. Deliberately still falls through to loadContacts() rather
+  // than setState('error') -- a failed access picker doesn't invalidate the
+  // list already on screen. Same fix as BulkInviteContactPicker's own
+  // chooseMoreContacts.
   const chooseMoreContacts = async () => {
-    await presentContactsAccessPicker()
-    const refreshed = await requestContactsPermission()
-    setLimitedAccess(refreshed.limited)
+    try {
+      await presentContactsAccessPicker()
+      const refreshed = await requestContactsPermission()
+      setLimitedAccess(refreshed.limited)
+    } catch (e: any) {
+      console.warn('FindFriends: chooseMoreContacts failed', e)
+    }
     await loadContacts()
   }
 

@@ -429,10 +429,19 @@ export default function FarSectionScreen() {
     confirm({
       title: 'Passage',
       choices: [
-        { label: 'Copy Text', onPress: () => { setPendingHighlight(null); handleCopyBlock(paraText) } },
+        // `return`, not a bare call: ConfirmDialog's runChoice() awaits
+        // whatever onPress returns inside a try/catch, so returning the
+        // promise is what routes a rejection into the dialog's own error
+        // text instead of leaving it unhandled. Both handlers below can
+        // genuinely reject -- handleCopyBlock awaits Clipboard/Haptics, and
+        // handleToggleHighlight is try/FINALLY with no catch of its own.
+        // ac/[id].tsx's identical menu already had the correct shape (a
+        // concise arrow body, which returns implicitly); these six were the
+        // block-bodied copies that silently dropped it.
+        { label: 'Copy Text', onPress: () => { setPendingHighlight(null); return handleCopyBlock(paraText) } },
         {
           label: isHighlighted ? 'Remove Highlight' : 'Highlight',
-          onPress: () => { setPendingHighlight(null); handleToggleHighlight(paraText) },
+          onPress: () => { setPendingHighlight(null); return handleToggleHighlight(paraText) },
         },
       ],
       onCancel: () => setPendingHighlight(null),

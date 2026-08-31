@@ -71,16 +71,27 @@ export default function FeedbackScreen() {
   // as the rest of this screen. Picker only (not camera): by the time
   // someone's reporting a bug they usually already have the screenshot
   // sitting in their camera roll from the power+volume-button capture.
+  // try/catch, not left bare: this is wired straight to onPress={pickAttachment}
+  // below, so a rejection from either ImagePicker call was an unhandled
+  // promise rejection -- the same class as the mailto: crash fixed in
+  // 24e7400. lib/avatar.ts and lib/aircraftImage.ts make the identical pair
+  // of calls and their callers (account.tsx's runAvatarPick,
+  // my-aircraft/[id].tsx's runAircraftImagePick) already guard them this
+  // way; this screen's picker was the one copy that never did.
   const pickAttachment = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
-    if (!perm.granted) {
-      confirm({ title: 'Photo access needed', message: 'Allow photo library access in Settings to attach a screenshot.', cancelLabel: null })
-      return
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (!perm.granted) {
+        confirm({ title: 'Photo access needed', message: 'Allow photo library access in Settings to attach a screenshot.', cancelLabel: null })
+        return
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 })
+      if (result.canceled || !result.assets?.[0]) return
+      const asset = result.assets[0]
+      setAttachment({ uri: asset.uri, mimeType: asset.mimeType ?? 'image/jpeg' })
+    } catch {
+      confirm({ title: 'Could not open your photos', message: 'Something went wrong opening the photo library. You can still send feedback without a screenshot.', cancelLabel: null })
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 })
-    if (result.canceled || !result.assets?.[0]) return
-    const asset = result.assets[0]
-    setAttachment({ uri: asset.uri, mimeType: asset.mimeType ?? 'image/jpeg' })
   }
 
   // Hold matches Home's own "welcome" toast (app/(tabs)/index.tsx: 2600ms

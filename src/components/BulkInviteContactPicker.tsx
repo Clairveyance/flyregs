@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { View, Text, Modal, Pressable, TextInput, FlatList, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
@@ -55,7 +55,7 @@ export function BulkInviteContactPicker({
   const ifs = useInputFS()
   const confirm = useConfirm()
   const insets = useSafeAreaInsets()
-  const [permissionState, setPermissionState] = useState<'checking' | 'denied' | 'granted'>('checking')
+  const [permissionState, setPermissionState] = useState<'checking' | 'denied' | 'granted' | 'error'>('checking')
   // iOS 18+ lets a user grant access to only SOME contacts ("Limited Access")
   // instead of all-or-nothing. requestPermissionsAsync() still resolves
   // granted:true in that case -- accessPrivileges is the only signal that
@@ -91,30 +91,57 @@ export function BulkInviteContactPicker({
     }
   }
 
+  // try/catch, not left bare -- this is wired straight to an onPress, so a
+  // rejection from any of these three native calls was an unhandled promise
+  // rejection (the crash class fixed in 24e7400) with nothing shown to the
+  // user. loadContacts() below has always had its own guard.
   const chooseMoreContacts = async () => {
-    const Contacts = await import('expo-contacts')
-    await Contacts.Contact.presentAccessPicker()
-    const refreshed = await Contacts.getPermissionsAsync()
-    setAccessScope(refreshed.accessPrivileges ?? 'all')
+    try {
+      const Contacts = await import('expo-contacts')
+      await Contacts.Contact.presentAccessPicker()
+      const refreshed = await Contacts.getPermissionsAsync()
+      setAccessScope(refreshed.accessPrivileges ?? 'all')
+    } catch {
+      setLoadError(true)
+      return
+    }
     await loadContacts()
   }
 
-  useEffect(() => {
-    if (!visible) return
-    setQuery('')
-    setSelected(new Set())
-    setSending(null)
+  // Named (and try/catch'd) rather than the bare async IIFE this used to be.
+  // Two real problems with that shape: a rejection from the dynamic import
+  // or either permission call was an unhandled promise rejection, and --
+  // because permissionState only ever left 'checking' on a path that
+  // completed -- it also left this sheet on a spinner FOREVER with nothing
+  // to retry. Same spinner-of-death shape already fixed twice in this
+  // codebase (challenges/[id].tsx, folder/shared/[id].tsx); the 'error'
+  // state below is the equivalent retryable surface for this sheet.
+  const requestAccess = useCallback(async () => {
     setPermissionState('checking')
-    ;(async () => {
+    try {
       const Contacts = await import('expo-contacts')
       const existing = await Contacts.getPermissionsAsync()
       const perm = existing.granted ? existing : await Contacts.requestPermissionsAsync()
       if (!perm.granted) { setPermissionState('denied'); return }
       setAccessScope(perm.accessPrivileges ?? 'all')
       setPermissionState('granted')
-      await loadContacts()
-    })()
-  }, [visible])
+    } catch {
+      setPermissionState('error')
+      return
+    }
+    await loadContacts()
+    // loadContacts closes over nothing but setState setters, so an empty dep
+    // list here can't go stale.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (!visible) return
+    setQuery('')
+    setSelected(new Set())
+    setSending(null)
+    requestAccess()
+  }, [visible, requestAccess])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -134,8 +161,19 @@ export function BulkInviteContactPicker({
   const handleSend = async () => {
     const targets = contacts.filter((c) => selected.has(c.id))
     if (targets.length === 0) return
-    const SMS = await import('expo-sms')
-    const available = await SMS.isAvailableAsync()
+    // try/catch around the availability probe for the same reason as
+    // requestAccess above -- handleSend is wired straight to an onPress, so
+    // a rejection from the dynamic import or isAvailableAsync() was an
+    // unhandled rejection. A failed probe is treated as "can't send here,"
+    // which is the same user-visible outcome as available:false.
+    let SMS: typeof import('expo-sms')
+    let available: boolean
+    try {
+      SMS = await import('expo-sms')
+      available = await SMS.isAvailableAsync()
+    } catch {
+      available = false
+    }
     if (!available) {
       confirm({ title: 'No messaging available', message: "This device can't send text messages, so a bulk invite can't go out this way. Use \"Invite by Link\" instead and share it however works.", cancelLabel: null })
       return
@@ -148,7 +186,7 @@ export function BulkInviteContactPicker({
     // presents them one after another instead of racing several sheets.
     for (let i = 0; i < targets.length; i++) {
       try {
-        const { result } = await SMS.sendSMSAsync([targets[i].phone], message)
+        const { result } = await SMS!.sendSMSAsync([targets[i].phone], message)
         if (result === 'sent' || result === 'unknown') sentCount++
       } catch {
         // One recipient's send failing (bad number, etc.) shouldn't abort
@@ -182,6 +220,18 @@ export function BulkInviteContactPicker({
 
           {permissionState === 'checking' && (
             <View style={styles.center}><ActivityIndicator color={tokens.blu} /></View>
+          )}
+
+          {permissionState === 'error' && (
+            <View style={styles.center}>
+              <Icon name="exclamationmark.triangle" size={fs(28)} color={tokens.t3} />
+              <Text style={[styles.emptyText, { color: tokens.t2, fontSize: fs(14) }]}>
+                Couldn't check contacts access. Please try again.
+              </Text>
+              <Pressable onPress={requestAccess} hitSlop={10}>
+                <Text style={[styles.headerBtn, { color: tokens.blu, fontSize: fs(14) }]}>Retry</Text>
+              </Pressable>
+            </View>
           )}
 
           {permissionState === 'denied' && (

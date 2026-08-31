@@ -169,7 +169,12 @@ export default function ChallengesScreen() {
     // happened to finish the challenge, not necessarily the real winner if
     // that was the other (possibly-offline) player. Whoever that is sees it
     // here instead, the next time they open the Duels hub.
-    getUnseenCoins().then((codes) => { if (codes.length) setUnseenCoinQueue(codes) })
+    // .catch(() => {}) to match the two calls above -- get_unseen_coins()
+    // throws on any RPC error (lib/challenges.ts), and this chain had no
+    // catch at all, so a transient failure on a screen that refetches on
+    // EVERY focus was an unhandled rejection. Silent, same as the rest of
+    // this background refresh.
+    getUnseenCoins().then((codes) => { if (codes.length) setUnseenCoinQueue(codes) }).catch(() => {})
   }, [])
 
   useFocusEffect(useCallback(() => { if (isPremium) load() }, [isPremium, load]))
@@ -536,7 +541,11 @@ export default function ChallengesScreen() {
                 <FindFriendsPickerBody
                   onClose={() => setStep('opponents')}
                   onSelect={(callsign) => {
-                    resolveCallsignToUserId(callsign).then((id) => { if (id) addOpponent(id, callsign) })
+                    // .catch(() => {}): resolveCallsignToUserId throws, and
+                    // all three call sites in this file are onPress/onSubmit
+                    // handlers with nowhere for a rejection to land. A
+                    // failure here just means the opponent isn't added.
+                    resolveCallsignToUserId(callsign).then((id) => { if (id) addOpponent(id, callsign) }).catch(() => {})
                     setStep('opponents')
                   }}
                 />
@@ -722,7 +731,7 @@ export default function ChallengesScreen() {
               placeholderTextColor={tokens.t4}
               style={[styles.inviteInput, { color: tokens.t1, borderColor: callsignCheck === 'not_found' ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
               onSubmitEditing={() => {
-                if (callsignCheck === 'found') resolveCallsignToUserId(newOppCallsign.trim()).then((id) => id && addOpponent(id, newOppCallsign.trim()))
+                if (callsignCheck === 'found') resolveCallsignToUserId(newOppCallsign.trim()).then((id) => id && addOpponent(id, newOppCallsign.trim())).catch(() => {})
               }}
             />
             {callsignCheck === 'checking' && <Text style={{ color: tokens.t3, fontSize: fs(12.5), marginTop: 4 }}>Checking…</Text>}
@@ -730,7 +739,7 @@ export default function ChallengesScreen() {
             {callsignCheck === 'found' && (
               <Pressable
                 style={[styles.addByCallsignBtn, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}
-                onPress={() => resolveCallsignToUserId(newOppCallsign.trim()).then((id) => id && addOpponent(id, newOppCallsign.trim()))}
+                onPress={() => resolveCallsignToUserId(newOppCallsign.trim()).then((id) => id && addOpponent(id, newOppCallsign.trim())).catch(() => {})}
               >
                 <Icon name="plus" size={fs(13)} color={tokens.gold} />
                 <Text style={{ color: tokens.gold, fontSize: fs(13), fontWeight: '700' }}>Add {newOppCallsign.trim()}</Text>

@@ -7,6 +7,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
+import * as Sentry from '@sentry/react-native'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getStudyQueue, getStudyPoolCount, recordStudyReview, getStudyMastery, getCurrency, getStudyFactsForItems, StudyCard, StudyMastery, Currency, StudyItemType, StudyFact } from '@/lib/study'
@@ -86,6 +87,18 @@ export default function StudyScreen() {
   // after the fact since it's not re-navigated-to without a fresh mount.
   const { level: levelParam } = useLocalSearchParams<{ level?: string }>()
   const [loading, setLoading] = useState(true)
+  // All four calls in load() below are supabase.rpc() wrappers that `throw`
+  // on any RPC error (see lib/study.ts) -- the chain there had a .finally()
+  // but no .catch() at all, so a single transient failure was BOTH an
+  // unhandled promise rejection (the crash class fixed in 24e7400) AND left
+  // this screen rendering nothing: loading goes false, sessionDone stays
+  // false, and `current` is undefined, so neither the session-complete
+  // branch nor the card branch renders -- a permanently blank Study screen
+  // with nothing to retry. Same failure class already fixed twice in this
+  // codebase (challenges/[id].tsx, then folder/shared/[id].tsx); applying
+  // the identical fix here: catch, surface a real error state with a Retry
+  // button, and report it so a recurrence is visible.
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [deck, setDeck] = useState<StudyCard[]>([])
   const [index, setIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
@@ -221,6 +234,7 @@ export default function StudyScreen() {
 
   const load = useCallback(() => {
     setLoading(true)
+    setLoadError(null)
     Promise.all([
       getStudyQueue(sessionSize, activeTypes, activeLevels, activeCategoryClasses),
       getStudyMastery(),
@@ -258,6 +272,10 @@ export default function StudyScreen() {
           setSessionDone(filtered.length === 0)
         })
       )
+      .catch((err: any) => {
+        Sentry.captureException(err, { tags: { feature: 'study_load' } })
+        setLoadError(err?.message ?? 'Could not load your study deck.')
+      })
       .finally(() => setLoading(false))
   }, [activeTypes, activeLevels, activeCategoryClasses, sessionSize])
 
@@ -653,6 +671,23 @@ export default function StudyScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
+      ) : loadError ? (
+        // Without this branch a failed load rendered NOTHING at all here
+        // (sessionDone false + current undefined means neither branch
+        // below matches) -- a blank Study screen with no explanation and
+        // no way back. Same shape and same Retry affordance as
+        // folder/shared/[id].tsx's and challenges/[id].tsx's own error
+        // states.
+        <View style={styles.center}>
+          <Icon name="exclamationmark.triangle" size={fs(36)} color={tokens.t4} />
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Couldn't load your deck</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
+            {loadError}
+          </Text>
+          <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={load}>
+            <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Retry</Text>
+          </Pressable>
+        </View>
       ) : (sessionDone || !current) && (mastery || (currency && currency.currentStreak > 0)) ? (
         // Mastery + streak grouped into one bordered card instead of two
         // loose rows stacked directly in the scroll flow -- RC, real
@@ -719,7 +754,7 @@ export default function StudyScreen() {
         </View>
       ) : null}
 
-      {!loading && sessionDone && (
+      {!loading && !loadError && sessionDone && (
         <View style={styles.center}>
           <Icon name="checkmark.circle" size={fs(40)} color={tokens.gold} />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>
