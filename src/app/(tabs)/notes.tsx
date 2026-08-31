@@ -85,8 +85,18 @@ export default function NotesScreen() {
   // long-press preview.
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
+  // RC (real device, feedback a409f862, 2026-08-30): "when notes are shared
+  // inside a shared folder, the note should not also be showing up in the
+  // user's notes section... a shared note shows up both in that shared
+  // folder and in my general notes page." getNotes() intentionally returns
+  // EVERY row in the local @flyregs/notes store, including ones pulled down
+  // purely so this account's OWN shared-folder screen can resolve a
+  // collaborator's note (see Note.authorId's own doc comment in notes.ts) --
+  // every other caller of getNotes() (folder resolution, sync, folder
+  // counts) genuinely needs those rows too, so the filter belongs here, at
+  // the one call site building the "my notes" list, not in getNotes() itself.
   useEffect(() => {
-    getNotes().then(setNotes).finally(() => setNotesLoading(false))
+    getNotes().then((n) => setNotes(n.filter((x) => !x.authorId))).finally(() => setNotesLoading(false))
     isSyncEnabled().then(setSyncEnabled)
   }, [])
 
@@ -298,7 +308,7 @@ export default function NotesScreen() {
       setSyncBusy(true)
       try {
         await enableSync(session.user.id)
-        setNotes(await getNotes())
+        setNotes((await getNotes()).filter((x) => !x.authorId))
         setSyncEnabled(v)
       } catch {
         // Matches saved.tsx's toggleSync -- same underlying enableSync() can

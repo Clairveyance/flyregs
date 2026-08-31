@@ -126,6 +126,15 @@ export default function ChallengeGameScreen() {
   // to tell "still fetching" apart from "will never resolve." Surfaced as an
   // actual error state with a Retry button instead.
   const [loadError, setLoadError] = useState<string | null>(null)
+  // RC (real device, feedback a6633018, 2026-08-30): "the screen doesn't do
+  // anything when you tap the check-in [Check again] button." loadState()
+  // itself was always working -- it re-fetches and re-derives phase exactly
+  // like the automatic focus/foreground refreshes above -- but when the
+  // opponent genuinely still hasn't accepted, phase doesn't change and
+  // nothing on screen moves, which reads identically to "the tap did
+  // nothing." A brief spinner on the button itself is purely a tap
+  // acknowledgment, independent of whether the refetch finds anything new.
+  const [checkingAgain, setCheckingAgain] = useState(false)
   const startedAt = useRef(0)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // RC, real duel test: "most of them just flashed on the screen and didn't
@@ -538,11 +547,17 @@ export default function ChallengeGameScreen() {
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>Waiting for a response</Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             {otherCount === 1
-              ? `${challenge?.others[0]?.label ?? 'They'} haven't accepted your invite yet — the duel starts once they do.`
+              ? `${challenge?.others[0]?.label ?? 'They'} hasn't accepted your invite yet — the duel starts once they do.`
               : "Nobody's accepted your invite yet — the duel starts once at least one player does."}
           </Text>
-          <Pressable style={[styles.goBtnSmall, { backgroundColor: tokens.gold, marginTop: 14 }]} onPress={() => loadState()}>
-            <Text style={[styles.goBtnSmallText, { fontSize: fs(14) }]}>Check again</Text>
+          <Pressable
+            style={[styles.goBtnSmall, { backgroundColor: tokens.gold, marginTop: 14, opacity: checkingAgain ? 0.6 : 1 }]}
+            disabled={checkingAgain}
+            onPress={async () => { setCheckingAgain(true); await loadState(); setCheckingAgain(false) }}
+          >
+            {checkingAgain
+              ? <ActivityIndicator color="#000" size="small" />
+              : <Text style={[styles.goBtnSmallText, { fontSize: fs(14) }]}>Check again</Text>}
           </Pressable>
         </View>
       ) : phase === 'waiting_opponent' ? (

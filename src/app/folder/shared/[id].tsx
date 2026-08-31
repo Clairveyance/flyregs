@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, Modal, ScrollView, TextInput, RefreshControl, KeyboardAvoidingView, Platform, AppState } from 'react-native'
+import * as Sentry from '@sentry/react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -132,6 +133,20 @@ export default function SharedFolderDetail() {
   const [regs, setRegs] = useState<RegRow[]>([])
   const [notes, setNotes] = useState<NoteRow[]>([])
   const [loading, setLoading] = useState(true)
+  // RC (real device, feedback 7718d349, 2026-08-30): "after the owner
+  // changes the access for somebody back to read only, the app didn't seem
+  // to handle that request very well and just made a blank page with a
+  // circle pinwheel circle of death." load() below runs ~15 sequential/
+  // parallel Supabase calls with zero error handling across any of them --
+  // any single failure (an RLS query racing the exact moment access
+  // changes underneath it is a plausible trigger, but really ANY transient
+  // failure) throws out of load() before reaching setLoading(false) at the
+  // end, leaving the spinner spinning forever with nothing to retry and
+  // nothing logged. Same failure class already fixed once in this codebase
+  // (challenges/[id].tsx's own loadError/phase='error', see its comment) --
+  // applying the identical fix here: catch, surface a real error state with
+  // a Retry button, and actually report it so a recurrence is visible.
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [removed, setRemoved] = useState(false)
   const [openNote, setOpenNote] = useState<NoteRow | null>(null)
   // Item titles on this screen can run long and get cut off the same way
@@ -178,7 +193,8 @@ export default function SharedFolderDetail() {
   const load = useCallback(async (silent = false) => {
     if (typeof id !== 'string') return
     const myGen = ++loadGenRef.current
-    if (!silent) setLoading(true)
+    if (!silent) { setLoading(true); setLoadError(null) }
+    try {
     // Per-invitee mode, not the folder's owner-set default (BB-077 added a
     // per-collaborator collab_mode specifically so one person can have
     // write access and another read-only on the same folder -- reading
@@ -358,6 +374,12 @@ export default function SharedFolderDetail() {
       ...loiHl.map((h): RegRow => ({ id: h.id, itemRowId: rowIdFor(loiItems, h.id), regType: 'loi', label: h.document_number, title: h.title, route: hlRoute('/loi', h), blockText: h.blockText, blockLabel: h.blockLabel, blockSnippet: h.blockSnippet })),
       ...cfr49Hl.map((h): RegRow => ({ id: h.id, itemRowId: rowIdFor(cfr49Items, h.id), regType: 'cfr49', label: `§ ${h.document_number}`, title: h.title, route: hlRoute('/cfr49', h), blockText: h.blockText, blockLabel: h.blockLabel, blockSnippet: h.blockSnippet })),
     ])
+    } catch (err: any) {
+      if (myGen !== loadGenRef.current) return
+      Sentry.captureException(err, { tags: { feature: 'shared_folder_load' }, extra: { folderId: id } })
+      if (!silent) { setLoadError(err?.message ?? 'Could not load this folder.'); setLoading(false) }
+      return
+    }
 
     if (!silent) setLoading(false)
   }, [id])
@@ -549,6 +571,15 @@ export default function SharedFolderDetail() {
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
+        </View>
+      ) : loadError ? (
+        <View style={styles.center}>
+          <Icon name="exclamationmark.triangle" size={fs(36)} color={tokens.t4} />
+          <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(15) }]}>Couldn't load this folder</Text>
+          <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13) }]}>{loadError}</Text>
+          <Pressable style={[styles.retryBtn, { backgroundColor: tokens.blu }]} onPress={() => load()}>
+            <Text style={[styles.retryBtnText, { fontSize: fs(14) }]}>Retry</Text>
+          </Pressable>
         </View>
       ) : removed ? (
         <View style={styles.center}>
@@ -976,6 +1007,8 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
   emptyTitle: { fontWeight: '600', textAlign: 'center' },
   emptySub: { textAlign: 'center', marginTop: 2 },
+  retryBtn: { borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10, marginTop: 14 },
+  retryBtnText: { color: '#fff', fontWeight: '700' },
   list: { padding: 16, gap: 10 },
   sectionHeader: { fontWeight: '700', letterSpacing: 0.5, marginBottom: 6, marginTop: 4 },
   // lineHeight NOT set here -- always overridden inline with fs(12.5) * 1.44
