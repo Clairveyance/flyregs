@@ -20,7 +20,16 @@ import { supabase } from '@/lib/supabase'
 // (not yet migrated, or never needs to be) signs successfully too --
 // createSignedUrl doesn't require the bucket to be private -- so callers
 // don't need to know which buckets are gated versus not.
-const STORAGE_PUBLIC_URL_RE = /\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/
+// The path group deliberately stops at `?` (and `#`): figure/image URLs
+// written by the scrapers now carry a `?v=<content-hash>` cache-busting
+// marker (see imageCache.ts's versionFor and sync/backfill_aim_pdf_images.py's
+// upload_png). This used to be a greedy `(.+)$`, which folded that marker
+// INTO the object path -- createSignedUrl would then be asked to sign
+// "aim/page-0609.png?v=1a2b3c", an object that does not exist, fail, and
+// return null. Since a null here is the "not fetchable" path, every figure
+// carrying a version marker would have rendered as a permanent error state.
+// Existing marker-less URLs match exactly as before.
+const STORAGE_PUBLIC_URL_RE = /\/storage\/v1\/object\/public\/([^/]+)\/([^?#]+)/
 
 // 5 minutes: long enough to cover a slow connection and, on Android,
 // pdf-viewer.tsx's own detour through Google's docs.google.com/gview proxy

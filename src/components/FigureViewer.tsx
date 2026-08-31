@@ -49,7 +49,15 @@ export function FigureViewer({
   // private ac-figures bucket -- null (renders a spinner below) for the
   // brief window before either is ready, since the stored image_url itself
   // isn't directly fetchable anymore.
-  const imageUri = useGatedCachedImage(figure?.id ?? null, figure?.image_url ?? null)
+  // `failed` is the "and it is never arriving" signal: before it existed
+  // this hook only ever reported SUCCESS, so an uncached figure opened
+  // offline (or with a signing call the bucket refused) left the
+  // ActivityIndicator below spinning forever, with no error and nothing to
+  // retry. `retry` re-runs the whole attempt, re-minting the signed URL.
+  const { uri: imageUri, failed: imageFailed, retry: retryImage } = useGatedCachedImage(
+    figure?.id ?? null,
+    figure?.image_url ?? null
+  )
 
   // Some source PDF pages print a figure sideways relative to the page's
   // own portrait bounding box (the scraped page image is portrait, but the
@@ -131,6 +139,21 @@ export function FigureViewer({
               }}
               resizeMode="contain"
             />
+          ) : imageFailed ? (
+            // Same shape and same Retry affordance as folder/shared/[id].tsx's,
+            // challenges/[id].tsx's and study.tsx's own error states -- on this
+            // screen's own black-on-white palette rather than theme tokens,
+            // since this viewer is a full-screen dark overlay.
+            <View style={styles.errorBox}>
+              <Icon name="exclamationmark.triangle" size={fs(36)} color="rgba(255,255,255,0.55)" />
+              <Text style={[styles.errorTitle, { fontSize: fs(16) }]}>Couldn't load this figure</Text>
+              <Text style={[styles.errorSub, { fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
+                Check your connection and try again. Figures you've saved for offline reading open without a connection.
+              </Text>
+              <Pressable style={styles.retryBtn} onPress={retryImage} hitSlop={8}>
+                <Text style={[styles.retryBtnText, { fontSize: fs(14) }]}>Retry</Text>
+              </Pressable>
+            </View>
           ) : (
             <ActivityIndicator color="#fff" size="large" />
           ))}
@@ -197,4 +220,15 @@ const styles = StyleSheet.create({
   navBtnDisabled: { opacity: 0.3 },
   navText: { color: '#fff', fontWeight: '600' },
   navCount: { color: 'rgba(255,255,255,0.6)', fontWeight: '500' },
+  errorBox: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 8 },
+  errorTitle: { color: '#fff', fontWeight: '700', marginTop: 4, textAlign: 'center' },
+  errorSub: { color: 'rgba(255,255,255,0.6)', textAlign: 'center' },
+  retryBtn: {
+    marginTop: 14,
+    borderRadius: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  retryBtnText: { color: '#fff', fontWeight: '700' },
 })

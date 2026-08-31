@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Platform } from 'react-native'
 import { File, Paths } from 'expo-file-system'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -40,9 +40,33 @@ async function setCacheEntry(key: string, url: string): Promise<string | undefin
 // based on load timing, regardless of which photo was actually current. A
 // per-version filename means a new photo is a genuinely new URI, so there's
 // nothing to overwrite and nothing stale to serve.
+//
+// Two kinds of URL carry a real version marker in their query string, and
+// both are handled by the same branch below:
+//   - avatars / owner photos: a `?t=` upload timestamp (as described above)
+//   - figures / formula refs / AD + AIM page images: a `?v=<content-hash>`
+//     written by the scrapers' upload_png (sha256 of the exact bytes,
+//     truncated). A content hash, NOT a timestamp, on purpose: re-running a
+//     scraper that re-uploads byte-identical bytes produces the identical
+//     hash, hence the identical URL, hence NO cache invalidation -- only a
+//     genuine change to the image's bytes moves the marker and forces a
+//     re-download. Before that marker existed, these URLs were fully
+//     deterministic (`/object/public/<bucket>/<fname>`, no query at all) and
+//     the scrapers re-uploaded over them with `x-upsert: true`, so a
+//     corrected regulatory figure could never reach a device that had
+//     already cached the old one -- the URL it was keyed on never changed.
+//
+// The `?? remoteUrl` fallback is what keeps this backward-compatible: every
+// row written before the marker existed still has a bare, query-less URL,
+// and falls back to the whole URL exactly as it always did. Shipping this
+// therefore invalidates nothing that is already on disk.
 function versionFor(remoteUrl: string): string {
-  const query = remoteUrl.split('?')[1]
-  return (query ?? remoteUrl).replace(/[^a-zA-Z0-9]/g, '_')
+  // Split on '#' first so a fragment can never leak into the version (and,
+  // for a marker-less URL, can never make the same object look like two
+  // different versions).
+  const [withoutFragment] = remoteUrl.split('#')
+  const query = withoutFragment.split('?')[1]
+  return (query ?? withoutFragment).replace(/[^a-zA-Z0-9]/g, '_')
 }
 
 function localFileFor(key: string, remoteUrl: string): File {
@@ -110,7 +134,8 @@ export async function getCachedImageUri(
   key: string,
   remoteUrl: string,
   onUpdate?: (uri: string) => void,
-  resolveFetchUrl?: () => Promise<string | null>
+  resolveFetchUrl?: () => Promise<string | null>,
+  onError?: () => void
 ): Promise<string | null> {
   // expo-file-system's File/Paths API has no web implementation at all —
   // confirmed live, reproducibly: opening any FigureViewer in web preview
@@ -127,7 +152,23 @@ export async function getCachedImageUri(
   const isFresh = map[key] === remoteUrl && local.exists
 
   if (!isFresh) {
-    downloadAndCache(key, remoteUrl, local, resolveFetchUrl).then((uri) => { if (uri) onUpdate?.(uri) })
+    downloadAndCache(key, remoteUrl, local, resolveFetchUrl).then((uri) => {
+      if (uri) onUpdate?.(uri)
+      // ...and otherwise, say so. downloadAndCache swallows every failure
+      // into a null (offline, a signed URL that came back null, a non-2xx
+      // from Storage). That null used to end the story: a caller with
+      // nothing already cached simply never heard back and sat on its
+      // loading state forever -- see useGatedCachedImage below, where that
+      // was a real permanent spinner with no error and nothing to retry.
+      // onError is the missing "and it is not coming" signal.
+      //
+      // Deliberately OPTIONAL, and deliberately NOT passed by
+      // useCachedImage: avatars/owner photos genuinely want the silent
+      // fallback (the caller falls back to initials, which is correct
+      // behavior, not a bug), so omitting it leaves their path
+      // byte-for-byte the same as before.
+      else onError?.()
+    })
   }
 
   return local.exists ? local.uri : null
@@ -186,12 +227,43 @@ export function useCachedImage(key: string | null, remoteUrl: string | null): st
 // showing it immediately would just be a guaranteed-broken image for the
 // one render before the cache/signing resolves, instead of the loading
 // state the caller should show for that brief window.
-export function useGatedCachedImage(key: string | null, publicUrl: string | null): string | null {
+//
+// Returns a {uri, failed, retry} triple rather than a bare uri: because the
+// initial state is null and only SUCCESS ever wrote to it, a figure that
+// couldn't be fetched (offline, or a signing call the bucket's RLS refused)
+// left FigureViewer/FormulaRefViewer spinning forever, with no error state
+// and nothing to retry. `failed` is that missing signal; `retry` re-runs the
+// whole resolve-and-download attempt. useCachedImage (avatars, shared-folder
+// owner photos) is untouched -- it neither passes nor receives any of this,
+// and its silent fall-back-to-initials behavior on failure is correct.
+export type GatedCachedImage = {
+  /** Local cached file, or a freshly-signed remote URL. Null while still
+   *  resolving AND null when resolving failed -- pair it with `failed`. */
+  uri: string | null
+  /** True only when there is nothing at all to show AND the last attempt
+   *  failed. A background refresh that fails while an older cached copy is
+   *  already on screen is NOT a failure worth showing -- the user is looking
+   *  at a working image -- so this stays false in that case. */
+  failed: boolean
+  /** Re-runs the whole attempt from scratch. On native that means a fresh
+   *  resolveGatedStorageUrl() call, so a signed URL that had expired or was
+   *  rejected is re-minted rather than retried as-is. */
+  retry: () => void
+}
+
+export function useGatedCachedImage(key: string | null, publicUrl: string | null): GatedCachedImage {
   const [uri, setUri] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  // Bumping this re-runs the effect below, which is the entire retry
+  // mechanism -- no separate "retry" code path that could drift from the
+  // real one.
+  const [attempt, setAttempt] = useState(0)
+  const retry = useCallback(() => setAttempt((n) => n + 1), [])
 
   useEffect(() => {
     let cancelled = false
     setUri(null)
+    setFailed(false)
     if (!key || !publicUrl) return
     // getCachedImageUri short-circuits to null on web with no other effect
     // (expo-file-system has no web implementation -- see its own comment) --
@@ -201,20 +273,42 @@ export function useGatedCachedImage(key: string | null, publicUrl: string | null
     // ever resolving anything. Sign and use directly, same "no cache to
     // offer, just fetch live" fallback useCachedImage already has for web.
     if (Platform.OS === 'web') {
-      resolveGatedStorageUrl(publicUrl).then((signed) => { if (!cancelled) setUri(signed) })
+      resolveGatedStorageUrl(publicUrl)
+        .then((signed) => {
+          if (cancelled) return
+          // resolveGatedStorageUrl returns null (never throws) when the URL
+          // isn't a recognized Storage URL or the signing call is refused by
+          // the bucket's RLS -- which is exactly the "spins forever" case on
+          // web, since nothing else here ever sets uri.
+          if (signed) setUri(signed)
+          else setFailed(true)
+        })
+        .catch(() => { if (!cancelled) setFailed(true) })
       return () => { cancelled = true }
     }
-    getCachedImageUri(key, publicUrl, (fresh) => {
-      if (!cancelled) setUri(fresh)
-    }, () => resolveGatedStorageUrl(publicUrl)).then((cached) => {
+    getCachedImageUri(
+      key,
+      publicUrl,
+      (fresh) => { if (!cancelled) setUri(fresh) },
+      () => resolveGatedStorageUrl(publicUrl),
+      () => { if (!cancelled) setFailed(true) },
+    ).then((cached) => {
       if (!cancelled && cached) setUri(cached)
+    }).catch(() => {
+      // getCachedImageUri itself can reject before any download starts (a
+      // corrupt cache map, a filesystem read that throws) -- that used to be
+      // an unhandled rejection AND a permanent spinner.
+      if (!cancelled) setFailed(true)
     })
     return () => {
       cancelled = true
     }
-  }, [key, publicUrl])
+  }, [key, publicUrl, attempt])
 
-  return uri
+  // Derived, not stored: an image that DID resolve (a stale cached copy)
+  // outranks a failed background refresh, and a consumer can't get that
+  // precedence wrong by reading the two fields separately.
+  return { uri, failed: failed && uri === null, retry }
 }
 
 // Gated counterpart to downloadImageToCache, for the offline-download path

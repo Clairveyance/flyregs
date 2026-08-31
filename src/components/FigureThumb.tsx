@@ -1,5 +1,6 @@
 import { Image, View, ActivityIndicator, StyleProp, ViewStyle, ImageStyle } from 'react-native'
 import { useGatedCachedImage } from '@/lib/imageCache'
+import { Icon } from '@/components/Icon'
 import { useTheme } from '@/context/theme'
 
 // Shared figure-thumbnail image, used by aim/[id].tsx and ad/[id].tsx's
@@ -24,7 +25,20 @@ export function FigureThumb({
   style: StyleProp<ImageStyle>
 }) {
   const { tokens } = useTheme()
-  const uri = useGatedCachedImage(id, imageUrl)
+  const { uri, failed } = useGatedCachedImage(id, imageUrl)
+  if (failed) {
+    // A thumbnail that can't be fetched used to sit on the spinner below
+    // forever. Deliberately a static placeholder and NOT a Retry button:
+    // this whole thumbnail already lives inside a Pressable that opens
+    // FigureViewer (see ad/[id].tsx and aim/[id].tsx), so a nested pressable
+    // would swallow that tap -- the tap falls through to the viewer, which
+    // has the real error state and the real Retry.
+    return (
+      <View style={[style as StyleProp<ViewStyle>, { alignItems: 'center', justifyContent: 'center', backgroundColor: tokens.bg3 }]}>
+        <Icon name="exclamationmark.triangle" size={18} color={tokens.t4} />
+      </View>
+    )
+  }
   if (!uri) {
     return (
       <View style={[style as StyleProp<ViewStyle>, { alignItems: 'center', justifyContent: 'center', backgroundColor: tokens.bg3 }]}>

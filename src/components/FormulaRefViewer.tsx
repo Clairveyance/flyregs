@@ -35,7 +35,13 @@ export function FormulaRefViewer({
   // handleDownload in ac/[id].tsx), otherwise a freshly-signed URL for the
   // private ac-formula-refs bucket -- null (renders a spinner below) for
   // the brief window before either is ready.
-  const imageUri = useGatedCachedImage(formulaRef?.id ?? null, formulaRef?.image_url ?? null)
+  // Same failure signal as FigureViewer.tsx: without `failed`, an uncached
+  // formula image opened offline (or with a refused signing call) left the
+  // ActivityIndicator below spinning forever with nothing to retry.
+  const { uri: imageUri, failed: imageFailed, retry: retryImage } = useGatedCachedImage(
+    formulaRef?.id ?? null,
+    formulaRef?.image_url ?? null
+  )
 
   // Same fix as FigureViewer.tsx: a scraped page image can print its
   // content sideways relative to its own portrait bounding box, which
@@ -117,6 +123,20 @@ export function FormulaRefViewer({
               }}
               resizeMode="contain"
             />
+          ) : imageFailed ? (
+            // Same error state as FigureViewer.tsx's, which is itself the
+            // same shape/Retry affordance as folder/shared/[id].tsx's,
+            // challenges/[id].tsx's and study.tsx's.
+            <View style={styles.errorBox}>
+              <Icon name="exclamationmark.triangle" size={fs(36)} color="rgba(255,255,255,0.55)" />
+              <Text style={[styles.errorTitle, { fontSize: fs(16) }]}>Couldn't load this formula</Text>
+              <Text style={[styles.errorSub, { fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
+                Check your connection and try again.
+              </Text>
+              <Pressable style={styles.retryBtn} onPress={retryImage} hitSlop={8}>
+                <Text style={[styles.retryBtnText, { fontSize: fs(14) }]}>Retry</Text>
+              </Pressable>
+            </View>
           ) : (
             <ActivityIndicator color="#fff" size="large" />
           ))}
@@ -147,4 +167,15 @@ const styles = StyleSheet.create({
   noteText: { color: 'rgba(255,255,255,0.7)', paddingHorizontal: 16, paddingBottom: 8 },
   scroll: { flex: 1 },
   scrollContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center' },
+  errorBox: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 8 },
+  errorTitle: { color: '#fff', fontWeight: '700', marginTop: 4, textAlign: 'center' },
+  errorSub: { color: 'rgba(255,255,255,0.6)', textAlign: 'center' },
+  retryBtn: {
+    marginTop: 14,
+    borderRadius: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  retryBtnText: { color: '#fff', fontWeight: '700' },
 })
