@@ -217,6 +217,17 @@ export default function HomeScreen() {
   const [otherResults, setOtherResults] = useState<UnifiedResult[]>([])
   const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
   const [searchLoading, setSearchLoading] = useState(false)
+  // searchLoading is owned ENTIRELY by the AC pipeline. The other-sources
+  // pipeline (FAR/AIM/P-CG/49 CFR/dictionary/figures) never touched it, so
+  // 'No results' rendered while up to 8 RPCs per term were still in flight:
+  // visible for the whole window on any FAR/AIM/P-CG-filtered search (skipAC
+  // clears searchLoading synchronously), and as a ~300-900ms flash on the
+  // first search of a session, when dismissSearch has cleared otherResults so
+  // there is no stale list to fall back on. Same 'confidently wrong empty
+  // state' family as the Duels/shared-folder/Study blank screens. A SEPARATE
+  // flag, not folded into searchLoading, so wave 1's deliberate anti-flicker
+  // behaviour (see the comment at the results render) is preserved.
+  const [otherLoading, setOtherLoading] = useState(false)
   // Past typed queries, shown when the search field is focused but empty —
   // distinct from the Recents tab (visited documents, not search terms).
   const [recentSearches, setRecentSearches] = useState<string[]>([])
@@ -658,7 +669,7 @@ export default function HomeScreen() {
 
   const runSearch = useCallback(async (q: string) => {
     const trimmed = normalizeSearchQuery(q.trim())
-    if (trimmed.length < 2) { searchSeq.current++; setSearchResults([]); setOtherResults([]); setSearchLoading(false); return }
+    if (trimmed.length < 2) { searchSeq.current++; setSearchResults([]); setOtherResults([]); setSearchLoading(false); setOtherLoading(false); return }
     const seq = ++searchSeq.current
     // Recorded as soon as a real search fires (not gated on results coming
     // back non-empty) — a query the user typed is worth re-offering later
@@ -684,10 +695,17 @@ export default function HomeScreen() {
     // resolves to none of far/aim/pcg, e.g. "AC only") -- see
     // searchOtherSources' own comment for why collapsing those two was the
     // bug in this fix's first draft.
-    const otherTypes: ('far' | 'aim' | 'pcg')[] | undefined =
+    // 'loi' is passed through as of 2026-08-31. It is a real FilterableType,
+    // but it used to be dropped here AND never searched anywhere, so selecting
+    // "Legal Interpretations" in the Filter sheet returned a list containing
+    // every type except LOIs. 'ac' is still deliberately excluded -- Home runs
+    // its own separate AC pipeline below and searchOtherSources must not
+    // double-search it.
+    const otherTypes: ('far' | 'aim' | 'pcg' | 'loi')[] | undefined =
       filterContentTypes.length === 0
         ? undefined
-        : filterContentTypes.filter((t): t is 'far' | 'aim' | 'pcg' => t === 'far' || t === 'aim' || t === 'pcg')
+        : filterContentTypes.filter((t): t is 'far' | 'aim' | 'pcg' | 'loi' =>
+            t === 'far' || t === 'aim' || t === 'pcg' || t === 'loi')
     const phraseForOther = isPhrasedQuery(trimmed) ? extractPhrase(trimmed) : trimmed
     // "Smart Search": expand the query into related regulatory vocabulary
     // (bridge -> corpus associations -> morphology; see searchSynonyms.ts)
@@ -706,9 +724,13 @@ export default function HomeScreen() {
       ? expandQuery(phraseForOther)
       : Promise.resolve({ terms: [] as string[], expanded: false })
     if (phraseForOther && phraseForOther.length >= 2) {
+      setOtherLoading(true)
       expansionPromise.then((expansion) => {
         const searchTerms = [phraseForOther, ...expansion.terms]
-        Promise.all(searchTerms.map((t) => searchOtherSources(t, 20, otherTypes, hasPlusAccess, hasPlusAccess))).then((resultSets) => {
+        // `return` matters: without it the inner chain is orphaned and the
+        // .catch() below can never see its rejection -- which would turn this
+        // fix's spinner into a permanent hang instead of a flash.
+        return Promise.all(searchTerms.map((t) => searchOtherSources(t, 20, otherTypes, hasPlusAccess, hasPlusAccess))).then((resultSets) => {
           if (seq !== searchSeq.current) return
           const seen = new Set<string>()
           const merged: UnifiedResult[] = []
@@ -723,10 +745,16 @@ export default function HomeScreen() {
             }
           })
           setOtherResults(merged)
+          setOtherLoading(false)
         })
+      }).catch(() => {
+        // Never leave the spinner up on a failed expansion/search round trip.
+        // Guarded on seq so a stale rejection can't clear a NEWER search's flag.
+        if (seq === searchSeq.current) setOtherLoading(false)
       })
     } else {
       setOtherResults([])
+      setOtherLoading(false)
     }
 
     // AC-specific search below (phrase + plain branches) is skipped
@@ -881,6 +909,7 @@ export default function HomeScreen() {
     setSearchResults([])
     setOtherResults([])
     setSearchLoading(false)
+    setOtherLoading(false)
     Keyboard.dismiss()
   }, [])
 
@@ -1620,7 +1649,7 @@ export default function HomeScreen() {
                 </Pressable>
               )}
             </Reanimated.ScrollView>
-          ) : searchLoading ? (
+          ) : (searchLoading || otherLoading) ? (
             <View style={styles.dropCenter}>
               <ActivityIndicator size="small" color={tokens.blu} />
             </View>

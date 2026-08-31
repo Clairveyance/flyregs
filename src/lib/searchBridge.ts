@@ -314,6 +314,28 @@ export const USER_TO_FAA: Record<string, string[]> = {
 //   - whole-word only, so "gas" doesn't fire inside "gasket"
 //   - skip an entry whose FAA term the query ALREADY uses, which is the
 //     "user was already specific" case the exact-match rule was protecting
+/** Phrases that make a bridge key mean something OTHER than its aviation
+ * sense. Verified by running the real bridgeTerms() logic against realistic
+ * queries (2026-08-31): "rough running engine" expanded to `turbulence`,
+ * "magnetic field deviation" to `airport, runway`, and "water landing
+ * procedures" to `contamination, drain`. Each is the right expansion for the
+ * key's usual sense and flatly wrong here, so the fix is to suppress the KEY
+ * in that context rather than to delete a mapping that is correct elsewhere:
+ * "rough air" must still reach turbulence, "grass field" must still reach
+ * airport, and "water in the fuel" must still reach contamination.
+ *
+ * Kept as explicit phrase pairs, not a cleverer heuristic -- this table is
+ * hand-authored regulatory vocabulary and a guessy rule here would be a new
+ * source of the same class of error. */
+const KEY_SUPPRESSED_BY: Record<string, string[]> = {
+  // engine/mechanical roughness is not atmospheric turbulence
+  rough: ['engine', 'running', 'idle', 'mag', 'magneto', 'field', 'strip', 'terrain'],
+  // "magnetic field", "field of view" -- not an airfield
+  field: ['magnetic', 'electric', 'magnet', 'view', 'flux'],
+  // ditching/landing on water is not fuel contamination
+  water: ['landing', 'ditch', 'ditching', 'survival', 'raft', 'float', 'flotation', 'egress'],
+}
+
 export function bridgeTerms(query: string): string[] {
   const q = query.trim().toLowerCase().replace(/\s+/g, ' ')
   if (!q) return []
@@ -333,6 +355,9 @@ export function bridgeTerms(query: string): string[] {
     if (out.length >= 6) break
     const re = new RegExp(`(^|[^a-z0-9])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`)
     if (!re.test(q)) continue
+    // Suppress a key whose aviation sense doesn't apply in this query.
+    const blockers = KEY_SUPPRESSED_BY[key]
+    if (blockers && blockers.some((w) => new RegExp(`(^|[^a-z0-9])${w}([^a-z0-9]|$)`).test(q))) continue
     for (const term of USER_TO_FAA[key]) {
       const t = term.toLowerCase()
       // Already specific: the query uses the FAA word itself.

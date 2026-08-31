@@ -383,7 +383,12 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
       // own line WITHIN a paragraph) would otherwise never match a literal
       // "\n" here. `.replace` preserves length, so `idx`/`len` math below
       // still lines up with the real `para`.
-      const lower = para.toLowerCase().replace(/\n/g, ' ')
+      // .join(' '), NOT .join(''): TABLE_HEADER_MARK must be REPLACED, not
+      // stripped, or this string gets shorter than the one highlightSpans
+      // slices below and every match offset after the sentinel shifts by one.
+      // Both paths have to agree on length -- that is the whole invariant
+      // holding `paraBase` ordinals and the scrollbar `fraction` together.
+      const lower = para.toLowerCase().replace(/\n/g, ' ').split(TABLE_HEADER_MARK).join(' ')
       const len = para.length || 1
       let pos = 0
       let idx = lower.indexOf(phrase, pos)
@@ -686,7 +691,16 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
               {isPending && <Text style={[styles.pendingTag, { fontSize: fs(9.5) }]}> SELECTED </Text>}
               {withChangedRail(i,
                 <Text style={[styles.para, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.52 }]}>
-                  {highlightSpans(para, hq, { base: paraBase.get(i) ?? 0, active: activeMatch, redShift })}
+                  {/* The non-search render path strips TABLE_HEADER_MARK, but
+                      this search-active branch passed the RAW paragraph, so the
+                      U+E000 sentinel reached the screen whenever in-doc search
+                      was open. Only bites a doc that carries the mark with NO
+                      piped line (parseTableBlock returns null, so it falls here)
+                      -- confirmed live, exactly three in the corpus: FAR 26.39,
+                      AIM 8-1-1, AIM 6-3-4. Same class as the 2026-08-02 What's
+                      Changed glyph artifact. Replacement is length-preserving to
+                      stay in lockstep with the `lower` string above. */}
+                  {highlightSpans(para.split(TABLE_HEADER_MARK).join(' '), hq, { base: paraBase.get(i) ?? 0, active: activeMatch, redShift })}
                 </Text>
               )}
             </Pressable>

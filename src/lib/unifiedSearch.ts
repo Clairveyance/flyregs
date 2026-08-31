@@ -24,7 +24,7 @@ function formatAimParagraphNumber(raw: string): string {
   return raw
 }
 
-export type UnifiedResultType = 'far' | 'aim' | 'pcg' | 'ad' | 'figure_ac' | 'figure_aim' | 'dictionary' | 'cfr49'
+export type UnifiedResultType = 'far' | 'aim' | 'pcg' | 'ad' | 'figure_ac' | 'figure_aim' | 'dictionary' | 'cfr49' | 'loi'
 
 export interface UnifiedResult {
   type: UnifiedResultType
@@ -56,9 +56,13 @@ export interface UnifiedResult {
 interface FarRow { section_number: string; part: string; title: string | null; out_rank: number; is_anchor?: boolean }
 interface Cfr49Row { section_number: string; part: string; family: string; title: string | null; out_rank: number; is_anchor?: boolean }
 interface AimRow { paragraph_number: string; title: string | null; out_rank: number; is_anchor?: boolean }
-interface PcgRow { slug: string; term: string; definition: string | null; out_rank: number }
+interface PcgRow { slug: string; term: string; definition: string | null; out_rank: number; is_anchor?: boolean }
 interface DictRow { slug: string; term: string; definition: string | null; out_rank: number }
-interface AdRow { ad_number: string; subject_heading: string; out_rank: number }
+interface AdRow { ad_number: string; subject_heading: string; out_rank: number; is_anchor?: boolean }
+// search_legal_interpretations returns no rank column at all, so position in
+// the RPC's own ordering is the only relevance signal available. Converted to
+// a descending synthetic rank below, then normalised with every other source.
+interface LoiRow { slug: string; title: string; addressee: string | null; year: number | null; summary: string | null; cfr_part_reference: string | null }
 interface FigureRow {
   source_type: 'ac' | 'aim'
   figure_id: string
@@ -93,7 +97,7 @@ interface FigureRow {
 export async function searchOtherSources(
   query: string,
   limitPerSource = 6,
-  types?: ('far' | 'aim' | 'pcg')[],
+  types?: ('far' | 'aim' | 'pcg' | 'loi')[],
   // RC, 2026-08-04: "ADs don't need to surface in free tier search" -- AD
   // body text has been Plus-gated with zero preview since the tier-boundary
   // pass (c440af8), so a free user hitting an AD from a general search only
@@ -112,7 +116,15 @@ export async function searchOtherSources(
   // straight to the new whole-screen Plus lock on tap.
   includeDictionary = true
 ): Promise<UnifiedResult[]> {
-  const want = (t: 'far' | 'aim' | 'pcg') => types === undefined || types.includes(t)
+  const want = (t: 'far' | 'aim' | 'pcg' | 'loi') => types === undefined || types.includes(t)
+  // An EXPLICIT filter means "only what I asked for". Until 2026-08-31 the
+  // four non-chip sources (figures, 49 CFR, dictionary, A/D) ran
+  // unconditionally, so filtering to AC-only still returned 49 CFR and T&F
+  // rows -- the user saw "49 CFR 175.700" under an AC-only filter. Scoping
+  // them to the unfiltered case is the honest reading of an explicit filter;
+  // it can't hide anything the sheet offered as a choice, because it only
+  // ever fires when the user narrowed to something specific.
+  const explicitFilter = types !== undefined
   const empty = Promise.resolve({ data: [] as any[] })
   // Aviation Dictionary and figures aren't a dimension the Filter sheet
   // offers a chip for (see the comment above on `types`), so they always
@@ -120,17 +132,30 @@ export async function searchOtherSources(
   // is on top of it and smartly sorts and combines searches." AD is a
   // separate, tier-driven exclusion (see `includeAd` above), not tied to
   // that scoping either.
-  const [farRes, aimRes, pcgRes, adRes, figRes, dictRes, cfr49Res] = await Promise.all([
+  const [farRes, aimRes, pcgRes, adRes, figRes, dictRes, cfr49Res, loiRes] = await Promise.all([
     want('far') ? supabase.rpc('search_far', { query, result_limit: limitPerSource }) : empty,
     want('aim') ? supabase.rpc('search_aim', { query, result_limit: limitPerSource }) : empty,
     want('pcg') ? supabase.rpc('search_pcg', { query, result_limit: limitPerSource }) : empty,
-    includeAd ? supabase.rpc('search_ads', { query, result_limit: limitPerSource }) : empty,
-    supabase.rpc('search_figures', { query, result_limit: limitPerSource }),
-    includeDictionary ? supabase.rpc('search_dictionary', { query, result_limit: limitPerSource }) : empty,
+    includeAd && !explicitFilter ? supabase.rpc('search_ads', { query, result_limit: limitPerSource }) : empty,
+    !explicitFilter ? supabase.rpc('search_figures', { query, result_limit: limitPerSource }) : empty,
+    includeDictionary && !explicitFilter ? supabase.rpc('search_dictionary', { query, result_limit: limitPerSource }) : empty,
     // Not a FilterableType dimension yet (same reasoning as AD/figures above
     // -- the Filter sheet has no 49 CFR chip), so this always searches
     // regardless of `types`.
-    supabase.rpc('search_cfr49', { query, result_limit: limitPerSource }),
+    !explicitFilter ? supabase.rpc('search_cfr49', { query, result_limit: limitPerSource }) : empty,
+    // Legal Interpretations were NEVER searched from anywhere in the app --
+    // search_legal_interpretations has existed in the database the whole time
+    // and nothing called it. Worse, 'loi' IS a FilterableType, so selecting
+    // "Legal Interpretations" in the Filter sheet and typing a query returned
+    // a list containing every type EXCEPT LOIs. Dormant, built, unrun code
+    // that produced a visibly wrong result -- now wired up.
+    // Safe for every tier: this RPC returns only slug/title/addressee/year/
+    // summary/cfr_part_reference, all of which are ungated columns; the Pro
+    // gate on legal_interpretations_gated covers body_text and pdf_url_cached
+    // only, and the LOI index screen itself is browsable free -- so a result
+    // leads to a real page with a real preview, not the whole-screen lock
+    // that AD/Dictionary are deliberately excluded to avoid.
+    want('loi') ? supabase.rpc('search_legal_interpretations', { q: query, lim: limitPerSource }) : empty,
   ])
 
   const results: UnifiedResult[] = []
@@ -152,13 +177,26 @@ export async function searchOtherSources(
     results.push({ type: 'aim', id: r.paragraph_number, primary: `AIM ${formatAimParagraphNumber(r.paragraph_number)}`, secondary: r.title ?? '', rank: r.out_rank, anchored: r.is_anchor === true })
   }
   for (const r of (pcgRes.data ?? []) as PcgRow[]) {
-    results.push({ type: 'pcg', id: r.slug, primary: `P/CG ${r.term}`, secondary: r.definition ?? '', rank: r.out_rank })
+    // is_anchor was computed server-side and silently DROPPED here until
+    // 2026-08-31 -- search_pcg/search_ads both return it (verified live:
+    // search_pcg('what does special vfr mean') returns SPECIAL_VFR_OPERATIONS
+    // with is_anchor true and out_rank 102266), but neither row interface
+    // declared it and neither push set `anchored`, so 95 of the 285 curated
+    // concept anchors -- every P/CG one, a third of the whole table -- never
+    // reached rankSearchResults' `tier: r.anchored ? 0 : scored.tier`. The
+    // anchors were being authored, stored and matched, then thrown away one
+    // line before they could do their job.
+    results.push({ type: 'pcg', id: r.slug, primary: `P/CG ${r.term}`, secondary: r.definition ?? '', rank: r.out_rank, anchored: r.is_anchor === true })
   }
   for (const r of (dictRes.data ?? []) as DictRow[]) {
     results.push({ type: 'dictionary', id: r.slug, primary: `A/D ${r.term}`, secondary: r.definition ?? '', rank: r.out_rank })
   }
   for (const r of (adRes.data ?? []) as AdRow[]) {
-    results.push({ type: 'ad', id: r.ad_number, primary: `AD ${r.ad_number}`, secondary: r.subject_heading ?? '', rank: r.out_rank })
+    // Same dropped-anchor bug as P/CG above. search_ads returns is_anchor
+    // too; the anchors table has 0 'ad' rows today, so this one is latent --
+    // fixed now so authoring an AD anchor later just works instead of
+    // silently doing nothing.
+    results.push({ type: 'ad', id: r.ad_number, primary: `AD ${r.ad_number}`, secondary: r.subject_heading ?? '', rank: r.out_rank, anchored: r.is_anchor === true })
   }
   for (const r of (figRes.data ?? []) as FigureRow[]) {
     const sourceLabel = r.source_type === 'ac' ? 'AC' : 'AIM'
@@ -176,6 +214,45 @@ export async function searchOtherSources(
       rank: r.out_rank,
       figure: { id: r.figure_id, label: r.label, caption: r.caption, image_url: r.image_url },
     })
+  }
+
+  for (const [i, r] of ((loiRes.data ?? []) as LoiRow[]).entries()) {
+    const who = r.addressee ? ` — ${r.addressee}` : ''
+    const yr = r.year ? ` (${r.year})` : ''
+    results.push({
+      type: 'loi',
+      id: r.slug,
+      primary: `LOI ${r.title}${yr}`,
+      secondary: r.summary?.trim() || r.cfr_part_reference || who.replace(/^ — /, ''),
+      rank: (loiRes.data?.length ?? 0) - i,
+    })
+  }
+
+  // Normalise each source's rank to 0..1 BEFORE the cross-source sort.
+  // Measured on one identical query, these scales differ by 3-6 orders of
+  // magnitude: far 102716, pcg 2566, aim 593, cfr49 101, dictionary 0.289.
+  // Sorting those raw against each other meant dictionary and T&F results
+  // could never place above anything else no matter how good the match --
+  // the exact opposite of why T&F search was built. Each RPC's ranking is
+  // internally meaningful but its SCALE is arbitrary, so per-source min-max
+  // is the honest comparison. Anchored rows are unaffected: Home's ranker
+  // forces `tier: 0` for those before rank is ever consulted.
+  const byType = new Map<UnifiedResultType, UnifiedResult[]>()
+  for (const r of results) {
+    const bucket = byType.get(r.type)
+    if (bucket) bucket.push(r)
+    else byType.set(r.type, [r])
+  }
+  for (const bucket of byType.values()) {
+    const ranks = bucket.map((r) => r.rank)
+    const hi = Math.max(...ranks)
+    const lo = Math.min(...ranks)
+    const span = hi - lo
+    for (const r of bucket) {
+      // A single result, or an all-equal bucket, normalises to the top of its
+      // own scale rather than to 0 -- a lone perfect match is not a bad match.
+      r.rank = span > 0 ? (r.rank - lo) / span : 1
+    }
   }
 
   return results.sort((a, b) => b.rank - a.rank)
@@ -196,6 +273,7 @@ export function routeForUnifiedResult(r: UnifiedResult): string {
     case 'figure_aim': return `/aim/${r.id}`
     case 'dictionary': return `/dictionary/${r.id}`
     case 'cfr49': return `/cfr49/${r.id}`
+    case 'loi': return `/loi/${r.id}`
   }
 }
 
@@ -209,5 +287,6 @@ export function labelForUnifiedType(t: UnifiedResultType): string {
     case 'figure_aim': return 'T&F'
     case 'dictionary': return 'A/D'
     case 'cfr49': return '49 CFR'
+    case 'loi': return 'LOI'
   }
 }

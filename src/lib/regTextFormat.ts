@@ -311,6 +311,43 @@ export function looksLikeRealCaption(line: string | undefined): boolean {
   return !/[.:,;]$/.test(trimmed)
 }
 
+/** Collapses a table's header rows into ONE label per column.
+ *
+ * A real CFR/AIM table routinely has a TWO-ROW header: a group header
+ * spanning several columns sitting over each column's own specific label
+ * (14 CFR 26.5: a blank corner cell + "Applicable sections" spanning 4
+ * columns, over "Subpart B EAPAS/FTS | Subpart C ... | Subpart D ... |
+ * Subpart E ..."). Both rows are genuinely marked as header rows by the
+ * scrapers, but this function's caller used to read ONLY the first one
+ * (`lines[headerIdxs[0]]`) and silently discard every later header row --
+ * so 26.5 rendered a 2-cell header over 5-cell data, and the reader lost
+ * the actual column names entirely. Confirmed corpus-wide, not a one-off:
+ * 14 CFR 171.311/171.313/171.317's MLS instrumentation tables and AIM
+ * 5-3-1's CPDLC message-set tables are all this same shape.
+ *
+ * Joins each column's parts top-down with an em-dash ("Applicable sections
+ * -- Subpart B EAPAS/FTS"), which is how a two-tier header reads aloud.
+ * Empty parts are skipped (a blank corner cell stays blank rather than
+ * becoming a stray dash), and a value repeated down a column is collapsed
+ * rather than doubled -- a cell with rowspan>1 is deliberately propagated
+ * into each row it covers by the scrapers' grid expansion, so without this
+ * it would render as "Ground subsystem -- Ground subsystem". */
+export function mergeHeaderRows(headerRows: string[][]): string[] | null {
+  if (headerRows.length === 0) return null
+  if (headerRows.length === 1) return headerRows[0]
+  const width = Math.max(...headerRows.map((r) => r.length))
+  const merged: string[] = []
+  for (let ci = 0; ci < width; ci++) {
+    const parts: string[] = []
+    for (const row of headerRows) {
+      const v = (row[ci] ?? '').trim()
+      if (v && v !== parts[parts.length - 1]) parts.push(v)
+    }
+    merged.push(parts.join(' \u2014 '))
+  }
+  return merged
+}
+
 /** True when two phrases open with the same run of 3+ words -- used to spot
  * a table row whose own label restates a pending group sub-label rather
  * than needing it prepended. See parseTableBlock's data-row branch. */
@@ -467,7 +504,7 @@ export function parseTableBlock(para: string): ParsedTable | null {
   }
   return {
     captionLines: lines.slice(0, pipedIdx),
-    headerCells: headerIdxs.length > 0 ? lines[headerIdxs[0]].split(' | ').map((c) => c.trim()) : null,
+    headerCells: mergeHeaderRows(headerIdxs.map((i) => lines[i].split(' | ').map((c) => c.trim()))),
     rows,
     footnotes,
   }
