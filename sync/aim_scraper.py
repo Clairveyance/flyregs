@@ -58,6 +58,8 @@ import requests
 from bs4 import BeautifulSoup
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import table_grid  # noqa: E402
 from revision_log import log_revisions  # noqa: E402
 from citation_validate import fetch_known_ids, fetch_known_pcg_slugs  # noqa: E402
 
@@ -430,11 +432,18 @@ def _render_table(table_elem) -> str:
     # common table shape, not a decorative accident -- only a row that is
     # ENTIRELY empty should be skipped (any(cells)), never a row that has
     # real content elsewhere.
-    header_lines = []
-    for row in header_rows:
-        cells = [_cell_text(c) for c in row.find_all(["th", "td"])]
-        if any(cells):
-            header_lines.append(_TABLE_HEADER_MARK + " | ".join(cells))
+    # colspan/rowspan are real in the AIM HTML too and were ignored here
+    # until 2026-08-31 -- same bug, same shape, different scraper (see
+    # table_grid.py, which now owns this logic once instead of three
+    # independently-drifting copies). AIM 5-3-1's CPDLC tables are exactly
+    # this: a 2-cell spanning header row over 5-wide data rows.
+    def _spans(row):
+        return [
+            (_cell_text(c), table_grid.parse_span(c.get("colspan")), table_grid.parse_span(c.get("rowspan")))
+            for c in row.find_all(["th", "td"])
+        ]
+
+    header_lines = table_grid.render_grid([_spans(r) for r in header_rows], [], _TABLE_HEADER_MARK)
 
     # No real <thead> — try to recover a real header from the PDF-derived
     # lookup (see build_aim_pdf_headers.py) before giving up and rendering
@@ -449,10 +458,7 @@ def _render_table(table_elem) -> str:
 
     lines.extend(header_lines)
 
-    for row in body_rows:
-        cells = [_cell_text(c) for c in row.find_all(["th", "td"])]
-        if any(cells):
-            lines.append(" | ".join(cells))
+    lines.extend(table_grid.render_grid([], [_spans(r) for r in body_rows], _TABLE_HEADER_MARK))
 
     return "\n".join(lines)
 

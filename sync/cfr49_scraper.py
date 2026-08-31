@@ -53,6 +53,8 @@ import requests
 from lxml import etree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import table_grid  # noqa: E402
 from revision_log import log_revisions  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S")
@@ -133,15 +135,27 @@ def _render_table(table_elem) -> str:
     # drop one empty cell from a row that has real content, since a blank
     # leading corner cell over row-label values is a real, common CFR
     # table shape, not a decorative accident.
-    for row in header_rows:
-        cells = [_elem_text(c) for c in row if c.tag in ("TH", "TD")]
-        if any(cells):
-            lines.append(_TABLE_HEADER_MARK + " | ".join(cells))
+    # colspan/rowspan are REAL in the eCFR XML and were ignored here until
+    # 2026-08-31 -- 14 CFR 26.5's header is `<TH rowspan=2/><TH colspan=4>`
+    # over 4 more <TH> and then 5-wide data rows, so emitting one cell per
+    # source cell produced rows of 2, 4 and 5 and the headers no longer sat
+    # over the columns they label. table_grid.render_grid expands both spans
+    # into a real occupancy grid; see that module for the full story and for
+    # why this logic is now shared rather than copied into each scraper.
+    def _spans(row):
+        return [
+            (_elem_text(c), table_grid.parse_span(c.get("colspan")), table_grid.parse_span(c.get("rowspan")))
+            for c in row
+            if c.tag in ("TH", "TD")
+        ]
 
-    for row in body_rows:
-        cells = [_elem_text(c) for c in row if c.tag in ("TH", "TD")]
-        if any(cells):
-            lines.append(" | ".join(cells))
+    lines.extend(
+        table_grid.render_grid(
+            [_spans(r) for r in header_rows],
+            [_spans(r) for r in body_rows],
+            _TABLE_HEADER_MARK,
+        )
+    )
 
     return "\n".join(lines)
 
