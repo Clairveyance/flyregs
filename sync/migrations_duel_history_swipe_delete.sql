@@ -14,12 +14,19 @@
 
 alter table public.challenge_participants add column if not exists hidden_at timestamptz;
 
--- RLS already allows a user to update their own challenge_participants
--- row (challenge_participants_own_rows: user_id = auth.uid(), all
--- commands) -- an RPC isn't strictly required, but every other mutation
--- in this feature goes through one (respond_to_challenge, etc.), so this
--- matches that convention and the client doesn't need to know its own
--- user_id to build the .eq() match.
+-- CORRECTED 2026-08-31 -- the claim this comment used to make was FALSE and
+-- worth stating plainly, because it overstated client write access:
+-- challenge_participants' only policy (challenge_participants_own_rows) is
+-- SELECT-only, and authenticated holds no UPDATE grant on the table at all
+-- (verified against the LIVE database, not this file -- migration files are
+-- known to drift from live here). So a client CANNOT update its own
+-- challenge_participants row directly; this RPC is not a convenience, it is
+-- the only write path that exists. That is the safer arrangement and should
+-- stay that way. It also means the guard below is the real enforcement, not
+-- a nicety: it is what makes it impossible to hide a still-'pending' invite
+-- on an active duel, which would otherwise strand every other participant
+-- forever (finalize_challenge_if_done refuses to complete while any
+-- participant is pending). Regression test: scripts/duel_pending_hide_freeze_test.py.
 create or replace function public.hide_challenge_from_history(p_challenge_id uuid)
 returns void
 language plpgsql

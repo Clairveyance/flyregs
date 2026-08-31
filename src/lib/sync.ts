@@ -121,7 +121,30 @@ async function mergeBookmarks(userId: string) {
 
     for (const r of remote ?? []) {
       if (r.deleted) {
-        merged.delete(r.id)
+        // Guarded by the same last-write-wins comparison mergeFolders and
+        // mergeNotes below already use -- this branch alone used to delete
+        // unconditionally, which is a real silent-data-loss path because a
+        // WHOLE-DOC bookmark's id is the document's own id (bookmarks.ts:
+        // "a whole-doc bookmark, where id === acId"), so it is REUSED every
+        // time the same document is bookmarked again. Chain: bookmark AC X,
+        // un-bookmark it (remote row -> deleted = true), re-bookmark it
+        // while offline or during any transient failure -- syncPushBookmark
+        // is fire-and-forget and only logs (syncPush.ts's reportSyncError),
+        // so the remote row stays deleted = true. On the next launch this
+        // loop deleted the freshly re-added local bookmark, and the
+        // `pushUp` filter below skipped it too (a remote row DID exist), so
+        // it was never restored either -- guaranteed loss, not a race.
+        // Folder items are immune to the same shape only because their ids
+        // are a fresh makeId() per add (folders.ts's addManyToFolder).
+        //
+        // savedAt is the right local side of the comparison: addBookmark
+        // stamps a fresh one on every add, so a re-add always outlives the
+        // delete that preceded it, while a genuine delete made on ANOTHER
+        // device is still newer than this device's untouched copy and is
+        // honored exactly as before. Ties go to the delete (`>` on the
+        // remote side), matching mergeFolders/mergeNotes.
+        const loc = localById.get(r.id)
+        if (!loc || new Date(r.updated_at) > new Date(loc.savedAt)) merged.delete(r.id)
         continue
       }
       if (!localById.has(r.id)) {
@@ -148,7 +171,18 @@ async function mergeBookmarks(userId: string) {
         })
       }
     }
-    const pushUp = fresh.filter((loc) => !(remote ?? []).some((r) => r.id === loc.id))
+    // Was `!remote.some(r => r.id === loc.id)` -- local-only rows only. A
+    // bookmark the loop above just decided to KEEP against a stale remote
+    // delete has a remote row, so it fell through both halves: not deleted
+    // locally any more, but never re-uploaded either, leaving the cloud copy
+    // permanently marked deleted until the user happened to touch it again.
+    // push_bookmark's ON CONFLICT sets deleted = false, so re-pushing it is
+    // exactly the resurrection this case needs.
+    const pushUp = fresh.filter((loc) => {
+      const r = (remote ?? []).find((x) => x.id === loc.id)
+      if (!r) return true
+      return r.deleted && !(new Date(r.updated_at) > new Date(loc.savedAt))
+    })
     await AsyncStorage.setItem(BOOKMARKS_KEY, JSON.stringify([...merged.values()]))
     return pushUp
   })
@@ -491,6 +525,14 @@ export async function enableSync(userId: string): Promise<void> {
     await pullAndMergeAll(userId)
     // Claim ownership only after a clean push+pull, so a failure can't leave
     // the tag pointing at an account whose data never actually landed.
+    //
+    // No email argument on purpose -- enableSync is reached from a UI toggle
+    // and from applyRemoteSyncPreference, neither of which carries the
+    // session's email, and claimDeviceIfMismatched has already stamped the
+    // right one for this session by the time any of them run.
+    // setSyncOwner itself now preserves the stored email for the same userId
+    // rather than nulling it (see its own comment) -- this bare call is what
+    // used to erase it on every single sync enable.
     await setSyncOwner(userId)
   } catch (e) {
     // Roll the flag back so it can't disagree with the caller's own reverted

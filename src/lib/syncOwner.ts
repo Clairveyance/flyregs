@@ -76,7 +76,40 @@ export async function getSyncOwner(): Promise<string | null> {
 
 export async function setSyncOwner(userId: string, email?: string | null): Promise<void> {
   try {
-    const value: SyncOwner = { userId, email: email ?? null }
+    // Never let a call that has no email to offer REGRESS an email this
+    // device already captured for the SAME account. claimDeviceIfMismatched's
+    // own same-user branch has always done this locally (`email ?? owner?.
+    // email ?? null`, see its comment), but it was the only caller that did,
+    // and it isn't the only caller: sync.ts's enableSync ends with a bare
+    // setSyncOwner(userId) -- no email argument at all -- which used to
+    // overwrite the tag as { userId, email: null }.
+    //
+    // That silently invalidated claimDeviceIfMismatched's own stated safety
+    // argument for its inconclusive (missing-email) branch: "every claim from
+    // here on carries an email, so this blind spot only exists once per
+    // device." enableSync runs on every manual Back-up & Sync toggle AND from
+    // applyRemoteSyncPreference on launch, so the blind spot was being
+    // re-opened indefinitely, not once. Chain it left standing: user A's
+    // session ends WITHOUT going through signOut() (expired/revoked refresh
+    // token, "sign out all devices" from elsewhere) so
+    // claimLocalDataForSignedOutUser never re-stamps the email; user B signs
+    // in; claimDeviceIfMismatched hits the email-less inconclusive branch,
+    // deliberately does NOT wipe, and re-tags A's still-present local data as
+    // B's. Every localDataBelongsTo check now answers true for B -- so B not
+    // only READS A's bookmarks/folders/notes, but enableSync's bulk push
+    // uploads A's items, A's authored notes included, into B's cloud account.
+    // That is exactly the leak SYNC_OWNER_KEY was created to stop (see
+    // sync.ts's own header comment on it).
+    //
+    // Scoped to `existing.userId === userId` deliberately: on a genuine
+    // handoff to a DIFFERENT account the stored email belongs to the previous
+    // person and must never be inherited onto the new tag.
+    let resolved = email ?? null
+    if (!resolved) {
+      const existing = await getSyncOwnerRaw()
+      if (existing && existing.userId === userId) resolved = existing.email
+    }
+    const value: SyncOwner = { userId, email: resolved }
     await AsyncStorage.setItem(SYNC_OWNER_KEY, JSON.stringify(value))
   } catch {
     // Non-fatal: a failed write just means the next check is treated as a
