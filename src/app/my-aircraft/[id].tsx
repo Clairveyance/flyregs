@@ -352,14 +352,18 @@ export default function AircraftDetailScreen() {
     confirm({
       title: 'Aircraft Photo',
       choices: [
-        { label: 'Take Photo', onPress: () => { setTimeout(() => runAircraftImagePick((onLocalUri) => takeAndUploadAircraftImage(aircraft.id, onLocalUri)), 300) } },
-        { label: 'Choose from Library', onPress: () => { setTimeout(() => runAircraftImagePick((onLocalUri) => pickAndUploadAircraftImage(aircraft.id, onLocalUri)), 300) } },
+        // The current image_path is passed through so the upload can delete
+        // the object it replaces -- each upload now lands on its own
+        // content-addressed name (see aircraftImage.ts) rather than
+        // overwriting a fixed one, so nothing else would ever reclaim it.
+        { label: 'Take Photo', onPress: () => { setTimeout(() => runAircraftImagePick((onLocalUri) => takeAndUploadAircraftImage(aircraft.id, aircraft.image_path ?? null, onLocalUri)), 300) } },
+        { label: 'Choose from Library', onPress: () => { setTimeout(() => runAircraftImagePick((onLocalUri) => pickAndUploadAircraftImage(aircraft.id, aircraft.image_path ?? null, onLocalUri)), 300) } },
         ...(aircraft.image_path ? [{
           label: 'Remove Photo', destructive: true, onPress: () => {
             setTimeout(async () => {
               setPhotoBusy(true)
               try {
-                await removeAircraftImage(aircraft.id)
+                await removeAircraftImage(aircraft.id, aircraft.image_path ?? null)
                 setAircraft((prev) => (prev ? { ...prev, image_path: null } : prev))
               } catch (err) {
                 Sentry.captureException(err)
@@ -715,11 +719,29 @@ export default function AircraftDetailScreen() {
     setTrackingTarget({ mode: 'edit', equipment: e })
   }
 
+  // The Equipment round trip is the LAST un-deferred close+open handoff left
+  // on this screen, and it's the same two-RN-<Modal>s-at-once deadlock
+  // handleShare above already carries the full writeup for -- just between
+  // two of this file's own sheets instead of ConfirmDialog's. "Change Part"
+  // lives inside PartTrackingModal's <Modal>; setTrackingTarget(null) starts
+  // that Modal's slide-out dismiss, and setPartPickerVisible(true) used to
+  // set PartPickerModal's own visible=true in the SAME commit -- iOS is then
+  // asked to present one modal on a view controller that's still mid-dismiss
+  // of another, and neither ends up presented (invisible on web, where Modal
+  // is just a portal div with no native presentation stack to wedge).
+  // Deferred past the dismiss with the same setTimeout(..., 300) as
+  // handleShare/submitInvite/handlePickAircraftImage above.
+  //
+  // Found by the corpus-wide sweep of this bug class, NOT by an independent
+  // real-device report -- same standing as the link-share and bulk-contacts
+  // hand-offs fixed defensively alongside handleShare's own reported break.
+  // See PartPickerModal's onPicked below for the other direction of this same
+  // round trip, which had the identical shape.
   const changeEquipmentPart = () => {
     if (trackingTarget?.mode !== 'edit') return
     setEditingEquipment(trackingTarget.equipment)
     setTrackingTarget(null)
-    setPartPickerVisible(true)
+    setTimeout(() => setPartPickerVisible(true), 300)
   }
 
   const handleSaveTracking = async (tracking: PartTracking) => {
@@ -1386,8 +1408,18 @@ export default function AircraftDetailScreen() {
             // Brand new tag -- don't insert yet. RC: "each part box needs
             // an input sheet" for its own date/hour requirement, so the
             // tracking sheet is the next step, not an immediate insert.
+            //
+            // The other direction of changeEquipmentPart's round trip (see
+            // its comment above for the full mechanism): this branch is
+            // entirely synchronous -- unlike the editingEquipment branch
+            // above, whose real addAircraftEquipment/removeAircraftEquipment
+            // round trips give the dismiss time to land on their own -- so
+            // closing THIS picker's <Modal> and setting PartTrackingModal's
+            // own visible=true landed in the SAME commit, the identical
+            // present-while-dismissing deadlock. Same setTimeout(..., 300)
+            // deferral as every other close+open handoff in this file.
             setPartPickerVisible(false)
-            setTrackingTarget({ mode: 'new', part })
+            setTimeout(() => setTrackingTarget({ mode: 'new', part }), 300)
           }
         }}
       />

@@ -465,6 +465,27 @@ function RingTick({
     // this file's other web-vs-native Reanimated mismatch -- this project's
     // only real device-testing surface for Reanimated code is a real
     // device, not the Browser pane.
+    // Reduce Motion: return a CLEAN static tick, not the frozen mid-animation
+    // state. Without this, every animated input sits at its initial value
+    // forever -- mainPos.value stays 0, so tick 0 (and its MAIN_FALLOFF_TICKS
+    // neighbours) keep a permanent mainDim notch while every other tick sits
+    // at full opacity. That reads as a rendering glitch -- a dark bite out of
+    // one side of the ring -- rather than as a deliberate motionless state,
+    // and it is exactly what a Reduce Motion user sees 100% of the time.
+    //
+    // RC, real device (iPad, 2026-08-31): "the MF pulsing circle works fine
+    // on my phone, it doesn't 'function' at all on my ipad." Reduce Motion is
+    // a PER-DEVICE accessibility setting, and it is the only per-device input
+    // to this whole animation -- note that the heat-shimmer effect above
+    // gates on `reduceMotion` ALONE (not on isFocused), so when it is on,
+    // every last bit of movement here stops, which matches "doesn't function
+    // at all" precisely. Honouring the setting is correct and is NOT changed
+    // here; what's fixed is that the resulting still frame is now a correct,
+    // evenly-lit proportional dial that still carries all of its real
+    // information (each tick's status colour), instead of a frozen artifact.
+    if (reduceMotion) {
+      return { opacity: 1, transform: [{ scale: 1 }], backgroundColor: color }
+    }
     const pMain = ((mainPos.value % RING_TICKS) + RING_TICKS) % RING_TICKS
     const dMain = Math.abs(index - pMain)
     const mainDist = Math.min(dMain, RING_TICKS - dMain)
