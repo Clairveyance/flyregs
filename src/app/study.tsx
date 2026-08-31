@@ -11,7 +11,7 @@ import * as Sentry from '@sentry/react-native'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getStudyQueue, getStudyPoolCount, recordStudyReview, getStudyMastery, getCurrency, getStudyFactsForItems, StudyCard, StudyMastery, Currency, StudyItemType, StudyFact } from '@/lib/study'
-import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
+import { COIN_BY_CODE, type CoinDef, TROPHY_BY_CODE } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { StudyLevel, ALL_STUDY_LEVELS, STUDY_LEVEL_LABELS, markCoinsSeen } from '@/lib/challenges'
 import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS } from '@/lib/profileRatings'
@@ -410,7 +410,14 @@ export default function StudyScreen() {
         if (result.newCoins.length > 0) {
           // Fires well after the card has already advanced -- a rewarding
           // moment shouldn't block or race the flip/advance flow.
-          const coin = COIN_BY_CODE[result.newCoins[0]]
+          // TROPHY_BY_CODE fallback: DUEL_100_WINS and MASTERY_FULL live in
+          // TROPHY_CATALOG, not COIN_CATALOG, so COIN_BY_CODE returns undefined for
+          // them and the two rarest awards in the app could never be revealed.
+          // Deliberately fixed at the call sites and NOT inside coins.ts, because
+          // profile/[userId].tsx relies on COIN_BY_CODE[code] being undefined for a
+          // trophy to keep it OUT of the regular coin grid (it renders in the
+          // trophy case below instead).
+          const coin = COIN_BY_CODE[result.newCoins[0]] ?? TROPHY_BY_CODE[result.newCoins[0]]
           if (coin) setTimeout(() => setRevealCoin(coin), 300)
           // Mark seen right away, not on modal dismiss -- the reveal here IS
           // the "shown to the user" moment. Without this, get_unseen_coins()

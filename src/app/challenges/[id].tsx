@@ -14,7 +14,7 @@ import {
 } from '@/lib/challenges'
 import { RATING_SHORT_LABELS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
 import { slugifyPcgTerm } from '@/lib/pcg'
-import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
+import { COIN_BY_CODE, type CoinDef, TROPHY_BY_CODE } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { ConfettiBurst } from '@/components/Confetti'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -324,7 +324,14 @@ export default function ChallengeGameScreen() {
       // Same reveal moment Study Mode uses (see CoinRevealModal) -- fires
       // after the answer-correct/incorrect state above so it doesn't cover
       // that feedback the instant you tap an answer.
-      const coin = COIN_BY_CODE[r.newCoins[0]]
+      // TROPHY_BY_CODE fallback: DUEL_100_WINS and MASTERY_FULL live in
+      // TROPHY_CATALOG, not COIN_CATALOG, so COIN_BY_CODE returns undefined for
+      // them and the two rarest awards in the app could never be revealed.
+      // Deliberately fixed at the call sites and NOT inside coins.ts, because
+      // profile/[userId].tsx relies on COIN_BY_CODE[code] being undefined for a
+      // trophy to keep it OUT of the regular coin grid (it renders in the
+      // trophy case below instead).
+      const coin = COIN_BY_CODE[r.newCoins[0]] ?? TROPHY_BY_CODE[r.newCoins[0]]
       if (coin) setTimeout(() => setRevealCoin(coin), 400)
       // Mark seen now -- otherwise get_unseen_coins() (challenges/index.tsx's
       // catch-up check, built for the duel-win-toast-only-shown-to-finalizer
@@ -432,10 +439,20 @@ export default function ChallengeGameScreen() {
       router.back()
       return
     }
-    const othersLabel = (challenge?.others.length ?? 0) === 1 ? (challenge?.others[0]?.label ?? 'your opponent') : 'the other players'
+    // The 1-opponent and 3+-player cases genuinely have different outcomes, so
+    // they get different sentences. In a group duel forfeiting does NOT hand
+    // anyone the win -- the duel carries on and exactly one of the remaining
+    // players wins on score (finalize_challenge_if_done only awards a survivor
+    // win once active_count drops to 1). Telling a group-duel player that "the
+    // other players will win automatically" was simply wrong.
+    const oneOpponent = (challenge?.others.length ?? 0) === 1
+    const othersLabel = oneOpponent ? (challenge?.others[0]?.label ?? 'your opponent') : 'the other players'
+    const outcomeLine = oneOpponent
+      ? `${othersLabel} will win automatically.`
+      : `You'll take a loss and ${othersLabel} will play on for the win.`
     confirm({
       title: 'Forfeit Duel?',
-      message: `You've answered ${challenge!.myAnsweredCount} of ${challenge!.questionCount} questions. Leaving now forfeits the duel — ${othersLabel} will win automatically.`,
+      message: `You've answered ${challenge!.myAnsweredCount} of ${challenge!.questionCount} questions. Leaving now forfeits the duel — ${outcomeLine}`,
       confirmLabel: 'Forfeit & Leave',
       destructive: true,
       twoStep: false,

@@ -15,7 +15,7 @@ import {
 import { SwipeToDelete } from '@/components/SwipeToDelete'
 import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS } from '@/lib/profileRatings'
 import { useConfirm } from '@/components/ConfirmDialog'
-import { COIN_BY_CODE, type CoinDef } from '@/lib/coins'
+import { COIN_BY_CODE, type CoinDef, TROPHY_BY_CODE } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
@@ -821,7 +821,11 @@ export default function ChallengesScreen() {
         </KeyboardAvoidingView>
       </Modal>
       <CoinRevealModal
-        coin={unseenCoinQueue[0] ? COIN_BY_CODE[unseenCoinQueue[0]] ?? null : null}
+        // Without the TROPHY_BY_CODE fallback a trophy code here yielded a null
+        // coin, CoinRevealModal returned null, onClose never fired, and
+        // dismissUnseenCoin never ran -- so the queue head stuck on that code
+        // FOREVER, blocking every coin behind it and re-stalling on each focus.
+        coin={unseenCoinQueue[0] ? COIN_BY_CODE[unseenCoinQueue[0]] ?? TROPHY_BY_CODE[unseenCoinQueue[0]] ?? null : null}
         onClose={dismissUnseenCoin}
       />
       <LongPressPreviewCard
