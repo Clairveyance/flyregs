@@ -111,7 +111,7 @@ def _elem_text(elem) -> str:
 
 
 _PARAGRAPH_TAGS = {"P", "FP", "FP-1", "FP-2", "FP-3", "FP-4"}
-_TABLE_HEADER_MARK = ""  # Unicode Private Use Area -- never occurs in real scraped text
+_TABLE_HEADER_MARK = chr(0xE000)  # Unicode Private Use Area -- never occurs in real scraped text; built via chr() so it cannot silently vanish from source again
 
 
 def _render_table(table_elem) -> str:
@@ -126,16 +126,21 @@ def _render_table(table_elem) -> str:
     header_rows = thead.findall(".//TR") if thead is not None else []
     body_rows = [r for r in table_elem.findall(".//TR") if r not in header_rows]
 
+    # Same fix as far_scraper.py's identical helper (2026-08-31, RC real
+    # device, 14 CFR 93.123's JFK table): dropping an empty cell shifts
+    # every later cell in that row out of alignment with its column --
+    # fine to skip a row that's ENTIRELY empty (any(cells)), never fine to
+    # drop one empty cell from a row that has real content, since a blank
+    # leading corner cell over row-label values is a real, common CFR
+    # table shape, not a decorative accident.
     for row in header_rows:
         cells = [_elem_text(c) for c in row if c.tag in ("TH", "TD")]
-        cells = [c for c in cells if c]
-        if cells:
+        if any(cells):
             lines.append(_TABLE_HEADER_MARK + " | ".join(cells))
 
     for row in body_rows:
         cells = [_elem_text(c) for c in row if c.tag in ("TH", "TD")]
-        cells = [c for c in cells if c]
-        if cells:
+        if any(cells):
             lines.append(" | ".join(cells))
 
     return "\n".join(lines)

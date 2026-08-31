@@ -62,6 +62,13 @@ run_one "citation_validate"                                         python3 sync
 if [[ -f scripts/audit_figure_miss.py ]]; then
   run_one "audit_figure_miss" python3 scripts/audit_figure_miss.py
 fi
+# RC, real device (14 CFR 93.123), 2026-08-31: "add a corpus wide search
+# for like issues to your task list." Same informational-only convention
+# as audit_figure_miss above (always exits 0, never blocks a release) --
+# a known backlog of genuinely complex multi-row/merged-header tables
+# means this can't be a hard pass/fail gate, but every run still prints
+# the full current list so it stays visible rather than silently forgotten.
+run_one "audit_table_header_alignment (table header/data column mismatch)" python3 scripts/audit_table_header_alignment.py
 
 # --- Layer 2: security & tier gating ---
 run_one "tier_gate_audit (source-level, every gated surface x tier)" node scripts/tier_gate_audit.mjs

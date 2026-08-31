@@ -172,7 +172,18 @@ def _elem_text(elem) -> str:
 _PARAGRAPH_TAGS = {"P", "FP", "FP-1", "FP-2", "FP-3", "FP-4"}
 
 
-_TABLE_HEADER_MARK = ""  # Unicode Private Use Area — never occurs in real scraped text
+# RC, real device (14 CFR 93.123's JFK table), 2026-08-31: found while
+# investigating the JFK table's missing column label that this constant was
+# an EMPTY STRING here, not the real marker -- confirmed live: zero rows in
+# far_sections have ever contained a real U+E000 header mark, versus 43 in
+# aim_paragraphs (aim_scraper.py's own copy of this constant is correct).
+# Every FAR table has been silently relying on the client's "no explicit
+# header" fallback since this mechanism was introduced, exactly the failure
+# mode aim_scraper.py's own comment on this same helper describes as
+# already fixed once for AIM. Using the explicit  escape rather than
+# pasting the raw glyph -- a genuinely invisible character is exactly how
+# this went missing in the first place with no diff-visible trace of it.
+_TABLE_HEADER_MARK = chr(0xE000)  # Unicode Private Use Area — never occurs in real scraped text; built via chr() so it cannot silently vanish from source again
 
 
 def _render_table(table_elem) -> str:
@@ -201,16 +212,29 @@ def _render_table(table_elem) -> str:
     header_rows = thead.findall(".//TR") if thead is not None else []
     body_rows = [r for r in table_elem.findall(".//TR") if r not in header_rows]
 
+    # RC, real device (14 CFR 93.123's "John F. Kennedy" table): "several
+    # columns but no ref as to what those numbers mean." Root cause: the
+    # old `cells = [c for c in cells if c]` below dropped any EMPTY cell
+    # from a row before joining -- fine for a genuinely blank decorative
+    # row, wrong for a header row whose leading corner cell is blank on
+    # purpose (a real, common CFR convention when the row labels -- here,
+    # 1500/1600/1700/1800/1900 -- are self-evident without a column name).
+    # Dropping that one empty cell shifted every REAL header left by one
+    # position, so "Air carriers | Commuters | Other" (3 cells) ended up
+    # over "<hour> | Air carriers | Commuters | Other" data rows (4 cells)
+    # -- confirmed against the live eCFR/GovInfo text, which does have a
+    # 4th column, not a mislabeled 3-column table. Preserving cell POSITION
+    # (empty string stays a placeholder in the list) instead of removing it
+    # keeps every row's column count aligned; `any(cells)` still skips a
+    # row that is genuinely, entirely empty.
     for row in header_rows:
         cells = [_elem_text(c) for c in row if c.tag in ("TH", "TD")]
-        cells = [c for c in cells if c]
-        if cells:
+        if any(cells):
             lines.append(_TABLE_HEADER_MARK + " | ".join(cells))
 
     for row in body_rows:
         cells = [_elem_text(c) for c in row if c.tag in ("TH", "TD")]
-        cells = [c for c in cells if c]
-        if cells:
+        if any(cells):
             lines.append(" | ".join(cells))
 
     return "\n".join(lines)

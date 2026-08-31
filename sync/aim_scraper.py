@@ -355,7 +355,7 @@ def _extract_list_blocks(list_elem) -> list[str]:
     return blocks
 
 
-_TABLE_HEADER_MARK = ""  # Unicode Private Use Area — never occurs in real scraped text
+_TABLE_HEADER_MARK = chr(0xE000)  # Unicode Private Use Area — never occurs in real scraped text; built via chr() so it cannot silently vanish from source again (far_scraper.py's own sibling constant had exactly that happen)
 
 
 def _cell_text(elem) -> str:
@@ -420,11 +420,20 @@ def _render_table(table_elem) -> str:
     header_rows = thead.find_all("tr") if thead else []
     body_rows = [r for r in table_elem.find_all("tr") if r not in header_rows]
 
+    # Same fix as far_scraper.py's identical helper (2026-08-31, RC real
+    # device, 14 CFR 93.123's JFK table -- a different scraper but the
+    # exact same bug, since this codebase's several table-flattening
+    # helpers all grew independently): dropping an empty cell out of the
+    # list shifts every later cell in that row out of alignment with its
+    # column. A blank leading corner cell over row-label values (e.g. an
+    # hour, a size, a designation the row already names) is a real,
+    # common table shape, not a decorative accident -- only a row that is
+    # ENTIRELY empty should be skipped (any(cells)), never a row that has
+    # real content elsewhere.
     header_lines = []
     for row in header_rows:
         cells = [_cell_text(c) for c in row.find_all(["th", "td"])]
-        cells = [c for c in cells if c]
-        if cells:
+        if any(cells):
             header_lines.append(_TABLE_HEADER_MARK + " | ".join(cells))
 
     # No real <thead> — try to recover a real header from the PDF-derived
@@ -442,8 +451,7 @@ def _render_table(table_elem) -> str:
 
     for row in body_rows:
         cells = [_cell_text(c) for c in row.find_all(["th", "td"])]
-        cells = [c for c in cells if c]
-        if cells:
+        if any(cells):
             lines.append(" | ".join(cells))
 
     return "\n".join(lines)

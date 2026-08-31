@@ -336,7 +336,25 @@ export function parseTableBlock(para: string): ParsedTable | null {
   // below, but it's still marked and must not leak the marker character
   // into the caption text it ends up rendered as. Strip on every line up
   // front rather than only the ones this function treats as piped.
-  const lines = para.split('\n').map((l) => l.split(TABLE_HEADER_MARK).join('').trim()).filter(Boolean)
+  // RC, real device (14 CFR 93.123's JFK table, 2026-08-31): the header
+  // rendered as "| Air carriers" -- a literal stray pipe glued onto the
+  // next cell -- instead of a genuinely blank first column. Root cause: a
+  // leading empty CELL renders as " | " (a real, meaningful leading
+  // space before the delimiter pipe -- see far_scraper.py's own
+  // _render_table, which builds rows this way specifically so a blank
+  // row-label-column corner cell stays positionally aligned with the data
+  // below it), but plain .trim() ate that one significant leading space,
+  // so splitting on ' | ' below no longer matched at position 0 and the
+  // bare "|" got absorbed into "Air carriers" as literal text. This never
+  // surfaced before because no table's real header had a genuinely blank
+  // leading cell reach this code until that scraper fix landed the same
+  // night -- restoring exactly the one leading space this specific shape
+  // needs, nothing else.
+  const lines = para.split('\n').map((l) => {
+    const stripped = l.split(TABLE_HEADER_MARK).join('')
+    const trimmed = stripped.trim()
+    return stripped.startsWith(' | ') ? ' ' + trimmed : trimmed
+  }).filter(Boolean)
   const wasHeaderLine = para.split('\n').map((l) => l.trim().startsWith(TABLE_HEADER_MARK))
   const pipedIdx = lines.findIndex((l) => l.includes(' | '))
   if (pipedIdx === -1) return null
