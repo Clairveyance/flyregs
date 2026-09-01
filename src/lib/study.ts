@@ -191,6 +191,13 @@ export async function getCurrency(): Promise<Currency> {
 export interface StudyFact {
   question: string
   answer: string
+  // Present only on hand-authored questions. `explanation` says WHY the answer
+  // is what it is and which sibling reg it gets confused with -- the thing the
+  // generated bank has no equivalent for (source_quote only quotes the rule
+  // back). Undefined for generated facts, so the UI must render conditionally.
+  explanation?: string
+  category?: string
+  qType?: 'recall' | 'scenario'
 }
 
 // AIM paragraph numbers aren't something pilots memorize -- "Which AIM
@@ -248,12 +255,21 @@ export async function getStudyFactsForItems(
       // correctly by never populating the map for a null pair.
       const { data, error } = await supabase
         .from('study_facts_gated')
-        .select('item_id, question, answer')
+        .select('item_id, question, answer, explanation, category, q_type, origin')
         .eq('item_type', itemType)
         .in('item_id', ids)
       if (error) throw error
+      // Hand-authored questions win outright over generated ones for the same
+      // item. Under the plain reservoir sampling below, 81 authored rows would
+      // almost never be drawn against 35,000+ generated ones, which would make
+      // authoring them pointless. Items with no authored fact are unaffected
+      // and keep the uniform-random behaviour described below.
+      const authoredIds = new Set(
+        (data ?? []).filter((r: any) => r.origin === 'authored').map((r: any) => r.item_id)
+      )
+      const rows = (data ?? []).filter((r: any) => !authoredIds.has(r.item_id) || r.origin === 'authored')
       const counts = new Map<string, number>()
-      for (const row of data ?? []) {
+      for (const row of rows) {
         // Reservoir sampling (k=1): a uniform-random pick among however many
         // live facts this item has, not always the first one authored.
         // Confirmed live as a real gap RC flagged ("each FC session must draw
@@ -265,7 +281,13 @@ export async function getStudyFactsForItems(
         const key = `${itemType}:${row.item_id}`
         const seen = (counts.get(key) ?? 0) + 1
         counts.set(key, seen)
-        if (Math.random() < 1 / seen) map.set(key, { question: row.question, answer: row.answer })
+        if (Math.random() < 1 / seen) map.set(key, {
+          question: row.question,
+          answer: row.answer,
+          explanation: (row as any).explanation ?? undefined,
+          category: (row as any).category ?? undefined,
+          qType: (row as any).q_type ?? undefined,
+        })
       }
     })
   )

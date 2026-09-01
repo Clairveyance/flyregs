@@ -1155,6 +1155,13 @@ function FlashCard({
           {showCitation && frontText === faces.answer && (
             <Text style={[styles.cardCitation, itemType === 'pcg' && styles.cardCitationItalic, { color: tokens.t4, fontSize: fs(11) }]}>{citationText}</Text>
           )}
+          {/* Only hand-authored questions carry an explanation; generated ones
+              leave it undefined and this renders nothing. Shown on whichever
+              face is currently displaying the ANSWER, never alongside the
+              question -- it frequently gives the answer away. */}
+          {fact?.explanation && frontText === faces.answer && (
+            <Text style={[styles.cardExplain, { color: tokens.t3, fontSize: fs(11.5) }]}>{fact.explanation}</Text>
+          )}
         </ScrollView>
         <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>Tap to reveal</Text>
       </Reanimated.View>
@@ -1166,6 +1173,9 @@ function FlashCard({
           {showCitation && backText === faces.answer && (
             <Text style={[styles.cardCitation, itemType === 'pcg' && styles.cardCitationItalic, { color: tokens.t4, fontSize: fs(11) }]}>{citationText}</Text>
           )}
+          {fact?.explanation && backText === faces.answer && (
+            <Text style={[styles.cardExplain, { color: tokens.t3, fontSize: fs(11.5) }]}>{fact.explanation}</Text>
+          )}
         </ScrollView>
         <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>Tap to flip back</Text>
       </Reanimated.View>
@@ -1175,6 +1185,9 @@ function FlashCard({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  // Sits under the citation on the answer face. Left-aligned against the
+  // centered answer text on purpose -- it is prose to read, not a label.
+  cardExplain: { marginTop: 14, textAlign: 'left', lineHeight: 17 },
   // flexGrow (not flex) on the ScrollView's own content container: lets
   // short content (loading/empty states, which use flex:1 centering
   // internally) still fill and center within the viewport, while letting
