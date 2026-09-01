@@ -105,7 +105,6 @@ const today = new Date()
 today.setHours(0, 0, 0, 0)
 
 const messages = []
-const notifiedIds = []
 for (const r of reminders) {
   const deviceTokens = tokensByUser.get(r.user_id)
   if (!deviceTokens || deviceTokens.length === 0) continue // no registered device at all -- still mark notified below so it isn't re-checked forever
@@ -130,47 +129,77 @@ for (const r of reminders) {
   for (const expoPushToken of deviceTokens) {
     // type: found missing in tonight's sweep -- with no `type` field,
     // _layout.tsx's tap handler fell through every branch and did nothing.
-    messages.push({ to: expoPushToken, sound: 'default', title, body, data: { type: 'reminder', reminderId: r.id, userAircraftId: r.user_aircraft_id } })
+    // _reminderId is carried alongside the Expo payload so a per-message
+    // result can be mapped back to the row it belongs to; it is stripped
+    // before the request body is built.
+    messages.push({ _reminderId: r.id, to: expoPushToken, sound: 'default', title, body, data: { type: 'reminder', reminderId: r.id, userAircraftId: r.user_aircraft_id } })
   }
-  notifiedIds.push(r.id)
 }
 
-// Mark ALL due reminders as notified (even ones with no enabled device) --
-// otherwise a user who enables push later would get a flood of stale
-// "reminders" for windows that already passed silently.
-const allDueIds = reminders.map((r) => r.id)
-if (allDueIds.length > 0) {
-  const { error: updErr } = await sb
-    .from('user_aircraft_reminders')
-    .update({ notified_at: new Date().toISOString() })
-    .in('id', allDueIds)
-  if (updErr) console.error('Failed to mark reminders as notified:', updErr.message)
-}
+// A reminder with NO registered device at all is still marked notified -- that
+// part is deliberate and unchanged: otherwise a user who enables push later
+// gets a flood of stale windows that already passed.
+//
+// What changed (2026-09-01): this used to mark EVERY due reminder as notified
+// BEFORE sending. So if the Expo API returned non-2xx, or an individual message
+// came back status:'error', that reminder was already stamped and would never
+// be retried -- an annual or pitot-static due date silently disappearing with
+// no trace and no way to get it back, since nothing re-arms a reminder except a
+// genuine due_date change. A reminder we actually attempt to send is now only
+// marked once Expo accepts it, so a transient failure retries on tomorrow's run.
+const noTokenIds = reminders.filter((r) => !(tokensByUser.get(r.user_id) || []).length).map((r) => r.id)
 
 if (messages.length === 0) {
-  console.log(`${allDueIds.length} reminder(s) entered their window, but no recipient has a registered push token — marked notified, nothing sent.`)
+  if (noTokenIds.length > 0) {
+    const { error: updErr } = await sb
+      .from('user_aircraft_reminders')
+      .update({ notified_at: new Date().toISOString() })
+      .in('id', noTokenIds)
+    if (updErr) console.error('Failed to mark reminders as notified:', updErr.message)
+  }
+  console.log(`${reminders.length} reminder(s) entered their window, but no recipient has a registered push token — marked notified, nothing sent.`)
   process.exit(0)
 }
 
 console.log(`Sending ${messages.length} reminder notification(s)...`)
 
+const sentReminderIds = new Set()
 const BATCH = 100
 for (let i = 0; i < messages.length; i += BATCH) {
   const chunk = messages.slice(i, i + BATCH)
   const res = await fetch('https://exp.host/--/api/v2/push/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(chunk),
+    body: JSON.stringify(chunk.map(({ _reminderId, ...m }) => m)),
   })
   if (!res.ok) {
-    console.error(`Expo push API returned ${res.status} for batch starting at ${i}`)
+    console.error(`Expo push API returned ${res.status} for batch starting at ${i} — leaving those reminders unnotified for tomorrow's retry`)
     continue
   }
   const json = await res.json()
-  const errors = (json.data ?? []).filter((r) => r.status === 'error')
+  const results = json.data ?? []
+  chunk.forEach((m, idx) => {
+    const r = results[idx]
+    // DeviceNotRegistered is terminal, not transient -- the token is dead and
+    // retrying it every day forever is worse than accepting it as delivered as
+    // far as we can deliver it.
+    if (!r || r.status !== 'error' || r.details?.error === 'DeviceNotRegistered') {
+      sentReminderIds.add(m._reminderId)
+    }
+  })
+  const errors = results.filter((r) => r.status === 'error')
   if (errors.length) {
     console.error(`${errors.length} of ${chunk.length} messages in batch failed:`, errors.slice(0, 3))
   }
 }
 
-console.log('Done.')
+const toMark = [...new Set([...noTokenIds, ...sentReminderIds])]
+if (toMark.length > 0) {
+  const { error: updErr } = await sb
+    .from('user_aircraft_reminders')
+    .update({ notified_at: new Date().toISOString() })
+    .in('id', toMark)
+  if (updErr) console.error('Failed to mark reminders as notified:', updErr.message)
+}
+
+console.log(`Done. ${toMark.length} of ${reminders.length} reminder(s) marked notified.`)

@@ -68,6 +68,33 @@ async function getOrRequestPushToken(): Promise<string> {
 // registering the device is not the same as opting into any specific
 // content stream, so an existing value (or false, for a first-ever row)
 // is always preserved rather than silently turned on.
+/** Register this device's push token, but ONLY if the OS has already granted
+ * permission -- so this can run on every app foreground without ever raising
+ * the permission dialog outside a genuine sign-in.
+ *
+ * Why this exists: ensurePushTokenRegistered is called from exactly one place,
+ * `if (event === 'SIGNED_IN')` in context/auth.tsx. A restored persisted
+ * session does NOT raise SIGNED_IN, so on every cold launch after the first it
+ * never runs again. Aircraft reminders and AD alerts have no in-app toggle at
+ * all, so nothing else ever calls getOrRequestPushToken() for those users.
+ *
+ * The dead end that creates: decline the iOS prompt at first sign-in, later
+ * turn FlyRegs notifications ON in iOS Settings -- and push_tokens still has
+ * zero rows for you, forever. Every reminder and every AD alert is then a
+ * silent no-op (the send scripts bail on `rows.length === 0`), with no control
+ * anywhere in the app that would fix it. Same shape as the 2026-08-29 case
+ * where a real user had no push_tokens row and simply received nothing. */
+export async function ensurePushTokenRegisteredIfGranted(userId: string): Promise<void> {
+  if (Platform.OS === 'web') return
+  try {
+    const { status } = await Notifications.getPermissionsAsync()
+    if (status !== 'granted') return
+  } catch {
+    return
+  }
+  await ensurePushTokenRegistered(userId)
+}
+
 export async function ensurePushTokenRegistered(userId: string): Promise<void> {
   if (Platform.OS === 'web') return
   try {

@@ -31,6 +31,31 @@ import { ConfirmProvider } from '@/components/ConfirmDialog'
 import { IPadSplitViewExperiment } from '@/components/IPadSplitViewExperiment'
 import { initSentry } from '@/lib/sentry'
 
+// Without a handler, expo-notifications DISCARDS any notification that arrives
+// while the app is foregrounded -- no banner, no sound, and nothing for the
+// addNotificationResponseReceivedListener below to fire on, since there is no
+// banner to tap. Verified: setNotificationHandler appeared nowhere in src/ or
+// supabase/, so every duel "your move", AD alert, aircraft reminder and daily
+// card that landed while the user was actually in FlyRegs was silently dropped.
+// That is the single most likely moment to receive a duel push -- both players
+// are in the app -- which makes this a strong candidate for the recurring
+// "they never got any kind of notification" reports.
+//
+// Field names checked against the INSTALLED expo-notifications 56.0.19 types
+// (build/Notifications.types.d.ts): shouldShowAlert is deprecated in favour of
+// shouldShowBanner + shouldShowList. shouldSetBadge stays false deliberately --
+// nothing in this app ever clears an app badge, so setting it would leave a
+// number stuck on the icon forever.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+})
+
+
 // Phase-1 SplitView proof-of-mechanism, dev-only, defaults off -- see
 // flyregs_ipad_plan.md. When on (iOS only; SplitView has no Android/web
 // native backing), this REPLACES the entire real app tree below with an

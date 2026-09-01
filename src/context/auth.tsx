@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { initRevenueCat, getSubscriptionStatus, logOutRevenueCat, syncEntitlements } from '@/lib/revenuecat'
 import { applyRemoteSyncPreference, claimLocalDataForSignedOutUser } from '@/lib/sync'
 import { claimDeviceIfMismatched } from '@/lib/syncOwner'
-import { ensurePushTokenRegistered, unregisterPushToken } from '@/lib/notifications'
+import { ensurePushTokenRegistered, ensurePushTokenRegisteredIfGranted, unregisterPushToken } from '@/lib/notifications'
 import { getDeviceId } from '@/lib/deviceId'
 import { loadCachedEntitlement, saveCachedEntitlement } from '@/lib/entitlementCache'
 import type { AvatarOverride } from '@/lib/avatar'
@@ -282,6 +282,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState !== 'active') return
       if (!sessionUserIdRef.current) return
+      // ensurePushTokenRegistered runs ONLY on the SIGNED_IN event above, and a
+      // restored session never raises one -- so a user who declined the iOS
+      // prompt at sign-in and later granted it in Settings kept an empty
+      // push_tokens row forever, and every reminder/AD alert silently no-op'd.
+      // Reminders and AD alerts have no in-app toggle that would re-trigger
+      // registration, so there was no way out of that state. Granted-only, so
+      // it can never raise the permission dialog outside a real sign-in.
+      ensurePushTokenRegisteredIfGranted(sessionUserIdRef.current)
       getSubscriptionStatus().then((status) => {
         // Session could have been signed out while this was in flight --
         // re-check rather than blindly applying a result that may no
