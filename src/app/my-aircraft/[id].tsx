@@ -30,8 +30,8 @@ import {
   getMyAircraftRole, getAircraftCollaborators, removeCollaborator, leaveSharedAircraft,
   inviteCollaboratorByCallsign, buildAircraftShareLink, getOrCreateShareLink, useAircraftRealtime,
   updateCollaboratorRole,
-  type CollaboratorRole, type AircraftCollaborator, type FleetRole,
-} from '@/lib/aircraftSharing'
+  markSharedAircraftViewed,
+  type CollaboratorRole, type AircraftCollaborator, type FleetRole } from '@/lib/aircraftSharing'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 import { sendCollaborationInvitePush } from '@/lib/notifications'
@@ -275,6 +275,16 @@ export default function AircraftDetailScreen() {
       // not just hiding the UI for it.
       if (resolvedRole === 'owner') {
         getAircraftCollaborators(id).then(setCollaborators).catch(() => setCollaborators([]))
+      } else {
+        // Stamp last_viewed_at so the OWNER's roster can show this
+        // collaborator has actually opened the aircraft (eye.fill vs
+        // eye.slash at the collaborator row below). Nothing wrote this
+        // column before, so that indicator read "never opened" for
+        // everyone, forever -- while the folder equivalent worked, because
+        // sharedFolders.ts's markSharedFolderViewed was the only writer of
+        // it anywhere. Fire-and-forget: a failure here must never affect
+        // whether the collaborator can read the aircraft.
+        markSharedAircraftViewed(id).catch(() => {})
       }
     }).catch((e) => {
       // Promise.all rejects as a whole, and three of its five legs throw on

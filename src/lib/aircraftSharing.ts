@@ -500,3 +500,29 @@ export function useAircraftRealtime(aircraftId: string | undefined, onChange: ()
     }
   }, [aircraftId])
 }
+
+/** Called once when a collaborator actually opens a shared aircraft.
+ *
+ * This write was the ONE missing piece of an otherwise fully-built feature.
+ * Everything around it already existed: the RLS policy written specifically
+ * for it (users_mark_own_aircraft_collaboration_viewed, UPDATE on
+ * auth.uid() = user_id), the self-update guard trigger that explicitly
+ * whitelists last_viewed_at, get_aircraft_collaborators returning
+ * out_last_viewed_at, this file mapping it to lastViewedAt, and
+ * my-aircraft/[id].tsx rendering it as eye.fill vs eye.slash -- the owner's
+ * "has my co-owner actually opened this?" indicator.
+ *
+ * Nothing ever wrote it, so that eye was stuck on eye.slash forever. Proven
+ * live: aircraft_collaborators had 1 row with 0 last_viewed_at set, while the
+ * folder equivalent had 3 rows with 2 set -- because sharedFolders.ts's
+ * markSharedFolderViewed is the only writer of that column anywhere in src/.
+ * Mirrors that function exactly; no migration needed, the policy is already live. */
+export async function markSharedAircraftViewed(aircraftId: string): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
+  await supabase
+    .from('aircraft_collaborators')
+    .update({ last_viewed_at: new Date().toISOString() })
+    .eq('aircraft_id', aircraftId)
+    .eq('user_id', user.id)
+}

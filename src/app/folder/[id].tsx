@@ -1026,7 +1026,11 @@ export default function FolderDetail() {
                       <Pressable
                         style={[styles.collabModeSeg, { backgroundColor: c.collabMode === 'read_only' ? tokens.bdim : 'transparent' }]}
                         onPress={() => handleSetCollaboratorMode(c, 'read_only')}
-                        hitSlop={10}
+                        // Vertical hitSlop makes up the height the control no
+                        // longer takes visually -- iOS measures the touch
+                        // target, not the painted box, so this stays past 44pt
+                        // while the row gets its vertical space back.
+                        hitSlop={{ top: 14, bottom: 14, left: 6, right: 4 }}
                         accessibilityRole="button"
                         accessibilityLabel={`Give ${c.displayLabel} read-only access`}
                       >
@@ -1035,7 +1039,7 @@ export default function FolderDetail() {
                       <Pressable
                         style={[styles.collabModeSeg, { backgroundColor: c.collabMode === 'read_write' ? tokens.bdim : 'transparent' }]}
                         onPress={() => handleSetCollaboratorMode(c, 'read_write')}
-                        hitSlop={10}
+                        hitSlop={{ top: 14, bottom: 14, left: 4, right: 6 }}
                         accessibilityRole="button"
                         accessibilityLabel={`Give ${c.displayLabel} read and write access`}
                       >
@@ -1555,11 +1559,22 @@ const styles = StyleSheet.create({
   modeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 10, borderWidth: 1, paddingVertical: 8 },
   modeBtnText: { fontWeight: '600' },
   modeSectionLabel: { fontWeight: '700', letterSpacing: 0.4, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4, borderTopWidth: StyleSheet.hairlineWidth },
-  collabModeToggle: { flexDirection: 'row', alignItems: 'center', borderRadius: 8, borderWidth: 1, overflow: 'hidden' },
+  // gap separates the two segments so a thumb can't catch both; marginRight
+  // pushes the whole control further left, away from the X remove button.
+  collabModeToggle: { flexDirection: 'row', alignItems: 'center', borderRadius: 8, borderWidth: 1, overflow: 'hidden', gap: 2, marginRight: 10 },
   // Widened from 8x5 (RC, 2026-08-29 -- see the toggle's own comment):
   // minWidth gives each segment a real, consistently-sized target instead of
   // one that shrinks to whatever the glyph happens to measure.
-  collabModeSeg: { paddingHorizontal: 14, paddingVertical: 8, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
+  // RC, 2026-09-01: "you made them bigger, but that also made them taller,
+  // which is taking up too much vert space. they can be thin, just make them
+  // wider, and it would help if you slightly separate them, and move both
+  // further left away from the X circle."
+  // So: width grows (paddingHorizontal 14 -> 18, minWidth 44 -> 52) and height
+  // SHRINKS (paddingVertical 8 -> 5). The 44pt touch target is preserved
+  // horizontally and made up vertically by hitSlop on the Pressables, which is
+  // what iOS actually measures -- a thin control with generous hitSlop hits the
+  // same target without eating the row's vertical space.
+  collabModeSeg: { paddingHorizontal: 18, paddingVertical: 5, minWidth: 52, alignItems: 'center', justifyContent: 'center' },
   callsignInviteRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 12 },
   callsignInviteText: { fontWeight: '600' },
   roleBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 3 },

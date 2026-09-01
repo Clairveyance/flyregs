@@ -268,9 +268,22 @@ const styles = StyleSheet.create({
   // parent -- the wrapper is what needs to participate in the card's flex
   // layout; the ScrollView inside it just fills whatever height the
   // wrapper resolves to.
-  scrollWrap: { flexShrink: 1 },
+  // minHeight: 0 is load-bearing, not decoration. A flex child will not shrink
+  // below its own CONTENT height without it, so `flexShrink: 1` alone left this
+  // wrapper as tall as the full body -- the ScrollView then had nothing to
+  // scroll (its viewport equalled its content), and the card's own maxHeight
+  // simply CLIPPED the overflow. That is exactly what RC's screenshot shows:
+  // the final paragraph cut off mid-sentence at the card's bottom edge, with
+  // dragging doing nothing, on an iPhone 13 mini where the body is tallest
+  // relative to the screen. RC, twice: "it's locked on the screen. It doesn't
+  // scroll at all, so I can't even end up reading the end of it."
+  scrollWrap: { flexShrink: 1, minHeight: 0 },
   scrollBody: {},
-  scrollBodyContent: { gap: 14 },
+  // paddingBottom clears the 28px scrollFade gradient. Without it the last
+  // line of the last paragraph sits directly under the fade and reads as
+  // greyed-out and unfinished even once it IS scrolled to -- visible in the
+  // same screenshot.
+  scrollBodyContent: { gap: 14, paddingBottom: 30 },
   // Bottom-edge fade signaling more content below -- only rendered while
   // canScrollMore is true (see its own comment). height is a fixed value
   // rather than a percentage: it only needs to be tall enough to read as
