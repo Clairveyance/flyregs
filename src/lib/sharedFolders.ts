@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { syncPushFolder, syncPushFolderItems, syncPushNote, syncPushBookmark } from '@/lib/syncPush'
+import { syncPushFolder, syncPushFolderItems, syncPushNote, syncPushBookmark, syncPushNotes, resolvePushUserId } from '@/lib/syncPush'
 import { getFolders, getItemsInFolder, markFolderShared, FolderItem, FolderItemType } from '@/lib/folders'
 import { getNotes, isSeedNote } from '@/lib/notes'
 import type { Note } from '@/lib/notes'
@@ -103,10 +103,16 @@ async function ensureFolderPushed(folderId: string): Promise<void> {
   if (ownItems.length) await syncPushFolderItems(ownItems, true)
   const noteMap = new Map(notes.map((n) => [n.id, n]))
   const noteItems = ownItems.filter((i) => i.item_type === 'note').map((i) => noteMap.get(i.item_id))
-  await Promise.all(
-    noteItems
-      .filter((n): n is NonNullable<typeof n> => !!n && !n.authorId)
-      .map((n) => syncPushNote(n, true))
+  // Batched (2026-09-01). This was Promise.all(map(syncPushNote)) -- one
+  // network write AND one uncached RevenueCat native entitlement call per
+  // note, before the share sheet could render. A 20-item folder meant ~20 of
+  // each. Folder item pointers above were already batched; notes were not.
+  // RC: "the screen to try to send any sharing... takes a long long time to
+  // open." Entitlement is unchanged -- currentUserId still runs, once for the
+  // batch instead of once per note, and RLS governs every write regardless.
+  await syncPushNotes(
+    noteItems.filter((n): n is NonNullable<typeof n> => !!n && !n.authorId),
+    true,
   )
   // Same gap, same fix, for 'ac'-type items -- this covers BOTH plain AC
   // bookmarks and highlights (a highlight is just an 'ac' folder item whose
@@ -124,10 +130,17 @@ async function ensureFolderPushed(folderId: string): Promise<void> {
   // is simpler and correct either way.)
   const bookmarkMap = new Map(bookmarks.map((b) => [b.id, b]))
   const acItems = ownItems.filter((i) => i.item_type === 'ac').map((i) => bookmarkMap.get(i.item_id))
+  // Entitlement resolved ONCE for the whole set rather than once per bookmark
+  // (2026-09-01). Bookmarks go through the single-row push_bookmark RPC so they
+  // can't be collapsed into one statement the way notes just were, but the
+  // expensive part was never the write -- it was currentUserId's uncached
+  // RevenueCat native call, repeated per row. push_bookmark still takes user_id
+  // from auth.uid() server-side, so the gate is unchanged.
+  const pushUserId = await resolvePushUserId(true)
   await Promise.all(
     acItems
       .filter((b): b is BookmarkAC => !!b)
-      .map((b) => syncPushBookmark(b, true))
+      .map((b) => syncPushBookmark(b, true, pushUserId))
   )
 }
 

@@ -71,8 +71,28 @@ async function currentUserId(force = false): Promise<string | null> {
   return data.session?.user?.id ?? null
 }
 
-export async function syncPushBookmark(b: BookmarkAC, force = false) {
-  const userId = await currentUserId(force)
+/** `preResolvedUserId` lets a caller that is pushing MANY bookmarks in a row
+ * resolve the user/entitlement ONCE instead of per bookmark. currentUserId
+ * calls getSubscriptionStatus(), an uncached RevenueCat native call with up to
+ * 3 retries at 300/600/900ms backoff, so a 20-item shared folder was making
+ * ~20 of them before the share sheet could render (RC: "takes a long long time
+ * to open"). Bookmarks go through the single-row push_bookmark SECURITY
+ * DEFINER RPC, so unlike notes they cannot be batched into one statement
+ * without a new server-side RPC -- hoisting the entitlement check is the
+ * contained half of that win.
+ *
+ * This does NOT weaken the gate: push_bookmark takes user_id from auth.uid()
+ * server-side and never trusts the caller, so RLS governs every write whatever
+ * this resolves to. Omit the argument and behaviour is exactly as before. */
+/** Resolve the pushing user once, for callers that then push many rows.
+ * Same check currentUserId performs internally -- exported so a bulk path can
+ * pay for it once rather than per row. */
+export async function resolvePushUserId(force = false): Promise<string | null> {
+  return currentUserId(force)
+}
+
+export async function syncPushBookmark(b: BookmarkAC, force = false, preResolvedUserId?: string | null) {
+  const userId = preResolvedUserId !== undefined ? preResolvedUserId : await currentUserId(force)
   if (!userId) return
   // push_bookmark RPC, not a raw upsert -- see
   // sync/migrations_synced_bookmarks_write_rpc.sql. A raw INSERT ... ON
@@ -211,6 +231,44 @@ export async function syncPushNote(n: Note, force = false) {
     { onConflict: 'user_id,id' }
   )
   reportSyncError('note upsert', error)
+}
+
+/** Batched sibling of syncPushNote, mirroring syncPushFolderItems' shape
+ * exactly -- one upsert for the whole set, with a per-row retry loop if the
+ * batch fails so a single bad row can't silently drop the rest.
+ *
+ * Why this exists: ensureFolderPushed (sharedFolders.ts) pushed notes ONE AT A
+ * TIME via Promise.all(map(syncPushNote)). Every one of those calls
+ * currentUserId(force), which calls getSubscriptionStatus() -- an UNCACHED
+ * RevenueCat native call with up to 3 retries at 300/600/900ms backoff. So a
+ * 20-item shared folder made ~20 network writes AND ~20 native entitlement
+ * calls before the share sheet could even render, which is a direct cause of
+ * RC's "the screen to try to send any sharing... takes a long long time to
+ * open." Folder item pointers were already batched here; notes simply never
+ * got the same treatment.
+ *
+ * The entitlement check is NOT weakened: currentUserId still runs, just once
+ * for the batch instead of once per note, and RLS governs every write
+ * server-side regardless. */
+export async function syncPushNotes(notes: Note[], force = false) {
+  const userId = await currentUserId(force)
+  if (!userId || !notes.length) return
+  const row = (n: Note) => ({
+    id: n.id, user_id: userId, title: n.title, body: n.body,
+    linked_ac: n.linked_ac, updated_at: n.updated_at, deleted: false,
+  })
+  const { error } = await supabase.from('synced_notes').upsert(notes.map(row), { onConflict: 'user_id,id' })
+  if (!error) return
+  reportSyncError('note upsert (batch)', error)
+  // Same per-row fallback as syncPushFolderItems: one rejected row (an RLS
+  // denial on a single note) must not poison the whole batch. This is the
+  // exact failure REACT-NATIVE-G was, one table over.
+  for (const n of notes) {
+    const { error: noteError } = await supabase
+      .from('synced_notes')
+      .upsert(row(n), { onConflict: 'user_id,id' })
+    reportSyncError(`note upsert (${n.id})`, noteError)
+  }
 }
 
 export async function syncPushNoteDeletes(ids: string[]) {

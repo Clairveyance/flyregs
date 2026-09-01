@@ -115,7 +115,11 @@ def test_find_friends_contact_match():
             set_tier(u["id"], tier)
             cs = f"FFTest{tier.capitalize()}{secrets.token_hex(2)}"
             st, body = set_callsign(u, cs)
-            check(f"{tier}: set_callsign succeeded", st == 200, f"HTTP {st} {body}")
+            # 2xx, not exactly 200: set_callsign RETURNS VOID, so PostgREST
+            # answers a successful call with 204 No Content. Asserting == 200
+            # made this fail on success, which is worse than not testing it --
+            # a permanently-red check trains you to ignore the suite.
+            check(f"{tier}: set_callsign succeeded", 200 <= st < 300, f"HTTP {st} {body}")
             u["callsign"] = cs
             opt_in_leaderboard(u["id"])
             users[tier] = u
@@ -141,11 +145,20 @@ def test_find_friends_contact_match():
         check("Pro caller: opted-OUT user is NOT returned as a match (leaderboard_opt_in respected)",
               st == 200 and not found, f"HTTP {st} {body}")
 
-        # lookup_user_by_callsign (Ready Room "search by callsign" / invite RPCs) -- open to any tier by design
+        # lookup_user_by_callsign (Ready Room "search by callsign" / invite RPCs).
+        # NOT open to any tier -- that comment was stale. migrations_fix_lookup_
+        # callsign_anon_access.sql (2026-08-18) added an internal has_pro_access()
+        # check because the RPC had EXECUTE granted to PUBLIC/anon with no internal
+        # gate at all, so anyone holding just the public anon key could resolve a
+        # guessed Callsign to that user's real internal user_id. That gate is
+        # deliberate and correct, and it costs nothing functionally: every caller
+        # of this RPC (folder invite, aircraft invite, Duels opponent search,
+        # Ready Room) is already Pro+ or Premium-only. So a FREE caller resolving
+        # nothing is the expected, desired outcome -- assert that instead.
         st, body = rpc(users["free"], "lookup_user_by_callsign", {"p_callsign": users["premium"]["callsign"]})
         resolved = isinstance(body, list) and body and body[0].get("out_user_id") == users["premium"]["id"]
-        check("lookup_user_by_callsign resolves a real callsign for a Free caller (used by invite RPCs + Ready Room)",
-              st == 200 and resolved, f"HTTP {st} {body}")
+        check("lookup_user_by_callsign correctly returns NOTHING for a Free caller (Pro+ gate, 2026-08-18 anon-lookup fix)",
+              st == 200 and not resolved, f"HTTP {st} {body}")
     finally:
         for u in users.values():
             delete_user(u["id"])

@@ -162,18 +162,31 @@ export function FindFriendsPickerBody({
       return
     }
     setContacts(deviceContacts)
+    // Render the list NOW, annotate afterwards (2026-09-01). This used to
+    // await matchContactsToCallsigns before leaving the 'loading' spinner, so
+    // nothing at all appeared until every contact identifier had been hashed.
+    // matchContactsToCallsigns does one Crypto.digestStringAsync per email and
+    // per phone, and expo-crypto exposes no synchronous digest -- so a 500-
+    // contact address book fired ~1,000 native bridge round trips before the
+    // user saw a single row. Unbounded in the size of someone's address book,
+    // and the two server RPCs behind it are only ~5ms and ~2ms, so the wait was
+    // essentially all bridge traffic.
+    //
+    // `sections` already derives from `matched` through a useMemo, so rows
+    // re-bucket into ON FLYREGS / NOT ON FLYREGS YET on their own the moment
+    // the map lands -- no other change is needed for the annotation to appear.
+    setState('ready')
 
     // Matching is best-effort -- a real, browsable contact list is the
     // core of what RC asked for, so a match-lookup failure (network
     // blip, RPC error) shouldn't hide the list itself, just leave
     // everyone showing as "not on FlyRegs yet" for this pass.
-    try {
-      setMatched(await matchContactsToCallsigns(deviceContacts))
-    } catch (e) {
-      console.warn('FindFriends: matchContactsToCallsigns failed', e)
-      setMatched(new Map())
-    }
-    setState('ready')
+    matchContactsToCallsigns(deviceContacts)
+      .then(setMatched)
+      .catch((e) => {
+        console.warn('FindFriends: matchContactsToCallsigns failed', e)
+        setMatched(new Map())
+      })
   }
 
   // try/catch, not left bare: this is wired straight to an onPress below, so
