@@ -73,6 +73,7 @@ run_one "audit_table_header_alignment (table header/data column mismatch)" pytho
 # --- Layer 2: security & tier gating ---
 run_one "tier_gate_audit (source-level, every gated surface x tier)" node scripts/tier_gate_audit.mjs
 run_one "tier_matrix_test (server-side, real accounts)"              python3 scripts/tier_matrix_test.py
+run_one "stale_question_sweep (questions whose reg text moved)"     python3 scripts/stale_question_sweep.py
 
 # --- Layer 3: functional correctness (slower, --full only) ---
 if [[ $FULL -eq 1 ]]; then
