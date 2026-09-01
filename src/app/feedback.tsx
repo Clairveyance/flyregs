@@ -141,6 +141,30 @@ export default function FeedbackScreen() {
     // gotcha_feedback_pipeline_mailto_unreliable.md). This insert is the
     // ENTIRE send now -- durable the instant it succeeds, independent of
     // what happens next on the device.
+    // RC, real device (2026-08-30): "the page here for the feedback sending
+    // froze while trying to send... then the screen itself froze, and you
+    // couldn't leave it without closing things."
+    //
+    // Nothing in this send was bounded. The attachment upload and the insert
+    // are both plain awaits with no timeout, so a network that HANGS rather
+    // than erroring (a captive portal, a half-open cell connection -- exactly
+    // the conditions that produce a "check your connection" message in the
+    // first place) left `sending` true forever: the Send button stayed in its
+    // spinner and the screen read as frozen, with no error and no way back.
+    // A rejection here falls into the existing catch, which shows the real
+    // message, and `finally` always clears `sending` -- so the screen can no
+    // longer get stuck in a sending state no matter what the network does.
+    const SEND_TIMEOUT_MS = 30000
+    // PromiseLike, not Promise: Supabase's query builder is a thenable, not a
+    // real Promise, so typing this as Promise<T> rejects the actual call sites.
+    const withTimeout = <T,>(work: PromiseLike<T>): Promise<T> =>
+      Promise.race([
+        Promise.resolve(work),
+        new Promise<T>((_, reject) =>
+          setTimeout(() => reject(new Error('Timed out')), SEND_TIMEOUT_MS),
+        ),
+      ])
+
     try {
       // Generated client-side (not the row's default gen_random_uuid())
       // so the Storage object can be named to match the row it belongs to
@@ -157,14 +181,16 @@ export default function FeedbackScreen() {
         // URIs that avatar.ts's uploadAvatarAsset already worked around.
         const file = new File(attachment.uri)
         const arrayBuffer = await file.arrayBuffer()
-        const { error: uploadError } = await supabase.storage
-          .from('feedback-attachments')
-          .upload(path, arrayBuffer, { contentType: attachment.mimeType, upsert: false })
+        const { error: uploadError } = await withTimeout(
+          supabase.storage
+            .from('feedback-attachments')
+            .upload(path, arrayBuffer, { contentType: attachment.mimeType, upsert: false }),
+        )
         if (uploadError) throw uploadError
         attachmentPath = path
       }
 
-      const { error } = await supabase.from('feedback_submissions').insert({
+      const { error } = await withTimeout(supabase.from('feedback_submissions').insert({
         id: feedbackId,
         category,
         message: trimmed,
@@ -173,7 +199,7 @@ export default function FeedbackScreen() {
         app_version: APP_VERSION,
         platform: Platform.OS,
         attachment_path: attachmentPath,
-      })
+      }))
       if (error) throw error
       setMessage('')
       setAttachment(null)
