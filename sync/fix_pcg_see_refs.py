@@ -88,7 +88,7 @@ def main():
         print("ERROR: SUPABASE_URL and SUPABASE_SERVICE_KEY must be set")
         sys.exit(1)
 
-    all_terms = fetch_all("pcg_terms", "id,slug,term,see_refs")
+    all_terms = fetch_all("pcg_terms", "id,slug,term,see_refs,see_refs_unresolved")
     all_slugs = {r["slug"] for r in all_terms}
 
     # "term without its trailing (ABBREV) suffix" -> real slug, e.g.
@@ -153,9 +153,26 @@ def main():
 
     rewrites = 0
     drops = 0
-    updates: list[tuple[str, list[str]]] = []
+    updates: list[tuple[str, list[str], list[str]]] = []
     for r in rows:
         new_refs = []
+        # An unresolvable ref is no longer thrown away. Dropping it from
+        # see_refs is still right -- see_refs is the LINKABLE list and a dead
+        # link is worse than none -- but the raw target text is kept here so
+        # the app can print it as plain, unlinked text.
+        #
+        # Why this matters: 42 terms have no definition of their own (the FAA
+        # publishes them purely as a redirect), so when their only ref was
+        # dropped the detail screen rendered "See related term below -- no
+        # standalone definition." with nothing below it. The page contradicted
+        # itself, on terms as common as WAAS, PBN, ADS-B, ASDA and D-ATIS.
+        # Of the 39 that have a real FAA "See X", only 9 resolve to a term we
+        # carry; the other 30 name something the FAA references but does not
+        # define as its own entry (ADS-B -> AUTOMATIC DEPENDENT
+        # SURVEILLANCE-BROADCAST, ATO -> AIR TRAFFIC ORGANIZATION). That name
+        # is still the most useful thing we can show -- it is exactly what the
+        # FAA prints on that page.
+        unresolved = []
         changed = False
         for ref in r["see_refs"]:
             fix = resolve(ref)
@@ -164,27 +181,33 @@ def main():
             elif fix == "DROP":
                 drops += 1
                 changed = True
+                if ref not in unresolved:
+                    unresolved.append(ref)
             else:
                 new_refs.append(fix)
                 rewrites += 1
                 changed = True
-        if changed:
-            updates.append((r["id"], new_refs))
+        # Also clear a stale unresolved list when everything now resolves, so a
+        # later corpus addition (the target term finally being carried) removes
+        # the plain-text fallback instead of leaving it duplicated beside a real
+        # link.
+        if changed or (r.get("see_refs_unresolved") or []) != unresolved:
+            updates.append((r["id"], new_refs, unresolved))
 
-    print(f"{rewrites} entries to rewrite, {drops} entries to drop, across {len(updates)} pcg_terms rows")
+    print(f"{rewrites} entries to rewrite, {drops} entries to keep as unresolved text, across {len(updates)} pcg_terms rows")
 
     if args.dry_run:
-        for pid, refs in updates[:15]:
+        for pid, refs, unres in updates[:15]:
             orig = next(r["see_refs"] for r in rows if r["id"] == pid)
-            print(f"  {pid}: {orig!r} -> {refs!r}")
+            print(f"  {pid}: {orig!r} -> refs={refs!r} unresolved={unres!r}")
         return
 
-    for pid, refs in updates:
+    for pid, refs, unres in updates:
         resp = requests.patch(
             f"{SUPABASE_URL}/rest/v1/pcg_terms",
             headers={**HEADERS, "Prefer": "return=minimal"},
             params={"id": f"eq.{pid}"},
-            json={"see_refs": refs},
+            json={"see_refs": refs, "see_refs_unresolved": unres},
             timeout=30,
         )
         resp.raise_for_status()

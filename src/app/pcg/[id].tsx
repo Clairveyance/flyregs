@@ -38,6 +38,7 @@ interface PcgTerm {
   definition: string | null
   frequently_used: boolean
   see_refs: string[]
+  see_refs_unresolved?: string[]
   external_refs: { label: string; url: string }[]
 }
 
@@ -178,7 +179,7 @@ export default function PcgTermScreen() {
     setLoading(true)
     supabase
       .from('pcg_terms')
-      .select('slug, term, definition, frequently_used, see_refs, external_refs')
+      .select('slug, term, definition, frequently_used, see_refs, see_refs_unresolved, external_refs')
       .eq('slug', id)
       .single()
       .then(async ({ data, error }) => {
@@ -192,7 +193,7 @@ export default function PcgTermScreen() {
         if (normalized !== id) {
           const retry = await supabase
             .from('pcg_terms')
-            .select('slug, term, definition, frequently_used, see_refs, external_refs')
+            .select('slug, term, definition, frequently_used, see_refs, see_refs_unresolved, external_refs')
             .eq('slug', normalized)
             .single()
           if (!retry.error && retry.data) { setTerm(retry.data as PcgTerm); setOfflineCopy(null); setLoading(false); return }
@@ -209,6 +210,7 @@ export default function PcgTermScreen() {
             definition: cached.body_text ?? null,
             frequently_used: false,
             see_refs: [],
+            see_refs_unresolved: [],
             external_refs: [],
           })
           setOfflineCopy(cached)
@@ -633,8 +635,22 @@ export default function PcgTermScreen() {
               )
             })
           ) : (
+            // This branch used to say "See related term below — no standalone
+            // definition." unconditionally. For 42 terms there IS nothing
+            // below: the FAA publishes them purely as a redirect, and their
+            // only cross-reference pointed at something we don't carry, so it
+            // was dropped from see_refs as unlinkable. The page then told the
+            // reader to look at a related term that wasn't on screen -- on
+            // terms as common as WAAS, PBN, ADS-B, ASDA and D-ATIS.
+            // Now it says only what is actually true, and where the FAA names
+            // a target we can't link, it prints that name as plain text --
+            // still the most useful thing a reader who landed here can get.
             <Text style={[styles.def, { color: tokens.t2, fontSize: fs(15), lineHeight: fs(15) * 1.47 }]}>
-              See related term below — no standalone definition.
+              {term.see_refs.length > 0
+                ? 'See related term below — no standalone definition.'
+                : (term.see_refs_unresolved?.length ?? 0) > 0
+                  ? `The FAA's Pilot/Controller Glossary lists this term as a cross-reference to ${term.see_refs_unresolved!.join(' and ')} — it has no standalone definition of its own, and that entry isn't published separately in the Glossary.`
+                  : "The FAA's Pilot/Controller Glossary lists this term as a cross-reference only — it has no standalone definition of its own."}
             </Text>
           )}
 
