@@ -101,13 +101,50 @@ for (const t of tokens ?? []) {
   tokensByUser.get(t.user_id).push(t.expo_push_token)
 }
 
+// RC, 2026-09-01: "reminders should push in any shared item (folder, a/c, etc)
+// - always, when owner is sharing with the person/group, on both r/o and r/w
+// perms." So a reminder is not a private note to whoever typed it -- it is the
+// shared aircraft's schedule, and everyone with access to that aircraft gets it.
+//
+// Before this, send-reminder-alerts only ever pushed to r.user_id. Since
+// addAircraftReminder() stamps user_id = whoever created it, a reminder added by
+// an editor collaborator (a mechanic, a co-owner) pushed ONLY to that person and
+// never to the owner -- and an owner's reminder never reached the collaborator.
+// send-ad-alerts.mjs already fans out exactly this way; reminders simply never
+// got the same treatment. Note NO role filter: read-only collaborators receive
+// too, per the spec above -- being unable to edit does not mean you should be
+// surprised by an overdue annual on an aircraft you fly.
+const [{ data: acOwners, error: ownErr }, { data: acCollabs, error: collabErr }] = await Promise.all([
+  sb.from('user_aircraft').select('id, user_id'),
+  sb.from('aircraft_collaborators').select('aircraft_id, user_id').is('left_at', null).not('accepted_at', 'is', null),
+])
+if (ownErr) { console.error('Failed to fetch user_aircraft owners:', ownErr.message); process.exit(1) }
+if (collabErr) { console.error('Failed to fetch aircraft_collaborators:', collabErr.message); process.exit(1) }
+
+const ownerByAircraftId = new Map((acOwners ?? []).map((a) => [a.id, a.user_id]))
+const collaboratorsByAircraftId = new Map()
+for (const c of acCollabs ?? []) {
+  if (!collaboratorsByAircraftId.has(c.aircraft_id)) collaboratorsByAircraftId.set(c.aircraft_id, [])
+  collaboratorsByAircraftId.get(c.aircraft_id).push(c.user_id)
+}
+
+/** Everyone who should hear about this reminder: the aircraft's owner, every
+ *  accepted collaborator still on it, and the reminder's own author (who is
+ *  normally one of those two, but is included so a reminder can never lose its
+ *  creator if the aircraft row is missing). */
+function recipientsFor(reminder) {
+  const owner = ownerByAircraftId.get(reminder.user_aircraft_id)
+  const collabs = collaboratorsByAircraftId.get(reminder.user_aircraft_id) ?? []
+  return [...new Set([reminder.user_id, owner, ...collabs].filter(Boolean))]
+}
+
 const today = new Date()
 today.setHours(0, 0, 0, 0)
 
 const messages = []
 for (const r of reminders) {
-  const deviceTokens = tokensByUser.get(r.user_id)
-  if (!deviceTokens || deviceTokens.length === 0) continue // no registered device at all -- still mark notified below so it isn't re-checked forever
+  const deviceTokens = recipientsFor(r).flatMap((uid) => tokensByUser.get(uid) ?? [])
+  if (deviceTokens.length === 0) continue // nobody on this aircraft has a registered device -- still marked notified below so it isn't re-checked forever
 
   const due = new Date(r.due_date + 'T00:00:00')
   const daysUntil = Math.round((due.getTime() - today.getTime()) / 86400000)
@@ -147,7 +184,7 @@ for (const r of reminders) {
 // no trace and no way to get it back, since nothing re-arms a reminder except a
 // genuine due_date change. A reminder we actually attempt to send is now only
 // marked once Expo accepts it, so a transient failure retries on tomorrow's run.
-const noTokenIds = reminders.filter((r) => !(tokensByUser.get(r.user_id) || []).length).map((r) => r.id)
+const noTokenIds = reminders.filter((r) => recipientsFor(r).every((uid) => !(tokensByUser.get(uid) || []).length)).map((r) => r.id)
 
 if (messages.length === 0) {
   if (noTokenIds.length > 0) {

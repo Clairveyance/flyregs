@@ -344,16 +344,29 @@ export default function AccountScreen() {
         const lists = await Promise.all(rows.map((a) => getAircraftReminders(a.aircraftId).catch(() => [])))
         let overdue = 0
         let dueSoon = 0
-        for (const list of lists) {
+        lists.forEach((list, i) => {
+          // Hobbs counts here too. This mini-ring read dueDate only, so an
+          // aircraft whose 100-hour inspection was overdue BY HOURS showed
+          // clear/green on the Account screen while its own detail row showed
+          // red. Same 10hr threshold and worst-of-both-axes rule as the
+          // aircraft detail row and the fleet card ring, so every surface that
+          // reports fleet status now agrees. (RC, 2026-09-01: green outside
+          // 10 hrs, amber 0-10, red once the reminder meets or passes the tach.)
+          const currentHobbs = rows[i].currentHobbsHours
           for (const r of list) {
             const due = new Date(r.dueDate + 'T00:00:00')
             const now = new Date()
             now.setHours(0, 0, 0, 0)
             const days = Math.round((due.getTime() - now.getTime()) / 86400000)
-            if (days < 0) overdue++
-            else if (days <= 30) dueSoon++
+            const hobbsRemaining = r.dueHobbsHours != null && currentHobbs != null
+              ? r.dueHobbsHours - currentHobbs
+              : null
+            const hobbsOverdue = hobbsRemaining != null && hobbsRemaining < 0
+            const hobbsSoon = hobbsRemaining != null && hobbsRemaining >= 0 && hobbsRemaining <= 10
+            if (days < 0 || hobbsOverdue) overdue++
+            else if (days <= 30 || hobbsSoon) dueSoon++
           }
-        }
+        })
         setFleetStatus(overdue > 0 ? 'overdue' : openAds > 0 || dueSoon > 0 ? 'attention' : 'clear')
       })
       .catch(() => setFleetStatus(null))

@@ -1351,7 +1351,11 @@ export default function AircraftDetailScreen() {
                           <View style={{ flex: 1 }}>
                             <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14) }]}>{r.title}</Text>
                             <Text style={[styles.rowSub, { color, fontSize: fs(12) }]}>
-                              {overdue ? `${Math.abs(days)}d` : `${days}d`} · {r.dueDate}
+                              {/* "3d" read identically whether it was 3 days out or 3 days
+                                  overdue -- only the colour differed, which is a problem for a
+                                  red/green colourblind pilot and is inconsistent with the
+                                  Equipment row above, which already says "overdue". */}
+                              {overdue ? `${Math.abs(days)}d overdue` : `${days}d`} · {r.dueDate}
                               {r.linkedAdNumber ? ` · AD ${r.linkedAdNumber}` : ''}
                               {r.intervalMonths ? ` · every ${r.intervalMonths}mo` : ''}
                               {r.intervalDays ? ` · every ${r.intervalDays}d` : ''}

@@ -1413,12 +1413,31 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
               if (!list) return
               let worst: 'overdue' | 'soon' | 'clear' = 'clear'
               let overdueCount = 0
+              // RC, 2026-09-01: "hobbs due date are like anything else - green
+              // outside a specified point (say 10 hrs), amber (bet 0-10hrs),
+              // and red once that reminder and the tach meet or the reminder
+              // exceeds the tach."
+              //
+              // This ring used to read r.dueDate ONLY, so a 100-hour inspection
+              // tracked purely by hobbs showed RED on the aircraft detail row
+              // (which has always taken the worst of both axes) while this ring
+              // -- the see-at-a-glance indicator one tap away -- read green. The
+              // same feature reported two different answers. Same 10hr threshold
+              // and same worst-of-both-axes rule as the detail row, so all three
+              // surfaces now agree.
+              const currentHobbs = rows[i].currentHobbsHours
               for (const r of list) {
                 const days = daysUntil(r.dueDate)
                 if (days >= 0 && (soonest === null || days < soonest)) soonest = days
                 if (days >= 0 && days <= 30) soonCount++
-                if (days < 0) { worst = 'overdue'; overdueCount++ }
-                else if (days <= 30 && worst !== 'overdue') worst = 'soon'
+                const hobbsRemaining = r.dueHobbsHours != null && currentHobbs != null
+                  ? r.dueHobbsHours - currentHobbs
+                  : null
+                const dateOverdue = days < 0
+                const hobbsOverdue = hobbsRemaining != null && hobbsRemaining < 0
+                const hobbsSoon = hobbsRemaining != null && hobbsRemaining >= 0 && hobbsRemaining <= 10
+                if (dateOverdue || hobbsOverdue) { worst = 'overdue'; overdueCount++ }
+                else if ((days <= 30 || hobbsSoon) && worst !== 'overdue') worst = 'soon'
               }
               urgency[rows[i].aircraftId] = worst
               overdue[rows[i].aircraftId] = overdueCount
