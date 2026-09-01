@@ -144,8 +144,44 @@ _WHITESPACE_RUN_RE = re.compile(r"\s+")
 _LINEBREAK_HYPHEN_RE = re.compile(r"(\w)-\s+(\w)")
 
 
+# Table cell padding. The 2026-08-31 colspan/rowspan fix (sync/table_grid.py)
+# made every table row emit a full-width cell list, so a rowspan continuation
+# that previously rendered as a bare "1750'" now correctly renders as
+# " | 1750'" -- an EMPTY leading cell. That is our own formatting improvement,
+# not an FAA amendment, yet it re-flagged 121 documents as "changed" on a
+# single day (93 far / 23 aim / 5 cfr49). Confirmed by reading the stored diff
+# for AIM 10-2-1, where removed/added differ ONLY by those empty cells:
+#     removed: "0° to 179° | 750'\n1750'\n2750'"
+#     added:   "0° to 179° | 750'\n | 1750'\n | 2750'"
+# Comparison-only, like every normalization above -- the ORIGINAL text is still
+# what gets stored and shown when a paragraph has a genuine difference. Runs
+# BEFORE the whitespace collapse, because it has to see real line boundaries to
+# know where one table row ends and the next begins.
+# Private-use sentinels. The same 2026-08-31 table work also began marking the
+# start of a table block with U+E000, which the client's parser keys off. It is
+# a MARKER, never anything the FAA published, but it sits inside body_text and
+# so registered as a text change on 91 FAR sections in one day:
+#     removed: "Passenger capacity | Fire extinguishers\n7 through 30 | 1"
+#     added:   "\ue000Passenger capacity | Fire extinguishers\n7 through 30 | 1"
+# Stripped comparison-only across the whole Unicode private-use area, so any
+# future sentinel we introduce cannot resurrect this same false-positive class.
+_PRIVATE_USE_RE = re.compile(r"[\ue000-\uf8ff]")
+
+
+def _strip_empty_cells(paragraph: str) -> str:
+    out = []
+    for line in paragraph.split("\n"):
+        if "|" in line:
+            cells = [c.strip() for c in line.split("|")]
+            line = " | ".join(c for c in cells if c)
+        out.append(line)
+    return "\n".join(out)
+
+
 def _normalize_for_diff(paragraph: str) -> str:
     p = _LABEL_PREFIX_RE.sub("", paragraph, count=1)
+    p = _PRIVATE_USE_RE.sub("", p)
+    p = _strip_empty_cells(p)
     p = _WHITESPACE_RUN_RE.sub(" ", p).strip()
     p = _CLAUSE_PUNCT_RE.sub(" ; ", p)
     p = _TRAILING_PERIOD_RE.sub("", p)
