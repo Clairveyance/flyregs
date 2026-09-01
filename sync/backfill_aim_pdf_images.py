@@ -38,6 +38,7 @@ import re
 import sys
 
 import fitz  # PyMuPDF
+import hashlib
 import requests
 
 # Same convention as aim_scraper.py: read from the process environment
@@ -76,6 +77,22 @@ KNOWN_UNCAPTIONED_FIGURES = {
     ("appendix_1", "IMG 3"): 720,
     ("appendix_1", "IMG 4"): 720,
     ("appendix_4", "IMG 2"): 750,
+    # Added 2026-08-31. These 7 rows stored a raw www.faa.gov URL rather than a
+    # Supabase Storage one, so resolveGatedStorageUrl (fail-closed: no
+    # /storage/v1/object/public/ match -> null) refused them and the viewer
+    # rendered its error/retry state. Broken on EVERY build since the storage
+    # gating landed 2026-08-11, B37 and B38 included. Every page number below
+    # was verified against aim_pdf_pages.json, and every target object was
+    # confirmed present in reg-tf-images before being written.
+    # (The PDF's own figure numbers differ from our labels -- that is the
+    # deliberate paragraph-suffixed relabel, not a mismatch.)
+    ("4-3-3", "FIG 4-3-3a"): 241,
+    ("4-3-3", "FIG 4-3-3b"): 241,
+    ("4-3-6", "FIG 4-3-6a"): 248,
+    ("4-3-26", "FIG 4-3-26c"): 267,
+    ("4-5-6", "FIG 4-5-6c"): 295,
+    ("5-6-15", "FIG 5-6-15"): 483,
+    ("7-3-1", "TBL 7-3-1"): 597,
 }
 
 
@@ -97,6 +114,31 @@ def render_page(doc: fitz.Document, page_idx: int) -> bytes:
     return pix.tobytes("png")
 
 
+# This file is the reason the `?v=` marker below exists. sync_aim.sh re-fetches
+# the current AIM PDF EVERY WEEK ("re-fetching each run keeps the page-image
+# cache current with the latest change" -- its own header) and this script
+# re-renders and re-uploads aim/page-NNNN.png over the old object with
+# `x-upsert: true`. The page filename is derived purely from the page index,
+# and update_figure() PATCHes the existing aim_figures row BY ID, so both the
+# row id and the image_url string survive the update untouched. The app caches
+# figure images on disk keyed on exactly (row id, image_url) with no other
+# invalidation path at all -- these rows have no updated_at column, there is no
+# ETag check, and the app has no cache-clear -- so a device that had already
+# viewed an AIM figure kept the OLD edition's page image indefinitely, no
+# matter how many times the server-side image was corrected. Confirmed live,
+# read-only, 2026-08-31: 359 of the 363 objects under reg-tf-images/aim/ have
+# an updated_at later than their created_at, i.e. they have genuinely been
+# re-uploaded over (e.g. page-0073.png created 2026-07-24, re-uploaded
+# 2026-08-24).
+#
+# A CONTENT HASH, not a timestamp, on purpose: this script re-uploads every
+# matched page on every weekly run whether or not the AIM actually changed, so
+# a timestamp would invalidate every device's entire figure cache weekly for
+# nothing. The hash only moves when the rendered bytes really differ.
+def content_version(image_bytes: bytes) -> str:
+    return hashlib.sha256(image_bytes).hexdigest()[:12]
+
+
 def upload_png(page_idx: int, png_bytes: bytes) -> str:
     fname = f"aim/page-{page_idx:04d}.png"
     url = f"{SUPABASE_URL}/storage/v1/object/{BUCKET}/{fname}"
@@ -107,6 +149,16 @@ def upload_png(page_idx: int, png_bytes: bytes) -> str:
         timeout=60,
     )
     resp.raise_for_status()
+    # OFF BY DEFAULT, deliberately. The shipped build (B38, 7603bd8) parses
+    # storage URLs with a greedy tail regex that folds `?v=` INTO the object
+    # path, so it would ask Supabase to sign a nonexistent object, get null,
+    # and render a permanent error -- every AIM figure on an installed device
+    # would break. The client-side fix is committed (gatedStorage.ts) but
+    # reaches nobody until a build ships. Flip this on only AFTER a build
+    # containing that fix is live; the hashing logic below is kept rather than
+    # deleted so it does not have to be rebuilt from scratch then.
+    if os.environ.get("EMIT_IMAGE_CONTENT_VERSION") == "1":
+        return f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET}/{fname}?v={content_version(png_bytes)}"
     return f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET}/{fname}"
 
 

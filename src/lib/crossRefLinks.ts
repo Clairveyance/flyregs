@@ -33,6 +33,10 @@ interface CandidateMatch {
   text: string
   route: string
   isFigure?: boolean
+  // A "match but deliberately do NOT link" candidate. It still competes in the
+  // earliest-start-wins resolver below, which is the whole point: it CONSUMES
+  // the span so a later, wronger pattern can't claim it.
+  suppress?: boolean
 }
 
 // The document currently being rendered -- only needed to disambiguate a
@@ -51,6 +55,9 @@ interface LinkPattern {
   regex: RegExp
   buildRoute?: (m: RegExpExecArray, selfType?: SelfType) => string
   isFigure?: boolean
+  // Claim the span and render it as plain text. Used to stop a bare "part N"
+  // under a CFR title we don't carry from falling through to the FAR branch.
+  suppress?: boolean
   // For an enumeration match ("§§ 133.19, 133.21, and 133.23") -- returns
   // one candidate per individual citation found inside the whole match,
   // instead of treating the whole span as a single link. Whatever text sits
@@ -91,7 +98,20 @@ const PATTERNS: LinkPattern[] = [
   // AC mention ("AC 90-67B", "(AC) 90-66"). ac/[id].tsx resolves a
   // document_number to its real UUID and redirects, so the raw matched
   // number can route directly with no lookup here.
-  { regex: /\bAC\)?\s+(\d+(?:\.\d+)?-\d+[A-Za-z]*(?:[\-–]\d+)?)\b/g, buildRoute: (m) => `/ac/${m[1]}` },
+  // Slash-form AC numbers ("AC 150/5300-13B" -- the entire airport-design 150
+  // series) never matched: the `/` breaks `\d+(?:\.\d+)?-\d+`, so 2,614
+  // mentions across 148 documents rendered as inert plain text while
+  // "AC 90-67B" in the same sentence linked fine. Mirrors the same widening
+  // already ported to all five sync/*_citations.py extractors -- this file has
+  // now lagged those extractors three separate times.
+  // encodeURIComponent because a slash-form number would otherwise emit
+  // "/ac/150/5300-13B" -- TWO path segments, which cannot match the
+  // single-segment ac/[id] route and would navigate nowhere. A dead link is
+  // worse than the inert text this replaces (this file's own rule: an honest
+  // non-link beats a confidently wrong one), so the slash is escaped and
+  // ac/[id].tsx receives the decoded "150/5300-13B" to resolve against
+  // document_number, exactly as it already does for "90-67B".
+  { regex: /\bAC\)?\s+(\d+(?:\.\d+)?(?:\/\d+)?-\d+[A-Za-z]*(?:[\-–]\d+)?)\b/g, buildRoute: (m) => `/ac/${encodeURIComponent(m[1])}` },
   // FAR section mention ("§ 91.107", "FAR 91.107", "FAR Section 91.107",
   // "14 CFR 91.107", "14 CFR section 91.107") -- confirmed live as a real
   // gap: AIM 5-4-9's "(14 CFR section 91.123)" rendered as plain text, not
@@ -189,6 +209,17 @@ const PATTERNS: LinkPattern[] = [
   // both named in RC's own CFI-oral checklist under Security/TSA), unlike
   // FAR parts which never do.
   { regex: /\b49\s*CFR\s*[Pp]art\s+(\d{1,4})\b(?!\.\d)/g, buildRoute: (m) => `/cfr49/part/${m[1]}` },
+  // A bare "part N" under a CFR title we do NOT carry must not fall through to
+  // the generic FAR branch below. Same silently-optional-prefix trap as the
+  // "49 CFR part 830" -> /far/part/830 mislink already fixed above: the `14 CFR`
+  // prefix group is optional, so "1 CFR part 51" matched as if it were a FAR
+  // part. This is not a missing link, it is a CONFIDENTLY WRONG one, and it is
+  // corpus-wide -- every AD carries the incorporation-by-reference boilerplate
+  // "...under 5 U.S.C. 552(a) and 1 CFR part 51.", so nearly every AD detail
+  // screen rendered a tappable link to a 14 CFR Part 51 that does not exist.
+  // Verified by running the real linkifyText: that sentence produced
+  // "part 51" -> /far/part/51.
+  { regex: /\b(?!14\b|49\b)\d{1,2}\s*CFR\s*[Pp]arts?\s+\d{1,4}\b(?!\.\d)/g, suppress: true },
   { regex: /\b(?:14\s*CFR\s*|FAR\s+)?[Pp]art\s+(\d{1,3})\b(?!\.\d)/g, buildRoute: (m) => `/far/part/${m[1]}` },
   // Plural "Parts N, M, and O" / "Parts N or M" -- the singular pattern
   // above requires "Part" immediately followed by exactly one number, so a
@@ -258,7 +289,7 @@ const PATTERNS: LinkPattern[] = [
 
 export function linkifyText(text: string, selfType?: SelfType): LinkSegment[] {
   const candidates: CandidateMatch[] = []
-  for (const { regex, buildRoute, isFigure, buildSubMatches } of PATTERNS) {
+  for (const { regex, buildRoute, isFigure, buildSubMatches, suppress } of PATTERNS) {
     regex.lastIndex = 0
     let m: RegExpExecArray | null
     while ((m = regex.exec(text))) {
@@ -267,7 +298,7 @@ export function linkifyText(text: string, selfType?: SelfType): LinkSegment[] {
           candidates.push({ start: m.index + sub.offset, end: m.index + sub.offset + sub.text.length, text: sub.text, route: sub.route })
         }
       } else {
-        candidates.push({ start: m.index, end: m.index + m[0].length, text: m[0], route: buildRoute!(m, selfType), isFigure })
+        candidates.push({ start: m.index, end: m.index + m[0].length, text: m[0], route: suppress ? '' : buildRoute!(m, selfType), isFigure, suppress })
       }
       if (m[0].length === 0) regex.lastIndex++ // guard against a zero-length match looping forever
     }
@@ -292,7 +323,7 @@ export function linkifyText(text: string, selfType?: SelfType): LinkSegment[] {
   let cursor = 0
   for (const c of chosen) {
     if (c.start > cursor) segments.push({ text: text.slice(cursor, c.start), route: null })
-    segments.push({ text: c.text, route: c.route, isFigure: c.isFigure })
+    segments.push({ text: c.text, route: c.suppress ? null : c.route, isFigure: c.isFigure })
     cursor = c.end
   }
   if (cursor < text.length) segments.push({ text: text.slice(cursor), route: null })
