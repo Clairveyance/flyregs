@@ -41,6 +41,22 @@ MANUAL_QUOTES = {
    "the holder of a pilot certificate issued under part 61 may perform preventive maintenance on any aircraft owned or operated by that pilot which is not used under part 121, 129, or 135 of this chapter",
  ("91.307","How recently must a synthetic-fiber emergency parachute have been packed by a certificated rigger?"):
    "Within the preceding 180 days, if its canopy, shrouds, and harness are composed exclusively of nylon, rayon, or other similar synthetic fiber",
+  # --- batch 2: derived-answer scenarios. A computed answer (a fuel figure, a
+ #     date) can never appear verbatim in the reg, so these carry the GOVERNING
+ #     sentence instead. Without one the loader refuses to insert them, which is
+ #     the behaviour we want -- it just needs the quote supplied deliberately.
+ ("91.151","A day VFR flight will take 2 hours. Your aircraft burns 10 gallons per hour. What is the minimum usable fuel at takeoff?"):
+   "No person may begin a flight in an airplane under VFR conditions unless (considering wind and forecast weather conditions) there is enough fuel to fly to the first point of intended landing and, assuming normal cruising speed ... During the day, to fly after that for at least 30 minutes",
+ ("61.57","Your last three takeoffs and landings were 100 days ago. May you fly alone today?"):
+   "no person may act as a pilot in command of an aircraft carrying persons or of an aircraft certificated for more than one pilot flight crewmember unless that person has made at least three takeoffs and three landings within the preceding 90 days",
+ ("91.205","Your landing light burns out before a day VFR flight. Is the aircraft legal to fly?"):
+   "For VFR flight during the day, the following instruments and equipment are required: (1) Airspeed indicator. (2) Altimeter. (3) Magnetic direction indicator. (4) Tachometer for each engine. (5) Oil pressure gauge for each engine using pressure system.",
+ ("91.409","Your aircraft's annual was signed 15 April 2026. Through what date is it valid?"):
+   "no person may operate an aircraft unless, within the preceding 12 calendar months, it has had ... an annual inspection in accordance with part 43 of this chapter and has been approved for return to service by a person authorized by 43.7",
+ ("91.207","Your aircraft's ELT has been in use for 45 minutes cumulative. Must the battery be replaced?"):
+   "Batteries used in the emergency locator transmitters required by paragraphs (a) and (b) of this section must be replaced (or recharged, if the batteries are rechargeable) ... When the transmitter has been in use for more than 1 cumulative hour",
+ ("91.159","You are cruising VFR at 6,500 feet MSL on a magnetic course of 010 degrees. Is your altitude correct?"):
+   "When operating below 18,000 feet MSL and ... On a magnetic course of zero degrees through 179 degrees, any odd thousand foot MSL altitude + 500 feet (such as 3,500, 5,500, or 7,500)",
 }
 
 STOP = set("the a an of to in and or for that this with is are be may must not no any each person aircraft".split())
