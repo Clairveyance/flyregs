@@ -14,7 +14,11 @@ exactly what we are trying to stop shipping.
 import sys, re
 sys.path.insert(0, "scripts")
 from author_fact_deck import mgmt_sql
-from authored_private_questions import Q
+import importlib
+
+# Which box's file to load. One module per box keeps each batch reviewable.
+MODULE = sys.argv[sys.argv.index('--module') + 1] if '--module' in sys.argv else 'authored_private_questions'
+Q = importlib.import_module(MODULE).Q
 
 MODEL = "claude-opus-5 (authored in-session, verified against far_sections.body_text)"
 
@@ -57,6 +61,35 @@ MANUAL_QUOTES = {
    "Batteries used in the emergency locator transmitters required by paragraphs (a) and (b) of this section must be replaced (or recharged, if the batteries are rechargeable) ... When the transmitter has been in use for more than 1 cumulative hour",
  ("91.159","You are cruising VFR at 6,500 feet MSL on a magnetic course of 010 degrees. Is your altitude correct?"):
    "When operating below 18,000 feet MSL and ... On a magnetic course of zero degrees through 179 degrees, any odd thousand foot MSL altitude + 500 feet (such as 3,500, 5,500, or 7,500)",
+ # --- Instrument box: quotes for answers that paraphrase or span paragraphs ---
+ ("61.65","How much cross-country PIC time is required for an instrument-airplane rating?"):
+   "50 hours of cross-country time as pilot in command, of which 10 hours must have been in an airplane",
+ ("61.65","How recently before the practical test must the 3 hours of instrument flight training be accomplished?"):
+   "Three hours of instrument flight training from an authorized instructor in an airplane that is appropriate to the instrument-airplane rating within 2 calendar months before the date of the practical test",
+ ("91.177","Over a designated mountainous area with no prescribed minimum altitude, what is the IFR minimum?"):
+   "In the case of operations over an area designated as a mountainous area in part 95 of this chapter, an altitude of 2,000 feet above the highest obstacle within a horizontal distance of 4 nautical miles from the course to be flown",
+ ("91.175","What three conditions must ALL be met to descend below DA/DH or MDA?"):
+   "no pilot may operate an aircraft ... below the authorized MDA or continue an approach below the authorized DA/DH unless (1) The aircraft is continuously in a position from which a descent to a landing on the intended runway can be made at a normal rate of descent using normal maneuvers; (2) The flight visibility is not less than the visibility prescribed in the standard instrument approach being used; and (3) ... at least one of the following visual references for the intended runway is distinctly visible and identifiable to the pilot",
+ ("91.175","On approach you see only the approach light system. How low may you descend?"):
+   "The approach light system, except that the pilot may not descend below 100 feet above the touchdown zone elevation using the approach lights as a reference unless the red terminating bars or the red side row bars are also distinctly visible and identifiable",
+ ("91.171","How recently must a VOR check have been performed to use VOR navigation under IFR?"):
+   "Has been operationally checked within the preceding 30 days, and was found to be within the limits of the permissible indicated bearing error set forth in paragraph (b) or (c) of this section",
+ ("91.171","What is the maximum permissible bearing error using a VOT or a designated airport surface checkpoint?"):
+   "Use, at the airport of intended departure, an FAA-operated or approved test signal ... to check the VOR equipment (the maximum permissible indicated bearing error is plus or minus 4 degrees)",
+ ("91.205","Which instruments does 91.205(d) add for IFR beyond the day and night VFR lists?"):
+   "For IFR flight, the following instruments and equipment are required: ... Two-way radio communication and navigation equipment suitable for the route to be flown. Gyroscopic rate-of-turn indicator ... Slip-skid indicator. Sensitive altimeter adjustable for barometric pressure. A clock displaying hours, minutes, and seconds ... Generator or alternator of adequate capacity. Gyroscopic pitch and bank indicator (artificial horizon). Gyroscopic direction indicator",
+ ("61.87","A student was endorsed for solo in a Cessna 172 on 1 March. On 20 June they want to solo the same aircraft. Is the endorsement valid?"):
+   "A student pilot may not operate an aircraft in solo flight unless that student pilot has received an endorsement in the student's logbook for the specific make and model aircraft to be flown by an authorized instructor who gave the training within the 90 days preceding the date of the flight",
+ ("61.133","What does a commercial pilot certificate allow?"):
+   "A person who holds a commercial pilot certificate may act as pilot in command of an aircraft carrying persons or property for compensation or hire, provided the person is qualified in accordance with this part and with the applicable parts of this chapter that apply to the operation",
+ ("61.133","You hold a commercial certificate and want to fly paying passengers on demand in your own aircraft. Is the certificate alone enough?"):
+   "provided the person is qualified in accordance with this part and with the applicable parts of this chapter that apply to the operation",
+ ("61.189","What records must a flight instructor maintain beyond signing student logbooks?"):
+   "A flight instructor must maintain a record in a logbook or a separate document that contains the following: (1) The name of each person whose logbook that instructor has endorsed for solo flight privileges, and the date of the endorsement; and (2) The name of each person that instructor has endorsed for a knowledge test or practical test, and the record shall also indicate the kind of test, the date, and the results",
+ ("65.83","What recent experience must a mechanic have to exercise certificate privileges?"):
+   "A certificated mechanic may not exercise the privileges of his certificate and rating unless, within the preceding 24 months (a) The Administrator has found that he is able to do that work; or (b) He has, for at least 6 months (1) Served as a mechanic under his certificate and rating; (2) Technically supervised other mechanics; (3) Supervised, in an executive capacity, the maintenance or alteration of aircraft",
+ ("43.3","Who may perform maintenance under the supervision of a certificated mechanic or repairman?"):
+   "A person working under the supervision of a holder of a mechanic or repairman certificate may perform the maintenance, preventive maintenance, and alterations that his supervisor is authorized to perform, if the supervisor personally observes the work being done to the extent necessary to ensure that it is being done properly and if the supervisor is readily available, in person, for consultation",
 }
 
 STOP = set("the a an of to in and or for that this with is are be may must not no any each person aircraft".split())
@@ -95,4 +128,5 @@ def main():
     print("authored rows now:", mgmt_sql("select count(*) c from study_facts where origin='authored'")[0]['c'])
 
 if __name__ == "__main__":
+    print(f"loading {MODULE}")
     main()
