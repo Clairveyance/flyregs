@@ -27,8 +27,7 @@ SCORE = """
       + (search_term_hits(c.title, q.rphrase)::numeric / q.n_terms) * {w_title}
       + ((search_term_hits(c.title || ' ' || coalesce(c.subpart_title,''), q.rphrase)
           - search_term_hits(c.title, q.rphrase))::numeric / q.n_terms) * {w_sub}
-      + ((select count(*) from unnest(tsvector_to_array(to_tsvector('english', q.rphrase))) as t(term)
-          where t.term = any(tsvector_to_array(c.search_vector)))::numeric / q.n_terms) * {w_doc}
+      + ((select count(*) from unnest(q.term_qs) as tq where c.search_vector @@ tq)::numeric / q.n_terms) * {w_doc}
       + case when q.bigrams is not null and exists (
              select 1 from unnest(q.bigrams) as bg
              where position(bg in lower(coalesce(c.subpart_title,''))) > 0)
@@ -37,6 +36,20 @@ SCORE = """
              select 1 from unnest(q.bigrams) as bg
              where position(bg in lower(coalesce(c.title,''))) > 0)
              then {w_titlephrase} else 0 end
+      -- MECHANISM A: general-subpart propagation. A "General" subpart states
+      -- the rules that apply to every specific subpart of the same part --
+      -- 61.35 (knowledge test) sits in Part 61 Subpart A and is what a
+      -- "private pilot knowledge test" query actually wants, but it contains
+      -- no word "private" so pure lexical ranking buries it. Scaled by the
+      -- section's OWN query coverage so this cannot boost general sections
+      -- that are simply unrelated.
+      + (case when c.subpart_title ilike '%general%' or c.title ilike '%applicability%'
+              then (select count(*) from unnest(q.term_qs) as tq where c.search_vector @@ tq)::numeric / q.n_terms
+              else 0 end) * {w_general}
+      -- MECHANISM B: citation propagation. A section cited BY other sections
+      -- that themselves match this query is probably part of the same answer
+      -- (61.103 cites 61.105). Capped so a heavily-cited section cannot run away.
+      + least(coalesce(ct.n, 0), 5)::numeric * {w_cite}
       + case when c.search_vector @@ q.and_q then {w_and} else 0 end
       + case when lower(coalesce(c.body_text,'')) like '%' || q.phrase || '%' then 40 else 0 end
       + ts_rank(c.search_vector, q.or_q) * {w_ts}
@@ -59,6 +72,7 @@ q as (select rq.cid,
         btrim(regexp_replace(lower(rq.qtext), '\\s+', ' ', 'g')) as phrase,
         btrim(regexp_replace(lower(rq.resolved), '\\s+', ' ', 'g')) as rphrase,
         search_term_count(rq.resolved) as n_terms,
+        (select array_agg(to_tsquery('english', clean)) from lex where lex.cid = rq.cid) as term_qs,
         (select array_agg(a[i] || ' ' || a[i+1])
            from (select regexp_split_to_array(btrim(regexp_replace(lower(rq.resolved),'\\s+',' ','g')),' ') as a) z,
                 generate_subscripts(z.a,1) as i
@@ -79,9 +93,14 @@ anchor_only as (select an.cid, f.section_number, f.subpart_title, f.title, f.bod
       from far_sections f join anchors an on an.doc_id=f.section_number
       where not exists (select 1 from matched m where m.section_number=f.section_number and m.cid=an.cid)),
 combined as (select * from matched union all select * from anchor_only),
+cites as (select m2.cid, dc.cited_id, count(*) as n
+      from document_citations dc join matched m2 on m2.section_number = dc.citing_id
+      where dc.citing_type = 'far' and dc.cited_type = 'far'
+      group by m2.cid, dc.cited_id),
 scored as (select c.cid, c.section_number, ({SCORE.format(**w)})::real as out_rank
       from combined c join q on q.cid=c.cid
-      left join anchors an on an.cid=c.cid and an.doc_id=c.section_number),
+      left join anchors an on an.cid=c.cid and an.doc_id=c.section_number
+      left join cites ct on ct.cid=c.cid and ct.cited_id=c.section_number),
 ranked as (select cid, section_number, row_number() over (partition by cid order by out_rank desc, section_number) as rn from scored)
 select cs.cid, min(r.rn) as best_rank
 from cases cs left join exp e on e.cid=cs.cid
@@ -90,7 +109,7 @@ group by cs.cid order by cs.cid
 """
 
 def evaluate(weights, cases=FAR_CASES, k=10, chunk_size=40, verbose=False):
-    w = {"w_title":180, "w_sub":0, "w_doc":0, "w_subphrase":0, "w_titlephrase":0, "w_and":60, "w_ts":20}; w.update(weights)
+    w = {"w_title":180, "w_sub":0, "w_doc":0, "w_subphrase":0, "w_titlephrase":0, "w_general":0, "w_cite":0, "w_and":60, "w_ts":20}; w.update(weights)
     items = list(enumerate(cases))
     ranks = {}
     for i in range(0, len(items), chunk_size):
