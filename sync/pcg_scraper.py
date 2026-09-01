@@ -303,7 +303,17 @@ def parse_letter_page(html: str, letter: str) -> list[dict]:
                     if ref_term and ref_term not in current["see_refs"]:
                         current["see_refs"].append(ref_term)
                 for a in p.find_all("a", class_="cross-ref-link"):
-                    ref_term = (a.get("data-term") or a.get_text(strip=True)).replace("_", " ")
+                    # Prefer the anchor's VISIBLE TEXT over data-term. data-term is
+                    # the FAA's own internal element id with punctuation stripped,
+                    # so "RUNWAY IN USE/ACTIVE RUNWAY/DUTY RUNWAY" arrives as
+                    # data-term="RUNWAY_IN_USEACTIVE_RUNWAYDUTY_RUNWAY" -> the old
+                    # underscore swap produced "RUNWAY IN USEACTIVE RUNWAYDUTY
+                    # RUNWAY", with the slashes eaten and words fused. That is both
+                    # unreadable if it is ever shown to a user, and unresolvable:
+                    # our own slug for that term is RUNWAY_IN_USE_ACTIVE_RUNWAY_
+                    # DUTY_RUNWAY, which the fused id can never match. The link text
+                    # is the FAA's real printed label and slugifies correctly.
+                    ref_term = a.get_text(" ", strip=True) or (a.get("data-term") or "").replace("_", " ")
                     if ref_term and ref_term not in current["see_refs"]:
                         current["see_refs"].append(ref_term)
 

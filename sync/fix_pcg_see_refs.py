@@ -79,6 +79,37 @@ def slugify(term: str) -> str:
     return t.strip("_")
 
 
+# Tidy a ref we could not resolve, purely for display. It is about to be shown
+# to a reader as plain text, so it has to read like something the FAA printed
+# rather than like scraped markup:
+#   * "ICAO Term X"      -> "X [ICAO]"   (matches how we title our own ICAO
+#                                         entries, instead of leaking the
+#                                         source's inline prefix)
+#   * "A and B"          -> two entries  (the FAA joins multiple targets in one
+#                                         cross-reference; splitting lets the
+#                                         UI list them properly)
+#   * U+2010/2011/2013.. -> "-"          (the source uses a Unicode hyphen in
+#                                         WIDE-AREA, ACCELERATE-STOP, MICRO-EN
+#                                         ROUTE and others; normalising keeps it
+#                                         consistent with our own term titles)
+# Only ever reformats text we are already keeping -- never invents a target and
+# never affects see_refs, which stays link-only.
+_HYPHENS = {0x2010: "-", 0x2011: "-", 0x2012: "-", 0x2013: "-", 0x2014: "-", 0x2212: "-"}
+
+
+def tidy_unresolved(ref: str) -> list[str]:
+    out = []
+    for part in re.split(r"\s+and\s+", ref.translate(_HYPHENS)):
+        part = part.strip()
+        if not part:
+            continue
+        m = re.match(r"^ICAO\s+term\s+(.*)$", part, re.I)
+        if m:
+            part = f"{m.group(1).strip()} [ICAO]"
+        out.append(part)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
@@ -181,8 +212,9 @@ def main():
             elif fix == "DROP":
                 drops += 1
                 changed = True
-                if ref not in unresolved:
-                    unresolved.append(ref)
+                for tidy in tidy_unresolved(ref):
+                    if tidy not in unresolved:
+                        unresolved.append(tidy)
             else:
                 new_refs.append(fix)
                 rewrites += 1
