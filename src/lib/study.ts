@@ -118,6 +118,26 @@ export async function getStudyPoolCount(
   return (data as number) ?? 0
 }
 
+// Per-level pool sizes for the Level chips, so the filter row shows the SIZE
+// of each section rather than only the aggregate of whatever is selected.
+// One server-side pass: doing this client-side meant 9 getStudyPoolCount
+// calls at 297-488ms each (~4.4s on mount) versus 567ms measured for this.
+// Item-type/category filters are passed through, so each chip's count always
+// reflects the other chips already set.
+export async function getStudyPoolCountsByLevel(
+  itemTypes?: StudyItemType[],
+  categoryClasses?: CategoryClass[]
+): Promise<Partial<Record<StudyLevel, number>>> {
+  const { data, error } = await supabase.rpc('get_study_pool_counts_by_level', {
+    p_item_types: itemTypes && itemTypes.length > 0 ? itemTypes : null,
+    p_category_classes: categoryClasses && categoryClasses.length > 0 ? categoryClasses : null,
+  })
+  if (error) throw error
+  const out: Partial<Record<StudyLevel, number>> = {}
+  for (const row of (data ?? []) as { level: StudyLevel; cnt: number }[]) out[row.level] = Number(row.cnt)
+  return out
+}
+
 // `record_study_review`'s own `p_item_type` param defaults to 'pcg' server
 // -side -- omitting it here (as this used to) silently mis-recorded every
 // FAR/AIM/AC review as a pcg item_type/item_id pair that doesn't actually

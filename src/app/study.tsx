@@ -10,7 +10,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import * as Sentry from '@sentry/react-native'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
-import { getStudyQueue, getStudyPoolCount, recordStudyReview, getStudyMastery, getCurrency, getStudyFactsForItems, StudyCard, StudyMastery, Currency, StudyItemType, StudyFact } from '@/lib/study'
+import { getStudyQueue, getStudyPoolCount, getStudyPoolCountsByLevel, recordStudyReview, getStudyMastery, getCurrency, getStudyFactsForItems, StudyCard, StudyMastery, Currency, StudyItemType, StudyFact } from '@/lib/study'
 import { COIN_BY_CODE, type CoinDef, TROPHY_BY_CODE } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { StudyLevel, ALL_STUDY_LEVELS, STUDY_LEVEL_LABELS, markCoinsSeen } from '@/lib/challenges'
@@ -135,6 +135,9 @@ export default function StudyScreen() {
   const masteryGlowStyle = useAnimatedStyle(() => ({ shadowOpacity: masteryGlow.value * (masteryPct / 100) * 0.75 }))
   const [currency, setCurrency] = useState<Currency | null>(null)
   const [poolCount, setPoolCount] = useState<number | null>(null)
+  // Size of each Level section, shown on its own chip. Keyed by level so a
+  // missing entry renders as no count rather than a wrong 0.
+  const [levelCounts, setLevelCounts] = useState<Partial<Record<StudyLevel, number>>>({})
   const [sessionDone, setSessionDone] = useState(false)
   const [revealCoin, setRevealCoin] = useState<CoinDef | null>(null)
   const [revealDirection, setRevealDirection] = useState<RevealDirection>('defFirst')
@@ -231,6 +234,17 @@ export default function StudyScreen() {
       prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
     )
   }
+
+  // Level-section sizes depend only on the Content/Category filters, never on
+  // which LEVEL is selected -- so this is its own effect rather than part of
+  // `load`, and a level tap does not refetch it.
+  useEffect(() => {
+    let cancelled = false
+    getStudyPoolCountsByLevel(activeTypes, activeCategoryClasses)
+      .then((counts) => { if (!cancelled) setLevelCounts(counts) })
+      .catch(() => { if (!cancelled) setLevelCounts({}) })
+    return () => { cancelled = true }
+  }, [activeTypes, activeCategoryClasses])
 
   const load = useCallback(() => {
     setLoading(true)
@@ -589,6 +603,7 @@ export default function StudyScreen() {
             >
               <Text style={[styles.filterChipText, { color: active ? tokens.blu : tokens.t3, fontSize: fs(11.5) }]}>
                 {STUDY_LEVEL_LABELS[l]}
+                {levelCounts[l] != null ? `  ${levelCounts[l]!.toLocaleString()}` : ''}
               </Text>
             </Pressable>
           )
