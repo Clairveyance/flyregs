@@ -156,3 +156,8 @@ scripts/.loi_text_cleanup_sources_snapshot.json
 # checkpoint-state pattern; regenerates these on each run
 scripts/.reauthor_vague_batch_state.json
 scripts/.reauthor_vague_id_map.json
+
+# YouTube OAuth client + refresh token (also covered by the .env.* rule
+# above; listed explicitly so it is obvious these must never be committed)
+.env.youtube-client.json
+.env.youtube-token.json
