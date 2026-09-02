@@ -141,26 +141,33 @@ export default function AuthScreen() {
       message: `Skip typing your email and password next time on this device.`,
       confirmLabel: 'Enable',
       cancelLabel: 'Not Now',
-      // KNOWN BROKEN, 2026-09-03 -- do not trust this path until it is fixed
-      // and tested on a real device.
+      // WHEN THIS WORKS AND WHEN IT DOES NOT -- measured against live GoTrue
+      // 2026-09-03, correcting an earlier note here that wrongly called it
+      // "100% broken" (RC: "face id did work for me before"). He is right.
       //
-      // This stores the CURRENT session's access/refresh tokens. Sign-out then
-      // revokes that same session (it was scope 'global' until today, now
-      // 'local'), so by the time the "Sign in as ..." button is reachable --
-      // which requires being signed out -- the stored tokens are already dead.
-      // Proven live against GoTrue: stored access_token -> 403, stored
-      // refresh_token -> 400 refresh_token_not_found. signInWithBiometric then
-      // throws, self-disables via disableBiometricSignIn(), and shows "Your
-      // saved sign-in has expired."
+      // This stores the CURRENT session's tokens. What happens next depends
+      // entirely on HOW the user became signed out:
+      //   * Session merely LAPSED on the device (reinstall, cache clear, token
+      //     expiry) -- the refresh token is still valid server-side, so
+      //     setSession refreshes and Face ID WORKS. Verified: refresh -> 200.
+      //     This is the normal path and the one RC has used.
+      //   * User explicitly tapped SIGN OUT -- that revokes this session, so
+      //     both the access token (403) and the refresh token (400
+      //     refresh_token_not_found) are dead, setSession throws, and
+      //     signInWithBiometric self-disables the credential. Verified.
       //
-      // The fix is to enrol a session INDEPENDENT of the one that will be
-      // signed out. Note it cannot simply call supabase.auth.signInWithPassword
-      // again -- that would swap the client's active session, and sign-out would
-      // then revoke the new one instead, reproducing the same failure. It needs
-      // a raw POST to /auth/v1/token?grant_type=password so the second session
-      // is never adopted by the client. That is an auth-flow change that must be
-      // verified on a real device with Face ID, so it is left for RC rather than
-      // shipped blind overnight.
+      // Sign-out was changed to scope 'local' the same day (see auth.tsx's
+      // signOut). That is a STRICT IMPROVEMENT here, not a risk: under the old
+      // global default, signing out on ANY device revoked every session, so an
+      // iPad sign-out silently killed this phone's Face ID credential too.
+      // Measured both ways: other-device global sign-out -> this phone's
+      // refresh 400 (killed); other-device local sign-out -> 200 (survives).
+      //
+      // Remaining gap, if the explicit-sign-out case is ever worth closing:
+      // enrol a session INDEPENDENT of the one being signed out. It cannot
+      // simply call signInWithPassword again -- that swaps the client's active
+      // session and reproduces the failure -- it needs a raw
+      // grant_type=password call. Wants real-device Face ID testing.
       onConfirm: async () => { await Biometric.enableBiometricSignIn(session) },
       onCancel: () => { Biometric.markBiometricPromptDeclined() },
     })
