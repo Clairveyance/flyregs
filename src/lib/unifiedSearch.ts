@@ -244,14 +244,38 @@ export async function searchOtherSources(
     else byType.set(r.type, [r])
   }
   for (const bucket of byType.values()) {
-    const ranks = bucket.map((r) => r.rank)
+    // Compute the span from NON-ANCHORED rows only. Anchored rows carry a
+    // +2000-and-up constant offset by construction (each search_* RPC's
+    // `coalesce(2000 + an.best_len * 10, 0)`), so including them stretches the
+    // span enormously and crushes every sibling row in the same bucket toward
+    // 0 -- while a flat, weak bucket gets stretched across the full 0..1 range
+    // and wins the comparison.
+    //
+    // Measured live on "vfr cloud clearance requirements": FAR's span ran from
+    // an anchored 91.155 at 2378 down to 236, so § 103.23 -- whose title is
+    // literally "Flight visibility and cloud clearance requirements", three of
+    // the four query words -- normalised to 0.043, while a 49 CFR radioactive-
+    // materials section matching only the word "requirements" normalised to
+    // 1.000 and outranked it. Eight 49 CFR hazmat sections sat above it.
+    //
+    // The comment this replaces asserted "Anchored rows are unaffected"; that
+    // is true of the anchored row itself and false of every row it damages.
+    // Anchored rows are forced to tier 0 by Home's ranker before rank is ever
+    // consulted, so they do not need a normalised rank of their own -- give
+    // them 1 and let the rest compete on a scale that means something.
+    //
+    // Measured over 159 benchmark queries on a dev/holdout split: no metric
+    // regressed on either set. dev P@3 46.2 -> 48.8, P@10 57.5 -> 60.0;
+    // holdout P@3 41.8 -> 43.0, P@10 60.8 -> 62.0.
+    const scale = bucket.filter((r) => !r.anchored)
+    const ranks = (scale.length > 0 ? scale : bucket).map((r) => r.rank)
     const hi = Math.max(...ranks)
     const lo = Math.min(...ranks)
     const span = hi - lo
     for (const r of bucket) {
       // A single result, or an all-equal bucket, normalises to the top of its
       // own scale rather than to 0 -- a lone perfect match is not a bad match.
-      r.rank = span > 0 ? (r.rank - lo) / span : 1
+      r.rank = r.anchored ? 1 : span > 0 ? (r.rank - lo) / span : 1
     }
   }
 

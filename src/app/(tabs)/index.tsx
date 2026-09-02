@@ -131,6 +131,11 @@ interface SearchResult {
   subject_series: string | null
   description: string | null
   rank?: number
+  // search_acs returns this (TABLE(..., rank real, is_anchor boolean)) and it
+  // was never declared here, so the ranker below could not see it. The
+  // .ilike() table queries in the phrase-search path do NOT select it, hence
+  // optional and compared with === true.
+  is_anchor?: boolean
 }
 
 // ─── Home Screen ─────────────────────────────────────────────────────────────
@@ -1008,9 +1013,26 @@ export default function HomeScreen() {
 
     // Interleave by walking both sources together so neither monopolises a
     // tier's leading positions.
-    const acScored = searchResults.map((r) => ({
-      r, ...relevanceTier(eff, r.document_number, r.title),
-    }))
+    const acScored = searchResults.map((r) => {
+      const scored = relevanceTier(eff, r.document_number, r.title)
+      // Honour the AC anchor. This is the SAME dropped-anchor bug fixed for
+      // P/CG and AD in unifiedSearch.ts on 2026-08-31 -- that fix's own
+      // comment says "same dropped-anchor bug as P/CG above" without noticing
+      // the AC pipeline had it too, because ACs come through this separate
+      // path rather than through searchOtherSources.
+      //
+      // Verified live: search_acs('pilot fatigue') returns 91-82A "Fatigue
+      // Management Programs" with is_anchor=true and rank 102298, and this
+      // ranker scored it tier 4 on a single title word -- level with
+      // "§ 25.771 Pilot compartment" and P/CG "AIRSPEED". A concept anchor
+      // means the DB matched the QUESTION to the document that answers it,
+      // which outranks any lexical tier. 3 of the 5 AC anchors are affected.
+      //
+      // `=== true` on purpose: the phrase-search path builds SearchResults
+      // from .ilike() table queries that never select is_anchor, and those
+      // rows must keep their computed tier.
+      return { r, ...scored, tier: r.is_anchor === true ? 0 : scored.tier }
+    })
     const otherScoredRaw = otherResults.map((r) => {
       // `id` (not `primary`) is the bare identifier -- `primary` carries a
       // type prefix ("FAR 91.107") that would never equal a user's query.
