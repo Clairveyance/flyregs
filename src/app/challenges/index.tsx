@@ -928,10 +928,32 @@ function ChallengeRow({
         </View>
         {isPendingForMe ? (
           <View style={styles.respondRow}>
-            <Pressable style={[styles.respondBtn, { borderColor: tokens.bdr }]} onPress={() => onRespond(item, false)}>
+            {/* Decline and Accept are 32x32 circles 8pt apart -- under
+                Apple's 44pt minimum, on a pair where a mis-tap DECLINES a
+                duel invite you meant to accept, and declining is not
+                undoable. Same undersized-tap-target class the shared-folder
+                sweep already fixed elsewhere.
+
+                Asymmetric hitSlop on purpose. Vertically there is nothing to
+                collide with, so 6 each way brings the height to a full 44.
+                Horizontally the gap is only 8pt, so each button may expand at
+                most 4 toward the other: any more and the two touch areas
+                OVERLAP, and RN resolves an overlap by z-order, which would
+                make a mis-tap between Accept and Decline unpredictable
+                instead of merely likely. 40x44 with no ambiguity beats 44x44
+                with it. */}
+            <Pressable
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+              style={[styles.respondBtn, { borderColor: tokens.bdr }]}
+              onPress={() => onRespond(item, false)}
+            >
               <Icon name="xmark" size={fs(14)} color={tokens.t3} />
             </Pressable>
-            <Pressable style={[styles.respondBtn, styles.respondBtnAccept, { borderColor: tokens.goldbdr, backgroundColor: tokens.goldlt }]} onPress={() => onRespond(item, true)}>
+            <Pressable
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+              style={[styles.respondBtn, styles.respondBtnAccept, { borderColor: tokens.goldbdr, backgroundColor: tokens.goldlt }]}
+              onPress={() => onRespond(item, true)}
+            >
               <Icon name="checkmark" size={fs(14)} color={tokens.gold} />
             </Pressable>
           </View>

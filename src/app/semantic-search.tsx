@@ -238,7 +238,15 @@ export default function SemanticSearchScreen() {
                 <Icon name="xmark.circle" size={fs(17)} color={tokens.t4} />
               </Pressable>
             )}
+            {/* 32x32, under Apple's 44pt minimum, on this screen's PRIMARY
+                action. Enlarged vertically (nothing to collide with) and to
+                the right (toward the container edge) only -- deliberately
+                NOT to the left, because the clear button immediately left of
+                it already carries hitSlop={8} and the two touch areas would
+                overlap, which RN resolves by z-order. Clearing the field
+                when you meant to search is the exact mis-tap worth avoiding. */}
             <Pressable
+              hitSlop={{ top: 6, bottom: 6, left: 0, right: 8 }}
               style={[styles.searchBtn, { backgroundColor: query.trim().length >= 3 ? tokens.blu : tokens.bdim }]}
               onPress={() => runSearch(query)}
               disabled={query.trim().length < 3 || searching}
