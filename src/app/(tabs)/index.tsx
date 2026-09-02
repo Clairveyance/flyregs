@@ -2878,10 +2878,25 @@ const styles = StyleSheet.create({
     gap: 5,
     marginBottom: 3,
   },
-  wnTypeTag: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
+  // flexShrink 0: the type tag is a fixed chip and must not be squashed when
+  // the identifier next to it shrinks.
+  wnTypeTag: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, flexShrink: 0 },
   wnTypeTagText: { fontWeight: '700', letterSpacing: 0.3 },
   wnDate: { fontSize: 10.5 },
-  wnAcNum: { fontWeight: '700', fontSize: 15, marginBottom: 3 },
+  // flexShrink 1 -- RC, real device 2026-09-01: "this last box in the what's new
+  // area has text that somehow is unbounded and extending past the boundaries
+  // of its own box." wnCard is a FIXED width: 190, and this Text sits in a
+  // flexDirection:'row'. Without flexShrink it takes its full intrinsic width
+  // and spills straight out of the card. numberOfLines={1} alone does not fix
+  // that -- it caps the LINE COUNT, not the width the Text claims.
+  //
+  // It only shows on LOI cards because for an LOI `documentNumber` is built
+  // from the TITLE (see whatsNew.ts: title with "_Legal_Interpretation"
+  // stripped and underscores replaced), i.e. long prose -- "Legal
+  // Interpretation to Quirion" -- rather than the short identifier an AC or AD
+  // card puts there. Same style is shared by the AC card, so this hardens that
+  // one against a long document number too.
+  wnAcNum: { fontWeight: '700', fontSize: 15, marginBottom: 3, flexShrink: 1 },
   // lineHeight NOT set here -- StyleSheet.create is module-scope, fs() is a
   // hook only available inside the component. See this file's two
   // `styles.wnTitle` JSX call sites for the actual scaled lineHeight, same

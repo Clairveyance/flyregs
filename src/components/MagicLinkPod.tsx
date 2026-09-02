@@ -498,12 +498,20 @@ function PodRow({
                   // touch point, whatever the text's actual line count turns
                   // out to be -- PREVIEW_GAP_ABOVE_TOUCH on top of that gives
                   // clearance for the finger pad's real on-screen footprint,
-                  // not just the exact reported coordinate. Before the first
-                  // onLayout fires (one frame, Modal has no fade to make a
-                  // reflow visible), PREVIEW_FALLBACK_HEIGHT is deliberately
-                  // generous -- overshooting upward for a frame is invisible;
-                  // undershooting reproduces this exact bug.
+                  // not just the exact reported coordinate.
                   top: Math.max(preview.y - (previewHeight ?? PREVIEW_FALLBACK_HEIGHT) - PREVIEW_GAP_ABOVE_TOUCH, 12),
+                  // Hidden until measured -- same fix as
+                  // LongPressPreviewCard.tsx, applied here because this file
+                  // is where the pattern (and the wrong assumption) came
+                  // from. The old comment claimed a one-frame upward
+                  // overshoot was "invisible"; RC caught it on a real device
+                  // 2026-09-01. The 180 fallback against a real 2-line card
+                  // of roughly 90 paints ~228 above the touch, then onLayout
+                  // corrects to ~138 -- a ~90pt jump with no fade to hide it.
+                  // opacity does not affect layout, so onLayout still
+                  // measures; the card just is not painted until it can be
+                  // painted in the right place.
+                  opacity: previewHeight == null ? 0 : 1,
                 },
               ]}
             >

@@ -243,6 +243,49 @@ const PATTERNS: LinkPattern[] = [
   // Verified by running the real linkifyText: that sentence produced
   // "part 51" -> /far/part/51.
   { regex: /\b(?!14\b|49\b)\d{1,2}\s*CFR\s*[Pp]arts?\s+\d{1,4}\b(?!\.\d)/g, suppress: true },
+  // PART ENUMERATION ("part 121, 135, 141, or 142 of this chapter",
+  // "parts 125 or 135"). RC screenshot 2026-09-01, FAR 61.156: only "part 121"
+  // rendered as a link; "135, 141, or 142" sat there as dead text. Exactly the
+  // same shape as the SECTION enumeration above and the same root cause -- a
+  // legal citation list carries its "part" marker ONCE, up front, so every
+  // number after the first has nothing for the single-part pattern below to
+  // match on.
+  //
+  // Measured corpus-wide before writing this: 141 comma-style lists and 95
+  // bare "part X or Y" forms. Both are included because both are real and
+  // common. The bare and/or form was checked for false positives first (the
+  // worry being prose like "part 91 and 30 hours") -- of the 31 distinct
+  // numbers it matches corpus-wide, ALL 31 are real FAR parts, zero false
+  // hits. Numbers are still guarded with (?!\.\d) so a section number like
+  // 61.156 can never be read as a part.
+  //
+  // Listed BEFORE the single-part rule so the longer enumeration span wins.
+  { regex: /\b49\s*CFR\s*[Pp]arts?\s+(\d{1,4}(?:(?:\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or)\s+)\d{1,4})+)\b(?!\.\d)/g,
+    buildSubMatches: (m) => {
+      const list = m[1]
+      const offset = m[0].length - list.length
+      const subs: { text: string; offset: number; route: string }[] = []
+      const numRe = /\d{1,4}/g
+      let sm: RegExpExecArray | null
+      while ((sm = numRe.exec(list))) {
+        subs.push({ text: sm[0], offset: offset + sm.index, route: `/cfr49/part/${sm[0]}` })
+      }
+      return subs
+    },
+  },
+  { regex: /\b(?:14\s*CFR\s*|FAR\s+)?[Pp]arts?\s+(\d{1,3}(?:(?:\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or)\s+)\d{1,3})+)\b(?!\.\d)/g,
+    buildSubMatches: (m) => {
+      const list = m[1]
+      const offset = m[0].length - list.length
+      const subs: { text: string; offset: number; route: string }[] = []
+      const numRe = /\d{1,3}/g
+      let sm: RegExpExecArray | null
+      while ((sm = numRe.exec(list))) {
+        subs.push({ text: sm[0], offset: offset + sm.index, route: `/far/part/${sm[0]}` })
+      }
+      return subs
+    },
+  },
   { regex: /\b(?:14\s*CFR\s*|FAR\s+)?[Pp]art\s+(\d{1,3})\b(?!\.\d)/g, buildRoute: (m) => `/far/part/${m[1]}` },
   // Plural "Parts N, M, and O" / "Parts N or M" -- the singular pattern
   // above requires "Part" immediately followed by exactly one number, so a

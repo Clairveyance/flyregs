@@ -52,12 +52,26 @@ export function LongPressPreviewCard({
                 // case, not the exception. Measuring the card's real
                 // rendered height (onLayout, above) and placing its bottom
                 // edge a real gap above the touch point handles any line
-                // count. Before the first onLayout fires (one frame, Modal
-                // has no fade to make a reflow visible), the fallback is
-                // deliberately generous -- overshooting upward for a frame
-                // is invisible; undershooting reproduces the exact bug this
-                // was built to fix.
+                // count.
                 top: Math.max(preview.y - (previewHeight ?? PREVIEW_FALLBACK_HEIGHT) - PREVIEW_GAP_ABOVE_TOUCH, 12),
+                // Hidden until measured. The previous comment here claimed
+                // overshooting upward for one frame was "invisible" -- it is
+                // not, and RC caught it on a real device 2026-09-01: "the
+                // pop-up box that shows up above your finger momentarily
+                // starts much higher and then jumps down to where it is in
+                // this image." The arithmetic is plain once written out: the
+                // 180 fallback against a real 2-line card of roughly 90
+                // paints the first frame ~228 above the touch, then onLayout
+                // corrects to ~138 -- a ~90pt jump, with animationType="none"
+                // so there is no fade to mask it.
+                //
+                // opacity does not affect layout, so the card still lays out
+                // and onLayout still reports a real height; it simply is not
+                // painted until that height is known, and then appears
+                // already in the right place. This removes the guess
+                // entirely rather than trying to tune the fallback -- no
+                // constant can be right for every line count.
+                opacity: previewHeight == null ? 0 : 1,
               },
             ]}
           >
