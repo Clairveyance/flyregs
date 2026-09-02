@@ -593,12 +593,16 @@ export default function PcgTermScreen() {
                 onLongPress={() => handleBlockLongPress(paraText)}
                 delayLongPress={450}
                 style={[
+                  // RedShift override -- same oversight as ACBody/PlainTextBody:
+                  // a fixed #FFD500 block destroys dark adaptation. Light and
+                  // dark unchanged; night uses the theme's own gold tokens.
                   isHl && styles.defHighlightWrap,
+                  isHl && redShift && { backgroundColor: tokens.goldlt, borderLeftColor: tokens.gold },
                   isPending && styles.defPendingWrap,
                   i < defParagraphs.length - 1 && styles.defParaSpacing,
                 ]}
               >
-                {isHl && <Text style={[styles.defHighlightTag, { fontSize: fs(9.5) }]}> HIGHLIGHTED </Text>}
+                {isHl && <Text style={[styles.defHighlightTag, { fontSize: fs(9.5) }, redShift && { color: tokens.gold, backgroundColor: tokens.goldbdr }]}> HIGHLIGHTED </Text>}
                 {isPending && <Text style={[styles.defPendingTag, { fontSize: fs(9.5) }]}> SELECTED </Text>}
                 <Text
                   style={[

@@ -685,9 +685,12 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
               // behavior it used to fall through to before this Pressable
               // wrapper existed. An explicit onPress restores that.
               onPress={() => Keyboard.dismiss()}
-              style={isHl ? styles.highlightWrap : isPending ? styles.pendingWrap : undefined}
+              // RedShift override -- see the note on highlightWrap's style entry.
+              style={isHl
+                ? [styles.highlightWrap, redShift && { backgroundColor: tokens.goldlt, borderLeftColor: tokens.gold }]
+                : isPending ? styles.pendingWrap : undefined}
             >
-              {isHl && <Text style={[styles.highlightTag, { fontSize: fs(9.5) }]}> HIGHLIGHTED </Text>}
+              {isHl && <Text style={[styles.highlightTag, { fontSize: fs(9.5) }, redShift && { color: tokens.gold, backgroundColor: tokens.goldbdr }]}> HIGHLIGHTED </Text>}
               {isPending && <Text style={[styles.pendingTag, { fontSize: fs(9.5) }]}> SELECTED </Text>}
               {withChangedRail(i,
                 <Text style={[styles.para, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.52 }]}>
@@ -828,9 +831,12 @@ export const PlainTextBody = React.forwardRef<PlainTextBodyHandle, {
               key={`${i}-${ci}`}
               onLongPress={onToggleHighlight ? () => onToggleHighlight(chunkKey, i) : undefined}
               delayLongPress={450}
-              style={isHl ? styles.highlightWrap : isPending ? styles.pendingWrap : undefined}
+              // RedShift override -- see the note on highlightWrap's style entry.
+              style={isHl
+                ? [styles.highlightWrap, redShift && { backgroundColor: tokens.goldlt, borderLeftColor: tokens.gold }]
+                : isPending ? styles.pendingWrap : undefined}
             >
-              {isHl && <Text style={[styles.highlightTag, { fontSize: fs(9.5) }]}> HIGHLIGHTED </Text>}
+              {isHl && <Text style={[styles.highlightTag, { fontSize: fs(9.5) }, redShift && { color: tokens.gold, backgroundColor: tokens.goldbdr }]}> HIGHLIGHTED </Text>}
               {isPending && <Text style={[styles.pendingTag, { fontSize: fs(9.5) }]}> SELECTED </Text>}
               <Text style={[styles.para, { color: tokens.t2, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.52 }]}>
                 {ci === 0 && marker && <Text style={{ fontWeight: '700', color: tokens.t1 }}>{marker} </Text>}
@@ -883,6 +889,11 @@ const styles = StyleSheet.create({
   // kept as literal hex/rgba (not theme tokens) to match ACBody exactly and
   // stay visible identically in both light and dark mode, same reasoning as
   // ACBody's own comment on these colors.
+  // A fixed #FFD500 block destroys dark adaptation, which is the one thing
+  // RedShift exists to protect -- and highlightSpans in this same file is
+  // already redShift-aware, so this being the only fixed-yellow element was
+  // an oversight. Overridden at both call sites under redShift with the
+  // theme's own gold tokens; light and dark keep exactly these values.
   highlightWrap: { backgroundColor: 'rgba(255, 213, 0, 0.10)', borderLeftWidth: 3, borderLeftColor: '#FFD500', paddingLeft: 8 },
   highlightTag: { color: '#8a6d00', backgroundColor: 'rgba(255, 213, 0, 0.35)', fontWeight: '800', letterSpacing: 0.6, marginBottom: 2 },
   // Distinct blue (not yet-committed yellow) so a long-pressed passage

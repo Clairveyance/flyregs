@@ -1165,11 +1165,21 @@ export const ACBody = React.forwardRef<
           <Text style={[styles.updatedTag, { color: tokens.blu, backgroundColor: tokens.bdim, fontSize: fs(10.5) }]}> UPDATED </Text>
         ) : null
         const isHighlighted = !!highlightedBlockTexts?.has(blockText(b))
+        // RedShift override -- a fixed #FFD500 block destroys dark adaptation,
+        // the one thing RedShift exists to protect. This file already renders
+        // search-term spans through redShift-aware styles (highlightRedshift),
+        // so the bookmark highlight being the only fixed-yellow element was an
+        // oversight, not a decision. Light and dark are unchanged; the night
+        // case uses the theme's own gold tokens, not a colour invented here.
         const highlightStyle = isHighlighted
-          ? { backgroundColor: 'rgba(255, 213, 0, 0.10)', borderLeftWidth: 3, borderLeftColor: '#FFD500', paddingLeft: 8 }
+          ? redShift
+            ? { backgroundColor: tokens.goldlt, borderLeftWidth: 3, borderLeftColor: tokens.gold, paddingLeft: 8 }
+            : { backgroundColor: 'rgba(255, 213, 0, 0.10)', borderLeftWidth: 3, borderLeftColor: '#FFD500', paddingLeft: 8 }
           : null
         const HighlightTag = isHighlighted ? (
-          <Text style={[styles.updatedTag, { color: '#8a6d00', backgroundColor: 'rgba(255, 213, 0, 0.35)', fontSize: fs(10.5) }]}> HIGHLIGHTED </Text>
+          <Text style={[styles.updatedTag, redShift
+            ? { color: tokens.gold, backgroundColor: tokens.goldbdr, fontSize: fs(10.5) }
+            : { color: '#8a6d00', backgroundColor: 'rgba(255, 213, 0, 0.35)', fontSize: fs(10.5) }]}> HIGHLIGHTED </Text>
         ) : null
         const longPress = onToggleHighlight ? () => onToggleHighlight(b, i) : undefined
         // Highlight every phrase occurrence; the one whose global ordinal ==
