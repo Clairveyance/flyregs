@@ -36,6 +36,7 @@ import re
 import sys
 
 import fitz  # PyMuPDF
+import hashlib
 import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -160,6 +161,25 @@ def slugify(label: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
 
 
+
+# A re-upload writes the SAME deterministic filename with `x-upsert: true`,
+# so the returned /object/public/<bucket>/<fname> URL used to be byte-for-byte
+# identical no matter how much the image itself had changed. The app caches
+# figure images on disk keyed on exactly that URL (src/lib/imageCache.ts,
+# versionFor) with no other invalidation path anywhere -- no updated_at on
+# these rows, no ETag check, no manual cache-clear -- so a corrected or
+# revised regulatory figure could never reach a device that had already
+# viewed the old one. Appending a hash of the exact bytes makes the URL
+# change if and only if the image really changed.
+#
+# A CONTENT HASH, deliberately, not a timestamp: a scraper re-run that
+# re-uploads byte-identical bytes must NOT invalidate every device's cache,
+# and only a hash gives that. Truncated to 12 hex chars (48 bits) -- ample
+# to distinguish revisions of one figure, and keeps the URL readable.
+def content_version(image_bytes: bytes) -> str:
+    return hashlib.sha256(image_bytes).hexdigest()[:12]
+
+
 def upload_png(doc_num: str, label: str, png_bytes: bytes) -> str:
     fname = f"{re.sub(r'[^a-zA-Z0-9-_.]', '_', doc_num)}/{slugify(label)}.png"
     url = f"{SUPABASE_URL}/storage/v1/object/ac-figures/{fname}"
@@ -170,7 +190,7 @@ def upload_png(doc_num: str, label: str, png_bytes: bytes) -> str:
         timeout=60,
     )
     resp.raise_for_status()
-    return f"{SUPABASE_URL}/storage/v1/object/public/ac-figures/{fname}"
+    return f"{SUPABASE_URL}/storage/v1/object/public/ac-figures/{fname}?v={content_version(png_bytes)}"
 
 
 def already_processed(ac_id: str) -> bool:

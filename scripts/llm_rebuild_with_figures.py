@@ -23,6 +23,7 @@ Usage:
     python3 scripts/llm_rebuild_with_figures.py <doc_number> [doc_number ...]
 """
 import base64
+import hashlib
 import json
 import re
 import signal
@@ -136,7 +137,13 @@ def upload_png(supabase_url, service_key, doc_num, label, png_bytes):
     })
     with urllib.request.urlopen(req) as resp:
         resp.read()
-    return f"{supabase_url}/storage/v1/object/public/ac-figures/{fname}"
+    # Content-hash cache-buster -- see content_version in extract_figures.py.
+    # (Kept inline rather than imported: this script is deliberately
+    # dependency-free, urllib-only, and imports nothing from extract_figures.)
+    return (
+        f"{supabase_url}/storage/v1/object/public/ac-figures/{fname}"
+        f"?v={hashlib.sha256(png_bytes).hexdigest()[:12]}"
+    )
 
 
 def render_pages(pdf_path, out_dir):

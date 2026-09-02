@@ -27,7 +27,7 @@ import fitz
 import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
-from extract_figures import SUPABASE_URL, HEADERS, slugify
+from extract_figures import SUPABASE_URL, HEADERS, slugify, content_version
 
 MODEL = "claude-sonnet-5"
 RENDER_DPI = 150
@@ -101,7 +101,9 @@ def upload_png(doc_num: str, label: str, png_bytes: bytes) -> str:
     url = f"{SUPABASE_URL}/storage/v1/object/ac-figures/{fname}"
     resp = requests.put(url, headers={**HEADERS, "Content-Type": "image/png", "x-upsert": "true"}, data=png_bytes, timeout=60)
     resp.raise_for_status()
-    return f"{SUPABASE_URL}/storage/v1/object/public/ac-figures/{fname}"
+    # Content-hash cache-buster -- see content_version's own comment in
+    # extract_figures.py for the stale-figure bug this closes.
+    return f"{SUPABASE_URL}/storage/v1/object/public/ac-figures/{fname}?v={content_version(png_bytes)}"
 
 
 def insert_figure_row(row: dict):

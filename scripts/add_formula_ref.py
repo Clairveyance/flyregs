@@ -25,6 +25,7 @@ import re
 import sys
 
 import fitz  # PyMuPDF
+import hashlib
 import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -100,7 +101,14 @@ def main():
         data=png_bytes, timeout=60,
     )
     upload_resp.raise_for_status()
-    image_url = f"{SUPABASE_URL}/storage/v1/object/public/ac-formula-refs/{fname}"
+    # Content-hash cache-buster -- see content_version in extract_figures.py
+    # for the stale-image bug this closes. Same deterministic filename +
+    # x-upsert here, so re-running this for an already-existing label would
+    # otherwise leave every device showing the superseded formula image.
+    image_url = (
+        f"{SUPABASE_URL}/storage/v1/object/public/ac-formula-refs/{fname}"
+        f"?v={hashlib.sha256(png_bytes).hexdigest()[:12]}"
+    )
 
     insert_resp = requests.post(
         f"{SUPABASE_URL}/rest/v1/ac_formula_refs",

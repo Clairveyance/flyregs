@@ -58,6 +58,7 @@ import re
 import time
 
 import fitz
+import hashlib
 import requests
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -144,6 +145,17 @@ def fetch_already_done():
     return done
 
 
+# Content-hash cache-buster on the returned URL -- see the long comment on
+# backfill_aim_pdf_images.py's own content_version for the stale-figure bug
+# this closes. Latent rather than firing here: main() skips every AD that
+# already has ad_figures rows, so an existing AD's page images are never
+# re-rendered today. That also means these rows will never acquire a `?v=`
+# marker on their own -- scripts/backfill_image_url_content_hash.py exists to
+# establish it for them (written, NOT run).
+def content_version(image_bytes: bytes) -> str:
+    return hashlib.sha256(image_bytes).hexdigest()[:12]
+
+
 def upload_png(ad_number, page_idx, png_bytes):
     fname = f"ad/{ad_number}/page-{page_idx}.png"
     r = requests.put(
@@ -152,7 +164,7 @@ def upload_png(ad_number, page_idx, png_bytes):
         data=png_bytes, timeout=60,
     )
     r.raise_for_status()
-    return f"{URL}/storage/v1/object/public/{BUCKET}/{fname}"
+    return f"{URL}/storage/v1/object/public/{BUCKET}/{fname}?v={content_version(png_bytes)}"
 
 
 def process_one(ad_number, pdf_url, body_text):
