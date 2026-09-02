@@ -128,14 +128,25 @@ for (const c of acCollabs ?? []) {
   collaboratorsByAircraftId.get(c.aircraft_id).push(c.user_id)
 }
 
-/** Everyone who should hear about this reminder: the aircraft's owner, every
- *  accepted collaborator still on it, and the reminder's own author (who is
- *  normally one of those two, but is included so a reminder can never lose its
- *  creator if the aircraft row is missing). */
+/** Everyone who should hear about this reminder: the aircraft's owner and every
+ *  accepted collaborator still on it.
+ *
+ *  The author (reminder.user_id) is included ONLY when they are still one of
+ *  those two. Until 2026-09-03 they were included unconditionally, and
+ *  removeCollaborator() hard-deletes the membership row while leaving behind
+ *  the reminders that person authored -- so a removed mechanic or ex-co-owner
+ *  kept receiving "Reminder overdue: Annual Inspection - 3 days past due for
+ *  N12345", which both discloses the aircraft's maintenance state to someone
+ *  no longer entitled to it and deep-links to a screen has_aircraft_access()
+ *  correctly denies them.
+ *
+ *  The original "never lose the creator" fallback is kept, but now applies only
+ *  to the case it was actually written for: the aircraft row itself missing. */
 function recipientsFor(reminder) {
   const owner = ownerByAircraftId.get(reminder.user_aircraft_id)
   const collabs = collaboratorsByAircraftId.get(reminder.user_aircraft_id) ?? []
-  return [...new Set([reminder.user_id, owner, ...collabs].filter(Boolean))]
+  if (!owner) return [reminder.user_id].filter(Boolean)
+  return [...new Set([owner, ...collabs].filter(Boolean))]
 }
 
 const today = new Date()
@@ -201,6 +212,14 @@ if (messages.length === 0) {
 console.log(`Sending ${messages.length} reminder notification(s)...`)
 
 const sentReminderIds = new Set()
+// Tracked SEPARATELY from sentReminderIds because a reminder's recipients are
+// DIFFERENT PEOPLE (owner + collaborators), not one person's several devices.
+// The mechanic's push succeeding must never mark the OWNER's overdue annual as
+// delivered -- and nothing re-arms a reminder except a genuine due_date change,
+// so a wrongly-marked row is lost permanently and silently. Any real failure
+// for any recipient holds the whole row back for tomorrow's retry: a duplicate
+// nudge is recoverable, a missed annual is not.
+const failedReminderIds = new Set()
 const BATCH = 100
 for (let i = 0; i < messages.length; i += BATCH) {
   const chunk = messages.slice(i, i + BATCH)
@@ -211,17 +230,34 @@ for (let i = 0; i < messages.length; i += BATCH) {
   })
   if (!res.ok) {
     console.error(`Expo push API returned ${res.status} for batch starting at ${i} — leaving those reminders unnotified for tomorrow's retry`)
+    for (const m of chunk) failedReminderIds.add(m._reminderId)
     continue
   }
   const json = await res.json()
-  const results = json.data ?? []
+  const results = json.data
+  // A missing or short ticket array is NOT success. Expo can answer HTTP 200
+  // with an {"errors":[...]} envelope and no `data` at all -- `json.data ?? []`
+  // then made every ticket undefined, and the old `!r ||` branch read that as
+  // delivered and stamped notified_at on the ENTIRE batch of up to 100. Real
+  // annuals, ELT batteries, transponder and pitot-static checks would vanish
+  // with no trace and no user-visible symptom.
+  if (!Array.isArray(results) || results.length !== chunk.length) {
+    console.error(
+      `Expo returned ${Array.isArray(results) ? results.length : 'no'} ticket(s) for ${chunk.length} message(s) in the batch starting at ${i} — leaving those reminders unnotified for tomorrow's retry`,
+      json.errors ?? '',
+    )
+    for (const m of chunk) failedReminderIds.add(m._reminderId)
+    continue
+  }
   chunk.forEach((m, idx) => {
     const r = results[idx]
     // DeviceNotRegistered is terminal, not transient -- the token is dead and
     // retrying it every day forever is worse than accepting it as delivered as
     // far as we can deliver it.
-    if (!r || r.status !== 'error' || r.details?.error === 'DeviceNotRegistered') {
+    if (r.status !== 'error' || r.details?.error === 'DeviceNotRegistered') {
       sentReminderIds.add(m._reminderId)
+    } else {
+      failedReminderIds.add(m._reminderId)
     }
   })
   const errors = results.filter((r) => r.status === 'error')
@@ -230,7 +266,9 @@ for (let i = 0; i < messages.length; i += BATCH) {
   }
 }
 
-const toMark = [...new Set([...noTokenIds, ...sentReminderIds])]
+// A failure for ANY recipient wins over a success for another -- see
+// failedReminderIds' own comment.
+const toMark = [...new Set([...noTokenIds, ...sentReminderIds])].filter((id) => !failedReminderIds.has(id))
 if (toMark.length > 0) {
   const { error: updErr } = await sb
     .from('user_aircraft_reminders')
