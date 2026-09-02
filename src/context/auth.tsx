@@ -392,7 +392,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // comment for the self-healing half of this fix (claim-on-register).
       unregisterPushToken(departingUserId).catch(() => {})
     }
-    const { error } = await supabase.auth.signOut()
+    // scope: 'local' -- auth-js 2.108.2 defaults signOut() to scope 'global'
+    // (verified in node_modules: `async signOut(options = { scope: 'global' })`),
+    // which revokes EVERY session this user has on EVERY device. So signing out
+    // on the iPhone silently signed the user out of the iPad and web too, which
+    // is not what "sign out" means on this screen.
+    //
+    // It is also half of why Face ID sign-in never works: enableBiometricSignIn
+    // snapshots the CURRENT session's tokens into SecureStore, and a global
+    // logout revokes them, so replaying them always fails and the feature
+    // self-disables. This change is necessary but NOT sufficient for that --
+    // see the note in src/app/auth.tsx's enroll path. Untestable without a real
+    // device, so the biometric half is deliberately left for RC.
+    const { error } = await supabase.auth.signOut({ scope: 'local' })
     if (error) throw error
     // Paid tiers require an account as part of the plan — signing out means
     // the paid entitlement isn't available again until signing back in.

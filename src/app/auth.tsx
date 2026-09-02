@@ -141,6 +141,26 @@ export default function AuthScreen() {
       message: `Skip typing your email and password next time on this device.`,
       confirmLabel: 'Enable',
       cancelLabel: 'Not Now',
+      // KNOWN BROKEN, 2026-09-03 -- do not trust this path until it is fixed
+      // and tested on a real device.
+      //
+      // This stores the CURRENT session's access/refresh tokens. Sign-out then
+      // revokes that same session (it was scope 'global' until today, now
+      // 'local'), so by the time the "Sign in as ..." button is reachable --
+      // which requires being signed out -- the stored tokens are already dead.
+      // Proven live against GoTrue: stored access_token -> 403, stored
+      // refresh_token -> 400 refresh_token_not_found. signInWithBiometric then
+      // throws, self-disables via disableBiometricSignIn(), and shows "Your
+      // saved sign-in has expired."
+      //
+      // The fix is to enrol a session INDEPENDENT of the one that will be
+      // signed out. Note it cannot simply call supabase.auth.signInWithPassword
+      // again -- that would swap the client's active session, and sign-out would
+      // then revoke the new one instead, reproducing the same failure. It needs
+      // a raw POST to /auth/v1/token?grant_type=password so the second session
+      // is never adopted by the client. That is an auth-flow change that must be
+      // verified on a real device with Face ID, so it is left for RC rather than
+      // shipped blind overnight.
       onConfirm: async () => { await Biometric.enableBiometricSignIn(session) },
       onCancel: () => { Biometric.markBiometricPromptDeclined() },
     })
