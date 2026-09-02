@@ -330,9 +330,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // generated value, not a hard device identifier, so this is a deterrent
     // rather than a hard guarantee. See src/lib/deviceId.ts.
     const deviceId = await getDeviceId()
-    const { data: allowed, error: rateLimitError } = await supabase.rpc('check_and_record_signup_attempt', {
+    // CHECK first, RECORD only on success (2026-09-03). The old single call,
+    // check_and_record_signup_attempt, wrote the attempt row BEFORE signUp was
+    // even tried, and nothing ever removed it -- so the counter measured TAPS,
+    // not accounts. A password under 6 characters, a malformed email, a
+    // transient network error or Supabase's own email rate limit all threw
+    // AFTER the slot was spent. Three of those in an hour and a user who had
+    // created ZERO accounts was told "Too many accounts created on this device
+    // recently" and locked out for an hour -- escapable only by reinstalling,
+    // since deviceId persists in AsyncStorage.
+    const { data: allowed, error: rateLimitError } = await supabase.rpc('check_signup_attempt_allowed', {
       p_device_id: deviceId,
-      p_max_per_hour: 3,
     })
     if (rateLimitError) throw rateLimitError
     if (!allowed) {
@@ -345,6 +353,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       options: { emailRedirectTo: 'https://flyregs.com/confirm' },
     })
     if (error) throw error
+    // Only now has an account actually been created. Fire-and-forget: failing
+    // to record must never turn a successful signup into an error the user sees.
+    supabase.rpc('record_signup_attempt', { p_device_id: deviceId }).then(undefined, () => {})
   }
 
   const resendConfirmation = async (email: string) => {

@@ -731,11 +731,26 @@ export default function AccountScreen() {
       // data alone (bookmarks/recents/etc. work with no account at all,
       // by design) -- correct for a normal sign-out, wrong here: deleting
       // the account is an explicit "remove everything tied to me," not
-      // just a session change. Wipe local-first storage BEFORE signOut()
-      // clears the session, since claimDeviceIfMismatched-style wiping
-      // only ever runs on a subsequent SIGN-IN, never on the way out.
-      await wipeAllLocalDataForAccountDeletion()
+      // just a session change. claimDeviceIfMismatched-style wiping only ever
+      // runs on a subsequent SIGN-IN, never on the way out, so it has to happen
+      // here.
+      //
+      // ORDER MATTERS, and it is the opposite of what it looks like (fixed
+      // 2026-09-03). signOut() calls claimLocalDataForSignedOutUser(), which
+      // STAMPS SYNC_OWNER_KEY with the departing user -- so wiping first meant
+      // signOut immediately re-stamped the device as owned by the account that
+      // had just been deleted, instead of leaving it "never claimed" the way
+      // wipeAllLocalDataForAccountDeletion intends.
+      //
+      // That mattered because this app is local-first and fully usable signed
+      // out: between deleting and creating the next account a user can add
+      // bookmarks, notes and folders. Tagged as the deleted account, signing up
+      // with a DIFFERENT email then reads as a conclusive owner mismatch and
+      // wipeAllLocalKeys() destroys all of it -- with no cloud copy, because
+      // they were signed out the whole time. Signing out first, then wiping,
+      // leaves owner === null and that work survives.
       await signOut()
+      await wipeAllLocalDataForAccountDeletion()
       backToMenu()
     } catch (err: any) {
       Sentry.captureException(err)
