@@ -706,6 +706,10 @@ export default function FarSectionScreen() {
             <PlainTextBody
               ref={bodyRef}
               text={body}
+              // Tells linkifyText it is inside a FAR body, which is what
+              // enables the bare "Section N.N" cross-reference pattern. Without
+              // it FAR pages passed undefined and the pattern stayed inert.
+              selfType="far"
               currentLabel={currentLabel}
               hasProAccess={hasProAccess}
               highlightQuery={inDocSearch.debounced}

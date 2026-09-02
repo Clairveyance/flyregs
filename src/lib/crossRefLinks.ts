@@ -140,7 +140,7 @@ const PATTERNS: LinkPattern[] = [
     // sight", and so on. Safe because it still requires a real N.N section
     // number after the word, so prose like "this section" or "Section 8"
     // cannot match.
-    regex: /(?:§\s*|\bFAR\s+(?:[Ss]ection\s+)?|\b14\s*CFR\s*(?:section\s+|§\s*)?|\b[Ss]ection\s+)(\d+\.\d+)\b/g,
+    regex: /(?:§\s*|\bFAR\s+(?:[Ss]ection\s+)?|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b/g,
     // A BARE "§ N.N" (nothing precedes the § in the match itself) is the
     // only ambiguous case -- "FAR "/"14 CFR " are unambiguous prefixes and
     // always mean FAR. See this file's SelfType comment for the real
@@ -154,6 +154,34 @@ const PATTERNS: LinkPattern[] = [
       selfType === 'cfr49' && /^(?:§|[Ss]ection\b)/.test(m[0].trimStart())
         ? `/cfr49/${m[1]}`
         : `/far/${m[1]}`,
+  },
+  // BARE "Section N.N" -- ONLY inside a regulation body (FAR or 49 CFR).
+  //
+  // RC asked for these on 2026-09-01 ("On this page, these other sections
+  // aren't hyperlinked") and his screenshot was FAR 61.156, where a bare
+  // "Section 107.25" really is a CFR cross-reference. Shipping it unscoped was
+  // wrong: measured across the live corpus the same day, 1,599 of 5,120 bare
+  // links (31%) dead-ended on "Section not found." -- and 1,595 of those were
+  // inside ADVISORY CIRCULARS, which number their OWN internal sections the
+  // same way ("(See Section 2.5.)", "section 4.3 of this AC") and cite third-
+  // party documents that way too (UL 1581, RTCA/DO-229D).
+  //
+  // Filtering by "is this a real FAR part" does NOT fix it: the worst offenders
+  // are "Section 23.51" / "Section 23.75" / "Section 23.1195", where part 23 IS
+  // real but the CFR restructured it and we carry the 23.2000-series instead.
+  // Only the document's own type separates the two meanings.
+  //
+  // Scoped this way the error rate is 1.3% in FAR bodies (3 of 233) and 0.6% in
+  // AIM -- and those few are stale citations in the FAA's own text, confirmed
+  // absent from eCFR too (91.813, 93.124, 93.318). Everywhere else the span is
+  // claimed and rendered as plain text, which is the honest non-answer this
+  // file's own header argues for.
+  {
+    regex: /\b[Ss]ection\s+(\d+\.\d+)\b/g,
+    buildRoute: (m, selfType) =>
+      selfType === 'cfr49' ? `/cfr49/${m[1]}`
+      : selfType === 'far' ? `/far/${m[1]}`
+      : '',   // '' -> every consumer guards on `seg.route &&`, so it is inert text
   },
   // 49 CFR section mention ("49 CFR 175.10", "49 CFR part 175.10") --
   // mirrors sync/ac_citations.py's and sync/aim_far_citations.py's own
@@ -273,7 +301,16 @@ const PATTERNS: LinkPattern[] = [
       return subs
     },
   },
-  { regex: /\b(?:14\s*CFR\s*|FAR\s+)?[Pp]arts?\s+(\d{1,3}(?:(?:\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or)\s+)\d{1,3})+)\b(?!\.\d)/g,
+  // Three guards, each added after a real false positive found in the corpus
+  // on 2026-09-02 (the original claim that this pattern had "zero false hits"
+  // was measured only on bare "part X and Y" inside FAR bodies -- far too
+  // narrow a slice, and wrong once ACs and ADs were included):
+  //   \s*,\s+       a thousands separator has NO space after the comma
+  //                  ("For part 15,000" was linking /far/part/15 and /part/000)
+  //   (?!CFR|USC)    stop the list swallowing the leading number of an adjacent
+  //                  citation ("14 CFR part 34 and 40 CFR part 1031" -> /part/40)
+  //   (?![-–]\d)     stop it eating a range ("Part 121, 10-19 Passenger Seats")
+  { regex: /\b(?:14\s*CFR\s*|FAR\s+)?[Pp]arts?\s+(\d{1,3}(?:(?:\s*,\s+(?:and\s+|or\s+)?|\s+(?:and|or)\s+)\d{1,3}(?!\s*(?:CFR|USC|U\.S\.C|[-–]\s*\d)))+)\b(?!\.\d)/g,
     buildSubMatches: (m) => {
       const list = m[1]
       const offset = m[0].length - list.length
