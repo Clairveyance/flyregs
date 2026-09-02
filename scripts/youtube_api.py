@@ -28,6 +28,11 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtube",
     "https://www.googleapis.com/auth/youtube.readonly",
     "https://www.googleapis.com/auth/yt-analytics.readonly",
+    # force-ssl is required for captions.list/download -- needed to derive REAL
+    # chapter timestamps from a video's transcript. Chapters must never be
+    # invented: a wrong timestamp sends the viewer to the wrong place and reads
+    # as broken. Added 2026-09-02 after captions returned 403 insufficient scope.
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 ]
 
 def service():
@@ -94,6 +99,61 @@ def cmd_get(yt, args):
     print(json.dumps(r["items"][0], indent=2)[:4000])
     print("\n  cost: 1 unit")
 
+def cmd_captions(yt, args):
+    """List caption tracks, and try to download one.
+
+    Used to derive REAL chapter timestamps. Chapters must never be invented --
+    a wrong timestamp is worse than no chapters, because it sends the viewer to
+    the wrong place and looks broken. If ASR tracks cannot be downloaded (Google
+    restricts third-party download of auto-generated captions), say so and ask
+    RC for section boundaries rather than guessing."""
+    r = yt.captions().list(part="snippet", videoId=args.video_id).execute()
+    tracks = r.get("items", [])
+    if not tracks:
+        print("  no caption tracks (auto-captions may still be processing)")
+        return
+    for t in tracks:
+        sn = t["snippet"]
+        print(f"  track {t['id']}  lang={sn['language']}  kind={sn.get('trackKind')}  name={sn.get('name') or '(default)'}")
+    if args.download:
+        tid = args.download
+        try:
+            body = yt.captions().download(id=tid, tfmt="srt").execute()
+            out = f"caption_{args.video_id}.srt"
+            open(out, "wb").write(body if isinstance(body, bytes) else body.encode())
+            print(f"  downloaded -> {out}")
+        except Exception as e:
+            print(f"  download failed: {str(e)[:200]}")
+            print("  (Google blocks API download of auto-generated ASR tracks.)")
+
+def cmd_update(yt, args):
+    """Apply a metadata patch from a JSON file.
+
+    Reads the CURRENT snippet first and merges, because videos.update replaces
+    the whole snippet part -- sending a partial snippet silently wipes fields
+    that were not included. Learned the safe way, by reading the API contract,
+    not by discovering it on RC's live videos."""
+    spec = json.load(open(args.spec))
+    cur = yt.videos().list(part="snippet,status", id=args.video_id).execute()
+    if not cur.get("items"):
+        sys.exit("no such video")
+    snip = cur["items"][0]["snippet"]
+    for k in ("title", "description", "tags", "categoryId", "defaultLanguage", "defaultAudioLanguage"):
+        if k in spec:
+            snip[k] = spec[k]
+    body = {"id": args.video_id, "snippet": snip}
+    parts = "snippet"
+    if "privacyStatus" in spec or "publishAt" in spec:
+        st = cur["items"][0]["status"]
+        for k in ("privacyStatus", "publishAt"):
+            if k in spec:
+                st[k] = spec[k]
+        body["status"] = st
+        parts += ",status"
+    yt.videos().update(part=parts, body=body).execute()
+    print(f"  updated {args.video_id}: {', '.join(k for k in spec)}")
+    print("  cost: 50 units")
+
 def cmd_quota(yt, _):
     print("  YouTube Data API v3 default: 10,000 units/day, resets midnight Pacific")
     print("    videos.insert (upload)   1,600   -> ~6 uploads/day")
@@ -109,12 +169,21 @@ def main():
     sub.add_parser("channel")
     p = sub.add_parser("list"); p.add_argument("--max", type=int, default=50)
     p = sub.add_parser("get"); p.add_argument("video_id")
+    p = sub.add_parser("captions"); p.add_argument("video_id"); p.add_argument("--download", default=None)
+    p = sub.add_parser("update"); p.add_argument("video_id"); p.add_argument("spec")
     sub.add_parser("quota")
     args = ap.parse_args()
     if args.cmd == "quota":
         return cmd_quota(None, args)
     yt = service()
-    {"channel": cmd_channel, "list": cmd_list, "get": cmd_get}[args.cmd](yt, args)
+    try:
+        {"channel": cmd_channel, "list": cmd_list, "get": cmd_get,
+         "captions": cmd_captions, "update": cmd_update}[args.cmd](yt, args)
+    except Exception as e:
+        msg = str(e)
+        if "insufficientPermissions" in msg or "insufficient authentication scopes" in msg:
+            sys.exit("Scope missing for this call. Re-run: python3 scripts/youtube_auth.py")
+        sys.exit(f"API error: {msg[:300]}")
 
 if __name__ == "__main__":
     main()

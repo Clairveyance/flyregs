@@ -28,13 +28,26 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtube",
     "https://www.googleapis.com/auth/youtube.readonly",
     "https://www.googleapis.com/auth/yt-analytics.readonly",
+    # force-ssl is required for captions.list/download -- needed to derive REAL
+    # chapter timestamps from a video's transcript. Chapters must never be
+    # invented: a wrong timestamp sends the viewer to the wrong place and reads
+    # as broken. Added 2026-09-02 after captions returned 403 insufficient scope.
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 ]
 
-def find_downloaded_client() -> str | None:
+# NOTE: no `str | None` annotations anywhere in this file -- RC's system python3
+# is 3.9, where that syntax raises TypeError at import time (it is evaluated when
+# the def executes, which is why an ast.parse check does NOT catch it). Use
+# Optional[...] or no annotation. Same applies to any script RC runs directly.
+def find_downloaded_client():
     """Google names the download client_secret_<id>.apps.googleusercontent.com.json.
-    RC should not have to rename or move anything, so look where it lands."""
-    pats = [os.path.expanduser("~/Downloads/client_secret*.json"),
-            os.path.expanduser("~/Downloads/*googleusercontent*.json")]
+    RC should not have to rename or move anything, so look wherever he put it --
+    the app folder (where every other credential lives), Downloads, or Desktop."""
+    pats = []
+    for d in (".", os.path.expanduser("~/Downloads"), os.path.expanduser("~/Desktop")):
+        pats += [os.path.join(d, "client_secret*.json"),
+                 os.path.join(d, "*googleusercontent*.json"),
+                 os.path.join(d, "*oauth*client*.json")]
     hits = [f for p in pats for f in glob.glob(p)]
     return max(hits, key=os.path.getmtime) if hits else None
 
