@@ -351,13 +351,72 @@ def download_pdf(url: str, session: requests.Session) -> Optional[bytes]:
 #  Step 5: Extract text from PDF (for full-text search)
 # ──────────────────────────────────────────────────────────────────────────────
 
+# ──────────────────────────────────────────────────────────────────────────────
+#  PDF text cap
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# This cap SILENTLY DESTROYED 4,745 pages of FAA guidance and nobody knew,
+# because `full[:500_000]` was a raw character slice repeated at five call
+# sites with no page awareness, no log line, and no record anywhere that a
+# document had been cut. Audited 2026-09-02 against the real source PDFs:
+# 18 ACs are truncated, holding 8.29 MB of 19.00 MB -- 56% of their text is
+# simply gone. The documents end mid-WORD:
+#
+#   43.13-1B  Acceptable Methods, Techniques & Practices  756pp, 64% missing
+#             ends: "...particularly the "18-8" variety, joined by spot "
+#             -- Chapters 5-13 (nondestructive inspection, corrosion, control
+#             cables, engines, electrical, avionics, weight and balance) do
+#             not exist in the app at all. This is THE general-aviation
+#             maintenance reference.
+#   29-2C     Transport Category Rotorcraft   1,453pp, 85% missing
+#   27-1B     Normal Category Rotorcraft      1,196pp, 84% missing
+#   150/5370-10H Airport Construction Specs     727pp, 76% missing
+#   25-17A    ends mid-word: "...an effective means of passe"
+#
+# Two things are fixed here and one is deliberately NOT.
+#
+# FIXED: the cut is now on a PAGE boundary, so a truncated document ends at
+# the end of a real page rather than mid-sentence, and it is LOUD -- a WARNING
+# naming the document and exactly how many pages were dropped. A silent cap is
+# how this survived this long.
+#
+# NOT FIXED HERE, on purpose: the 500K value itself. Raising it is coupled to
+# a rendering problem and must not be done alone. ACBody renders every block
+# into a plain ScrollView with no virtualisation -- AC 36-3H is already 4,291
+# blocks / ~8,650 host views at 494 KB. 29-2C's full 3.28 MB would be roughly
+# seven times that, which is a guaranteed watchdog kill, and pdf_blocks JSONB
+# is downloaded whole by the client. Lifting the cap before the reader can
+# stream or paginate would turn a truncation bug into a crash. That sequencing
+# call is RC's; see PROJECT_NOTES/flyregs_agent_run_queue.md.
+MAX_PDF_TEXT_CHARS = 500_000
+
+
+def _join_pages_capped(pages: list[str], doc_num: str = "?") -> Optional[str]:
+    """Join page texts, cutting on a PAGE boundary if the cap is reached."""
+    kept: list[str] = []
+    total = 0
+    for i, page in enumerate(pages):
+        if total + len(page) + 1 > MAX_PDF_TEXT_CHARS and kept:
+            dropped = len(pages) - i
+            log.warning(
+                f"    TRUNCATED {doc_num}: kept {i}/{len(pages)} pages "
+                f"({total:,} chars); DROPPED {dropped} page(s). Raise "
+                f"MAX_PDF_TEXT_CHARS -- but read this constant's comment first, "
+                f"the reader cannot render an unbounded document yet."
+            )
+            break
+        kept.append(page)
+        total += len(page) + 1
+    full = "\n".join(kept).strip()
+    return full if full else None
+
+
 def extract_pdf_text(pdf_bytes: bytes) -> Optional[str]:
     """Extract plain text from PDF bytes using pypdf."""
     pages, _ = extract_pdf_pages(pdf_bytes)
     if pages is None:
         return None
-    full = "\n".join(pages).strip()
-    return full[:500_000] if full else None  # cap at 500K chars
+    return _join_pages_capped(pages)
 
 
 def extract_pdf_pages(pdf_bytes: bytes) -> tuple[Optional[list[str]], int]:
@@ -564,8 +623,7 @@ def extract_pdf_text_with_recovery(pdf_bytes: bytes, doc_num: str) -> Optional[s
 
     flagged = needs_vision_recovery(pages)
     if not flagged:
-        full = "\n".join(pages).strip()
-        return full[:500_000] if full else None
+        return _join_pages_capped(pages, doc_num)
 
     chars_before = sum(len(t) for t in pages)
     reason = "zero_text" if chars_before == 0 else "low_chars_per_page"
@@ -574,8 +632,7 @@ def extract_pdf_text_with_recovery(pdf_bytes: bytes, doc_num: str) -> Optional[s
         log.warning(f"    {doc_num}: {len(flagged)} page(s) need vision recovery, but the circuit "
                      f"breaker already tripped this run ({_vision_pages_recovered_this_run}/{VISION_MAX_PAGES_PER_RUN} "
                      f"pages) — leaving this doc's thin text as-is. Check vision_recovery_log and rerun manually.")
-        full = "\n".join(pages).strip()
-        return full[:500_000] if full else None
+        return _join_pages_capped(pages, doc_num)
 
     if _vision_pages_recovered_this_run + len(flagged) > VISION_MAX_PAGES_PER_RUN:
         _vision_circuit_tripped = True
@@ -584,8 +641,7 @@ def extract_pdf_text_with_recovery(pdf_bytes: bytes, doc_num: str) -> Optional[s
                      f"exceed the {VISION_MAX_PAGES_PER_RUN}-page/run cap ({_vision_pages_recovered_this_run} "
                      f"already used). Skipping vision recovery for this and any further doc this run — "
                      f"this needs a human to look before running again.")
-        full = "\n".join(pages).strip()
-        return full[:500_000] if full else None
+        return _join_pages_capped(pages, doc_num)
 
     log.info(f"    {doc_num}: {len(flagged)}/{page_count} page(s) below text-health threshold ({reason}) — recovering via vision")
 
@@ -596,11 +652,10 @@ def extract_pdf_text_with_recovery(pdf_bytes: bytes, doc_num: str) -> Optional[s
     for i, text in recovered.items():
         pages[i] = text
 
-    full = "\n".join(pages).strip()
-    chars_after = len(full)
-    log_vision_recovery(doc_num, page_count, reason, chars_before, chars_after)
+    full = _join_pages_capped(pages, doc_num)
+    log_vision_recovery(doc_num, page_count, reason, chars_before, len(full or ""))
 
-    return full[:500_000] if full else None
+    return full
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -672,10 +727,18 @@ def upload_pdf(pdf_bytes: bytes, doc_num: str) -> Optional[str]:
     return None
 
 
-def get_existing_ac_map() -> dict[str, str]:
+def get_existing_ac_map() -> dict[str, tuple[str, int]]:
     """
     Fetch all stored AC records from Supabase.
-    Returns {document_number: updated_at_iso_string}.
+    Returns {document_number: (updated_at_iso_string, change_number)}.
+
+    change_number is carried because the incremental staleness test used to
+    compare ONLY the CSV's DATE column. The FAA publishes a revision by
+    bumping CHANGENUMBER while leaving DATE untouched, so those revisions were
+    invisible to the sync. Live example found 2026-09-02: AC 43-210A, which
+    governs Form 337 data approval for major repairs and alterations, is
+    served at Change 1 while the FAA's own CSV says Change 2 (and
+    AC_43-210A_Chg_2.pdf returns HTTP 200).
     """
     if not SUPABASE_URL or not SUPABASE_KEY:
         return {}
@@ -683,11 +746,14 @@ def get_existing_ac_map() -> dict[str, str]:
         resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/advisory_circulars",
             headers=_supa_headers(),
-            params={"select": "document_number,updated_at", "limit": 2000},
+            params={"select": "document_number,updated_at,change_number", "limit": 2000},
             timeout=30,
         )
         resp.raise_for_status()
-        return {r["document_number"]: r["updated_at"] for r in resp.json()}
+        return {
+            r["document_number"]: (r["updated_at"], int(r.get("change_number") or 0))
+            for r in resp.json()
+        }
     except Exception as e:
         log.error(f"Failed to load existing ACs from Supabase: {e}")
         return {}
@@ -1000,11 +1066,24 @@ def run_incremental(session: requests.Session):
             to_process.append(("new", row))
             continue
         # Compare FAA date vs our stored updated_at
+        stored_updated_at, stored_change = existing[doc_num]
+
+        # A revision can arrive EITHER as a newer DATE or as a bumped
+        # CHANGENUMBER with the date unchanged; only the first was checked
+        # before, so change-only revisions were never re-fetched.
+        try:
+            faa_change = int((row.get("CHANGENUMBER") or "").strip() or 0)
+        except ValueError:
+            faa_change = 0
+        if faa_change != stored_change:
+            to_process.append(("updated", row))
+            continue
+
         raw_date = row.get("DATE", "").strip()
         if raw_date:
             try:
                 faa_dt = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
-                stored_dt = datetime.fromisoformat(existing[doc_num])
+                stored_dt = datetime.fromisoformat(stored_updated_at)
                 # Use date-only comparison to avoid timezone noise
                 if faa_dt.date() > stored_dt.date():
                     to_process.append(("updated", row))
@@ -1015,8 +1094,21 @@ def run_incremental(session: requests.Session):
     upd_count = sum(1 for t, _ in to_process if t == "updated")
     log.info(f"New: {new_count}  |  Updated: {upd_count}  |  Total to process: {len(to_process)}")
 
+    # Reconciliation MUST run before this early return, not after it.
+    # mark_cancelled_acs() lives further down, past this branch, so on any run
+    # where the FAA only REMOVED an AC and added nothing, to_process is empty,
+    # this returns, and the removal is never noticed. Confirmed in
+    # scraper_runs: the 2026-08-24 run logged acs_cancelled: 0 (reconciliation
+    # ran) while 2026-08-31 logged acs_cancelled: null (this early-return
+    # path). Live consequence today: AC 70/7460-1M "Obstruction Marking and
+    # Lighting" was withdrawn by the FAA and replaced by 70/7460-1N, and BOTH
+    # still read status='active' in our corpus -- 1M's last_scraped_at is
+    # still 2026-06-17.
+    active_doc_nums = {row.get("DOCUMENTNUMBER", "").strip() for row in rows}
+    cancelled = mark_cancelled_acs(active_doc_nums)
+
     if not to_process:
-        log.info("Nothing to do — all ACs are current.")
+        log.info("Nothing to do — all ACs are current (reconciliation still ran).")
         run_record.update({
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "status": "success",
@@ -1024,6 +1116,7 @@ def run_incremental(session: requests.Session):
             "acs_added": 0,
             "acs_updated": 0,
             "acs_errors": 0,
+            "acs_cancelled": cancelled,
         })
         log_scraper_run(run_record)
         return 0
@@ -1048,9 +1141,10 @@ def run_incremental(session: requests.Session):
             errors += 1
             error_details.append({"ac": doc_num, "error": str(e)})
 
-    # Reconciliation: mark any ACs no longer in FAA active feed as cancelled
-    active_doc_nums = {row.get("DOCUMENTNUMBER", "").strip() for row in rows}
-    cancelled = mark_cancelled_acs(active_doc_nums)
+    # Reconciliation already ran ABOVE, before the `if not to_process`
+    # early return -- deliberately, so a run where the FAA only REMOVED an
+    # AC still notices it. `cancelled` is carried down from there; calling
+    # it again here would re-scan for nothing.
 
     run_record.update({
         "completed_at": datetime.now(timezone.utc).isoformat(),

@@ -482,6 +482,16 @@ def process_ads(ad_summaries: list[dict], dry_run: bool) -> tuple[list[dict], in
         # requested before, which is why effective_date sat 100% NULL
         # across all 5,023 existing rows.
         parsed["effective_date"] = summary.get("effective_on")
+        # Hardcoded, and nothing ever reconciles it -- so all 5,620 rows read
+        # "Current", including 92 that our own data proves were superseded by a
+        # later AD we also hold. The reader's amber "Superseded" pill
+        # (ad/[id].tsx:662) and its "Superseded by AD X" row key on
+        # superseded_by / affected_by, which NOTHING writes, so both have never
+        # fired. See sync/migrations_backfill_ad_supersession.sql -- written,
+        # verified (92/92 replacements are strictly newer), and awaiting RC's
+        # go-ahead, because a WRONG supersession label is more dangerous than a
+        # missing one. That derivation should then run at the end of every full
+        # ad_scraper pass so it cannot drift again.
         parsed["status"] = "Current"
 
         rows.append(parsed)
