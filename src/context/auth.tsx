@@ -342,7 +342,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: allowed, error: rateLimitError } = await supabase.rpc('check_signup_attempt_allowed', {
       p_device_id: deviceId,
     })
-    if (rateLimitError) throw rateLimitError
+    if (rateLimitError) {
+      // postgrest-js RESOLVES rather than rejects on a fetch failure (its
+      // `res.catch((fetchError) => ...)` turns the rejection into
+      // {data: null, error: {message: "TypeError: Network request failed"}}),
+      // so this is a PostgrestError, not an AuthRetryableFetchError --
+      // auth.tsx's isAuthRetryableFetchError cannot recognise it and printed
+      // the raw JS type name as the first thing a new user ever sees.
+      //
+      // Sign-IN never had this problem: it goes straight to
+      // signInWithPassword, which throws the SDK's own recognisable error.
+      // The asymmetry exists purely because sign-up runs this device
+      // rate-limit RPC in front of GoTrue.
+      if (/fetch|network/i.test(rateLimitError.message ?? '')) {
+        throw new Error("We're having trouble reaching our servers right now. Please check your connection and try again in a moment.")
+      }
+      throw rateLimitError
+    }
     if (!allowed) {
       throw new Error('Too many accounts created on this device recently. Please try again in an hour.')
     }

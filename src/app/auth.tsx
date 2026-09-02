@@ -39,7 +39,14 @@ type Mode = 'signin' | 'signup' | 'check-email' | 'forgot' | 'forgot-sent'
 // Cooldown between resend taps -- purely to stop accidental double-taps and
 // obvious spam-clicking; Supabase enforces its own rate limit server-side
 // regardless, this is just for a sane button state.
-const RESEND_COOLDOWN_SECONDS = 30
+// Must be >= this project's GoTrue smtp_max_frequency, the minimum interval
+// GoTrue will accept between two emails to the SAME address. Verified live
+// 2026-09-02: it is 60. At 30 the button unlocked half a minute before the
+// server would honour it, so tapping it was GUARANTEED to fail with
+// "For security purposes, you can only request this after 29 seconds" -- an
+// error the user cannot do anything about, at the most anxious moment of
+// onboarding. Raise this if smtp_max_frequency is ever lowered, never below it.
+const RESEND_COOLDOWN_SECONDS = 60
 
 export default function AuthScreen() {
   const { tokens } = useTheme()
@@ -206,6 +213,28 @@ export default function AuthScreen() {
         setEmailError(' ')
         setPasswordError(' ')
         setFormError('Incorrect email or password. Please try again, or create an account if you don\'t have one yet.')
+      } else if (mode === 'signin' && /email not confirmed/i.test(raw)) {
+        // Signed up, never clicked the link, came back later. GoTrue returns
+        // email_not_confirmed here, which matched no branch above and fell
+        // through to the raw string -- leaving the user staring at "Email not
+        // confirmed" with no resend button and no route forward from inside
+        // the app. Not an edge case: confirmation links expire after an hour
+        // (mailer_otp_exp = 3600, verified live), so "got distracted, came
+        // back" is a normal path.
+        //
+        // Drop them onto the same Check Your Email screen a fresh signup
+        // reaches. It already owns the Resend button and the poller that
+        // signs them in the moment they confirm, and handleResend reads the
+        // same `email` state this screen just used. Cooldown starts at 0
+        // because no mail was sent by this attempt.
+        setMode('check-email')
+        setResendCooldown(0)
+      } else if (/rate limit/i.test(raw)) {
+        // Never show GoTrue's raw "email rate limit exceeded" to a stranger.
+        // This fires when the project-wide hourly confirmation-email cap is
+        // hit (rate_limit_email_sent), which is a server capacity condition,
+        // not anything the user did wrong.
+        setFormError("We couldn't send your confirmation email right now. Please try again in a few minutes.")
       } else {
         setFormError(raw || 'Something went wrong. Please try again.')
       }
@@ -275,25 +304,45 @@ export default function AuthScreen() {
   // signIn() itself fails quietly with "Email not confirmed" until the
   // account actually is, so this just keeps trying until it isn't. Gives up
   // after 10 minutes so an abandoned screen doesn't poll forever.
+  //
+  // BACKS OFF after the first minute. This is a real password-grant call
+  // against GoTrue's /token endpoint every tick, and this project's
+  // rate_limit_token_refresh is 150 per 5 minutes PER IP (verified live
+  // 2026-09-02). A flat 4s tick burned ~75 of those per device per 5
+  // minutes, so two testers behind one NAT -- a flight school, an office, a
+  // household, all normal for this app's beta -- could exhaust it between
+  // them. The failure mode is nasty: once tripped, the LEGITIMATE sign-in
+  // 429s too, this catch swallows it, and the user sits on "Check your
+  // email" forever having already confirmed.
+  //
+  // 4s for the first minute keeps the fast path where confirmation is most
+  // likely imminent, then 12s. That takes a full 10-minute session from ~150
+  // attempts to ~60, which two devices can share without tripping the limit.
+  // A recursive timeout rather than setInterval, since the delay changes.
   useEffect(() => {
     if (mode !== 'check-email') return
     const trimmedEmail = email.trim()
     let stopped = false
-    const giveUpAt = Date.now() + 10 * 60 * 1000
-    const t = setInterval(async () => {
-      if (stopped || Date.now() > giveUpAt) { clearInterval(t); return }
+    let timer: ReturnType<typeof setTimeout>
+    const startedAt = Date.now()
+    const giveUpAt = startedAt + 10 * 60 * 1000
+    const tick = async () => {
+      if (stopped || Date.now() > giveUpAt) return
       try {
         await signIn(trimmedEmail, password)
         if (stopped) return
         stopped = true
-        clearInterval(t)
         markJustConfirmed()
         router.dismiss()
+        return
       } catch {
-        // Still unconfirmed (or some other transient error) -- just try again next tick.
+        // Still unconfirmed (or some other transient error) -- try again.
       }
-    }, 4000)
-    return () => { stopped = true; clearInterval(t) }
+      if (stopped) return
+      timer = setTimeout(tick, Date.now() - startedAt < 60_000 ? 4000 : 12_000)
+    }
+    timer = setTimeout(tick, 4000)
+    return () => { stopped = true; clearTimeout(timer) }
   }, [mode])
 
   return (

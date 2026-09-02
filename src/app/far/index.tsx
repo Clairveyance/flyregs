@@ -65,6 +65,13 @@ export default function FarIndexScreen() {
   const [cfr49Parts, setCfr49Parts] = useState<Cfr49Part[]>([])
   const [cfr49Counts, setCfr49Counts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
+  // Offline on a fresh install, this screen rendered "0 PARTS · 0 SECTIONS"
+  // over an empty FlatList -- a first impression of an empty product rather
+  // than a connection problem. supabase-js RESOLVES with {data: null} on a
+  // network failure instead of throwing, so the catch below never fires and
+  // there was nothing to distinguish "no data" from "no connection".
+  // ac/library.tsx already solved exactly this; FAR and AIM never got it.
+  const [loadError, setLoadError] = useState(false)
   const [query, setQuery] = useState('')
   const [recentFar, setRecentFar] = useState<RecentAC[]>([])
   const [family, setFamily] = useState<Family>('FAR')
@@ -136,6 +143,11 @@ export default function FarIndexScreen() {
         freshCfr49Counts = c
       }
 
+      // Only an error state when there is genuinely nothing to show: a blip
+      // with a warm cache should keep rendering the cache, exactly as the
+      // lastGood* carriers above already arrange.
+      setLoadError(!!(partsRes.error || countRes.error) && freshParts.length === 0)
+
       setLoading(false)
 
       AsyncStorage.setItem(FAR_INDEX_CACHE_KEY, JSON.stringify({
@@ -146,6 +158,7 @@ export default function FarIndexScreen() {
       }))
     } catch (_) {
       // Network failed -- cached data (if any) stays visible
+      setLoadError(parts.length === 0)
     } finally {
       setLoading(false)
     }
@@ -271,7 +284,23 @@ export default function FarIndexScreen() {
           </View>
         )}
 
-        {family === 'FAR' ? (
+        {loadError ? (
+          <View style={styles.center}>
+            <Icon name="exclamationmark.triangle" size={fs(28)} color={tokens.red} />
+            <Text style={[styles.groupLabel, { color: tokens.t2, fontSize: fs(15), marginTop: 10, textAlign: 'center' }]}>
+              Couldn't load the regulations.
+            </Text>
+            <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(13), marginTop: 6, textAlign: 'center' }]}>
+              Check your connection and try again.
+            </Text>
+            <Pressable
+              onPress={load}
+              style={{ marginTop: 14, paddingVertical: 8, paddingHorizontal: 18, borderRadius: 10, backgroundColor: tokens.blu }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '600', fontSize: fs(14) }}>Try Again</Text>
+            </Pressable>
+          </View>
+        ) : family === 'FAR' ? (
           <FlatList
             keyboardDismissMode="interactive"
             style={styles.flatList}

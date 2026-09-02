@@ -508,6 +508,14 @@ export default function HomeScreen() {
     // fresh-fetch blocks below -- see this function's own cache-write
     // comment near the bottom for why this exists.
     let lastGoodCount: number | null = null
+    // The SAME carriers for the two LIST fields. The count got this treatment
+    // (see the cache-write comment below); these two never did, which left
+    // the fix half-applied -- a single failed fetch replaced a good cached
+    // What's New with [] both on screen and ON DISK, so every later cold
+    // launch read the emptied cache and showed "Nothing issued or updated in
+    // the last 90 days" until a fetch finally succeeded.
+    let lastGoodWhatsNew: WhatsNewAC[] = []
+    let lastGoodOther: WhatsNewOther[] = []
 
     // Show cached data immediately so the screen appears in under 100 ms
     try {
@@ -515,8 +523,8 @@ export default function HomeScreen() {
       if (cached) {
         const { totalCount: ct, whatsNew: cw, otherWhatsNew: cow } = JSON.parse(cached)
         if (ct != null) { setTotalCount(ct); lastGoodCount = ct }
-        if (cw?.length) setWhatsNew(cw as WhatsNewAC[])
-        if (cow?.length) setOtherWhatsNew(cow as WhatsNewOther[])
+        if (cw?.length) { setWhatsNew(cw as WhatsNewAC[]); lastGoodWhatsNew = cw as WhatsNewAC[] }
+        if (cow?.length) { setOtherWhatsNew(cow as WhatsNewOther[]); lastGoodOther = cow as WhatsNewOther[] }
         setLoading(false)
       }
     } catch (_) {}
@@ -578,13 +586,20 @@ export default function HomeScreen() {
       ])
 
       const freshCount = countRes.count
-      const freshWhatsNew = (whatsNewRes.data ?? []) as WhatsNewAC[]
-      const freshOther: WhatsNewOther[] = [
+      // `?? []` on a FAILED fetch is what clobbered the cache: supabase-js
+      // RESOLVES with {data: null} on a network failure rather than throwing
+      // (postgrest-js turns the rejection into a resolved error object), so
+      // the catch below -- whose comment promises "cached data stays
+      // visible" -- never runs. Fall back to the last known-good value the
+      // way freshCount already does, so a blip can neither blank the screen
+      // nor poison the cache for every future launch.
+      const freshWhatsNew = whatsNewRes.data ? (whatsNewRes.data as WhatsNewAC[]) : lastGoodWhatsNew
+      const freshOther: WhatsNewOther[] = (adNewRes.data || loiNewRes.data) ? [
         ...((adNewRes.data ?? []) as { id: string; ad_number: string; subject_heading: string; citation_publish_date: string }[])
           .map((r) => ({ id: r.id, type: 'ad' as const, documentNumber: r.ad_number, title: r.subject_heading, date: r.citation_publish_date })),
         ...((loiNewRes.data ?? []) as { slug: string; title: string; issued_date: string }[])
           .map((r) => ({ id: r.slug, type: 'loi' as const, documentNumber: r.title.replace(/_Legal_Interpretation$/i, '').replace(/_/g, ' '), title: r.title.replace(/_/g, ' '), date: r.issued_date })),
-      ]
+      ] : lastGoodOther
 
       if (freshCount !== null) setTotalCount(freshCount)
       setWhatsNew(freshWhatsNew)
@@ -605,7 +620,7 @@ export default function HomeScreen() {
         totalCount: freshCount ?? lastGoodCount,
         whatsNew: freshWhatsNew,
         otherWhatsNew: freshOther,
-      }))
+      })).catch(() => {})
     } catch (_) {
       // Network failed — cached data (if any) stays visible
     } finally {

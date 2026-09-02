@@ -37,6 +37,12 @@ export default function AimIndexScreen() {
   const [chapters, setChapters] = useState<AimChapter[]>([])
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
+  // Offline on a fresh install this rendered "0 CHAPTERS & APPENDICES" over
+  // an empty list -- indistinguishable from an empty product. supabase-js
+  // RESOLVES with {data: null} on a network failure rather than throwing, so
+  // the catch below never fired. Same fix ac/library.tsx already had and
+  // far/index.tsx just got.
+  const [loadError, setLoadError] = useState(false)
   const [query, setQuery] = useState('')
   const [recentAim, setRecentAim] = useState<RecentAC[]>([])
   // AIM Chapter titles get cut off the same way FAR Part titles do -- same
@@ -83,11 +89,15 @@ export default function AimIndexScreen() {
         freshCounts = c
       }
 
+      // Only an error state when there is genuinely nothing cached to show.
+      setLoadError(!!(chapRes.error || countRes.error) && freshChapters.length === 0)
+
       setLoading(false)
 
       AsyncStorage.setItem(AIM_INDEX_CACHE_KEY, JSON.stringify({ chapters: freshChapters, counts: freshCounts }))
     } catch (_) {
       // Network failed -- cached data (if any) stays visible
+      setLoadError(chapters.length === 0)
     } finally {
       setLoading(false)
     }
@@ -173,6 +183,23 @@ export default function AimIndexScreen() {
           </View>
         )}
 
+        {loadError ? (
+          <View style={styles.center}>
+            <Icon name="exclamationmark.triangle" size={fs(28)} color={tokens.red} />
+            <Text style={[styles.groupLabel, { color: tokens.t2, fontSize: fs(15), marginTop: 10, textAlign: 'center' }]}>
+              Couldn't load the AIM.
+            </Text>
+            <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(13), marginTop: 6, textAlign: 'center' }]}>
+              Check your connection and try again.
+            </Text>
+            <Pressable
+              onPress={load}
+              style={{ marginTop: 14, paddingVertical: 8, paddingHorizontal: 18, borderRadius: 10, backgroundColor: tokens.blu }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '600', fontSize: fs(14) }}>Try Again</Text>
+            </Pressable>
+          </View>
+        ) : (
         <FlatList
           keyboardDismissMode="interactive"
           style={styles.flatList}
@@ -227,6 +254,7 @@ export default function AimIndexScreen() {
             )
           }}
         />
+        )}
         </TabletContainer>
       )}
       <LongPressPreviewCard
