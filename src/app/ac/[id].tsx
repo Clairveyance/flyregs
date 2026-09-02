@@ -16,7 +16,7 @@ import { ACBody, ACBodyHandle } from '@/components/ACBody'
 import { addRecent } from '@/lib/recents'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
 import { getDownloads, isDownloaded, addDownload, removeDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
-import { downloadGatedImageToCache } from '@/lib/imageCache'
+import { downloadGatedImageToCache, downloadAllToCache } from '@/lib/imageCache'
 import { resolveGatedStorageUrl } from '@/lib/gatedStorage'
 import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
 import { blockText, previewBlockCount, ACBlock } from '@/lib/acFormat'
@@ -590,9 +590,14 @@ export default function ACDetailScreen() {
     // part too. Confirmed live: an uncaught rejection here (the original
     // Promise.all version) silently aborted before addDownload ever ran,
     // leaving the button stuck on "Saving…" forever with nothing saved.
-    await Promise.allSettled([
-      ...(figures ?? []).map((f) => downloadGatedImageToCache(f.id, f.image_url)),
-      ...(formulaRefs ?? []).map((f) => downloadGatedImageToCache(f.id, f.image_url)),
+    // Bounded pool, not an unbounded allSettled: this AC can have 378 figures
+    // (43.13-1B, measured) averaging 326 KB, so firing them all in one tick
+    // meant ~123 MB in flight and a tail that outlived its own 300-second
+    // signed URLs -- failing silently, since allSettled swallows it, and
+    // telling the user "Saved offline" with figures missing.
+    await downloadAllToCache([
+      ...(figures ?? []).map((f) => ({ key: f.id, url: f.image_url })),
+      ...(formulaRefs ?? []).map((f) => ({ key: f.id, url: f.image_url })),
     ])
     // pdf_blocks is already loaded in `ac` (it's part of the main fetch above) —
     // that's also exactly what ACBody renders, so caching it here is what

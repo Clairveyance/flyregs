@@ -20,12 +20,28 @@ async function getCacheMap(): Promise<Record<string, string>> {
 
 // Returns the PREVIOUS url that was cached under `key`, if any, so the
 // caller can clean up the now-orphaned file for that version.
+// SERIALISED through a module-level chain. This is a read-modify-write of one
+// shared AsyncStorage key, and a bulk download runs many of them at once --
+// AC 43.13-1B has 378 figures (measured), so 378 interleaved read-modify-
+// writes meant nearly every entry was lost to last-writer-wins. The FILES
+// landed on disk fine, but the map that decides "do I already have this?"
+// ended up missing most of them, so downloadImageToCache's
+// `if (map[key] === remoteUrl && local.exists) return` missed and every
+// figure was silently re-downloaded on each later visit -- the exact opposite
+// of what this cache exists to do.
+let mapWriteChain: Promise<unknown> = Promise.resolve()
 async function setCacheEntry(key: string, url: string): Promise<string | undefined> {
-  const map = await getCacheMap()
-  const prevUrl = map[key]
-  map[key] = url
-  await AsyncStorage.setItem(MAP_KEY, JSON.stringify(map))
-  return prevUrl
+  const run = mapWriteChain.then(async () => {
+    const map = await getCacheMap()
+    const prevUrl = map[key]
+    map[key] = url
+    await AsyncStorage.setItem(MAP_KEY, JSON.stringify(map))
+    return prevUrl
+  })
+  // Swallow on the CHAIN only, so one failed write cannot poison every
+  // subsequent one; the caller still sees its own rejection through `run`.
+  mapWriteChain = run.catch(() => {})
+  return run
 }
 
 // The physical filename is versioned by the remote URL itself (avatar/owner
@@ -317,4 +333,37 @@ export function useGatedCachedImage(key: string | null, publicUrl: string | null
 // on why the resolver is lazy).
 export async function downloadGatedImageToCache(key: string, publicUrl: string): Promise<string | null> {
   return downloadImageToCache(key, publicUrl, () => resolveGatedStorageUrl(publicUrl))
+}
+
+/**
+ * Bulk-cache many gated images with a bounded worker pool.
+ *
+ * The offline-download path used to fire `Promise.allSettled` over EVERY
+ * figure at once. Measured against production: AC 43.13-1B has 378 figures
+ * and the ac-figures bucket averages 326 KB per object (max 2.5 MB), so that
+ * was 378 signed-URL calls plus roughly 123 MB of downloads launched in a
+ * single tick. Two things went wrong with that. The signed URLs expire after
+ * 300 seconds, so on a slow connection the tail of the queue outlived its own
+ * URLs and failed -- silently, because allSettled swallows it, leaving the
+ * user told "Saved offline" with figures missing. And the concurrent
+ * setCacheEntry writes raced (now separately fixed above).
+ *
+ * Four at a time keeps the connection busy without either problem.
+ */
+export async function downloadAllToCache(
+  jobs: { key: string; url: string }[],
+  concurrency = 4,
+): Promise<void> {
+  let next = 0
+  const workers = Array.from({ length: Math.min(concurrency, jobs.length) }, async () => {
+    for (;;) {
+      const i = next++
+      if (i >= jobs.length) return
+      // Per-job swallow, matching the allSettled semantics this replaces: one
+      // image failing must never take down the whole download and lose the
+      // reliable text part too.
+      try { await downloadGatedImageToCache(jobs[i].key, jobs[i].url) } catch {}
+    }
+  })
+  await Promise.all(workers)
 }

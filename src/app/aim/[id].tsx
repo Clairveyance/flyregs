@@ -25,7 +25,7 @@ import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
 import { isDownloaded, addDownload, removeDownload, findDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
-import { downloadGatedImageToCache } from '@/lib/imageCache'
+import { downloadAllToCache } from '@/lib/imageCache'
 import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
@@ -456,7 +456,7 @@ export default function AimParagraphScreen() {
     // allSettled, not all: one image failing to cache must never take down
     // the whole download and lose the reliable text part too. Same reasoning,
     // and the same helper, as ac/[id].tsx's own handleDownload.
-    await Promise.allSettled(figures.map((f) => downloadGatedImageToCache(f.id, f.image_url)))
+    await downloadAllToCache(figures.map((f) => ({ key: f.id, url: f.image_url })))
     try {
       await addDownload({
         id: para.paragraph_number,

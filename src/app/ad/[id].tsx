@@ -30,7 +30,7 @@ import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
 import { getSemanticRelated, mergeRelated } from '@/lib/relatedContent'
 import { isDownloaded, addDownload, removeDownload, findDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
-import { downloadGatedImageToCache } from '@/lib/imageCache'
+import { downloadAllToCache } from '@/lib/imageCache'
 import { condenseAdSummary, adSummaryWasCondensed, stripAdArtifacts } from '@/lib/adSummary'
 import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -396,7 +396,7 @@ export default function AdScreen() {
     setDownloadBusy(true)
     // allSettled, not all: one page image failing to cache must never take
     // down the whole download and lose the reliable text part too.
-    await Promise.allSettled(figures.map((f) => downloadGatedImageToCache(f.id, f.image_url)))
+    await downloadAllToCache(figures.map((f) => ({ key: f.id, url: f.image_url })))
     try {
       await addDownload({
         id: ad.ad_number,

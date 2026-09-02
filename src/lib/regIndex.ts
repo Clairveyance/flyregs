@@ -67,11 +67,28 @@ export async function getFarIndex(): Promise<string[]> {
 // against the real index below, so a stray "3.14" in a note only chips if
 // "3.14" happens to actually be a real FAR section (it isn't).
 const FAR_PATTERN = /\b(\d{1,3}\.\d{1,4}[a-z]?)\b/gi
+// The derived lookup structures below are memoised on the INDEX ARRAY itself.
+// NoteEditor re-runs all four detectors on every keystroke (its useMemo keys
+// on the note body), and these were rebuilt from scratch each time: a 4,293-
+// entry Set for FARs, and 1,182 freshly-compiled RegExps for P/CG (measured
+// counts). That cost ~1 ms per keystroke on a 1 KB note and ~6 ms on a 20 KB
+// one in V8 -- and Hermes on RC's iPhone 13 mini is several times slower,
+// which is visible typing lag on a long note.
+//
+// A WeakMap keyed on the array is safe and self-invalidating: getFarIndex /
+// getPcgIndex each memoise ONE array instance per process, so the cache hits
+// for the life of that instance and is collected with it. Behaviour is
+// byte-identical -- only the rebuild is skipped.
+const farSetCache = new WeakMap<string[], Set<string>>()
 export function detectFARs(text: string, index: string[]): string[] {
   if (index.length === 0) return []
-  const set = new Set(index.map((s) => s.toLowerCase()))
+  let set = farSetCache.get(index)
+  if (!set) {
+    set = new Set(index.map((s) => s.toLowerCase()))
+    farSetCache.set(index, set)
+  }
   const candidates = [...text.matchAll(FAR_PATTERN)].map((m) => m[1])
-  const found = candidates.filter((c) => set.has(c.toLowerCase()))
+  const found = candidates.filter((c) => set!.has(c.toLowerCase()))
   return [...new Set(found)]
 }
 
@@ -141,14 +158,24 @@ export async function getPcgIndex(): Promise<PcgIndexEntry[]> {
 // phrase (word-boundary on both ends) case-insensitively -- cuts out the
 // short-acronym false-positive risk while still catching genuine term
 // mentions ("...per the definition of AIRMET...").
+// Same memoisation as detectFARs above -- this one compiled 1,182 RegExps per
+// call, which was the single most expensive thing NoteEditor did per keystroke.
+const pcgRegexCache = new WeakMap<PcgIndexEntry[], { entry: PcgIndexEntry; re: RegExp }[]>()
 export function detectPCGs(text: string, index: PcgIndexEntry[]): PcgIndexEntry[] {
   if (index.length === 0) return []
-  const found: PcgIndexEntry[] = []
+  let compiled = pcgRegexCache.get(index)
+  if (!compiled) {
+    compiled = index
+      .filter((e) => e.term.length >= 5)
+      .map((e) => ({
+        entry: e,
+        re: new RegExp(`\\b${e.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i'),
+      }))
+    pcgRegexCache.set(index, compiled)
+  }
   const lowerText = text.toLowerCase()
-  for (const entry of index) {
-    if (entry.term.length < 5) continue
-    const escaped = entry.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const re = new RegExp(`\\b${escaped}\\b`, 'i')
+  const found: PcgIndexEntry[] = []
+  for (const { entry, re } of compiled) {
     if (re.test(lowerText)) found.push(entry)
   }
   return found

@@ -74,7 +74,13 @@ export default function DictionaryLetterScreen() {
         } catch (_) {}
       }
       try {
-        const { data } = await supabase.from('dictionary_terms_gated').select('term, slug, category, senses').eq('letter', letter).order('term')
+        // .range() is NOT optional here. PostgREST caps an unbounded select
+        // at 1,000 rows and returns them with no error and no indication of
+        // truncation -- the trap regIndex.ts already documents. Measured
+        // 2026-09-02: letter S is at 992 terms, A at 947. Eight more S-words
+        // and this screen would start silently dropping dictionary entries,
+        // with nothing anywhere to notice it had happened. Data Is King.
+        const { data } = await supabase.from('dictionary_terms_gated').select('term, slug, category, senses').eq('letter', letter).order('term').range(0, 4999)
         if (data) {
           setTerms(data as DictTermRow[])
           if (uid) AsyncStorage.setItem(DICTIONARY_LETTER_CACHE_KEY_PREFIX + letter + ':' + uid, JSON.stringify(data)).catch(() => {})

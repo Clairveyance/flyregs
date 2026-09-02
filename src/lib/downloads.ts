@@ -137,8 +137,23 @@ export async function isDownloadStale(item: DownloadedAC): Promise<boolean> {
 // pcg/cfr49). Combined with expo-router's router.push-based citation-chase
 // navigation (which never unmounts a previous screen, just hides it -- see
 // those screens' own navigation), a chain of citation taps meant re-parsing
-// this same blob once per still-mounted screen instance. Suspected
-// contributor to the WatchdogTermination (RAM) crashes seen in Sentry.
+// this same blob once per still-mounted screen instance.
+//
+// CORRECTED 2026-09-02: this cache is a fine optimisation, but the sentence
+// that used to end this paragraph -- "suspected contributor to the
+// WatchdogTermination (RAM) crashes seen in Sentry" -- was WRONG, and it was
+// sending investigators down the wrong path. It was measured rather than
+// re-assumed: a realistic 40-AC downloads blob built from real pdf_blocks is
+// 2.2 MB, and parsing it takes ~3-4 ms (stringify ~5 ms) in V8, so call it
+// 15-25 ms on Hermes. That is not a watchdog kill and never was.
+//
+// What DOES account for the watchdog kills, measured the same day: a single
+// large AC mounts ~8,600 host views with no virtualisation (ACBody renders
+// every block into a plain ScrollView -- AC 36-3H is 4,291 blocks), 14 CFR
+// 171.311 rendered 4,709 table cells before TableGrid got its row cap, and
+// push-only citation navigation keeps every one of those trees resident
+// because nothing ever unmounts. The memory is in the VIEW TREES, not in this
+// JSON. Fix the render paths, not this parse.
 // Populated on first read, reused after that; addDownload/removeDownload/
 // clearDownloads invalidate it below rather than trying to patch it in place,
 // so a mutation costs exactly one re-parse on the next read, not zero.

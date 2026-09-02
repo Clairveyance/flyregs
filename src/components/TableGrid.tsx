@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -91,11 +92,36 @@ function isDefinitionStyle(colCount: number, rows: string[][]): boolean {
   return colCount === 2 && rows.some((r) => (r[1]?.length ?? 0) > DEFINITION_PROSE_LEN)
 }
 
+// There was no row cap of any kind, and a few real regulatory tables are
+// enormous. Measured against production: 14 CFR 171.311 holds 15 pipe tables,
+// the largest 352 data rows x 10 columns, and the section totals 667 rows /
+// 4,709 cells -- roughly 9,400 host views rendered at once inside the detail
+// screen's plain ScrollView, which freezes the app on open. The next worst
+// are FAR 194.306 (119 rows) and 194.302 (69); nothing in 49 CFR or LOI
+// exceeds 30, so this cap is inert for all but a handful of documents.
+//
+// A cap and a "show all", NOT truncation: every row is still reachable in one
+// tap, and the parsed data is untouched. Data Is King -- this changes how much
+// is drawn at once, never what the regulation says.
+const MAX_INITIAL_ROWS = 80
+
 export function TableGrid({ captionLines, headerCells, rows, footnotes, onPress }: TableGridProps) {
   const { tokens } = useTheme()
   const fs = useFS()
+  const [showAll, setShowAll] = useState(false)
+  const visibleRows = showAll ? rows : rows.slice(0, MAX_INITIAL_ROWS)
   const colCount = Math.max(headerCells?.length ?? 0, ...rows.map((r) => r.length), 1)
+  // Widths deliberately computed from ALL rows, not the visible slice, so
+  // tapping "Show all" cannot reflow every column out from under the reader.
   const widths = computeColWidths(headerCells, rows, colCount)
+
+  const showAllBtn = !showAll && rows.length > MAX_INITIAL_ROWS ? (
+    <Pressable onPress={() => setShowAll(true)} style={styles.showAllBtn}>
+      <Text style={{ color: tokens.blu, fontSize: fs(12.5), fontWeight: '600' }}>
+        Show all {rows.length} rows
+      </Text>
+    </Pressable>
+  ) : null
 
   const caption = (
     <>
@@ -126,7 +152,7 @@ export function TableGrid({ captionLines, headerCells, rows, footnotes, onPress 
       <View style={styles.wrap}>
         {onPress ? <Pressable onPress={onPress}>{caption}</Pressable> : caption}
         <View style={[styles.defList, { borderColor: tokens.bdr }]}>
-          {rows.map((row, ri) => (
+          {visibleRows.map((row, ri) => (
             <View
               key={ri}
               style={[
@@ -144,6 +170,7 @@ export function TableGrid({ captionLines, headerCells, rows, footnotes, onPress 
             </View>
           ))}
         </View>
+        {showAllBtn}
         {footnoteBlock}
       </View>
     )
@@ -170,7 +197,7 @@ export function TableGrid({ captionLines, headerCells, rows, footnotes, onPress 
               ))}
             </View>
           )}
-          {rows.map((row, ri) => (
+          {visibleRows.map((row, ri) => (
             <View
               key={ri}
               style={[
@@ -216,6 +243,9 @@ export function TableGrid({ captionLines, headerCells, rows, footnotes, onPress 
           ))}
         </View>
       </ScrollView>
+      {/* Outside the horizontal ScrollView deliberately -- inside, a wide
+          table would push it off-screen to the right where nobody finds it. */}
+      {showAllBtn}
       {footnoteBlock}
     </View>
   )
@@ -223,6 +253,7 @@ export function TableGrid({ captionLines, headerCells, rows, footnotes, onPress 
 
 const styles = StyleSheet.create({
   wrap: { marginBottom: 16 },
+  showAllBtn: { paddingVertical: 10, paddingHorizontal: 4, alignItems: 'center' },
   caption: { fontWeight: '700', marginBottom: 4 },
   subcaption: { fontWeight: '600', marginBottom: 8 },
   scrollContent: { paddingBottom: 2 },
