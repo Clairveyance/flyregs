@@ -279,6 +279,16 @@ export async function getStudyFactsForItems(
         // session -- a near-certainty under spaced repetition -- always
         // showed the IDENTICAL question, forever.
         const key = `${itemType}:${row.item_id}`
+        // A null question/answer pair is not a usable fact -- skip it before it
+        // enters the reservoir, so it can neither win the draw nor inflate
+        // `seen`. study_facts_gated's row filter means this cannot fire today,
+        // but BOTH this file's comment above and
+        // migrations_study_facts_gated_deny_free.sql justify the row gate by
+        // claiming the sampler "never populates the map for a null pair" -- and
+        // it did not actually do that. This makes the documented contract true,
+        // so the per-column redaction really is defence in depth rather than
+        // the only thing standing between a free user and a blank flashcard.
+        if (row.question == null || row.answer == null) continue
         const seen = (counts.get(key) ?? 0) + 1
         counts.set(key, seen)
         if (Math.random() < 1 / seen) map.set(key, {
