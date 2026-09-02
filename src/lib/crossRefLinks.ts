@@ -122,15 +122,38 @@ const PATTERNS: LinkPattern[] = [
   // 91.181", which this pattern's "FAR " branch never allowed a "Section "
   // word after (only the "14 CFR" branch did) -- confirmed corpus-wide,
   // 15 ACs use this exact phrasing.
+  // "section 8.4 of FAA Handbook AF P 6790.9" (FAR 171.7) is NOT a FAR
+  // citation -- it points into an FAA handbook that happens to number its own
+  // sections the same way. Caught while adding the bare-"Section N.N" rule
+  // below: without this it would have linked to a nonexistent /far/8.4. Listed
+  // BEFORE that rule so it wins the overlap (see this file's longest-match /
+  // first-listed resolution note).
+  { regex: /\b[Ss]ection\s+\d+\.\d+\s+of\s+(?:the\s+)?(?:FAA\s+)?(?:Handbook|Order|Advisory|Annex|ICAO)\b/g, suppress: true },
   {
-    regex: /(?:§\s*|\bFAR\s+(?:[Ss]ection\s+)?|\b14\s*CFR\s*(?:section\s+|§\s*)?)(\d+\.\d+)\b/g,
+    // A BARE "Section N.N" (no §, no FAR, no 14 CFR) added 2026-09-01. RC,
+    // real device: "On this page, these other sections aren't hyperlinked.
+    // They need to be." Confirmed corpus-wide before changing anything: 234
+    // such references across 33 sections went unlinked, and they cluster in
+    // exactly the places a reader most wants to tap through -- 107.205
+    // (waiver of part 107 rules) is a LIST of them: "Section 107.25 --
+    // Operation from a moving vehicle", "Section 107.31 -- Visual line of
+    // sight", and so on. Safe because it still requires a real N.N section
+    // number after the word, so prose like "this section" or "Section 8"
+    // cannot match.
+    regex: /(?:§\s*|\bFAR\s+(?:[Ss]ection\s+)?|\b14\s*CFR\s*(?:section\s+|§\s*)?|\b[Ss]ection\s+)(\d+\.\d+)\b/g,
     // A BARE "§ N.N" (nothing precedes the § in the match itself) is the
     // only ambiguous case -- "FAR "/"14 CFR " are unambiguous prefixes and
     // always mean FAR. See this file's SelfType comment for the real
     // cfr49-body-text repro this fixes (was always routing to a
     // nonexistent /far/1544.103-style section instead of /cfr49/1544.103).
+    // "FAR "/"14 CFR " are unambiguous and always mean FAR. A bare "§ N.N" OR
+    // a bare "Section N.N" carries no corpus of its own, so inside a 49 CFR
+    // body it means that document's own corpus -- same reasoning, now applied
+    // to both bare forms rather than only to §.
     buildRoute: (m, selfType) =>
-      selfType === 'cfr49' && m[0].trimStart().startsWith('§') ? `/cfr49/${m[1]}` : `/far/${m[1]}`,
+      selfType === 'cfr49' && /^(?:§|[Ss]ection\b)/.test(m[0].trimStart())
+        ? `/cfr49/${m[1]}`
+        : `/far/${m[1]}`,
   },
   // 49 CFR section mention ("49 CFR 175.10", "49 CFR part 175.10") --
   // mirrors sync/ac_citations.py's and sync/aim_far_citations.py's own
