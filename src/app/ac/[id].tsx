@@ -359,7 +359,14 @@ export default function ACDetailScreen() {
             .select('id,label,caption,page,image_url')
             .eq('ac_id', id)
             .order('sort_order', { ascending: true })
-            .then(({ data }) => setFigures((data as AcFigure[]) ?? []))
+            // `?? []` here contradicted the comment four lines above, which
+            // says this must never "silently overwrite the offline copy's
+            // cached figures/formulas with empty arrays". supabase-js
+            // RESOLVES with {data: null, error} on a network failure rather
+            // than rejecting, so a failed secondary fetch produced exactly
+            // that empty array -- indistinguishable from "this AC genuinely
+            // has no figures", and then persisted as such by handleDownload.
+            .then(({ data, error }) => { if (!error && data) setFigures(data as AcFigure[]) })
           // Separate query, separate table -- deliberately not combined with
           // the ac_figures fetch above so this can never interfere with the
           // Figures & Tables pipeline (see FormulaRef type comment in
@@ -369,7 +376,7 @@ export default function ACDetailScreen() {
             .select('id,label,note,page,image_url')
             .eq('ac_id', id)
             .order('sort_order', { ascending: true })
-            .then(({ data }) => setFormulaRefs((data as FormulaRef[]) ?? []))
+            .then(({ data, error }) => { if (!error && data) setFormulaRefs(data as FormulaRef[]) })
         } else {
           // Live fetch failed (most likely: no network). Fall back to a
           // downloaded offline copy if this AC was saved for offline reading —

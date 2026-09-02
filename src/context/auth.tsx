@@ -241,6 +241,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // sign-in-only call in this branch -- TOKEN_REFRESHED doesn't need
           // a re-sync any more than session-restore's own comment says it does.
           if (event === 'SIGNED_IN') syncEntitlements()
+          // ...and applyRemoteSyncPreference was left behind by that same
+          // 2026-08-29 sweep, with the identical consequence one line over.
+          // It had exactly ONE call site: the session-restore branch above,
+          // which by that branch's own comment "only ever runs once, on cold
+          // launch of an ALREADY-signed-in session". So on a real sign-in --
+          // a Pro user's second device, or a reinstall -- SYNC_ENABLED_KEY
+          // stays unset, isSyncEnabled() reads false, every syncPush* no-ops,
+          // and the account's own user_metadata.sync_enabled is never
+          // consulted. The headline "Back up & sync" does nothing, the toggle
+          // reads OFF, and nothing created on that device is backed up, until
+          // the user happens to fully quit and relaunch.
+          //
+          // Same tier check as the cold-launch call site, and SIGNED_IN only
+          // for the same reason the line above gives: TOKEN_REFRESHED does
+          // not need it.
+          if (event === 'SIGNED_IN' && (status.isPro || status.isPremium)) {
+            applyRemoteSyncPreference(session.user.id, session.user.user_metadata?.sync_enabled)
+          }
         } finally {
           // finally, not a trailing call -- if anything above threw
           // (claimDeviceIfMismatched already catches its own errors, but

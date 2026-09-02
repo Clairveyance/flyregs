@@ -50,6 +50,10 @@ export interface DownloadedAC {
    * loaded by the detail screen, stored as-is (no block parsing) since
    * these render via PlainTextBody, not ACBody. */
   body_text?: string | null
+  /** AIM only: the paragraph's REFERENCE box. Rendered by aim/[id].tsx, and
+   *  present on 115 of 438 paragraphs (measured), but the offline copy used
+   *  to hardcode it to null -- so a downloaded paragraph silently lost it. */
+  reference_text?: string | null
   downloadedAt: string
 }
 
@@ -214,22 +218,35 @@ export async function addDownload(ac: Omit<DownloadedAC, 'downloadedAt'>) {
     p_item_type: downloadItemType(ac), p_item_id: ac.id,
   })
   if (gateError) throw gateError
-  try {
-    const list = await getDownloads()
-    const filtered = list.filter((d) => d.id !== ac.id)
-    const updated = [{ ...ac, downloadedAt: new Date().toISOString() }, ...filtered]
-    await AsyncStorage.setItem(KEY, JSON.stringify(updated))
-    cache = null // invalidate -- see getDownloads' cache comment above
-  } catch {}
+  // NOT wrapped in a swallowing try/catch any more. It used to be, which
+  // meant an AsyncStorage write failure -- a device low on storage, exactly
+  // the device most likely to be juggling offline downloads -- was invisible:
+  // the server recorded the download, addDownload returned normally, and
+  // every call site's `setDownloaded(true)` then told the user "Saved
+  // offline" when NOTHING had been written. They find out on the plane.
+  //
+  // Every caller (ac/far/aim/pcg/ad/loi/cfr49 [id].tsx) already wraps this in
+  // try/catch with a real "Error" dialog, so letting it throw is what those
+  // handlers were written for. This store is also a single AsyncStorage key
+  // holding every download (~81 KB of JSON per AC, 636 KB at the largest --
+  // measured), re-serialised in full on every add, so a write failure here is
+  // a genuinely reachable condition, not a theoretical one.
+  const list = await getDownloads()
+  const filtered = list.filter((d) => d.id !== ac.id)
+  const updated = [{ ...ac, downloadedAt: new Date().toISOString() }, ...filtered]
+  await AsyncStorage.setItem(KEY, JSON.stringify(updated))
+  cache = null // invalidate -- see getDownloads' cache comment above
 }
 
 export async function removeDownload(id: string) {
   const item = await findDownload(id)
-  try {
-    const list = await getDownloads()
-    await AsyncStorage.setItem(KEY, JSON.stringify(list.filter((d) => d.id !== id)))
-    cache = null
-  } catch {}
+  // Same reasoning as addDownload: the LOCAL write is the thing the user is
+  // being shown the result of, so a failure must reach the caller rather than
+  // leave the row on disk while the UI shows it gone. (The SERVER call below
+  // stays best-effort -- that one genuinely should not undo a local removal.)
+  const list = await getDownloads()
+  await AsyncStorage.setItem(KEY, JSON.stringify(list.filter((d) => d.id !== id)))
+  cache = null
   // Best-effort -- removing is never blocked, and a failure to clear the
   // server-side record shouldn't undo the local removal the user is
   // already looking at (hence the swallowed catch, after the local write

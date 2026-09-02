@@ -30,6 +30,7 @@ import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { buildRegShareLink } from '@/lib/regShare'
 import { getSemanticRelated, mergeRelated } from '@/lib/relatedContent'
 import { isDownloaded, addDownload, removeDownload, findDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
+import { downloadGatedImageToCache } from '@/lib/imageCache'
 import { condenseAdSummary, adSummaryWasCondensed, stripAdArtifacts } from '@/lib/adSummary'
 import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -265,6 +266,14 @@ export default function AdScreen() {
             subject_heading: cached.title,
             body_text: cached.body_text ?? null,
           } as AirworthinessDirective)
+          // Page images restored too. They were dropped entirely before, and
+          // for an AD they are not decoration: ad_figures holds 901 page
+          // SCANS across 461 ADs (measured), which carry the tables and
+          // figures the body text refers to. An offline AD without them is a
+          // materially incomplete compliance document.
+          setFigures((cached.figures ?? []).map((f, i) => ({
+            id: f.id, page_index: f.page, image_url: f.image_url,
+          })) as AdFigureRow[])
           setOfflineCopy(cached)
         }
       }
@@ -370,11 +379,12 @@ export default function AdScreen() {
     router.push({ pathname: '/pdf-viewer', params: { url: ad.pdf_url, title: `AD ${ad.ad_number}` } })
   }
 
-  // Simpler than AC's own handleDownload -- an AD is plain text with no
-  // block-parsed structure or figure images to pre-cache, so this just
-  // stores the already-loaded body text for offline reading. See
-  // downloads.ts's DownloadedItemType comment for why AD/LOI don't need
-  // AC's fuller pipeline.
+  // Was "an AD is plain text with no ... figure images to pre-cache", which
+  // is no longer true and was the bug: ad_figures holds 901 page scans across
+  // 461 ADs (measured), rendered by this very screen, and none of them
+  // survived a download. Now mirrors ac/[id].tsx -- pre-cache the bytes while
+  // there is still a connection, and persist the metadata so the offline
+  // fallback above can restore them.
   const handleDownload = async () => {
     if (!ad) return
     if (!isPremium && !downloaded) { if (!authLoading) router.push('/paywall?tier=premium'); return }
@@ -384,6 +394,9 @@ export default function AdScreen() {
       return
     }
     setDownloadBusy(true)
+    // allSettled, not all: one page image failing to cache must never take
+    // down the whole download and lose the reliable text part too.
+    await Promise.allSettled(figures.map((f) => downloadGatedImageToCache(f.id, f.image_url)))
     try {
       await addDownload({
         id: ad.ad_number,
@@ -393,6 +406,9 @@ export default function AdScreen() {
         subject_series: null,
         size: (ad.body_text ?? '').length,
         body_text: ad.body_text ?? null,
+        figures: figures.map((f) => ({
+          id: f.id, label: '', caption: null, page: f.page_index, image_url: f.image_url,
+        })),
       })
       setDownloaded(true)
     } catch (err) {

@@ -13,6 +13,7 @@ import {
   syncPushFolder,
   syncPushFolderItems,
   syncPushNote,
+  reportSyncError,
 } from '@/lib/syncPush'
 
 // Real cloud sync for Premium's "Back up & sync" — replaces the previous
@@ -551,12 +552,30 @@ export async function enableSync(userId: string): Promise<void> {
   // means a transient failure here can't abort or roll back a backup that
   // already succeeded; the next successful enable/disable, or app-launch's
   // applyRemoteSyncPreference, will reconcile it.
-  supabase.auth.updateUser({ data: { sync_enabled: true } }).catch(() => {})
+  // `.catch()` alone was dead code here: supabase.auth.updateUser RESOLVES
+  // {data, error} and does not reject, so a failed cross-device preference
+  // write was completely invisible. Still deliberately non-blocking (see
+  // above -- a backup that already succeeded must not be rolled back), but it
+  // is now REPORTED, because this comment's claim that
+  // applyRemoteSyncPreference "will reconcile it" is NOT true in this
+  // direction: on the next launch that function sees remote=false /
+  // local=true and resolves it by calling disableSync(), silently reversing
+  // the user's intent and stopping their backup. Which side should win is a
+  // product call -- logged for RC rather than guessed at here.
+  supabase.auth.updateUser({ data: { sync_enabled: true } })
+    .then(({ error }) => reportSyncError('sync preference enable', error))
+    .catch(() => {})
 }
 
 export async function disableSync(): Promise<void> {
   await AsyncStorage.setItem(SYNC_ENABLED_KEY, 'false')
-  await supabase.auth.updateUser({ data: { sync_enabled: false } })
+  // The result was discarded entirely, and updateUser RESOLVES rather than
+  // rejects, so a failed write here was silent too. Deliberately still not
+  // thrown: two of this function's five call sites are the UNAWAITED
+  // auto-disable-on-lapse paths in saved.tsx/notes.tsx, where throwing would
+  // only turn a silent failure into an unhandled rejection.
+  const { error } = await supabase.auth.updateUser({ data: { sync_enabled: false } })
+  reportSyncError('sync preference disable', error)
 }
 
 // Called once per app launch (see context/auth.tsx). Reconciles this

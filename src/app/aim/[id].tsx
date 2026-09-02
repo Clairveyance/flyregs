@@ -25,6 +25,7 @@ import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
 import { isDownloaded, addDownload, removeDownload, findDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
+import { downloadGatedImageToCache } from '@/lib/imageCache'
 import { DetailActionRow } from '@/components/DetailMeta'
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
@@ -240,8 +241,17 @@ export default function AimParagraphScreen() {
         // this paragraph was downloaded. Without this branch "Download" is
         // write-only storage -- the user saves a paragraph, loses signal,
         // opens it, and gets an empty screen, which is the exact case the
-        // feature exists for. Figures aren't cached (their bytes live in
-        // Storage), so the offline view is the text itself.
+        // feature exists for.
+        //
+        // Figures ARE cached now. The old comment here said they weren't
+        // ("their bytes live in Storage, so the offline view is the text
+        // itself") and handleDownload matched it -- but 346 figures across
+        // 108 of the 438 AIM paragraphs (measured) are airspace diagrams,
+        // holding patterns and light-gun-signal tables, i.e. exactly the
+        // content a pilot downloads a paragraph FOR. ac/[id].tsx already had
+        // the working pattern; AIM just never got it. reference_text was
+        // hardcoded to null here too, silently dropping the REFERENCE box
+        // from 115 paragraphs that have one.
         const cached = await findDownload(id)
         if (cached) {
           setPara({
@@ -250,8 +260,11 @@ export default function AimParagraphScreen() {
             section_title: null,
             title: cached.title,
             body_text: cached.body_text ?? null,
-            reference_text: null,
+            reference_text: cached.reference_text ?? null,
           })
+          setFigures((cached.figures ?? []).map((f, i) => ({
+            id: f.id, label: f.label, caption: f.caption, image_url: f.image_url, sort_order: i,
+          })))
           setOfflineCopy(cached)
         }
       }
@@ -437,6 +450,13 @@ export default function AimParagraphScreen() {
       return
     }
     setDownloadBusy(true)
+    // Pre-cache the figure bytes while there is still a connection to fetch
+    // them with -- downloadGatedImageToCache persists to local disk keyed by
+    // each figure's own id, which is what FigureViewer reads at render time.
+    // allSettled, not all: one image failing to cache must never take down
+    // the whole download and lose the reliable text part too. Same reasoning,
+    // and the same helper, as ac/[id].tsx's own handleDownload.
+    await Promise.allSettled(figures.map((f) => downloadGatedImageToCache(f.id, f.image_url)))
     try {
       await addDownload({
         id: para.paragraph_number,
@@ -449,6 +469,10 @@ export default function AimParagraphScreen() {
         subject_series: para.chapter,
         size: (para.body_text ?? '').length,
         body_text: para.body_text ?? null,
+        reference_text: para.reference_text ?? null,
+        figures: figures.map((f) => ({
+          id: f.id, label: f.label ?? '', caption: f.caption, page: 0, image_url: f.image_url,
+        })),
       })
       setDownloaded(true)
     } catch {

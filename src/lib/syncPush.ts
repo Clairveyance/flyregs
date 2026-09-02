@@ -17,7 +17,7 @@ import type { Note } from '@/lib/notes'
 // failing to sync since, with zero signal anywhere. Surfacing to both
 // console and Sentry means the NEXT constraint/RLS gap (e.g. a future
 // content type) fails loudly instead of silently.
-function reportSyncError(context: string, error: { message: string } | null) {
+export function reportSyncError(context: string, error: { message: string } | null) {
   if (!error) return
   console.error(`[sync] ${context} failed:`, error.message)
   Sentry.captureException(new Error(`sync push failed (${context}): ${error.message}`))
