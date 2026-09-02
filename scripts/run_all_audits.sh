@@ -70,6 +70,19 @@ fi
 # the full current list so it stays visible rather than silently forgotten.
 run_one "audit_table_header_alignment (table header/data column mismatch)" python3 scripts/audit_table_header_alignment.py
 
+# Both of these existed and were re-runnable but had never been wired in, so
+# they only ever ran when someone remembered them by hand -- exactly the
+# "one-off, easy-to-forget command" this runner's own header says it exists to
+# prevent. Adding them 2026-09-02 after running them manually turned up a real
+# corpus defect (AIM Appendix 4's TBL 4-2, the ICAO flight-plan equipment
+# codes, rendered as one run-on row instead of 19). Same informational-only
+# convention as the two above: they surface known-noisy heuristics (an
+# "oversized paragraph" is often just a legitimately enormous table -- FAR
+# 171.311's 361-row MLS/DME channel grid is correct and will always be
+# flagged), so they print and never gate a release.
+run_one "audit_corpus_formatting (AC footer bleed + oversized blocks)"       python3 scripts/audit_corpus_formatting.py
+run_one "audit_reg_formatting (FAR/AIM/AD/49CFR footer bleed + oversized)"   node scripts/audit_reg_formatting.mjs
+
 # --- Layer 2: security & tier gating ---
 run_one "tier_gate_audit (source-level, every gated surface x tier)" node scripts/tier_gate_audit.mjs
 run_one "tier_matrix_test (server-side, real accounts)"              python3 scripts/tier_matrix_test.py

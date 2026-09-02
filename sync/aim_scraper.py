@@ -443,7 +443,75 @@ def _render_table(table_elem) -> str:
             for c in row.find_all(["th", "td"])
         ]
 
-    header_lines = table_grid.render_grid([_spans(r) for r in header_rows], [], _TABLE_HEADER_MARK)
+    # STACKED-COLUMN TABLES (2026-09-02). Some FAA tables carry their real
+    # row structure INSIDE the cells rather than in <tr>s: a single <tr>
+    # whose every <td> holds a whole column as a list of sibling <p>
+    # elements, one <p> per logical row. _cell_text's get_text(separator=" ")
+    # then welds them into one run-on string.
+    #
+    # Confirmed live and confirmed RARE. Appendix 4's TBL 4-2 (Item 10a
+    # Navigation, Communication, and Approach Aid Capabilities -- the ICAO
+    # flight plan equipment codes) is ONE <tr> of four <td>s holding 17, 17,
+    # 19 and 19 <p>s: a 19-row table rendered as a single row of four
+    # 300-500 character strings with every code welded to its neighbour's
+    # description ("...C LORAN C D DME E1 FMC WPR ACARS..."). Scanning every
+    # stored table in aim_paragraphs, far_sections and cfr49_sections for
+    # that shape returns exactly one hit corpus-wide, this table -- which is
+    # also why this lives here and not in far/cfr49_scraper.py or in the
+    # shared table_grid.py: those corpora have no instance of it, and code
+    # that never runs is code nobody can trust.
+    #
+    # THE PAIRWISE-EQUAL-DEPTH GUARD IS THE WHOLE SAFETY ARGUMENT, and it
+    # was written only after a looser first version was measured against
+    # every AIM page and caught FABRICATING DATA. A stacked table is really
+    # a set of side-by-side label/value column PAIRS, so a pair can only be
+    # index-aligned when both its columns have the same depth. Requiring
+    # that, an even cell count, and 2+ cells rejects the two tables a
+    # looser rule wrongly claimed:
+    #
+    #   * TBL 4-2-12 "Standard Time to Coordinated Universal Time"
+    #     (chap4_section_2) is 2 cells with 4 and 6 <p>s -- the left cell
+    #     packs two zones into one <p> via <br>, so <p> index is NOT row
+    #     index. Index-pairing produced "Mountain Standard Time | Add 6
+    #     hours" (it is +7) plus two orphaned " | Add 9/10 hours" rows.
+    #     A confidently WRONG time-conversion table is far worse than an
+    #     ugly one: unequal depths mean the alignment is unknowable, so the
+    #     only safe act is to leave the table alone. Data Is King.
+    #   * TBL 4-3 "Item 10b Surveillance Capabilities" is a SINGLE cell of
+    #     31 <p>s -- prose, not columns. A one-cell row is the full-width
+    #     footnote case expand_rows deliberately keeps as bare text, and
+    #     there is no column structure to recover from it anyway.
+    #
+    # Cells carrying a colspan/rowspan are rejected too: a spanning cell
+    # means a genuine grid whose alignment table_grid already owns.
+    def _expand_stacked(row):
+        cells = row.find_all(["th", "td"])
+        if len(cells) < 2 or len(cells) % 2 != 0:
+            return [_spans(row)]
+        stacks = []
+        for c in cells:
+            ps = c.find_all("p", recursive=False)
+            if len(ps) < 2:
+                return [_spans(row)]
+            if table_grid.parse_span(c.get("colspan")) != 1 or table_grid.parse_span(c.get("rowspan")) != 1:
+                return [_spans(row)]
+            stacks.append([_cell_text(x) for x in ps])
+        # Each label/value pair must agree on depth; pairs may differ from
+        # each other (TBL 4-2's left pair holds 17 entries, its right 19).
+        for k in range(0, len(stacks), 2):
+            if len(stacks[k]) != len(stacks[k + 1]):
+                return [_spans(row)]
+        # Pad the shorter pair rather than truncating -- dropping J7..Z off
+        # the end would be silent data loss.
+        depth = max(len(x) for x in stacks)
+        return [
+            [(x[i] if i < len(x) else "", 1, 1) for x in stacks]
+            for i in range(depth)
+        ]
+
+    header_lines = table_grid.render_grid(
+        [vr for r in header_rows for vr in _expand_stacked(r)], [], _TABLE_HEADER_MARK
+    )
 
     # No real <thead> — try to recover a real header from the PDF-derived
     # lookup (see build_aim_pdf_headers.py) before giving up and rendering
@@ -453,12 +521,37 @@ def _render_table(table_elem) -> str:
         title = _block_text(title_span) if title_span else None
         if title:
             recovered = PDF_TABLE_HEADERS.get(_normalize_table_title(title))
-            if recovered and recovered.get("header"):
+            # A recovered header whose width disagrees with the table's own
+            # cannot be that table's header, so trust the table and drop it.
+            # Found 2026-09-02 while fixing the stacked-column bug above:
+            # Appendix 4's TBL 4-2 has FOUR columns, and the PDF pass
+            # recovered a TWO-cell "header" holding 324 and 481 characters of
+            # the table's own body text -- the entire equipment-code list,
+            # marked and styled as if it were the column labels. That is
+            # worse than no header, which this function's own docstring
+            # already argues at length ("an honest data grid instead of a
+            # confidently mislabeled one").
+            #
+            # A width check, deliberately, NOT a cell-length threshold: of
+            # the 87 recovered headers, 7 carry a cell over 80 characters,
+            # and one of those -- "vfr cruising altitudes", whose real
+            # labels genuinely read "And you are more than 3,000 feet above
+            # the surface but below 18,000 feet MSL, fly:" -- is completely
+            # correct. A length rule would have destroyed a real header on
+            # one of the most-referenced tables in the AIM. Re-rendering
+            # every table on all 53 AIM pages, this check rejects EXACTLY
+            # ONE header corpus-wide: TBL 4-2's.
+            widths = [len(r.find_all(["th", "td"])) for r in table_elem.find_all("tr")]
+            widths = [w for w in widths if w]
+            table_width = max(set(widths), key=widths.count) if widths else 0
+            if recovered and recovered.get("header") and len(recovered["header"]) == table_width:
                 header_lines.append(_TABLE_HEADER_MARK + " | ".join(recovered["header"]))
 
     lines.extend(header_lines)
 
-    lines.extend(table_grid.render_grid([], [_spans(r) for r in body_rows], _TABLE_HEADER_MARK))
+    lines.extend(table_grid.render_grid(
+        [], [vr for r in body_rows for vr in _expand_stacked(r)], _TABLE_HEADER_MARK
+    ))
 
     return "\n".join(lines)
 
