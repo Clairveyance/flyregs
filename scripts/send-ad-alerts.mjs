@@ -268,7 +268,7 @@ for (const ad of ads) {
     // occasionally over-matching costs far less than the alert never
     // firing at all.
     const userMake = a.make.trim().toLowerCase()
-    if (!adMake.includes(userMake) && !userMake.includes(adMake)) continue
+    const makeMatches = adMake.includes(userMake) || userMake.includes(adMake)
     // Real AD applicability text is written against the FAA type
     // designator ("PA-28-181", "LA-4-200"), not the marketing name a pilot
     // knows their plane by ("Warrior", "Buccaneer") -- a saved model of
@@ -298,6 +298,40 @@ for (const ad of ads) {
     // make-only match (the original behavior, now scoped to only the rows
     // that actually need it).
     const hasAnyModelText = Boolean(adModel || adFallbackText)
+
+    // DESIGNATOR-ONLY ESCAPE, added 2026-09-03 after an overnight audit proved
+    // the make gate was silently dropping REAL, APPLICABLE ADs -- the single
+    // worst failure this app can have.
+    //
+    // An AD's `make` is the TYPE-CERTIFICATE HOLDER or the APPLIANCE
+    // MANUFACTURER, very often a different company from the name on the
+    // airframe. The make gate then rejected the AD before its applicability
+    // text -- which names the aircraft explicitly -- was ever read. Measured
+    // live against the real saved aircraft:
+    //   LAKE Buccaneer 200EP (LA-4-200): 6 ADs name "LA-4-200", only 2 got
+    //     through; the dropped ones are filed under "Revo, Incorporated",
+    //     which holds the Lake type certificate.
+    //   Cessna 172S: 16 ADs name "172S", 3 dropped -- including AD 2018-02-04,
+    //     the Aerospace Welding muffler AD this script's own header cites as
+    //     the motivating example for the whole parts feature. Its
+    //     applicability literally reads "installed on but not limited to"
+    //     172S airframes.
+    //
+    // A hit on the aircraft's own FAA type designator inside the AD's model or
+    // applicability text is specific enough to stand WITHOUT the make gate.
+    // The >= 4 normalized-character floor keeps it specific, and is measured,
+    // not guessed:
+    //   "172s"   (4) -> 17 ADs corpus-wide
+    //   "la4200" (6) ->  6 ADs
+    //   "172"    (3) -> 163 ADs   <-- why the floor exists
+    // The marketing model ("Skyhawk", "Buccaneer") deliberately does NOT get
+    // this escape; it is not specific enough to carry a match on its own.
+    const DESIGNATOR_ONLY_MIN = 4
+    const designatorHit =
+      userType.length >= DESIGNATOR_ONLY_MIN &&
+      Boolean((adModel && adModel.includes(userType)) || (adFallbackText && adFallbackText.includes(userType)))
+
+    if (!makeMatches && !designatorHit) continue
     if (hasAnyModelText && !modelMatches && !fallbackMatches) continue
     addMatch(a.user_id, a.id, ad, 'airframe')
   }
