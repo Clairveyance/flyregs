@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView, AppState } from 'react-native'
-import { useLocalSearchParams, router, useFocusEffect } from 'expo-router'
+import { useLocalSearchParams, router, useFocusEffect, useNavigation } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
@@ -432,9 +432,33 @@ export default function ChallengeGameScreen() {
   // to answer (myAnsweredCount === questionCount -- you're just waiting on
   // others, nothing to forfeit), or once the duel is already over, backing
   // out is a plain, unconfirmed nav exactly like before.
+  // The forfeit rule above hung off the header's back BUTTON only. iOS's
+  // edge-swipe pop walks straight past it: swipe from the left bezel
+  // mid-duel and you leave with no prompt and no forfeit, stranding an
+  // opponent on a player who never comes back (and, with no duel-expiry
+  // sweep server-side, stranding the duel row permanently). Confirmed by
+  // grep, 2026-09-02: there was no `gestureEnabled`, no `BackHandler` and
+  // no navigation-level guard anywhere in src/, and native-stack enables
+  // the pop gesture by default.
+  //
+  // Disabled CONDITIONALLY rather than for the whole screen, so the rule
+  // matches handleBack exactly instead of a second, blunter copy of it --
+  // the results view and a duel you have finished or not yet started stay
+  // freely swipeable, which is the existing behaviour and the nicer one.
+  // `started` below is the single derivation both paths now read.
+  //
+  // Covers iOS, which is the beta target. Android's hardware back still
+  // pops without the prompt; closing that needs a BackHandler/usePreventRemove
+  // guard on the same condition.
+  const navigation = useNavigation()
+  const started =
+    challenge != null && challenge.status === 'active' && challenge.myStatus === 'active' &&
+    challenge.myAnsweredCount > 0 && challenge.myAnsweredCount < challenge.questionCount
+  useEffect(() => {
+    navigation.setOptions({ gestureEnabled: !started })
+  }, [navigation, started])
+
   const handleBack = () => {
-    const stillMine = challenge != null && challenge.status === 'active' && challenge.myStatus === 'active'
-    const started = stillMine && challenge!.myAnsweredCount > 0 && challenge!.myAnsweredCount < challenge!.questionCount
     if (!started || !id) {
       router.back()
       return

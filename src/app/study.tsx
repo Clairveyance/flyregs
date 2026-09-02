@@ -135,6 +135,9 @@ export default function StudyScreen() {
   const masteryGlowStyle = useAnimatedStyle(() => ({ shadowOpacity: masteryGlow.value * (masteryPct / 100) * 0.75 }))
   const [currency, setCurrency] = useState<Currency | null>(null)
   const [poolCount, setPoolCount] = useState<number | null>(null)
+  // Set when any record_study_review write fails, so the session-complete
+  // screen can admit it instead of implying everything was saved.
+  const [reviewWriteFailed, setReviewWriteFailed] = useState(false)
   // Size of each Level section, shown on its own chip. Keyed by level so a
   // missing entry renders as no count rather than a wrong 0.
   const [levelCounts, setLevelCounts] = useState<Partial<Record<StudyLevel, number>>>({})
@@ -284,6 +287,7 @@ export default function StudyScreen() {
           setIndex(0)
           setFlipped(false)
           setSessionDone(filtered.length === 0)
+          setReviewWriteFailed(false)
         })
       )
       .catch((err: any) => {
@@ -444,7 +448,23 @@ export default function StudyScreen() {
           markCoinsSeen(result.newCoins).catch(() => {})
         }
       })
-      .catch(() => {}) // best-effort -- don't block the study flow on a network blip
+      .catch((err: any) => {
+        // Still non-blocking -- the study flow must not stall on a blip --
+        // but no longer INVISIBLE. This used to be a bare `.catch(() => {})`.
+        // The card advances on its own setTimeout above, so a failed write
+        // looked identical to a successful one: every "Knew it"/"Missed it"
+        // registered on screen, the session completed normally, and none of
+        // it was recorded. That is silent loss of the user's real study
+        // progress on a paid feature, and with no capture here a systemic
+        // recurrence (an outage, an RPC regression) had zero telemetry --
+        // note the deck LOAD above already reports to Sentry, so the two
+        // halves of the same feature were treated inconsistently.
+        Sentry.captureException(err, {
+          tags: { feature: 'study_review_write' },
+          extra: { itemType: item.item_type, itemId: item.item_id },
+        })
+        setReviewWriteFailed(true)
+      })
     getCurrency().then(setCurrency).catch(() => {})
   }
 
@@ -778,15 +798,47 @@ export default function StudyScreen() {
 
       {!loading && !loadError && sessionDone && (
         <View style={styles.center}>
-          <Icon name="checkmark.circle" size={fs(40)} color={tokens.gold} />
+          {/* An EMPTY FILTER POOL and a FINISHED QUEUE are completely
+              different situations and used to render identically: a gold
+              checkmark over "You've reviewed everything that's due."
+              Measured live, 2026-09-02 -- 11 single-content x knowledge-level
+              combinations resolve to a pool of zero (AIM, P/CG and 49 CFR all
+              have nothing at Airframe or Powerplant; AIM and 49 CFR nothing at
+              Mechanic; AC and 49 CFR nothing at Instrument), and every one of
+              them is ONE TAP from the default filter row. Telling someone who
+              has studied nothing that they have reviewed everything reads as
+              either a broken app or a finished corpus, and the honest
+              explanation -- the "N items match the filters" line -- is
+              rendered only in the card branch below, so it disappears at
+              exactly the moment it would explain what happened.
+
+              `poolCount` starts null (not yet loaded), so this tests === 0
+              rather than falsiness. */}
+          <Icon
+            name={poolCount === 0 ? 'slider.horizontal.3' : 'checkmark.circle'}
+            size={fs(40)}
+            color={poolCount === 0 ? tokens.t3 : tokens.gold}
+          />
           <Text style={[styles.emptyTitle, { color: tokens.t2, fontSize: fs(16) }]}>
-            {deck.length === 0 ? 'Nothing due right now' : 'Session complete'}
+            {poolCount === 0
+              ? 'No content matches these filters'
+              : deck.length === 0 ? 'Nothing due right now' : 'Session complete'}
           </Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
-            {deck.length === 0
-              ? "You've reviewed everything that's due. Check back later, or come back tomorrow for more."
-              : 'Come back tomorrow — cards you missed will resurface sooner than the ones you know cold.'}
+            {poolCount === 0
+              ? 'Nothing in the corpus matches this Content and Knowledge Level combination. Widen either one to get a deck.'
+              : deck.length === 0
+                ? "You've reviewed everything that's due. Check back later, or come back tomorrow for more."
+                : 'Come back tomorrow — cards you missed will resurface sooner than the ones you know cold.'}
           </Text>
+          {reviewWriteFailed && (
+            // Admitting a dropped write is the whole point: without this the
+            // session looks exactly as successful as one that saved, and the
+            // user only finds out later that their mastery never moved.
+            <Text style={[styles.emptySub, { color: tokens.gold, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.41 }]}>
+              Some answers couldn't be saved — check your connection. They won't count toward your progress.
+            </Text>
+          )}
           <Pressable style={[styles.upgradeBtn, { backgroundColor: tokens.blu }]} onPress={load}>
             <Text style={[styles.upgradeBtnText, { fontSize: fs(15) }]}>Refresh</Text>
           </Pressable>
