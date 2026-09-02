@@ -20,6 +20,7 @@ import {
   labelForDocType,
   splitParagraphs,
   ContentRevision,
+  softWrapLongTokens,
 } from '@/lib/whatsChanged'
 import { stripAdSubjectPrefix } from '@/lib/titleFormat'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
@@ -695,7 +696,7 @@ function RevisionRow({
               return (
                 <View key={`g${i}`} style={[styles.diffLine, { backgroundColor: tokens.gdim, borderColor: tokens.gbdr }]}>
                   <Text style={[styles.diffMark, { color: tokens.grn, fontSize: fs(13) }]}>+</Text>
-                  <Text style={[styles.diffText, { color: tokens.t1, fontSize: fs(13), lineHeight: fs(13) * 1.46 }]}>{g.text}</Text>
+                  <Text style={[styles.diffText, { color: tokens.t1, fontSize: fs(13), lineHeight: fs(13) * 1.46 }]}>{softWrapLongTokens(g.text)}</Text>
                 </View>
               )
             }
@@ -706,7 +707,7 @@ function RevisionRow({
                   {/* RC: "anything Out is in red, so we don't need to
                       strikethrough on those (it's too hard to read w/ it
                       anyway)" -- red alone already signals removed. */}
-                  <Text style={[styles.diffText, { color: tokens.t3, fontSize: fs(13), lineHeight: fs(13) * 1.46 }]}>{g.text}</Text>
+                  <Text style={[styles.diffText, { color: tokens.t3, fontSize: fs(13), lineHeight: fs(13) * 1.46 }]}>{softWrapLongTokens(g.text)}</Text>
                 </View>
               )
             }
@@ -724,9 +725,9 @@ function RevisionRow({
                 <Icon name="arrow.triangle.2.circlepath" size={fs(12)} color={tokens.t3} />
                 <Text style={[styles.diffText, { color: tokens.t1, fontSize: fs(13), lineHeight: fs(13) * 1.46 }]}>
                   {tokensDiff.map((t, ti) => {
-                    if (t.type === 'same') return <Text key={ti}>{t.text} </Text>
-                    if (t.type === 'add') return <Text key={ti} style={{ color: tokens.grn, fontWeight: '700', backgroundColor: tokens.gdim }}>{t.text} </Text>
-                    return <Text key={ti} style={{ color: tokens.red }}>{t.text} </Text>
+                    if (t.type === 'same') return <Text key={ti}>{softWrapLongTokens(t.text)} </Text>
+                    if (t.type === 'add') return <Text key={ti} style={{ color: tokens.grn, fontWeight: '700', backgroundColor: tokens.gdim }}>{softWrapLongTokens(t.text)} </Text>
+                    return <Text key={ti} style={{ color: tokens.red }}>{softWrapLongTokens(t.text)} </Text>
                   })}
                 </Text>
               </View>

@@ -149,3 +149,39 @@ export function changedParagraphIndices(bodyText: string, addedText: string | nu
   paras.forEach((p, i) => { if (wanted.has(norm(p))) out.push(i) })
   return out
 }
+
+// RC, 2026-09-01 (real device): "this last box in the what's new area has text
+// that somehow is unbounded and extending past the boundaries of its own box.
+// Make sure that's not happening elsewhere."
+//
+// React Native's <Text> wraps on whitespace only -- it will NOT break a single
+// long token, so one unbreakable string overflows its container no matter what
+// flex rules the parent has. Real content that triggers it, still present in
+// live revisions after the false-positive purge: AD diffs quote
+// "www.archives.gov/federal-register/cfr/ibr-locations" (51 chars, no spaces).
+//
+// Fix is to add BREAK OPPORTUNITIES rather than to change the text: U+200B
+// (zero-width space) renders as nothing and is not selectable as a character,
+// so the visible string is unchanged and copy/paste keeps working, but the
+// layout engine is now allowed to wrap there. Separator characters first
+// (which is where a URL naturally wants to break), then a hard chunk fallback
+// for a genuinely unbroken run such as a long identifier.
+const ZWSP = '\u200B'
+
+export function softWrapLongTokens(text: string, maxToken = 24): string {
+  if (!text) return text
+  return text.replace(/\S+/g, (tok) => {
+    if (tok.length <= maxToken) return tok
+    // break after URL/path separators and punctuation
+    let out = tok.replace(/([/\-._,;:?&=])/g, `$1${ZWSP}`)
+    // anything still longer than maxToken between breaks gets chunked
+    return out
+      .split(ZWSP)
+      .map((run) =>
+        run.length <= maxToken
+          ? run
+          : (run.match(new RegExp(`.{1,${maxToken}}`, 'g')) ?? [run]).join(ZWSP)
+      )
+      .join(ZWSP)
+  })
+}
