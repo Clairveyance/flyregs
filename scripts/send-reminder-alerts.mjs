@@ -260,6 +260,21 @@ for (let i = 0; i < messages.length; i += BATCH) {
       failedReminderIds.add(m._reminderId)
     }
   })
+  // Prune dead tokens rather than only skipping them. DeviceNotRegistered is
+  // terminal: the device uninstalled or revoked notifications. Nothing in this
+  // app has ever removed a row from push_tokens, so a dead token would sit in
+  // every daily and weekly batch forever -- and because Expo can REASSIGN a
+  // token to a different device, a stale row is a misroute risk, not just
+  // wasted quota. Only 2 rows live today, so this is preventive.
+  const deadTokens = [...new Set(
+    chunk.filter((_, idx) => results[idx]?.details?.error === 'DeviceNotRegistered').map((m) => m.to),
+  )]
+  if (deadTokens.length) {
+    const { error: delErr } = await sb.from('push_tokens').delete().in('expo_push_token', deadTokens)
+    if (delErr) console.error('Failed to prune dead push tokens:', delErr.message)
+    else console.log(`Pruned ${deadTokens.length} DeviceNotRegistered token(s).`)
+  }
+
   const errors = results.filter((r) => r.status === 'error')
   if (errors.length) {
     console.error(`${errors.length} of ${chunk.length} messages in batch failed:`, errors.slice(0, 3))
