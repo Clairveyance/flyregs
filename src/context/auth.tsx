@@ -111,10 +111,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await claimDeviceIfMismatched(session.user.id, session.user.email)
           initRevenueCat(session.user.id)
           const status = await getSubscriptionStatus()
-          setIsPro(status.isPro)
-          setIsPremium(status.isPremium)
-          setIsUnlocked(status.isUnlocked)
-          saveCachedEntitlement(session.user.id, status)
+          // A failed lookup is not a downgrade. Leave the last known-good tier
+          // (and its cache) alone rather than locking out a paying subscriber
+          // because the network blinked.
+          if (status.ok) {
+            setIsPro(status.isPro)
+            setIsPremium(status.isPremium)
+            setIsUnlocked(status.isUnlocked)
+            saveCachedEntitlement(session.user.id, status)
+          }
           // Self-healing catch-up for user_entitlements (the DB-backed
           // tier-of-record behind every *_gated view/RPC -- see
           // gotcha_tier_gate_client_side_only.md), in case revenuecat-webhook
@@ -211,10 +216,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (event === 'SIGNED_IN') ensurePushTokenRegistered(session.user.id)
           initRevenueCat(session.user.id)
           const status = await getSubscriptionStatus()
-          setIsPro(status.isPro)
-          setIsPremium(status.isPremium)
-          setIsUnlocked(status.isUnlocked)
-          saveCachedEntitlement(session.user.id, status)
+          // A failed lookup is not a downgrade. Leave the last known-good tier
+          // (and its cache) alone rather than locking out a paying subscriber
+          // because the network blinked.
+          if (status.ok) {
+            setIsPro(status.isPro)
+            setIsPremium(status.isPremium)
+            setIsUnlocked(status.isUnlocked)
+            saveCachedEntitlement(session.user.id, status)
+          }
           // 2026-08-29 "built but inert" sweep: this branch is what actually
           // fires on a real sign-in (password, biometric, sign-up auto-
           // login, or a fresh account on a new device) -- the session-
@@ -295,6 +305,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // re-check rather than blindly applying a result that may no
         // longer belong to anyone.
         if (!sessionUserIdRef.current) return
+        // Same guard as the two sign-in paths: an unreachable RevenueCat must
+        // not be written over a valid tier. This one runs on EVERY foreground,
+        // so it was the likeliest to fire in the wild.
+        if (!status.ok) return
         setIsPro(status.isPro)
         setIsPremium(status.isPremium)
         setIsUnlocked(status.isUnlocked)

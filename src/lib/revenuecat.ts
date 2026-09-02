@@ -78,17 +78,29 @@ function sleep(ms: number) {
 // re-runs the whole sequence from a cold, uncontested start) could.
 // A short retry-with-backoff gives configure() the moment it needs to
 // finish instead of giving up on the very first race.
-export async function getSubscriptionStatus(retries = 3): Promise<SubscriptionStatus> {
+// `ok` distinguishes "RevenueCat said this user has nothing" from "we could not
+// reach RevenueCat at all". Before this they returned the IDENTICAL shape, and
+// all three callers in auth.tsx cached it unconditionally -- so a single
+// foreground with no signal (airplane mode, a hangar, a StoreKit hiccup)
+// flipped a paying Premium subscriber to Free in the live UI AND overwrote the
+// entitlement cache with {false,false,false}, so the next cold launch opened
+// locked too, and the one after that, until a call finally succeeded.
+//
+// This is the same bug class already fixed twice next door -- restorePurchases'
+// own "quietly downgrades them" comment below, and sync-entitlements'
+// "don't silently write a false/false/false row over a possibly-still-valid
+// one". This path just never got the guard.
+export async function getSubscriptionStatus(retries = 3): Promise<SubscriptionStatus & { ok: boolean }> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const customerInfo = await Purchases.getCustomerInfo()
-      return statusFromCustomerInfo(customerInfo)
+      return { ...statusFromCustomerInfo(customerInfo), ok: true }
     } catch {
-      if (attempt === retries) return { isPro: false, isPremium: false, isUnlocked: false }
+      if (attempt === retries) return { isPro: false, isPremium: false, isUnlocked: false, ok: false }
       await sleep(300 * (attempt + 1))
     }
   }
-  return { isPro: false, isPremium: false, isUnlocked: false }
+  return { isPro: false, isPremium: false, isUnlocked: false, ok: false }
 }
 
 export interface SubscriptionDetails {
