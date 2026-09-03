@@ -173,6 +173,11 @@ def _elem_text(elem) -> str:
 # tag family (FP-2 etc. are indentation levels).
 _PARAGRAPH_TAGS = {"P", "FP", "FP-1", "FP-2", "FP-3", "FP-4"}
 
+# Non-normative trailers dropped from body text. Kept as a named set so the
+# leaf-with-text fallback in _extract_body_blocks cannot accidentally start
+# emitting them.
+_SKIP_TAGS = {"CITA", "SECAUTH", "APPRO"}
+
 
 # RC, real device (14 CFR 93.123's JFK table), 2026-08-31: found while
 # investigating the JFK table's missing column label that this constant was
@@ -275,12 +280,43 @@ def _extract_body_blocks(section_elem) -> list[str]:
                 text = _elem_text(child)
                 if text:
                     blocks.append(text)
-            elif child.tag == "CITA":
-                continue  # trailing citation footer, not body content
+            elif child.tag in _SKIP_TAGS:
+                # Non-normative trailers, deliberately dropped: CITA is the
+                # trailing citation footer, SECAUTH the statutory authority
+                # note, APPRO the OMB control number. None is part of the
+                # rule text a pilot reads.
+                continue
             else:
-                # Transparent wrapper (EXTRACT, DIV, gpotbl_div, or any
-                # other grouping tag) — descend into it.
-                walk(child)
+                # A LEAF WITH TEXT is content, not a wrapper. This branch used
+                # to recurse unconditionally, so any tag that is a text leaf
+                # with no element children had its text silently discarded --
+                # walk() would iterate zero children and return. Measured
+                # against the raw eCFR XML across all 4,293 sections: 196
+                # sections lose tokens this way, and after excluding the
+                # deliberate skips above the losses are PSPACE (30 sections),
+                # XREF (21), HED (52), TCAP (2) and HD1 (1).
+                #
+                # Two of those genuinely matter:
+                #   * 14 CFR 61.415 -- a PSPACE note stating the published
+                #     text is KNOWINGLY INCOMPLETE ("...§ 61.415 was amended
+                #     in part by adding an introductory paragraph; however,
+                #     the paragraph could not be added..."). A CFI reading
+                #     that section had no way to know.
+                #   * 14 CFR 93.123 -- the HD1 label "IFR Operations per
+                #     Hour" sitting directly above both airport tables, so
+                #     the numbers rendered with no unit. This is the same
+                #     table RC flagged from a real device.
+                # Plus 10 Part 71 sections carrying "Link to an amendment
+                # published at 91 FR 55740" -- exactly the sections where our
+                # last_amended lags eCFR.
+                if len(child) == 0:
+                    text = _elem_text(child)
+                    if text:
+                        blocks.append(text)
+                else:
+                    # Transparent wrapper (EXTRACT, DIV, gpotbl_div, or any
+                    # other grouping tag) — descend into it.
+                    walk(child)
 
     walk(section_elem)
     return blocks
