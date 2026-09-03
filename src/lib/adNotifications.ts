@@ -20,7 +20,13 @@ export interface AircraftAdNotification {
   pushStatus: 'sent' | 'error' | null
   compliedAt: string | null
   compliedNote: string | null
+  /** 'one_time' = done. 'recurring' = complied, and due again -- the next-due
+   *  date/hours live on the linked user_aircraft_reminders row. null = a row
+   *  complied before this distinction existed. */
+  complianceKind: ComplianceKind | null
 }
+
+export type ComplianceKind = 'one_time' | 'recurring'
 
 // dismissed (doesn't apply, remove from view) and complied (applies, done)
 // are deliberately separate, both-optional terminal states -- an AD can be
@@ -31,7 +37,7 @@ export interface AircraftAdNotification {
 export async function getAircraftAdNotifications(userAircraftId: string): Promise<AircraftAdNotification[]> {
   const { data, error } = await supabase
     .from('user_ad_notifications')
-    .select('id, ad_number, matched_via, read_at, push_status, complied_at, complied_note, airworthiness_directives!inner(subject_heading, citation_publish_date)')
+    .select('id, ad_number, matched_via, read_at, push_status, complied_at, complied_note, compliance_kind, airworthiness_directives!inner(subject_heading, citation_publish_date)')
     .eq('user_aircraft_id', userAircraftId)
     .is('dismissed_at', null)
     .order('complied_at', { ascending: true, nullsFirst: true })
@@ -47,6 +53,7 @@ export async function getAircraftAdNotifications(userAircraftId: string): Promis
     readAt: r.read_at,
     pushStatus: r.push_status,
     compliedAt: r.complied_at,
+    complianceKind: r.compliance_kind ?? null,
     compliedNote: r.complied_note,
   }))
 }
@@ -58,11 +65,32 @@ export async function getAircraftAdNotifications(userAircraftId: string): Promis
 // this records what the owner/editor told FlyRegs, not an independent
 // compliance determination. The confirm Alert at the call site IS the
 // "log that we advised" moment; no separate acknowledgment flag needed.
-export async function markAdComplied(id: number, note: string | null): Promise<void> {
+/**
+ * Record compliance with an AD.
+ *
+ * Robin (beta tester, 2026-09-02): tapping "mark complied" should ask
+ * one-time or recurring, then capture WHEN it was complied with and HOW --
+ * "installation of STC #####", "installation of upgraded component" -- so an
+ * aircraft builds a real file of complied ADs rather than a checkbox.
+ *
+ * compliedAt is a caller-supplied DATE, not now(). Compliance is recorded
+ * after the fact far more often than at the bench, and a record that always
+ * says "today" is not a maintenance record.
+ */
+export async function markAdComplied(
+  id: number,
+  note: string | null,
+  opts?: { kind?: ComplianceKind; compliedAt?: string },
+): Promise<void> {
   const { data: auth } = await supabase.auth.getUser()
   const { error } = await supabase
     .from('user_ad_notifications')
-    .update({ complied_at: new Date().toISOString(), complied_by: auth.user?.id ?? null, complied_note: note?.trim() || null })
+    .update({
+      complied_at: opts?.compliedAt ?? new Date().toISOString(),
+      complied_by: auth.user?.id ?? null,
+      complied_note: note?.trim() || null,
+      compliance_kind: opts?.kind ?? 'one_time',
+    })
     .eq('id', id)
   if (error) throw error
 }
@@ -70,7 +98,7 @@ export async function markAdComplied(id: number, note: string | null): Promise<v
 export async function unmarkAdComplied(id: number): Promise<void> {
   const { error } = await supabase
     .from('user_ad_notifications')
-    .update({ complied_at: null, complied_by: null, complied_note: null })
+    .update({ complied_at: null, complied_by: null, complied_note: null, compliance_kind: null })
     .eq('id', id)
   if (error) throw error
 }

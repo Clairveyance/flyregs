@@ -448,12 +448,16 @@ export interface AircraftReminder {
   // sync/migrations_hobbs_tracking.sql -- v1 is manual-reset only, no
   // auto-generated future cycles.
   dueHobbsHours: number | null
+  /** Airframe hours when the linked AD was last complied with, if recorded.
+   *  Paired with dueHobbsHours to show hours remaining against a real
+   *  baseline rather than a floating number. */
+  compliedHobbsHours: number | null
 }
 
 export async function getAircraftReminders(userAircraftId: string): Promise<AircraftReminder[]> {
   const { data, error } = await supabase
     .from('user_aircraft_reminders')
-    .select('id, user_aircraft_id, title, due_date, linked_ad_number, notes, interval_months, interval_days, due_hobbs_hours')
+    .select('id, user_aircraft_id, title, due_date, linked_ad_number, notes, interval_months, interval_days, due_hobbs_hours, complied_hobbs_hours')
     .eq('user_aircraft_id', userAircraftId)
     .order('due_date')
   if (error) throw error
@@ -467,6 +471,7 @@ export async function getAircraftReminders(userAircraftId: string): Promise<Airc
     intervalMonths: r.interval_months,
     intervalDays: r.interval_days,
     dueHobbsHours: r.due_hobbs_hours,
+    compliedHobbsHours: r.complied_hobbs_hours ?? null,
   }))
 }
 
@@ -492,6 +497,18 @@ export async function addAircraftReminder(
     interval_days: intervalDays ?? null,
     due_hobbs_hours: dueHobbsHours ?? null,
   })
+  if (error) throw error
+}
+
+/** Record the airframe hours at which a linked AD was last complied with.
+ *  Paired with due_hobbs_hours so "next due 2,150 hrs" can be shown against a
+ *  real baseline instead of floating. Separate from updateAircraftReminder
+ *  because it is written at COMPLIANCE time, not when editing the reminder. */
+export async function setReminderCompliedHobbs(id: string, hours: number | null): Promise<void> {
+  const { error } = await supabase
+    .from('user_aircraft_reminders')
+    .update({ complied_hobbs_hours: hours })
+    .eq('id', id)
   if (error) throw error
 }
 

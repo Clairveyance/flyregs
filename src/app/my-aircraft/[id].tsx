@@ -19,12 +19,13 @@ import { BulkInviteContactPicker } from '@/components/BulkInviteContactPicker'
 import { supabase } from '@/lib/supabase'
 import {
   searchParts, getAircraftEquipment, addAircraftEquipment, removeAircraftEquipment, updateAircraftEquipmentTracking,
-  getAircraftReminders, addAircraftReminder, updateAircraftReminder, removeAircraftReminder, PART_TYPE_LABELS,
+  getAircraftReminders, addAircraftReminder, updateAircraftReminder, removeAircraftReminder,
+  setReminderCompliedHobbs, PART_TYPE_LABELS,
   type AdPart, type AircraftEquipment, type AircraftReminder, type PartComponentType, type PartTracking,
 } from '@/lib/adParts'
 import {
   getAircraftAdNotifications, markAdNotificationRead, dismissAdNotification, backfillAircraftAds,
-  resyncAircraftAds, markAdComplied, unmarkAdComplied, type AircraftAdNotification,
+  resyncAircraftAds, markAdComplied, unmarkAdComplied, type AircraftAdNotification, type ComplianceKind,
 } from '@/lib/adNotifications'
 import {
   getMyAircraftRole, getAircraftCollaborators, removeCollaborator, leaveSharedAircraft,
@@ -597,6 +598,76 @@ export default function AircraftDetailScreen() {
   // header -- same "open" meaning get_fleet_summary() and the Fleet list
   // chips already use.
   const openAdCount = useMemo(() => visibleAdNotifications.filter((n) => !n.compliedAt).length, [visibleAdNotifications])
+
+  // Three groups, because a complied AD and a recurring one are not the same
+  // thing and Robin's request is precisely that they stop being lumped
+  // together: "these wouldn't stay up in the normal list of uncomplied ADs
+  // that we have now."
+  //   open      -> still needs doing
+  //   recurring -> complied, but due again; carries a countdown
+  //   complied  -> done, kept as the aircraft's record ("a file of complied
+  //                ADs in that a/c's management area")
+  const adGroups = useMemo(() => {
+    const open: AircraftAdNotification[] = []
+    const recurring: AircraftAdNotification[] = []
+    const complied: AircraftAdNotification[] = []
+    for (const n of visibleAdNotifications) {
+      if (!n.compliedAt) open.push(n)
+      else if (n.complianceKind === 'recurring') recurring.push(n)
+      else complied.push(n)
+    }
+    return { open, recurring, complied }
+  }, [visibleAdNotifications])
+
+  // Flattened for rendering: the existing row markup is reused verbatim and
+  // section headers are interleaved, rather than splitting the list into three
+  // separate .map() blocks. That keeps ONE copy of a row that already carries
+  // swipe-to-dismiss, long-press preview, unread state and the mark/un-mark
+  // action -- three copies would drift.
+  const adRows = useMemo(() => {
+    const rows: ({ kind: 'header'; key: string; label: string; count: number }
+               | { kind: 'ad'; key: string; ad: AircraftAdNotification })[] = []
+    const push = (label: string, list: AircraftAdNotification[]) => {
+      if (list.length === 0) return
+      // Only label a group when there is something to distinguish it FROM.
+      // A lone header over the only group is noise.
+      if ([adGroups.open, adGroups.recurring, adGroups.complied].filter((g) => g.length).length > 1) {
+        rows.push({ kind: 'header', key: `h-${label}`, label, count: list.length })
+      }
+      for (const ad of list) rows.push({ kind: 'ad', key: String(ad.id), ad })
+    }
+    push('NEEDS ACTION', adGroups.open)
+    push('RECURRING', adGroups.recurring)
+    push('COMPLIED', adGroups.complied)
+    return rows
+  }, [adGroups])
+
+  /** Traffic light for a recurring AD, per Robin: "more than 30 days/30 hours
+   *  out, green. w/n 30, amber. Past due, red."
+   *
+   *  Whichever limit is CLOSER governs, because an AD due in 20 hours but 200
+   *  days is due in 20 hours. Returns null when the linked reminder has
+   *  neither limit, so the UI can stay silent instead of inventing a status. */
+  const recurringStatus = (adNumber: string): { color: string; label: string } | null => {
+    const rem = reminders.find((r) => r.linkedAdNumber === adNumber)
+    if (!rem) return null
+    const days = rem.dueDate ? daysUntil(rem.dueDate) : null
+    const hoursLeft =
+      rem.dueHobbsHours != null && aircraft?.current_hobbs_hours != null
+        ? rem.dueHobbsHours - aircraft.current_hobbs_hours
+        : null
+    if (days == null && hoursLeft == null) return null
+
+    const overdue = (days != null && days < 0) || (hoursLeft != null && hoursLeft < 0)
+    const soon = (days != null && days <= 30) || (hoursLeft != null && hoursLeft <= 30)
+    const bits: string[] = []
+    if (days != null) bits.push(overdue && days < 0 ? `${Math.abs(days)}d overdue` : `${days}d`)
+    if (hoursLeft != null) bits.push(hoursLeft < 0 ? `${Math.abs(hoursLeft).toFixed(1)}h overdue` : `${hoursLeft.toFixed(1)}h`)
+    return {
+      color: overdue ? tokens.red : soon ? tokens.amb : tokens.grn,
+      label: bits.join(' · '),
+    }
+  }
   const handleOpenAd = (n: AircraftAdNotification) => {
     if (!n.readAt) {
       // Optimistic -- the whole point of the unread dot is that it clears
@@ -662,7 +733,16 @@ export default function AircraftDetailScreen() {
   // handled w/ CTA disclaimer if need be to log that we advised." The
   // confirm text itself IS that disclaimer -- no separate acknowledgment
   // flag, matching every other confirm on this screen.
+  const [complianceAd, setComplianceAd] = useState<AircraftAdNotification | null>(null)
+
+  // Opens the real form instead of the old yes/no confirm. The confirm stamped
+  // now() with no note, which recorded THAT an AD was done but never when or
+  // how -- Robin's point exactly.
   const handleMarkComplied = (n: AircraftAdNotification) => {
+    setComplianceAd(n)
+  }
+
+  const legacyMarkComplied = (n: AircraftAdNotification) => {
     confirm({
       title: `Mark AD ${n.adNumber} complied?`,
       message: "This records that you've completed what this AD requires. FlyRegs doesn't independently verify compliance -- always keep your own maintenance records as the official source.",
@@ -1111,10 +1191,25 @@ export default function AircraftDetailScreen() {
                       dropdown. just tap the bar to enter." handleDismissAd
                       already pops its own 2-step confirm dialog (unchanged
                       below), so the swipe reveal just needs to call it. */}
-                  {visibleAdNotifications.map((n, i) => (
+                  {adRows.map((row, i) => row.kind === 'header' ? (
                     <View
-                      key={n.id}
-                      style={i < visibleAdNotifications.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}
+                      key={row.key}
+                      style={{ paddingTop: i === 0 ? 2 : 14, paddingBottom: 6, flexDirection: 'row',
+                               alignItems: 'center', gap: 8 }}
+                    >
+                      <Text style={{ color: tokens.t3, fontSize: fs(10.5), fontWeight: '700', letterSpacing: 0.7 }}>
+                        {row.label}
+                      </Text>
+                      <Text style={{ color: tokens.t4, fontSize: fs(10.5), fontWeight: '600' }}>{row.count}</Text>
+                    </View>
+                  ) : (() => {
+                    const n = row.ad
+                    const status = n.complianceKind === 'recurring' ? recurringStatus(n.adNumber) : null
+                    const next = adRows[i + 1]
+                    return (
+                    <View
+                      key={row.key}
+                      style={next && next.kind === 'ad' && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tokens.bdr }}
                     >
                       <SwipeToDelete
                         onDelete={() => handleDismissAd(n)}
@@ -1181,9 +1276,32 @@ export default function AircraftDetailScreen() {
                             </Text>
                             <Text style={[styles.rowSub, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={2}>{n.subjectHeading}</Text>
                             {n.compliedAt ? (
-                              <Text style={[styles.rowSub, { color: tokens.grn, fontSize: fs(11) }]}>
-                                Complied {n.compliedAt.slice(0, 10)}
-                              </Text>
+                              <>
+                                <Text style={[styles.rowSub, { color: tokens.grn, fontSize: fs(11) }]}>
+                                  Complied {n.compliedAt.slice(0, 10)}
+                                  {n.complianceKind === 'recurring' ? ' · recurring' : ''}
+                                </Text>
+                                {/* Robin's traffic light: "more than 30 days/30
+                                    hours out, green. w/n 30, amber. Past due,
+                                    red." Whichever limit is CLOSER governs --
+                                    an AD due in 20 hours but 200 days is due in
+                                    20 hours. Silent when the linked reminder
+                                    carries neither limit, rather than inventing
+                                    a status. */}
+                                {status && (
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: status.color }} />
+                                    <Text style={[styles.rowSub, { color: status.color, fontSize: fs(11), fontWeight: '600' }]}>
+                                      Next due {status.label}
+                                    </Text>
+                                  </View>
+                                )}
+                                {n.compliedNote ? (
+                                  <Text style={[styles.rowSub, { color: tokens.t3, fontSize: fs(11) }]} numberOfLines={2}>
+                                    {n.compliedNote}
+                                  </Text>
+                                ) : null}
+                              </>
                             ) : (
                               <Text style={[styles.rowSub, { color: tokens.t4, fontSize: fs(11) }]}>
                                 {n.matchedVia === 'equipment' ? 'Equip Match' : 'Airframe Match'}
@@ -1194,7 +1312,8 @@ export default function AircraftDetailScreen() {
                         </View>
                       </SwipeToDelete>
                     </View>
-                  ))}
+                    )
+                  })())}
                 </View>
               )}
             </>
@@ -1447,6 +1566,57 @@ export default function AircraftDetailScreen() {
         onChangePart={changeEquipmentPart}
         onSave={handleSaveTracking}
       />
+      <AdComplianceModal
+        visible={complianceAd !== null}
+        ad={complianceAd}
+        currentHobbs={aircraft?.current_hobbs_hours ?? null}
+        existingReminder={
+          complianceAd
+            ? reminders.find((r) => r.linkedAdNumber === complianceAd.adNumber) ?? null
+            : null
+        }
+        onClose={() => setComplianceAd(null)}
+        onSaved={async ({ kind, compliedDate, note, nextDueDate, nextDueHobbs, compliedHobbs }) => {
+          if (!complianceAd || !aircraft || !session?.user?.id) return
+          // Store the date as a real timestamp at local midnight -- complied_at
+          // is timestamptz, and a bare 'YYYY-MM-DD' would land at UTC midnight
+          // and read back as the previous day for anyone west of Greenwich.
+          await markAdComplied(complianceAd.id, note, {
+            kind,
+            compliedAt: new Date(compliedDate + 'T12:00:00').toISOString(),
+          })
+
+          if (kind === 'recurring') {
+            // A recurring AD IS a reminder -- reuse the row that already
+            // drives push alerts and the traffic light rather than inventing
+            // a second place that thinks it owns "when is this next due".
+            const existing = reminders.find((r) => r.linkedAdNumber === complianceAd.adNumber)
+            const title = `AD ${complianceAd.adNumber}`
+            if (existing) {
+              await updateAircraftReminder(
+                existing.id, title, nextDueDate ?? existing.dueDate,
+                complianceAd.adNumber, note || existing.notes,
+                existing.intervalMonths, nextDueHobbs, existing.intervalDays,
+              )
+            } else if (nextDueDate || nextDueHobbs != null) {
+              await addAircraftReminder(
+                session.user.id, aircraft.id, title,
+                // due_date is NOT NULL, so an hours-only AD still needs one.
+                // A year out is a deliberate placeholder that keeps it out of
+                // the amber/red bands while the HOURS drive the real status.
+                nextDueDate ?? new Date(Date.now() + 365 * 864e5).toISOString().slice(0, 10),
+                complianceAd.adNumber, note || null, null, nextDueHobbs, null,
+              )
+            }
+            if (compliedHobbs != null) {
+              const row = reminders.find((r) => r.linkedAdNumber === complianceAd.adNumber)
+              if (row) await setReminderCompliedHobbs(row.id, compliedHobbs)
+            }
+          }
+          await load()
+        }}
+      />
+
       <ReminderFormModal
         visible={reminderFormVisible}
         editing={editingReminder}
@@ -1872,6 +2042,233 @@ function PartTrackingModal({
 // BOTH modes per RC: "these reminder boxes need to also show the selected
 // length of the reminder (12mo, 24mo, etc) and they all also have to have
 // that bar be editable with a custom length."
+// ── AD compliance record ──────────────────────────────────────────────────
+//
+// Robin (beta tester, 2026-09-02, submission 948cac3c-...): "when the user
+// taps 'mark complied', there should be a pop-up that asks 'one time' or
+// 'recurring'. If the user selects 'recurring', the next input should be a
+// date, or hours next due on the airframe, engine, component, etc. If they
+// tap 'one-time', the next input should be when it was complied with and a
+// note on how (eg; installation of STC #####, or installation of upgraded
+// component)."
+//
+// That is how AD compliance actually works, and the old flow -- a yes/no
+// confirm that stamped now() with no note -- was a checkbox, not a
+// maintenance record.
+//
+// WHY THIS REUSES ReminderFormModal'S MACHINERY RATHER THAN INVENTING ITS OWN:
+// a recurring AD IS a reminder. user_aircraft_reminders already carries
+// linked_ad_number, due_date, due_hobbs_hours and the interval fields, and
+// already drives the push alerts and the traffic-light display. Building a
+// parallel recurrence system next to it would mean two things that both
+// think they own "when is this next due".
+function AdComplianceModal({
+  visible, ad, currentHobbs, existingReminder, onClose, onSaved,
+}: {
+  visible: boolean
+  ad: AircraftAdNotification | null
+  currentHobbs: number | null
+  existingReminder: AircraftReminder | null
+  onClose: () => void
+  onSaved: (input: {
+    kind: ComplianceKind
+    compliedDate: string
+    note: string
+    nextDueDate: string | null
+    nextDueHobbs: number | null
+    compliedHobbs: number | null
+  }) => Promise<void>
+}) {
+  const { tokens } = useTheme()
+  const fs = useFS()
+  const ifs = useInputFS()
+  const confirm = useConfirm()
+  const insets = useSafeAreaInsets()
+
+  const [kind, setKind] = useState<ComplianceKind>('one_time')
+  const [compliedDate, setCompliedDate] = useState('')
+  const [note, setNote] = useState('')
+  const [nextDueDate, setNextDueDate] = useState('')
+  const [nextDueHobbsText, setNextDueHobbsText] = useState('')
+  const [compliedHobbsText, setCompliedHobbsText] = useState('')
+  const [picking, setPicking] = useState<null | 'complied' | 'next'>(null)
+  const [saving, setSaving] = useState(false)
+
+  // Reset every time the sheet opens, not on mount -- same discipline as
+  // ReminderFormModal and DatePickerModal, which both had real bugs from
+  // carrying stale state across openings.
+  useEffect(() => {
+    if (!visible) return
+    const today = new Date().toISOString().slice(0, 10)
+    setKind(ad?.complianceKind ?? 'one_time')
+    setCompliedDate(ad?.compliedAt ? ad.compliedAt.slice(0, 10) : today)
+    setNote(ad?.compliedNote ?? '')
+    setNextDueDate(existingReminder?.dueDate ?? '')
+    setNextDueHobbsText(existingReminder?.dueHobbsHours != null ? String(existingReminder.dueHobbsHours) : '')
+    setCompliedHobbsText(currentHobbs != null ? String(currentHobbs) : '')
+    setPicking(null)
+    setSaving(false)
+  }, [visible, ad?.id])
+
+  const dateValid = DATE_RE.test(compliedDate)
+  const nextHobbs = nextDueHobbsText.trim() ? Number(nextDueHobbsText) : null
+  const nextHobbsValid = nextDueHobbsText.trim() === '' || (Number.isFinite(nextHobbs) && (nextHobbs as number) > 0)
+  // A recurring AD has to be due again at SOME point, or it is just a
+  // one-time entry wearing the wrong label -- and it would sit in the
+  // recurring section forever with nothing to count down to.
+  const recurringHasTarget = kind === 'one_time' || DATE_RE.test(nextDueDate) || (nextHobbs != null && nextHobbs > 0)
+  const canSave = dateValid && nextHobbsValid && recurringHasTarget && !saving
+
+  const save = async () => {
+    if (!canSave || !ad) return
+    setSaving(true)
+    try {
+      const compliedHobbs = compliedHobbsText.trim() ? Number(compliedHobbsText) : null
+      await onSaved({
+        kind,
+        compliedDate,
+        note,
+        nextDueDate: kind === 'recurring' && DATE_RE.test(nextDueDate) ? nextDueDate : null,
+        nextDueHobbs: kind === 'recurring' ? nextHobbs : null,
+        compliedHobbs: kind === 'recurring' && Number.isFinite(compliedHobbs) ? compliedHobbs : null,
+      })
+      onClose()
+    } catch (e: any) {
+      confirm({ title: 'Could not save', message: e?.message ?? 'Unknown error', cancelLabel: null })
+    }
+    setSaving(false)
+  }
+
+  if (!ad) return null
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, maxHeight: '88%', paddingBottom: Math.max(18, insets.bottom + 8) }]}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(17) }]}>AD {ad.adNumber}</Text>
+            <Pressable onPress={onClose} hitSlop={10}>
+              <Icon name="xmark" size={fs(18)} color={tokens.t3} />
+            </Pressable>
+          </View>
+
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 12 }}>
+            <Text style={{ color: tokens.t3, fontSize: fs(11), fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 }}>COMPLIANCE TYPE</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 18 }}>
+              {([['one_time', 'One-time'], ['recurring', 'Recurring']] as [ComplianceKind, string][]).map(([k, label]) => (
+                <Pressable
+                  key={k}
+                  onPress={() => setKind(k)}
+                  style={{
+                    flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, alignItems: 'center',
+                    borderColor: kind === k ? tokens.blu : tokens.bdr,
+                    backgroundColor: kind === k ? tokens.bdim : 'transparent',
+                  }}
+                >
+                  <Text style={{ color: kind === k ? tokens.blu : tokens.t2, fontSize: fs(14.5), fontWeight: '600' }}>{label}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={{ color: tokens.t3, fontSize: fs(11), fontWeight: '600', letterSpacing: 0.5 }}>DATE COMPLIED</Text>
+            <Pressable
+              onPress={() => setPicking('complied')}
+              style={{ borderWidth: 1, borderColor: tokens.bdr, borderRadius: 10, padding: 13, marginTop: 6, marginBottom: 16 }}
+            >
+              <Text style={{ color: dateValid ? tokens.t1 : tokens.t4, fontSize: ifs(15) }}>
+                {dateValid ? compliedDate : 'Tap to choose a date'}
+              </Text>
+            </Pressable>
+
+            <Text style={{ color: tokens.t3, fontSize: fs(11), fontWeight: '600', letterSpacing: 0.5 }}>HOW IT WAS COMPLIED</Text>
+            <TextInput
+              value={note}
+              onChangeText={setNote}
+              multiline
+              placeholder="e.g. Installed STC SA01234NY; replaced fuel hose assembly per Goodrich SB 7A1508"
+              placeholderTextColor={tokens.t4}
+              style={{
+                borderWidth: 1, borderColor: tokens.bdr, borderRadius: 10, padding: 13, marginTop: 6,
+                color: tokens.t1, fontSize: ifs(15), minHeight: 92, textAlignVertical: 'top', marginBottom: 16,
+              }}
+            />
+
+            {kind === 'recurring' && (
+              <>
+                <Text style={{ color: tokens.t3, fontSize: fs(11), fontWeight: '600', letterSpacing: 0.5 }}>NEXT DUE — DATE</Text>
+                <Pressable
+                  onPress={() => setPicking('next')}
+                  style={{ borderWidth: 1, borderColor: tokens.bdr, borderRadius: 10, padding: 13, marginTop: 6, marginBottom: 14 }}
+                >
+                  <Text style={{ color: DATE_RE.test(nextDueDate) ? tokens.t1 : tokens.t4, fontSize: ifs(15) }}>
+                    {DATE_RE.test(nextDueDate) ? nextDueDate : 'Tap to choose a date'}
+                  </Text>
+                </Pressable>
+
+                <Text style={{ color: tokens.t3, fontSize: fs(11), fontWeight: '600', letterSpacing: 0.5 }}>NEXT DUE — AIRFRAME HOURS</Text>
+                <TextInput
+                  value={nextDueHobbsText}
+                  onChangeText={setNextDueHobbsText}
+                  keyboardType="decimal-pad"
+                  placeholder="e.g. 2150"
+                  placeholderTextColor={tokens.t4}
+                  style={{ borderWidth: 1, borderColor: tokens.bdr, borderRadius: 10, padding: 13, marginTop: 6, marginBottom: 14, color: tokens.t1, fontSize: ifs(15) }}
+                />
+
+                <Text style={{ color: tokens.t3, fontSize: fs(11), fontWeight: '600', letterSpacing: 0.5 }}>HOURS AT COMPLIANCE</Text>
+                <TextInput
+                  value={compliedHobbsText}
+                  onChangeText={setCompliedHobbsText}
+                  keyboardType="decimal-pad"
+                  placeholder="e.g. 2050"
+                  placeholderTextColor={tokens.t4}
+                  style={{ borderWidth: 1, borderColor: tokens.bdr, borderRadius: 10, padding: 13, marginTop: 6, marginBottom: 6, color: tokens.t1, fontSize: ifs(15) }}
+                />
+                <Text style={{ color: tokens.t4, fontSize: fs(12), marginBottom: 16, lineHeight: fs(12) * 1.4 }}>
+                  Give a date, hours, or both. Recurring ADs move out of the open list and into Recurring ADs, where they turn amber inside 30 days or 30 hours and red once past due.
+                </Text>
+              </>
+            )}
+
+            {!recurringHasTarget && (
+              <Text style={{ color: tokens.amb, fontSize: fs(13), marginBottom: 12 }}>
+                A recurring AD needs a next-due date or hours.
+              </Text>
+            )}
+
+            <Pressable
+              onPress={save}
+              disabled={!canSave}
+              style={{
+                backgroundColor: canSave ? tokens.blu : tokens.bdim,
+                borderRadius: 12, paddingVertical: 15, alignItems: 'center', marginTop: 4,
+              }}
+            >
+              {saving
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={{ color: canSave ? '#fff' : tokens.t4, fontSize: fs(15.5), fontWeight: '700' }}>Save compliance record</Text>}
+            </Pressable>
+
+            <Text style={{ color: tokens.t4, fontSize: fs(11.5), marginTop: 12, lineHeight: fs(11.5) * 1.45 }}>
+              FlyRegs records what you enter here. It does not independently verify compliance — your own maintenance records remain the official source.
+            </Text>
+          </ScrollView>
+
+          <DatePickerModal
+            visible={picking !== null}
+            initialDate={picking === 'next' ? nextDueDate : compliedDate}
+            onClose={() => setPicking(null)}
+            onSelect={(iso) => (picking === 'next' ? setNextDueDate(iso) : setCompliedDate(iso))}
+            tokens={tokens}
+            fs={fs}
+          />
+        </View>
+      </View>
+    </Modal>
+  )
+}
+
+
 function ReminderFormModal({
   visible, editing, applicableAds, onClose, onSaved,
 }: {
