@@ -380,15 +380,19 @@ def download_pdf(url: str, session: requests.Session) -> Optional[bytes]:
 # naming the document and exactly how many pages were dropped. A silent cap is
 # how this survived this long.
 #
-# NOT FIXED HERE, on purpose: the 500K value itself. Raising it is coupled to
-# a rendering problem and must not be done alone. ACBody renders every block
-# into a plain ScrollView with no virtualisation -- AC 36-3H is already 4,291
-# blocks / ~8,650 host views at 494 KB. 29-2C's full 3.28 MB would be roughly
-# seven times that, which is a guaranteed watchdog kill, and pdf_blocks JSONB
-# is downloaded whole by the client. Lifting the cap before the reader can
-# stream or paginate would turn a truncation bug into a crash. That sequencing
-# call is RC's; see PROJECT_NOTES/flyregs_agent_run_queue.md.
-MAX_PDF_TEXT_CHARS = 500_000
+# RAISED 2026-09-02, once the reader could survive it. The old 500K value WAS
+# the truncation. It stayed in place for exactly one commit, because lifting
+# it alone would have converted a truncation bug into a crash -- ACBody mounted
+# every block into a plain ScrollView with no virtualisation, and AC 36-3H is
+# already 4,291 blocks / ~8,650 host views at just 494 KB.
+#
+# ACBody now mounts in 400-block chunks via InteractionManager (see its
+# BODY_CHUNK comment), so the full documents render without a single
+# multi-thousand-view mount. 4,000,000 covers the entire real corpus with
+# headroom -- the largest true text is 29-2C at ~3.28 MB -- while still being
+# a real ceiling rather than an unbounded write, and _join_pages_capped still
+# cuts on a page boundary and logs loudly if anything ever reaches it.
+MAX_PDF_TEXT_CHARS = 4_000_000
 
 
 def _join_pages_capped(pages: list[str], doc_num: str = "?") -> Optional[str]:

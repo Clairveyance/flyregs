@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ScrollView,
   Platform,
+  InteractionManager,
   useWindowDimensions,
 } from 'react-native'
 import { router } from 'expo-router'
@@ -675,6 +676,39 @@ export const ACBody = React.forwardRef<
   // buildParagraphRefIndex's own comment.
   const paragraphRefIndex = useMemo(() => buildParagraphRefIndex(blocks), [blocks])
 
+  // PROGRESSIVE REVEAL. Every block is a host View carrying a ref and an
+  // onLayout, plus its own Text children, and they were ALL mounted in one
+  // pass into a plain ScrollView with no virtualisation. Measured: AC 36-3H
+  // is 4,291 blocks -> ~8,650 host views and 4,291 onLayout events on mount,
+  // and 16 ACs already exceed 1,000 blocks. That is the real source of the
+  // WatchdogTermination kills -- not the downloads JSON the old comments
+  // blamed, which measures ~4ms.
+  //
+  // This is what makes it safe to stop truncating ACs at 500K characters
+  // (see MAX_PDF_TEXT_CHARS in sync/faa_scraper.py): AC 43.13-1B's full text
+  // is ~1.37MB and 29-2C's ~3.28MB, so lifting that cap without this would
+  // have turned a truncation bug into a guaranteed crash.
+  //
+  // Deliberately NOT a FlatList. This component's scroll-to-block,
+  // scroll-to-match and table-scrollspy APIs are all built on one ScrollView's
+  // onLayout-derived offsets, which a FlatList would invalidate -- that is a
+  // rewrite, not a fix. Chunked mounting keeps every one of those APIs intact
+  // and costs one extra frame per chunk.
+  //
+  // `blocks`, `toc`, `occurrences` and onMatchCount are all still computed
+  // from the FULL array, so the contents list and in-document search counts
+  // stay correct while the tail is still mounting.
+  const BODY_CHUNK = 400
+  const [revealed, setRevealed] = useState(BODY_CHUNK)
+  useEffect(() => { setRevealed(BODY_CHUNK) }, [blocks])
+  useEffect(() => {
+    if (revealed >= blocks.length) return
+    const handle = InteractionManager.runAfterInteractions(() => {
+      setRevealed((n) => Math.min(n + BODY_CHUNK, blocks.length))
+    })
+    return () => handle.cancel()
+  }, [revealed, blocks.length])
+
   const [showToc, setShowToc] = useState(false)
   const [showFigures, setShowFigures] = useState(false)
   const [showFormulaRefs, setShowFormulaRefs] = useState(false)
@@ -885,6 +919,17 @@ export const ACBody = React.forwardRef<
   // (ac/[id].tsx's changed-paragraphs nav) -- both are "land on this exact
   // block", just triggered from different places.
   const goToBlockIndex = (blockIndex: number) => {
+    // A jump target past the progressive-reveal frontier has not mounted yet,
+    // so it has no ref and no measured offset and the jump would silently do
+    // nothing. Mount everything up to it first, then jump on the next frame
+    // once layout has run. Only reached for a deep jump into a very long AC
+    // in the first moments after opening it -- by design the tail is usually
+    // already revealed by the time anyone taps a contents entry.
+    if (blockIndex >= revealed) {
+      setRevealed(Math.min(blockIndex + BODY_CHUNK, blocks.length))
+      requestAnimationFrame(() => requestAnimationFrame(() => goToBlockIndex(blockIndex)))
+      return
+    }
     const node = jumpRefs.current[blockIndex]
     if (Platform.OS === 'web') {
       const el = node as unknown as HTMLElement
@@ -970,7 +1015,7 @@ export const ACBody = React.forwardRef<
     scrollToBlockIndex(blockIndex: number) {
       goToBlockIndex(blockIndex)
     },
-  }), [occurrences, scrollRef, hq, centerOffset])
+  }), [occurrences, scrollRef, hq, centerOffset, revealed, blocks.length])
 
   const jumpTo = (id: string) => {
     const scroller = scrollRef?.current
@@ -1156,7 +1201,7 @@ export const ACBody = React.forwardRef<
       )}
 
       {/* Document body — capped to bodyLimit blocks for the free-tier preview */}
-      {(bodyLimit != null ? blocks.slice(0, bodyLimit) : blocks).map((b, i) => {
+      {(bodyLimit != null ? blocks.slice(0, bodyLimit) : blocks.slice(0, revealed)).map((b, i) => {
         const isChanged = changedSet.has(i)
         const changedStyle = isChanged
           ? { borderLeftWidth: 3, borderLeftColor: tokens.blu, paddingLeft: 8 }
