@@ -95,7 +95,30 @@ AD_HEADER_RE = re.compile(
 # Lettered top-level paragraphs in the regulatory text -- confirmed live as
 # a consistent, legally-mandated structure across every AD checked (small
 # GA airplanes through transport-category jets, different manufacturers).
-PARAGRAPH_RE = re.compile(r"\n\(([a-z])\)\s+([^\n]+)\n\n(.*?)(?=\n\([a-z]\)\s+[^\n]+\n\n|\Z)", re.DOTALL)
+# `\n[ \t]{0,6}\(` and not `\n\(`: the old form demanded the paragraph letter
+# start in column 0, but the Federal Register frequently indents it by a
+# space. That single character was costing whole fields.
+#
+# Measured across all 5,620 stored bodies before changing it, old vs new:
+#   unsafe condition   RECOVERED 83   LOST 0   CHANGED 16
+#   applicability      RECOVERED 77   LOST 0   CHANGED 46
+#
+# ZERO losses, and every CHANGED case is an over-capture being fixed rather
+# than data going missing -- because the same indentation also hid the
+# LOOKAHEAD's next-paragraph boundary, so a matched field ran on and swallowed
+# every following paragraph. AD 2026-13-06 is the clean illustration: the old
+# regex found only 2 headings on the whole AD and its "applicability" was
+# 5,398 characters of Subject + Unsafe Condition + Compliance + Required
+# Actions welded together; the new one finds all 12 headings and applicability
+# is its real 272-character paragraph. That AD's unsafe_condition was NULL and
+# is now correct.
+#
+# This also improves supersession parsing as a side effect: `superseded_ad` is
+# read out of the "affected ads" paragraph, which the old regex could not see
+# on an indented AD at all.
+#
+# Needs a re-scrape to land -- the fix is in the parser, not in the stored rows.
+PARAGRAPH_RE = re.compile(r"\n[ \t]{0,6}\(([a-z])\)\s+([^\n]+)\n\n(.*?)(?=\n[ \t]{0,6}\([a-z]\)\s+[^\n]+\n\n|\Z)", re.DOTALL)
 
 # raw_text_url's SGML source renders character entities as bracket-wrapped
 # names ("[eacute]" for what should be "&eacute;") instead of proper

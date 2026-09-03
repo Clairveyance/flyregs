@@ -113,6 +113,68 @@ const REVISION_TYPES: DownloadedItemType[] = ['far', 'aim', 'ad', 'cfr49']
  * resolves false, silently: this is a best-effort upgrade to the always-
  * shown "Downloaded {date}" disclosure, never a blocking check.
  */
+/**
+ * Batched form of isDownloadStale for a whole list — TWO queries instead of N.
+ *
+ * The Saved tab ran `Promise.all(downloads.map(isDownloadStale))`, which is
+ * one live request PER DOWNLOAD, re-fired on every focus (getDownloads()
+ * returns a fresh array each call, so the effect's `[downloads]` dep always
+ * changes identity). Fine at ten downloads; a stall and a battery/data drain
+ * at two hundred — and `record_offline_download` has no cap, so a Premium
+ * user can download the entire 786-AC library.
+ *
+ * Semantics are deliberately IDENTICAL to isDownloadStale, including its
+ * "false means no evidence found, never confirmed-current" contract and its
+ * silent degradation to "nothing flagged" with no network. This only changes
+ * how many round trips it takes to reach the same answer. isDownloadStale
+ * itself stays — the detail screens still check one document at a time.
+ */
+export async function getStaleDownloadIds(items: DownloadedAC[]): Promise<Set<string>> {
+  const out = new Set<string>()
+  if (items.length === 0) return out
+  const revItems = items.filter((d) => REVISION_TYPES.includes(downloadItemType(d)))
+  const acItems = items.filter((d) => downloadItemType(d) === 'ac')
+  try {
+    if (revItems.length > 0) {
+      const { data } = await supabase
+        .from('content_revisions_gated')
+        .select('doc_type, doc_key, revised_at')
+        .in('doc_type', REVISION_TYPES)
+        .in('doc_key', revItems.map((d) => d.id))
+      // Keep only the newest revision per (type, key) — the per-item version
+      // does this with `.order().limit(1)`, which cannot be expressed once
+      // across a batch, so it is done here instead.
+      const latest = new Map<string, string>()
+      for (const r of (data ?? []) as { doc_type: string; doc_key: string; revised_at: string }[]) {
+        const k = `${r.doc_type}:${r.doc_key}`
+        const prev = latest.get(k)
+        if (!prev || r.revised_at > prev) latest.set(k, r.revised_at)
+      }
+      for (const d of revItems) {
+        const rev = latest.get(`${downloadItemType(d)}:${d.id}`)
+        if (rev && new Date(rev).getTime() > new Date(d.downloadedAt).getTime()) out.add(d.id)
+      }
+    }
+    if (acItems.length > 0) {
+      const { data } = await supabase
+        .from('advisory_circulars')
+        .select('id, updated_at')
+        .in('id', acItems.map((d) => d.id))
+      const upd = new Map(
+        ((data ?? []) as { id: string; updated_at: string }[]).map((r) => [r.id, r.updated_at]),
+      )
+      for (const d of acItems) {
+        const u = upd.get(d.id)
+        if (u && new Date(u).getTime() > new Date(d.downloadedAt).getTime()) out.add(d.id)
+      }
+    }
+  } catch {
+    // Same silent degradation as isDownloadStale: no network means nothing
+    // flagged, never a false "current" claim and never a user-facing error.
+  }
+  return out
+}
+
 export async function isDownloadStale(item: DownloadedAC): Promise<boolean> {
   const type = downloadItemType(item)
   try {

@@ -18,7 +18,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { Icon } from '@/components/Icon'
 import { getBookmarks, removeBookmark, removeManyBookmarks, routeForBookmark, bookmarkItemType, BookmarkAC } from '@/lib/bookmarks'
 import { highlightSnippet } from '@/lib/acShare'
-import { getDownloads, removeDownload, formatBytes, DownloadedAC, downloadItemType, routeForDownload, isDownloadStale } from '@/lib/downloads'
+import { getDownloads, removeDownload, formatBytes, DownloadedAC, downloadItemType, routeForDownload, isDownloadStale, getStaleDownloadIds } from '@/lib/downloads'
 import { REG_TYPE, RegType } from '@/lib/regTypes'
 import {
   getFolders,
@@ -352,8 +352,13 @@ export default function SavedScreen() {
   useEffect(() => {
     if (downloads.length === 0) { setStaleDownloadIds(new Set()); return }
     let cancelled = false
-    Promise.all(downloads.map((d) => isDownloadStale(d).then((stale) => (stale ? d.id : null))))
-      .then((ids) => { if (!cancelled) setStaleDownloadIds(new Set(ids.filter((x): x is string => !!x))) })
+    // Batched: two queries for the whole list, not one per download. This
+    // effect re-fires on every focus (getDownloads() returns a fresh array,
+    // so the [downloads] dep always changes identity), and a Premium user has
+    // no download cap, so the per-item form was N live requests every time
+    // the tab was opened.
+    getStaleDownloadIds(downloads)
+      .then((ids) => { if (!cancelled) setStaleDownloadIds(ids) })
     return () => { cancelled = true }
   }, [downloads])
 
