@@ -188,8 +188,19 @@ export default function TheWingScreen() {
   // RefPacketGrid below.
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
+  // RefPacks is the headline thing a Plus subscriber's tier unlocks on this
+  // screen, and it used to vanish entirely on any hiccup: no .catch() here,
+  // and the render guard is `refPackets.length > 0`, so a rejected fetch left
+  // an empty array and simply drew nothing -- no error, no spinner, no retry.
+  // With `[]` deps on a persistent <Tabs> screen that never remounts, it also
+  // never tried again for the rest of the session.
+  const [packsError, setPacksError] = useState(false)
   useEffect(() => {
-    getRefPackets().then(setRefPackets)
+    let cancelled = false
+    getRefPackets()
+      .then((p) => { if (!cancelled) { setRefPackets(p); setPacksError(false) } })
+      .catch(() => { if (!cancelled) setPacksError(true) })
+    return () => { cancelled = true }
   }, [])
 
   // Stats are best-effort — a signed-in Free/Plus user (no Pro/Premium yet)
@@ -327,7 +338,16 @@ export default function TheWingScreen() {
             </Text>
             <Pressable
               style={[styles.lockedBtn, { backgroundColor: tokens.blu }]}
-              onPress={() => router.push('/paywall?tier=pro')}
+              // ?tier=plus, not pro. This screen's own gate is
+              // `if (!hasPlusAccess)` a few lines up, but the CTA asked for
+              // pro -- and paywall.tsx reads that as a hard requirement and
+              // drops 'plus' from the picker entirely. So a free user who
+              // tapped "See what's included" on a PLUS feature was shown only
+              // Pro and Premium, and could not buy the tier that unlocks the
+              // screen they just tried to open. RefPacketGrid.openPacket in
+              // this same file already pushes ?tier=plus correctly; the two
+              // entry points to one screen disagreed.
+              onPress={() => router.push('/paywall?tier=plus')}
             >
               <Text style={[styles.lockedBtnText, { fontSize: fs(15) }]}>See what's included</Text>
             </Pressable>
@@ -545,6 +565,26 @@ export default function TheWingScreen() {
                 {!isPremium && <Icon name="lock.fill" size={fs(13)} color={tokens.t4} />}
               </Pressable>
             </>
+          )}
+
+          {packsError && refPackets.length === 0 && (
+            <Pressable
+              onPress={() => {
+                setPacksError(false)
+                getRefPackets()
+                  .then((p) => { setRefPackets(p); setPacksError(false) })
+                  .catch(() => setPacksError(true))
+              }}
+              style={{ marginHorizontal: 16, marginTop: 12, paddingVertical: 14, paddingHorizontal: 16,
+                       borderRadius: 12, borderWidth: 1, borderColor: tokens.bdr, backgroundColor: tokens.bg2 }}
+            >
+              <Text style={{ color: tokens.t2, fontSize: fs(13.5), fontWeight: '600' }}>
+                Couldn't load RefPacks.
+              </Text>
+              <Text style={{ color: tokens.blu, fontSize: fs(13), marginTop: 4, fontWeight: '600' }}>
+                Tap to try again
+              </Text>
+            </Pressable>
           )}
 
           {refPackets.length > 0 && (

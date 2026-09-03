@@ -94,6 +94,13 @@ def make_session() -> requests.Session:
 #  Parsing — one letter page → list of term records
 # ──────────────────────────────────────────────────────────────────────────────
 
+# A dash followed by whitespace: the FAA's own term/definition separator, and
+# the same rule the <dfn> path already trusts. Covers the dash codepoints the
+# P/CG actually uses (ASCII -, U+2010 non-breaking hyphen, U+2011..U+2015) --
+# the pages mix them freely, sometimes within one entry.
+_NO_DFN_SEPARATOR_RE = re.compile(r"[-\u2010\u2011\u2012\u2013\u2014\u2015]\s")
+
+
 def _slugify_term(term: str) -> str:
     """Stable identity key across reruns — used as the upsert conflict key."""
     return re.sub(r"[^A-Z0-9]+", "_", term.upper()).strip("_")
@@ -210,12 +217,57 @@ def parse_letter_page(html: str, letter: str) -> list[dict]:
                 # ("CHA", "MRP", "Types of icing are:") that are not clean
                 # standalone terms. Deliberately not guessed at here.
                 #
-                # What DOES matter for this parser's correctness: drop
-                # `current`, so a <ol class="glossary-sub-list"> belonging to
-                # one of these unparsed terms can never silently land on the
-                # last term we happened to parse. Caught exactly that way --
-                # G-AIRMET's 7-item weather list attaching itself to the
-                # unrelated "GPS" see-ref stub two entries earlier.
+                # CLOSED 2026-09-02. The split CAN be inferred safely, using
+                # the same rule this parser already trusts as authoritative
+                # for the <dfn> path below: a dash FOLLOWED BY WHITESPACE is
+                # the FAA's term/definition separator.
+                #
+                # Requiring the whitespace AFTER the dash is what makes it
+                # safe, and a first attempt requiring it BEFORE recovered
+                # nothing useful -- the FAA writes "CLIMB VIA- An
+                # abbreviated..." with no leading space, so every term that
+                # mattered was rejected. Requiring it after also means an
+                # internal hyphen can never split a term: "CIRCLE-TO-LAND
+                # MANEUVER" has U+2010 hyphens followed by letters.
+                #
+                # Measured against all 23 live letter pages: of 164 no-<dfn>
+                # paragraphs this recovers 116 and rejects 48, and the 48 are
+                # exactly the genuine fragments ("CHA", "MRP", "RC", "Types
+                # of icing are:", bare see-ref stubs like "TCAS -").
+                # Recovered terms include CLIMB VIA, DESCEND VIA,
+                # CIRCLE-TO-LAND MANEUVER, CALIBRATED AIRSPEED (CAS), CHART
+                # SUPPLEMENT U.S., APPROACH WITH VERTICAL GUIDANCE (APV) and
+                # ACCELERATE-STOP DISTANCE AVAILABLE -- modern RNAV and
+                # clearance phraseology a pilot will actually hear.
+                #
+                # The length guards separate a term from a fragment: a real
+                # label is 2-90 characters and a real definition at least 40.
+                # Anything failing either is left alone exactly as before.
+                fallback_text = " ".join(p.get_text(" ", strip=True).split())
+                fb = _NO_DFN_SEPARATOR_RE.search(fallback_text)
+                fb_term = fallback_text[:fb.start()].strip() if fb else ""
+                fb_def = fallback_text[fb.end():].strip() if fb else ""
+                if fb and 2 <= len(fb_term) <= 90 and len(fb_def) >= 40:
+                    current = {
+                        "term": fb_term,
+                        "slug": _slugify_term(fb_term),
+                        "letter": letter,
+                        "definition": fb_def,
+                        # No <dfn> means no class to read this off, and none
+                        # of these are in the FAA's frequently-used set.
+                        "frequently_used": False,
+                        "see_refs": [],
+                        "external_refs": [],
+                    }
+                    terms.append(current)
+                    continue
+                #
+                # Still unparseable (a genuine fragment). Drop `current`, so a
+                # <ol class="glossary-sub-list"> belonging to one of these can
+                # never silently land on the last term we happened to parse.
+                # Caught exactly that way -- G-AIRMET's 7-item weather list
+                # attaching itself to the unrelated "GPS" see-ref stub two
+                # entries earlier.
                 current = None
                 continue
             raw_term = dfn.get_text(strip=True).rstrip("-").strip()

@@ -182,15 +182,45 @@ async function figureToDataUri(imageUrl: string): Promise<string | null> {
  * the text is the actual point of "Print & export" and an image is a bonus. */
 async function figuresToHtml(figures: PrintableFigure[] | undefined): Promise<string> {
   if (!figures || figures.length === 0) return ''
-  const items = await Promise.all(figures.map(async (f) => {
-    const dataUri = await figureToDataUri(f.imageUrl)
-    if (!dataUri) return null
-    const captionText = [f.label, f.caption].filter(Boolean).join(' — ')
-    return `<figure><img src="${dataUri}"/>${captionText ? `<figcaption>${escapeHtml(captionText)}</figcaption>` : ''}</figure>`
-  }))
-  const rendered = items.filter((x): x is string => !!x)
-  if (rendered.length === 0) return ''
-  return `<h2 class="figures-heading">Figures &amp; Tables</h2>\n${rendered.join('\n')}`
+  // BOUNDED POOL, not Promise.all. Each element makes a createSignedUrl round
+  // trip, downloads the whole file, and base64-encodes it -- so an unbounded
+  // fan-out launched every one of them at once and held every data URI in
+  // memory simultaneously before a single byte was printed. AC 43.13-1B has
+  // 378 figures (verified live) averaging ~326 KB, i.e. roughly 130 MB of PNG
+  // becoming ~173 MB of base64, plus the joined HTML, plus WKWebView's own
+  // copy. On an iPhone 13 mini that is a jetsam kill, and the user just sees
+  // Print hang and the app die.
+  //
+  // The identical bug was already found and fixed on the DOWNLOAD path in
+  // ac/[id].tsx, which now uses downloadAllToCache(concurrency = 4) with the
+  // same arithmetic spelled out. This file never got that treatment.
+  //
+  // Indexed writes into a pre-sized array, so figures print in their real
+  // order regardless of which worker finishes first.
+  const CONCURRENCY = 4
+  const rendered: (string | null)[] = new Array(figures.length).fill(null)
+  let next = 0
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, figures.length) }, async () => {
+      for (;;) {
+        const i = next++
+        if (i >= figures.length) return
+        const f = figures[i]
+        // Per-figure swallow, matching this function's documented contract:
+        // a figure that fails to load is dropped rather than failing the
+        // whole print job, since the text is the actual point of Print.
+        try {
+          const dataUri = await figureToDataUri(f.imageUrl)
+          if (!dataUri) continue
+          const captionText = [f.label, f.caption].filter(Boolean).join(' — ')
+          rendered[i] = `<figure><img src="${dataUri}"/>${captionText ? `<figcaption>${escapeHtml(captionText)}</figcaption>` : ''}</figure>`
+        } catch { /* dropped, as above */ }
+      }
+    }),
+  )
+  const out = rendered.filter((x): x is string => !!x)
+  if (out.length === 0) return ''
+  return `<h2 class="figures-heading">Figures &amp; Tables</h2>\n${out.join('\n')}`
 }
 
 export async function buildPrintHtml(reg: PrintableReg): Promise<string> {
@@ -301,5 +331,22 @@ async function doPrintReg(reg: PrintableReg): Promise<void> {
     setTimeout(() => { try { document.body.removeChild(frame) } catch { /* already gone */ } }, 1000)
     return
   }
-  await Print.printAsync({ html })
+  await Print.printAsync({ html }).catch((err: any) => {
+    // A user dismissing the system print sheet without tapping Print makes
+    // UIPrintInteractionController's completion handler fire with
+    // completed == false, which expo-print rejects as
+    // PrintIncompleteException -- verified in the native source,
+    // ExpoPrintWithPrinter.swift:94, whose reason string is exactly
+    // "Printing did not complete" (ExpoPrintExceptions.swift:63).
+    //
+    // That is a CANCELLATION, not an error. All seven call sites
+    // (ac/far/aim/pcg/ad/loi/cfr49) catch and Sentry.captureException, so
+    // every cancelled print filed an exception -- burning quota and burying
+    // the genuinely different PrintingJobFailedException, which is what a
+    // real print failure raises. Swallowed once here rather than in seven
+    // catch blocks, so those call sites now report only real failures.
+    const msg = String(err?.message ?? err)
+    if (/Printing did not complete/i.test(msg)) return
+    throw err
+  })
 }
