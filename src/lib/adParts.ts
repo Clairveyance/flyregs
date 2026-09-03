@@ -485,8 +485,14 @@ export async function addAircraftReminder(
   intervalMonths?: number | null,
   dueHobbsHours?: number | null,
   intervalDays?: number | null,
-): Promise<void> {
-  const { error } = await supabase.from('user_aircraft_reminders').insert({
+): Promise<string> {
+  // Returns the new row's id. The AD-compliance flow needs it immediately to
+  // write complied_hobbs_hours, and re-reading local state to find the row it
+  // just inserted does not work -- that state has not been refetched yet, so
+  // the lookup returns undefined and the write is silently skipped. That was a
+  // real data-loss bug (user-entered airframe hours discarded on every
+  // first-time recurring compliance).
+  const { data, error } = await supabase.from('user_aircraft_reminders').insert({
     user_id: userId,
     user_aircraft_id: userAircraftId,
     title: title.trim(),
@@ -496,8 +502,9 @@ export async function addAircraftReminder(
     interval_months: intervalMonths ?? null,
     interval_days: intervalDays ?? null,
     due_hobbs_hours: dueHobbsHours ?? null,
-  })
+  }).select('id').single()
   if (error) throw error
+  return (data as { id: string }).id
 }
 
 /** Record the airframe hours at which a linked AD was last complied with.

@@ -261,13 +261,24 @@ export default function AircraftDetailScreen() {
       getAircraftAdNotifications(id),
       getAircraftEquipment(id),
       getAircraftReminders(id),
-      getMyAircraftRole(id).catch(() => null),
+      // Wrapped so a FAILED lookup is distinguishable from "no row, therefore
+      // owner". getMyAircraftRole throws on error and null is the owner
+      // sentinel, so `.catch(() => null)` made an error read as ownership --
+      // the most privileged answer, from the least reliable signal.
+      getMyAircraftRole(id)
+        .then((r) => ({ ok: true as const, role: r }))
+        .catch(() => ({ ok: false as const, role: null })),
     ]).then(([acRes, ads, equip, rem, myRole]) => {
       if (acRes.data) setAircraft(acRes.data as UserAircraft)
       setAdNotifications(ads)
       setEquipment(equip)
       setReminders(rem)
-      const resolvedRole: FleetRole = myRole ?? 'owner'
+      // Fall back to the LEAST privileged role, not the most. A mis-elevated
+      // viewer is shown edit/share/dismiss controls that all no-op silently,
+      // because PostgREST returns success with 0 rows when RLS filters a write
+      // out -- so the edit "saves" and reverts, and a share link can be minted
+      // from a token that was never persisted.
+      const resolvedRole: FleetRole = myRole.ok ? (myRole.role ?? 'owner') : 'viewer'
       setRole(resolvedRole)
       setLoading(false)
       // Collaborator roster management is owner-only -- get_aircraft_
@@ -714,9 +725,13 @@ export default function AircraftDetailScreen() {
       destructive: true,
       twoStep: false,
       onConfirm: async () => {
+        // Same orphan as un-marking: dismissing a recurring AD left its
+        // generated reminder pushing forever for an AD no longer on the list.
+        const linked = generatedReminderFor(n)
         setAdNotifications((prev) => prev.filter((x) => x.id !== n.id))
         try {
           await dismissAdNotification(n.id)
+          if (linked) await removeAircraftReminder(linked.id)
         } catch (e: any) {
           setAdNotifications((prev) => [...prev, n]) // roll back on failure
           // Rethrown, not a second dialog -- the confirm shows it inline.
@@ -754,13 +769,31 @@ export default function AircraftDetailScreen() {
     })
   }
 
+  /** The reminder THIS flow created for a recurring AD, if any.
+   *
+   *  Matched on title as well as link, so a reminder the USER authored and
+   *  linked to the same AD is never destroyed by un-marking it -- only the one
+   *  the compliance flow generated itself. */
+  const generatedReminderFor = (n: AircraftAdNotification) =>
+    n.complianceKind === 'recurring'
+      ? reminders.find((r) => r.linkedAdNumber === n.adNumber && r.title === `AD ${n.adNumber}`) ?? null
+      : null
+
   const handleUnmarkComplied = (n: AircraftAdNotification) => {
+    // Un-marking used to leave the reminder behind. It stayed in the list and
+    // kept pushing "due in 14 days" -- to the owner AND every collaborator --
+    // for an AD no longer recorded as recurring at all. Nothing in the app
+    // ever cleaned it up; only a manual swipe-delete on the reminder row did.
+    const linked = generatedReminderFor(n)
     confirm({
       title: `Un-mark AD ${n.adNumber}?`,
-      message: 'This moves it back to open.',
+      message: linked
+        ? `This moves it back to open and removes the "${linked.title}" reminder it created.`
+        : 'This moves it back to open.',
       confirmLabel: 'Un-mark',
       onConfirm: async () => {
         await unmarkAdComplied(n.id)
+        if (linked) await removeAircraftReminder(linked.id)
         load()
       },
     })
@@ -1591,26 +1624,54 @@ export default function AircraftDetailScreen() {
             // drives push alerts and the traffic light rather than inventing
             // a second place that thinks it owns "when is this next due".
             const existing = reminders.find((r) => r.linkedAdNumber === complianceAd.adNumber)
-            const title = `AD ${complianceAd.adNumber}`
-            if (existing) {
-              await updateAircraftReminder(
-                existing.id, title, nextDueDate ?? existing.dueDate,
-                complianceAd.adNumber, note || existing.notes,
-                existing.intervalMonths, nextDueHobbs, existing.intervalDays,
-              )
-            } else if (nextDueDate || nextDueHobbs != null) {
-              await addAircraftReminder(
-                session.user.id, aircraft.id, title,
-                // due_date is NOT NULL, so an hours-only AD still needs one.
-                // A year out is a deliberate placeholder that keeps it out of
-                // the amber/red bands while the HOURS drive the real status.
-                nextDueDate ?? new Date(Date.now() + 365 * 864e5).toISOString().slice(0, 10),
-                complianceAd.adNumber, note || null, null, nextDueHobbs, null,
-              )
-            }
-            if (compliedHobbs != null) {
-              const row = reminders.find((r) => r.linkedAdNumber === complianceAd.adNumber)
-              if (row) await setReminderCompliedHobbs(row.id, compliedHobbs)
+            // Keep the user's OWN title if they authored this reminder. Naming
+            // it unconditionally renamed a hand-made "Muffler inspection --
+            // AWI SB" to "AD 2018-02-04" and replaced its notes, which is
+            // destroying their text to make room for ours.
+            const title = existing ? existing.title : `AD ${complianceAd.adNumber}`
+            try {
+              let targetId: string | null = existing?.id ?? null
+              if (existing) {
+                await updateAircraftReminder(
+                  existing.id, title, nextDueDate ?? existing.dueDate,
+                  complianceAd.adNumber, note || existing.notes,
+                  existing.intervalMonths, nextDueHobbs, existing.intervalDays,
+                )
+              } else if (nextDueDate || nextDueHobbs != null) {
+                targetId = await addAircraftReminder(
+                  session.user.id, aircraft.id, title,
+                  // due_date is NOT NULL, so an hours-only AD still needs one.
+                  // A year out is a placeholder that keeps it out of the
+                  // amber/red bands while the HOURS drive the real status.
+                  nextDueDate ?? new Date(Date.now() + 365 * 864e5).toISOString().slice(0, 10),
+                  complianceAd.adNumber, note || null, null, nextDueHobbs, null,
+                )
+                // ...but that placeholder must never generate a PUSH. The
+                // alert job (scripts/send-reminder-alerts.mjs) is date-only --
+                // it never reads due_hobbs_hours -- so a year from now this
+                // would push "due in 14 days" for an hours-based AD, which is
+                // simply false. Pre-stamping notified_at silences that one
+                // path; trg_rearm_reminder_on_due_date_change clears it again
+                // the moment the user gives it a real date.
+                if (!nextDueDate && targetId) {
+                  await supabase.from('user_aircraft_reminders')
+                    .update({ notified_at: new Date().toISOString() })
+                    .eq('id', targetId)
+                }
+              }
+              // targetId, NOT another lookup in `reminders`. That state has not
+              // been refetched since the insert above, so re-finding the row
+              // there always returned undefined and this write never ran.
+              if (compliedHobbs != null && targetId) {
+                await setReminderCompliedHobbs(targetId, compliedHobbs)
+              }
+            } catch (e) {
+              // Don't leave the AD claiming a recurrence with nothing driving
+              // it: it would sit in RECURRING with no traffic light, and the
+              // only action offered is "Un-mark", so the user could not
+              // re-enter next-due data without destroying the record first.
+              await unmarkAdComplied(complianceAd.id).catch(() => {})
+              throw e
             }
           }
           await load()

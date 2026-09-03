@@ -40,22 +40,31 @@ export function buildAircraftShareLink(token: string): string {
 // only -- it never touches collaborators who already joined under the
 // previous link.
 export async function getOrCreateShareLink(aircraftId: string, role: CollaboratorRole): Promise<{ link: string; token: string }> {
-  const { data: existing } = await supabase
+  // The error was discarded here, so a failed READ fell through and minted a
+  // brand-new token -- invalidating a link the owner may still be circulating,
+  // for no reason other than a network blip.
+  const { data: existing, error: readErr } = await supabase
     .from('user_aircraft')
     .select('share_code, share_code_role')
     .eq('id', aircraftId)
     .maybeSingle()
+  if (readErr) throw readErr
 
   if (existing?.share_code && existing.share_code_role === role) {
     return { link: buildAircraftShareLink(existing.share_code), token: existing.share_code }
   }
 
   const token = makeShareToken()
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from('user_aircraft')
     .update({ share_code: token, share_code_role: role })
     .eq('id', aircraftId)
+    .select('share_code')
   if (error) throw error
+  // PostgREST returns SUCCESS WITH ZERO ROWS when RLS filters a write out, so
+  // a non-owner got a perfectly valid-looking link built from a token that was
+  // never stored -- a dead invite they would then text to someone.
+  if (!updated?.length) throw new Error("You don't have permission to create an invite link for this aircraft.")
   return { link: buildAircraftShareLink(token), token }
 }
 
