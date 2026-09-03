@@ -92,13 +92,27 @@ export async function getMasteryLeaderboard(limit = 50): Promise<MasteryLeaderbo
 // in this app. Requires a study_progress/user_streaks row to exist at all
 // (i.e. having studied at least once), so this upserts rather than assuming
 // a row is already there.
-export async function setLeaderboardOptIn(userId: string, optIn: boolean): Promise<void> {
-  const { error } = await supabase
-    .from('user_streaks')
-    .upsert(
-      { user_id: userId, leaderboard_opt_in: optIn, updated_at: new Date().toISOString() },
-      { onConflict: 'user_id' }
-    )
+// Both visibility toggles go through set_streak_visibility(), NOT a direct
+// upsert. Reported by a beta tester 2026-09-02 with a screenshot: toggling
+// "Show Me" raised a hard "permission denied for table user_streaks" dialog.
+// Verified live -- `authenticated` holds only REFERENCES/SELECT/TRIGGER on
+// user_streaks, so the client upsert these two functions used to do was
+// rejected at the GRANT layer before RLS was even consulted. The RLS policy
+// would have allowed it; the grant never did. Both toggles had therefore
+// never worked for anyone.
+//
+// The fix is an RPC rather than granting the client INSERT/UPDATE, because
+// this table also holds current_streak / longest_streak / last_active_date --
+// real leaderboard game state. A table-level write grant would let anyone
+// forge their own streak, and the whole reason that is not currently possible
+// is that these tables are SELECT-only. The definer RPC can only ever touch
+// the two visibility booleans, and only for auth.uid()'s own row.
+//
+// `userId` is kept in both signatures for call-site compatibility but is no
+// longer sent: the RPC derives the row from auth.uid(), which is also what
+// stops one user editing another's visibility.
+export async function setLeaderboardOptIn(_userId: string, optIn: boolean): Promise<void> {
+  const { error } = await supabase.rpc('set_streak_visibility', { p_leaderboard_opt_in: optIn })
   if (error) throw error
 }
 
@@ -118,10 +132,9 @@ export async function getLeaderboardOptIn(userId: string): Promise<boolean> {
 // (ratings, coin count, current aircraft) via a plain RLS-gated SELECT
 // (user_streaks_public_stats_read: `stats_visible = true`). Off by default,
 // same privacy stance as everywhere else this app has an opt-in.
-export async function setStatsVisible(userId: string, visible: boolean): Promise<void> {
-  const { error } = await supabase
-    .from('user_streaks')
-    .upsert({ user_id: userId, stats_visible: visible, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
+// See setLeaderboardOptIn above for why this is an RPC and not an upsert.
+export async function setStatsVisible(_userId: string, visible: boolean): Promise<void> {
+  const { error } = await supabase.rpc('set_streak_visibility', { p_stats_visible: visible })
   if (error) throw error
 }
 
