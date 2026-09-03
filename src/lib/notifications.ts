@@ -2,6 +2,7 @@ import { Platform } from 'react-native'
 import * as Notifications from 'expo-notifications'
 import Constants from 'expo-constants'
 import { supabase } from '@/lib/supabase'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 
 // AC Update Alerts — Premium feature. Two layers are involved, and they're
 // independent of each other:
@@ -121,21 +122,40 @@ export async function ensurePushTokenRegistered(userId: string): Promise<void> {
     // RPC that can only ever delete "some other user's row for this exact
     // token," never an arbitrary row -- see its own migration comment.
     await supabase.rpc('claim_push_token', { p_token: token })
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from('push_tokens')
       .select('enabled, duel_notifications_enabled, reg_of_day_enabled, word_of_day_enabled')
       .eq('user_id', userId)
       .eq('expo_push_token', token)
       .maybeSingle()
+    // supabase-js RESOLVES {data: null, error} on a network failure rather
+    // than throwing, so without this a single blip on that read fell through
+    // to the `?? false` defaults below and PERSISTED every notification
+    // preference as OFF. This function runs on every app foreground via
+    // ensurePushTokenRegisteredIfGranted, so that is a frequent path, and the
+    // user is never told their alerts were turned off.
+    if (existingError) return
+
+    // No remote row means either a brand-new device or a sign-out/sign-in on
+    // this one. Fall back to what this user last had, so the second case
+    // restores their preferences instead of resetting them to off.
+    let prior: PushPrefs | null = (existing as PushPrefs | null) ?? null
+    if (!prior) {
+      try {
+        const cached = await AsyncStorage.getItem(PUSH_PREFS_KEY(userId))
+        if (cached) prior = JSON.parse(cached) as PushPrefs
+      } catch { /* a missing or corrupt cache just means the defaults below */ }
+    }
+
     await supabase.from('push_tokens').upsert(
       {
         user_id: userId,
         expo_push_token: token,
         platform: Platform.OS,
-        enabled: existing?.enabled ?? false,
-        duel_notifications_enabled: existing?.duel_notifications_enabled ?? false,
-        reg_of_day_enabled: existing?.reg_of_day_enabled ?? false,
-        word_of_day_enabled: existing?.word_of_day_enabled ?? false,
+        enabled: prior?.enabled ?? false,
+        duel_notifications_enabled: prior?.duel_notifications_enabled ?? false,
+        reg_of_day_enabled: prior?.reg_of_day_enabled ?? false,
+        word_of_day_enabled: prior?.word_of_day_enabled ?? false,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id,expo_push_token' }
@@ -158,6 +178,25 @@ export async function ensurePushTokenRegistered(userId: string): Promise<void> {
 // through getOrRequestPushToken() so signing out never triggers the OS
 // permission dialog -- if permission was never granted there's no token and
 // nothing to clean up either way.
+// Sign-out DELETEs this device's push_tokens row, which is correct -- a
+// signed-out device should not keep a token registered. But the row is also
+// where the four notification preferences live, so signing back in re-created
+// it from the `?? false` defaults and every preference the user had turned on
+// came back OFF, silently. Caching them locally lets the row be destroyed
+// without destroying the settings.
+//
+// Namespaced by user id, so a different account signing in on this device
+// cannot inherit the previous user's preferences -- which also means it does
+// not belong in ALL_LOCAL_KEYS' cross-account wipe.
+const PUSH_PREFS_KEY = (userId: string) => `@flyregs/push-prefs:${userId}`
+
+type PushPrefs = {
+  enabled: boolean
+  duel_notifications_enabled: boolean
+  reg_of_day_enabled: boolean
+  word_of_day_enabled: boolean
+}
+
 export async function unregisterPushToken(userId: string): Promise<void> {
   if (Platform.OS === 'web') return
   try {
@@ -167,6 +206,16 @@ export async function unregisterPushToken(userId: string): Promise<void> {
     const { data: token } = await Notifications.getExpoPushTokenAsync(
       projectId ? { projectId } : undefined
     )
+    // Remember the preferences before the row that holds them is destroyed.
+    const { data: prefs } = await supabase
+      .from('push_tokens')
+      .select('enabled, duel_notifications_enabled, reg_of_day_enabled, word_of_day_enabled')
+      .eq('user_id', userId)
+      .eq('expo_push_token', token)
+      .maybeSingle()
+    if (prefs) {
+      await AsyncStorage.setItem(PUSH_PREFS_KEY(userId), JSON.stringify(prefs)).catch(() => {})
+    }
     await supabase.from('push_tokens').delete().eq('user_id', userId).eq('expo_push_token', token)
   } catch (_) {
     // Best-effort, matching ensurePushTokenRegistered's own error handling --

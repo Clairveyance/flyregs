@@ -52,7 +52,16 @@ async function currentUserId(force = false): Promise<string | null> {
   // General sync moved from Premium to Pro in the pricing pivot -- see
   // flyregs_decisions.md -- but shared-folder force-pushes stay Premium-
   // gated, since collaboration itself is still Premium-only and unchanged.
-  const { isPro, isPremium } = await getSubscriptionStatus()
+  const { isPro, isPremium, ok } = await getSubscriptionStatus()
+  // A FAILED lookup is not a downgrade. This was the fourth call site and the
+  // only one that never got the `ok` guard the other three have: an
+  // unreachable RevenueCat returns {false,false,false,ok:false} after its
+  // retries, which is indistinguishable from a real downgrade, so every
+  // syncPush* silently no-opped. Creates are eventually recovered by
+  // pullAndMergeAll's push-up; DELETES are not -- soft_delete_bookmarks never
+  // ran, the remote row still reads deleted=false, and the next merge
+  // resurrects the bookmark the user deleted.
+  if (!ok) return null
   // hasProAccess (isPro || isPremium), not bare isPro -- found in the
   // 2026-08-14 gating re-audit: this read RevenueCat's two entitlements
   // independently, so a genuine Premium subscriber whose account only has

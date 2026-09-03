@@ -144,11 +144,18 @@ export async function getStatsVisible(userId: string): Promise<boolean> {
   return data?.stats_visible ?? false
 }
 
-export async function setCurrentAircraft(userId: string, aircraft: string): Promise<void> {
+// Via set_current_aircraft(), NOT a direct upsert -- see setLeaderboardOptIn
+// above. This was the THIRD writer to user_streaks and it was missed when the
+// other two were moved to an RPC on 2026-09-02, so it kept failing at the
+// GRANT layer and the profile's Save button silently stayed dirty. A separate
+// narrow function rather than extra params on set_streak_visibility, because
+// overloading it would hit PostgREST's ambiguous-overload trap.
+//
+// `userId` kept for call-site compatibility but no longer sent: the RPC derives
+// the row from auth.uid(), which is also what stops one user editing another's.
+export async function setCurrentAircraft(_userId: string, aircraft: string): Promise<void> {
   const trimmed = aircraft.trim().slice(0, 40)
-  const { error } = await supabase
-    .from('user_streaks')
-    .upsert({ user_id: userId, current_aircraft: trimmed || null, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
+  const { error } = await supabase.rpc('set_current_aircraft', { p_aircraft: trimmed || null })
   if (error) throw error
 }
 

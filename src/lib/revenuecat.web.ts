@@ -63,15 +63,21 @@ export async function logOutRevenueCat() { /* no-op */ }
 // this exists at all.
 export async function getLivePricing(): Promise<null> { return null }
 
-export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
+// Returns `ok` too. The native getSubscriptionStatus gained that flag on
+// 2026-09-01 so a RevenueCat outage could not read as a downgrade, and all
+// three call sites in auth.tsx now guard on it -- but this web stub was not
+// updated, so `status.ok` was undefined, every guard failed, and the whole web
+// build read as Free with the ?tier= override doing nothing. tsc cannot catch
+// this: it resolves '@/lib/revenuecat' to the native file, never the .web one.
+export async function getSubscriptionStatus(): Promise<SubscriptionStatus & { ok: boolean }> {
   // Mirrors the real entitlement hierarchy: the premium products grant BOTH
   // the `pro` and `premium` entitlements in RevenueCat (verified against the
   // RC V2 API), and Plus is the separate one-time `unlocked` entitlement.
   switch (currentTier()) {
-    case 'free': return { isPro: false, isPremium: false, isUnlocked: false }
-    case 'plus': return { isPro: false, isPremium: false, isUnlocked: true }
-    case 'pro':  return { isPro: true,  isPremium: false, isUnlocked: true }
-    default:     return { isPro: true,  isPremium: true,  isUnlocked: true }
+    case 'free': return { ok: true, isPro: false, isPremium: false, isUnlocked: false }
+    case 'plus': return { ok: true, isPro: false, isPremium: false, isUnlocked: true }
+    case 'pro':  return { ok: true, isPro: true,  isPremium: false, isUnlocked: true }
+    default:     return { ok: true, isPro: true,  isPremium: true,  isUnlocked: true }
   }
 }
 
