@@ -700,14 +700,44 @@ export const ACBody = React.forwardRef<
   // stay correct while the tail is still mounting.
   const BODY_CHUNK = 400
   const [revealed, setRevealed] = useState(BODY_CHUNK)
-  useEffect(() => { setRevealed(BODY_CHUNK) }, [blocks])
+  // Mirror of `revealed` that a STALE CLOSURE can read. goToBlockIndex,
+  // scrollToMatch and jumpTo all re-enter themselves across
+  // requestAnimationFrame, so they re-read the `revealed` captured by the
+  // render that created them -- which never changes. Guarding on that state
+  // value turned "reveal, then jump" into an unbounded rAF loop that also
+  // never scrolled: setRevealed was called with an identical value each pass,
+  // React bailed out, no new closure was ever created.
+  const revealedRef = useRef(BODY_CHUNK)
+  useEffect(() => {
+    revealedRef.current = BODY_CHUNK
+    setRevealed(BODY_CHUNK)
+  }, [blocks])
   useEffect(() => {
     if (revealed >= blocks.length) return
-    const handle = InteractionManager.runAfterInteractions(() => {
-      setRevealed((n) => Math.min(n + BODY_CHUNK, blocks.length))
+    // requestAnimationFrame, NOT InteractionManager.runAfterInteractions.
+    // That API is a deprecated STUB in React Native 0.85 -- its entire body is
+    // setImmediate (see Libraries/Interaction/InteractionManager.js:87), it
+    // does not wait for touches or animations, and merely touching it logs a
+    // deprecation warning. rAF actually yields a frame, which is what this
+    // needs: let the already-mounted blocks paint before mounting more.
+    const raf = requestAnimationFrame(() => {
+      setRevealed((cur) => {
+        const next = Math.min(cur + BODY_CHUNK, blocks.length)
+        revealedRef.current = Math.max(revealedRef.current, next)
+        return next
+      })
     })
-    return () => handle.cancel()
+    return () => cancelAnimationFrame(raf)
   }, [revealed, blocks.length])
+
+  /** Mount everything up to `index`. No-op if already mounted. Writes the ref
+   *  synchronously so a caller that immediately re-enters itself sees it. */
+  const ensureRevealed = (index: number) => {
+    if (index < revealedRef.current) return
+    const next = Math.min(index + BODY_CHUNK, blocks.length)
+    revealedRef.current = next
+    setRevealed((cur) => Math.max(cur, next))
+  }
 
   const [showToc, setShowToc] = useState(false)
   const [showFigures, setShowFigures] = useState(false)
@@ -918,16 +948,22 @@ export const ACBody = React.forwardRef<
   // linkifyChangeNoticeText) can jump the SAME way as an external caller
   // (ac/[id].tsx's changed-paragraphs nav) -- both are "land on this exact
   // block", just triggered from different places.
-  const goToBlockIndex = (blockIndex: number) => {
+  const goToBlockIndex = (blockIndex: number, attempt = 0) => {
     // A jump target past the progressive-reveal frontier has not mounted yet,
     // so it has no ref and no measured offset and the jump would silently do
     // nothing. Mount everything up to it first, then jump on the next frame
     // once layout has run. Only reached for a deep jump into a very long AC
     // in the first moments after opening it -- by design the tail is usually
     // already revealed by the time anyone taps a contents entry.
-    if (blockIndex >= revealed) {
-      setRevealed(Math.min(blockIndex + BODY_CHUNK, blocks.length))
-      requestAnimationFrame(() => requestAnimationFrame(() => goToBlockIndex(blockIndex)))
+    ensureRevealed(blockIndex)
+    // Wait for the block to actually be MEASURABLE, not for a state value this
+    // closure can never observe. Bounded, so a block that never materialises
+    // gives up instead of spinning at 60fps for the life of the app.
+    const ready = Platform.OS === 'web'
+      ? jumpRefs.current[blockIndex] != null
+      : blockRelY.current[blockIndex] != null
+    if (!ready) {
+      if (attempt < 12) requestAnimationFrame(() => requestAnimationFrame(() => goToBlockIndex(blockIndex, attempt + 1)))
       return
     }
     const node = jumpRefs.current[blockIndex]
@@ -1008,14 +1044,40 @@ export const ACBody = React.forwardRef<
       const scroller = scrollRef?.current
       if (!scroller) return
       const occ = occurrences[n]
-      const y = occ != null ? absoluteOccurrenceY(occ.blockIndex, occ.fraction) : undefined
-      if (y == null) return
-      scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true })
+      if (!occ) return
+      // `occurrences` is computed over the FULL block array so the "1 of 37"
+      // count stays honest -- but absoluteOccurrenceY reads blockRelY, which
+      // only fills from onLayout for MOUNTED blocks. Without revealing first
+      // this returned undefined and silently did nothing, so on a long AC the
+      // counter advanced and the page never moved. Reads as totally broken.
+      const tryNative = (attempt: number) => {
+        ensureRevealed(occ.blockIndex)
+        const y = absoluteOccurrenceY(occ.blockIndex, occ.fraction)
+        if (y == null) {
+          if (attempt < 12) requestAnimationFrame(() => requestAnimationFrame(() => tryNative(attempt + 1)))
+          return
+        }
+        scroller.scrollTo({ y: Math.max(0, y - centerOffset), animated: true })
+      }
+      tryNative(0)
     },
     scrollToBlockIndex(blockIndex: number) {
       goToBlockIndex(blockIndex)
     },
   }), [occurrences, scrollRef, hq, centerOffset, revealed, blocks.length])
+
+  // The Contents list is built from the FULL block array, so every heading in
+  // the document is listed and tappable -- including ones past the reveal
+  // frontier, which previously resolved to a null offset and silently did
+  // nothing. 150/5200-31C has ~84% of its headings past the first chunk.
+  const headingIndexById = useMemo(() => {
+    const m = new Map<string, number>()
+    blocks.forEach((b, i) => {
+      const id = (b as { id?: string }).id
+      if (id) m.set(id, i)
+    })
+    return m
+  }, [blocks])
 
   const jumpTo = (id: string) => {
     const scroller = scrollRef?.current
@@ -1027,18 +1089,29 @@ export const ACBody = React.forwardRef<
     // closes, and onLayout re-fires with each block's new relative position
     // by the time this timeout runs, so absoluteHeadingY reads current
     // values when called below.
-    setTimeout(() => {
+    const idx = headingIndexById.get(id)
+    if (idx != null) ensureRevealed(idx)
+
+    const attemptJump = (attempt: number) => {
       if (Platform.OS === 'web') {
         const node = headingRefs.current[id]
         const el = node as unknown as HTMLElement
-        el?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+        if (!el) {
+          if (attempt < 12) requestAnimationFrame(() => attemptJump(attempt + 1))
+          return
+        }
+        el.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
         return
       }
 
       const y = absoluteHeadingY(id)
-      if (y == null) return
+      if (y == null) {
+        if (attempt < 12) requestAnimationFrame(() => requestAnimationFrame(() => attemptJump(attempt + 1)))
+        return
+      }
       scroller.scrollTo({ y: Math.max(0, y - 10), animated: true })
-    }, 60)
+    }
+    setTimeout(() => attemptJump(0), 60)
   }
 
   if (!blocks.length) {

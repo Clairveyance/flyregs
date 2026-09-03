@@ -94,7 +94,15 @@ export default function ACDetailScreen() {
         // it -- corpus-wide noise (this route is hit from the "Related
         // ACs" bar on every FAR/AIM/PCG/AD/LOI/AC detail screen), not a
         // functional bug, but still worth a clean console.
-        if (error) return
+        // setLoading(false) on EVERY exit, not just the happy one. These
+        // three bare returns left `loading` true forever: the main content
+        // effect below starts with `if (!UUID_RE.test(id)) return`, so it
+        // never reaches its own setLoading(false), and the render is
+        // `loading ? <Spinner/> : !ac ? "AC not found."` -- so an
+        // unresolvable AC number spun forever instead of saying so. Reachable
+        // today: 31 document_citations point at 5 AC numbers that exist only
+        // as status='cancelled', which both queries here filter out.
+        if (error) { setLoading(false); return }
         // Regulatory text routinely cites an AC by its base number without
         // the revision letter ("AC 90-66" in running prose, real document
         // is "90-66C") — confirmed live, not a one-off: an exact match
@@ -104,7 +112,7 @@ export default function ACDetailScreen() {
         // rather than leaving the link dead.
         supabase.from('advisory_circulars').select('id,document_number').ilike('document_number', `${id}%`).eq('status', 'active')
           .then(({ data: matches }) => {
-            if (!matches || matches.length === 0) return
+            if (!matches || matches.length === 0) { setLoading(false); return }
             // A revision suffix is always non-numeric ("120-12" -> "120-12A")
             // -- confirmed live as a real, wrong-AC bug: unfiltered, this
             // prefix match also caught "120-126A" for a query of "120-12"
@@ -115,7 +123,7 @@ export default function ACDetailScreen() {
             // AC's number that happens to share a numeric prefix, not a
             // missing-revision-letter case of this one -- exclude those.
             const revisionMatches = matches.filter((m) => !/^\d/.test(m.document_number.slice(id.length)))
-            if (revisionMatches.length === 0) return
+            if (revisionMatches.length === 0) { setLoading(false); return }
             const best = revisionMatches.sort((a, b) => b.document_number.length - a.document_number.length)[0]
             router.replace(`/ac/${best.id}` as any)
           })

@@ -28,6 +28,14 @@ export function routeForCitedItem(citedType: string, citedId: string): string {
     case 'dictionary':
       return `/dictionary/${citedId}`
     default:
-      return `/ac/${citedId}`
+      // encodeURIComponent, because 125 of 781 ACs carry a slash in their
+      // document number (the whole airport 150-series). Unencoded, the href
+      // becomes "/ac/150/5300-13B" -- THREE path segments, which can never
+      // match the single-segment ac/[id] route, so every one of those
+      // citations landed on Expo Router's Unmatched Route screen.
+      // crossRefLinks.ts already documents and solves exactly this; this file
+      // never got the same fix. 740 document_citations rows are affected,
+      // plus 4,917 of 20,821 AC chunks behind Ask FlyRegs.
+      return `/ac/${encodeURIComponent(citedId)}`
   }
 }
