@@ -60,6 +60,10 @@ STORAGE_BUCKET = "advisory-circulars"
 # Be polite — one request every ~0.75s per host
 REQUEST_DELAY = 0.75
 REQUEST_TIMEOUT = 30
+# Detail pages and PDFs specifically: faa.gov is routinely far slower than 30s
+# for these, and a timeout here costs the document's entire text (see the retry
+# loop in fetch_ac_detail). Generous on purpose -- this runs weekly, unattended.
+DETAIL_TIMEOUT = 120
 PDF_TIMEOUT = 90
 
 logging.basicConfig(
@@ -203,8 +207,22 @@ def fetch_detail(doc_num: str, session: requests.Session) -> dict:
     try:
         # Search the list page for this AC number
         search_url = f"{FAA_LIST_BASE}?q={requests.utils.quote(doc_num)}"
-        time.sleep(REQUEST_DELAY)
-        resp = session.get(search_url, timeout=REQUEST_TIMEOUT)
+        # Same retry/timeout treatment as the detail fetch below -- this is the
+        # first of the two faa.gov hops and it fails the same way, and both are
+        # inside this one try block, so a timeout here also surfaced as
+        # "Detail fetch failed" and cost the document's whole text.
+        resp = None
+        for attempt in range(3):
+            try:
+                time.sleep(REQUEST_DELAY)
+                resp = session.get(search_url, timeout=DETAIL_TIMEOUT)
+                break
+            except requests.RequestException as e:
+                if attempt == 2:
+                    raise
+                wait = 3 * (attempt + 1)
+                log.warning(f"    Search fetch for {doc_num} failed ({e}) — retrying in {wait}s")
+                time.sleep(wait)
         soup = BeautifulSoup(resp.text, "html.parser")
 
         # Find the link to the detail page.
@@ -224,8 +242,27 @@ def fetch_detail(doc_num: str, session: requests.Session) -> dict:
         if not detail_href.startswith("http"):
             detail_href = FAA_HOST + detail_href
 
-        time.sleep(REQUEST_DELAY)
-        detail_resp = session.get(detail_href, timeout=REQUEST_TIMEOUT)
+        # RETRIED WITH BACKOFF. A single 30s attempt was too tight for
+        # faa.gov on a slow day, and the failure is silent-ish and expensive:
+        # no detail page means no PDF URL, which means "No valid PDF URL" and
+        # ZERO extracted text for that AC. Measured 2026-09-02 while
+        # re-scraping the 19 truncated ACs -- 18 of 19 failed exactly this
+        # way, one after another, purely on read timeouts, and the corpus
+        # audit the same day independently recorded faa.gov taking 120s+.
+        # The one AC that did get through gained 296,853 characters, so this
+        # timeout was the only thing standing between us and the fix.
+        detail_resp = None
+        for attempt in range(3):
+            try:
+                time.sleep(REQUEST_DELAY)
+                detail_resp = session.get(detail_href, timeout=DETAIL_TIMEOUT)
+                break
+            except requests.RequestException as e:
+                if attempt == 2:
+                    raise
+                wait = 3 * (attempt + 1)
+                log.warning(f"    Detail fetch for {doc_num} failed ({e}) — retrying in {wait}s")
+                time.sleep(wait)
         detail_soup = BeautifulSoup(detail_resp.text, "html.parser")
 
         result["description"] = _extract_description(detail_soup)
@@ -685,12 +722,58 @@ def upsert_ac(record: dict) -> bool:
     if not SUPABASE_URL or not SUPABASE_KEY:
         log.debug(f"  [DRY-RUN] would upsert {record['document_number']}")
         return True
+
+    # A record whose text extraction FAILED must never overwrite good stored
+    # text. process_ac returns pdf_text=None when faa.gov times out or the PDF
+    # can't be parsed, and merge-duplicates happily writes that NULL over a
+    # real body. That destroyed three ACs on 2026-09-02 -- 43.13-1B went from
+    # ~494,000 characters to zero -- before this guard existed.
+    #
+    # Deliberately only blocks the DESTRUCTIVE case: an empty/missing
+    # extraction where the stored row already has text. A genuinely shorter
+    # new revision still writes normally, and a brand-new AC (nothing stored)
+    # writes normally too.
+    if not (record.get("pdf_text") or "").strip():
+        try:
+            existing = requests.get(
+                f"{SUPABASE_URL}/rest/v1/advisory_circulars",
+                headers=_supa_headers(),
+                params={"select": "pdf_text", "document_number":
+                        f"eq.{record.get('document_number')}"},
+                timeout=30,
+            ).json()
+            if existing and (existing[0].get("pdf_text") or "").strip():
+                log.warning(
+                    f"  REFUSING to overwrite {record.get('document_number')}'s stored "
+                    f"text with an empty extraction ({len(existing[0]['pdf_text']):,} "
+                    f"chars would be lost). Fetch or parse failed — treating as a no-op."
+                )
+                return False
+        except Exception as e:
+            # If the check itself fails, refuse rather than risk the write.
+            log.warning(f"  Could not verify stored text for "
+                        f"{record.get('document_number')} ({e}) — skipping to be safe")
+            return False
     try:
+        # `on_conflict=document_number` is REQUIRED, not decorative.
+        # advisory_circulars has PRIMARY KEY (id) and UNIQUE (document_number),
+        # and these records carry no `id` -- so without naming the conflict
+        # target PostgREST infers the PRIMARY KEY, finds it absent, attempts a
+        # plain insert, and collides with the unique on document_number:
+        # 409 Conflict, every time, for any AC that already exists.
+        #
+        # Found 2026-09-02 re-scraping the 19 truncated ACs: extraction
+        # succeeded (one AC pulled 1,059,408 chars, +570,205) and EVERY write
+        # was rejected. It had gone unnoticed because an AC update is only
+        # attempted when the FAA revision actually moves, which was rare --
+        # and rarer still because the staleness test never checked the change
+        # number until today. That fix makes updates common, so this would
+        # have started failing immediately and silently.
         resp = requests.post(
-            f"{SUPABASE_URL}/rest/v1/advisory_circulars",
+            f"{SUPABASE_URL}/rest/v1/advisory_circulars?on_conflict=document_number",
             headers=_supa_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
             json=record,
-            timeout=15,
+            timeout=30,
         )
         resp.raise_for_status()
         return True

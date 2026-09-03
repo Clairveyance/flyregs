@@ -43,7 +43,15 @@ import faa_scraper as F  # noqa: E402
 # Every AC within 50K of the old 500,000 ceiling, i.e. every document that
 # ceiling could plausibly have cut. Measured from the live table.
 TARGETS = [
-    "25-7D", "120-29A", "43-206", "43.13-1B", "29-2C", "20-138D", "25-17A",
+    # RECOVERY FIRST. These three were emptied on 2026-09-02 by the very bug
+    # the shrink guard below now prevents: faa.gov timed out, extraction
+    # returned nothing, and the upsert merged that NULL over ~494,000
+    # characters each. Their pdf_blocks survived (so the reader still shows
+    # content) but pdf_text -- what full-text search reads -- went to zero.
+    # Ordered first so a partial run repairs the damage before anything else.
+    "43.13-1B", "43-206", "29-2C",
+    # Then the rest of the originally-truncated set.
+    "25-7D", "120-29A", "20-138D", "25-17A",
     "150/5370-10H", "150/5200-31C", "150/5320-5D", "150/5300-18B",
     "150/5300-13B", "23-8C", "25-22", "150/5340-30J", "23-17C", "36-4D",
     "27-1B", "20-73A",
@@ -92,6 +100,22 @@ def main() -> None:
             n = len(rec.get("pdf_text") or "")
             gained = n - before.get(doc, 0)
             F.log.info(f"    extracted {n:,} chars  ({gained:+,})")
+
+            # NEVER write a SHORTER extraction over a longer stored one.
+            # Learned the hard way 2026-09-02: faa.gov timed out on several
+            # documents, process_ac returned a record with pdf_text=None, the
+            # upsert merged that NULL over the real text, and three ACs --
+            # 43.13-1B among them -- went from ~494,000 characters to ZERO.
+            # A failed fetch must be a no-op, never a deletion. This whole
+            # script exists to ADD text back; it must never be able to remove
+            # any.
+            if n <= before.get(doc, 0):
+                F.log.warning(
+                    f"    {doc}: extraction ({n:,}) is not longer than what is "
+                    f"stored ({before.get(doc, 0):,}) — SKIPPING the write"
+                )
+                fail += 1
+                continue
             if args.dry_run:
                 continue
             if F.upsert_ac(rec):

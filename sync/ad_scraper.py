@@ -547,6 +547,92 @@ def process_ads(ad_summaries: list[dict], dry_run: bool) -> tuple[list[dict], in
     return list(deduped.values()), errors
 
 
+def _ad_supa_headers(extra: dict = None) -> dict:
+    h = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
+         "Content-Type": "application/json"}
+    if extra:
+        h.update(extra)
+    return h
+
+
+def derive_ad_supersession() -> int:
+    """Mark ADs that a later AD we also hold declares it supersedes.
+
+    Labels only -- never hides or deletes. See the call site for the full
+    reasoning and the safety rail.
+    """
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        log.debug("  [DRY-RUN] would derive AD supersession")
+        return 0
+    sql = (
+        "update airworthiness_directives old "
+        "   set superseded_by = newer.ad_number, "
+        "       affected_by   = newer.ad_number, "
+        "       status        = 'Superseded' "
+        "  from airworthiness_directives newer "
+        " where newer.superseded_ad = old.ad_number "
+        "   and newer.ad_number <> old.ad_number "
+        "   and newer.effective_date > old.effective_date "
+        "   and old.status = 'Current'"
+    )
+    try:
+        resp = requests.post(
+            f"{SUPABASE_URL}/rest/v1/rpc/exec_sql",
+            headers=_ad_supa_headers(),
+            json={"q": sql},
+            timeout=60,
+        )
+        if resp.status_code >= 400:
+            # No exec_sql RPC in this project -- fall back to doing it in
+            # Python so the derivation still runs rather than silently not.
+            return _derive_ad_supersession_rest()
+        log.info("  AD supersession derived")
+        return 1
+    except Exception as e:
+        log.warning(f"  AD supersession derivation failed: {e}")
+        return 0
+
+
+def _derive_ad_supersession_rest() -> int:
+    """PostgREST fallback for derive_ad_supersession()."""
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/airworthiness_directives",
+            headers=_ad_supa_headers(),
+            params={"select": "ad_number,superseded_ad,effective_date,status", "limit": "20000"},
+            timeout=120,
+        )
+        r.raise_for_status()
+        rows = r.json()
+        by_num = {x["ad_number"]: x for x in rows}
+        n = 0
+        for w in rows:
+            target = (w.get("superseded_ad") or "").strip()
+            if not target or target == w["ad_number"]:
+                continue
+            old = by_num.get(target)
+            if not old or old.get("status") != "Current":
+                continue
+            if not (w.get("effective_date") and old.get("effective_date")):
+                continue
+            if w["effective_date"] <= old["effective_date"]:
+                continue
+            requests.patch(
+                f"{SUPABASE_URL}/rest/v1/airworthiness_directives",
+                headers=_ad_supa_headers({"Prefer": "return=minimal"}),
+                params={"ad_number": f"eq.{target}"},
+                json={"superseded_by": w["ad_number"], "affected_by": w["ad_number"],
+                      "status": "Superseded"},
+                timeout=30,
+            )
+            n += 1
+        log.info(f"  AD supersession derived — {n} marked")
+        return n
+    except Exception as e:
+        log.warning(f"  AD supersession derivation failed: {e}")
+        return 0
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["test", "full", "incremental"], default="test")
@@ -679,6 +765,29 @@ def main():
             "ad_errors": ad_errors + (1 if upsert_failed else 0),
         })
         log_scraper_run(run_record)
+
+        # Derive supersession from what we just stored, every run, so it can
+        # never drift again. Until 2026-09-02 status was hardcoded 'Current'
+        # on all 5,620 rows and superseded_by/affected_by were written by
+        # NOTHING -- so the reader's amber "Superseded" pill and its
+        # "Superseded by AD X" row were dead code, and 92 ADs that our own
+        # data proved were replaced still read as current. One of them had
+        # been superseded six years earlier.
+        #
+        # This only ever LABELS. It does not hide, delete or filter anything:
+        # nothing in the app filters ADs on status, so a superseded AD stays
+        # fully listed, searchable and readable with its complete body text.
+        # That is deliberate and it is the safe direction -- a mechanic must
+        # still be able to find an old AD to verify prior compliance, and a
+        # superseded AD remains part of the aircraft's permanent record even
+        # though it is no longer the live requirement.
+        #
+        # The effective_date guard is the safety rail: a replacement must be
+        # strictly NEWER than what it replaces. Measured before applying,
+        # 92 of 92 pairs satisfied it, which is real evidence the parse is
+        # sound rather than a hope -- a false positive would very likely have
+        # produced at least one backwards pair.
+        derive_ad_supersession()
 
     if upsert_failed or (args.mode != "test" and ad_errors):
         # ad_errors alone (real per-AD processing failures, not just a hard
