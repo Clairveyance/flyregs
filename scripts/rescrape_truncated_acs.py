@@ -43,18 +43,11 @@ import faa_scraper as F  # noqa: E402
 # Every AC within 50K of the old 500,000 ceiling, i.e. every document that
 # ceiling could plausibly have cut. Measured from the live table.
 TARGETS = [
-    # RECOVERY FIRST. These three were emptied on 2026-09-02 by the very bug
-    # the shrink guard below now prevents: faa.gov timed out, extraction
-    # returned nothing, and the upsert merged that NULL over ~494,000
-    # characters each. Their pdf_blocks survived (so the reader still shows
-    # content) but pdf_text -- what full-text search reads -- went to zero.
-    # Ordered first so a partial run repairs the damage before anything else.
-    "43.13-1B", "43-206", "29-2C",
-    # Then the rest of the originally-truncated set.
-    "25-7D", "120-29A", "20-138D", "25-17A",
-    "150/5370-10H", "150/5200-31C", "150/5320-5D", "150/5300-18B",
-    "150/5300-13B", "23-8C", "25-22", "150/5340-30J", "23-17C", "36-4D",
-    "27-1B", "20-73A",
+    # 29-2C only. It is the 1,453-page transport-rotorcraft AC (~3.3 MB PDF),
+    # the largest in the corpus, and faa.gov keeps timing out mid-download.
+    # The guard above makes every failed attempt a harmless no-op, so this is
+    # safe to run on a loop until it lands.
+    "29-2C",
 ]
 
 
@@ -62,6 +55,18 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+
+    # SNAPSHOT BEFORE ANY WRITE. Not optional, and deliberately before the
+    # session is even opened: if this raises, nothing has been touched. The
+    # 2026-09-02 incident happened because a failed fetch could reach a
+    # destructive write with nothing standing in between; the guards below
+    # block the failure mode we know about, and this covers the ones we do not.
+    from content_snapshot import snapshot_rows
+    snapshot_rows(
+        "advisory_circulars", "document_number", TARGETS,
+        columns="document_number,pdf_text,pdf_blocks,updated_at",
+        label="rescrape_truncated",
+    )
 
     session = requests.Session()
     session.headers["User-Agent"] = F.UA if hasattr(F, "UA") else "Mozilla/5.0 FlyRegs/1.0"
