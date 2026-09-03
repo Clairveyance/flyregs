@@ -57,7 +57,13 @@ export default function RefPacketDetailScreen() {
         const r = await getRefPacket(activeCode)
         if (r) {
           setTitle(r.title); setAreas(r.areas)
-          AsyncStorage.setItem(REF_PACKET_CACHE_KEY_PREFIX + activeCode, JSON.stringify(r)).catch(() => {})
+          // Only cache a pack that actually HAS areas. Belt-and-braces
+          // alongside getRefPacket's own error checks: an empty pack written
+          // here is indistinguishable from a real one on read, and nothing
+          // ever clears this key, so a single bad write is permanent.
+          if (r.areas.length > 0) {
+            AsyncStorage.setItem(REF_PACKET_CACHE_KEY_PREFIX + activeCode, JSON.stringify(r)).catch(() => {})
+          }
         }
       } catch (_) {
         // Network failed -- cached data (if any) stays visible

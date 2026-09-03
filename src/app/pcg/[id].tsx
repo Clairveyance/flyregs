@@ -474,10 +474,21 @@ export default function PcgTermScreen() {
     if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     if (!term) return
     try {
+      // 358 of the 1,406 P/CG terms have no definition of their own but DO
+      // have see_refs, and this printed `term.definition ?? ''` -- so the
+      // sheet came out as header + rule + footer, nothing else, on a term
+      // whose screen visibly shows "See also" content. Print is a paid Plus
+      // feature; handing someone a blank page is worse than not offering it.
+      // Build the same body the screen renders.
+      const seeAlso = (term.see_refs?.length ?? 0) > 0
+        ? `See also:\n${term.see_refs.join('\n')}`
+        : (term.see_refs_unresolved?.length ?? 0) > 0
+          ? `The FAA's Pilot/Controller Glossary lists this term as a cross-reference to ${term.see_refs_unresolved!.join(' and ')} — it has no standalone definition of its own.`
+          : "The FAA's Pilot/Controller Glossary lists this term as a cross-reference only — it has no standalone definition of its own."
       await printReg({
         documentNumber: term.term,
         title: null,
-        body: term.definition ?? '',
+        body: (term.definition ?? '').trim() || seeAlso,
         kindLabel: 'P/CG',
       })
     } catch (err) {

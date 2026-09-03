@@ -278,7 +278,7 @@ export async function buildPrintHtml(reg: PrintableReg): Promise<string> {
   <h1>${escapeHtml(heading)}</h1>
   ${reg.subtitle ? `<p class="subtitle">${escapeHtml(reg.subtitle)}</p>` : ''}
   <hr/>
-  ${bodyHtml}
+  ${bodyHtml || '<p><em>This document has no body text in the FlyRegs corpus. Verify against the current official FAA source.</em></p>'}
   ${figuresHtml}
   <footer>
     Printed from FlyRegs on ${escapeHtml(printedOn)} · flyregs.com<br/>

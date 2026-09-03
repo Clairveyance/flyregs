@@ -135,6 +135,10 @@ export async function getRefPackets(): Promise<RefPacket[]> {
     fetchAllDocCodes('acs_areas_of_operation'),
     fetchAllDocCodes('acs_tasks'),
   ])
+  // Same reasoning as getRefPacket below: a failed fetch resolving to [] gets
+  // rendered as truth. The Wing's whole RefPacks grid keys on
+  // `refPackets.length > 0`, so this silently drew nothing at all.
+  if (docsRes.error) throw docsRes.error
   const docs = (docsRes.data ?? []) as { code: string; title: string; slug: string; doc_type: string }[]
   const areaCounts: Record<string, number> = {}
   for (const code of areaDocCodes) {
@@ -161,6 +165,18 @@ export async function getRefPacket(code: string): Promise<{ title: string; areas
     supabase.from('acs_areas_of_operation').select('area_number, title, sort_order').eq('doc_code', code).order('sort_order'),
     supabase.from('acs_tasks').select('id, area_number, task_letter, title, sort_order').eq('doc_code', code).order('sort_order'),
   ])
+  // A failed SECONDARY query must never resolve to an empty pack. These three
+  // run in Promise.all, and supabase-js RESOLVES with {data: null, error} on a
+  // network failure rather than throwing -- so if the document query succeeded
+  // and either of the other two failed, `?? []` produced a non-null,
+  // structurally valid, EMPTY pack. [code].tsx then writes it to AsyncStorage
+  // as truth, and since nothing anywhere clears or versions that cache
+  // (REF_PACKET_CACHE_KEY_PREFIX appears at exactly three lines in the whole
+  // codebase), the pack reads "0 AREAS OF OPERATION" forever, on every future
+  // open, back on a good connection. Throw instead: the caller already has a
+  // catch that keeps cached data visible.
+  if (areasRes.error) throw areasRes.error
+  if (tasksRes.error) throw tasksRes.error
   if (!docRes.data) return null
   const areas = (areasRes.data ?? []) as { area_number: string; title: string }[]
   const tasks = (tasksRes.data ?? []) as { id: string; area_number: string; task_letter: string; title: string }[]
