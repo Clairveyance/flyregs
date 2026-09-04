@@ -213,7 +213,18 @@ export async function updateCollaboratorRole(aircraftId: string, userId: string,
 export async function removeCollaborator(aircraftId: string, userId: string): Promise<void> {
   // Read before the delete -- invite_token is what distinguishes a targeted
   // Callsign invite from an open-link join, and it disappears with the row.
-  const { data: row } = await supabase
+  // `error` is bound because this read decides an ACCESS question and its
+  // swallowed-error default was the unsafe one: a failed read left `row`
+  // null, the `if` below never fired, the share link was NOT retired, and a
+  // just-removed collaborator could walk back in with the same link. Fail
+  // CLOSED -- retire it. Being wrong that way costs an owner one extra Share
+  // tap (getOrCreateShareLink mints a fresh code when share_code is null, per
+  // this function's own comment); being wrong the other way leaves an
+  // ex-collaborator with access to an aircraft's maintenance records.
+  //
+  // Identical fix to sharedFolders.removeCollaborator, made the same day --
+  // the two were copies of each other and shared the defect.
+  const { data: row, error: rowErr } = await supabase
     .from('aircraft_collaborators')
     .select('invite_token')
     .eq('aircraft_id', aircraftId)
@@ -227,7 +238,7 @@ export async function removeCollaborator(aircraftId: string, userId: string): Pr
     .eq('user_id', userId)
   if (error) throw error
 
-  if (row && !row.invite_token) {
+  if (rowErr || (row && !row.invite_token)) {
     const { error: linkErr } = await supabase
       .from('user_aircraft')
       .update({ share_code: null, share_code_role: null })
@@ -235,13 +246,19 @@ export async function removeCollaborator(aircraftId: string, userId: string): Pr
     // Best-effort: access is already revoked above, this only closes the
     // re-entry path. Loud rather than silent so a failure is diagnosable.
     if (linkErr) console.error('Failed to retire the aircraft share link after a removal:', linkErr.message)
+    else if (rowErr) console.warn('Retired the aircraft share link defensively: could not read the removed collaborator\'s invite_token —', rowErr.message)
   }
 }
 
 export async function leaveSharedAircraft(aircraftId: string): Promise<void> {
-  const { data } = await supabase.auth.getUser()
+  // Throw rather than return: a swallowed auth error made "Leave" a silent
+  // no-op -- the row stayed, the user still had access, and the screen showed
+  // no error because this resolved normally. Every other failure in this
+  // function already throws, and the caller has an error path.
+  const { data, error: authErr } = await supabase.auth.getUser()
+  if (authErr) throw authErr
   const userId = data.user?.id
-  if (!userId) return
+  if (!userId) throw new Error('Not signed in.')
   const { error } = await supabase
     .from('aircraft_collaborators')
     .delete()
@@ -344,11 +361,20 @@ export async function keepOnlyAircraft(keepIds: string[]): Promise<void> {
 // so all three stay byte-identical instead of drifting. See
 // sync/migrations_hobbs_tracking.sql.
 export async function setAircraftCurrentHobbs(aircraftId: string, hours: number | null): Promise<void> {
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from('user_aircraft')
     .update({ current_hobbs_hours: hours, hobbs_updated_at: hours != null ? new Date().toISOString() : null })
     .eq('id', aircraftId)
+    .select('id')
   if (error) throw error
+  // Same guard, and the same reason, as getOrCreateShareLink above: PostgREST
+  // returns SUCCESS WITH ZERO ROWS when RLS filters a write out, so a viewer's
+  // hours entry resolved with error === null and every caller reported it
+  // saved. The number updated on screen, the local fleet cache was patched,
+  // nothing was written, and it silently reverted on the next refresh -- while
+  // every hours-based reminder and recurring-AD countdown kept reading the old
+  // value. Catches a role downgraded mid-session too, which a UI gate cannot.
+  if (!updated?.length) throw new Error("You don't have permission to update hours for this aircraft.")
 }
 
 export async function getFleetHiddenCount(): Promise<number> {

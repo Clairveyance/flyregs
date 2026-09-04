@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { removeFromCache } from '@/lib/imageCache'
 import { supabase } from '@/lib/supabase'
 
 // Which account this device's local data (@flyregs/bookmarks, /folders,
@@ -177,6 +178,11 @@ const ALL_LOCAL_KEYS = [
   '@flyregs/recent-searches',
   '@flyregs/recent-searches:afr',
   '@flyregs/sync-enabled',
+  // Included so a device CLAIM by a different account, and account deletion,
+  // both drop the previous account's cached tier -- see
+  // entitlementCache.clearCachedEntitlement for why an unkeyed read makes
+  // leaving it behind unsafe.
+  '@flyregs/entitlement-cache',
 ]
 
 // Shared by claimDeviceIfMismatched below and by account.tsx's account-
@@ -184,6 +190,35 @@ const ALL_LOCAL_KEYS = [
 // why deletion needs this same list but can't just call
 // claimDeviceIfMismatched itself.
 async function wipeAllLocalKeys(): Promise<void> {
+  // Reclaim the cached image FILES before dropping the manifest that names
+  // them. '@flyregs/downloads' is the only record of which figure and page-scan
+  // files on disk belong to a download (see downloads.ts's cachedImageKeys), so
+  // a bare removeItem left every one of them orphaned in the document
+  // directory -- invisible to the app and unreclaimable by any code path.
+  // On a shared device or an account deletion that can be gigabytes of AC
+  // figures and AD page scans, on a wipe the user was told removes their data.
+  //
+  // downloads.ts has a clearDownloads() written for exactly this and it has
+  // ZERO call sites -- it was never wired in. Inlined here rather than
+  // imported because downloads.ts imports currentUserId/localDataBelongsTo
+  // from THIS file, so calling into it would create a module cycle.
+  // imageCache.ts does not import this file, so removeFromCache is safe.
+  try {
+    const raw = await AsyncStorage.getItem('@flyregs/downloads')
+    if (raw) {
+      const items = JSON.parse(raw) as { figures?: { id: string }[]; formulaRefs?: { id: string }[] }[]
+      if (Array.isArray(items)) {
+        const keys = items.flatMap((i) => [
+          ...(i.figures ?? []).map((f) => f.id),
+          ...(i.formulaRefs ?? []).map((f) => f.id),
+        ]).filter(Boolean)
+        if (keys.length) await removeFromCache(keys)
+      }
+    }
+  } catch {
+    // Best-effort: a failure here must never block the wipe itself, which is
+    // the part that protects the OTHER account's privacy.
+  }
   await Promise.all(ALL_LOCAL_KEYS.map((k) => AsyncStorage.removeItem(k)))
 }
 
@@ -273,9 +308,29 @@ export async function claimDeviceIfMismatched(userId: string, email?: string | n
 // the state a brand-new device would be in, and exactly what
 // claimDeviceIfMismatched's own `owner === null` fast path already treats
 // as safe to leave alone for whoever signs in next.
+// Per-user caches namespaced by uid at their own call sites. They are
+// deliberately NOT in ALL_LOCAL_KEYS: for a device-CLAIM wipe the fixed list
+// is right, because a different uid can never read another uid's key anyway.
+// Account DELETION is a different promise -- account.tsx tells the user this
+// "permanently deletes your account and all synced data" -- and these hold
+// real personal data: tail numbers and fleet status, duel opponents, search
+// identity stats, notification preferences. Swept by PREFIX because the uid
+// is no longer available here (deletion signs out first, by design: wiping
+// before sign-out would let the sign-out path re-stamp the owner tag).
+const DELETION_KEY_PREFIXES = [
+  '@flyregs/my-aircraft-cache:',
+  '@flyregs/home-fleetsummary-cache',
+  '@flyregs/identityStatsCache:',
+  '@flyregs/challenges-cache:',
+  '@flyregs/push-prefs:',
+]
+
 export async function wipeAllLocalDataForAccountDeletion(): Promise<void> {
   try {
     await wipeAllLocalKeys()
+    const allKeys = await AsyncStorage.getAllKeys()
+    const scoped = allKeys.filter((k) => DELETION_KEY_PREFIXES.some((pre) => k.startsWith(pre)))
+    if (scoped.length) await AsyncStorage.multiRemove(scoped)
     await AsyncStorage.removeItem(SYNC_OWNER_KEY)
   } catch {
     // Non-fatal -- the account itself is already gone server-side by the

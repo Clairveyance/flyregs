@@ -585,7 +585,7 @@ export default function AimParagraphScreen() {
         />
       )}
       {!loading && offlineCopy && (
-        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} />
+        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} readOnly={!isPremium} />
       )}
       {!loading && para && (
         <ChangedBanner

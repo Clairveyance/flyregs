@@ -338,6 +338,25 @@ def upsert_chunks(rows: list[dict]) -> list[dict]:
     return failed
 
 
+# A prune bigger than this share of stored source_ids is treated as a bug
+# (partial fetch), not as real deletions. Real FAA removals are a handful of
+# sections at a time; nothing legitimate approaches 10%.
+PRUNE_MAX_FRACTION = 0.10
+
+# Types whose FETCH_FILTER still yields the COMPLETE population of their
+# stored source_type, so a prune can safely compare against it.
+#
+# Default for a filtered type is "don't prune" -- `rows` being a subset means
+# everything filtered out looks orphaned. `mnemonic` is the documented
+# exception: it filters dictionary_terms to category=mnemonic, but it is also
+# the ONLY doc_type that writes source_type='dictionary'
+# (SOURCE_TYPE_OVERRIDE), so the filtered set is exactly what should be there.
+# Verified live 2026-09-03: 53 of the 54 stored 'dictionary' chunks map to a
+# category=mnemonic row and the 54th was the orphan. Any NEW filtered type
+# must be checked the same way before being added here.
+PRUNE_SAFE_FILTERED = {"mnemonic"}
+
+
 def run_type(doc_type: str, only: str | None, dry_run: bool) -> tuple[int, int]:
     table, key_field, text_fields, title_field = SOURCES[doc_type]
     stored_type = SOURCE_TYPE_OVERRIDE.get(doc_type, doc_type)
@@ -407,8 +426,87 @@ def run_type(doc_type: str, only: str | None, dry_run: bool) -> tuple[int, int]:
                 time.sleep(0.2)
     flush()
 
-    log.info(f"[{doc_type}] done. {total_chunks} total chunks, {total_embedded} newly embedded/updated")
+    pruned = prune_orphans(doc_type, rows, key_field, only, dry_run)
+
+    log.info(f"[{doc_type}] done. {total_chunks} total chunks, {total_embedded} newly embedded/updated, {pruned} orphan chunk(s) pruned")
     return total_chunks, total_embedded
+
+
+def prune_orphans(
+    doc_type: str, rows: list[dict], key_field: str, only: str | None, dry_run: bool
+) -> int:
+    """Delete chunks whose source row no longer exists.
+
+    This script had NO delete path of any kind. It only ever upserted, so when
+    a source row went away the embedding it left behind stayed in
+    content_chunks forever and stayed searchable -- semantic search would
+    happily return a hit for a regulation that is no longer in the app, and
+    tapping it opens a document that cannot be loaded.
+
+    Confirmed live 2026-09-03: 3 real orphans were sitting in the table --
+    FAR 93.101 and 93.103 (the FAA removed both; far_sections now goes
+    straight from 93.1 to 93.117) and the deleted `mnem-dels` mnemonic.
+
+    SAFETY -- this is the only destructive operation in this file, and a bad
+    delete here silently degrades search for content we still have:
+
+    * Skipped entirely for --only runs. `rows` is then a single document, so
+      every other source_id would look orphaned.
+    * Skipped if the source fetch came back empty. An upstream outage must
+      never be read as "the FAA deleted everything".
+    * Skipped if a type uses a FETCH_FILTER, unless that type is listed in
+      PRUNE_SAFE_FILTERED. `rows` is otherwise a deliberate subset of the
+      table, so anything filtered out is not an orphan.
+    * Refuses outright above PRUNE_MAX_FRACTION of the stored chunks. A
+      partial fetch is the realistic failure mode, and it looks exactly like
+      a mass deletion; better to log loudly and prune nothing.
+    """
+    stored_type = SOURCE_TYPE_OVERRIDE.get(doc_type, doc_type)
+
+    if only:
+        return 0
+    if doc_type in FETCH_FILTERS and doc_type not in PRUNE_SAFE_FILTERED:
+        log.info(f"[{doc_type}] prune skipped -- type uses a fetch filter, so `rows` is a subset by design")
+        return 0
+    if not rows:
+        log.warning(f"[{doc_type}] prune skipped -- source fetch returned 0 rows (treating as an upstream problem, not a deletion)")
+        return 0
+
+    live_ids = {r.get(key_field) for r in rows if r.get(key_field)}
+    stored_ids = {k.split("::", 1)[0] for k in existing_hashes(doc_type)}
+    orphan_ids = sorted(stored_ids - live_ids)
+    if not orphan_ids:
+        return 0
+
+    if stored_ids and len(orphan_ids) / len(stored_ids) > PRUNE_MAX_FRACTION:
+        log.error(
+            f"[{doc_type}] REFUSING to prune: {len(orphan_ids)} of {len(stored_ids)} stored source_ids "
+            f"({len(orphan_ids) / len(stored_ids):.0%}) look orphaned, over the {PRUNE_MAX_FRACTION:.0%} ceiling. "
+            f"That is far more likely to be a partial source fetch than real deletions. Nothing was deleted."
+        )
+        return 0
+
+    log.info(f"[{doc_type}] pruning {len(orphan_ids)} orphaned source_id(s): {orphan_ids[:10]}"
+             + (" ..." if len(orphan_ids) > 10 else ""))
+    if dry_run:
+        log.info(f"[{doc_type}] (dry-run) no deletes issued")
+        return 0
+
+    deleted = 0
+    for i in range(0, len(orphan_ids), 50):
+        batch = orphan_ids[i:i + 50]
+        quoted = ",".join('"' + b.replace('"', '""') + '"' for b in batch)
+        resp = requests.delete(
+            f"{SUPABASE_URL}/rest/v1/content_chunks",
+            headers={**SB_HEADERS, "Prefer": "return=representation"},
+            params={"source_type": f"eq.{stored_type}", "source_id": f"in.({quoted})"},
+            timeout=60,
+        )
+        if not resp.ok:
+            log.warning(f"[{doc_type}] orphan prune failed for {len(batch)} id(s): {resp.status_code} {resp.text[:200]}")
+            continue
+        deleted += len(resp.json())
+    return deleted
 
 
 def main():

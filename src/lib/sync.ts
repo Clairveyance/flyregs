@@ -15,6 +15,11 @@ import {
   blockedFolderItemIds,
   syncPushNote,
   reportSyncError,
+  readPendingDeletes,
+  clearPendingDeletes,
+  syncPushBookmarkDeletes,
+  syncPushNoteDeletes,
+  syncPushFolderItemDeletes,
 } from '@/lib/syncPush'
 
 // Real cloud sync for Premium's "Back up & sync" — replaces the previous
@@ -84,16 +89,105 @@ export async function claimLocalDataForSignedOutUser(userId: string, email?: str
 // pushed up. Soft-deleted remote rows remove the local copy if the remote
 // delete is newer than whatever's on this device.
 
+// A pull whose FAILURE must not read as "the server has nothing".
+//
+// supabase-js RESOLVES {data: null, error} on a network failure rather than
+// rejecting, so `const { data: remote } = ...` followed by `remote ?? []`
+// turned every failed pull into a silent no-op merge. pullAndMergeAll then
+// resolved, setSyncOwner stamped the device, and enableSync returned
+// normally -- so "Back up & sync" flipped to ON, wrote sync_enabled:true to
+// the account, and told a paying user their library was backed up when zero
+// rows had moved in either direction. saved.tsx and notes.tsx BOTH already
+// wrap enableSync in try/catch with a revert + error dialog; that path was
+// simply unreachable. enableSync's own catch also rolls SYNC_ENABLED_KEY
+// back, and the launch-time caller is .catch()-guarded, so throwing here is
+// safe at every call site.
+function mustPull<T>(res: { data: T[] | null; error: any }, what: string): T[] {
+  if (res.error) throw new Error(`sync pull ${what}: ${res.error.message}`)
+  return res.data ?? []
+}
+
+// PostgREST caps a response at the project's max-rows (1000 here), silently:
+// you get 1000 rows and no error, no indication more exist. Highlights are
+// stored as ordinary synced_bookmarks rows, so a heavy annotator crosses
+// 1000 well before 1000 documents -- and a truncated pull means the rest of
+// their library never lands on a restored device, on any launch, forever.
+// (It is under-delivery, not loss: truncation only omits REMOTE rows, and a
+// deletion only fires on a row that is actually present with deleted=true.)
+//
+// mergeFolderItems already carried a defensive `.range(0, 1999)`; that is
+// still a cap, just a higher one, and the other three pulls had none at all.
+// `.order('id')` matters as much as the paging: without a stable sort the
+// page boundaries are unspecified, so which rows you get is arbitrary.
+async function pullAllPages<T>(
+  page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>,
+  what: string,
+): Promise<T[]> {
+  const PAGE = 1000
+  const out: T[] = []
+  for (let i = 0; i < 100; i++) {
+    const rows = mustPull(await page(i * PAGE, i * PAGE + PAGE - 1), what)
+    out.push(...rows)
+    if (rows.length < PAGE) break
+  }
+  return out
+}
+
+// Re-issue any delete that never reached the server, BEFORE merging.
+//
+// Two jobs, and both are needed: re-attempting is what eventually clears the
+// queue, and the returned Set is what stops this merge from writing the row
+// back to the device in the meantime. Without the second half, an offline
+// delete comes back on the very next pull -- see PENDING_DELETES_KEY in
+// syncPush.ts for how a delete gets stranded in the first place.
+//
+// Deliberately best-effort: a still-failing retry simply leaves the id
+// queued, and the id stays excluded from resurrection either way, so the
+// user's delete keeps looking like a delete.
+async function drainPendingDeletes(): Promise<{ bookmarks: Set<string>; notes: Set<string>; folderItems: Set<string> }> {
+  const pending = await readPendingDeletes()
+  try {
+    if (pending.bookmarks.length) await syncPushBookmarkDeletes(pending.bookmarks)
+    if (pending.notes.length) await syncPushNoteDeletes(pending.notes)
+    if (pending.folderItems.length) await syncPushFolderItemDeletes(pending.folderItems)
+  } catch {
+    /* the push helpers already re-queue and report; never block the merge */
+  }
+  return {
+    bookmarks: new Set(pending.bookmarks),
+    notes: new Set(pending.notes),
+    folderItems: new Set(pending.folderItems),
+  }
+}
+
 export async function pullAndMergeAll(userId: string): Promise<void> {
+  // TWO waves, not one Promise.all -- mergeFolderItems and mergeNotes both
+  // scope themselves to the folders that exist LOCALLY (`getFolders()` ->
+  // ownFolderIds), and that read resolves from AsyncStorage in milliseconds
+  // while mergeFolders is still on the network. Run together, they therefore
+  // saw the folder list from BEFORE the pull.
+  //
+  // On a device with no local folders yet -- a new phone, a reinstall, a
+  // cleared cache: exactly the restore case sync exists for -- ownFolderIds
+  // was deterministically empty, so `relevantRemote` filtered to nothing and
+  // the user's folders all pulled down EMPTY. It self-corrected on the next
+  // cold launch, which meant the entire first session after a restore showed
+  // empty folders at the precise moment the user was checking whether their
+  // data had survived -- and invited them to re-add or delete to "fix" it.
+  //
+  // Bookmarks stay in the first wave: nothing scopes to them.
+  // Retry stranded deletes first, and carry their ids into the merges so a
+  // delete that still cannot reach the server is not written back onto the
+  // device in the meantime.
+  const pendingDel = await drainPendingDeletes()
+  await Promise.all([mergeBookmarks(userId, pendingDel.bookmarks), mergeFolders(userId)])
   await Promise.all([
-    mergeBookmarks(userId),
-    mergeFolders(userId),
-    mergeFolderItems(userId),
-    mergeNotes(userId),
+    mergeFolderItems(userId, pendingDel.folderItems),
+    mergeNotes(userId, pendingDel.notes),
   ])
 }
 
-async function mergeBookmarks(userId: string) {
+async function mergeBookmarks(userId: string, pendingDeleted: Set<string> = new Set()) {
   // synced_bookmarks_gated, not the raw table -- a highlight's block_text/
   // block_snippet is a verbatim copy of real Plus/Pro-gated body text (see
   // sync/migrations_fix_synced_bookmarks_highlight_gate_leak.sql), and this
@@ -103,23 +197,32 @@ async function mergeBookmarks(userId: string) {
   // and all, straight into local storage. The view redacts those two
   // columns to null when the current session's tier no longer qualifies;
   // every other column (plain bookmark metadata) is unaffected.
-  const [{ data: remote }, local] = await Promise.all([
-    supabase.from('synced_bookmarks_gated').select('*').eq('user_id', userId),
-    getBookmarks(),
-  ])
-  const localById = new Map(local.map((b) => [b.id, b]))
+  // The pre-network snapshot that used to feed `localById` is gone: every
+  // decision below now reads fresh inside the lock, so a second, older copy
+  // out here could only be a source of exactly the staleness this fixes.
+  const remote = await pullAllPages((f, t) =>
+    supabase.from('synced_bookmarks_gated').select('*').eq('user_id', userId).order('id').range(f, t), 'bookmarks')
   // withLock('bookmarks', ...) -- the SAME lock key bookmarks.ts's own
   // addBookmark/addManyBookmarks/removeManyBookmarks/addHighlight now use,
   // so this merge and a concurrent local write can never race: whichever
   // acquires the lock first fully finishes before the other starts. Reads
-  // fresh right before writing (not the stale `local` snapshot above,
-  // taken before the network round-trip) -- `localById` above still drives
-  // the remote-vs-local decision logic unchanged, only the base list
-  // `merged`/`toPushUp` are built from is the true current state. See
+  // fresh right before writing AND deciding against that same fresh read.
+  // (Until 2026-09-04 only the base list was fresh; the decision still used
+  // a snapshot taken before the network round-trip, which is the hole that
+  // let a concurrent local write be judged against its own old value.) See
   // asyncMutex.ts's own header comment for the full story.
   const toPushUp = await withLock('bookmarks', async () => {
     const fresh = await getBookmarks()
-    const merged = new Map(fresh.map((b) => [b.id, b]))
+    // freshById, NOT the pre-network `localById`: the 2026-08-21 mutex work
+    // moved the BASE LIST to a fresh under-lock read but left the DECISIONS
+    // on the snapshot taken before the network round-trip. The lock
+    // serializes writes; it cannot make a stale comparison correct.
+    // Matters most for the r.deleted branch below, whose own comment promises
+    // "a re-add always outlives the delete that preceded it" -- a re-add that
+    // landed during the round trip was missing from localById, so `!loc` was
+    // true and the just-re-added bookmark was deleted anyway.
+    const freshById = new Map(fresh.map((b) => [b.id, b]))
+    const merged = new Map(freshById)
 
     for (const r of remote ?? []) {
       if (r.deleted) {
@@ -145,11 +248,14 @@ async function mergeBookmarks(userId: string) {
         // device is still newer than this device's untouched copy and is
         // honored exactly as before. Ties go to the delete (`>` on the
         // remote side), matching mergeFolders/mergeNotes.
-        const loc = localById.get(r.id)
+        const loc = freshById.get(r.id)
         if (!loc || new Date(r.updated_at) > new Date(loc.savedAt)) merged.delete(r.id)
         continue
       }
-      if (!localById.has(r.id)) {
+      // A row this device deleted but could not push yet must not be written
+      // back just because the server still shows it as live.
+      if (pendingDeleted.has(r.id)) continue
+      if (!freshById.has(r.id)) {
         merged.set(r.id, {
           id: r.id,
           // Missing means 'ac' (see bookmarks.ts's own BookmarkAC comment) --
@@ -192,24 +298,34 @@ async function mergeBookmarks(userId: string) {
 }
 
 async function mergeFolders(userId: string) {
-  const [{ data: remote }, local] = await Promise.all([
-    supabase.from('synced_folders').select('*').eq('user_id', userId),
-    getFolders(),
-  ])
-  const localById = new Map(local.map((f) => [f.id, f]))
+  // Only the remote fetch here now. The pre-network getFolders() read that
+  // used to sit alongside it fed `localById`, which is gone -- the merge
+  // reads fresh inside the lock instead (see below), so a second read out
+  // here would only be a snapshot guaranteed to be staler.
+  const remote = await pullAllPages((f, t) =>
+    supabase.from('synced_folders').select('*').eq('user_id', userId).order('id').range(f, t), 'folders')
   // withLock('folders', ...) -- the SAME lock key folders.ts's own
   // createFolder/reorderFolders/renameFolder/markFolderShared/deleteFolder/
   // addManyToFolder/removeFromFolder/etc now use (one shared domain for
   // both the folders and folder-items keys), so this merge and a
-  // concurrent local write can never race. Reads fresh right before
-  // writing -- `localById` above still drives the remoteNewer decision
-  // unchanged. See asyncMutex.ts's own header comment for the full story.
+  // concurrent local write can never race. Reads fresh right before writing,
+  // AND decides against that same fresh read -- the 2026-08-21 mutex work
+  // moved the base list but left the decision on the pre-network snapshot,
+  // which is the hole this closes. See asyncMutex.ts's own header comment.
   const toPushUp = await withLock('folders', async () => {
     const fresh = await getFolders()
-    const merged = new Map(fresh.map((f) => [f.id, f]))
+    const freshById = new Map(fresh.map((f) => [f.id, f]))
+    const merged = new Map(freshById)
 
     for (const r of remote ?? []) {
-      const loc = localById.get(r.id)
+      // freshById, NOT the pre-network `localById`. The lock serializes the
+      // WRITES, but the remoteNewer DECISION was still being made against a
+      // snapshot taken before the round trip -- so a local edit that landed
+      // during that window was invisible here, and its newer updated_at was
+      // compared as if it were the old one. A rename, a drag-reorder, or a
+      // markFolderShared() completed mid-pull would be judged "remote is
+      // newer" and overwritten with the server's older copy.
+      const loc = freshById.get(r.id)
       const remoteNewer = !loc || new Date(r.updated_at) > new Date(loc.updated_at)
       if (r.deleted) {
         if (remoteNewer) merged.delete(r.id)
@@ -250,7 +366,7 @@ async function mergeFolders(userId: string) {
   for (const f of toPushUp) await syncPushFolder(f)
 }
 
-async function mergeFolderItems(userId: string) {
+async function mergeFolderItems(userId: string, pendingDeleted: Set<string> = new Set()) {
   // Was .eq('user_id', userId) -- only ever pulled items THIS account
   // authored, so a collaborator's item in a folder this account owns was
   // never even fetched, regardless of what RLS allows. Fetch everything RLS
@@ -259,31 +375,41 @@ async function mergeFolderItems(userId: string) {
   // folders -- a folder merely joined as a collaborator is intentionally
   // left out of the local cache entirely; that experience is served purely
   // remotely by sharedFolders.ts's getSharedFolder*Items, unchanged by this.
-  // .range() defensively raises the row cap well past any realistic near-
-  // term usage (see gotcha_postgrest_1000_row_cap in memory).
-  const [ownFolders, { data: remote }, local] = await Promise.all([
+  // Fully paginated now, not just a raised cap: the old `.range(0, 1999)`
+  // was still a ceiling, and this query is NOT scoped by user_id -- it
+  // returns every RLS-visible row, shared-folder items included, so it hits
+  // a limit sooner than a per-account query would (see
+  // gotcha_postgrest_1000_row_cap in memory).
+  const [ownFolders, remote, local] = await Promise.all([
     getFolders(),
-    supabase.from('synced_folder_items').select('*').range(0, 1999),
+    pullAllPages((f, t) => supabase.from('synced_folder_items').select('*').order('id').range(f, t), 'folder items'),
     getFolderItems(),
   ])
   const ownFolderIds = new Set(ownFolders.map((f) => f.id))
   const relevantRemote = (remote ?? []).filter((r) => ownFolderIds.has(r.folder_id))
 
-  const localById = new Map(local.map((i) => [i.id, i]))
   // withLock('folders', ...) -- same shared domain as mergeFolders above
-  // and every folders.ts write. Reads fresh right before writing --
-  // `localById` above still drives the "already exists locally" decision
-  // unchanged.
+  // and every folders.ts write. Reads fresh right before writing, and the
+  // "already exists locally" decision reads that same fresh map -- not the
+  // pre-network snapshot it used until 2026-09-04.
   const toPushUp = await withLock('folders', async () => {
     const fresh = await getFolderItems()
-    const merged = new Map(fresh.map((i) => [i.id, i]))
+    // freshById, NOT the pre-network `localById`: the 2026-08-21 mutex work
+    // moved the BASE LIST to a fresh under-lock read but left the DECISIONS
+    // on the snapshot taken before the network round-trip. The lock
+    // serializes writes; it cannot make a stale comparison correct.
+    const freshById = new Map(fresh.map((i) => [i.id, i]))
+    const merged = new Map(freshById)
 
     for (const r of relevantRemote) {
       if (r.deleted) {
         merged.delete(r.id)
         continue
       }
-      if (!localById.has(r.id)) {
+      // A row this device deleted but could not push yet must not be written
+      // back just because the server still shows it as live.
+      if (pendingDeleted.has(r.id)) continue
+      if (!freshById.has(r.id)) {
         merged.set(r.id, {
           id: r.id,
           folder_id: r.folder_id,
@@ -314,9 +440,9 @@ async function mergeFolderItems(userId: string) {
   await syncPushFolderItems(toPushUp)
 }
 
-async function mergeNotes(userId: string) {
-  const [{ data: ownRemote }, local, ownFolders] = await Promise.all([
-    supabase.from('synced_notes').select('*').eq('user_id', userId),
+async function mergeNotes(userId: string, pendingDeleted: Set<string> = new Set()) {
+  const [ownRemote, local, ownFolders] = await Promise.all([
+    pullAllPages((f, t) => supabase.from('synced_notes').select('*').eq('user_id', userId).order('id').range(f, t), 'notes'),
     getNotes(),
     getFolders(),
   ])
@@ -330,34 +456,45 @@ async function mergeNotes(userId: string) {
   // notes regardless of who authored them -- owners_manage_shared_notes now
   // allows exactly this read.
   const ownFolderIds = ownFolders.map((f) => f.id)
-  const { data: noteItemRows } = ownFolderIds.length
-    ? await supabase.from('synced_folder_items').select('item_id').eq('item_type', 'note').in('folder_id', ownFolderIds).eq('deleted', false)
-    : { data: [] as { item_id: string }[] }
+  const noteItemRows = ownFolderIds.length
+    ? mustPull(await supabase.from('synced_folder_items').select('item_id').eq('item_type', 'note').in('folder_id', ownFolderIds).eq('deleted', false), 'shared note pointers')
+    : ([] as { item_id: string }[])
   const foreignNoteIds = [...new Set((noteItemRows ?? []).map((r) => r.item_id))]
     .filter((id) => !(ownRemote ?? []).some((n) => n.id === id))
-  const { data: foreignRemote } = foreignNoteIds.length
-    ? await supabase.from('synced_notes').select('*').in('id', foreignNoteIds)
-    : { data: [] as any[] }
+  const foreignRemote = foreignNoteIds.length
+    ? mustPull(await supabase.from('synced_notes').select('*').in('id', foreignNoteIds), 'shared notes')
+    : ([] as any[])
 
   const remote = [...(ownRemote ?? []), ...(foreignRemote ?? [])]
   const foreignIds = new Set((foreignRemote ?? []).map((n) => n.id))
 
-  const localById = new Map(local.map((n) => [n.id, n]))
   // Routed through updateNotes (the SAME 'notes' lock domain notes.tsx/
   // folder/[id].tsx's own edits now use) rather than a raw getNotes-then-
   // saveNotes pair -- that's the actual fix for the clobber race: the
   // mutator below runs against a truly fresh read taken under the lock,
   // immediately before the write, so a local note edit landing at the same
   // moment either fully happens before this merge starts or fully after it
-  // finishes, never silently in between. `localById` (the original
-  // snapshot, above) still drives the remoteNewer decision unchanged --
-  // only WHERE the base list comes from changed. toPushUp is captured via
+  // finishes, never silently in between. The remoteNewer decision reads the
+  // SAME fresh list the mutator was handed -- it used the pre-network
+  // snapshot until 2026-09-04. toPushUp is captured via
   // this closure since updateNotes's mutator only returns the next array.
   let toPushUp: Note[] = []
   await updateNotes((fresh) => {
-    const merged = new Map(fresh.map((n) => [n.id, n]))
+    // freshById, NOT the pre-network `localById`: the 2026-08-21 mutex work
+    // moved the BASE LIST to a fresh under-lock read but left the DECISIONS
+    // on the snapshot taken before the network round-trip. The lock
+    // serializes writes; it cannot make a stale comparison correct.
+    // Worst of the three: pullAndMergeAll runs unawaited at launch
+    // (applyRemoteSyncPreference), so a note the user was editing during the
+    // pull had its newer updated_at invisible here and the server's OLDER
+    // body was written over the text that had just been saved.
+    const freshById = new Map(fresh.map((n) => [n.id, n]))
+    const merged = new Map(freshById)
     for (const r of remote) {
-      const loc = localById.get(r.id)
+      // A note this device deleted but could not push yet must not be written
+      // back just because the server still shows it as live.
+      if (pendingDeleted.has(r.id)) continue
+      const loc = freshById.get(r.id)
       const remoteNewer = !loc || new Date(r.updated_at) > new Date(loc.updated_at)
       if (r.deleted) {
         if (remoteNewer) merged.delete(r.id)
@@ -438,7 +575,18 @@ export async function syncFolderFromCloud(folderId: string, userId: string): Pro
       // folders' items aren't part of `local` restricted here, they came
       // straight from the unfiltered getFolderItems() above.
       const fresh = await getFolderItems()
-      const next = [...fresh.filter((i) => !idsToDelete.has(i.id)), ...itemsToAdd]
+      // Keyed by id, not concatenated. `itemsToAdd` is computed from the
+      // pre-lock snapshot, so a row another pass already wrote into `fresh`
+      // would otherwise be appended a SECOND time with the same id.
+      // folder/[id].tsx calls load() from four independent triggers -- screen
+      // focus, a 45s interval, the realtime subscription, and AppState
+      // foreground -- with no in-flight guard, so two overlapping
+      // syncFolderFromCloud passes are ordinary, not exotic. The lock
+      // serializes the writes but cannot dedupe an append. mergeFolderItems
+      // is immune only because it builds a Map; this path did not.
+      const byIdNext = new Map(fresh.filter((i) => !idsToDelete.has(i.id)).map((i) => [i.id, i]))
+      for (const i of itemsToAdd) byIdNext.set(i.id, i)
+      const next = [...byIdNext.values()]
       await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify(next))
       return next
     })

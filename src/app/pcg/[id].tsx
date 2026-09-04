@@ -9,7 +9,8 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
-import { BackToBreadcrumb, PrevNextFooter, OfflineCopyBanner } from '@/components/DocNavBar'
+import { BackToBreadcrumb, PrevNextFooter, OfflineCopyBanner, ChangedBanner } from '@/components/DocNavBar'
+import { getLatestRevision, type ContentRevision } from '@/lib/whatsChanged'
 import { Icon } from '@/components/Icon'
 import { printReg } from '@/lib/printReg'
 import { slugifyPcgTerm } from '@/lib/pcg'
@@ -83,6 +84,38 @@ export default function PcgTermScreen() {
   // disclosure is still real, honest information the screen had none of.
   const [offlineCopy, setOfflineCopy] = useState<DownloadedAC | null>(null)
   const [offlineStale, setOfflineStale] = useState(false)
+
+  // P/CG was the last of the seven document types with no "this changed"
+  // signal, even though pcg_scraper.py has always logged pcg revisions to
+  // content_revisions (its zero row count is real P/CG changes being rare
+  // plus three separate false-positive purges, not missing plumbing).
+  //
+  // Count is 0 or 1, never a paragraph index: a P/CG entry is one short
+  // definition, and this file deliberately has none of PlainTextBody's
+  // scroll/paragraph machinery (see its own comments above). ChangedBanner
+  // now hides its prev/next chevrons below count 2, so this reads as a flat
+  // "this definition was updated" notice with no dead controls.
+  //
+  // Keyed on the RESOLVED term.slug, never the raw `id` route param. The
+  // fetch effect below accepts three different inputs for the same term:
+  // the real slug ("LIGHT_GUN"), raw term text from an inline cross-
+  // reference that only matches after slugifyPcgTerm() ("Pilot/Controller
+  // Glossary Term- Light Gun"), and the offline cache. Only the first is
+  // ever equal to content_revisions.doc_key, so keying this on `id` would
+  // silently find nothing for every term reached by a cross-reference link
+  // -- present-looking code that never fires. term.slug is correct in all
+  // three paths (the offline branch sets it from cached.id, which IS the
+  // slug addDownload stored).
+  const [revision, setRevision] = useState<ContentRevision | null>(null)
+  const termSlug = term?.slug
+  useEffect(() => {
+    if (!termSlug) { setRevision(null); return }
+    let cancelled = false
+    getLatestRevision('pcg', termSlug)
+      .then((r) => { if (!cancelled) setRevision(r) })
+      .catch(() => { if (!cancelled) setRevision(null) })
+    return () => { cancelled = true }
+  }, [termSlug])
   // A P/CG definition is a single short block (no separate paragraphs to
   // split, usually already fully visible), so unlike PlainTextBody's
   // per-paragraph scrollToMatch, matches here just need re-highlighting in
@@ -202,7 +235,14 @@ export default function PcgTermScreen() {
         // copy if this term was downloaded; without this branch "Download"
         // is write-only storage and the saved term reads as "not found" in
         // exactly the offline case the feature exists for.
-        const cached = await findDownload(id)
+        // Same raw-vs-normalized mismatch the live retry above handles, and
+        // it bites HARDER here: findDownload() is an exact `d.id === id`
+        // match, and addDownload stores `id: term.slug`. A term saved for
+        // offline use and then reached through an inline cross-reference
+        // ("Pilot/Controller Glossary Term- Light Gun") missed its own
+        // download and rendered "not found" -- with no network, in exactly
+        // the situation the offline copy was saved for.
+        const cached = (await findDownload(id)) ?? (normalized !== id ? await findDownload(normalized) : undefined)
         if (cached) {
           setTerm({
             slug: cached.id,
@@ -575,7 +615,16 @@ export default function PcgTermScreen() {
       ) : (
         <TabletContainer>
         {backTo && <BackToBreadcrumb label={backTo} onPress={() => router.back()} />}
-        {offlineCopy && <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} />}
+        {offlineCopy && <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} readOnly={!isPremium} />}
+        {revision?.addedText ? (
+          <ChangedBanner
+            count={1}
+            currentIdx={0}
+            onPrev={() => {}}
+            onNext={() => {}}
+            label="Updated — this definition changed"
+          />
+        ) : null}
         <InDocSearchBar
           query={inDocSearch.query}
           onQueryChange={inDocSearch.onQueryChange}

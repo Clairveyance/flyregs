@@ -114,6 +114,17 @@ export default function StudyScreen() {
   // 420ms) skipped a card ("1/20" straight to "3/20") and double-recorded
   // the review, inflating that item's correct_streak.
   const answeringRef = useRef(false)
+  // Only the most recent load() may commit its results. Every dependency of
+  // `load` can change while a request is in flight -- and one of them changes
+  // on EVERY cold open: sessionSize initialises to 20, then the mount effect
+  // hydrates it from AsyncStorage, so any user who has ever picked 10 or 50
+  // fires a second load while the first is still running. Filter chips do the
+  // same on every tap. Without a guard the loser of that race still calls
+  // setDeck/setIndex(0)/setPoolCount/setSessionDone, so the deck on screen can
+  // disagree with the lit chips. The effect immediately above this one already
+  // carries a `cancelled` flag for exactly this reason; load() was the
+  // oversight.
+  const loadSeq = useRef(0)
   const [mastery, setMastery] = useState<StudyMastery | null>(null)
   // Mastery ring: starts a dull neutral tone and grows toward full gold as
   // mastery % rises, with a soft pulsing glow whose intensity also scales
@@ -250,6 +261,7 @@ export default function StudyScreen() {
   }, [activeTypes, activeCategoryClasses])
 
   const load = useCallback(() => {
+    const seq = ++loadSeq.current
     setLoading(true)
     setLoadError(null)
     Promise.all([
@@ -264,6 +276,7 @@ export default function StudyScreen() {
         // and only for the up-to-20 items actually in it, not the whole
         // study_facts table -- see that function's own comment.
         getStudyFactsForItems(queue.map((c) => ({ item_type: c.item_type, item_id: c.item_id }))).then((facts) => {
+          if (seq !== loadSeq.current) return
           setStudyFacts(facts)
           // AIM and FAR items with no authored content fact are excluded
           // rather than falling back to citation-recall ("Which AIM
@@ -291,10 +304,11 @@ export default function StudyScreen() {
         })
       )
       .catch((err: any) => {
+        if (seq !== loadSeq.current) return
         Sentry.captureException(err, { tags: { feature: 'study_load' } })
         setLoadError(err?.message ?? 'Could not load your study deck.')
       })
-      .finally(() => setLoading(false))
+      .finally(() => { if (seq === loadSeq.current) setLoading(false) })
   }, [activeTypes, activeLevels, activeCategoryClasses, sessionSize])
 
   useEffect(() => {
@@ -341,6 +355,14 @@ export default function StudyScreen() {
     const t = current.item_type
     const docNumber =
       t === 'far' ? `§ ${current.item_id}`
+      // cfr49 was missed when 49 CFR joined Study Mode (2026-08-28) and fell
+      // through BOTH ternaries: document_number became the bare "830.1" (no
+      // section marker, indistinguishable from a 14 CFR citation) and the
+      // title kept the queue's "49 CFR 830.1 " prefix, so Saved rendered the
+      // number twice. rowTitle()'s de-dup could not catch it -- stripFarPrefix
+      // only strips a leading "§ N.NN", never "49 CFR N.NN". cfr49/[id].tsx
+      // writes `§ ${section_number}`, so this now matches it exactly.
+      : t === 'cfr49' ? `§ ${current.item_id}`
       // dictionary/[slug].tsx bookmarks itself with document_number =
       // entry.term (its slug is an internal id, not a citation) -- same
       // shape as pcg's own term-as-document_number convention, for the
@@ -350,6 +372,7 @@ export default function StudyScreen() {
       : current.item_id
     const title =
       t === 'far' ? current.term.replace(/^§\s*[\d.]+\s*/, '')
+      : t === 'cfr49' ? current.term.replace(/^49\s+CFR\s*[\d.]+\s*/, '')
       : t === 'ac' ? current.term.replace(/^AC\s+[^:]+:\s*/, '')
       : t === 'aim' ? current.term.replace(/^[\d-]+\s*/, '')
       : current.term
@@ -412,11 +435,11 @@ export default function StudyScreen() {
     // content, so the reverse animation shows the right thing), and defer
     // the actual index advance until that animation has finished.
     setFlipped(false)
+    const isLastCard = index + 1 >= deck.length
     const advance = () => {
       answeringRef.current = false
-      if (index + 1 >= deck.length) {
+      if (isLastCard) {
         setSessionDone(true)
-        getStudyMastery().then(setMastery).catch(() => {})
       } else {
         setIndex((i) => i + 1)
       }
@@ -425,6 +448,20 @@ export default function StudyScreen() {
 
     recordStudyReview(item.item_id, correct, item.item_type)
       .then((result) => {
+        // Both of these are READS of state this write just changed, so they
+        // run here rather than racing it. Previously getStudyMastery() ran on
+        // a FLIP_DURATION (420ms) timer and getCurrency() fired in parallel
+        // with the write at t=0 -- whenever record_study_review took longer,
+        // the "Session complete" screen reported a mastery count that
+        // excluded the card the user had just answered, and a 1-card session
+        // showed currentStreak 0 (hiding the streak badge) right after the
+        // review that started the streak.
+        //
+        // Mastery is still only fetched when the session actually ENDS, not
+        // after every card -- moving it unconditionally into this callback
+        // would turn one request per session into one per answer.
+        if (isLastCard) getStudyMastery().then(setMastery).catch(() => {})
+        getCurrency().then(setCurrency).catch(() => {})
         if (result.newCoins.length > 0) {
           // Fires well after the card has already advanced -- a rewarding
           // moment shouldn't block or race the flip/advance flow.
@@ -445,7 +482,14 @@ export default function StudyScreen() {
           // exact same coin a second time the next time the user opens the
           // Duels hub. Best-effort, same as the rest of this call chain --
           // never block the study flow on it.
-          markCoinsSeen(result.newCoins).catch(() => {})
+          // Only the coin actually REVEALED above. record_study_review can
+          // return several at once (FIRST_REP, STREAK_7/30/90, MASTERY_25/100
+          // and MASTERY_FULL are evaluated independently in one call), but
+          // only newCoins[0] is shown -- marking the whole array seen made
+          // get_unseen_coins() skip the rest, so a user who crossed two
+          // milestones on the same review was never told about the second.
+          // Same fix as challenges/[id].tsx's identical reveal path.
+          markCoinsSeen([result.newCoins[0]]).catch(() => {})
         }
       })
       .catch((err: any) => {
@@ -465,7 +509,6 @@ export default function StudyScreen() {
         })
         setReviewWriteFailed(true)
       })
-    getCurrency().then(setCurrency).catch(() => {})
   }
 
   // isPro/isPremium both start false and only become authoritative once

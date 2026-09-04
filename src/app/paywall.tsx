@@ -8,6 +8,8 @@ import { useTheme } from '@/context/theme'
 import { Icon } from '@/components/Icon'
 import { purchaseSubscription, purchaseUnlock, restorePurchases, getSubscriptionDetails, getLivePricing } from '@/lib/revenuecat'
 import { getOwnedAircraftOldestFirst } from '@/lib/aircraftSharing'
+import { supabase } from '@/lib/supabase'
+import { PRO_FOLDER_CAP } from '@/lib/folders'
 import { useFS } from '@/context/fontScale'
 import { useConfirm } from '@/components/ConfirmDialog'
 
@@ -171,9 +173,16 @@ const PLUS_FEATURES = [
   // Aviation Dictionary re-gated 2026-08-10 (base content free -> Plus,
   // Mnemonics specifically Plus -> Pro, see dictionary_terms_gated /
   // search_dictionary()) -- this list previously had only the Mnemonics
-  // line below, with no line at all for the base 10,000+-term Dictionary
+  // line below, with no line at all for the base 9,800+-term Dictionary
   // itself, which is now equally a real, distinct Plus-gated feature.
-  { icon: 'books.vertical.fill', label: 'Aviation Dictionary — 10,000+ terms across every handbook' },
+  // "9,800+", not "10,000+": the live dictionary_terms count is 9,840
+  // (verified 2026-09-04), so "10,000+" was a real overstatement on a paid
+  // conversion screen -- and the Home screen renders the TRUE count from the
+  // database right next to it, so the two disagreed in the same app. Kept as
+  // a rounded floor rather than wired to the live count: this is a static
+  // marketing list, and a number that ticks down after a corpus cleanup
+  // reads worse than a conservative floor. Revisit if the corpus passes 10k.
+  { icon: 'books.vertical.fill', label: 'Aviation Dictionary — 9,800+ terms across every handbook' },
   { icon: 'square.grid.2x2',   label: 'RefPacks — certificate-specific study collections' },
   { icon: 'printer',           label: 'Print & export any section' },
   { icon: 'magnifyingglass',   label: 'Unlimited search results' },
@@ -479,16 +488,73 @@ export default function PaywallScreen() {
       // this purchase doesn't demote the account immediately), but this
       // is the one moment before the fact where the app can say it out
       // loud, while there's still a real choice to make.
+      // RC, 2026-09-04: the aircraft line was the ONLY thing this warned
+      // about, but a downgrade costs more than aircraft -- "it might be good
+      // to remind them that they will loose any saved folder, history, data,
+      // etc in all those other places as well."
+      //
+      // Measured against the real downgrade behaviour (scripts/
+      // downgrade_matrix_test.py), so each line below states what ACTUALLY
+      // happens, not what sounds plausible:
+      //   * aircraft  -> the ONLY thing permanently deleted (AircraftDowngradeGate)
+      //   * folders   -> HIDDEN above the Pro cap of 3, never deleted; they
+      //                  come back on re-upgrade
+      //   * shared folders, both directions -> access revoked immediately;
+      //                  has_folder_access requires BOTH sides to be Premium
+      //   * duel history -> hidden, rows kept
+      //   * offline downloads -> deliberately KEPT and still readable; only
+      //                  adding new ones stops (see
+      //                  migrations_offline_downloads_enforcement.sql)
+      // Counted live rather than described in the abstract, so the user sees
+      // their own numbers. Every lookup is best-effort: a failed count must
+      // never block a downgrade the user is entitled to make.
       let aircraftCount = 0
+      let ownedFolders = 0
+      let sharedOut = 0
+      let sharedIn = 0
       try {
         aircraftCount = (await getOwnedAircraftOldestFirst()).length
       } catch { /* best-effort -- don't block the downgrade on this lookup failing */ }
-      const aircraftNote = aircraftCount > 1
-        ? ` Pro only keeps 1 saved aircraft — you'll be asked to choose which of your ${aircraftCount} to keep; the rest, and their equipment/reminders/AD history, will be permanently deleted.`
-        : ''
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          // Scoped EXPLICITLY by owner_id vs user_id. folder_collaborators has
+          // two RLS policies (one for the collaborator, one for the owner) that
+          // combine with OR, so an unscoped select returns BOTH directions
+          // mixed together and every count would be wrong -- the same trap
+          // getMyCollaborations() documents in sharedFolders.ts.
+          const [own, out, inc] = await Promise.all([
+            supabase.rpc('get_owned_folders_all'),
+            supabase.from('folder_collaborators').select('folder_id')
+              .eq('owner_id', user.id).is('left_at', null),
+            supabase.from('folder_collaborators').select('folder_id')
+              .eq('user_id', user.id).is('left_at', null),
+          ])
+          ownedFolders = (own.data ?? []).length
+          sharedOut = (out.data ?? []).length
+          sharedIn = (inc.data ?? []).length
+        }
+      } catch { /* same -- informational only */ }
+
+      const notes: string[] = []
+      if (aircraftCount > 1) {
+        notes.push(`Pro keeps 1 saved aircraft — you'll be asked to choose which of your ${aircraftCount} to keep; the rest, and their equipment, reminders and AD history, will be permanently deleted.`)
+      }
+      if (ownedFolders > PRO_FOLDER_CAP) {
+        notes.push(`Pro shows ${PRO_FOLDER_CAP} folders — your other ${ownedFolders - PRO_FOLDER_CAP} will be hidden (not deleted) and come back if you upgrade again.`)
+      }
+      if (sharedOut > 0) {
+        notes.push(`${sharedOut === 1 ? 'The person you shared a folder with' : `The ${sharedOut} people you've shared folders with`} will lose access.`)
+      }
+      if (sharedIn > 0) {
+        notes.push(`You'll lose access to ${sharedIn === 1 ? 'the folder shared with you' : `the ${sharedIn} folders shared with you`}.`)
+      }
+      notes.push('Duels and your duel history will be hidden.')
+      notes.push('Anything already downloaded for offline stays readable — you just cannot add more.')
+      const aircraftNote = notes.length ? '\n\n' + notes.map((t) => `• ${t}`).join('\n') : ''
       confirm({
         title: 'Downgrade to Pro?',
-        message: `You'll keep Premium features (shared folders, aircraft sharing, offline downloads, unlimited aircraft) until your current billing period ends, then move to Pro automatically. No refund for the time remaining.${aircraftNote}`,
+        message: `You'll keep Premium features until your current billing period ends, then move to Pro automatically. No refund for the time remaining.${aircraftNote}`,
         confirmLabel: 'Downgrade',
         destructive: true,
         finalTitle: 'Downgrade to Pro — confirm',

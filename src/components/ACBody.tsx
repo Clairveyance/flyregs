@@ -452,7 +452,12 @@ function findListRuns(text: string): ListRun[] {
     }
     if (run.length >= LIST_MIN_RUN && (run[0].num === 1 || run[0].num === 2)) {
       runs.push({
-        introEnd: run[0].idx,
+        // idx points AT the separator ('.', ':' or ';'), which terminates the
+        // INTRO and belongs to it -- slicing to idx cut that character off, so
+        // "...should consist of the following." rendered without its period.
+        // sepLen > 0 excludes the '^' alternative, where there is no separator
+        // to keep.
+        introEnd: run[0].idx + (run[0].sepLen > 0 ? 1 : 0),
         items: run.map((r) => ({ num: r.num, start: r.idx + r.sepLen, contentStart: r.idx + r.fullLen })),
       })
     }
@@ -576,6 +581,15 @@ export const ACBody = React.forwardRef<
     /** Long-press a section/item/paragraph block to toggle a highlight on it.
      * Not offered on chapter headings — those aren't "content" to save. */
     onToggleHighlight?: (block: ACBlock, index: number) => void
+    // The passage currently under the Copy/Highlight menu, shown as a
+    // "SELECTED" preview. AC was the ONLY one of the seven document types
+    // without this -- every other body renderer (PlainTextBody, and pcg's
+    // own inline renderer) already had it. RC asked for it explicitly:
+    // "needs to show the h/l area in the doc before any CTA pops up w/
+    // options." On AC the menu opened over an unmarked document, so on a
+    // long block there was no way to tell which passage was about to be
+    // copied or highlighted.
+    pendingBlockText?: string | null
     /** Figures/Tables extracted from this AC's source PDF (see
      * scripts/extract_figures.py) — rendered as a "Figures & Tables" list
      * (mirroring the Contents card) and auto-linked inline wherever their
@@ -599,7 +613,7 @@ export const ACBody = React.forwardRef<
      * the same way. */
     hasProAccess: boolean
   }
->(function ACBody({ text, blocks: precomputed, scrollRef, viewportHeight, outerOffsetYRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight, figures, onOpenFigure, formulaRefs, onOpenFormulaRef, currentLabel, hasProAccess }, ref) {
+>(function ACBody({ text, blocks: precomputed, scrollRef, viewportHeight, outerOffsetYRef, highlightQuery, onMatchCount, activeMatch = -1, bodyLimit, changedIndices, highlightedBlockTexts, onToggleHighlight, pendingBlockText, figures, onOpenFigure, formulaRefs, onOpenFormulaRef, currentLabel, hasProAccess }, ref) {
   const changedSet = useMemo(() => new Set(changedIndices ?? []), [changedIndices])
   const { tokens, redShift } = useTheme()
   const fs = useFS()
@@ -1289,15 +1303,28 @@ export const ACBody = React.forwardRef<
         // so the bookmark highlight being the only fixed-yellow element was an
         // oversight, not a decision. Light and dark are unchanged; the night
         // case uses the theme's own gold tokens, not a colour invented here.
+        // Mutually exclusive with isHighlighted by construction, so the
+        // pending state folds into the SAME style/tag pair rather than
+        // adding a third branch at each of the four render sites below.
+        const isPending = !isHighlighted && !!pendingBlockText && pendingBlockText === blockText(b)
         const highlightStyle = isHighlighted
           ? redShift
             ? { backgroundColor: tokens.goldlt, borderLeftWidth: 3, borderLeftColor: tokens.gold, paddingLeft: 8 }
             : { backgroundColor: 'rgba(255, 213, 0, 0.10)', borderLeftWidth: 3, borderLeftColor: '#FFD500', paddingLeft: 8 }
-          : null
+          : isPending
+            // Theme tokens, not PlainTextBody's literal #3B82F6 -- same
+            // reason the highlight above has a RedShift branch: a fixed
+            // bright blue block destroys dark adaptation, which is the one
+            // thing RedShift exists to protect. tokens.blu/bdim already
+            // track the mode.
+            ? { backgroundColor: tokens.bdim, borderLeftWidth: 3, borderLeftColor: tokens.blu, paddingLeft: 8 }
+            : null
         const HighlightTag = isHighlighted ? (
           <Text style={[styles.updatedTag, redShift
             ? { color: tokens.gold, backgroundColor: tokens.goldbdr, fontSize: fs(10.5) }
             : { color: '#8a6d00', backgroundColor: 'rgba(255, 213, 0, 0.35)', fontSize: fs(10.5) }]}> HIGHLIGHTED </Text>
+        ) : isPending ? (
+          <Text style={[styles.updatedTag, { color: tokens.blu, backgroundColor: tokens.bdim, fontSize: fs(10.5) }]}> SELECTED </Text>
         ) : null
         const longPress = onToggleHighlight ? () => onToggleHighlight(b, i) : undefined
         // Highlight every phrase occurrence; the one whose global ordinal ==

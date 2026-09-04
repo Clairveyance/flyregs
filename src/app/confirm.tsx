@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import * as Linking from 'expo-linking'
@@ -7,6 +7,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { supabase } from '@/lib/supabase'
+import { clearBiometricIfDifferentAccount } from '@/lib/biometricAuth'
 import { markJustConfirmed } from '@/lib/justConfirmed'
 
 // Landing screen for flyregs://confirm -- reached after tapping the
@@ -43,6 +44,18 @@ export default function ConfirmScreen() {
   const incomingUrl = Linking.useURL()
   const [state, setState] = useState<'working' | 'signedIn' | 'needsSignIn'>('working')
 
+  // Linking.useURL() initialises to null and only sets the real URL from
+  // inside its own effect (expo-linking Linking.js:126-137), so `incomingUrl`
+  // ALWAYS changes once after mount -- re-running this effect. On the normal
+  // query-param path `token_hash` is already a string on both runs, so
+  // verifyOtp fired TWICE against a single-use token. verifyOtp takes no
+  // lock, so the two requests race; the loser comes back `otp_expired` and,
+  // if it resolves last, overwrites the success state -- showing "Link
+  // expired" for a link that had just worked, and doing it again on the next
+  // link the user requests. The early `typeof hash !== 'string'` return
+  // stays OUTSIDE the guard so the hash-fragment fallback still gets its one
+  // real attempt once incomingUrl arrives.
+  const exchanged = useRef(false)
   useEffect(() => {
     let hash = token_hash
     let verifyType = type
@@ -58,7 +71,14 @@ export default function ConfirmScreen() {
       setState('needsSignIn')
       return
     }
-    supabase.auth.verifyOtp({ token_hash: hash, type: (verifyType as 'signup') ?? 'signup' }).then(({ error }) => {
+    if (exchanged.current) return
+    exchanged.current = true
+    supabase.auth.verifyOtp({ token_hash: hash, type: (verifyType as 'signup') ?? 'signup' }).then(({ data, error }) => {
+      // A deep-link sign-in is still a sign-in: clear any biometric
+      // credential belonging to a DIFFERENT account, or this device keeps
+      // offering "Sign in as <previous account>" and will replay that
+      // account's tokens. See clearBiometricIfDifferentAccount.
+      clearBiometricIfDifferentAccount(data?.session?.user?.email).catch(() => {})
       if (error) {
         setState('needsSignIn')
         return

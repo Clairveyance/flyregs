@@ -166,7 +166,18 @@ export default function FolderDetail() {
     // against the real remote source of truth below -- see the big comment
     // on unresolvedAc/unresolvedNotes for why a purely local cache miss is
     // never enough on its own anymore.
-    const selfHeal = (trulyOrphaned: FolderItem[]) => {
+    // `resolvedCount` is the second half of the 2026-09-04 fix. Making the
+    // resolvers throw (see sharedFolders.mustRows) is the real repair, but
+    // this guard makes the destructive shape impossible rather than merely
+    // unlikely: if a resolve came back with NOTHING while we asked for
+    // something, that is indistinguishable from a failure and must never be
+    // read as "every one of these items is gone" -- which is what previously
+    // pushed the whole batch through removeManyFromFolder and, via
+    // syncPushFolderItemDeletes (deliberately not user_id-filtered), soft-
+    // deleted collaborators' rows for everyone. A genuine orphan still heals
+    // on the next load, when at least one sibling resolves.
+    const selfHeal = (trulyOrphaned: FolderItem[], resolvedCount: number, askedCount: number) => {
+      if (resolvedCount === 0 && askedCount > 0) return
       if (typeof id === 'string' && trulyOrphaned.length) {
         removeManyFromFolder(id, trulyOrphaned.map((o) => ({ itemType: o.item_type, itemId: o.item_id }))).catch(() => {})
       }
@@ -210,7 +221,7 @@ export default function FolderDetail() {
           else trulyOrphaned.push(item)
         }
         setAcEntries([...acs, ...resolvedEntries])
-        selfHeal(trulyOrphaned)
+        selfHeal(trulyOrphaned, resolved.length, unresolvedAc.length)
       }).catch(() => setAcEntries(acs))
     } else {
       setAcEntries(acs)
@@ -227,7 +238,7 @@ export default function FolderDetail() {
           else trulyOrphaned.push(item)
         }
         setNoteEntries([...notesList, ...resolvedEntries])
-        selfHeal(trulyOrphaned)
+        selfHeal(trulyOrphaned, resolved.length, unresolvedNotes.length)
       }).catch(() => setNoteEntries(notesList))
     } else {
       setNoteEntries(notesList)

@@ -141,6 +141,8 @@ export default function AdScreen() {
 
   const [backTo, setBackTo] = useState<string | null>(null)
   const [figures, setFigures] = useState<AdFigureRow[]>([])
+  // Which AD `figures` currently belongs to -- see the fetch effect below.
+  const figuresForId = useRef<string | undefined>(undefined)
   const [figuresExpanded, setFiguresExpanded] = useState(false)
   const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
   const [prevAd, setPrevAd] = useState<{ ad_number: string } | null>(null)
@@ -177,6 +179,22 @@ export default function AdScreen() {
   // sync/backfill_ad_figures.py.
   useEffect(() => {
     if (!id) return
+    // Cleared ONLY on a genuine id change: Prev/Next uses router.replace on
+    // this same route, which reuses this mounted instance, so without a reset
+    // the PREVIOUS AD's page scans stay on screen under the new AD's header
+    // -- and a Download tapped in that window persists another AD's scans
+    // into this AD's offline copy.
+    //
+    // Guarded by the ref rather than clearing on every run, because this
+    // effect is now also keyed on hasPlusAccess: OFFLINE, the entitlement
+    // resolves from cache AFTER mount, so an unconditional clear would wipe
+    // the page scans the offline copy had just restored -- and the refetch
+    // that would repopulate them cannot succeed with no network. Same class
+    // of mistake as the bug this effect is fixing.
+    if (figuresForId.current !== id) {
+      figuresForId.current = id
+      setFigures([])
+    }
     supabase.from('ad_figures').select('id, page_index, image_url').eq('ad_number', id).order('page_index')
       // Guarded like ac/[id].tsx's copy: supabase-js RESOLVES {data:null,error}
       // on a network failure, which is indistinguishable from 'this AD genuinely
@@ -184,7 +202,22 @@ export default function AdScreen() {
       // just restored from the offline copy, depending purely on which promise
       // settled last.
       .then(({ data, error }) => { if (!error && data) setFigures(data as AdFigureRow[]) })
-  }, [id])
+    // Keyed on the ENTITLEMENT too, for the same reason the body fetch below
+    // is: ad_figures' RLS is `using (has_plus_access())` (verified live), and
+    // hasPlusAccess starts false on cold launch. A query that goes out before
+    // the entitlement resolves is FILTERED, not errored -- it returns 0 rows
+    // with error null, which the guard above accepts as "this AD has no
+    // figures" and never revisits.
+    //
+    // The consequence was a silently incomplete download: a Premium pilot cold-
+    // launches (or arrives from an AD push), taps Download, downloadAllToCache
+    // gets an empty job list so no "some images are missing" warning fires, and
+    // the row is saved with figures: []. On the ramp with no signal, an AD whose
+    // tables live entirely in page scans reads as text-only.
+    //
+    // aim_figures is NOT gated this way (RLS `true`, verified), which is why
+    // its screen doesn't need the same key.
+  }, [id, hasPlusAccess])
 
   // Prev/Next chevrons -- RC: "we should have some next/prev chevrons in
   // the Mn pages... Same for the A/D itself. The P/CG already has this."
@@ -647,7 +680,7 @@ export default function AdScreen() {
         />
       )}
       {!loading && offlineCopy && (
-        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} />
+        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} readOnly={!isPremium} />
       )}
       {!loading && ad && (
         <ChangedBanner
@@ -851,6 +884,11 @@ export default function AdScreen() {
               <PlainTextBody
                 ref={bodyRef}
                 text={body}
+                // currentLabel drives PlainTextBody's setPendingBreadcrumb.
+                // Without it a cross-reference tapped INSIDE an AD's body landed
+                // with no "back to AD ..." chip, while the MagicLinkPod further
+                // down this SAME screen already passed it. far/aim/cfr49/loi all do.
+                currentLabel={`AD ${ad.ad_number}`}
                 hasProAccess={hasProAccess}
                 // Always exactly one synthetic entry (never one per real
                 // page) when any figures exist -- see crossRefLinks.ts's own

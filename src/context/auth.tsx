@@ -7,7 +7,7 @@ import { applyRemoteSyncPreference, claimLocalDataForSignedOutUser } from '@/lib
 import { claimDeviceIfMismatched } from '@/lib/syncOwner'
 import { ensurePushTokenRegistered, ensurePushTokenRegisteredIfGranted, unregisterPushToken } from '@/lib/notifications'
 import { getDeviceId } from '@/lib/deviceId'
-import { loadCachedEntitlement, saveCachedEntitlement, loadLastCachedEntitlement } from '@/lib/entitlementCache'
+import { loadCachedEntitlement, saveCachedEntitlement, loadLastCachedEntitlement, clearCachedEntitlement } from '@/lib/entitlementCache'
 import type { AvatarOverride } from '@/lib/avatar'
 
 interface AuthContextType {
@@ -199,11 +199,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // (tabs)/index.tsx's HobbsHeaderButton for existing precedent) --
         // extending it to cover this event is consistent with that, not a
         // new mechanism.
-        if (event === 'SIGNED_IN') setLoading(true)
+        // PASSWORD_RECOVERY is a REAL sign-in and must run everything below.
+        // supabase-js fires it -- not SIGNED_IN -- for verifyOtp({type:
+        // 'recovery'}) (auth-js GoTrueClient.js:1990,
+        // `params.type == 'recovery' ? 'PASSWORD_RECOVERY' : 'SIGNED_IN'`),
+        // which is exactly what reset-password.tsx calls before routing the
+        // user to Home fully signed in.
+        //
+        // Gating on SIGNED_IN alone meant a password-reset sign-in skipped
+        // claimDeviceIfMismatched entirely. On a shared or handed-down phone
+        // that is the 2026-08-26 data-loss incident again, by a different
+        // door: the device stays tagged to the PREVIOUS account, so every
+        // guarded read (getBookmarks, getFolders, getNotes, getRecents...)
+        // returns [] for the account that just signed in -- and the first
+        // write builds on that empty list. addBookmark does
+        // `setItem(KEY, [bookmark, ...list])` where `list` is the guarded
+        // [], so one bookmark tap DESTROYS the other account's real saved
+        // items, and the new account still cannot see its own write.
+        //
+        // It also skipped ensurePushTokenRegistered (a user who reinstalls,
+        // forgets their password and recovers by link never gets a push
+        // token row or the OS prompt), syncEntitlements, and
+        // applyRemoteSyncPreference.
+        //
+        // TOKEN_REFRESHED is still deliberately excluded -- see the
+        // claimDeviceIfMismatched comment below for why that matters.
+        const isRealSignIn = event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY'
+        if (isRealSignIn) setLoading(true)
         // Same cache-first fast path as the session-restore branch above --
         // a returning account's last-known tier unblocks `loading`
         // immediately instead of waiting on a real RevenueCat round trip.
-        if (event === 'SIGNED_IN') {
+        if (isRealSignIn) {
           const cached = await loadCachedEntitlement(session.user.id)
           if (cached) {
             setIsPro(cached.isPro)
@@ -225,14 +251,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // root cause by itself, but there's no reason to run a
           // potentially-destructive check outside a real sign-in event
           // either.
-          if (event === 'SIGNED_IN') await claimDeviceIfMismatched(session.user.id, session.user.email)
+          if (isRealSignIn) await claimDeviceIfMismatched(session.user.id, session.user.email)
           // Fire-and-forget, same as initRevenueCat below -- may show the
           // real OS permission dialog on a genuinely first-ever ask, which
           // shouldn't block `loading`/this screen transition. See this
           // function's own comment (notifications.ts) for why every push
           // feature needs this now rather than depending on the user
           // separately finding one specific settings toggle first.
-          if (event === 'SIGNED_IN') ensurePushTokenRegistered(session.user.id)
+          if (isRealSignIn) ensurePushTokenRegistered(session.user.id)
           initRevenueCat(session.user.id)
           const status = await getSubscriptionStatus()
           // A failed lookup is not a downgrade. Leave the last known-good tier
@@ -259,7 +285,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // claimed existed. Only on SIGNED_IN, matching every other real-
           // sign-in-only call in this branch -- TOKEN_REFRESHED doesn't need
           // a re-sync any more than session-restore's own comment says it does.
-          if (event === 'SIGNED_IN') syncEntitlements()
+          if (isRealSignIn) syncEntitlements()
           // ...and applyRemoteSyncPreference was left behind by that same
           // 2026-08-29 sweep, with the identical consequence one line over.
           // It had exactly ONE call site: the session-restore branch above,
@@ -275,7 +301,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Same tier check as the cold-launch call site, and SIGNED_IN only
           // for the same reason the line above gives: TOKEN_REFRESHED does
           // not need it.
-          if (event === 'SIGNED_IN' && (status.isPro || status.isPremium)) {
+          if (isRealSignIn && (status.isPro || status.isPremium)) {
             applyRemoteSyncPreference(session.user.id, session.user.user_metadata?.sync_enabled)
           }
         } finally {
@@ -286,7 +312,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // this session; better to fall through to whatever isPro/
           // isPremium/isUnlocked already held than freeze every consumer
           // that correctly waits on this flag.
-          if (event === 'SIGNED_IN') setLoading(false)
+          if (isRealSignIn) setLoading(false)
         }
       } else if (event === 'SIGNED_OUT') {
         // Only a REAL sign-out clears the tier. INITIAL_SESSION also fires
@@ -468,6 +494,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsPro(false)
     setIsPremium(false)
     setIsUnlocked(false)
+    // The on-disk copy has to go too, not just the in-memory flags --
+    // loadLastCachedEntitlement() (the offline session-restore branch above)
+    // is deliberately NOT keyed on a userId, so a departing account's tier
+    // would otherwise be handed to whoever next signs in on this device and
+    // hits that branch.
+    await clearCachedEntitlement()
     // Otherwise a different account signing in on this same device would
     // start out showing the PREVIOUS account's just-picked avatar override.
     setAvatarOverrideState(null)

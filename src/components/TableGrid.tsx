@@ -151,6 +151,19 @@ export function TableGrid({ captionLines, headerCells, rows, footnotes, onPress 
     return (
       <View style={styles.wrap}>
         {onPress ? <Pressable onPress={onPress}>{caption}</Pressable> : caption}
+        {/* The header names what each half of every pair MEANS -- FAR 120.117
+            and 120.225 head their columns "If you are . . ." / "You must
+            . . .", and 121.356 uses "If you operate any— / Then you must
+            operate that airplane with—". The grid branch below renders
+            headerCells; this branch dropped them entirely, so the reader saw
+            the pairs with nothing saying which side was the condition and
+            which the requirement. 28 tables across FAR and AIM hit this
+            branch with a real header. */}
+        {headerCells && headerCells.some((c) => c && c.trim()) && (
+          <Text style={[styles.subcaption, { color: tokens.t3, fontSize: fs(12) }]}>
+            {headerCells.filter((c) => c && c.trim()).join('  —  ')}
+          </Text>
+        )}
         <View style={[styles.defList, { borderColor: tokens.bdr }]}>
           {visibleRows.map((row, ri) => (
             <View

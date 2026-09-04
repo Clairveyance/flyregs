@@ -78,7 +78,7 @@ import requests
 from http_retry import mount_retries
 sys.path.insert(0, os.path.dirname(__file__))
 from loi_citation_extract import extract_far_citations
-from revision_log import log_revisions
+from revision_log import log_revisions, exit_nonzero_if_revision_log_failed
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
@@ -644,3 +644,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # Non-zero exit if any content_revisions insert was rejected. The sync
+    # above already finished; this only makes a silent timeline loss visible.
+    exit_nonzero_if_revision_log_failed()

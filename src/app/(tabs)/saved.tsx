@@ -516,8 +516,18 @@ export default function SavedScreen() {
       destructive: true,
       twoStep: false,
       onConfirm: async () => {
+        // Optimistic removal, then the real write. removeDownload can now
+        // THROW rather than silently rewriting the whole library when the
+        // downloads store is unreadable (see readDownloadsStrict) -- so put
+        // the row back and tell the user, instead of leaving the list
+        // disagreeing with what is actually saved.
         setDownloads((prev) => prev.filter((d) => d.id !== item.id))
-        await removeDownload(item.id)
+        try {
+          await removeDownload(item.id)
+        } catch {
+          load()
+          confirm({ title: 'Error', message: "Couldn't remove that download. Try again in a moment.", cancelLabel: null })
+        }
       },
     })
   }

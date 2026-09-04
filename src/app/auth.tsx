@@ -134,10 +134,12 @@ export default function AuthScreen() {
   const maybeOfferBiometricEnroll = async (signedInEmail: string) => {
     if (!(await Biometric.isHardwareAvailable())) return
     const storedEmail = await Biometric.getBiometricSignInEmail()
-    if (storedEmail) {
-      if (storedEmail.toLowerCase() === signedInEmail.toLowerCase()) return
-      await Biometric.disableBiometricSignIn()
-    }
+    if (storedEmail && storedEmail.toLowerCase() === signedInEmail.toLowerCase()) return
+    // Same clear as before, now via the shared helper so the other three
+    // sign-in paths (the poller below, confirm.tsx, reset-password.tsx) can
+    // run it too -- this used to be the ONLY place a stale credential from a
+    // different account was ever cleared.
+    await Biometric.clearBiometricIfDifferentAccount(signedInEmail)
     if (await Biometric.hasDeclinedBiometricPrompt()) return
     const { data } = await supabase.auth.getSession()
     const session = data.session
@@ -332,6 +334,10 @@ export default function AuthScreen() {
         await signIn(trimmedEmail, password)
         if (stopped) return
         stopped = true
+        // This is a real sign-in too, so a previous account's stored
+        // biometric credential must be cleared here as well. No enrolment
+        // OFFER here -- that belongs to the deliberate password sign-in.
+        await Biometric.clearBiometricIfDifferentAccount(trimmedEmail).catch(() => {})
         markJustConfirmed()
         router.dismiss()
         return

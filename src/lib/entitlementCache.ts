@@ -83,3 +83,19 @@ export async function saveCachedEntitlement(userId: string, status: Subscription
     // fetch again, same as if nothing had ever been cached.
   }
 }
+
+// Nothing ever removed this key -- not sign-out, not account deletion. That
+// matters specifically because loadLastCachedEntitlement() above deliberately
+// does NOT check the userId (it exists so a paying subscriber whose JWT
+// expired offline keeps their tier instead of being paywalled out of their
+// own library). The cost of that deliberate looseness is that a DEPARTING
+// account's tier must actually be removed on the way out, or it can be
+// applied to whoever next hits that offline branch on the same device.
+export async function clearCachedEntitlement(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(CACHE_KEY)
+  } catch {
+    // Non-fatal: worst case the stale entry survives to the next sign-in,
+    // where loadCachedEntitlement's own userId check still rejects it.
+  }
+}

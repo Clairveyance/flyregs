@@ -113,7 +113,22 @@ export async function findDownload(id: string): Promise<DownloadedAC | undefined
 // as DownloadedAC.id for those 4 types (confirmed against every addDownload
 // call site: e.g. far/[id].tsx's `id: section.section_number`, the same
 // value that screen's own getLatestRevision('far', id) call already uses).
-const REVISION_TYPES: DownloadedItemType[] = ['far', 'aim', 'ad', 'cfr49']
+// 'loi' and 'pcg' joined this list on 2026-09-04. Both were excluded for a
+// reason that was TRUE when written and is no longer: loi_scraper.py passed
+// doc_type="loi" to log_revisions, but content_revisions' CHECK constraint
+// never allowed 'loi', so the database rejected every insert and the
+// scraper's `except ... log.warning("non-fatal")` swallowed it -- "no 'loi'
+// doc_type" was the symptom of that silent failure, not a design decision.
+// sync/migrations_content_revisions_loi_doctype.sql widens the constraint
+// (and Pro-gates LOI diff text in content_revisions_gated, since LOI body
+// text is has_pro_access()-only and a revision's added/removed text IS that
+// body text). pcg logging was never broken -- pcg_scraper writes an allowed
+// doc_type; its zero row count is just real P/CG changes being rare, plus
+// three separate false-positive purges. Verified before adding: both
+// scrapers use key_field="slug", and both detail screens call addDownload
+// with `id: loi.slug` / `id: term.slug` -- so doc_key and DownloadedAC.id
+// are the same value, which is the invariant this whole list depends on.
+const REVISION_TYPES: DownloadedItemType[] = ['far', 'aim', 'ad', 'cfr49', 'loi', 'pcg']
 
 /**
  * True only when there is POSITIVE evidence a newer version of this
@@ -126,10 +141,8 @@ const REVISION_TYPES: DownloadedItemType[] = ['far', 'aim', 'ad', 'cfr49']
  * silent staleness is a real accuracy gap, not a cosmetic one.
  *
  * Deliberately returns false (not an error, not a guess) for 'ac' when its
- * own updated_at lookup fails, and for 'pcg'/'loi', which have no revision-
- * tracking infrastructure at all yet (content_revisions has no 'loi'
- * doc_type, and 'pcg' has never logged a row in production) — "false" here
- * means "no evidence of staleness found," never "confirmed current." A
+ * own updated_at lookup fails — "false" here means "no evidence of
+ * staleness found," never "confirmed current." A
  * network failure (the common reason this is even being checked — the
  * offline fallback usually renders because there's NO connection) also
  * resolves false, silently: this is a best-effort upgrade to the always-
@@ -287,6 +300,42 @@ export async function getDownloads(): Promise<DownloadedAC[]> {
   }
 }
 
+/**
+ * Read-or-THROW. The counterpart to getDownloads() above, for WRITERS only.
+ *
+ * getDownloads() degrades every failure to `[]` on purpose, and for a reader
+ * that is right: a Saved tab showing nothing beats one that crashes. But both
+ * read-modify-writers built their new list on that same `[]`, so a single
+ * unreadable store did not just hide the library -- it let the next write
+ * REPLACE it:
+ *
+ *   corrupt/unparseable blob -> getDownloads() returns []
+ *     -> addDownload writes [thatOneNewItem]      (library gone)
+ *     -> removeDownload writes []                 (one tap on "Remove",
+ *                                                  200 downloads destroyed)
+ *
+ * The whole library is a single AsyncStorage key holding multi-MB JSON (this
+ * file measures ~81 KB per AC, 636 KB at the largest, 2.2 MB at 40 ACs), so a
+ * torn write or an Android per-row size ceiling is a real way to get there.
+ * withLock() already stops CONCURRENT clobbering; it does nothing about this.
+ *
+ * Throwing instead means Download and Remove surface the "Couldn't save..."
+ * error their call sites already handle, and the still-recoverable bytes stay
+ * on disk. See feedback_no_regression_mandate: a bulk write must be INCAPABLE
+ * of destroying data, not merely unlikely to.
+ */
+async function readDownloadsStrict(): Promise<DownloadedAC[]> {
+  const userId = await currentUserId()
+  if (userId && !(await localDataBelongsTo(userId))) return []
+  const key = userId ?? NO_USER_KEY
+  if (!cache || cacheKey !== key) {
+    const raw = await AsyncStorage.getItem(KEY)
+    cache = raw ? JSON.parse(raw) : []
+    cacheKey = key
+  }
+  return [...(cache ?? [])]
+}
+
 export async function isDownloaded(id: string): Promise<boolean> {
   const list = await getDownloads()
   return list.some((d) => d.id === id)
@@ -339,7 +388,7 @@ export async function addDownload(ac: Omit<DownloadedAC, 'downloadedAt'>) {
   // showed "Saved offline" on its own screen and was simply absent from
   // Saved > Offline. Found on the plane, which is the whole point of offline.
   await withLock('downloads', async () => {
-    const list = await getDownloads()
+    const list = await readDownloadsStrict()
     const filtered = list.filter((d) => d.id !== ac.id)
     const updated = [{ ...ac, downloadedAt: new Date().toISOString() }, ...filtered]
     await AsyncStorage.setItem(KEY, JSON.stringify(updated))
@@ -371,7 +420,7 @@ export async function removeDownload(id: string) {
   // leave the row on disk while the UI shows it gone. (The SERVER call below
   // stays best-effort -- that one genuinely should not undo a local removal.)
   await withLock('downloads', async () => {
-    const list = await getDownloads()
+    const list = await readDownloadsStrict()
     await AsyncStorage.setItem(KEY, JSON.stringify(list.filter((d) => d.id !== id)))
     cache = null
   })

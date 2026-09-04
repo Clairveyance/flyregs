@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -7,6 +7,7 @@ import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import { TabletContainer } from '@/components/TabletContainer'
 import { DictionarySearchBar } from '@/components/DictionarySearchBar'
 import { Icon } from '@/components/Icon'
@@ -46,6 +47,11 @@ export default function DictionaryLetterScreen() {
   const fs = useFS()
   const [terms, setTerms] = useState<DictTermRow[]>([])
   const [loading, setLoading] = useState(true)
+  // RC, "Suggest a feature": back-to-top on every long list. Missed in the
+  // first rollout even though this is the LONGEST list in the app --
+  // dictionary letter S is 992 terms, A is 947.
+  const [scrollY, setScrollY] = useState(0)
+  const listRef = useRef<FlatList<DictTermRow>>(null)
 
   useEffect(() => {
     if (!letter || !hasPlusAccess) { setLoading(false); return }
@@ -127,7 +133,16 @@ export default function DictionaryLetterScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title={`Aviation Dictionary — ${letter}`} onBack={() => router.back()} />
+      <OverlayHeader
+        title={`Aviation Dictionary — ${letter}`}
+        onBack={() => router.back()}
+        right={
+          <BackToTop
+            visible={scrollY > BACK_TO_TOP_THRESHOLD}
+            onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          />
+        }
+      />
       <DictionarySearchBar />
       {loading ? (
         <View style={styles.center}>
@@ -136,6 +151,9 @@ export default function DictionaryLetterScreen() {
       ) : (
         <TabletContainer>
           <FlatList
+            ref={listRef}
+            onScroll={makeBackToTopScrollHandler(setScrollY)}
+            scrollEventThrottle={16}
             data={terms}
             keyExtractor={(item) => item.slug}
             contentContainerStyle={styles.list}

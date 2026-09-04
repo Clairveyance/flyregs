@@ -319,6 +319,14 @@ export async function submitChallengeAnswer(
   })
   if (error) throw error
   const row = (data ?? [])[0]
+  // Defensive only: submit_challenge_answer currently RAISES on the
+  // not-found case, so it always returns exactly one row and this cannot
+  // fire today. But every other reader in this file guards its row
+  // (`row?.wins ?? 0`, `if (!row) return null`) and this one did not -- so a
+  // future change making the RPC return zero rows would surface as a bare
+  // "Cannot read property 'is_correct' of undefined" instead of the handled
+  // "Duel unavailable" path challenges/[id].tsx already has.
+  if (!row) throw new Error('That duel is no longer available.')
   return {
     isCorrect: row.is_correct,
     correctAnswer: row.correct_answer,

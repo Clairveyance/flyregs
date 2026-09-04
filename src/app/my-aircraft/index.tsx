@@ -17,7 +17,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
 import { suggestTypeDesignator } from '@/lib/aircraftModels'
 import { backfillAircraftAds, getAircraftAdNotifications, markAdComplied, unmarkAdComplied, type AircraftAdNotification, type ComplianceKind } from '@/lib/adNotifications'
-import { getAircraftReminders, addAircraftReminder, updateAircraftReminder, setReminderCompliedHobbs, type AircraftReminder } from '@/lib/adParts'
+import { getAircraftReminders, addAircraftReminder, updateAircraftReminder, removeAircraftReminder, setReminderCompliedHobbs, type AircraftReminder } from '@/lib/adParts'
 import { AdComplianceModal } from '@/components/AdComplianceModal'
 import {
   getFleetSummary,
@@ -1231,17 +1231,41 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   const compareAdNotifications = (a: AircraftAdNotification, b: AircraftAdNotification) =>
     nullsFirst(a.compliedAt, b.compliedAt) || nullsFirst(a.readAt, b.readAt) || b.id - a.id
 
+  // Title-matched, exactly like [id].tsx's generatedReminderFor: only a
+  // reminder this compliance flow CREATED (title === `AD <number>`) is ever
+  // removed, so one the owner wrote themselves and happened to link to the
+  // same AD is never destroyed.
+  const generatedReminderFromList = (aircraftId: string, n: AircraftAdNotification): AircraftReminder | null => {
+    if (n.complianceKind !== 'recurring') return null
+    const cur = expandedDetails[aircraftId]
+    if (!cur || cur === 'loading') return null
+    return cur.reminders.find((r) => r.linkedAdNumber === n.adNumber && r.title === `AD ${n.adNumber}`) ?? null
+  }
+
   const handleToggleCompliedFromList = (aircraftId: string, n: AircraftAdNotification) => {
     const wasComplied = !!n.compliedAt
+    // Un-marking here used to leave the generated reminder behind, while doing
+    // the IDENTICAL action one screen deeper (my-aircraft/[id].tsx's
+    // handleUnmarkComplied) cleaned it up. So the orphan that screen's comment
+    // documents as fixed could still be created from My Fleet: a reminder that
+    // keeps pushing "AD <number> due" to the owner AND every collaborator for
+    // an AD no longer recorded as complied at all, removable only by a manual
+    // swipe-delete. Same bug shape as B39 -- a fix wired into one of several
+    // entry points.
+    const linked = wasComplied ? generatedReminderFromList(aircraftId, n) : null
     confirm({
       title: wasComplied ? `Un-mark AD ${n.adNumber}?` : `Mark AD ${n.adNumber} complied?`,
       message: wasComplied
-        ? 'This moves it back to open.'
+        ? (linked
+            ? `This moves it back to open and removes the "${linked.title}" reminder it created.`
+            : 'This moves it back to open.')
         : "This records that you've completed what this AD requires. FlyRegs doesn't independently verify compliance -- always keep your own maintenance records as the official source.",
       confirmLabel: wasComplied ? 'Un-mark' : 'Mark Complied',
       onConfirm: async () => {
-        if (wasComplied) await unmarkAdComplied(n.id)
-        else await markAdComplied(n.id, null)
+        if (wasComplied) {
+          await unmarkAdComplied(n.id)
+          if (linked) await removeAircraftReminder(linked.id)
+        } else await markAdComplied(n.id, null)
         const nowComplied = wasComplied ? null : new Date().toISOString()
         setExpandedDetails((prev) => {
           const cur = prev[aircraftId]
@@ -1351,6 +1375,16 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
         await unmarkAdComplied(ad.id).catch(() => {})
         throw e
       }
+    } else if (ad.complianceKind === 'recurring') {
+      // recurring -> one-time. Same gap as my-aircraft/[id].tsx had: there was
+      // no `else`, so the reminder the recurring flow generated stayed behind
+      // with nothing to count down to and kept pushing "due in 14 days" -- to
+      // the owner and every collaborator -- for an AD now recorded as one-time
+      // and finished. Title-matched so a reminder the owner wrote themselves
+      // is never destroyed.
+      const generated =
+        existingReminder && existingReminder.title === `AD ${ad.adNumber}` ? existingReminder : null
+      if (generated) await removeAircraftReminder(generated.id)
     }
 
     const [freshAds, freshReminders] = await Promise.all([

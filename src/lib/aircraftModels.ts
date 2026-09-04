@@ -91,9 +91,36 @@ export const AIRCRAFT_MODEL_ALIASES: Record<string, string> = {
   // either). Checked for collisions against every other key here first --
   // none.
   g36: 'G36', a36: 'A36', 'v35': 'V35B', f33: 'F33A',
-  debonair: '33', baron: '58', duchess: '76',
-  'travel air': '95', musketeer: '23', sundowner: '23', sierra: '24',
-  sport: '19', duke: '60', 'queen air': '65', 'king air': '90', skipper: '77',
+  // The eleven bare TWO-DIGIT Beechcraft aliases that used to sit here
+  // (debonair 33, baron 58, duchess 76, travel air 95, musketeer/sundowner
+  // 23, sierra 24, sport 19, duke 60, queen air 65, king air 90, skipper 77)
+  // were removed 2026-09-04. They are the exact defect this block's own
+  // comment above already reasoned through and fixed for `bonanza: '36'` --
+  // and every one of them is worse than '36' was.
+  //
+  // The AD matcher substring-matches a normalized (punctuation-stripped)
+  // designator against applicability prose, so a two-character token matches
+  // any serial number, year, page or paragraph number in the text. Measured
+  // against the live 5,620-AD corpus:
+  //
+  //     '23' -> 1020 ADs      '33' ->  823      '77' -> 419
+  //     '19' ->  937          '90' ->  808      '65' -> 370
+  //     '24' ->  929          '76' ->  436      '58' -> 227
+  //     '60' ->  864          '95' ->  214
+  //
+  // For comparison, a REAL designator: 'g36' -> 2, 'aa5' -> 4, 'la4' -> 7,
+  // 'm20' -> 28, 'a36' -> 77. Two orders of magnitude apart. Only the make
+  // gate limited the damage, and within one manufacturer it does not limit it
+  // enough -- a Beech "King Air" (designator '90') matched 26 ADs including
+  // Hawker 800XP business jets, BAe airliners and A36 Bonanzas.
+  //
+  // Deliberately NOT replaced with guessed variant designators (C90/B200/...).
+  // Per this file's own header, "a wrong designator is worse than none": a
+  // bare marketing name now falls through to NO suggestion, the owner types
+  // their real designator, and matching falls back to make+model. Adding the
+  // correct per-variant designators needs a real TCDS lookup, the same way
+  // the g36/a36/v35/f33 entries above were confirmed against
+  // aircraft_type_designators before being added.
 
   // Champion / Bellanca / American Champion tailwheel trainers -- still a
   // common rental/owner fleet, and (unlike most of the rest of this table)

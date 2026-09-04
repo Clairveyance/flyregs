@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -10,6 +11,19 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
+
+// The last of the nine second-level browse lists to get an offline cache
+// (far/part, cfr49/part, pcg/letter, loi/year and aim/index all had one).
+// The real defect is the missing cache: opening a chapter with no network
+// showed an empty list, even for a chapter the user had just been reading.
+//
+// The fetch was also a bare `.then()` with no `.catch()`. That is NOT the
+// infinite spinner it looks like -- supabase-js resolves `{data, error}`
+// rather than rejecting, so an ordinary network failure still reached
+// setLoading(false). The catch below is defense-in-depth for a genuine
+// throw (a malformed response, a rejected AsyncStorage read), not a fix for
+// an observed hang. Worth having, worth not overstating.
+const AIM_CHAPTER_CACHE_KEY_PREFIX = '@flyregs/aim-chapter-cache/'
 
 interface AimParagraphRow {
   paragraph_number: string
@@ -49,16 +63,57 @@ export default function AimChapterScreen() {
 
   useEffect(() => {
     if (!chapter) return
-    Promise.all([
-      supabase.from('aim_paragraphs').select('paragraph_number, section_title, title').eq('chapter', chapter),
-      supabase.from('aim_chapters').select('title').eq('chapter', chapter).single(),
-    ]).then(([paraRes, chapRes]) => {
-      if (paraRes.data) {
-        setParagraphs((paraRes.data as AimParagraphRow[]).sort((a, b) => compareParagraphNumbers(a.paragraph_number, b.paragraph_number)))
+    let cancelled = false
+    // Mirrors far/part/[part].tsx exactly: paint from cache first so the
+    // screen appears immediately, then overwrite with fresh data. A failed
+    // refresh leaves whatever was already on screen rather than blanking it.
+    let lastGoodParagraphs: AimParagraphRow[] = []
+    let lastGoodTitle = ''
+
+    ;(async () => {
+      try {
+        const cached = await AsyncStorage.getItem(AIM_CHAPTER_CACHE_KEY_PREFIX + chapter)
+        if (cached && !cancelled) {
+          const { paragraphs: cp, chapterTitle: ct } = JSON.parse(cached)
+          if (cp?.length) { setParagraphs(cp); lastGoodParagraphs = cp }
+          if (ct) { setChapterTitle(ct); lastGoodTitle = ct }
+          setLoading(false)
+        }
+      } catch (_) {}
+
+      try {
+        const [paraRes, chapRes] = await Promise.all([
+          supabase.from('aim_paragraphs').select('paragraph_number, section_title, title').eq('chapter', chapter),
+          supabase.from('aim_chapters').select('title').eq('chapter', chapter).single(),
+        ])
+        if (cancelled) return
+
+        let freshParagraphs = lastGoodParagraphs
+        if (paraRes.data) {
+          const sorted = (paraRes.data as AimParagraphRow[]).sort((a, b) => compareParagraphNumbers(a.paragraph_number, b.paragraph_number))
+          setParagraphs(sorted)
+          freshParagraphs = sorted
+        }
+        let freshTitle = lastGoodTitle
+        if (chapRes.data) {
+          freshTitle = (chapRes.data as { title: string }).title
+          setChapterTitle(freshTitle)
+        }
+        setLoading(false)
+        if (freshParagraphs.length) {
+          AsyncStorage.setItem(
+            AIM_CHAPTER_CACHE_KEY_PREFIX + chapter,
+            JSON.stringify({ paragraphs: freshParagraphs, chapterTitle: freshTitle }),
+          ).catch(() => {})
+        }
+      } catch (_) {
+        // Network failed -- cached rows (if any) stay on screen. Either way
+        // the spinner must stop; this is the branch that used to be missing.
+        if (!cancelled) setLoading(false)
       }
-      if (chapRes.data) setChapterTitle((chapRes.data as { title: string }).title)
-      setLoading(false)
-    })
+    })()
+
+    return () => { cancelled = true }
   }, [chapter])
 
   // Group by section_title, preserving already-sorted order.

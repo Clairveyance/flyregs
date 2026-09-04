@@ -41,7 +41,7 @@ async function syncEntitlements(
   serviceRoleKey: string,
   rcSecretKey: string,
   userId: string
-) {
+): Promise<boolean> {
   const rcRes = await fetch(
     `https://api.revenuecat.com/v2/projects/${RC_PROJECT_ID}/customers/${userId}`,
     { headers: { Authorization: `Bearer ${rcSecretKey}` } }
@@ -60,8 +60,11 @@ async function syncEntitlements(
     isPremium = activeIds.has(ENTITLEMENT_PREMIUM)
     isUnlocked = activeIds.has(ENTITLEMENT_UNLOCKED)
   } else if (rcRes.status !== 404) {
+    // 404 is a real answer ("RC has no customer record") and correctly means
+    // no entitlements. Anything else is an outage, NOT a downgrade -- falling
+    // through here would write is_pro=false over a paying customer.
     console.error('webhook: RevenueCat re-fetch failed', rcRes.status, await rcRes.text())
-    return
+    return false
   }
 
   const res = await fetch(`${supabaseUrl}/rest/v1/user_entitlements`, {
@@ -83,7 +86,9 @@ async function syncEntitlements(
 
   if (!res.ok) {
     console.error('webhook: user_entitlements upsert failed', res.status, await res.text())
+    return false
   }
+  return true
 }
 
 Deno.serve(async (req: Request) => {
@@ -147,15 +152,34 @@ Deno.serve(async (req: Request) => {
     return new Response('Internal error', { status: 500 })
   }
 
-  // Backstop entitlements sync — best-effort, never fails the webhook.
+  // Entitlements sync. This USED to be "best-effort, never fails the webhook":
+  // every failure path was swallowed and the function still answered 200, so
+  // RevenueCat marked the webhook delivered and never retried. The failure that
+  // mattered is the one nobody would see -- a RENEWAL or INITIAL_PURCHASE whose
+  // user_entitlements upsert failed left a user who had genuinely paid with no
+  // Pro access and nothing anywhere to retry it. The only self-correction was
+  // that user happening to cold-launch the app again.
+  //
+  // Answering 500 so RevenueCat retries is safe here, and the "never fail the
+  // webhook" caution it replaces was already unnecessary: this endpoint is
+  // idempotent end to end. subscription_events.event_id carries a UNIQUE index
+  // and the insert above is on_conflict=event_id / ignore-duplicates, so a
+  // redelivery cannot double-log; and syncEntitlements re-fetches CURRENT truth
+  // from RC's customer API rather than applying a delta, so running it twice
+  // lands on the same answer. Verified both live 2026-09-03.
+  //
   // event.app_user_id is RC's own field, populated from the trusted webhook
   // payload (authenticated above via RC_WEBHOOK_SECRET), not client input.
   const rcSecretKey = Deno.env.get('RC_SECRET_KEY')
+  let syncFailed = false
   if (rcSecretKey && event.app_user_id && UUID_RE.test(event.app_user_id)) {
     try {
-      await syncEntitlements(supabaseUrl, serviceRoleKey, rcSecretKey, event.app_user_id)
+      if (!(await syncEntitlements(supabaseUrl, serviceRoleKey, rcSecretKey, event.app_user_id))) {
+        syncFailed = true
+      }
     } catch (err) {
       console.error('webhook: syncEntitlements threw', err)
+      syncFailed = true
     }
   }
 
@@ -179,11 +203,21 @@ Deno.serve(async (req: Request) => {
     for (const sourceId of event.transferred_from) {
       if (typeof sourceId !== 'string' || !UUID_RE.test(sourceId)) continue
       try {
-        await syncEntitlements(supabaseUrl, serviceRoleKey, rcSecretKey, sourceId)
+        if (!(await syncEntitlements(supabaseUrl, serviceRoleKey, rcSecretKey, sourceId))) {
+          syncFailed = true
+        }
       } catch (err) {
         console.error('webhook: syncEntitlements (transferred_from) threw', err)
+        syncFailed = true
       }
     }
+  }
+
+  if (syncFailed) {
+    // The event itself is safely logged; only the entitlement write failed.
+    // 500 asks RevenueCat to redeliver, which is the only retry this path has.
+    console.error('webhook: entitlements sync failed — returning 500 so RevenueCat retries')
+    return new Response('Entitlements sync failed', { status: 500 })
   }
 
   return new Response('OK', { status: 200 })

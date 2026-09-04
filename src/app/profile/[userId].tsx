@@ -9,6 +9,7 @@ import { useTheme, darkTokens } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { Icon } from '@/components/Icon'
 import { InfoPopup } from '@/components/InfoPopup'
 import { RatingPicker } from '@/components/RatingPicker'
@@ -259,6 +260,7 @@ function MasteryBar({ pct, tokens, redShift }: { pct: number; tokens: ReturnType
 }
 
 export default function ProfileScreen() {
+  const confirm = useConfirm()
   const { userId, label } = useLocalSearchParams<{ userId: string; label?: string }>()
   const { tokens, redShift, resolved } = useTheme()
   const fs = useFS()
@@ -385,7 +387,16 @@ export default function ProfileScreen() {
     try {
       await setStatsVisible(userId, v)
       setStatsVisibleReal(v)
-    } catch (_) {}
+    } catch (err: any) {
+      // Surfaced, not swallowed. This is a PRIVACY write, and account.tsx's
+      // own leaderboard toggle -- the same class of RPC -- already reports its
+      // failures in a dialog. Silently reverting the Switch reads as "this
+      // control is broken", or worse leaves someone believing their stats are
+      // now public when the write never landed. This exact swallow is what
+      // hid the 2026-09-02 "permission denied for table user_streaks"
+      // incident; it was only ever reported because the OTHER toggle raised.
+      confirm({ title: 'Error', message: err?.message ?? 'Could not update stats visibility.', cancelLabel: null })
+    }
     setStatsVisibleBusy(false)
   }
 
@@ -396,7 +407,11 @@ export default function ProfileScreen() {
       await setCurrentAircraft(userId, aircraftInput)
       setAircraft(aircraftInput)
       setAircraftDirty(false)
-    } catch (_) {}
+    } catch (err: any) {
+      // Same reasoning as the toggle above -- Save used to just stay blue,
+      // leaving the user unable to tell a failed write from a slow one.
+      confirm({ title: 'Error', message: err?.message ?? 'Could not save your aircraft.', cancelLabel: null })
+    }
     setAircraftSaving(false)
   }
 

@@ -26,11 +26,26 @@ const MAX_RECENT_SEARCHES = 10
 // function's own comment for the leak this closes. Defense-in-depth: see
 // recents.ts's getRecents() for why this stays even with the device-level
 // claim in context/auth.tsx.
+//
+// Wrapped exactly like bookmarks.ts / notes.ts / downloads.ts / recents.ts:
+// this was the ONE local store whose JSON.parse was unguarded. A corrupt or
+// non-array value under the key made this reject, and because every other
+// function here routes through it, one bad byte took out add/remove as well
+// -- so the search bar's dropdown would stay permanently broken with no way
+// for the user to clear it. The Array.isArray check matters too: a value of
+// the wrong SHAPE parses fine, then throws later on `.filter`, further from
+// the cause.
 export async function getRecentSearches(scope: string = 'default'): Promise<string[]> {
-  const userId = await currentUserId()
-  if (userId && !(await localDataBelongsTo(userId))) return []
-  const raw = await AsyncStorage.getItem(keyFor(scope))
-  return raw ? JSON.parse(raw) : []
+  try {
+    const userId = await currentUserId()
+    if (userId && !(await localDataBelongsTo(userId))) return []
+    const raw = await AsyncStorage.getItem(keyFor(scope))
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((q): q is string => typeof q === 'string') : []
+  } catch {
+    return []
+  }
 }
 
 // Case-insensitive de-dup that re-surfaces the ORIGINAL casing/spacing of
@@ -44,17 +59,29 @@ export async function addRecentSearch(query: string, scope: string = 'default'):
   const existing = await getRecentSearches(scope)
   const deduped = existing.filter((q) => q.toLowerCase() !== trimmed.toLowerCase())
   const next = [trimmed, ...deduped].slice(0, MAX_RECENT_SEARCHES)
-  await AsyncStorage.setItem(keyFor(scope), JSON.stringify(next))
+  try {
+    await AsyncStorage.setItem(keyFor(scope), JSON.stringify(next))
+  } catch {
+    // A full disk shouldn't make typing in the search bar throw.
+  }
   return next
 }
 
 export async function removeRecentSearch(query: string, scope: string = 'default'): Promise<string[]> {
   const existing = await getRecentSearches(scope)
   const next = existing.filter((q) => q !== query)
-  await AsyncStorage.setItem(keyFor(scope), JSON.stringify(next))
+  try {
+    await AsyncStorage.setItem(keyFor(scope), JSON.stringify(next))
+  } catch {
+    return existing
+  }
   return next
 }
 
 export async function clearRecentSearches(scope: string = 'default'): Promise<void> {
-  await AsyncStorage.removeItem(keyFor(scope))
+  try {
+    await AsyncStorage.removeItem(keyFor(scope))
+  } catch {
+    // no-op
+  }
 }

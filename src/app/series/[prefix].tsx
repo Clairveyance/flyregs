@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
@@ -72,6 +73,9 @@ export default function SeriesScreen() {
   const [figureCounts, setFigureCounts] = useState<Record<string, number>>({})
   const [seriesName, setSeriesName] = useState('')
   const [loading, setLoading] = useState(true)
+  // Back-to-top, same rollout -- an AC series list can run long.
+  const [scrollY, setScrollY] = useState(0)
+  const listRef = useRef<FlatList<SeriesAC>>(null)
   // Real bug, RC real-device report 2026-08-21/22: "ALL of the ACs are
   // GONE!!" -- this screen used to have no error state at all. supabase-js
   // query builders resolve to {data, error} rather than throwing on a
@@ -207,7 +211,16 @@ export default function SeriesScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title={headerTitle} onBack={() => router.back()} />
+      <OverlayHeader
+        title={headerTitle}
+        onBack={() => router.back()}
+        right={
+          <BackToTop
+            visible={scrollY > BACK_TO_TOP_THRESHOLD}
+            onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          />
+        }
+      />
 
       {loading ? (
         <View style={styles.center}>
@@ -229,6 +242,9 @@ export default function SeriesScreen() {
       ) : (
         <TabletContainer>
         <FlatList
+          ref={listRef}
+          onScroll={makeBackToTopScrollHandler(setScrollY)}
+          scrollEventThrottle={16}
           data={acs}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}

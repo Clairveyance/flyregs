@@ -60,10 +60,64 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 
 import requests
 
 log = logging.getLogger(__name__)
+
+# Every content_revisions insert that the DB REJECTED, accumulated across a
+# single scraper run.
+#
+# Why this exists: on 2026-08-29 loi_scraper.py was wired to call
+# log_revisions(doc_type="loi", ...), but content_revisions' doc_type CHECK
+# constraint did not allow 'loi'. Postgres rejected all of them with a 400.
+# That 400 was caught HERE (log.warning, return 0) and then caught AGAIN by
+# the caller's own `except Exception ... "non-fatal"`. Double-buried, the
+# scraper exited 0 and its GitHub Actions run went green. The loss stood for
+# a week and was only found by auditing the table's contents directly, which
+# is exactly how the four earlier scraper_runs silent-logging incidents were
+# found too.
+#
+# Returning 0 and continuing is still right -- a timeline miss must not block
+# the content upsert that follows it. What was wrong was that the failure
+# left no trace a run could report. Failures now land here, are logged at
+# ERROR (not warning) so they surface in CI output, and can be folded into
+# the run's own scraper_runs record via revision_log_failures().
+_FAILURES: list[str] = []
+
+
+def revision_log_failures() -> list[str]:
+    """Insert failures seen so far this run. Empty list == all writes landed."""
+    return list(_FAILURES)
+
+
+def reset_revision_log_failures() -> None:
+    _FAILURES.clear()
+
+
+def exit_nonzero_if_revision_log_failed() -> None:
+    """Fail the PROCESS if any revision insert was rejected.
+
+    Called from each scraper's `__main__` AFTER main() returns, so the
+    content sync itself still completes in full -- the run does all its real
+    work, then reports that part of it did not land. Without this, the only
+    trace was a log line in a job nobody reads unless it is already red.
+
+    See sync/scheduled_jobs_checklist (and the four prior scraper_runs
+    silent-logging incidents): a scheduled job that depends on a human
+    noticing a warning is not monitored.
+    """
+    fails = revision_log_failures()
+    if not fails:
+        return
+    log.error(
+        f"revision logging failed for {len(fails)} batch(es) -- the content sync "
+        f"completed, but the What's Changed timeline is MISSING those entries:"
+    )
+    for f in fails:
+        log.error(f"  - {f}")
+    sys.exit(1)
 
 
 def _split_paragraphs(text: str | None) -> list[str]:
@@ -336,7 +390,19 @@ def log_revisions(
         )
         resp.raise_for_status()
     except requests.exceptions.RequestException as e:
-        log.warning(f"  revision_log: content_revisions insert failed ({len(to_insert)} rows): {e}")
+        # Include the response BODY, not just the exception -- a Postgres
+        # constraint violation puts the actual reason ("violates check
+        # constraint content_revisions_doc_type_check") only in the body.
+        # The original message showed neither that nor the doc_type, which
+        # is why the LOI breakage read as a generic network blip.
+        body = ""
+        try:
+            body = f" body={resp.text[:300]}"
+        except Exception:
+            pass
+        msg = f"doc_type={doc_type} rows={len(to_insert)} err={e}{body}"
+        _FAILURES.append(msg)
+        log.error(f"  revision_log: content_revisions insert FAILED -- {msg}")
         return 0
 
     return len(to_insert)

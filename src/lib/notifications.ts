@@ -152,10 +152,21 @@ export async function ensurePushTokenRegistered(userId: string): Promise<void> {
         user_id: userId,
         expo_push_token: token,
         platform: Platform.OS,
-        enabled: prior?.enabled ?? false,
-        duel_notifications_enabled: prior?.duel_notifications_enabled ?? false,
-        reg_of_day_enabled: prior?.reg_of_day_enabled ?? false,
-        word_of_day_enabled: prior?.word_of_day_enabled ?? false,
+        // DEFAULT ON for a brand-new user. RC, 2026-09-04: "we want all
+        // account toggles ON by default. we want users to get updates, DR,
+        // DW, and be seen in the app, so default is on and they can turn off
+        // anytime."
+        //
+        // These `??` fallbacks only apply when there is NO prior row and NO
+        // cached prefs -- i.e. genuinely the first registration. Anyone who
+        // has ever set a preference reaches `prior` above (remote row first,
+        // then the local cache that survives a sign-out), so flipping the
+        // default cannot re-enable something a user deliberately switched
+        // off. That distinction is the whole reason this is safe to change.
+        enabled: prior?.enabled ?? true,
+        duel_notifications_enabled: prior?.duel_notifications_enabled ?? true,
+        reg_of_day_enabled: prior?.reg_of_day_enabled ?? true,
+        word_of_day_enabled: prior?.word_of_day_enabled ?? true,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id,expo_push_token' }
@@ -207,7 +218,12 @@ export async function unregisterPushToken(userId: string): Promise<void> {
       projectId ? { projectId } : undefined
     )
     // Remember the preferences before the row that holds them is destroyed.
-    const { data: prefs } = await supabase
+    // `error` is bound because this read guards a DESTRUCTIVE next step: a
+    // swallowed failure left `prefs` null, nothing was cached, and the row --
+    // the only copy of those toggles -- was deleted anyway, so the user
+    // silently lost their notification settings and got defaults on their
+    // next sign-in.
+    const { data: prefs, error: prefsErr } = await supabase
       .from('push_tokens')
       .select('enabled, duel_notifications_enabled, reg_of_day_enabled, word_of_day_enabled')
       .eq('user_id', userId)
@@ -215,8 +231,21 @@ export async function unregisterPushToken(userId: string): Promise<void> {
       .maybeSingle()
     if (prefs) {
       await AsyncStorage.setItem(PUSH_PREFS_KEY(userId), JSON.stringify(prefs)).catch(() => {})
+    } else if (prefsErr) {
+      // Deliberately does NOT abort the delete. Losing re-settable toggles is
+      // the lesser harm; leaving the row behind means a resold or handed-down
+      // device keeps receiving the DEPARTING account's pushes, which is the
+      // whole reason this function exists.
+      console.warn('unregisterPushToken: could not preserve push preferences before delete —', prefsErr.message)
     }
-    await supabase.from('push_tokens').delete().eq('user_id', userId).eq('expo_push_token', token)
+    const { error: delErr } = await supabase
+      .from('push_tokens')
+      .delete()
+      .eq('user_id', userId)
+      .eq('expo_push_token', token)
+    // Was unchecked: a failed delete left the device silently receiving the
+    // departed account's notifications with no trace anywhere.
+    if (delErr) console.error('unregisterPushToken: token delete FAILED, device may still receive this account\'s pushes —', delErr.message)
   } catch (_) {
     // Best-effort, matching ensurePushTokenRegistered's own error handling --
     // ensurePushTokenRegistered's claim-on-register above still closes the
@@ -300,7 +329,11 @@ export async function enableDailyReg(userId: string): Promise<void> {
       user_id: userId,
       expo_push_token: token,
       platform: Platform.OS,
-      enabled: existing?.enabled ?? false,
+      // ?? true: `enabled` is the AC Update Alerts toggle (see
+      // send-ad-alerts.mjs -- it is the only path that sets it), and RC wants
+      // updates ON by default. Only applies when no row exists yet; an
+      // existing preference is preserved by `existing?.enabled`.
+      enabled: existing?.enabled ?? true,
       reg_of_day_enabled: true,
       updated_at: new Date().toISOString(),
     },
@@ -463,7 +496,11 @@ export async function enableDailyWord(userId: string): Promise<void> {
       user_id: userId,
       expo_push_token: token,
       platform: Platform.OS,
-      enabled: existing?.enabled ?? false,
+      // ?? true: `enabled` is the AC Update Alerts toggle (see
+      // send-ad-alerts.mjs -- it is the only path that sets it), and RC wants
+      // updates ON by default. Only applies when no row exists yet; an
+      // existing preference is preserved by `existing?.enabled`.
+      enabled: existing?.enabled ?? true,
       word_of_day_enabled: true,
       updated_at: new Date().toISOString(),
     },
@@ -523,7 +560,11 @@ export async function enableDuelNotifications(userId: string): Promise<void> {
       user_id: userId,
       expo_push_token: token,
       platform: Platform.OS,
-      enabled: existing?.enabled ?? false,
+      // ?? true: `enabled` is the AC Update Alerts toggle (see
+      // send-ad-alerts.mjs -- it is the only path that sets it), and RC wants
+      // updates ON by default. Only applies when no row exists yet; an
+      // existing preference is preserved by `existing?.enabled`.
+      enabled: existing?.enabled ?? true,
       duel_notifications_enabled: true,
       updated_at: new Date().toISOString(),
     },

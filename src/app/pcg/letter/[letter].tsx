@@ -8,6 +8,8 @@ import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { TabletContainer } from '@/components/TabletContainer'
 import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
+import { useLongPressPreview } from '@/lib/useLongPressPreview'
+import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 interface PcgTermRow {
   term: string
@@ -31,6 +33,12 @@ export default function PcgLetterScreen() {
   // "Suggest a feature", RC, 2026-09-03 -- see far/part/[part].tsx's own comment.
   const [scrollY, setScrollY] = useState(0)
   const listRef = useRef<FlatList<PcgTermRow>>(null)
+  // Long-press to peek at the full term without navigating -- the same
+  // hook/card pair pcg/index.tsx uses. This letter list was the only P/CG
+  // browse screen without it, so the gesture worked on the A-Z index and
+  // then silently did nothing one level deeper, on the longer list where
+  // peeking is actually more useful.
+  const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   const load = useCallback(async () => {
     if (!letter) return
@@ -90,7 +98,13 @@ export default function PcgLetterScreen() {
           renderItem={({ item }) => (
             <Pressable
               style={[styles.row, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-              onPress={() => router.push(`/pcg/${item.slug}` as any)}
+              onPress={() => {
+                if (consumeLongPress()) return
+                router.push(`/pcg/${item.slug}` as any)
+              }}
+              onLongPress={(e) => showPreview(item.term, e)}
+              onPressOut={hidePreview}
+              delayLongPress={350}
             >
               <Text style={[styles.term, { color: tokens.t1, fontSize: fs(14.5) }]}>{item.term}</Text>
               {item.definition ? (
@@ -103,6 +117,12 @@ export default function PcgLetterScreen() {
         />
         </TabletContainer>
       )}
+      <LongPressPreviewCard
+        preview={preview}
+        previewHeight={previewHeight}
+        onLayoutHeight={setPreviewHeight}
+        onDismiss={hidePreview}
+      />
     </View>
   )
 }

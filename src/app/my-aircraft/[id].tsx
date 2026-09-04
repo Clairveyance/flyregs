@@ -1692,6 +1692,21 @@ export default function AircraftDetailScreen() {
               await unmarkAdComplied(complianceAd.id).catch(() => {})
               throw e
             }
+          } else if (complianceAd.complianceKind === 'recurring') {
+            // The record just moved recurring -> one-time. Without this there
+            // was no `else` at all, so the reminder the recurring flow had
+            // generated stayed behind with nothing left to count down to and
+            // kept pushing "due in 14 days" -- to the owner and every
+            // collaborator -- for an AD now recorded as one-time and finished.
+            //
+            // The un-mark and dismiss paths both already clean this up; the
+            // kind-CHANGE path was the one that was missed. Title-matched for
+            // the same reason those are: a reminder the owner authored
+            // themselves must never be destroyed to tidy up after ours.
+            const generated = reminders.find(
+              (r) => r.linkedAdNumber === complianceAd.adNumber && r.title === `AD ${complianceAd.adNumber}`,
+            )
+            if (generated) await removeAircraftReminder(generated.id)
           }
           await load()
         }}

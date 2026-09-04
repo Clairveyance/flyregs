@@ -2061,13 +2061,19 @@ function HobbsHeaderButton() {
                 >
                   <Icon name="airplane" size={fs(14)} color={tokens.t2} />
                   <Text style={{ color: tokens.t1, fontSize: fs(14), flex: 1 }}>{a.nickname || `${a.make} ${a.model}`}</Text>
+                  {/* Role-gated, matching my-aircraft/index.tsx and
+                      my-aircraft/[id].tsx. This picker lists every aircraft
+                      getFleetSummary() returns -- which includes ones shared
+                      with this user as VIEWER -- and had no role check at all,
+                      so it was the one of three Hobbs entry points that let a
+                      viewer type hours RLS then silently discarded. */}
                   <Pressable
                     style={styles.hobbsPickerHours}
-                    onPress={(e) => { e.stopPropagation(); setEditing(a) }}
+                    onPress={(e) => { e.stopPropagation(); if (a.role !== 'viewer') setEditing(a) }}
                     hitSlop={6}
                   >
-                    <Icon name="speedometer" size={fs(13)} color={tokens.blu} />
-                    <Text style={{ color: tokens.blu, fontSize: fs(13), fontWeight: '600' }}>
+                    <Icon name="speedometer" size={fs(13)} color={a.role === 'viewer' ? tokens.t4 : tokens.blu} />
+                    <Text style={{ color: a.role === 'viewer' ? tokens.t3 : tokens.blu, fontSize: fs(13), fontWeight: '600' }}>
                       {a.currentHobbsHours != null ? `${a.currentHobbsHours}` : 'Set'}
                     </Text>
                   </Pressable>

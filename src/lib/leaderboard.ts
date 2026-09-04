@@ -123,15 +123,24 @@ export async function getLeaderboardOptIn(userId: string): Promise<boolean> {
     .eq('user_id', userId)
     .maybeSingle()
   if (error) return false
-  return data?.leaderboard_opt_in ?? false
+  // `?? true` on a MISSING row, not `?? false`. RC, 2026-09-04: these default
+  // ON now (migrations_default_account_toggles_on.sql), and a user_streaks row
+  // is only created once they study, so a brand-new account legitimately has
+  // no row yet. Returning false there showed the toggle OFF while the row that
+  // eventually gets written is TRUE -- the switch would appear to flip itself
+  // on by itself. A read ERROR still returns false: that is "unknown", and
+  // claiming someone is publicly visible when we could not check is the wrong
+  // way to be wrong about a visibility setting.
+  return data?.leaderboard_opt_in ?? true
 }
 
 // Separate, broader opt-in from the leaderboard one above -- leaderboard
 // only ever shares a display label + weekly review/streak numbers via a
 // SECURITY DEFINER RPC; this shares the full Community stats card
 // (ratings, coin count, current aircraft) via a plain RLS-gated SELECT
-// (user_streaks_public_stats_read: `stats_visible = true`). Off by default,
-// same privacy stance as everywhere else this app has an opt-in.
+// (user_streaks_public_stats_read: `stats_visible = true`). ON by default
+// as of 2026-09-04 (RC: "be seen in the app, so default is on and they can
+// turn off anytime") -- one tap to turn off in Account.
 // See setLeaderboardOptIn above for why this is an RPC and not an upsert.
 export async function setStatsVisible(_userId: string, visible: boolean): Promise<void> {
   const { error } = await supabase.rpc('set_streak_visibility', { p_stats_visible: visible })
@@ -141,7 +150,8 @@ export async function setStatsVisible(_userId: string, visible: boolean): Promis
 export async function getStatsVisible(userId: string): Promise<boolean> {
   const { data, error } = await supabase.from('user_streaks').select('stats_visible').eq('user_id', userId).maybeSingle()
   if (error) return false
-  return data?.stats_visible ?? false
+  // Same reasoning as getLeaderboardOptIn above.
+  return data?.stats_visible ?? true
 }
 
 // Via set_current_aircraft(), NOT a direct upsert -- see setLeaderboardOptIn

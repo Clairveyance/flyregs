@@ -47,6 +47,7 @@ as $$
 declare
   v_c record;
   v_changed integer := 0;
+  v_n integer := 0;
   v_cutoff timestamptz := now() - interval '24 hours';
 begin
   -- (a) invite never answered
@@ -73,7 +74,40 @@ begin
          join challenge_questions cq on cq.id = ca.challenge_question_id
         where cq.challenge_id = c.id and ca.user_id = cp.user_id);
 
-  -- (c) started, then walked away -> forfeit
+  -- (b2) THE CREATOR abandoned before answering anything -> cancel the duel
+  -- outright, mirroring cancel_challenge()'s own creator branch: nobody played,
+  -- so nobody gets a record.
+  --
+  -- Without this the creator row is UNREACHABLE by every branch. (b) excludes
+  -- them explicitly (`cp.is_creator = false`), and (c) can never match a
+  -- participant with zero answers because max() over no rows is NULL and
+  -- `NULL < cutoff` evaluates to NULL, not true -- verified live. The two
+  -- consequences were both bad: a duel where the creator never played hung
+  -- forever (exactly the freeze this job exists to end), and if the OPPONENT
+  -- was the one forfeited by (c), finalize ranks every 'active' participant
+  -- above every 'forfeited' one regardless of score -- so the creator, with
+  -- zero answers, took rank 1 and was permanently recorded a WIN while the
+  -- player who actually played took the loss. Unattended, hourly, and nothing
+  -- ever reverses a user_duel_stats increment.
+  update challenges c
+     set status = 'cancelled', completed_at = now()
+   where c.status = 'active'
+     and exists (
+       select 1 from challenge_participants cp
+        where cp.challenge_id = c.id
+          and cp.is_creator
+          and cp.status = 'active'
+          and coalesce(cp.responded_at, cp.invited_at) < v_cutoff
+          and not exists (
+            select 1 from challenge_answers ca
+              join challenge_questions cq on cq.id = ca.challenge_question_id
+             where cq.challenge_id = c.id and ca.user_id = cp.user_id));
+  get diagnostics v_n = row_count;
+  v_changed := v_changed + v_n;
+
+  -- (c) started, then walked away -> forfeit.
+  -- Runs AFTER (b2), so its `c.status = 'active'` join skips duels (b2) just
+  -- cancelled and an abandoned-creator duel cannot also forfeit its opponent.
   update challenge_participants cp
      set status = 'forfeited', responded_at = now()
     from challenges c
@@ -87,9 +121,18 @@ begin
      and (select max(ca.answered_at) from challenge_answers ca
             join challenge_questions cq on cq.id = ca.challenge_question_id
            where cq.challenge_id = c.id and ca.user_id = cp.user_id) < v_cutoff;
+  get diagnostics v_n = row_count;
+  v_changed := v_changed + v_n;
 
   -- Let the existing finalizer decide the outcome for every touched duel.
-  for v_c in select id from challenges where status = 'active' loop
+  -- Bounded. The wide scan earns its keep -- it is what cleans up a duel whose
+  -- participant deleted their account (the cascade drops their row, active_count
+  -- falls, and finalize cancels it with nobody touching the app) -- but each
+  -- finalize takes `for update` on the challenge row, so an unbounded scan holds
+  -- a lock on every in-progress duel at once and blocks anyone submitting a
+  -- final answer at that moment.
+  for v_c in select id from challenges
+              where status = 'active' and created_at > now() - interval '30 days' loop
     perform finalize_challenge_if_done(v_c.id);
   end loop;
 

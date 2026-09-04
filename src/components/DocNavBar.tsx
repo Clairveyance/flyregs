@@ -65,12 +65,21 @@ export function ChangedBanner({
       {count > 1 && (
         <Text style={[styles.changedCount, { color: tokens.t2, fontSize: fs(11.5) }]}>{currentIdx + 1}/{count}</Text>
       )}
-      <Pressable onPress={onPrev} hitSlop={8}>
-        <Icon name="chevron.up" size={fs(14)} color={tokens.blu} />
-      </Pressable>
-      <Pressable onPress={onNext} hitSlop={8}>
-        <Icon name="chevron.down" size={fs(14)} color={tokens.blu} />
-      </Pressable>
+      {/* Only meaningful with somewhere to go. At count === 1 both chevrons
+          just re-scroll to the one changed paragraph -- two live-looking
+          controls that do nothing. This also lets a document type with no
+          paragraph machinery at all (P/CG, whose definition is a single
+          short block) use this banner purely as an "updated" signal. */}
+      {count > 1 && (
+        <>
+          <Pressable onPress={onPrev} hitSlop={8}>
+            <Icon name="chevron.up" size={fs(14)} color={tokens.blu} />
+          </Pressable>
+          <Pressable onPress={onNext} hitSlop={8}>
+            <Icon name="chevron.down" size={fs(14)} color={tokens.blu} />
+          </Pressable>
+        </>
+      )}
     </View>
   )
 }
@@ -84,18 +93,40 @@ export function ChangedBanner({
 // (unlike ChangedBanner, which hides on count===0) since "you're reading a
 // saved copy from a date" is worth saying even when nothing is known to
 // have changed since.
-export function OfflineCopyBanner({ downloadedAt, stale }: { downloadedAt: string; stale: boolean }) {
+export function OfflineCopyBanner({
+  downloadedAt,
+  stale,
+  readOnly = false,
+}: {
+  downloadedAt: string
+  stale: boolean
+  /** True when the reader is below Premium. Their saved copies stay fully
+   *  readable -- RC, 2026-09-04: "keep it read-only at plus/free, no
+   *  deleting" -- but nothing says WHY they can no longer add more, and a
+   *  Download button that simply stops working reads as a bug. This says it
+   *  once, quietly, on a document they already own.
+   *
+   *  Deliberately not a paywall push: the content is theirs, they paid for it
+   *  while they were Premium, and the cost of keeping it is zero (the bytes
+   *  are on their device; our storage holds ONE shared copy of each document
+   *  either way). The only thing Premium buys is the egress of saving MORE.
+   */
+  readOnly?: boolean
+}) {
   const { tokens } = useTheme()
   const fs = useFS()
   const dateStr = new Date(downloadedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   const color = stale ? tokens.amb : tokens.t3
+  const label = stale
+    ? `Offline copy from ${dateStr} — a newer version may be available`
+    : readOnly
+      ? `Offline copy — saved ${dateStr}. Yours to keep; saving new ones needs Premium.`
+      : `Offline copy — saved ${dateStr}`
   return (
     <View style={[styles.changedWrap, { backgroundColor: tokens.bdim, borderBottomColor: tokens.bbdr }]}>
       <Icon name={stale ? 'exclamationmark.triangle.fill' : 'icloud'} size={fs(13)} color={color} />
       <Text style={[styles.changedText, { color, fontSize: fs(12.5) }]} numberOfLines={2}>
-        {stale
-          ? `Offline copy from ${dateStr} — a newer version may be available`
-          : `Offline copy — saved ${dateStr}`}
+        {label}
       </Text>
     </View>
   )

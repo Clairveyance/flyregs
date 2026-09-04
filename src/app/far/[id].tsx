@@ -572,7 +572,7 @@ export default function FarSectionScreen() {
         />
       )}
       {!loading && offlineCopy && (
-        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} />
+        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} readOnly={!isPremium} />
       )}
       {!loading && section && (
         <ChangedBanner

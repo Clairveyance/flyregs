@@ -189,6 +189,9 @@ export default function ACDetailScreen() {
   const isTabletPortrait = useIsTabletPortrait()
   const scrollRef = useRef<ScrollView>(null)
   const acBodyRef = useRef<ACBodyHandle>(null)
+  // The passage currently under the Copy/Highlight menu, rendered by ACBody
+  // as a "SELECTED" preview -- see its pendingBlockText prop.
+  const [pendingHighlight, setPendingHighlight] = useState<string | null>(null)
   const [ac, setAC] = useState<AdvisoryCircular | null>(null)
   // Set only when `ac` above is being served from the offline cache, not a
   // live fetch -- see far/[id].tsx's identical comment.
@@ -616,9 +619,37 @@ export default function ACDetailScreen() {
     // meant ~123 MB in flight and a tail that outlived its own 300-second
     // signed URLs -- failing silently, since allSettled swallows it, and
     // telling the user "Saved offline" with figures missing.
+    // null (not []) means the SECONDARY fetches above have not landed yet.
+    // They are fired without await and setLoading(false) runs in the same
+    // tick, so this screen is fully interactive with figures === null -- and
+    // `?? []` then quietly saved "this AC has no figures" AND reported
+    // success, because an empty job list gives downloadAllToCache nothing to
+    // fail at, so the "some images are missing" warning never fires.
+    //
+    // Worst case is the worst document: AC 43.13-1B has 378 figures
+    // (measured). Tap Download the moment the text appears on a marginal
+    // connection and the single most figure-dependent AC in the corpus is
+    // saved as text-only, with a clean "Saved offline".
+    let figs = figures
+    let frefs = formulaRefs
+    if (figs === null || frefs === null) {
+      const [figRes, frRes] = await Promise.all([
+        supabase.from('ac_figures').select('id,label,caption,page,image_url').eq('ac_id', ac.id).order('sort_order', { ascending: true }),
+        supabase.from('ac_formula_refs').select('id,label,note,page,image_url').eq('ac_id', ac.id).order('sort_order', { ascending: true }),
+      ])
+      if (figRes.error || frRes.error) {
+        setDownloadBusy(false)
+        confirm({ title: 'Error', message: "Couldn't save this AC for offline reading. Try again in a moment.", cancelLabel: null })
+        return
+      }
+      figs = figRes.data as AcFigure[]
+      frefs = frRes.data as FormulaRef[]
+      setFigures(figs)
+      setFormulaRefs(frefs)
+    }
     const imgResult = await downloadAllToCache([
-      ...(figures ?? []).map((f) => ({ key: f.id, url: f.image_url })),
-      ...(formulaRefs ?? []).map((f) => ({ key: f.id, url: f.image_url })),
+      ...figs.map((f) => ({ key: f.id, url: f.image_url })),
+      ...frefs.map((f) => ({ key: f.id, url: f.image_url })),
     ])
     // pdf_blocks is already loaded in `ac` (it's part of the main fetch above) —
     // that's also exactly what ACBody renders, so caching it here is what
@@ -631,8 +662,11 @@ export default function ACDetailScreen() {
         subject_series: ac.subject_series,
         size: ac.pdf_blocks ? JSON.stringify(ac.pdf_blocks).length : 24_000,
         pdf_blocks: ac.pdf_blocks ?? null,
-        figures: figures ?? null,
-        formulaRefs: formulaRefs ?? null,
+        // figs/frefs, NOT the state vars: setFigures() above is async, so
+        // `figures` is still null in this closure on the very path that just
+        // resolved them -- saving null would defeat the whole fix.
+        figures: figs,
+        formulaRefs: frefs,
         // Which revision, and when issued -- see the restore site's comment.
         meta: {
           date_issued: ac.date_issued ?? null,
@@ -845,15 +879,22 @@ export default function ACDetailScreen() {
     if (!meta) return
     if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     const isHighlighted = highlightedBlockTexts.has(blockText(block))
+    // Mark the passage BEFORE the menu opens -- RC: "needs to show the h/l
+    // area in the doc before any CTA pops up w/ options." Cleared on every
+    // dismiss path (each choice, and Cancel/tap-outside via onCancel) so it
+    // can never stick. Set after the paywall bounce above, so a lower-tier
+    // long-press doesn't leave a passage marked on a screen it navigated
+    // away from.
+    setPendingHighlight(blockText(block))
     confirm({
       title: 'Passage',
       // A picker, not a confirm -- and one that was completely inert on
       // web, which meant Copy/Highlight/Share were untestable there.
       choices: [
-        { label: 'Copy Text', onPress: () => handleCopyBlock(block) },
+        { label: 'Copy Text', onPress: () => { setPendingHighlight(null); return handleCopyBlock(block) } },
         {
           label: isHighlighted ? 'Remove Highlight' : 'Highlight',
-          onPress: () => handleToggleHighlight(block),
+          onPress: () => { setPendingHighlight(null); return handleToggleHighlight(block) },
         },
         // Reachable by any Plus+ user (the long-press entry point above only
         // checks hasPlusAccess), but handleSharePassage itself requires
@@ -862,8 +903,9 @@ export default function ACDetailScreen() {
         // warning. Labeling it up front costs nothing and matches how the
         // rest of the app discloses a higher-tier gate before the tap, not
         // after.
-        { label: isPremium ? 'Share Passage' : 'Share Passage (Premium)', onPress: () => handleSharePassage(block) },
+        { label: isPremium ? 'Share Passage' : 'Share Passage (Premium)', onPress: () => { setPendingHighlight(null); return handleSharePassage(block) } },
       ],
+      onCancel: () => setPendingHighlight(null),
     })
   }, [hasPlusAccess, isPremium, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, handleSharePassage, authLoading])
 
@@ -1071,7 +1113,7 @@ export default function ACDetailScreen() {
         </View>
       )}
       {!loading && offlineCopy && (
-        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} />
+        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} readOnly={!isPremium} />
       )}
       {!loading && ac && changedList.length > 0 && (
         <ChangedBanner
@@ -1302,10 +1344,24 @@ export default function ACDetailScreen() {
                 changedIndices={ac.changed_block_indices}
                 highlightedBlockTexts={hasPlusAccess ? highlightedBlockTexts : undefined}
                 onToggleHighlight={handleBlockLongPress}
+                pendingBlockText={hasPlusAccess ? pendingHighlight : null}
                 figures={hasPlusAccess || offlineCopy ? (figures ?? undefined) : undefined}
-                onOpenFigure={hasPlusAccess ? setViewerFigure : undefined}
-                formulaRefs={hasPlusAccess ? (formulaRefs ?? undefined) : undefined}
-                onOpenFormulaRef={hasPlusAccess ? setViewerFormulaRef : undefined}
+                onOpenFigure={
+                  // `|| offlineCopy` on all three below, matching bodyLimit and
+                  // figures above. The escape hatch was applied to two of the
+                  // five props and missed these, so a lapsed subscriber reading
+                  // a DOWNLOADED AC offline saw the Figures & Tables list with
+                  // its labels and count -- and every row was a DEAD TAP,
+                  // because ACBody calls onOpenFigure?.() and it was undefined.
+                  // Formulas to Verify disappeared outright. Every one of those
+                  // images was pre-downloaded by handleDownload and was sitting
+                  // on disk, unreachable. migrations_offline_downloads_
+                  // enforcement.sql is explicit that a downgrade never revokes
+                  // what is already saved.
+                  hasPlusAccess || offlineCopy ? setViewerFigure : undefined
+                }
+                formulaRefs={hasPlusAccess || offlineCopy ? (formulaRefs ?? undefined) : undefined}
+                onOpenFormulaRef={hasPlusAccess || offlineCopy ? setViewerFormulaRef : undefined}
                 currentLabel={`AC ${ac.document_number}`}
               />
               {!hasPlusAccess && !offlineCopy && (ac.pdf_blocks_total_count ?? ac.pdf_blocks.length) > previewBlockCount(ac.pdf_blocks_total_count ?? ac.pdf_blocks.length) && (

@@ -479,7 +479,13 @@ export default function Cfr49SectionScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title={`${familyLabel} — Part ${section?.part ?? id?.split('.')[0] ?? ''}`} onBack={() => router.back()} right={headerRight} />
       {backTo && <BackToBreadcrumb label={backTo} onPress={() => router.back()} />}
-      {!loading && section && (
+      {/* hasPlusAccess, like ad/[id] and loi/[slug]: 49 CFR body text IS
+          Plus-gated server-side (cfr49_sections_gated), so without this a
+          Free user got a typable IN DOC search bar sitting above a lock
+          screen, able to match nothing. The 2026-08-14 gating re-audit
+          removed exactly this dead control from AD and LOI; 49 CFR shipped
+          later and never got it. */}
+      {!loading && section && hasPlusAccess && (
         <InDocSearchBar
           query={inDocSearch.query}
           onQueryChange={inDocSearch.onQueryChange}
@@ -491,7 +497,7 @@ export default function Cfr49SectionScreen() {
         />
       )}
       {!loading && offlineCopy && (
-        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} />
+        <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} readOnly={!isPremium} />
       )}
       {!loading && section && (
         <ChangedBanner

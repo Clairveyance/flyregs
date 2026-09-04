@@ -75,7 +75,9 @@
 # owners, so a verification run must be able to skip both. The weekly
 # schedule passes nothing and therefore runs everything.
 
-set -euo pipefail
+set -uo pipefail
+
+# NOT `set -e`. Deliberate, and load-bearing -- see run_step below.
 
 APP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$APP/.env.scraper"
@@ -83,6 +85,42 @@ PYTHON3="${PYTHON3:-python3}"
 NODE="${NODE:-node}"
 TOUCHED_FILE="$(mktemp -t flyregs-ad-touched.XXXXXX)"
 ONLY_STEPS="${ONLY_STEPS:-}"
+FAILED_STEPS=""
+
+# The temp file used to leak whenever the script aborted mid-run.
+trap 'rm -f "$TOUCHED_FILE"' EXIT
+
+# run_step N "label" cmd... -- run a step, and if it fails, RECORD it and keep
+# going instead of aborting the pipeline.
+#
+# This script used to be `set -e`, which was actively harmful here. Step 1
+# (ad_scraper.py) exits non-zero on a PARTIAL scrape -- correct on its own, and
+# added deliberately so CI surfaces a partial run instead of showing green.
+# But under `set -e` that exit killed the script before Step 4, so a partial
+# scrape sent NO alerts at all. And Step 1 is `--mode incremental`, which
+# resumes from the newest citation_publish_date already in the DB: the ADs it
+# DID write before failing have already advanced that watermark, so the next
+# weekly run skips right past them. The alerts for those ADs were therefore
+# never late -- they were never sent, and never would be. A Pro owner whose
+# aircraft had a new AD simply never heard about it.
+#
+# Same shape for steps 2 and 3 (a Claude API hiccup or one bad PDF should not
+# cost every owner that week's alerts), and for 5/9/10 (independent MagicLink
+# rebuilds -- one failing is no reason to skip the others).
+#
+# CI visibility is preserved: every failure is recorded and the script still
+# exits non-zero at the very end, listing exactly which steps failed.
+run_step() {
+  local n="$1" label="$2"; shift 2
+  echo ""
+  echo "▶ Step $n/10 — $label"
+  if ! "$@"; then
+    echo "✗ Step $n FAILED (continuing -- later steps do not depend on it)" >&2
+    FAILED_STEPS="$FAILED_STEPS $n"
+    return 1
+  fi
+  return 0
+}
 
 # want_step N -> true if step N should run. Empty ONLY_STEPS means "all".
 want_step() {
@@ -113,38 +151,24 @@ echo "════════════════════════�
 cd "$APP"
 
 if want_step 1; then
-  echo ""
-  echo "▶ Step 1/10 — AD incremental scrape"
-  "$PYTHON3" sync/ad_scraper.py --mode incremental --touched-out="$TOUCHED_FILE"
+  run_step 1 "AD incremental scrape" "$PYTHON3" sync/ad_scraper.py --mode incremental --touched-out="$TOUCHED_FILE" || true
 fi
 
 if want_step 2; then
-  echo ""
-  echo "▶ Step 2/10 — AD parts extraction (ADs touched this run)"
-  "$PYTHON3" sync/extract_ad_parts.py --mode full --touched-file="$TOUCHED_FILE"
+  run_step 2 "AD parts extraction (ADs touched this run)" "$PYTHON3" sync/extract_ad_parts.py --mode full --touched-file="$TOUCHED_FILE" || true
 fi
 
 if want_step 3; then
-  echo ""
-  echo "▶ Step 3/10 — AD figure/table page-image backfill (skips ADs already done)"
-  "$PYTHON3" sync/backfill_ad_figures.py
+  run_step 3 "AD figure/table page-image backfill (skips ADs already done)" "$PYTHON3" sync/backfill_ad_figures.py || true
 fi
 
 if want_step 4; then
-  echo ""
-  echo "▶ Step 4/10 — Targeted My Aircraft alerts (ADs touched this run)"
-  "$NODE" scripts/send-ad-alerts.mjs --touched-file="$TOUCHED_FILE"
+  run_step 4 "Targeted My Aircraft alerts (ADs touched this run)" "$NODE" scripts/send-ad-alerts.mjs --touched-file="$TOUCHED_FILE" || true
 fi
 
 echo ""
 if want_step 5; then
-  echo "▶ Step 5/10 — MagicLink citation extraction (AD -> AC/FAR/AIM/AD)"
-  # Order-independent as of 2026-07-31: ad_citations.py's delete used to remove
-  # EVERY citing_type='ad' row, including the ~450 ad->pcg links Step 6 owns, so
-  # it was only safe here by accident of ordering. Its delete is now scoped to
-  # cited_type in (ac,far,aim,ad). Verified by running it standalone: ad->pcg
-  # stayed at 452 where it previously dropped to 0.
-  "$PYTHON3" sync/ad_citations.py
+  run_step 5 "MagicLink citation extraction (AD -> AC/FAR/AIM/AD)" "$PYTHON3" sync/ad_citations.py || true
 fi
 
 # ── Step 6: SmartSearch index ────────────────────────────────────────────
@@ -154,9 +178,10 @@ fi
 # specific enough to link, so a stale vocabulary silently degrades the
 # quality filter (and SmartSearch expansion along with it).
 echo ""
+SIX_OK=1
 if want_step 6; then
-  echo "▶ Step 6/10 — SmartSearch index rebuild (vocabulary + term associations)"
-  "$PYTHON3" sync/search_index_build.py
+  run_step 6 "SmartSearch index rebuild (vocabulary + term associations)" \
+    "$PYTHON3" sync/search_index_build.py || SIX_OK=0
 fi
 
 echo ""
@@ -174,9 +199,25 @@ echo ""
 # Idempotent by design: it deletes the rows it owns before reinserting, so a
 # re-run can't multiply them (document_citations has no unique constraint).
 
+SEVEN_OK=1
 if want_step 7; then
-  echo "▶ Step 7/10 — MagicLink P/CG term linking (FAR/AIM/AC/AD/LOI -> P/CG, full corpus)"
-  "$PYTHON3" sync/pcg_term_links.py
+  if [[ "$SIX_OK" == "1" ]]; then
+    run_step 7 "MagicLink P/CG term linking (FAR/AIM/AC/AD/LOI -> P/CG, full corpus)" \
+      "$PYTHON3" sync/pcg_term_links.py || SEVEN_OK=0
+  else
+    # Gated on purpose, NOT merely skipped for tidiness. Step 7 DELETES every
+    # cited_type='pcg' row it owns and reinserts from scratch, and it uses Step
+    # 6's search_vocabulary.doc_freq to decide which terms are specific enough
+    # to link. Running it against a stale/failed index would delete good links
+    # and write worse ones -- a silent data-quality regression in shipped
+    # content, which is exactly the outcome we cannot allow. Leaving last
+    # week's links untouched is strictly safer.
+    echo ""
+    echo "⊘ Step 7/10 SKIPPED — Step 6 failed; refusing to rebuild P/CG links" >&2
+    echo "  against a stale search index (it would delete good links)." >&2
+    FAILED_STEPS="$FAILED_STEPS 7(skipped)"
+    SEVEN_OK=0
+  fi
 fi
 
 # ── Step 8: P/CG knowledge-level classification ───────────────────────────
@@ -186,8 +227,16 @@ fi
 # Duels level filters silently drift out of sync with the corpus.
 echo ""
 if want_step 8; then
-  echo "▶ Step 8/10 — P/CG knowledge-level classification"
-  "$PYTHON3" sync/refresh_pcg_levels.py
+  if [[ "$SEVEN_OK" == "1" ]]; then
+    run_step 8 "P/CG knowledge-level classification" \
+      "$PYTHON3" sync/refresh_pcg_levels.py || true
+  else
+    # Derives directly from Step 7's links; classifying against links that
+    # were not rebuilt would drift Study Mode and Duels level filters.
+    echo ""
+    echo "⊘ Step 8/10 SKIPPED — Step 7 did not complete" >&2
+    FAILED_STEPS="$FAILED_STEPS 8(skipped)"
+  fi
 fi
 
 # ── Step 9: LOI -> AC links ───────────────────────────────────────────────
@@ -198,8 +247,7 @@ fi
 # so it cannot touch either.
 echo ""
 if want_step 9; then
-  echo "▶ Step 9/10 — MagicLink LOI -> AC links (full corpus)"
-  "$PYTHON3" sync/loi_ac_citations.py
+  run_step 9 "MagicLink LOI -> AC links (full corpus)" "$PYTHON3" sync/loi_ac_citations.py || true
 fi
 
 # ── Step 10: LOI -> FAR Part links ───────────────────────────────────────
@@ -208,15 +256,21 @@ fi
 # cited_type='far_part' only, so its delete can't touch Step 9's own rows.
 echo ""
 if want_step 10; then
-  echo "▶ Step 10/10 — MagicLink LOI -> FAR Part links (full corpus)"
-  "$PYTHON3" sync/loi_far_part_citations.py
+  run_step 10 "MagicLink LOI -> FAR Part links (full corpus)" "$PYTHON3" sync/loi_far_part_citations.py || true
 fi
-
-rm -f "$TOUCHED_FILE"
 
 END_TS="$(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 echo "════════════════════════════════════════════════════"
+if [[ -n "$FAILED_STEPS" ]]; then
+  echo "  AD sync FINISHED WITH FAILURES  —  $END_TS"
+  echo "  Failed step(s):$FAILED_STEPS"
+  echo "════════════════════════════════════════════════════"
+  echo ""
+  # Every other step still ran. Non-zero so CI shows red and the failure is
+  # investigated -- the point of continuing was never to hide it.
+  exit 1
+fi
 echo "  AD sync complete  —  $END_TS"
 echo "════════════════════════════════════════════════════"
 echo ""

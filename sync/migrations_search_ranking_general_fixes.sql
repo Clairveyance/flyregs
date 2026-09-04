@@ -1,0 +1,57 @@
+-- Not a database migration -- this is a POINTER FILE. The actual fixes for
+-- 2026-09-03's "make search universal, not one term at a time" pass are in
+-- app code (src/app/(tabs)/index.tsx and src/components/RetryImage.tsx),
+-- which needs a real build (B40), not a DB migration. Recorded here anyway
+-- so this session's search-quality work is discoverable from one place
+-- alongside migrations_taa_concept_anchors.sql and
+-- migrations_search_far_perf_fix.sql (both of which ARE live DB changes).
+--
+-- RC: "it sounds like the TAA rule you made is just telling the system
+-- about that one TAA issue. it must be a universal law for any and all
+-- searches." Correct pushback -- the concept anchor WAS a one-term fix.
+-- Found and fixed two GENERAL client-side ranking defects instead, both in
+-- src/app/(tabs)/index.tsx's `combinedResults` useMemo:
+--
+-- 1. relevanceTier's tier 0-2 (exact/starts-with/contains match on an
+--    identifier) is built for a user partial-typing a real document number
+--    ("91.1" -> 91.107). P/CG, Aviation Dictionary, and LOI results use a
+--    snake_case SLUG as their identifier instead -- a query can trivially
+--    be a coincidental SUBSTRING of one with no real relationship to it.
+--    "sUAS" landed tier 2 against the LOI slug "egan-suas-news-2018" (an
+--    author's surname + the term + a year) purely by string coincidence,
+--    outranking the real P/CG glossary term and every relevant AIM
+--    section. This guard already existed for query EXPANSIONS (the
+--    "viaTerm" bridge path) but never for the user's own literal query.
+--    Now applies to both.
+--
+-- 2. Within a tie at the same tier, RC's own stated priority ("the
+--    majority of AFR query material will come from FAR, AIM, P/CG...
+--    ADs and LOIs... hardly the priority result in most cases") was only
+--    ever applied to demote `ad`. Extended to `loi` and `dictionary` too --
+--    a single generic bridge word can coincidentally title-match a
+--    dictionary/LOI entry with nothing to do with the question, tying it
+--    against a genuinely relevant FAR/AIM/P-CG hit with no way to prefer
+--    the real one. "seatbelt sign" bridging to "shoulder" also matched
+--    "MAN-PORTABLE AIR DEFENSE SYSTEMS (MANPADS)" -- unrelated, but tied at
+--    the same tier as the real regulation, and won the coin-flip.
+--
+-- 3. (smaller, also shipped) A result found under MULTIPLE search terms
+--    used to only ever be scored against the FIRST one recorded, discarding
+--    a later, better match entirely.
+--
+-- A fourth, more thorough fix (making the term-flooding safety check aware
+-- of ALL of a result's candidate terms, not just the first) was built,
+-- tested, and DELIBERATELY REVERTED after it measured a real regression on
+-- an unrelated query ("ATC light gun signals" lost its correct AIM 4-3-13
+-- answer). Documented as a precisely diagnosed follow-up in this same
+-- file's comment block in index.tsx, rather than risking a new bug to chase
+-- it further under time pressure. RC's own standing rule: "we need to stay
+-- focused on solving problems, and not creating new ones during the fix."
+--
+-- Verified against a 41-query scripted battery (spanning abbreviations,
+-- informal phrasing, spoken questions, and comparison queries across
+-- FAR/AIM/P-CG/AC/AD/A-D/LOI) built specifically for this pass -- see
+-- flyregs_gotchas.md's 2026-09-03 entry for the honest tally and what
+-- remains open. Also caught and fixed a real runtime crash
+-- (`allTerms is not iterable`) during this same verification pass, before
+-- it ever reached a build.

@@ -663,7 +663,16 @@ export async function inviteCollaboratorByCallsign(folderId: string, callsign: s
 // getOrCreateShareLink mints a fresh token on the next Share tap regardless,
 // so nothing is lost permanently.
 export async function removeCollaborator(folderId: string, userId: string): Promise<void> {
-  const { data: row } = await supabase
+  // `error` is checked here because this read decides an ACCESS question, and
+  // the swallowed-error default was the unsafe one: a failed read left `row`
+  // null, so the `if (row && ...)` below never fired, the share link was NOT
+  // retired, and a collaborator who was just removed could walk straight back
+  // in with the same link. Fail CLOSED instead -- on a failed read, retire the
+  // link. The cost of being wrong that way is small and recoverable
+  // (getOrCreateShareLink mints a fresh token on the owner's next Share tap,
+  // per this function's own comment above); the cost of the other direction is
+  // an ex-collaborator with continued access.
+  const { data: row, error: rowErr } = await supabase
     .from('folder_collaborators')
     .select('invite_token')
     .eq('folder_id', folderId)
@@ -677,7 +686,7 @@ export async function removeCollaborator(folderId: string, userId: string): Prom
     .eq('user_id', userId)
   if (error) throw error
 
-  if (row && !row.invite_token) {
+  if (rowErr || (row && !row.invite_token)) {
     const { error: linkErr } = await supabase
       .from('synced_folders')
       .update({ share_token: null })
@@ -685,6 +694,7 @@ export async function removeCollaborator(folderId: string, userId: string): Prom
     // Best-effort: access is already revoked above, this only closes the
     // re-entry path. Loud rather than silent so a failure is diagnosable.
     if (linkErr) console.error('Failed to retire the folder share link after a removal:', linkErr.message)
+    else if (rowErr) console.warn('Retired the folder share link defensively: could not read the removed collaborator\'s invite_token —', rowErr.message)
   }
 }
 
@@ -952,6 +962,29 @@ export async function updateSharedNote(noteId: string, updates: { title?: string
 // the same way the direct path does. Requires the
 // collaborators_read_shared_bookmarks RLS policy -- see
 // sync/migrations_shared_folder_highlights.sql.
+// A read whose FAILURE must never be mistaken for "this row does not exist".
+//
+// supabase-js RESOLVES `{data: null, error}` on a network failure -- it does
+// not reject (postgrest-js/dist/index.cjs:328,
+// `if (!this.shouldThrowOnError) res = res.catch(...)`), and nothing here
+// calls .throwOnError(). So `const { data } = await ...` followed by
+// `data ?? []` turns a flaky connection into "the server says these items are
+// gone", and folder/[id].tsx acts on exactly that: anything the resolvers
+// fail to return is pushed into `trulyOrphaned` and handed to selfHeal(),
+// which calls removeManyFromFolder -> syncPushFolderItemDeletes. That delete
+// is deliberately NOT filtered by user_id (RLS is the authority, so an owner
+// may remove a collaborator's item), so ONE failed read on a shared folder
+// could permanently soft-delete every collaborator-contributed row in it.
+//
+// Those call sites already have `.catch(...)` fallbacks written to prevent
+// this -- they simply could never fire, because the promise resolved. This
+// makes them fire.
+async function mustRows(q: PromiseLike<{ data: any; error: any }>, what: string): Promise<any[]> {
+  const { data, error } = await q
+  if (error) throw new Error(`sharedFolders ${what}: ${error.message}`)
+  return data ?? []
+}
+
 export async function resolveMissingAsHighlights(itemType: FolderItemType, missedIds: string[], savedAtFor: (id: string) => string): Promise<BookmarkAC[]> {
   if (!missedIds.length) return []
   // synced_bookmarks_gated, not the raw table -- same reasoning as
@@ -961,11 +994,11 @@ export async function resolveMissingAsHighlights(itemType: FolderItemType, misse
   // currently hold Premium, which implies every other tier's access too),
   // but the raw table shouldn't be read for gated body text from a second
   // place that has to independently stay correct if that RLS ever changes.
-  const { data: hlRows } = await supabase
+  const hlRows = await mustRows(supabase
     .from('synced_bookmarks_gated')
     .select('id, ac_id, block_kind, block_label, block_snippet, block_text')
     .eq('item_type', itemType)
-    .in('id', missedIds)
+    .in('id', missedIds), 'highlights')
   if (!hlRows?.length) return []
 
   const docIds = [...new Set(hlRows.map((h) => h.ac_id).filter((v): v is string => !!v))]
@@ -974,25 +1007,25 @@ export async function resolveMissingAsHighlights(itemType: FolderItemType, misse
   type DocRow = { id: string; document_number: string; title: string; date_issued?: string | null; office?: string | null; subject_series?: string | null }
   let docs: DocRow[] = []
   if (itemType === 'ac') {
-    const { data } = await supabase.from('advisory_circulars').select('id, document_number, title, date_issued, office, subject_series').in('id', docIds)
+    const data = await mustRows(supabase.from('advisory_circulars').select('id, document_number, title, date_issued, office, subject_series').in('id', docIds), 'advisory_circulars')
     docs = data ?? []
   } else if (itemType === 'far') {
-    const { data } = await supabase.from('far_sections').select('section_number, title').in('section_number', docIds)
+    const data = await mustRows(supabase.from('far_sections').select('section_number, title').in('section_number', docIds), 'far_sections')
     docs = (data ?? []).map((r) => ({ id: r.section_number, document_number: r.section_number, title: r.title }))
   } else if (itemType === 'aim') {
-    const { data } = await supabase.from('aim_paragraphs').select('paragraph_number, title').in('paragraph_number', docIds)
+    const data = await mustRows(supabase.from('aim_paragraphs').select('paragraph_number, title').in('paragraph_number', docIds), 'aim_paragraphs')
     docs = (data ?? []).map((r) => ({ id: r.paragraph_number, document_number: r.paragraph_number, title: r.title ?? '' }))
   } else if (itemType === 'pcg') {
-    const { data } = await supabase.from('pcg_terms').select('slug, term').in('slug', docIds)
+    const data = await mustRows(supabase.from('pcg_terms').select('slug, term').in('slug', docIds), 'pcg_terms')
     docs = (data ?? []).map((r) => ({ id: r.slug, document_number: r.term, title: r.term }))
   } else if (itemType === 'ad') {
-    const { data } = await supabase.from('airworthiness_directives').select('ad_number, subject_heading').in('ad_number', docIds)
+    const data = await mustRows(supabase.from('airworthiness_directives').select('ad_number, subject_heading').in('ad_number', docIds), 'airworthiness_directives')
     docs = (data ?? []).map((r) => ({ id: r.ad_number, document_number: r.ad_number, title: r.subject_heading }))
   } else if (itemType === 'loi') {
-    const { data } = await supabase.from('legal_interpretations').select('slug, title').in('slug', docIds)
+    const data = await mustRows(supabase.from('legal_interpretations').select('slug, title').in('slug', docIds), 'legal_interpretations')
     docs = (data ?? []).map((r) => ({ id: r.slug, document_number: r.slug, title: r.title }))
   } else if (itemType === 'cfr49') {
-    const { data } = await supabase.from('cfr49_sections').select('section_number, title').in('section_number', docIds)
+    const data = await mustRows(supabase.from('cfr49_sections').select('section_number, title').in('section_number', docIds), 'cfr49_sections')
     docs = (data ?? []).map((r) => ({ id: r.section_number, document_number: r.section_number, title: r.title }))
   }
   const docMap = new Map(docs.map((d) => [d.id, d]))
@@ -1036,10 +1069,10 @@ export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<
   const acItems = byType.get('ac') ?? []
   if (acItems.length) {
     const acIds = acItems.map((i) => i.item_id)
-    const { data } = await supabase
+    const data = await mustRows(supabase
       .from('advisory_circulars')
       .select('id, document_number, title, date_issued, office, subject_series')
-      .in('id', acIds)
+      .in('id', acIds), 'advisory_circulars')
     const matched = new Set<string>()
     for (const r of data ?? []) {
       matched.add(r.id)
@@ -1055,7 +1088,7 @@ export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<
   const farItems = byType.get('far') ?? []
   if (farItems.length) {
     const farIds = farItems.map((i) => i.item_id)
-    const { data } = await supabase.from('far_sections').select('section_number, title').in('section_number', farIds)
+    const data = await mustRows(supabase.from('far_sections').select('section_number, title').in('section_number', farIds), 'far_sections')
     const matched = new Set<string>()
     for (const r of data ?? []) {
       matched.add(r.section_number)
@@ -1067,7 +1100,7 @@ export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<
   const aimItems = byType.get('aim') ?? []
   if (aimItems.length) {
     const aimIds = aimItems.map((i) => i.item_id)
-    const { data } = await supabase.from('aim_paragraphs').select('paragraph_number, title').in('paragraph_number', aimIds)
+    const data = await mustRows(supabase.from('aim_paragraphs').select('paragraph_number, title').in('paragraph_number', aimIds), 'aim_paragraphs')
     const matched = new Set<string>()
     for (const r of data ?? []) {
       matched.add(r.paragraph_number)
@@ -1079,7 +1112,7 @@ export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<
   const pcgItems = byType.get('pcg') ?? []
   if (pcgItems.length) {
     const pcgIds = pcgItems.map((i) => i.item_id)
-    const { data } = await supabase.from('pcg_terms').select('slug, term').in('slug', pcgIds)
+    const data = await mustRows(supabase.from('pcg_terms').select('slug, term').in('slug', pcgIds), 'pcg_terms')
     const matched = new Set<string>()
     for (const r of data ?? []) {
       matched.add(r.slug)
@@ -1091,7 +1124,7 @@ export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<
   const adItems = byType.get('ad') ?? []
   if (adItems.length) {
     const adIds = adItems.map((i) => i.item_id)
-    const { data } = await supabase.from('airworthiness_directives').select('ad_number, subject_heading').in('ad_number', adIds)
+    const data = await mustRows(supabase.from('airworthiness_directives').select('ad_number, subject_heading').in('ad_number', adIds), 'airworthiness_directives')
     const matched = new Set<string>()
     for (const r of data ?? []) {
       matched.add(r.ad_number)
@@ -1103,7 +1136,7 @@ export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<
   const loiItems = byType.get('loi') ?? []
   if (loiItems.length) {
     const loiIds = loiItems.map((i) => i.item_id)
-    const { data } = await supabase.from('legal_interpretations').select('slug, title').in('slug', loiIds)
+    const data = await mustRows(supabase.from('legal_interpretations').select('slug, title').in('slug', loiIds), 'legal_interpretations')
     const matched = new Set<string>()
     for (const r of data ?? []) {
       matched.add(r.slug)
@@ -1115,7 +1148,7 @@ export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<
   const cfr49Items = byType.get('cfr49') ?? []
   if (cfr49Items.length) {
     const cfr49Ids = cfr49Items.map((i) => i.item_id)
-    const { data } = await supabase.from('cfr49_sections').select('section_number, title').in('section_number', cfr49Ids)
+    const data = await mustRows(supabase.from('cfr49_sections').select('section_number, title').in('section_number', cfr49Ids), 'cfr49_sections')
     const matched = new Set<string>()
     for (const r of data ?? []) {
       matched.add(r.section_number)
@@ -1126,7 +1159,7 @@ export async function resolveForeignFolderEntries(items: FolderItem[]): Promise<
 
   const dictItems = byType.get('dictionary') ?? []
   if (dictItems.length) {
-    const { data } = await supabase.from('dictionary_terms').select('slug, term').in('slug', dictItems.map((i) => i.item_id))
+    const data = await mustRows(supabase.from('dictionary_terms').select('slug, term').in('slug', dictItems.map((i) => i.item_id)), 'dictionary_terms')
     for (const r of data ?? []) {
       results.push({ id: r.slug, itemType: 'dictionary', document_number: r.term, title: r.term, date_issued: null, office: null, subject_series: null, savedAt: savedAtFor(dictItems, r.slug) })
     }
@@ -1153,11 +1186,11 @@ export async function resolveForeignNoteEntries(items: FolderItem[]): Promise<No
   if (!noteIds.length) return []
   const { data: { user } } = await supabase.auth.getUser()
   const myId = user?.id
-  const { data } = await supabase
+  const data = await mustRows(supabase
     .from('synced_notes')
     .select('id, title, body, linked_ac, updated_at, user_id')
     .in('id', noteIds)
-    .eq('deleted', false)
+    .eq('deleted', false), 'synced_notes')
   return (data ?? []).map((r) => ({
     id: r.id,
     title: r.title,

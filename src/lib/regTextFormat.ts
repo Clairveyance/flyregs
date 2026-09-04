@@ -401,7 +401,23 @@ export function parseTableBlock(para: string): ParsedTable | null {
   const lines = para.split('\n').map((l) => {
     const stripped = l.split(TABLE_HEADER_MARK).join('')
     const trimmed = stripped.trim()
-    return stripped.startsWith(' | ') ? ' ' + trimmed : trimmed
+    // TRAILING blank cell, the mirror of the leading case above. The scrapers
+    // render an empty last column as "767 Series | " -- one real, meaningful
+    // trailing space. A plain .trim() ate it, so the line no longer contained
+    // ' | ', stopped counting as a data row, fell through to the bare-line
+    // branch as a subLabel, and was overwritten by the next one. The row was
+    // never rendered at all.
+    //
+    // Measured on the real render path (normalizeRegBody -> split ->
+    // parseTableBlock) over every pipe-bearing FAR and AIM document:
+    // +101 rows recovered, 0 rows lost, 0 tables gained or lost.
+    //
+    // Real example: FAR 121.1117's fuel-tank flammability applicability tables
+    // listed 4 and 5 Boeing models; the app rendered 2 and 3. The 777, 767 and
+    // 757 Series rows simply were not there, so a reader concluded the rule
+    // does not cover them. Same in 125.509 and 129.117, and it also dropped
+    // the bodies of FAR 171.311's MLS data-word Notes.
+    return (stripped.startsWith(' | ') ? ' ' : '') + trimmed + (/\|\s+$/.test(stripped) ? ' ' : '')
   }).filter(Boolean)
   const wasHeaderLine = para.split('\n').map((l) => l.trim().startsWith(TABLE_HEADER_MARK))
   const pipedIdx = lines.findIndex((l) => l.includes(' | '))

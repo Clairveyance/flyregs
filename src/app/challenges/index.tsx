@@ -340,16 +340,38 @@ export default function ChallengesScreen() {
   // forfeitChallenge, which the server completes immediately in the
   // opponent's favor.
   const handleDeleteFromHistory = (c: MyChallenge) => {
-    if (c.status === 'active') {
+    // 'forfeited'/'declined' on a duel that is STILL active is a real state in
+    // a 3+ player duel -- you left, the others play on -- and it used to be a
+    // dead end: forfeit_challenge raised "Not an active participant",
+    // hide_challenge_from_history refused because the CHALLENGE was active,
+    // and cancel_challenge's non-creator UPDATE (filtered on
+    // `status in ('pending','active')`) matched zero rows, raised nothing and
+    // returned success -- so the row was optimistically removed, then came
+    // back on the next refresh. Fall through to the plain per-user hide, which
+    // the server now permits for a participant whose own role is already over.
+    if (c.status === 'active' && c.myStatus !== 'forfeited' && c.myStatus !== 'declined') {
       if (c.myStatus === 'pending') {
         handleRespond(c, false)
         return
       }
-      const othersLabel = c.others.length === 1 ? (c.others[0]?.label ?? 'Your opponent') : 'The other players'
+      // Group duels do NOT hand anyone the win on a forfeit -- the duel carries
+      // on and exactly one of the remaining players wins on score
+      // (finalize_challenge_if_done only awards a survivor win once
+      // active_count drops to 1). challenges/[id].tsx's own forfeit prompt was
+      // corrected for this and carries the full reasoning; this second entry
+      // point still told a 4-player duel that "The other players will win
+      // automatically" -- three winners and no loss, which is wrong in both
+      // halves. Same action, same session, two contradictory explanations
+      // depending on which affordance you used.
+      const oneOpponent = c.others.length === 1
+      const othersLabel = oneOpponent ? (c.others[0]?.label ?? 'Your opponent') : 'the other players'
+      const outcomeLine = oneOpponent
+        ? `${othersLabel} will win automatically.`
+        : `you'll take a loss and ${othersLabel} will play on for the win.`
       if (c.myAnsweredCount > 0) {
         confirm({
           title: 'Forfeit Duel',
-          message: `You've already answered ${c.myAnsweredCount} question${c.myAnsweredCount === 1 ? '' : 's'} in this duel. Leaving now forfeits it — ${othersLabel} will win automatically.`,
+          message: `You've already answered ${c.myAnsweredCount} question${c.myAnsweredCount === 1 ? '' : 's'} in this duel. Leaving now forfeits it — ${outcomeLine}`,
           confirmLabel: 'Forfeit',
           destructive: true,
           twoStep: false,

@@ -44,7 +44,7 @@ from http_retry import mount_retries
 from bs4 import BeautifulSoup
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from revision_log import log_revisions  # noqa: E402
+from revision_log import log_revisions, exit_nonzero_if_revision_log_failed  # noqa: E402
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Config
@@ -693,3 +693,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # Non-zero exit if any content_revisions insert was rejected. The sync
+    # above already finished; this only makes a silent timeline loss visible.
+    exit_nonzero_if_revision_log_failed()

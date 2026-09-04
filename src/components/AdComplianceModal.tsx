@@ -216,7 +216,17 @@ export function AdComplianceModal({
   // carrying stale state across openings.
   useEffect(() => {
     if (!visible) return
-    const today = new Date().toISOString().slice(0, 10)
+    // toISODate (local), NOT toISOString (UTC). toISOString().slice(0,10)
+    // yields the UTC calendar day, so for anyone west of Greenwich after
+    // ~17:00 local this pre-filled TOMORROW: a mechanic in Los Angeles
+    // finishing an AD at 6pm on 3 Sep got a form defaulted to 2026-09-04.
+    // If they don't notice, the maintenance record is dated in the future and
+    // -- for a recurring AD -- every subsequent next-due date is anchored a
+    // day late. Every other date path in this feature already handles this
+    // (my-aircraft/[id].tsx writes `compliedDate + 'T12:00:00'` precisely so a
+    // bare date can't read back as the previous day, and toISODate above
+    // exists to format in local time); this one line skipped it.
+    const today = toISODate(new Date())
     setKind(ad?.complianceKind ?? 'one_time')
     setCompliedDate(ad?.compliedAt ? ad.compliedAt.slice(0, 10) : today)
     setNote(ad?.compliedNote ?? '')

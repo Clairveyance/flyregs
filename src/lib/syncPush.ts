@@ -78,6 +78,76 @@ function isPermanentDenial(message: string): boolean {
 /** Item ids currently inside their cooldown window -- skipped by this cycle's
  * push. Exported so sync.ts can filter them out of pushUp before the network
  * call, not just swallow the error afterwards. */
+// Deletes that never reached the server, so the next pull cannot resurrect
+// them.
+//
+// A delete push is fire-and-forget and can fail two ways that both look like
+// success from the UI: currentUserId() returns null (RevenueCat unreachable
+// -> {ok:false}, which is the OFFLINE case, i.e. exactly when a pilot is
+// most likely to be using this app), or the RPC/UPDATE itself errors. Either
+// way the remote row keeps `deleted=false`, and the very next merge sees a
+// remote row with no local counterpart and writes it straight back to the
+// device. The user deletes it again; it comes back again.
+//
+// syncPush.ts's own comment on the `ok` guard already spells this out --
+// "the next merge resurrects the bookmark the user deleted" -- but the queue
+// it implies was never built. Creates are self-healing (pullAndMergeAll's
+// pushUp re-uploads anything the server lacks); deletes have no such path,
+// because "absent remotely" is indistinguishable from "never pushed".
+//
+// Modelled on BLOCKED_ITEMS_KEY above: one small AsyncStorage record,
+// best-effort writes, and never anything that can itself destroy data -- the
+// worst case if this store is lost is the old behaviour.
+const PENDING_DELETES_KEY = '@flyregs/sync-pending-deletes'
+
+export type PendingDeleteKind = 'bookmarks' | 'notes' | 'folderItems'
+type PendingDeletes = Record<PendingDeleteKind, string[]>
+
+const EMPTY_PENDING: PendingDeletes = { bookmarks: [], notes: [], folderItems: [] }
+
+export async function readPendingDeletes(): Promise<PendingDeletes> {
+  try {
+    const raw = await AsyncStorage.getItem(PENDING_DELETES_KEY)
+    if (!raw) return { ...EMPTY_PENDING }
+    const parsed = JSON.parse(raw)
+    // Shape-check every arm: a value of the wrong shape parses fine and then
+    // throws later on .filter, far from the cause.
+    return {
+      bookmarks: Array.isArray(parsed?.bookmarks) ? parsed.bookmarks.filter((x: unknown) => typeof x === 'string') : [],
+      notes: Array.isArray(parsed?.notes) ? parsed.notes.filter((x: unknown) => typeof x === 'string') : [],
+      folderItems: Array.isArray(parsed?.folderItems) ? parsed.folderItems.filter((x: unknown) => typeof x === 'string') : [],
+    }
+  } catch {
+    return { ...EMPTY_PENDING }
+  }
+}
+
+async function writePendingDeletes(next: PendingDeletes): Promise<void> {
+  try {
+    await AsyncStorage.setItem(PENDING_DELETES_KEY, JSON.stringify(next))
+  } catch {
+    /* storage unavailable -- degrades to the previous behaviour, never worse */
+  }
+}
+
+async function addPendingDeletes(kind: PendingDeleteKind, ids: string[]): Promise<void> {
+  if (!ids.length) return
+  const cur = await readPendingDeletes()
+  cur[kind] = [...new Set([...cur[kind], ...ids])]
+  await writePendingDeletes(cur)
+}
+
+/** Called after a delete genuinely lands, and by the merge drain below. */
+export async function clearPendingDeletes(kind: PendingDeleteKind, ids: string[]): Promise<void> {
+  if (!ids.length) return
+  const cur = await readPendingDeletes()
+  const drop = new Set(ids)
+  const next = cur[kind].filter((id) => !drop.has(id))
+  if (next.length === cur[kind].length) return
+  cur[kind] = next
+  await writePendingDeletes(cur)
+}
+
 export async function blockedFolderItemIds(): Promise<Set<string>> {
   const map = await readBlocked()
   const now = Date.now()
@@ -209,15 +279,20 @@ export async function syncPushBookmark(b: BookmarkAC, force = false, preResolved
 }
 
 export async function syncPushBookmarkDeletes(ids: string[]) {
+  if (!ids.length) return
   const userId = await currentUserId()
-  if (!userId || !ids.length) return
+  // Queue BEFORE giving up: a null userId here is the offline case (see the
+  // `ok` guard in currentUserId), and the local row is already gone, so
+  // without this the delete is lost and the next pull resurrects it.
+  if (!userId) { await addPendingDeletes('bookmarks', ids); return }
   // soft_delete_bookmarks RPC, not a raw UPDATE -- same reason as
   // syncPushBookmark's push_bookmark RPC above (sync/migrations_synced_
   // bookmarks_write_rpc.sql): this plain UPDATE also turned out to need
   // table-level SELECT once that grant was revoked, confirmed live before
   // shipping this change.
   const { error } = await supabase.rpc('soft_delete_bookmarks', { p_ids: ids })
-  reportSyncError('bookmark delete', error)
+  if (error) { await addPendingDeletes('bookmarks', ids); reportSyncError('bookmark delete', error); return }
+  await clearPendingDeletes('bookmarks', ids)
 }
 
 export async function syncPushFolder(f: Folder, force = false) {
@@ -318,8 +393,12 @@ export async function syncPushFolderItems(items: FolderItem[], force = false) {
 }
 
 export async function syncPushFolderItemDeletes(ids: string[], force = false) {
+  if (!ids.length) return
   const userId = await currentUserId(force)
-  if (!userId || !ids.length) return
+  // Queue BEFORE giving up: a null userId here is the offline case (see the
+  // `ok` guard in currentUserId), and the local row is already gone, so
+  // without this the delete is lost and the next pull resurrects it.
+  if (!userId) { await addPendingDeletes('folderItems', ids); return }
   // No .eq('user_id', ...) filter -- RLS is the real authority here, and it
   // now correctly allows more than "delete my own rows": a folder owner can
   // remove an item a collaborator added, and an editor-collaborator on a
@@ -333,7 +412,8 @@ export async function syncPushFolderItemDeletes(ids: string[], force = false) {
     .from('synced_folder_items')
     .update({ deleted: true, updated_at: new Date().toISOString() })
     .in('id', ids)
-  reportSyncError('folder item delete', error)
+  if (error) { await addPendingDeletes('folderItems', ids); reportSyncError('folder item delete', error); return }
+  await clearPendingDeletes('folderItems', ids)
 }
 
 export async function syncPushNote(n: Note, force = false) {
@@ -385,8 +465,12 @@ export async function syncPushNotes(notes: Note[], force = false) {
 }
 
 export async function syncPushNoteDeletes(ids: string[]) {
+  if (!ids.length) return
   const userId = await currentUserId()
-  if (!userId || !ids.length) return
+  // Queue BEFORE giving up: a null userId here is the offline case (see the
+  // `ok` guard in currentUserId), and the local row is already gone, so
+  // without this the delete is lost and the next pull resurrects it.
+  if (!userId) { await addPendingDeletes('notes', ids); return }
   // No .eq('user_id', ...) filter -- same reasoning as
   // syncPushFolderItemDeletes above: RLS now correctly allows a folder
   // owner to delete a collaborator's note (owners_manage_shared_notes), and
@@ -395,5 +479,6 @@ export async function syncPushNoteDeletes(ids: string[]) {
     .from('synced_notes')
     .update({ deleted: true, updated_at: new Date().toISOString() })
     .in('id', ids)
-  reportSyncError('note delete', error)
+  if (error) { await addPendingDeletes('notes', ids); reportSyncError('note delete', error); return }
+  await clearPendingDeletes('notes', ids)
 }

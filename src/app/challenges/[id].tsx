@@ -317,6 +317,26 @@ export default function ChallengeGameScreen() {
     }
     setMyTimeMs(timeMs)
     setResult(r)
+    // `challenge` was previously set in exactly ONE place (loadState), so
+    // myAnsweredCount went stale the moment an answer was submitted -- and
+    // both refetch effects deliberately skip loadState() while the phase is
+    // 'playing'/'revealed', so nothing corrected it. `started` reads that
+    // count, and it gates the forfeit prompt, so both ends were wrong:
+    //
+    //   * After the LAST answer the count was still questionCount - 1, so
+    //     `started` stayed true. A player who had answered EVERY question and
+    //     tapped back got "Leaving now forfeits the duel" -- and confirming it
+    //     really did forfeit (their participant row is still 'active' with
+    //     answered_count > 0), handing away a duel they had just finished.
+    //   * After the FIRST answer the count was still 0, so `started` was
+    //     false: back popped with no prompt and no forfeit, stranding the
+    //     opponent until the 24h cron swept it.
+    //
+    // Clamped, because a resubmit is idempotent server-side (submit_challenge_
+    // answer's `on conflict do nothing`) and must not inflate the local count.
+    setChallenge((prev) =>
+      prev ? { ...prev, myAnsweredCount: Math.min(prev.myAnsweredCount + 1, prev.questionCount) } : prev,
+    )
     setPhase('revealed')
     revealedAt.current = Date.now()
     if (r.newCoins.length) {
@@ -338,7 +358,14 @@ export default function ChallengeGameScreen() {
       // bug) doesn't know this coin was already shown here, and re-reveals
       // the same coin a second time next time the Duels hub loads. Same fix
       // as study.tsx's identical reveal path. Best-effort, non-blocking.
-      markCoinsSeen(r.newCoins).catch(() => {})
+      // Only the coin actually REVEALED above, not the whole array. One
+      // submit can award several at once (record_study_review evaluates
+      // FIRST_REP, STREAK_7/30/90 and MASTERY_25/100 independently), but this
+      // reveals newCoins[0] only -- marking all of them seen made
+      // get_unseen_coins() skip the rest, so coins 2..n were earned and then
+      // never celebrated anywhere, in any session. Leaving them unseen lets
+      // the Duels hub's own catch-up queue surface them next time.
+      markCoinsSeen([r.newCoins[0]]).catch(() => {})
     }
     if (r.challengeCompleted && id) sendDuelPush(id, 'completed')
     // mySetCompleted without challengeCompleted: this user just finished

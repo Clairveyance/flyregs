@@ -155,3 +155,29 @@ export async function signInWithBiometric(): Promise<string | null> {
   }
   return email
 }
+
+// The mismatch half of auth.tsx's maybeOfferBiometricEnroll, split out so
+// EVERY real sign-in path can run it. Offering ENROLMENT is only appropriate
+// right after a deliberate password sign-in, but clearing a DIFFERENT
+// account's stored credential is required on all of them, and used to happen
+// on exactly one: the password form. The email-confirmation link
+// (confirm.tsx), the password-reset link (reset-password.tsx) and auth.tsx's
+// own "check your email" poller all signed a user in while leaving the
+// previous account's SecureStore credential in place.
+//
+// Two consequences on a shared device, both real: the sign-in screen renders
+// "Sign in as <previous account's email>", disclosing an address the current
+// user never entered; and signInWithBiometric() replays the STORED tokens via
+// setSession() after only a device-level biometric check -- it never verifies
+// that the person is that account -- so any enrolled finger/face on the
+// device signs into the previous account.
+//
+// Deliberately does NOT gate on isHardwareAvailable(): the stale credential
+// is worth clearing whether or not this device can currently offer biometrics.
+export async function clearBiometricIfDifferentAccount(signedInEmail: string | null | undefined): Promise<void> {
+  if (!signedInEmail) return
+  const storedEmail = await getBiometricSignInEmail()
+  if (!storedEmail) return
+  if (storedEmail.toLowerCase() === signedInEmail.toLowerCase()) return
+  await disableBiometricSignIn()
+}

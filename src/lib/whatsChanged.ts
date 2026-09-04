@@ -76,10 +76,14 @@ export function splitParagraphs(text: string | null): string[] {
 // it the same way, so "Changed" reads as "recent, bounded" instead of
 // "however far back logging happens to go."
 export async function getRevisions(sinceDate?: string, limit = 100): Promise<ContentRevision[]> {
-  // content_revisions_gated, not the raw table -- ac/ad revisions are
-  // Plus-tier content (added_text/removed_text redact to null server-side
-  // for non-Plus); far/aim/pcg stay ungated. See
-  // migrations_fix_content_revisions_ungated_leak.sql.
+  // content_revisions_gated, not the raw table -- ac/ad/cfr49 revisions are
+  // Plus-tier content and loi revisions are PRO-tier (added_text/removed_text
+  // redact to null server-side below those tiers); far/aim/pcg stay ungated.
+  // LOI is the stricter one because legal_interpretations_gated puts LOI
+  // body_text behind has_pro_access(), and a revision's added/removed text is
+  // that same body text, diffed. See
+  // migrations_fix_content_revisions_ungated_leak.sql and
+  // migrations_content_revisions_loi_doctype.sql.
   let query = supabase
     .from('content_revisions_gated')
     .select('id, doc_type, doc_key, doc_id, title, added_text, removed_text, revised_at')

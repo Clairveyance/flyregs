@@ -18,7 +18,13 @@ export interface RelatedRef {
 // covers 'dictionary', which has no cited_type category anywhere in the
 // UI and no route to send a tap to, so it's deliberately excluded here
 // rather than surfacing a type nothing downstream knows what to do with.
-const BAR_TYPES = ['far', 'aim', 'ac', 'ad', 'loi', 'pcg']
+// cfr49 added 2026-09-04: the comment above was stale. MagicLinkPod DOES
+// have a 'Related 49 CFR' bar on all seven detail screens, and 49 CFR IS
+// embedded (build_embeddings.py's cfr49 entry) -- so that bar was receiving
+// explicit citations only, while every other bar got citations AND topical
+// similarity. dictionary stays excluded for the reason given: no cited_type
+// category and no route to send a tap to.
+const BAR_TYPES = ['far', 'aim', 'ac', 'ad', 'loi', 'pcg', 'cfr49']
 
 export async function getSemanticRelated(
   sourceType: string,

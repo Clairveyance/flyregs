@@ -28,7 +28,7 @@ import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { getSemanticRelated, mergeRelated } from '@/lib/relatedContent'
 import { buildRegShareLink } from '@/lib/regShare'
-import { isDownloaded, addDownload, removeDownload, findDownload, type DownloadedAC } from '@/lib/downloads'
+import { isDownloaded, addDownload, removeDownload, findDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
 import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { humanizeLoiTitle } from '@/lib/titleFormat'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -91,12 +91,21 @@ export default function LoiDetailScreen() {
   const { hasProAccess, isPremium, loading: authLoading } = useAuth()
   const [loi, setLoi] = useState<LegalInterpretation | null>(null)
   // Set only when `loi` above is being served from the offline cache, not
-  // a live fetch -- see far/[id].tsx's identical comment. Legal
-  // interpretations have no content_revisions logging AT ALL (RevisionDocType
-  // doesn't include 'loi' -- they're point-in-time legal opinions, not
-  // amended text the way FAR/AD are), so this only ever drives the plain
-  // "Downloaded on {date}" disclosure, never a staleness claim.
+  // a live fetch -- see far/[id].tsx's identical comment.
+  //
+  // This previously read "legal interpretations have no content_revisions
+  // logging AT ALL (RevisionDocType doesn't include 'loi')" and hardcoded
+  // stale={false}. Both halves of that were wrong: RevisionDocType has
+  // always included 'loi', and this very file calls getLatestRevision('loi',
+  // slug) 170 lines below to drive its ChangedBanner. What was actually true
+  // is that ZERO loi revisions existed -- because content_revisions' CHECK
+  // constraint rejected every one loi_scraper wrote, silently (2026-09-04,
+  // see flyregs_gotchas.md). The banner machinery here was complete and
+  // dormant the whole time. With the constraint fixed and 'loi' added to
+  // REVISION_TYPES, a downloaded interpretation can now correctly report
+  // that the FAA has since revised it.
   const [offlineCopy, setOfflineCopy] = useState<DownloadedAC | null>(null)
+  const [offlineStale, setOfflineStale] = useState(false)
   // Split so the interpretation text can render as soon as the fast
   // citation query resolves, without waiting on the much slower semantic
   // "related content" RPC -- see the loading effect below for why.
@@ -270,6 +279,17 @@ export default function LoiDetailScreen() {
     if (!slug) return
     getLatestRevision('loi', slug).then(setRevision).catch(() => setRevision(null))
   }, [slug])
+
+  // Opportunistic staleness check -- mirrors far/[id].tsx's. Only fires when
+  // actually rendering the offline fallback, and degrades silently to false
+  // (no claim made) with no network, which is the usual reason this branch
+  // is rendering at all.
+  useEffect(() => {
+    if (!offlineCopy) { setOfflineStale(false); return }
+    let cancelled = false
+    isDownloadStale(offlineCopy).then((s) => { if (!cancelled) setOfflineStale(s) })
+    return () => { cancelled = true }
+  }, [offlineCopy])
   const changedIdx = useMemo(
     () => changedParagraphIndices(body, revision?.addedText ?? null),
     [body, revision],
@@ -288,6 +308,15 @@ export default function LoiDetailScreen() {
   const acRefs = related.filter((r) => r.cited_type === 'ac')
   const pcgRefs = related.filter((r) => r.cited_type === 'pcg')
   const cfr49Refs = related.filter((r) => r.cited_type === 'cfr49')
+  // aim/ad were missed by the 2026-08-12 fix that added acRefs/pcgRefs. Same
+  // bug, same shape: getSemanticRelated('loi', slug) asks for BAR_TYPES, which
+  // includes 'aim' and 'ad', and both ARE embedded (870 aim / 19,021 ad chunks)
+  // -- so those rows landed in `related` and were filtered into nothing. From
+  // an AIM paragraph you could reach the LOI; from the LOI you could not get
+  // back. (No loi<->aim/ad CITATION rows exist in either direction, so these
+  // bars are fed purely by the topical half -- which is the half RC built.)
+  const aimRefs = related.filter((r) => r.cited_type === 'aim')
+  const adRefs = related.filter((r) => r.cited_type === 'ad')
 
   // LOI's own actions gate on hasProAccess, not the app-wide hasPlusAccess
   // every other content type's print/share/bookmark/folder uses -- since
@@ -495,7 +524,7 @@ export default function LoiDetailScreen() {
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
       <OverlayHeader title="Legal Interpretation" onBack={() => router.back()} right={headerRight} />
       {backTo && <BackToBreadcrumb label={backTo} onPress={() => router.back()} />}
-      {offlineCopy && <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={false} />}
+      {offlineCopy && <OfflineCopyBanner downloadedAt={offlineCopy.downloadedAt} stale={offlineStale} readOnly={!isPremium} />}
       {!loading && loi && changedIdx.length > 0 && (
         <ChangedBanner
           count={changedIdx.length}
@@ -634,7 +663,9 @@ export default function LoiDetailScreen() {
             <MagicLinkPod
               bars={[
                 { icon: 'book.closed.fill', label: 'FAR references', items: farRefs },
+                { icon: 'map.fill', label: 'AIM references', items: aimRefs },
                 { icon: 'megaphone.fill', label: 'Related ACs', items: acRefs },
+                { icon: 'wrench.and.screwdriver.fill', label: 'Related ADs', items: adRefs },
                 { icon: 'headset', label: 'P/CG terms', items: pcgRefs },
                 { icon: 'envelope.open.fill', label: 'Related Interpretations', items: loiRefs },
                 { icon: 'building.columns.fill', label: 'Related 49 CFR', items: cfr49Refs },
