@@ -495,7 +495,7 @@ function renderBodyContent(
       const content = text.slice(item.contentStart, contentEnd).trim()
       nodes.push(
         <View key={`${r}-${item.num}`} style={styles.autoListRow}>
-          <Text style={[styles.autoListNum, { color: tokens.t1, fontSize: fs(13), lineHeight: fs(13) * 1.62 }]}>{item.num}.</Text>
+          <Text style={[styles.autoListNum, { color: tokens.t1, fontSize: fs(13), lineHeight: fs(13) * 1.62, minWidth: fs(22) }]} numberOfLines={1}>{item.num}.</Text>
           <Text style={[styles.autoListBody, { color: tokens.t2, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.56 }]}>{linkify(content)}</Text>
         </View>
       )
@@ -1594,11 +1594,17 @@ const styles = StyleSheet.create({
   // (StyleSheet.create is module-scope, fs() is a hook), same
   // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
   item: { fontSize: 13, marginTop: 8 },
-  autoListRow: { flexDirection: 'row', marginTop: 6, paddingLeft: 4 },
+  // gap, because autoListNum sits directly against autoListBody's flex:1 --
+  // with no gap and no shrink, a number that outgrows its box overlaps the
+  // first characters of the paragraph rather than just crowding it.
+  autoListRow: { flexDirection: 'row', gap: 4, marginTop: 6, paddingLeft: 4 },
   // lineHeight NOT set here -- always overridden inline with fs(13) * 1.62
   // (StyleSheet.create is module-scope, fs() is a hook), same
   // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
-  autoListNum: { fontWeight: '700', width: 22 },
+  // minWidth via fs() at the call site, not a fixed width: '12.' is ~19pt at
+  // 1.0x but ~34pt at the largest text size, so a hard 22 overflowed into the
+  // body text. Same minWidth + flexShrink:0 shape as far/part's secNum.
+  autoListNum: { fontWeight: '700', flexShrink: 0 },
   autoListBody: { flex: 1, lineHeight: 21 },
   para: { fontSize: 13.5, lineHeight: 21, marginTop: 10 },
   highlight: { backgroundColor: 'rgba(255, 213, 0, 0.45)', borderRadius: 2 },

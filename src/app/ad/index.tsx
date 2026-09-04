@@ -352,8 +352,14 @@ export default function AdIndexScreen() {
                     {recentAd.map((r) => (
                       <Pressable
                         key={r.id}
-                        style={[styles.recentChip, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                        onPress={() => router.push(`/ad/${r.id}` as any)}
+                        style={[styles.recentChip, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, maxWidth: fs(160) }]}
+                        onPress={() => { if (consumeLongPress()) return; router.push(`/ad/${r.id}` as any) }}
+                        // Long-press fallback: at larger text sizes the maxWidth:160
+                        // box truncates "AD 2018-02-04" mid-number, and the
+                        // within-year sequence is what identifies which AD it is.
+                        onLongPress={(e) => showPreview(r.title ?? '', e, r.document_number ?? r.id)}
+                        onPressOut={hidePreview}
+                        delayLongPress={350}
                       >
                         {/* numberOfLines={1}, corpus-wide reg-number sweep:
                             this chip's box only caps width via maxWidth:160,
@@ -529,7 +535,9 @@ const styles = StyleSheet.create({
   // generously for a 2-line chip up to max font scale (1.75x).
   recentScroll: { flexGrow: 0, flexShrink: 0, height: 84 },
   recentRow: { gap: 8 },
-  recentChip: { borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, maxWidth: 160 },
+  // maxWidth passed inline via fs() at the call site so the cap grows with
+  // the text-size slider instead of truncating harder at every step up.
+  recentChip: { borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
   recentChipNum: { fontWeight: '700' },
   recentChipTitle: { marginTop: 2 },
 

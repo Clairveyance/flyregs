@@ -932,6 +932,7 @@ export default function SavedScreen() {
       {!folderSelectMode && !folderReorderMode && (
         <Pressable
           onPress={() => (hasPlusAccess ? setNewFolderVisible(true) : router.push('/paywall?tier=plus'))}
+          hitSlop={9}
           style={[styles.addBtn, { backgroundColor: tokens.blu }]}
         >
           <Icon name="plus" size={fs(13)} color="#fff" />

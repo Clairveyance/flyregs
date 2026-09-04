@@ -365,7 +365,7 @@ function ElementGroup({
             onPress={() => onTapElement(el.bodyText)}
             style={[styles.elementRow, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.bdr }]}
           >
-            <Text style={[styles.elementCode, { color: tokens.blu, fontSize: fs(11.5) }]}>{el.code}</Text>
+            <Text style={[styles.elementCode, { color: tokens.blu, fontSize: fs(11.5), minWidth: fs(74) }]} numberOfLines={1}>{el.code}</Text>
             {splitIntoDisplayParagraphs(el.bodyText).map((para, pi, parr) => (
               <Text
                 key={pi}
@@ -449,7 +449,10 @@ const styles = StyleSheet.create({
 
   elementCard: { borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
   elementRow: { flexDirection: 'row', gap: 10, padding: 12 },
-  elementCode: { fontWeight: '700', width: 74 },
+  // minWidth at the call site + numberOfLines, matching every other fixed
+  // identifier column in the app. Real ACS codes reach 14 chars
+  // ('PA.VIII.A.K10a'), which broke at a period into two lines even at 1.0x.
+  elementCode: { fontWeight: '700', flexShrink: 0 },
   // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
   // (StyleSheet.create is module-scope, fs() is a hook), same
   // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.

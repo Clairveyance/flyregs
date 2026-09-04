@@ -266,7 +266,14 @@ export default function FarIndexScreen() {
                 <Pressable
                   key={r.id}
                   style={[styles.recentChip, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                  onPress={() => router.push(`/far/${r.id}` as any)}
+                  onPress={() => { if (consumeLongPress()) return; router.push(`/far/${r.id}` as any) }}
+                  // numberOfLines={1} below stops the mid-number wrap, but it
+                  // leaves "121.1400-121.14…" with the range's distinguishing
+                  // tail cut off and no way to see it -- every LIST row on this
+                  // screen already has this long-press fallback; the chips did not.
+                  onLongPress={(e) => showPreview(r.title ?? '', e, r.document_number ?? r.id)}
+                  onPressOut={hidePreview}
+                  delayLongPress={350}
                 >
                   {/* numberOfLines={1}, corpus-wide reg-number sweep: this
                       chip is a fixed, unscaled width:130 -- real FAR section

@@ -363,7 +363,7 @@ export default function NotesScreen() {
         </Text>
       </Pressable>
       {!selectMode && (
-        <Pressable onPress={openNew} style={[styles.addBtn, { backgroundColor: tokens.blu }]}>
+        <Pressable hitSlop={9} onPress={openNew} style={[styles.addBtn, { backgroundColor: tokens.blu }]}>
           <Icon name="plus" size={fs(13)} color="#fff" />
           <Text style={[styles.addBtnText, { fontSize: fs(12.5) }]}>New</Text>
         </Pressable>

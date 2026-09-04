@@ -167,7 +167,13 @@ export default function AimIndexScreen() {
                 <Pressable
                   key={r.id}
                   style={[styles.recentChip, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                  onPress={() => router.push(`/aim/${r.id}` as any)}
+                  onPress={() => { if (consumeLongPress()) return; router.push(`/aim/${r.id}` as any) }}
+                  // Long-press fallback, matching this screen's list rows: the
+                  // truncated tail is what identifies the item, and the chip had
+                  // no other way to reveal it.
+                  onLongPress={(e) => showPreview(r.title ?? '', e, r.document_number ?? r.id)}
+                  onPressOut={hidePreview}
+                  delayLongPress={350}
                 >
                   {/* numberOfLines={1}, corpus-wide reg-number sweep: fixed,
                       unscaled width:130 chip -- some real AIM paragraph

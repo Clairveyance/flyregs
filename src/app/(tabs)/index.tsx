@@ -2536,9 +2536,9 @@ function RegBodyCard({
       style={[styles.regCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
       onPress={() => (item.onCustomPress ? item.onCustomPress() : router.push(item.route as any))}
     >
-      <View style={[styles.regAbbrBadge, { backgroundColor: tokens.bdim }]}>
+      <View style={[styles.regAbbrBadge, { backgroundColor: tokens.bdim, width: fs(46), height: fs(46), borderRadius: fs(12) }]}>
         <Icon name={REG_TYPE[item.key as keyof typeof REG_TYPE].icon} size={fs(15)} color={tokens.blu} />
-        <Text style={[styles.regAbbrText, { color: tokens.blu, fontSize: fs(11) }]}>{item.abbr}</Text>
+        <Text style={[styles.regAbbrText, { color: tokens.blu, fontSize: fs(11) }]} numberOfLines={1}>{item.abbr}</Text>
       </View>
       <View style={{ flex: 1 }}>
         <Text style={[styles.regLabel, { color: tokens.t1, fontSize: fs(14.5) }]}>{item.label}</Text>
@@ -2791,10 +2791,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 6,
   },
+  // width/height/borderRadius passed inline via fs() at the call site. This
+  // badge stacks an ICON and TEXT, so it is the one fixed-size wrapper in the
+  // app that outgrows its box: at the largest text size the icon (26) + gap (2)
+  // + line (22.8) needs ~51pt in a 46pt square, and 'P/CG' -- the longest abbr
+  // -- also exceeded 46pt wide, so it wrapped to 'P/' over 'CG' and the whole
+  // thing bled out of the rounded tile on the app's first screen.
   regAbbrBadge: {
-    width: 46,
-    height: 46,
-    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,

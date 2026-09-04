@@ -203,6 +203,7 @@ export function TableNavBar({
   return (
     <View style={[styles.tableNavWrap, { borderTopColor: tokens.bdr, backgroundColor: tokens.bg2 }]}>
       <Pressable
+        hitSlop={11}
         style={[styles.tableNavBtn, !onPrev && styles.tableNavBtnDisabled]}
         onPress={() => onPrev?.()}
         disabled={!onPrev}
@@ -212,6 +213,7 @@ export function TableNavBar({
       </Pressable>
       <Text style={{ color: tokens.t4, fontSize: fs(11.5) }}>{ord + 1} of {total}</Text>
       <Pressable
+        hitSlop={11}
         style={[styles.tableNavBtn, !onNext && styles.tableNavBtnDisabled]}
         onPress={() => onNext?.()}
         disabled={!onNext}

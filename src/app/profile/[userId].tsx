@@ -680,7 +680,7 @@ export default function ProfileScreen() {
                                 </View>
                               )}
                             </View>
-                            <View style={styles.coinNameSlot}>
+                            <View style={[styles.coinNameSlot, { height: fs(12) * 1.33 * 2 + 6 }]}>
                               <Text style={[styles.coinName, { color: earned ? tokens.t1 : tokens.t4, fontSize: fs(12), lineHeight: fs(12) * 1.33 }]} numberOfLines={2}>
                                 {coin.name}
                               </Text>
@@ -712,7 +712,7 @@ export default function ProfileScreen() {
                               )}
                             </View>
                             <Pressable
-                              style={styles.coinNameSlot}
+                              style={[styles.coinNameSlot, { height: fs(12) * 1.33 * 2 + 6 }]}
                               onLongPress={(e) => showPreview(def.name, e)}
                               onPressOut={hidePreview}
                               delayLongPress={350}
@@ -1049,7 +1049,10 @@ const styles = StyleSheet.create({
   // math looks right, clips glyphs on a real device" class of bug before,
   // see CoinMedal.tsx's shadow/glow comment). Both the box and the
   // line-height itself now have real headroom instead of a razor-exact fit.
-  coinNameSlot: { height: 34, justifyContent: 'flex-start', overflow: 'visible' },
+  // height passed inline via fs() at the call sites -- a hard 34 was computed
+  // at 1.0x only, so at larger text sizes the second line of a coin name ran
+  // down into the row of coins beneath it (overflow is deliberately visible).
+  coinNameSlot: { justifyContent: 'flex-start', overflow: 'visible' },
   // lineHeight NOT set here -- always overridden inline with fs(12) * 1.33
   // (StyleSheet.create is module-scope, fs() is a hook), same
   // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.

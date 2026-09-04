@@ -1239,7 +1239,10 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   // Sits under the citation on the answer face. Left-aligned against the
   // centered answer text on purpose -- it is prose to read, not a label.
-  cardExplain: { marginTop: 14, textAlign: 'left', lineHeight: 17 },
+  // lineHeight NOT set here -- overridden inline with fs(11.5) * 1.48 at both
+  // call sites. A hard 17 put 20pt glyphs on a 17pt grid at the largest text
+  // size, overlapping and clipping the flashcard explanation.
+  cardExplain: { marginTop: 14, textAlign: 'left' },
   // flexGrow (not flex) on the ScrollView's own content container: lets
   // short content (loading/empty states, which use flex:1 centering
   // internally) still fill and center within the viewport, while letting

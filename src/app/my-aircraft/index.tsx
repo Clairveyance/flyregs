@@ -2144,7 +2144,7 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                       )}
                       <View style={{ flex: 1 }}>
                         <View style={styles.rowMakeLine}>
-                          <Text style={[styles.rowMake, { color: tokens.t1, fontSize: fs(14.5) }]}>{primaryLabel}</Text>
+                          <Text style={[styles.rowMake, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={1}>{primaryLabel}</Text>
                           {a.role !== 'owner' && (
                             <View style={[styles.roleBadge, { backgroundColor: tokens.bdim, borderColor: tokens.bdr }]}>
                               <Text style={[styles.roleBadgeText, { color: tokens.t3, fontSize: fs(10) }]}>
@@ -2454,7 +2454,11 @@ const styles = StyleSheet.create({
   rowIconBadge: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   rowImage: { width: 32, height: 32, borderRadius: 16 },
   rowMakeLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  rowMake: { fontWeight: '600' },
+  // flexShrink:1, because RN's default is 0 (unlike web): without it the Text
+  // takes its full intrinsic width and pushes the EDITOR/VIEWER badge past the
+  // card's overflow:'hidden' edge, so a shared aircraft showed no role at all.
+  // Same fix and reasoning as (tabs)/index.tsx's wnAcNum.
+  rowMake: { fontWeight: '600', flexShrink: 1 },
   rowNickname: { marginTop: 2 },
   hobbsRowMini: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
   roleBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
