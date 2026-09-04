@@ -84,6 +84,14 @@ run_one "audit_corpus_formatting (AC footer bleed + oversized blocks)"       pyt
 run_one "audit_reg_formatting (FAR/AIM/AD/49CFR footer bleed + oversized)"   node scripts/audit_reg_formatting.mjs
 
 # --- Layer 2: security & tier gating ---
+# Source-level guard for this codebase's #1 recurring bug class: a supabase
+# read that ignores `error` (supabase-js RESOLVES on failure) feeding a
+# delete. Fails ONLY on the destructive shape -- read-only ones are counted
+# and printed, not chased. Added 2026-09-04 after that exact shape could have
+# soft-deleted every collaborator's rows in a shared folder from one flaky
+# read; the same defect then turned up independently in aircraftSharing.ts
+# and notifications.ts, which is why it is a standing check and not a one-off.
+run_one "unchecked_supabase_errors (failed read -> destructive action)" python3 scripts/audit_unchecked_supabase_errors.py
 run_one "tier_gate_audit (source-level, every gated surface x tier)" node scripts/tier_gate_audit.mjs
 run_one "tier_matrix_test (server-side, real accounts)"              python3 scripts/tier_matrix_test.py
 run_one "stale_question_sweep (questions whose reg text moved)"     python3 scripts/stale_question_sweep.py

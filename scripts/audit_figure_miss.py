@@ -66,7 +66,36 @@ def main():
     figs = fetch_all("ac_figures", "ac_id")
     has_figs = set(f["ac_id"] for f in figs)
     zero = [a for a in acs if a["id"] not in has_figs]
-    print(f"{len(zero)} ACs currently have zero figures. Re-scanning with improved detector...")
+
+    # INCREMENTAL, added 2026-09-04. This script downloads a full PDF per AC,
+    # and with ~396 zero-figure ACs that was 505 SECONDS -- more than every
+    # other audit in run_all_audits.sh combined, over half the whole suite --
+    # to print the same answer every time: "0 ACs would gain figures".
+    #
+    # RC: "make sure that AC audit process works, solidly, and fast. no
+    # extraneous junk in the code to slow it down."
+    #
+    # Deleting it from the suite was the tempting fix and the wrong one: it
+    # still has real regression value. If the scraper ever stops extracting
+    # figures, the affected ACs land in exactly this zero-figure set and this
+    # is what would notice. So keep the check, drop the repetition -- an AC
+    # already scanned and confirmed genuinely-zero AT THIS PDF URL cannot have
+    # changed its answer unless its PDF changed. Key on the URL, not the id,
+    # so a re-scraped AC is correctly re-examined.
+    settled_path = os.path.join(os.path.dirname(__file__), "..", "figure_miss_settled.json")
+    settled = {}
+    if "--full" not in sys.argv:
+        try:
+            with open(settled_path) as f:
+                settled = json.load(f)
+        except Exception:
+            settled = {}
+    skipped = [a for a in zero if settled.get(a["id"]) == a["pdf_url_cached"]]
+    zero = [a for a in zero if settled.get(a["id"]) != a["pdf_url_cached"]]
+    if skipped:
+        print(f"{len(skipped)} ACs already confirmed genuinely-zero at this PDF (skipping; "
+              f"--full re-scans everything)")
+    print(f"{len(zero)} ACs to scan with the improved detector...")
 
     gained = []
     still_zero = []
@@ -98,8 +127,20 @@ def main():
         if n % 50 == 0:
             print(f"  ...{n}/{len(zero)} scanned, {len(gained)} would gain figures so far")
 
+    # Remember what was settled THIS run, keyed by the PDF that produced the
+    # answer, so a re-scraped AC comes back for a fresh look automatically.
+    for ac in zero:
+        if ac["document_number"] in still_zero:
+            settled[ac["id"]] = ac["pdf_url_cached"]
+    try:
+        with open(settled_path, "w") as f:
+            json.dump(settled, f, indent=2)
+    except Exception as e:
+        print(f"  (could not persist the settled list: {e} -- next run just re-scans)")
+
     report = {
-        "zero_count": len(zero),
+        "skipped_settled": len(skipped),
+        "zero_count": len(zero) + len(skipped),
         "would_gain_count": len(gained),
         "still_zero_count": len(still_zero),
         "gained": gained,
@@ -108,7 +149,9 @@ def main():
     out_path = os.path.join(os.path.dirname(__file__), "..", "figure_miss_audit.json")
     with open(out_path, "w") as f:
         json.dump(report, f, indent=2)
-    print(f"\nDone. {len(gained)} ACs would gain figures, {len(still_zero)} remain genuinely zero.")
+    print(f"\nDone. {len(gained)} ACs would gain figures, "
+          f"{len(still_zero) + len(skipped)} remain genuinely zero "
+          f"({len(skipped)} skipped as already settled).")
     print(f"Report written to {out_path}")
 
 

@@ -1,3 +1,4 @@
+import { selectAll } from './page.mjs'
 // Which saved aircraft a user's tier actually lets them see, for the
 // server-side push senders.
 //
@@ -73,12 +74,13 @@ export function canReceiveAdPush(entitlement) {
 
 // Convenience for senders that only need the id set: does both fetches.
 export async function fetchHiddenAircraftIds(sb) {
-  const [{ data: allAircraft, error: acErr }, { data: entitlements, error: entErr }] = await Promise.all([
-    sb.from('user_aircraft').select('id, user_id, created_at'),
-    sb.from('user_entitlements').select('user_id, is_pro, is_premium'),
+  // Paged: a bare .select() silently truncates at PostgREST's 1000-row cap,
+  // and a short user_aircraft list here means aircraft that are wrongly
+  // treated as visible (or hidden) by the tier cap. See ./page.mjs.
+  const [allAircraft, entitlements] = await Promise.all([
+    selectAll(sb, 'user_aircraft', 'id, user_id, created_at'),
+    selectAll(sb, 'user_entitlements', 'user_id, is_pro, is_premium', { orderBy: 'user_id' }),
   ])
-  if (acErr) throw new Error(`user_aircraft fetch failed: ${acErr.message}`)
-  if (entErr) throw new Error(`user_entitlements fetch failed: ${entErr.message}`)
   return hiddenAircraftIds(allAircraft, entitlements)
 }
 

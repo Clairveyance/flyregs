@@ -31,9 +31,12 @@ before being written as a general rule, not a guess.
 
 Usage: python3 scripts/audit_corpus_formatting.py
 """
+import socket
+import time
 import json
 import re
 import statistics
+import urllib.error
 import urllib.request
 
 MGMT = {}
@@ -46,14 +49,48 @@ with open(".env.supabase-mgmt") as f:
         MGMT[k] = v
 
 
-def mgmt_sql(query):
+def mgmt_sql(query, attempts=3):
+    """One retry loop, because this audit pulls the ENTIRE AC corpus in a
+    single response and a slow link times out mid-read.
+
+    Seen live 2026-09-04: this script failed the whole audit suite with
+    `socket.timeout: The read operation timed out` after 120s, while the same
+    query passed on the two runs either side of it on identical data. So the
+    failure said nothing about the corpus -- it said the network blinked
+    during a large read.
+
+    That matters more than one red run. An audit that fails intermittently on
+    something unrelated to what it audits is worse than no audit: it teaches
+    whoever reads the summary to shrug at a FAIL, which is exactly when a real
+    one gets missed. Same reasoning as sync/http_retry.py, applied to the
+    checking side rather than the scraping side.
+
+    Retries only on the transport errors that are genuinely transient
+    (timeout / connection reset) and on 5xx. An HTTP 4xx is a real problem
+    with the request itself -- a bad token, a malformed query -- and retrying
+    it just delays reporting the same thing."""
     req = urllib.request.Request(
         f"https://api.supabase.com/v1/projects/{MGMT['SUPABASE_PROJECT_REF']}/database/query",
         data=json.dumps({"query": query}).encode(),
         headers={"Authorization": f"Bearer {MGMT['SUPABASE_MANAGEMENT_TOKEN']}",
                  "Content-Type": "application/json", "User-Agent": "curl/8.0"},
         method="POST")
-    return json.loads(urllib.request.urlopen(req, timeout=120).read().decode())
+    last = None
+    for attempt in range(attempts):
+        try:
+            return json.loads(urllib.request.urlopen(req, timeout=180).read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or attempt == attempts - 1:
+                raise
+            last = e
+        except (socket.timeout, urllib.error.URLError, ConnectionError) as e:
+            if attempt == attempts - 1:
+                raise
+            last = e
+        wait = 3 * (attempt + 1)
+        print(f"  transient fetch failure ({type(last).__name__}) — retrying in {wait}s "
+              f"({attempt + 2}/{attempts})", flush=True)
+        time.sleep(wait)
 
 
 DATE_RE = re.compile(r"\d{1,2}/\d{1,2}/\d{2,4}")

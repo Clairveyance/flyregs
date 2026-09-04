@@ -69,9 +69,24 @@ def cmd_channel(yt, _):
         # still 403s on thumbnails.set -- exactly the confusing outcome this
         # line was added to prevent. Report both honestly instead of implying
         # one answers the other.
-        print(f"  long uploads (>15 min): {c.get('status',{}).get('longUploadsStatus','unknown')}")
-        print("  custom thumbnails     : not reported by the API -- needs channel")
-        print("                          phone verification; thumbnails.set 403s without it")
+        lu = c.get('status', {}).get('longUploadsStatus', 'unknown')
+        print(f"  long uploads (>15 min): {lu}")
+        # RESOLVED 2026-09-04. The API still exposes no phone-verification
+        # field, but longUploadsStatus is a reliable PROXY once you read its
+        # values correctly, which is where this went wrong before:
+        #   'eligible' = the channel COULD enable it -> NOT verified
+        #   'allowed'  = enabled -> verified, and thumbnails.set works
+        # Watched it flip eligible -> allowed the moment RC verified the
+        # channel, and all three thumbnails set on the first try after.
+        # Still a proxy, not proof: the only authoritative test is running
+        # `youtube_api.py thumbnail <videoId> <file.png>` and reading the result.
+        if lu == 'allowed':
+            print("  custom thumbnails     : expected to WORK (channel verified --")
+            print("                          longUploadsStatus 'allowed' implies it)")
+        else:
+            print("  custom thumbnails     : expected to 403 -- longUploadsStatus is")
+            print(f"                          '{lu}', not 'allowed', so the channel is")
+            print("                          NOT verified. RC: youtube.com/verify")
     print("\n  cost: 1 unit")
 
 def cmd_list(yt, args):

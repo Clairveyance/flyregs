@@ -19,6 +19,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { fetchHiddenAircraftIds } from './lib/tier-cap.mjs'
+import { selectAll } from './lib/page.mjs'
 import fs from 'fs'
 import path from 'path'
 
@@ -43,16 +44,20 @@ const windowEnd = new Date()
 windowEnd.setDate(windowEnd.getDate() + WINDOW_DAYS)
 const windowEndStr = windowEnd.toISOString().split('T')[0]
 
-const { data: allReminders, error: remErr } = await sb
-  .from('user_aircraft_reminders')
-  .select('id, user_id, user_aircraft_id, title, due_date, linked_ad_number, user_aircraft:user_aircraft_id(make, model, nickname)')
-  .is('notified_at', null)
-  .lte('due_date', windowEndStr)
+// Paged -- a bare .select() silently stops at PostgREST's 1000-row cap, which
+// on this query means due reminders that are simply never notified, with the
+// run still reporting success. See lib/page.mjs.
+const allReminders = await selectAll(
+  sb,
+  'user_aircraft_reminders',
+  'id, user_id, user_aircraft_id, title, due_date, linked_ad_number, user_aircraft:user_aircraft_id(make, model, nickname)',
+  { tune: (q) => q.is('notified_at', null).lte('due_date', windowEndStr) },
+)
 
-if (remErr) {
-  console.error('Failed to fetch due reminders:', remErr.message)
-  process.exit(1)
-}
+// selectAll() THROWS on a query error (table name included), and an unhandled
+// top-level rejection exits non-zero, so the run still fails loudly -- the
+// per-query error blocks that used to sit here read variables that no longer
+// exist and would have thrown a ReferenceError before reporting anything.
 
 // A reminder on an aircraft the owner's tier no longer shows must not keep
 // pushing. This was a live leak, and the one actually landing on a phone:
@@ -88,13 +93,7 @@ if (reminders.length === 0) {
 // either, so this was silently dropping a Pro+ user's maintenance reminder
 // forever (see the "mark as notified" comment below) unless they'd
 // separately touched an unrelated settings toggle.
-const { data: tokens, error: tokErr } = await sb
-  .from('push_tokens')
-  .select('user_id, expo_push_token')
-if (tokErr) {
-  console.error('Failed to fetch push_tokens:', tokErr.message)
-  process.exit(1)
-}
+const tokens = await selectAll(sb, 'push_tokens', 'user_id, expo_push_token')
 const tokensByUser = new Map()
 for (const t of tokens ?? []) {
   if (!tokensByUser.has(t.user_id)) tokensByUser.set(t.user_id, [])
@@ -114,12 +113,11 @@ for (const t of tokens ?? []) {
 // got the same treatment. Note NO role filter: read-only collaborators receive
 // too, per the spec above -- being unable to edit does not mean you should be
 // surprised by an overdue annual on an aircraft you fly.
-const [{ data: acOwners, error: ownErr }, { data: acCollabs, error: collabErr }] = await Promise.all([
-  sb.from('user_aircraft').select('id, user_id'),
-  sb.from('aircraft_collaborators').select('aircraft_id, user_id').is('left_at', null).not('accepted_at', 'is', null),
+const [acOwners, acCollabs] = await Promise.all([
+  selectAll(sb, 'user_aircraft', 'id, user_id'),
+  selectAll(sb, 'aircraft_collaborators', 'aircraft_id, user_id',
+    { tune: (q) => q.is('left_at', null).not('accepted_at', 'is', null), orderBy: 'aircraft_id' }),
 ])
-if (ownErr) { console.error('Failed to fetch user_aircraft owners:', ownErr.message); process.exit(1) }
-if (collabErr) { console.error('Failed to fetch aircraft_collaborators:', collabErr.message); process.exit(1) }
 
 const ownerByAircraftId = new Map((acOwners ?? []).map((a) => [a.id, a.user_id]))
 const collaboratorsByAircraftId = new Map()

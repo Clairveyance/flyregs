@@ -35,6 +35,7 @@ import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
 import path from 'path'
 import { hiddenAircraftIds, canReceiveAdPush } from './lib/tier-cap.mjs'
+import { selectAll } from './lib/page.mjs'
 
 const envPath = path.resolve(process.cwd(), '.env.scraper')
 if (!fs.existsSync(envPath)) {
@@ -88,8 +89,11 @@ if (!ads || ads.length === 0) {
 // tables (My Aircraft is deliberately lightweight, one row per saved
 // aircraft), so pulling both fully into memory and matching in JS is
 // simpler and plenty fast, rather than a per-AD SQL query in a loop.
-const [{ data: allAircraft, error: acErr }, { data: tokens, error: tokErr }, { data: equipMentions, error: mentErr }, { data: equipTags, error: tagErr }, { data: collabs, error: collabErr }, { data: entitlements, error: entErr }] = await Promise.all([
-  sb.from('user_aircraft').select('id, user_id, make, model, type_designator, created_at'),
+// selectAll(), not a bare .select(): PostgREST silently caps a response at
+// 1000 rows, and a short `allAircraft` here means aircraft that are simply
+// never matched, with the run still reporting success. See lib/page.mjs.
+const [allAircraft, tokens, equipMentions, equipTags, collabs, entitlements] = await Promise.all([
+  selectAll(sb, 'user_aircraft', 'id, user_id, make, model, type_designator, created_at'),
   // NOT filtered on `enabled` -- found in tonight's "built but inert" sweep:
   // `enabled` is specifically the Premium-gated "AC Update Alerts" toggle
   // (the only code path that ever sets it), but faq.tsx tells users AD
@@ -102,9 +106,9 @@ const [{ data: allAircraft, error: acErr }, { data: tokens, error: tokErr }, { d
   // for a feature with no dedicated switch -- same fix shape already
   // applied to collaboration invites (migrations_collaboration_invite_
   // push_unlink_ac_alerts.sql) and already true of Duels.
-  sb.from('push_tokens').select('user_id, expo_push_token'),
-  sb.from('ad_part_mentions').select('ad_number, part_id').in('ad_number', touchedAdNumbers),
-  sb.from('user_aircraft_equipment').select('user_aircraft_id, part_id'),
+  selectAll(sb, 'push_tokens', 'user_id, expo_push_token'),
+  selectAll(sb, 'ad_part_mentions', 'ad_number, part_id', { tune: (q) => q.in('ad_number', touchedAdNumbers), orderBy: 'ad_number' }),
+  selectAll(sb, 'user_aircraft_equipment', 'user_aircraft_id, part_id', { orderBy: 'user_aircraft_id' }),
   // accepted_at NOT NULL as well as left_at NULL -- a pending Callsign
   // invite is a row on this table too (invite_aircraft_collaborator()
   // inserts it with accepted_at null and only join_shared_aircraft() stamps
@@ -115,33 +119,17 @@ const [{ data: allAircraft, error: acErr }, { data: tokens, error: tokErr }, { d
   // is a dead end for them. Every other reader of this table pairs the two
   // conditions (has_aircraft_access, get_fleet_summary, get_my_shared_
   // aircraft, getMyAircraftRole); this was the one place that didn't.
-  sb.from('aircraft_collaborators').select('aircraft_id, user_id').is('left_at', null).not('accepted_at', 'is', null),
-  sb.from('user_entitlements').select('user_id, is_premium'),
+  selectAll(sb, 'aircraft_collaborators', 'aircraft_id, user_id', { tune: (q) => q.is('left_at', null).not('accepted_at', 'is', null), orderBy: 'aircraft_id' }),
+  selectAll(sb, 'user_entitlements', 'user_id, is_premium', { orderBy: 'user_id' }),
 ])
-if (acErr) {
-  console.error('Failed to fetch user_aircraft:', acErr.message)
-  process.exit(1)
-}
-if (tokErr) {
-  console.error('Failed to fetch push_tokens:', tokErr.message)
-  process.exit(1)
-}
-if (mentErr) {
-  console.error('Failed to fetch ad_part_mentions:', mentErr.message)
-  process.exit(1)
-}
-if (tagErr) {
-  console.error('Failed to fetch user_aircraft_equipment:', tagErr.message)
-  process.exit(1)
-}
-if (collabErr) {
-  console.error('Failed to fetch aircraft_collaborators:', collabErr.message)
-  process.exit(1)
-}
-if (entErr) {
-  console.error('Failed to fetch user_entitlements:', entErr.message)
-  process.exit(1)
-}
+// The six per-query `if (xErr) { console.error(...); process.exit(1) }` blocks
+// that used to sit here are gone with the destructures they read. selectAll()
+// THROWS on a query error (with the table name in the message) instead of
+// returning {data, error}, so a failure now aborts the run the same way --
+// louder, and without six near-identical blocks that had to be kept in step
+// with the destructure list above. Leaving them would have been worse than
+// removing them: `acErr` and friends no longer exist, so each `if` would
+// itself throw a ReferenceError before reporting anything useful.
 if (!allAircraft || allAircraft.length === 0) {
   console.log('No user_aircraft rows saved by anyone yet — nothing to notify.')
   process.exit(0)
@@ -326,9 +314,35 @@ for (const ad of ads) {
     //   "172"    (3) -> 163 ADs   <-- why the floor exists
     // The marketing model ("Skyhawk", "Buccaneer") deliberately does NOT get
     // this escape; it is not specific enough to carry a match on its own.
+    // The floor was a bare length >= 4, which is the right guard against a
+    // BARE NUMERIC designator ("172" -> 163 ADs) but wrong for a 3-character
+    // one that carries a letter. Measured against the live corpus, every
+    // 3-char letter+digit designator this app can actually produce:
+    //
+    //     a36 -> 77   aa1 -> 29   m20 -> 28   7ac -> 25
+    //     tb9 ->  9   la4 ->  7   aa5 ->  4   g36 ->  2
+    //
+    // versus the bare 2-digit tokens: 23 -> 1020, 19 -> 937, 90 -> 808.
+    // Orders of magnitude apart, so length alone was the wrong discriminator.
+    //
+    // What this fixes for a real owner: the app's OWN suggestTypeDesignator()
+    // pre-fills "LA-4" for a Lake Buccaneer and "AA-5" for a Grumman Tiger,
+    // both of which normalize to 3 characters. They therefore fell below the
+    // floor, the designator-only escape never fired, and the make gate then
+    // rejected ADs filed under the type-certificate holder -- a Lake owner saw
+    // 1 AD instead of 6, and a Tiger owner saw ZERO, including AD 2021-14-12
+    // whose model column literally reads "...AA-1C, and AA-5". The app told
+    // them the designator was needed "so we can match Airworthiness
+    // Directives correctly", filled it in itself, and then ignored it.
+    //
+    // MUST stay in step with sync/migrations_ad_match_designator_escape.sql --
+    // resync_aircraft_ad_notifications() deletes and rebuilds from the SQL.
     const DESIGNATOR_ONLY_MIN = 4
+    const designatorSpecific =
+      userType.length >= DESIGNATOR_ONLY_MIN ||
+      (userType.length >= 3 && /[a-z]/.test(userType) && /[0-9]/.test(userType))
     const designatorHit =
-      userType.length >= DESIGNATOR_ONLY_MIN &&
+      designatorSpecific &&
       Boolean((adModel && adModel.includes(userType)) || (adFallbackText && adFallbackText.includes(userType)))
 
     if (!makeMatches && !designatorHit) continue
