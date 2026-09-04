@@ -351,7 +351,9 @@ export interface DailyReg {
 
 // Maps a DailyReg's sourceType to its real detail-screen route.
 export function dailyRegRoute(item: Pick<DailyReg, 'slug' | 'sourceType'>): string {
-  return `/${item.sourceType}/${item.slug}`
+  // Encode the id segment: for an AC the slug IS document_number, and the
+  // 150-series carries a slash. No-op for far/aim/pcg slugs.
+  return `/${item.sourceType}/${encodeURIComponent(item.slug)}`
 }
 
 // The reg this pick actually came from, formatted to stand on its own.

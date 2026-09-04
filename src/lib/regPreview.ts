@@ -24,7 +24,12 @@ export interface RegPreviewData {
 
 export function parsePreviewRoute(route: string): { kind: PreviewKind; id: string } | null {
   let m: RegExpMatchArray | null
-  if ((m = route.match(/^\/ac\/(.+)$/))) return { kind: 'ac', id: m[1] }
+  // decodeURIComponent like the other six branches. Without it an encoded
+  // slash-form AC ('/ac/150%2F5300-13B', which crossRefLinks correctly emits)
+  // reached .ilike('document_number', `${id}%`) still percent-encoded -- and
+  // the literal % is also a SQL wildcard, so it never matched. The peek said
+  // only 'Not found.' for every 150-series AC reference.
+  if ((m = route.match(/^\/ac\/(.+)$/))) return { kind: 'ac', id: decodeURIComponent(m[1]) }
   if ((m = route.match(/^\/far\/(?!part\/)([^/]+)$/))) return { kind: 'far', id: decodeURIComponent(m[1]) }
   if ((m = route.match(/^\/aim\/([^/]+)$/))) return { kind: 'aim', id: decodeURIComponent(m[1]) }
   if ((m = route.match(/^\/pcg\/([^/]+)$/))) return { kind: 'pcg', id: decodeURIComponent(m[1]) }

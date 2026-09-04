@@ -69,6 +69,17 @@ if (Platform.OS !== 'web') {
 
 initSentry()
 
+// Anchor every deep link to the tab tree.
+//
+// Without this, a Universal Link cold start (flyregs.com/join/<token>,
+// /ac/?id=…, a push-notification tap) opens with a SINGLE-route stack. Any
+// router.back() or router.dismiss() on that screen is then a silent no-op --
+// expo-router's StackRouter returns null for a POP at currentIndex 0 -- so the
+// back arrow and the paywall's X button simply do nothing, and the only escape
+// is the tab bar. With the anchor, Home is always beneath a deep-linked screen,
+// so back behaves the way the user expects.
+export const unstable_settings = { anchor: '(tabs)' }
+
 function AppShell({ children }: { children: React.ReactNode }) {
   const { resolved } = useTheme()
   const [splashDone, setSplashDone] = useState(false)
@@ -113,7 +124,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
           documentNumber?: string; userAircraftId?: string; reminderId?: string
         } | undefined
       if (data?.type === 'reg_of_day' && data.slug && data.sourceType) {
-        router.push(`/${data.sourceType}/${data.slug}` as any)
+        // Encode the id segment -- an AC slug is its document_number and the
+        // 150-series carries a slash, which would split the path and land the
+        // notification tap on Unmatched Route.
+        router.push(`/${data.sourceType}/${encodeURIComponent(data.slug)}` as any)
       } else if (data?.type === 'reg_of_day' && data.pcgSlug) {
         router.push(`/pcg/${data.pcgSlug}` as any)
       } else if (data?.type === 'word_of_day' && data.slug) {
@@ -135,7 +149,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
       } else if (data?.type === 'collab-invite' && data.token) {
         router.push(`/join/${data.token}` as any)
       } else if (data?.type === 'ac_update') {
-        router.push((data.documentNumber ? `/ac/${data.documentNumber}` : '/updates') as any)
+        // Same encode: send-update-alerts.mjs puts the raw document_number in
+        // the payload, so a single-AC update alert for a 150-series doc opened
+        // Unmatched Route instead of the AC.
+        router.push((data.documentNumber ? `/ac/${encodeURIComponent(data.documentNumber)}` : '/updates') as any)
       } else if (data?.type === 'ad_alert') {
         router.push((data.userAircraftId ? `/my-aircraft/${data.userAircraftId}` : '/my-aircraft') as any)
       } else if (data?.type === 'reminder' && data.userAircraftId) {

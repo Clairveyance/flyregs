@@ -731,7 +731,10 @@ function openResultItem(r: ChallengeResultRow) {
   if (!r.term) return
   if (r.itemType === 'pcg') router.push(`/pcg/${slugifyPcgTerm(r.term)}` as any)
   else if (r.itemType === 'dictionary') router.push(`/dictionary/${r.itemId}` as any)
-  else router.push(`/${r.itemType}/${r.term}` as any)
+  // Encode the id segment: for an AC, term IS document_number, and the
+  // 150-series carries a slash that would split into extra path segments
+  // and land on Unmatched Route. No-op for far/aim/ad/cfr49 numbers.
+  else router.push(`/${r.itemType}/${encodeURIComponent(r.term)}` as any)
 }
 
 function ResultsView({

@@ -62,7 +62,10 @@ export function routeForFilterResult(row: FilterResultRow): string {
     case 'far': return `/far/${row.itemId}`
     case 'aim': return `/aim/${row.itemId}`
     case 'pcg': return `/pcg/${row.itemId}`
-    case 'ac': return `/ac/${row.itemId}`
+    // encodeURIComponent: filter_documents returns document_number as itemId,
+    // and 125 of 786 ACs carry a slash (the whole 150-series), which would
+    // otherwise split into extra path segments and hit Unmatched Route.
+    case 'ac': return `/ac/${encodeURIComponent(row.itemId)}`
     case 'loi': return `/loi/${row.itemId}`
   }
 }

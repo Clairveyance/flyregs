@@ -157,7 +157,13 @@ export default function JoinFolder() {
               ? 'Joining a shared folder requires your own Premium subscription.'
               : 'Viewing or editing a shared aircraft requires your own Premium subscription.'}
           </Text>
-          <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.replace('/paywall?tier=premium')}>
+          {/* push, NOT replace -- exactly the reasoning documented for the
+              /auth path above. replace() destroys THIS screen and the token it
+              holds, so even a successful upgrade could never accept the invite.
+              It also stranded the user: on a Universal-Link cold start this is
+              the stack's only route, so paywall.tsx's dismiss() (a POP) is a
+              silent no-op and its X button does nothing at all. */}
+          <Pressable style={[styles.btn, { backgroundColor: tokens.blu }]} onPress={() => router.push('/paywall?tier=premium')}>
             <Text style={[styles.btnText, { fontSize: fs(15.5) }]}>Upgrade to Premium</Text>
           </Pressable>
         </>
