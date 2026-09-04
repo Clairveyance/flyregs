@@ -130,7 +130,15 @@ def audit_question(text, where):
         problems.append(f"too long ({len(t)} chars)")
     if "??" in t:
         problems.append("double question mark")
-    if re.search(r"[.,;:]\?$", t):
+    # An abbreviation's own period is not stacked punctuation. "...for the
+    # contiguous U.S.?" is correct English and was failing this check, which
+    # is worse than it sounds: a test that fails on correct content teaches
+    # everyone to skim past it, and the next real defect goes with it. Only
+    # flag a period that follows a lowercase letter or a digit -- an
+    # abbreviation's letters are single ones separated by periods (U.S.,
+    # F.A.A., a.m.), so requiring TWO consecutive alphanumerics before the
+    # period catches a real sentence-ending stop and leaves abbreviations be.
+    if re.search(r"[,;:]\?$", t) or re.search(r"[a-z0-9]{2,}\.\?$", t):
         problems.append("punctuation stacked before '?'")
     if re.match(r"^\s*\([a-z0-9]{1,3}\)", t, re.I):
         problems.append("starts with a list marker like '(a)'")
