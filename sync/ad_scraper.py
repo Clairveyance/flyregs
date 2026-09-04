@@ -68,6 +68,7 @@ from datetime import date, datetime, timezone
 
 import requests
 
+from http_retry import mount_retries
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from revision_log import log_revisions  # noqa: E402
 
@@ -79,6 +80,9 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 FR_API = "https://www.federalregister.gov/api/v1/documents.json"
 SESSION = requests.Session()
+# Transient FAA/eCFR 5xx used to kill the whole weekly sync -- see
+# sync/http_retry.py for the 2026-08-31 LOI 503 that prompted this.
+mount_retries(SESSION)
 SESSION.headers.update({"User-Agent": "FlyRegs/1.0 (contact: support@flyregs.com)"})
 
 # The AD's own numbered header line, e.g.:

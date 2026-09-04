@@ -75,6 +75,7 @@ from datetime import datetime, timezone
 import fitz  # PyMuPDF
 import requests
 
+from http_retry import mount_retries
 sys.path.insert(0, os.path.dirname(__file__))
 from loi_citation_extract import extract_far_citations
 from revision_log import log_revisions
@@ -92,6 +93,12 @@ STORAGE_BUCKET = "legal-interpretations"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15"
 
 SESSION = requests.Session()
+
+# Transient FAA/eCFR 5xx used to kill the whole weekly sync -- see
+
+# sync/http_retry.py for the 2026-08-31 LOI 503 that prompted this.
+
+mount_retries(SESSION)
 SESSION.headers.update({
     "User-Agent": UA,
     "Referer": f"{DRS_BASE}/browse/LEGAL_INTERPRETATIONS/doctypeDetails",

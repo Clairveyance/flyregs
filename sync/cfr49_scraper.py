@@ -50,6 +50,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import requests
+from http_retry import mount_retries
 from lxml import etree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -79,6 +80,9 @@ TARGET_PARTS = [
 
 def make_session() -> requests.Session:
     s = requests.Session()
+    # Transient FAA/eCFR 5xx used to kill the whole weekly sync -- see
+    # sync/http_retry.py for the 2026-08-31 LOI 503 that prompted this.
+    mount_retries(s)
     s.headers.update({
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "

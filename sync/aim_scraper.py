@@ -55,6 +55,7 @@ from typing import Optional
 from urllib.parse import urljoin
 
 import requests
+from http_retry import mount_retries
 from bs4 import BeautifulSoup
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -113,6 +114,9 @@ def make_session() -> requests.Session:
     """faa.gov 403s a bare/default User-Agent — same browser-header
     workaround as faa_scraper.py / pcg_scraper.py."""
     s = requests.Session()
+    # Transient FAA/eCFR 5xx used to kill the whole weekly sync -- see
+    # sync/http_retry.py for the 2026-08-31 LOI 503 that prompted this.
+    mount_retries(s)
     s.headers.update({
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
