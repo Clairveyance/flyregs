@@ -5,6 +5,7 @@ import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
+import { SyncInfoPopup } from '@/components/SyncInfoPopup'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { ScreenHeader } from '@/components/ScreenHeader'
@@ -408,7 +409,14 @@ export default function NotesScreen() {
           <View style={styles.syncWrap}>
             <View style={[styles.syncRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}>
               <View style={styles.syncTopRow}>
-                <Text style={[styles.syncLabel, { color: tokens.t1, fontSize: fs(13) }]}>Back up & sync</Text>
+                <View style={styles.syncLabelRow}>
+                  <Text style={[styles.syncLabel, { color: tokens.t1, fontSize: fs(13) }]}>Back up & sync</Text>
+                  {/* One shared component, not a copy of the list per
+                      screen -- the toggle lives on both Saved and Notes
+                      and two copies would drift the first time a setting
+                      is added. */}
+                  <SyncInfoPopup />
+                </View>
                 {syncBusy ? (
                   <ActivityIndicator size="small" color={tokens.blu} />
                 ) : (
@@ -770,6 +778,7 @@ const styles = StyleSheet.create({
   syncRow: { borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11, gap: 8 },
   syncTopRow: { flexDirection: 'row', alignItems: 'center' },
   syncLabel: { fontWeight: '600', fontSize: 13, flexShrink: 1 },
+  syncLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
   syncSwitch: { marginLeft: 'auto', flexShrink: 0 },
   syncBadgeRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
   premBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 2 },

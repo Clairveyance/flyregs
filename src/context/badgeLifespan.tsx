@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { BADGE_LIFESPAN_KEY, DEFAULT_BADGE_LIFESPAN_DAYS, BADGE_LIFESPAN_OPTIONS } from '@/lib/badgeLifespan'
+import { setSyncedSetting, onSettingPulled, type SyncedSettingKey } from '@/lib/appSettings'
 
 // Shared, LIVE badge-lifespan state — every screen that shows a NEW/UPD badge
 // or the Home "What's New" feed reads from this context instead of each
@@ -40,13 +41,22 @@ export function BadgeLifespanProvider({ children }: { children: ReactNode }) {
         Math.abs(opt - n) < Math.abs(best - n) ? opt : best
       )
       setBadgeDaysState(closest)
-      AsyncStorage.setItem(BADGE_LIFESPAN_KEY, String(closest))
+      setSyncedSetting(BADGE_LIFESPAN_KEY as SyncedSettingKey, String(closest))
     })
   }, [])
 
+  // Same as the other two providers: a badge duration pulled from the other
+  // device applies now, not at the next launch. Only accepts a value the
+  // picker can actually show as selected.
+  useEffect(() => onSettingPulled((key, value) => {
+    if (key !== BADGE_LIFESPAN_KEY) return
+    const n = Number(value)
+    if (BADGE_LIFESPAN_OPTIONS.includes(n)) setBadgeDaysState(n)
+  }), [])
+
   const setBadgeDays = (days: number) => {
     setBadgeDaysState(days)
-    AsyncStorage.setItem(BADGE_LIFESPAN_KEY, String(days))
+    setSyncedSetting(BADGE_LIFESPAN_KEY as SyncedSettingKey, String(days))
   }
 
   return (

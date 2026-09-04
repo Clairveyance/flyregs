@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { Platform } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
+import { setSyncedSetting, onSettingPulled, type SyncedSettingKey } from '@/lib/appSettings'
+
 const SCALE_KEY = '@flyregs/font-scale'
 
 // RC, real device: "it gets too small and not big enough" -- widened both
@@ -44,6 +46,15 @@ export function FontScaleProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  // Apply a text size pulled from the user's other device immediately -- the
+  // value above is read once at mount, so without this it would look ignored
+  // until the next launch.
+  useEffect(() => onSettingPulled((key, value) => {
+    if (key !== SCALE_KEY) return
+    const n = Number(value)
+    if (!isNaN(n) && n >= FONT_SCALE_MIN && n <= FONT_SCALE_MAX) setFontScaleState(n)
+  }), [])
+
   const previewFontScale = (v: number) => {
     setFontScaleState(Math.max(FONT_SCALE_MIN, Math.min(FONT_SCALE_MAX, v)))
   }
@@ -51,7 +62,7 @@ export function FontScaleProvider({ children }: { children: ReactNode }) {
   const setFontScale = (v: number) => {
     const clamped = Math.max(FONT_SCALE_MIN, Math.min(FONT_SCALE_MAX, v))
     setFontScaleState(clamped)
-    AsyncStorage.setItem(SCALE_KEY, String(clamped))
+    setSyncedSetting(SCALE_KEY as SyncedSettingKey, String(clamped))
   }
 
   return (

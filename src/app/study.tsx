@@ -47,6 +47,10 @@ function lerpColor(a: string, b: string, t: number): string {
 // AC number-recall drill wants the reverse), so it's a real toggle,
 // persisted across sessions like fontScale's own AsyncStorage pattern.
 type RevealDirection = 'defFirst' | 'termFirst'
+import { setSyncedSetting, type SyncedSettingKey } from '@/lib/appSettings'
+
+const STUDY_FILTERS_KEY = '@flyregs/study-filters'
+
 const REVEAL_DIRECTION_KEY = '@flyregs/study-reveal-direction'
 
 // The deck size was a bare hardcoded 20 with no UI anywhere naming it or
@@ -190,13 +194,13 @@ export default function StudyScreen() {
 
   const changeSessionSize = (n: number) => {
     setSessionSize(n)
-    AsyncStorage.setItem(SESSION_SIZE_KEY, String(n))
+    setSyncedSetting(SESSION_SIZE_KEY as SyncedSettingKey, String(n))
   }
 
   const toggleRevealDirection = () => {
     setRevealDirection((prev) => {
       const next = prev === 'defFirst' ? 'termFirst' : 'defFirst'
-      AsyncStorage.setItem(REVEAL_DIRECTION_KEY, next)
+      setSyncedSetting(REVEAL_DIRECTION_KEY as SyncedSettingKey, next)
       return next
     })
     setFlipped(false)
@@ -214,6 +218,47 @@ export default function StudyScreen() {
     levelParam && (ALL_STUDY_LEVELS as string[]).includes(levelParam) ? [levelParam as StudyLevel] : []
   )
   const [activeCategoryClasses, setActiveCategoryClasses] = useState<CategoryClass[]>([])
+
+  // The filter picks were pure React state and were lost on every relaunch --
+  // so "selections" did not even survive closing the app on ONE device, let
+  // alone reach a second. RC, 2026-09-04: "make the settings and selections
+  // travel too - IF bu/s is ON." Persisting them is what makes that possible;
+  // the key is on appSettings' allow-list, so with Back-up & Sync on they
+  // also follow the account.
+  //
+  // A `levelParam` in the route is an explicit request for THIS deck and
+  // always wins over whatever was stored, which is why the restore below
+  // skips levels in that case rather than fighting the deep link.
+  const filtersHydrated = useRef(false)
+  useEffect(() => {
+    AsyncStorage.getItem(STUDY_FILTERS_KEY).then((raw) => {
+      filtersHydrated.current = true
+      if (!raw) return
+      try {
+        const v = JSON.parse(raw) as {
+          types?: StudyItemType[]; levels?: StudyLevel[]; categoryClasses?: CategoryClass[]
+        }
+        if (Array.isArray(v.types)) setActiveTypes(v.types.filter((t) => ALL_TYPES.includes(t)))
+        if (!levelParam && Array.isArray(v.levels)) {
+          setActiveLevels(v.levels.filter((l) => (ALL_STUDY_LEVELS as string[]).includes(l)))
+        }
+        if (Array.isArray(v.categoryClasses)) {
+          setActiveCategoryClasses(v.categoryClasses.filter((c) => CATEGORY_CLASSES.includes(c)))
+        }
+      } catch { /* a corrupt blob just means the defaults, which is fine */ }
+    })
+  }, [levelParam])
+
+  // Writes only AFTER the restore has run. Without the guard the initial
+  // empty state would be written over the stored selection the moment the
+  // screen mounted, and the setting would erase itself on every launch --
+  // which looks exactly like sync overwriting the user's choices.
+  useEffect(() => {
+    if (!filtersHydrated.current) return
+    setSyncedSetting(STUDY_FILTERS_KEY as SyncedSettingKey, JSON.stringify({
+      types: activeTypes, levels: activeLevels, categoryClasses: activeCategoryClasses,
+    }))
+  }, [activeTypes, activeLevels, activeCategoryClasses])
 
   // True when the deck is narrowed at all. Used to relabel the mastery
   // counter, which always reports the WHOLE corpus and otherwise appears to

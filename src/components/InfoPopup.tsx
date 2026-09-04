@@ -36,7 +36,10 @@ interface Props {
    * bullet, extra left padding) -- for a header bullet ("the ring means X")
    * followed by that thing's own colored values, so the grouping reads
    * visually instead of just being a flat run of same-weight bullets. */
-  body: string | Array<string | { text: string; color: string; indent?: boolean }>
+  // `color` is optional: an indented bullet in the ordinary body colour is a
+  // perfectly normal shape (a plain sub-point under a coloured heading), and
+  // requiring a colour forced callers to restate the default just to indent.
+  body: string | Array<string | { text: string; color?: string; indent?: boolean }>
   /** Rendered below the body text -- for explaining a color/shape convention
    * with the ACTUAL widget (a real ring, a real bold number) instead of
    * describing it in words. RC, My Fleet's ring/number legend: "I want the
@@ -198,7 +201,7 @@ export function InfoPopup({ id, title, body, footer, forceOnce = false, iconSize
                   <View style={styles.bulletList}>
                     {body.map((line, i) => {
                       const text = typeof line === 'string' ? line : line.text
-                      const color = typeof line === 'string' ? tokens.t2 : line.color
+                      const color = typeof line === 'string' ? tokens.t2 : (line.color ?? tokens.t2)
                       const indent = typeof line !== 'string' && line.indent
                       return (
                         <View key={i} style={[styles.bulletRow, indent && styles.bulletRowIndent]}>

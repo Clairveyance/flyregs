@@ -57,6 +57,14 @@ function makeBuilder(table: string) {
     in: () => b,
     is: () => b,
     range: () => b,
+    // sync.ts's paged reads chain .order() and .limit() as well; the builder
+    // has to answer every method the real query uses or the chain dies on
+    // whichever one is missing. Each returns `this`, same as the rest.
+    order: () => b,
+    limit: () => b,
+    gt: () => b,
+    lt: () => b,
+    neq: () => b,
     then: (resolve: any) => resolve({ data: remoteRows[table] ?? [], error: null }),
   }
   return b
@@ -91,6 +99,23 @@ Module._load = function (request: string) {
         updateNotes: async (fn: any) => void fn([]),
         isSeedNote: (id: string) => id.startsWith('seed-'),
       }
+    // Added 2026-09-04: sync.ts now imports appSettings, which pulls in
+    // Sentry, revenuecat and react-native. Without this stub the real
+    // react-native gets required and tsx cannot transform it -- the test
+    // died on a TransformError with nothing to do with what it tests.
+    // Stubbed at the appSettings boundary rather than stubbing its three
+    // dependencies, because this file has no interest in settings at all.
+    // syncOwner.ts imports imageCache, which imports react-native, which tsx
+    // cannot transform -- the test died on a TransformError that had nothing
+    // to do with what it tests. This was ALREADY broken before the settings
+    // work landed (confirmed by running it against the previous commit), so
+    // the regression guard for the two local-data-loss bugs this file covers
+    // had quietly stopped running. Stubbed at the imageCache boundary, which
+    // is the only thing syncOwner actually calls into it for.
+    case '@/lib/imageCache':
+      return { removeFromCache: async () => {} }
+    case '@/lib/appSettings':
+      return { pullAppSettings: async () => {}, pushAllAppSettings: async () => {} }
     case '@/lib/syncPush':
       return {
         SYNC_ENABLED_KEY: '@flyregs/sync-enabled',
@@ -99,6 +124,17 @@ Module._load = function (request: string) {
         syncPushFolder: async () => {},
         syncPushFolderItems: async () => {},
         syncPushNote: async () => {},
+        // sync.ts imports thirteen names from syncPush; this stub had six,
+        // so pullAndMergeAll died on readPendingDeletes not being a function
+        // the moment it was reached. Every name sync.ts imports is listed
+        // here now, or the next one added silently breaks this file again.
+        blockedFolderItemIds: async () => new Set<string>(),
+        reportSyncError: () => {},
+        readPendingDeletes: async () => ({ bookmarks: new Set<string>(), notes: new Set<string>(), folderItems: new Set<string>() }),
+        clearPendingDeletes: async () => {},
+        syncPushBookmarkDeletes: async () => {},
+        syncPushNoteDeletes: async () => {},
+        syncPushFolderItemDeletes: async () => {},
       }
     default:
       return origLoad.apply(this, arguments as any)

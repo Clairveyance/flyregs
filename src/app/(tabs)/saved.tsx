@@ -6,6 +6,7 @@ import Reanimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
+import { SyncInfoPopup } from '@/components/SyncInfoPopup'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { useIsTablet } from '@/context/responsive'
 import { useAuth } from '@/context/auth'
@@ -1008,7 +1009,14 @@ export default function SavedScreen() {
         <View style={styles.syncWrap}>
           <View style={[styles.syncRow, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}>
             <View style={styles.syncTopRow}>
-              <Text style={[styles.syncLabel, { color: tokens.t1, fontSize: fs(13) }]}>Back up & sync</Text>
+              <View style={styles.syncLabelRow}>
+                  <Text style={[styles.syncLabel, { color: tokens.t1, fontSize: fs(13) }]}>Back up & sync</Text>
+                  {/* One shared component, not a copy of the list per
+                      screen -- the toggle lives on both Saved and Notes
+                      and two copies would drift the first time a setting
+                      is added. */}
+                  <SyncInfoPopup />
+                </View>
               {/* Switch stays mounted throughout -- swapping it for a spinner
                   while busy used to yank the control out from under the
                   user's own finger mid-tap/drag, which is what actually made
@@ -2150,6 +2158,7 @@ const styles = StyleSheet.create({
   // that otherwise holds nothing but a short, single-line label.
   syncTopRow: { flexDirection: 'row', alignItems: 'center' },
   syncLabel: { fontWeight: '600', fontSize: 13, flexShrink: 1 },
+  syncLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
   syncSwitch: { marginLeft: 'auto', flexShrink: 0 },
   syncBadgeRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
   premBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 2 },

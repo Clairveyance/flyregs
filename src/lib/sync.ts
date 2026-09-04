@@ -4,6 +4,7 @@ import { getBookmarks } from '@/lib/bookmarks'
 import { getFolders, getFolderItems } from '@/lib/folders'
 import { getNotes, updateNotes, isSeedNote, type Note } from '@/lib/notes'
 import { setSyncOwner, localDataBelongsTo } from '@/lib/syncOwner'
+import { pullAppSettings, pushAllAppSettings } from '@/lib/appSettings'
 import { withLock } from '@/lib/asyncMutex'
 import type { FolderItem } from '@/lib/folders'
 import {
@@ -180,7 +181,12 @@ export async function pullAndMergeAll(userId: string): Promise<void> {
   // delete that still cannot reach the server is not written back onto the
   // device in the meantime.
   const pendingDel = await drainPendingDeletes()
-  await Promise.all([mergeBookmarks(userId, pendingDel.bookmarks), mergeFolders(userId)])
+  await Promise.all([mergeBookmarks(userId, pendingDel.bookmarks), mergeFolders(userId),
+    // Settings and selections travel with everything else when Back-up &
+    // Sync is on (RC, 2026-09-04). Runs alongside rather than after: it
+    // touches no key any merge below touches, so there is nothing to
+    // serialize against, and a slow settings read must not delay folders.
+    pullAppSettings(userId)])
   await Promise.all([
     mergeFolderItems(userId, pendingDel.folderItems),
     mergeNotes(userId, pendingDel.notes),
@@ -675,6 +681,14 @@ export async function enableSync(userId: string): Promise<void> {
         ...folders.map((f) => syncPushFolder(f)),
         syncPushFolderItems(folderItems.filter((i) => !i.authorId)),
         ...notes.filter((n) => !isSeedNote(n.id) && !n.authorId).map((n) => syncPushNote(n)),
+        // Seed the account with THIS device's settings on the way up. Without
+        // it, a user who has spent a year setting up their phone and only now
+        // turns sync on would push their library but not their preferences,
+        // then pull nothing back -- and would reasonably read that as sync
+        // having ignored half of what they set. Same ownership guard as
+        // everything else in this block: only runs when the local data is
+        // genuinely this account's.
+        pushAllAppSettings(),
       ])
     }
     // Always pull, both paths: this account's own cloud data belongs on this

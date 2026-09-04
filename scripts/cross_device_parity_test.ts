@@ -291,20 +291,55 @@ async function main() {
       JSON.stringify(ipadFolders.map((f: any) => f.id)))
     record('Folders and their items', 'SYNCED', 'needs Back-up & Sync ON')
 
-    console.log('\n--- C. WHAT NEVER CROSSES, WITH SYNC FULLY ON ---')
-    console.log('    (these are device-local by design -- the honest gap)\n')
+    console.log('\n--- C. SETTINGS AND SELECTIONS, WITH SYNC ON ---')
+    console.log('    (RC, 2026-09-04: "make the settings and selections travel too")\n')
+    const { setSyncedSetting, pullAppSettings, SYNCED_SETTING_KEYS } =
+      require(`${SRC}/appSettings.ts`)
+    const settingsUnderTest: [string, string, string][] = [
+      ['Appearance (dark / light / auto)', '@flyregs/thememode', 'light'],
+      ['Red Shift', '@flyregs/redshift', '1'],
+      ['Text size', '@flyregs/font-scale', '1.3'],
+      ['Badge duration', '@flyregs/badge-lifespan', '180'],
+      ['Study session size', '@flyregs/study-session-size', '30'],
+      ['Study card direction', '@flyregs/study-reveal-direction', 'reverse'],
+      ['Study filter selections', '@flyregs/study-filters',
+       JSON.stringify({ types: ['far'], levels: ['private'], categoryClasses: [] })],
+    ]
+    for (const [, key, value] of settingsUnderTest) {
+      await on('phone', async () => { await setSyncedSetting(key, value) })
+    }
+    await settle()
+    await on('ipad', async () => { await pullAppSettings(uid) })
+    for (const [label, key, value] of settingsUnderTest) {
+      const there = await on('ipad', async () => await AsyncStorageFake.getItem(key))
+      check(`${label} reaches the other device`, there === value,
+            `expected ${value}, got ${there}`)
+      if (there === value) record(label, 'SYNCED', 'needs Back-up & Sync ON')
+    }
+
+    // And the negative, which is the half that makes the positive mean
+    // something: with the toggle OFF nothing may travel.
+    await on('phone', async () => { await disableSync() })
+    await on('ipad', async () => { await disableSync() })
+    await on('ipad', async () => { await AsyncStorageFake.removeItem('@flyregs/thememode') })
+    await on('phone', async () => { await setSyncedSetting('@flyregs/thememode', 'auto') })
+    await settle()
+    await on('ipad', async () => { await pullAppSettings(uid) })
+    const leaked = await on('ipad', async () => await AsyncStorageFake.getItem('@flyregs/thememode'))
+    check('with Back-up & Sync OFF, a setting does NOT travel', leaked === null,
+          `got ${leaked}`)
+    await on('phone', async () => { await enableSync(uid) })
+    await on('ipad', async () => { await enableSync(uid) })
+
+    console.log('\n--- D. WHAT STILL NEVER CROSSES ---')
+    console.log('    (device-local by design -- the honest remainder)\n')
     // Written on the phone with sync ON, then a full pull on the iPad.
     // Anything still absent afterwards genuinely does not travel.
     const localOnly: [string, string, string][] = [
-      ['Appearance (dark / light / auto)', '@flyregs/thememode', 'dark'],
-      ['Red Shift', '@flyregs/redshift', 'true'],
-      ['Text size', '@flyregs/font-scale', '1.3'],
-      ['Badge duration', '@flyregs/badge-lifespan', '90'],
       ['Recently viewed', '@flyregs/recents', '[{"id":"91.155"}]'],
       ['Recent searches', '@flyregs/recent-searches', '["vfr minimums"]'],
-      ['Study session size', '@flyregs/study-session-size', '30'],
-      ['Study card direction', '@flyregs/study-reveal-direction', 'reverse'],
       ['Downloaded documents (the files)', '@flyregs/downloads', '[{"id":"91.155"}]'],
+      ['Biometric sign-in choice', '@flyregs/biometric-signin-enabled', 'true'],
     ]
     for (const [, key, value] of localOnly) {
       await on('phone', async () => { await AsyncStorageFake.setItem(key, value) })

@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import { useColorScheme } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
+import { setSyncedSetting, onSettingPulled, type SyncedSettingKey } from '@/lib/appSettings'
+
 const REDSHIFT_KEY = '@flyregs/redshift'
 const MODE_KEY = '@flyregs/thememode'
 
@@ -215,6 +217,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
+  // A setting pulled from the user's other device has to take effect NOW.
+  // Both values above are read from storage once, at mount; without this a
+  // theme changed on the iPad would sit in this device's storage looking
+  // ignored until the app was restarted, which reads as sync not working.
+  useEffect(() => onSettingPulled((key, value) => {
+    if (key === MODE_KEY && (value === 'dark' || value === 'light' || value === 'auto')) {
+      setModeState(value)
+    }
+    if (key === REDSHIFT_KEY) setRedShiftState(value === '1')
+  }), [])
+
   const resolved: ResolvedTheme =
     mode === 'auto' ? (systemScheme as ResolvedTheme) : mode
 
@@ -222,7 +235,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const setMode = (m: ThemeMode) => {
     setModeState(m)
-    AsyncStorage.setItem(MODE_KEY, m)
+    setSyncedSetting(MODE_KEY as SyncedSettingKey, m)
   }
 
   // RC: "anytime it gets toggled ON/OFF, the default mode w/o it is Dark" --
@@ -234,7 +247,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const setRedShift = (v: boolean) => {
     setRedShiftState(v)
     setMode('dark')
-    AsyncStorage.setItem(REDSHIFT_KEY, v ? '1' : '0')
+    setSyncedSetting(REDSHIFT_KEY as SyncedSettingKey, v ? '1' : '0')
   }
 
   return (
