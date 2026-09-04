@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { View, Text, Image, ScrollView, Pressable, ActivityIndicator, StyleSheet } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router, useFocusEffect } from 'expo-router'
@@ -21,6 +21,7 @@ import { NameTag } from '@/components/NameTag'
 import { NEON_SIGN_FONT } from '@/lib/brand'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 
 // IA redesign (2026-07-28): this file used to be the Search tab. Search now
 // lives entirely on Home (see (tabs)/index.tsx's inline search bar +
@@ -187,6 +188,12 @@ export default function TheWingScreen() {
   // far/index.tsx's own long-press preview, threaded down into
   // RefPacketGrid below.
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
+  // "Suggest a feature", RC, 2026-09-03 -- see far/part/[part].tsx's own
+  // comment. The Wing's own content (identity card, hub cards/tiles, and
+  // the RefPacks grid below) can run long enough on a phone to warrant the
+  // same jump-to-top affordance every other long-list screen just got.
+  const [scrollY, setScrollY] = useState(0)
+  const scrollRef = useRef<ScrollView>(null)
 
   // RefPacks is the headline thing a Plus subscriber's tier unlocks on this
   // screen, and it used to vanish entirely on any hiccup: no .catch() here,
@@ -370,17 +377,28 @@ export default function TheWingScreen() {
   // Round 2: RC asked for the lightning bolt specifically -- free to reuse
   // it here now that Duels moved off it (first onto 'figure.fencing',
   // then onto 'trophy' per RC's round-2 ask -- see Icon.tsx).
-  const readyRoomHeaderRight = (
-    <Pressable onPress={() => router.push('/ready-room')} hitSlop={12} style={{ padding: 4 }}>
-      <Icon name="bolt.fill" size={fs(20)} color={tokens.gold} />
-    </Pressable>
+  const headerRight = (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <BackToTop
+        visible={scrollY > BACK_TO_TOP_THRESHOLD}
+        onPress={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}
+      />
+      <Pressable onPress={() => router.push('/ready-room')} hitSlop={12} style={{ padding: 4 }}>
+        <Icon name="bolt.fill" size={fs(20)} color={tokens.gold} />
+      </Pressable>
+    </View>
   )
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <ScreenHeader titleElement={<WingSign />} right={readyRoomHeaderRight} />
+      <ScreenHeader titleElement={<WingSign />} right={headerRight} />
       <TabletContainer>
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView
+          ref={scrollRef}
+          onScroll={makeBackToTopScrollHandler(setScrollY)}
+          scrollEventThrottle={16}
+          contentContainerStyle={styles.content}
+        >
           {session ? (
             // A single "who am I and what do I have" identity slate --
             // replaces the old stats strip + separate "View my profile"

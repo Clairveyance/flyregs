@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { router } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -8,6 +8,7 @@ import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import type { ACSeries } from '@/types'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
@@ -27,6 +28,9 @@ export default function AcLibraryScreen() {
   const fs = useFS()
   const [series, setSeries] = useState<ACSeries[]>([])
   const [totalCount, setTotalCount] = useState<number | null>(null)
+  // "Suggest a feature", RC, 2026-09-03 -- see far/part/[part].tsx's own comment.
+  const [scrollY, setScrollY] = useState(0)
+  const listRef = useRef<FlatList<ACSeries>>(null)
   const [loading, setLoading] = useState(true)
   // Same real bug, same fix, as series/[prefix].tsx's own loadError comment
   // -- RC real-device report 2026-08-21/22: "ALL of the ACs are GONE!!."
@@ -97,7 +101,16 @@ export default function AcLibraryScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title="Advisory Circulars" onBack={() => router.back()} />
+      <OverlayHeader
+        title="Advisory Circulars"
+        onBack={() => router.back()}
+        right={
+          <BackToTop
+            visible={scrollY > BACK_TO_TOP_THRESHOLD}
+            onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          />
+        }
+      />
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
@@ -118,6 +131,9 @@ export default function AcLibraryScreen() {
       ) : (
         <TabletContainer>
         <FlatList
+          ref={listRef}
+          onScroll={makeBackToTopScrollHandler(setScrollY)}
+          scrollEventThrottle={16}
           data={series}
           keyExtractor={(item) => item.series_prefix}
           contentContainerStyle={styles.list}

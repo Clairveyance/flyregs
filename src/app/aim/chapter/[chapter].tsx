@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import { supabase } from '@/lib/supabase'
@@ -9,6 +9,7 @@ import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 
 interface AimParagraphRow {
   paragraph_number: string
@@ -37,6 +38,10 @@ export default function AimChapterScreen() {
   const [paragraphs, setParagraphs] = useState<AimParagraphRow[]>([])
   const [chapterTitle, setChapterTitle] = useState('')
   const [loading, setLoading] = useState(true)
+  // "Suggest a feature", RC, 2026-09-03 -- see far/part/[part].tsx's own
+  // comment for the full context; same pattern, second rollout.
+  const [scrollY, setScrollY] = useState(0)
+  const listRef = useRef<FlatList<{ section: string | null; items: AimParagraphRow[] }>>(null)
   // AIM paragraph titles get cut off the same way FAR Part titles do -- same
   // hook/card pair as far/index.tsx's own long-press preview, see
   // useLongPressPreview.ts's header comment.
@@ -68,7 +73,16 @@ export default function AimChapterScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title={isAppendix ? `AIM ${chapter?.toUpperCase()}` : `AIM Chapter ${chapter}`} onBack={() => router.back()} />
+      <OverlayHeader
+        title={isAppendix ? `AIM ${chapter?.toUpperCase()}` : `AIM Chapter ${chapter}`}
+        onBack={() => router.back()}
+        right={
+          <BackToTop
+            visible={scrollY > BACK_TO_TOP_THRESHOLD}
+            onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          />
+        }
+      />
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
@@ -76,6 +90,9 @@ export default function AimChapterScreen() {
       ) : (
         <TabletContainer>
         <FlatList
+          ref={listRef}
+          onScroll={makeBackToTopScrollHandler(setScrollY)}
+          scrollEventThrottle={16}
           data={groups}
           keyExtractor={(g, i) => g.section ?? `none-${i}`}
           contentContainerStyle={styles.list}

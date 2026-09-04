@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -11,6 +11,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { naturalCompare } from '@/lib/naturalSort'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 
 // Mirrors far/part/[part].tsx's section-list screen. No tablet SplitPane
 // variant here (see far/part/[part].tsx's isSplit branch) -- iPad is
@@ -35,6 +36,9 @@ export default function Cfr49PartScreen() {
   const fs = useFS()
   const [sections, setSections] = useState<Cfr49SectionRow[]>([])
   const [partLabel, setPartLabel] = useState('')
+  // "Suggest a feature", RC, 2026-09-03 -- see far/part/[part].tsx's own comment.
+  const [scrollY, setScrollY] = useState(0)
+  const listRef = useRef<FlatList<{ letter: string; title: string | null; items: Cfr49SectionRow[] }>>(null)
   const [loading, setLoading] = useState(true)
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
@@ -103,7 +107,16 @@ export default function Cfr49PartScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title={`Part ${part}`} onBack={() => router.back()} />
+      <OverlayHeader
+        title={`Part ${part}`}
+        onBack={() => router.back()}
+        right={
+          <BackToTop
+            visible={scrollY > BACK_TO_TOP_THRESHOLD}
+            onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          />
+        }
+      />
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
@@ -111,6 +124,9 @@ export default function Cfr49PartScreen() {
       ) : (
         <TabletContainer>
           <FlatList
+            ref={listRef}
+            onScroll={makeBackToTopScrollHandler(setScrollY)}
+            scrollEventThrottle={16}
             data={groups}
             keyExtractor={(g) => g.letter || 'none'}
             contentContainerStyle={styles.list}

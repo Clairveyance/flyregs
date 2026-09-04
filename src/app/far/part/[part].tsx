@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -14,6 +14,7 @@ import { useIsTabletLandscape, useIsTabletPortrait } from '@/context/responsive'
 import { naturalCompare } from '@/lib/naturalSort'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 
 interface FarSectionRow {
   section_number: string
@@ -35,6 +36,14 @@ export default function FarPartScreen() {
   const [sections, setSections] = useState<FarSectionRow[]>([])
   const [partLabel, setPartLabel] = useState('')
   const [loading, setLoading] = useState(true)
+  // RC, "Suggest a feature", 2026-09-03: every document-detail screen
+  // already had a back-to-top affordance in its header once scrolled far
+  // enough; the long PART section lists (this screen -- Part 91 alone runs
+  // 200+ sections) never got one. Only wired into the phone (mobile-only
+  // beta) FlatList below -- the tablet SplitPane rail doesn't scroll the
+  // whole screen the same way and isn't in scope for the beta.
+  const [scrollY, setScrollY] = useState(0)
+  const listRef = useRef<FlatList<{ letter: string; title: string | null; items: FarSectionRow[] }>>(null)
   const isTabletLandscape = useIsTabletLandscape()
   const isTabletPortrait = useIsTabletPortrait()
   // Either tablet split variant swaps the reading pane in place instead of
@@ -116,6 +125,9 @@ export default function FarPartScreen() {
 
   const sectionList = (
     <FlatList
+      ref={listRef}
+      onScroll={makeBackToTopScrollHandler(setScrollY)}
+      scrollEventThrottle={16}
       data={groups}
       keyExtractor={(g) => g.letter || 'none'}
       contentContainerStyle={styles.list}
@@ -179,7 +191,16 @@ export default function FarPartScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title={`Part ${part}`} onBack={() => router.back()} />
+      <OverlayHeader
+        title={`Part ${part}`}
+        onBack={() => router.back()}
+        right={
+          <BackToTop
+            visible={scrollY > BACK_TO_TOP_THRESHOLD}
+            onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          />
+        }
+      />
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />

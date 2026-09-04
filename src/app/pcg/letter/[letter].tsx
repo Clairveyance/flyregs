@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -7,6 +7,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { TabletContainer } from '@/components/TabletContainer'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 
 interface PcgTermRow {
   term: string
@@ -27,6 +28,9 @@ export default function PcgLetterScreen() {
   const fs = useFS()
   const [terms, setTerms] = useState<PcgTermRow[]>([])
   const [loading, setLoading] = useState(true)
+  // "Suggest a feature", RC, 2026-09-03 -- see far/part/[part].tsx's own comment.
+  const [scrollY, setScrollY] = useState(0)
+  const listRef = useRef<FlatList<PcgTermRow>>(null)
 
   const load = useCallback(async () => {
     if (!letter) return
@@ -55,7 +59,16 @@ export default function PcgLetterScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title={`P/CG — ${letter}`} onBack={() => router.back()} />
+      <OverlayHeader
+        title={`P/CG — ${letter}`}
+        onBack={() => router.back()}
+        right={
+          <BackToTop
+            visible={scrollY > BACK_TO_TOP_THRESHOLD}
+            onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          />
+        }
+      />
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
@@ -63,6 +76,9 @@ export default function PcgLetterScreen() {
       ) : (
         <TabletContainer>
         <FlatList
+          ref={listRef}
+          onScroll={makeBackToTopScrollHandler(setScrollY)}
+          scrollEventThrottle={16}
           data={terms}
           keyExtractor={(item) => item.slug}
           contentContainerStyle={styles.list}

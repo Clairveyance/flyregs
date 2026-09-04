@@ -13,6 +13,7 @@ import { getRecents, recentItemType, type RecentAC } from '@/lib/recents'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { buildAdSearchPlan } from '@/lib/aircraftSearch'
 import { stripAdSubjectPrefix } from '@/lib/titleFormat'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
@@ -57,6 +58,9 @@ export default function AdIndexScreen() {
   // re-type the make into.
   const { q: qParam } = useLocalSearchParams<{ q?: string }>()
   const [query, setQuery] = useState(qParam ?? '')
+  // "Suggest a feature", RC, 2026-09-03 -- see far/part/[part].tsx's own comment.
+  const [scrollY, setScrollY] = useState(0)
+  const scrollRef = useRef<ScrollView>(null)
   const [hits, setHits] = useState<AdHit[]>([])
   const [similarHits, setSimilarHits] = useState<AdHit[]>([])
   const [searching, setSearching] = useState(false)
@@ -224,9 +228,21 @@ export default function AdIndexScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title="Airworthiness Directives" onBack={() => router.back()} />
+      <OverlayHeader
+        title="Airworthiness Directives"
+        onBack={() => router.back()}
+        right={
+          <BackToTop
+            visible={scrollY > BACK_TO_TOP_THRESHOLD}
+            onPress={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}
+          />
+        }
+      />
       <TabletContainer>
         <ScrollView
+          ref={scrollRef}
+          onScroll={makeBackToTopScrollHandler(setScrollY)}
+          scrollEventThrottle={16}
           contentContainerStyle={styles.content}
           keyboardDismissMode="interactive"
           refreshControl={<RefreshControl refreshing={false} onRefresh={onRefresh} tintColor={tokens.t3} />}

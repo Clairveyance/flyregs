@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -10,6 +10,7 @@ import { TabletContainer } from '@/components/TabletContainer'
 import { humanizeLoiTitle } from '@/lib/titleFormat'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 
 interface LoiRow {
   slug: string
@@ -40,6 +41,9 @@ export default function LoiYearScreen() {
   const fs = useFS()
   const [rows, setRows] = useState<LoiRow[]>([])
   const [loading, setLoading] = useState(true)
+  // "Suggest a feature", RC, 2026-09-03 -- see far/part/[part].tsx's own comment.
+  const [scrollY, setScrollY] = useState(0)
+  const listRef = useRef<FlatList<LoiRow>>(null)
   // LOI titles run long and get cut off the same way FAR Part titles do --
   // same hook/card pair as far/index.tsx's own long-press preview.
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
@@ -92,7 +96,16 @@ export default function LoiYearScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title={`Legal Interpretations — ${year}`} onBack={() => router.back()} />
+      <OverlayHeader
+        title={`Legal Interpretations — ${year}`}
+        onBack={() => router.back()}
+        right={
+          <BackToTop
+            visible={scrollY > BACK_TO_TOP_THRESHOLD}
+            onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          />
+        }
+      />
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
@@ -100,6 +113,9 @@ export default function LoiYearScreen() {
       ) : (
         <TabletContainer>
           <FlatList
+            ref={listRef}
+            onScroll={makeBackToTopScrollHandler(setScrollY)}
+            scrollEventThrottle={16}
             data={rows}
             keyExtractor={(item) => item.slug}
             contentContainerStyle={styles.list}

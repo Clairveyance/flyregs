@@ -12,6 +12,7 @@ import { getRecents, recentItemType, type RecentAC } from '@/lib/recents'
 import { humanizeLoiTitle } from '@/lib/titleFormat'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 
 interface LoiHit {
   slug: string
@@ -56,6 +57,13 @@ export default function LoiIndexScreen() {
   const [searching, setSearching] = useState(false)
   const [recentLoi, setRecentLoi] = useState<RecentAC[]>([])
   const [yearCounts, setYearCounts] = useState<{ year: number; count: number }[]>([])
+  // "Suggest a feature", RC, 2026-09-03 -- see far/part/[part].tsx's own
+  // comment. Two separate refs since the two FlatLists below are mutually
+  // exclusive (only one is ever mounted at a time, by trimmedQuery), so
+  // exactly one of them is ever non-null when the button is pressed.
+  const [scrollY, setScrollY] = useState(0)
+  const hitsListRef = useRef<FlatList<LoiHit>>(null)
+  const yearsListRef = useRef<FlatList<{ year: number; count: number }>>(null)
   const [searchFocused, setSearchFocused] = useState(false)
   const [searchWrapHeight, setSearchWrapHeight] = useState(0)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -145,7 +153,19 @@ export default function LoiIndexScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title="Legal Interpretations" onBack={() => router.back()} />
+      <OverlayHeader
+        title="Legal Interpretations"
+        onBack={() => router.back()}
+        right={
+          <BackToTop
+            visible={scrollY > BACK_TO_TOP_THRESHOLD}
+            onPress={() => {
+              hitsListRef.current?.scrollToOffset({ offset: 0, animated: true })
+              yearsListRef.current?.scrollToOffset({ offset: 0, animated: true })
+            }}
+          />
+        }
+      />
       <TabletContainer>
         <View
           style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}
@@ -215,6 +235,9 @@ export default function LoiIndexScreen() {
           ) : (
             <FlatList
               key="search-hits"
+              ref={hitsListRef}
+              onScroll={makeBackToTopScrollHandler(setScrollY)}
+              scrollEventThrottle={16}
               keyboardDismissMode="interactive"
               style={styles.flatList}
               data={hits}
@@ -262,6 +285,9 @@ export default function LoiIndexScreen() {
         ) : (
           <FlatList
             key="browse-years"
+            ref={yearsListRef}
+            onScroll={makeBackToTopScrollHandler(setScrollY)}
+            scrollEventThrottle={16}
             style={styles.flatList}
             keyboardDismissMode="interactive"
             data={yearCounts}
