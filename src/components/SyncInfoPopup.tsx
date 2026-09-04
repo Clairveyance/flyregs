@@ -52,6 +52,15 @@ export function SyncInfoPopup({ iconSize = 14 }: { iconSize?: number }) {
         { text: 'The downloaded files themselves — download again on the other device to read offline there', indent: true },
         { text: 'Face ID / Touch ID sign-in', indent: true },
 
+        // RC's own scenario: two devices, sync off on both, each with its
+        // own history -- then sync goes on. Content merges, so nothing is
+        // lost; settings cannot merge, so one device has to win. Saying which
+        // one, in advance, is the difference between a rule and a surprise.
+        { text: 'Turning it on for the first time, with two devices:', color: tokens.gold },
+        { text: 'Nothing is erased. Bookmarks, notes and folders from both devices are combined, so you end up with everything from each.', indent: true },
+        { text: 'Settings cannot combine — there is no mix of Dark and Light. The first device you turn sync on sets them for the account, and any device you turn it on afterwards adopts those settings.', indent: true },
+        { text: 'After that, changing a setting on either device changes it everywhere.', indent: true },
+
         'Back up & sync is a Pro feature. It also means your notes, bookmarks and folders survive a reinstall.',
       ]}
     />

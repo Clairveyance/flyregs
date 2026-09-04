@@ -139,6 +139,21 @@ def check(vid, label):
     else:
         print(f"  PASS  every feature the description names is actually discussed")
 
+    # The channel's own rule, in 00 Channel/README.md: "Descriptions never
+    # contain support@flyregs.com (spam magnet, and it is the same inbox real
+    # bug reports land in). Point at flyregs.com instead."
+    #
+    # Checked here because I broke it -- I added a "Questions:
+    # support@flyregs.com" line to all three descriptions on 2026-09-04 while
+    # rewriting them, and RC caught it. A rule written in a README is a rule
+    # nobody runs.
+    if "support@flyregs.com" in low:
+        print("  FAIL  description contains support@flyregs.com -- the channel "
+              "README forbids it (spam magnet, and it is the support inbox)")
+        problems.append(f"{label}: support email in the description")
+    else:
+        print("  PASS  no support email in the description")
+
     # Chapters: only the two things checkable without judgement.
     stamps = re.findall(r"^(\d+):(\d\d)\s+(.+)$", desc, re.M)
     if stamps:

@@ -139,27 +139,66 @@ export async function pullAppSettings(userId: string): Promise<void> {
   }
 }
 
-/** Push every synced setting this device already holds.
+/** Seed the account with this device's settings -- but only the ones the
+ * account does not already have.
  *
- * Runs when Back-up & Sync is switched ON, so the device doing the switching
- * seeds the account rather than starting empty and then pulling nothing. A
- * user who has spent a year setting up their phone and then enables sync
- * should see their phone's settings, not defaults. */
+ * Runs when Back-up & Sync is switched ON. The "only what is missing" part is
+ * the whole design, and it took RC's own scenario to surface why:
+ *
+ *   "user has bu/s off. they have two devices, both running same account.
+ *    they turn on bu/s > which device's info syncs to which? if they have
+ *    other things on the other device, do those get over-written/erased?"
+ *
+ * Content answers that on its own: bookmarks, folders and notes are keyed by
+ * id and merged, so two devices end up with the union and nothing is lost.
+ * Settings cannot do that. There is no union of "dark" and "light" -- one has
+ * to win.
+ *
+ * A blanket push made the LAST device to enable win, silently, which is the
+ * worst possible rule: it is invisible, and it is decided by an ordering the
+ * user has no reason to think matters. Measured before fixing it
+ * (first_sync_conflict_test.ts): the phone enabled first with Light and
+ * 180-day badges, the iPad enabled second, and the account came out Dark with
+ * 14-day badges -- the phone's real preferences replaced by an iPad that had
+ * never been configured.
+ *
+ * So: the FIRST device to turn sync on sets the baseline, every later device
+ * adopts it, and from then on the most recent change anywhere wins. That rule
+ * is explainable in one sentence, which matters as much as it being safe --
+ * see SyncInfoPopup, which says exactly this to the user.
+ *
+ * A key the account has never held is still seeded from whichever device has
+ * it, so a device that is the only one with Red Shift set does not lose it. */
 export async function pushAllAppSettings(): Promise<void> {
   const userId = await pushableUserId()
   if (!userId) return
+
+  const { data: existing, error } = await supabase
+    .from('user_app_settings')
+    .select('key')
+    .eq('user_id', userId)
+  // supabase-js RESOLVES {data: null, error} rather than throwing. Treating a
+  // failed read as "the account has no settings" is exactly how this would
+  // overwrite the other device's preferences on a flaky connection -- the
+  // failure mode this whole function exists to prevent. Push nothing instead;
+  // the pull that follows in enableSync will still bring the account's
+  // settings down, and the next local change pushes normally.
+  if (error || !existing) return
+  const alreadySet = new Set((existing as { key: string }[]).map((r) => r.key))
+
   const rows: { user_id: string; key: string; value: string; updated_at: string }[] = []
   const now = new Date().toISOString()
   for (const key of SYNCED_SETTING_KEYS) {
+    if (alreadySet.has(key)) continue
     const value = await AsyncStorage.getItem(key)
     if (value != null) rows.push({ user_id: userId, key, value, updated_at: now })
   }
   if (!rows.length) return
-  const { error } = await supabase
+  const { error: writeError } = await supabase
     .from('user_app_settings')
     .upsert(rows, { onConflict: 'user_id,key' })
-  if (error) {
-    Sentry.captureException(error, {
+  if (writeError) {
+    Sentry.captureException(writeError, {
       tags: { feature: 'settings_sync' }, extra: { stage: 'seed', count: rows.length },
     })
   }
