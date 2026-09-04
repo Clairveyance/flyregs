@@ -486,7 +486,33 @@ for (let i = 0; i < messages.length; i += BATCH) {
     continue
   }
   const json = await res.json()
-  const tickets = json.data ?? []
+  const tickets = json.data
+  // A missing or short ticket array is NOT success -- same guard, and the same
+  // reason, as send-reminder-alerts.mjs. Expo can answer HTTP 200 with an
+  // {"errors":[...]} envelope and no `data` at all; `json.data ?? []` turned
+  // that into an empty array, so the forEach below did nothing, no user got a
+  // result recorded, and the run signed off with "delivered to 0 user(s),
+  // failed for 0" -- indistinguishable from "there was nothing to send".
+  //
+  // This matters MORE here than it does for reminders, not less. Reminders
+  // retry tomorrow. AD alerts do not retry at all: this runs weekly off
+  // ad_scraper.py --mode incremental, which resumes from the newest
+  // citation_publish_date already in the DB, so the ADs in this batch are
+  // never looked at again. A silent drop here means a Pro owner is never told
+  // about an AD against their own aircraft.
+  //
+  // A SHORT array is treated the same as a missing one on purpose: the loop
+  // below pairs tickets to recipients by index (`chunk[idx]`), so a
+  // partial response would attribute delivery results to the wrong people.
+  if (!Array.isArray(tickets) || tickets.length !== chunk.length) {
+    const errText = `Expo returned ${Array.isArray(tickets) ? tickets.length : 'no'} ticket(s) for ${chunk.length} message(s) in the batch starting at ${i}`
+    console.error(`${errText} — recording as failed`, json.errors ?? '')
+    for (const m of chunk) {
+      const prev = pushResultByUser.get(m._userId)
+      if (!prev || prev.status !== 'sent') pushResultByUser.set(m._userId, { status: 'error', error: errText })
+    }
+    continue
+  }
   const errors = tickets.filter((r) => r.status === 'error')
   if (errors.length) {
     console.error(`${errors.length} of ${chunk.length} messages in batch failed:`, errors.slice(0, 3))

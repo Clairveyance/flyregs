@@ -129,6 +129,7 @@ const messages = eligible.map((t) => ({
   },
 }))
 
+let failedBatches = 0
 const BATCH = 100
 for (let i = 0; i < messages.length; i += BATCH) {
   const chunk = messages.slice(i, i + BATCH)
@@ -142,10 +143,29 @@ for (let i = 0; i < messages.length; i += BATCH) {
     continue
   }
   const json = await res.json()
-  const errors = (json.data ?? []).filter((r) => r.status === 'error')
+  const tickets = json.data
+  // Same guard as its two siblings. This script keeps no durable per-user log,
+  // so the console IS the only record a batch went out -- `json.data ?? []`
+  // meant an Expo {"errors":[...]} envelope produced zero reported failures
+  // and a clean "Done.", which is the most misleading output possible.
+  if (!Array.isArray(tickets) || tickets.length !== chunk.length) {
+    console.error(
+      `Expo returned ${Array.isArray(tickets) ? tickets.length : 'no'} ticket(s) for ${chunk.length} message(s) in the batch starting at ${i} — those update alerts did NOT go out`,
+      json.errors ?? '',
+    )
+    failedBatches += 1
+    continue
+  }
+  const errors = tickets.filter((r) => r.status === 'error')
   if (errors.length) {
     console.error(`${errors.length} of ${chunk.length} messages in batch failed:`, errors.slice(0, 3))
   }
 }
 
-console.log('Done.')
+if (failedBatches > 0) {
+  // Non-zero so the schedule shows red instead of a green run that sent nothing.
+  console.error(`Done, but ${failedBatches} batch(es) failed to send.`)
+  process.exitCode = 1
+} else {
+  console.log('Done.')
+}

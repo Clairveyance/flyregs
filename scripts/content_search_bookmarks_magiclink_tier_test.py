@@ -132,16 +132,24 @@ for fn in ["search_far", "search_aim", "search_pcg", "search_ads", "search_cfr49
              f"fewer than 11 real matches exist, or the depth cap isn't lifting for Plus; "
              f"inconclusive from count alone, spot-check manually")
 
-# search_legal_interpretations has NO has_plus_access() depth gate at all (confirmed by
-# reading sync/migrations_paid_content_column_privileges.sql -- the only migration that
-# ever defines it, and the only search RPC the 2026-08-11 depth-gating sweep
-# (migrations_gating_sweep_search_depth.sql) never touched). Live-confirm that gap here.
+# search_legal_interpretations USED to be the one search RPC with no
+# has_plus_access() depth gate -- the 2026-08-11 depth-gating sweep never touched it.
+# That gap has since been closed; the live function now ends with:
+#   limit (case when public.has_plus_access()
+#               then least(coalesce(lim, 50), 200)
+#               else least(coalesce(lim, 50), 10) end)
+#
+# This check was originally written to CONFIRM the gap, so it asserted
+# anon == premium and passed while the bug existed. Left as-is it failed
+# permanently once the bug was fixed, which would have masked a real
+# regression here. Inverted 2026-09-04 to guard the fix instead: free/anon
+# must stay capped, and paid tiers must actually exceed that cap.
 li = depth["search_legal_interpretations"]
 if all(isinstance(li[t], int) for t in TIER_ORDER):
-    check("search_legal_interpretations: depth is UNCAPPED for every tier (real gap, "
-          "not a pass) -- free/anon get the same result count as Premium",
-          li["anon"] == li["premium"] and li["free"] == li["premium"],
-          str(li))
+    check("search_legal_interpretations: free/anon capped at <=10",
+          li["anon"] <= 10 and li["free"] <= 10, str(li))
+    check("search_legal_interpretations: plus/pro/premium exceed the free cap",
+          li["plus"] > 10 and li["pro"] > 10 and li["premium"] > 10, str(li))
 
 
 # ============================================================================

@@ -132,6 +132,17 @@ def test_find_friends_contact_match():
             if tier in ("free", "plus"):
                 check(f"{tier} caller: match_contacts_by_email is BLOCKED server-side (has_pro_access gate)",
                       st >= 400, f"HTTP {st} {body}")
+            elif u["id"] == target["id"]:
+                # The target IS users["premium"], so this iteration asks the
+                # premium user to find their OWN hash. The function carries
+                # `u.id <> auth.uid()` -- you are deliberately never your own
+                # contact match -- so [] is the CORRECT answer here.
+                # Asserting a match made this fail permanently once the
+                # digest-resolution bug (fixed 2026-09-04) stopped masking it
+                # behind an error. Assert the real contract instead.
+                check("premium caller: does NOT match their own hash (self-exclusion)",
+                      isinstance(body, list) and not any(r.get("callsign") == target["callsign"] for r in body),
+                      f"HTTP {st} {body}")
             else:
                 found = isinstance(body, list) and any(r.get("callsign") == target["callsign"] for r in body)
                 check(f"{tier} caller: match_contacts_by_email returns the real match",
@@ -211,16 +222,31 @@ def test_duel_accept_premium_gate():
              {**SVC, "Prefer": "resolution=merge-duplicates"})
         call(f"{URL}/rest/v1/user_streaks?on_conflict=user_id", {"user_id": recipient["id"], "leaderboard_opt_in": True},
              {**SVC, "Prefer": "resolution=merge-duplicates"})
+        # This block used to invite a NON-PREMIUM recipient and then assert
+        # their Accept was rejected. That scenario is no longer reachable, and
+        # deliberately so: migrations_fix_duel_nonpremium_invite_softlock.sql
+        # moved the Premium check EARLIER, to invite time, because a
+        # non-Premium invitee who never responded left their participant row
+        # 'pending' forever and finalize_challenge_if_done() then froze every
+        # other (paying) player's duel indefinitely.
+        #
+        # So the correct assertion now is that create_challenge REFUSES the
+        # non-Premium opponent up front, naming them. Asserting the old
+        # accept-time behaviour just reported a permanent false failure and
+        # cascaded a garbage uuid into the next call.
         st, cid = rpc(creator, "create_challenge", {
             "p_opponent_ids": [recipient["id"]], "p_question_count": 3,
         })
-        check("Premium creator can create_challenge", st == 200, f"HTTP {st} {cid}")
-        st, body = rpc(recipient, "respond_to_challenge", {"p_challenge_id": cid, "p_accept": True})
-        check("Pro (non-Premium) recipient's ACCEPT is rejected server-side, not just client-hidden",
-              st >= 400, f"HTTP {st} {body}")
-        st, body = rpc(recipient, "respond_to_challenge", {"p_challenge_id": cid, "p_accept": False})
-        check("Pro (non-Premium) recipient's DECLINE still works (tier-free per design)",
-              st == 200, f"HTTP {st} {body}")
+        check("non-Premium opponent is rejected at INVITE time, not accept time (soft-lock fix)",
+              st >= 400 and "Premium" in str(cid), f"HTTP {st} {cid}")
+
+        # And the gate must not be cosmetic: the same opponent must also be
+        # absent from the picker the client actually offers.
+        st, opts = rpc(creator, "get_challengeable_users", {})
+        listed = isinstance(opts, list) and any(
+            (o.get("user_id") == recipient["id"]) for o in opts)
+        check("non-Premium opponent is not offered by get_challengeable_users either",
+              st == 200 and not listed, f"HTTP {st} listed={listed}")
     finally:
         delete_user(creator["id"])
         delete_user(recipient["id"])
