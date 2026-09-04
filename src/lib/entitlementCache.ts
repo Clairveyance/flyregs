@@ -45,6 +45,35 @@ export async function loadCachedEntitlement(userId: string): Promise<Subscriptio
   }
 }
 
+/**
+ * The last cached tier for WHOEVER was last signed in, without needing a
+ * userId to ask for it.
+ *
+ * Needed because of a real offline failure: this project's JWTs expire after
+ * 1 hour, and auth-js returns `{ session: null }` when an expired token cannot
+ * be refreshed -- which is exactly what happens with no connection. The
+ * session is still on disk; the app simply cannot prove it right now. But
+ * loadCachedEntitlement() is keyed on session.user.id, so with a null session
+ * there was no id to look up and the tier fell back to false/false/false.
+ *
+ * A pilot who downloaded documents at home and opened the app in the air the
+ * next morning therefore had their PAID, ALREADY-DOWNLOADED library gated
+ * behind a purchase screen. Safe to apply: every real gated READ is enforced
+ * server-side, and a local offline copy can only exist because
+ * record_offline_download already verified entitlement at download time.
+ */
+export async function loadLastCachedEntitlement(): Promise<(SubscriptionStatus & { userId: string }) | null> {
+  try {
+    const raw = await AsyncStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const cached: CachedEntitlement = JSON.parse(raw)
+    if (!cached?.userId) return null
+    return { userId: cached.userId, isPro: cached.isPro, isPremium: cached.isPremium, isUnlocked: cached.isUnlocked }
+  } catch {
+    return null
+  }
+}
+
 export async function saveCachedEntitlement(userId: string, status: SubscriptionStatus): Promise<void> {
   try {
     const cached: CachedEntitlement = { userId, ...status }

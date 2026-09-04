@@ -964,7 +964,13 @@ export default function SavedScreen() {
                 // post-Face-ID -- see this file's sync effect above).
                 // Swallow the tap for that fraction of a second rather than
                 // sending a paying Premium customer to a Premium paywall.
-                if (t === 'offline' && !isPremium) {
+                // downloads.length: with a 1-hour jwt_exp, opening the app
+                // offline the next day yields a null session and a false
+                // isPremium -- which used to bounce a paying user straight to
+                // a purchase screen for files already on their device. If
+                // local downloads exist, the server already verified
+                // entitlement when they were saved.
+                if (t === 'offline' && !isPremium && downloads.length === 0) {
                   if (!authLoading) router.push('/paywall?tier=premium')
                   return
                 }

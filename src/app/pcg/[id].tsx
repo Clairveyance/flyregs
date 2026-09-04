@@ -209,9 +209,16 @@ export default function PcgTermScreen() {
             term: cached.document_number,
             definition: cached.body_text ?? null,
             frequently_used: false,
-            see_refs: [],
-            see_refs_unresolved: [],
-            external_refs: [],
+            // Restored from meta, not hardcoded []. 358 of 1,406 P/CG terms
+            // have NO definition and exist purely as a cross-reference, so an
+            // emptied see_refs made the offline copy print "the FAA lists this
+            // term as a cross-reference only -- it has no standalone
+            // definition of its own" above an EMPTY See-also list. That is
+            // actively wrong, not just incomplete: online the same term names
+            // its target.
+            see_refs: ((cached.meta?.see_refs as string[] | undefined) ?? []),
+            see_refs_unresolved: ((cached.meta?.see_refs_unresolved as string[] | undefined) ?? []),
+            external_refs: ((cached.meta?.external_refs as { label: string; url: string }[] | undefined) ?? []),
           })
           setOfflineCopy(cached)
         }
@@ -459,6 +466,14 @@ export default function PcgTermScreen() {
         subject_series: null,
         size: (term.definition ?? '').length,
         body_text: term.definition ?? null,
+        // For 358 of 1,406 terms the cross-reference IS the content -- they
+        // have no definition at all. Saving only body_text meant those terms
+        // downloaded as genuinely empty.
+        meta: {
+          see_refs: term.see_refs ?? [],
+          see_refs_unresolved: term.see_refs_unresolved ?? [],
+          external_refs: term.external_refs ?? [],
+        },
       })
       setDownloaded(true)
     } catch {

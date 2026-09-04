@@ -600,7 +600,12 @@ export default function Cfr49SectionScreen() {
               silently reading the full, real text with only the secondary
               action buttons (copy/print/etc.) gated. Found live, 2026-08-23
               QA sweep. */}
-          {hasPlusAccess ? (
+          {/* `|| offlineCopy`: a local copy can only exist because
+    record_offline_download already verified entitlement SERVER-SIDE at
+    download time, so showing it grants nothing new -- and gating it hid
+    content the user paid for, downloaded, and is now reading with no
+    connection (see auth.tsx's offline session fallback). */}
+        {hasPlusAccess || offlineCopy ? (
             body ? (
               <PlainTextBody
                 ref={bodyRef}

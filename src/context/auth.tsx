@@ -7,7 +7,7 @@ import { applyRemoteSyncPreference, claimLocalDataForSignedOutUser } from '@/lib
 import { claimDeviceIfMismatched } from '@/lib/syncOwner'
 import { ensurePushTokenRegistered, ensurePushTokenRegisteredIfGranted, unregisterPushToken } from '@/lib/notifications'
 import { getDeviceId } from '@/lib/deviceId'
-import { loadCachedEntitlement, saveCachedEntitlement } from '@/lib/entitlementCache'
+import { loadCachedEntitlement, saveCachedEntitlement, loadLastCachedEntitlement } from '@/lib/entitlementCache'
 import type { AvatarOverride } from '@/lib/avatar'
 
 interface AuthContextType {
@@ -72,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // the FlyRegs account id, and subscription status is only ever checked
     // while signed in. Signing out means the paid entitlement isn't carried
     // forward until signing back in with that same account.
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session }, error: sessionError }) => {
       setSession(session)
       if (session?.user) {
         // Fast path, RC real-device report (B35): "everything in the app is
@@ -156,6 +156,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setLoading(false)
         }
       } else {
+        // A null session with an ERROR is not a sign-out -- it is auth-js
+        // failing to refresh an expired token, which with a 1-hour jwt_exp is
+        // simply what "offline since yesterday" looks like. The session is
+        // still on disk. Restoring the last cached tier here is what keeps a
+        // paying user's ALREADY-DOWNLOADED library readable in the air;
+        // without it Saved > Offline bounced them to a Premium paywall and
+        // downloaded ADs/ACs showed "Unlock Plus" over content they own.
+        //
+        // Safe: every gated READ is still enforced server-side, and any
+        // request that actually reaches the server carries no valid token, so
+        // this grants nothing beyond what is already on the device.
+        if (sessionError) {
+          const cached = await loadLastCachedEntitlement()
+          if (cached) {
+            setIsPro(cached.isPro)
+            setIsPremium(cached.isPremium)
+            setIsUnlocked(cached.isUnlocked)
+          }
+        }
         setLoading(false)
       }
     })
@@ -269,7 +288,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // that correctly waits on this flag.
           if (event === 'SIGNED_IN') setLoading(false)
         }
-      } else {
+      } else if (event === 'SIGNED_OUT') {
+        // Only a REAL sign-out clears the tier. INITIAL_SESSION also fires
+        // with a null session when an expired token cannot be refreshed
+        // offline, and hard-clearing there wiped the tier that the
+        // getSession fallback above had just restored from cache.
         setIsPro(false)
         setIsPremium(false)
         setIsUnlocked(false)

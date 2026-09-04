@@ -1,0 +1,36 @@
+-- Restore synced_bookmarks' table grants for `authenticated`.
+--
+-- Found 2026-09-04 by backup_sync_pro_gate_test.py, which failed with:
+--   HTTP 403 42501 permission denied for table synced_bookmarks
+-- for BOTH the pro and premium fixtures.
+--
+-- synced_bookmarks had only REFERENCES + TRIGGER for `authenticated`, while
+-- all three sibling sync tables carry the full set:
+--   synced_notes         DELETE,INSERT,REFERENCES,SELECT,TRIGGER,UPDATE
+--   synced_folders       DELETE,INSERT,REFERENCES,SELECT,TRIGGER,UPDATE
+--   synced_folder_items  DELETE,INSERT,REFERENCES,SELECT,TRIGGER,UPDATE
+--   synced_bookmarks     REFERENCES,TRIGGER            <-- the outlier
+--
+-- Effect on real users: bookmark CLOUD SYNC was dead for every Pro/Premium
+-- subscriber. Bookmarks still saved locally (they are local-first), so nothing
+-- was lost on-device and the UI looked fine -- but nothing reached the cloud,
+-- so bookmarks never appeared on a second device and were not in the backup
+-- the subscription is partly sold on. It failed as a 403 inside syncPush's
+-- reportSyncError, which is Sentry-only and invisible to the user.
+--
+-- Almost certainly collateral from the 2026-08-30 security fix that revoked
+-- anon SELECT on synced_bookmarks_gated after it was found leaking every
+-- user's bookmarks -- the revoke went wider than the leak.
+--
+-- Safe to grant: RLS is ENABLED on this table and carries four policies that
+-- already scope every row --
+--   users_manage_own_synced_bookmarks   (ALL, USING + WITH CHECK)
+--   owners_manage_shared_bookmarks      (ALL, USING + WITH CHECK)
+--   editors_manage_shared_bookmarks     (ALL, USING + WITH CHECK)
+--   collaborators_read_shared_bookmarks (SELECT)
+-- A table grant does not bypass RLS; without the grant the policies never even
+-- get a chance to run.
+--
+-- Deliberately NOT granting anything to `anon` -- that is exactly what the
+-- security fix removed and it must stay removed.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.synced_bookmarks TO authenticated;

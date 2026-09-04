@@ -56,6 +56,26 @@ export interface DownloadedAC {
    *  present on 115 of 438 paragraphs (measured), but the offline copy used
    *  to hardcode it to null -- so a downloaded paragraph silently lost it. */
   reference_text?: string | null
+  /**
+   * Type-specific fields the offline copy also needs, carried as an opaque
+   * blob so a new one never needs a schema change here.
+   *
+   * Added after an offline audit found the saved copy quietly losing content
+   * that changes what the document MEANS:
+   *  - AD: superseded_by / affected_by (92 ADs) -- offline, the amber
+   *    "Superseded" pill and the link to the superseding AD both vanished, so
+   *    a pilot could comply with a superseded AD with nothing on screen to
+   *    suggest it. Plus effective_date (5,616), summary (5,619), make/model.
+   *  - P/CG: see_refs. 358 of 1,406 terms have NO definition and exist purely
+   *    as a cross-reference; offline, see_refs was hardcoded [] so the screen
+   *    printed "it has no standalone definition of its own" with an empty
+   *    See-also -- actively false rather than merely incomplete.
+   *  - AC: date_issued / office / change_number / description (786/786/77/763)
+   *    -- which revision you are reading, and when it was issued.
+   *  - LOI: summary and ocr_quality_score, which drives the "scanned source,
+   *    some words may be misread" accuracy banner on ~a third of the corpus.
+   */
+  meta?: Record<string, unknown> | null
   downloadedAt: string
 }
 

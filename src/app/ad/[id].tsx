@@ -178,7 +178,12 @@ export default function AdScreen() {
   useEffect(() => {
     if (!id) return
     supabase.from('ad_figures').select('id, page_index, image_url').eq('ad_number', id).order('page_index')
-      .then(({ data }) => setFigures((data ?? []) as AdFigureRow[]))
+      // Guarded like ac/[id].tsx's copy: supabase-js RESOLVES {data:null,error}
+      // on a network failure, which is indistinguishable from 'this AD genuinely
+      // has no figures'. Unguarded, going offline set [] and wiped the page scans
+      // just restored from the offline copy, depending purely on which promise
+      // settled last.
+      .then(({ data, error }) => { if (!error && data) setFigures(data as AdFigureRow[]) })
   }, [id])
 
   // Prev/Next chevrons -- RC: "we should have some next/prev chevrons in
@@ -262,6 +267,8 @@ export default function AdScreen() {
         const cached = await findDownload(id)
         if (cached) {
           setAd({
+            // Spread meta FIRST so the explicit fields below always win.
+            ...(cached.meta ?? {}),
             ad_number: cached.id,
             subject_heading: cached.title,
             body_text: cached.body_text ?? null,
@@ -414,6 +421,22 @@ export default function AdScreen() {
         subject_series: null,
         size: (ad.body_text ?? '').length,
         body_text: ad.body_text ?? null,
+        // Carried so the offline copy keeps what changes the document's
+        // MEANING: superseded_by/affected_by drive the amber "Superseded"
+        // pill and the link to the superseding AD (92 ADs), and without them
+        // a pilot could comply offline with a superseded AD and see nothing
+        // suggesting it. effective_date (5,616) and summary (5,619) too.
+        meta: {
+          superseded_by: ad.superseded_by ?? null,
+          affected_by: ad.affected_by ?? null,
+          superseded_ad: ad.superseded_ad ?? null,
+          effective_date: ad.effective_date ?? null,
+          make: ad.make ?? null,
+          model: ad.model ?? null,
+          docket_number: ad.docket_number ?? null,
+          amendment_number: ad.amendment_number ?? null,
+          summary: ad.summary ?? null,
+        },
         figures: figures.map((f) => ({
           id: f.id, label: '', caption: null, page: f.page_index, image_url: f.image_url,
         })),
@@ -818,7 +841,12 @@ export default function AdScreen() {
               and silently downgraded every free-tier AD view to the
               generic "No further text available" message instead of the
               intended paywall CTA. */}
-          {hasPlusAccess ? (
+          {/* `|| offlineCopy`: a local copy can only exist because
+    record_offline_download already verified entitlement SERVER-SIDE at
+    download time, so showing it grants nothing new -- and gating it hid
+    content the user paid for, downloaded, and is now reading with no
+    connection (see auth.tsx's offline session fallback). */}
+        {hasPlusAccess || offlineCopy ? (
             body ? (
               <PlainTextBody
                 ref={bodyRef}

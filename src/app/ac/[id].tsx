@@ -402,15 +402,20 @@ export default function ACDetailScreen() {
               title: cached.title,
               subject_series: cached.subject_series,
               pdf_blocks: cached.pdf_blocks ?? null,
-              date_issued: null,
-              office: null,
-              description: null,
+              // From meta, not hardcoded null. Offline these were all blank,
+              // so a downloaded AC could not tell you WHICH revision you were
+              // reading or when it was issued -- the first thing you check on
+              // a regulatory document. 786/786 ACs carry date_issued and
+              // office, 763 a description, 77 a change_number > 0.
+              date_issued: (cached.meta?.date_issued as string | null) ?? null,
+              office: (cached.meta?.office as string | null) ?? null,
+              description: (cached.meta?.description as string | null) ?? null,
               pdf_text: null,
               pdf_url_cached: null,
               pdf_url_faa: null,
-              change_number: 0,
-              status: 'active',
-              cancels: [],
+              change_number: (cached.meta?.change_number as number | undefined) ?? 0,
+              status: (cached.meta?.status as 'active' | 'inactive' | 'cancelled' | undefined) ?? 'active',
+              cancels: (cached.meta?.cancels as string[] | undefined) ?? [],
               document_id: null,
               updated_at: '',
               changed_block_indices: null,
@@ -628,6 +633,15 @@ export default function ACDetailScreen() {
         pdf_blocks: ac.pdf_blocks ?? null,
         figures: figures ?? null,
         formulaRefs: formulaRefs ?? null,
+        // Which revision, and when issued -- see the restore site's comment.
+        meta: {
+          date_issued: ac.date_issued ?? null,
+          office: ac.office ?? null,
+          description: ac.description ?? null,
+          change_number: ac.change_number ?? 0,
+          status: ac.status ?? 'active',
+          cancels: ac.cancels ?? [],
+        },
       })
       setDownloaded(true)
       // Tell the user when the offline copy is incomplete. The text is saved
@@ -1277,7 +1291,7 @@ export default function ACDetailScreen() {
               <ACBody
                 ref={acBodyRef}
                 blocks={ac.pdf_blocks}
-                bodyLimit={hasPlusAccess ? undefined : previewBlockCount(ac.pdf_blocks_total_count ?? ac.pdf_blocks.length)}
+                bodyLimit={hasPlusAccess || offlineCopy ? undefined : previewBlockCount(ac.pdf_blocks_total_count ?? ac.pdf_blocks.length)}
                 hasProAccess={hasProAccess}
                 scrollRef={scrollRef}
                 viewportHeight={scrollViewportHeight}
@@ -1288,13 +1302,13 @@ export default function ACDetailScreen() {
                 changedIndices={ac.changed_block_indices}
                 highlightedBlockTexts={hasPlusAccess ? highlightedBlockTexts : undefined}
                 onToggleHighlight={handleBlockLongPress}
-                figures={hasPlusAccess ? (figures ?? undefined) : undefined}
+                figures={hasPlusAccess || offlineCopy ? (figures ?? undefined) : undefined}
                 onOpenFigure={hasPlusAccess ? setViewerFigure : undefined}
                 formulaRefs={hasPlusAccess ? (formulaRefs ?? undefined) : undefined}
                 onOpenFormulaRef={hasPlusAccess ? setViewerFormulaRef : undefined}
                 currentLabel={`AC ${ac.document_number}`}
               />
-              {!hasPlusAccess && (ac.pdf_blocks_total_count ?? ac.pdf_blocks.length) > previewBlockCount(ac.pdf_blocks_total_count ?? ac.pdf_blocks.length) && (
+              {!hasPlusAccess && !offlineCopy && (ac.pdf_blocks_total_count ?? ac.pdf_blocks.length) > previewBlockCount(ac.pdf_blocks_total_count ?? ac.pdf_blocks.length) && (
                 <Pressable
                   style={[styles.proGate, { backgroundColor: tokens.bg2, borderColor: tokens.bdr2 }]}
                   onPress={() => { if (!authLoading) router.push('/paywall?tier=plus') }}

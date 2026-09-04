@@ -408,7 +408,19 @@ export async function downloadAllToCache(
       // bounded pool reduces the odds; it does not remove them (a 378-figure
       // AC on a slow link can still outlive its 300-second signed URLs, and
       // any single 404 still drops that image).
-      try { await downloadGatedImageToCache(jobs[i].key, jobs[i].url) } catch { failed++ }
+      // Count NULLS, not throws. downloadAndCache wraps its whole body in a
+      // try/catch that returns null, so downloadGatedImageToCache NEVER
+      // rejects -- offline, an unresolvable signed URL, an expired 300-second
+      // URL and a 404 all come back as null. A `catch { failed++ }` here was
+      // therefore dead code and the "some images are missing" warning could
+      // never fire, which is exactly the false "Saved offline" this counter
+      // exists to prevent.
+      //
+      // Web is excluded because downloadImageToCache returns null there
+      // unconditionally by design (no local file system), so counting it
+      // would report every image as failed in the web preview.
+      const uri = await downloadGatedImageToCache(jobs[i].key, jobs[i].url).catch(() => null)
+      if (Platform.OS !== 'web' && !uri) failed++
     }
   })
   await Promise.all(workers)

@@ -219,8 +219,13 @@ export default function LoiDetailScreen() {
         const cached = await findDownload(slug)
         if (cached) {
           setLoi({
+            // cached.title, NOT cached.document_number. document_number holds
+            // the raw SLUG, which the render then re-humanizes -- so offline a
+            // letter titled "Counsil 2012" online rendered as "counsil 2012".
+            // cached.title is already the humanized form.
+            ...(cached.meta ?? {}),
             slug: cached.id,
-            title: cached.document_number,
+            title: cached.title,
             body_text: cached.body_text ?? null,
           } as LegalInterpretation)
           setOfflineCopy(cached)
@@ -446,6 +451,18 @@ export default function LoiDetailScreen() {
         subject_series: null,
         size: (loi.body_text ?? '').length,
         body_text: loi.body_text ?? null,
+        // ocr_quality_score drives the "this letter's source is a scanned
+        // original -- some words may be misread, the original PDF is
+        // authoritative" banner. Dropping it offline removed an ACCURACY
+        // DISCLOSURE from precisely the copy being read where the PDF cannot
+        // be consulted (~a third of the corpus is scanned).
+        meta: {
+          summary: loi.summary ?? null,
+          ocr_quality_score: loi.ocr_quality_score ?? null,
+          addressee: loi.addressee ?? null,
+          year: loi.year ?? null,
+          cfr_part_reference: loi.cfr_part_reference ?? null,
+        },
       })
       setDownloaded(true)
     } catch (err) {
