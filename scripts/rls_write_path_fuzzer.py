@@ -153,6 +153,41 @@ TABLE_CONFIGS = [
 ]
 
 
+# A cross-account read is not automatically a leak. Some rows are meant to
+# be readable by other signed-in users, and reporting those as gaps every run
+# is how a security check stops being read.
+#
+# The bar for being in here: the exposure must be DELIBERATE, gated on the
+# user's own opt-out, and the opt-out must actually work -- which is asserted
+# below rather than taken on trust, since an allowlist entry that is wrong is
+# worse than no check at all.
+INTENTIONALLY_READABLE = {
+    ("user_streaks", "SELECT"):
+        "Ready Room's leaderboard and the duel opponent list read other players' "
+        "streaks. The policy is stats_visible = true, and RC set that default ON "
+        "deliberately (2026-09-04: \"we want users to... be seen in the app, so "
+        "default is on and they can turn off anytime\"). "
+        "assert_optout_works() below proves turning it off hides the row.",
+}
+
+
+def assert_optout_works(a_id, b_token, results):
+    """Every INTENTIONALLY_READABLE entry has to earn its place.
+
+    Flipping stats_visible off must make A's row disappear for B completely.
+    If it does not, the allowlist above is hiding a real leak rather than
+    excusing an intended one, and this reports it as the failure it is.
+    """
+    mgmt_query("insert into user_streaks (user_id, stats_visible) values "
+               f"('{a_id}', false) on conflict (user_id) do update set stats_visible = false")
+    st, body = rest("GET", f"user_streaks?user_id=eq.{a_id}&select=user_id", b_token)
+    hidden = st in (403, 404) or (isinstance(body, list) and len(body) == 0)
+    print(f"[{'PASS' if hidden else 'FAIL'}] user_streaks opt-out: with stats_visible=false, "
+          f"B sees nothing ({st})")
+    results.append(("user_streaks", "SELECT opt-out", hidden))
+    mgmt_query(f"update user_streaks set stats_visible = true where user_id = '{a_id}'")
+
+
 def main():
     print("Creating 2 disposable test users (A owns the data, B attempts cross-account writes)...")
     a_id, a_email, a_pw = create_disposable_user("rlsfuzza")
@@ -229,9 +264,15 @@ def main():
         sel_blocked = sel_status in (403, 404) or (isinstance(sel_body, list) and len(sel_body) == 0)
 
         for op, blocked, raw_status in [("UPDATE", upd_blocked, upd_status), ("DELETE", del_blocked, del_status), ("SELECT", sel_blocked, sel_status)]:
+            if not blocked and (table, op) in INTENTIONALLY_READABLE:
+                print(f"[PASS (by design)] {table}.{op} -- {INTENTIONALLY_READABLE[(table, op)]}")
+                results.append((table, op, True))
+                continue
             status_str = "PASS (blocked)" if blocked else "FAIL (B succeeded!)"
             print(f"[{status_str}] {table}.{op} by non-owner B against A's row ({raw_status})")
             results.append((table, op, blocked))
+
+    assert_optout_works(a_id, b_token, results)
 
     print("\nCleaning up test data...")
     for table, id_col, row_id in cleanup:
