@@ -307,7 +307,18 @@ const NOTE_TO_SECTION_RE = /^Note\s+\d+\s+to\s+§/
 export function looksLikeRealCaption(line: string | undefined): boolean {
   if (!line) return false
   const trimmed = line.trim()
-  if (trimmed.length === 0 || trimmed.length > 60) return false
+  // No length cap. Measured over every table in the live corpus, the 60-char
+  // limit had a 100% false-positive rate: every caption it rejected was a real
+  // FAA table title and not one was a prose tail -- the punctuation test below
+  // is what actually separates the two. The cap discarded titles like
+  // "Table 9—Minimum Power Density Within Coverage Boundaries", and worse, it
+  // collapsed genuinely different tables onto one label: AD 2017-14-11's
+  // "Affected" and "Non-Affected" ECB tables both rendered as
+  // "Table — AD 2017-14-11", so a part number in the exempt table looked
+  // identical to one in the affected table. Same for FAR 34.23's Tier 6 vs
+  // Tier 8 emission standards (different formulas) and AIM 5-3-1's Uplink vs
+  // Downlink message elements.
+  if (trimmed.length === 0) return false
   return !/[.:,;]$/.test(trimmed)
 }
 
@@ -440,7 +451,18 @@ export function parseTableBlock(para: string): ParsedTable | null {
   // still inside the real table body (reset on every new data row), so
   // this can never fire before the genuine footnote block starts.
   let inFootnoteBlock = false
-  for (let idx = pipedIdx + 1; idx < lines.length; idx++) {
+  // pipedIdx, NOT pipedIdx + 1. captionLines is lines.slice(0, pipedIdx) and
+  // header cells come only from lines carrying TABLE_HEADER_MARK, so when the
+  // FIRST piped line is not scraper-marked as a header it appeared in none of
+  // the three outputs and silently vanished. 30 tables corpus-wide lost their
+  // first line this way, including AIM 4-3-13's TBL 4-3-1 (Light Gun Signals),
+  // which rendered as a 4-column grid with NO column headers at all -- a pilot
+  // had no way to tell the "Aircraft on the Ground" column from "Aircraft in
+  // Flight", which inverts what a steady red light means. Also restored: the
+  // Type A row of FAR 25.807's emergency-exit table and the (1) row of FAR
+  // 47.17's fee schedule. The loop body already skips header lines via
+  // headerIdxSet, so a marked header at pipedIdx still cannot become a row.
+  for (let idx = pipedIdx; idx < lines.length; idx++) {
     if (dataIdxSet.has(idx)) {
       inFootnoteBlock = false
       const cells = lines[idx].split(' | ').map((c) => c.trim())
@@ -647,10 +669,21 @@ export function parseADFigureTable(para: string): ParsedTable | null {
   if (rows.length === 0 || col2Offset === null) return null
   if (rows.some((r) => r.length !== 2 || r[0].length > AD_MAX_CELL_LEN || r[1].length > AD_MAX_CELL_LEN)) return null
 
+  // Everything after the table's closing rule is its footnote block. This used
+  // to be a hardcoded [] -- the tail was parsed away and never rendered, even
+  // though TableGrid and printReg both already draw a footnotes legend.
+  //
+  // AD 2026-07-06's "Affected HPT Lenticular Seal Assemblies" table is the
+  // case that matters: 25 of its 38 rows carry a `*`, and the footnote that
+  // explains it -- "* Serial numbers are PW Model F117-PW-100 engines which
+  // are not installed on U.S. registered airplanes" -- was dropped. The reader
+  // saw 25 asterisked serials in an "Affected" list with the note EXEMPTING
+  // them nowhere on the page. Same shape in AD 2010-26-52 and AD 2005-10-24.
+  const footnoteLines = lines.slice(rLast + 1).map((l) => l.trim()).filter(Boolean)
   return {
     captionLines: captionLines.length > 0 ? captionLines : ['Table'],
     headerCells: buildADHeader(headerLines, col2Offset),
     rows,
-    footnotes: [],
+    footnotes: footnoteLines,
   }
 }

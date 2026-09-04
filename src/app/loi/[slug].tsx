@@ -245,7 +245,15 @@ export default function LoiDetailScreen() {
     // interpretation text -- it merges into the MagicLink pod whenever it
     // happens to resolve.
     getSemanticRelated('loi', slug).then(setSemanticRelated)
-  }, [slug])
+    // Keyed on the ENTITLEMENT too, not just the id. The _gated view
+    // returns a truncated/redacted payload for a non-entitled viewer, and
+    // hasProAccess starts false on cold launch and flips when the entitlement
+    // resolves -- or the moment the user buys from the gate, since the
+    // paywall is PUSHED over this still-mounted screen and writes straight
+    // to the shared auth context. Without refetching, a paying user read a
+    // preview slice under a heading that says FULL TEXT, with nothing on
+    // screen indicating anything was missing.
+  }, [slug, hasProAccess])
 
   const body = loi?.body_text ?? ''
   // What's Changed -- sync/loi_scraper.py only started logging real

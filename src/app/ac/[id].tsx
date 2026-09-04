@@ -425,7 +425,15 @@ export default function ACDetailScreen() {
     isBookmarked(id).then(setBookmarked)
     isDownloaded(id).then(setDownloaded)
     getHighlightsForAC(id).then((hs) => setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!))))
-  }, [id])
+    // Keyed on the ENTITLEMENT too, not just the id. The _gated view
+    // returns a truncated/redacted payload for a non-entitled viewer, and
+    // hasPlusAccess starts false on cold launch and flips when the entitlement
+    // resolves -- or the moment the user buys from the gate, since the
+    // paywall is PUSHED over this still-mounted screen and writes straight
+    // to the shared auth context. Without refetching, a paying user read a
+    // preview slice under a heading that says FULL TEXT, with nothing on
+    // screen indicating anything was missing.
+  }, [id, hasPlusAccess])
 
   // Opportunistic staleness check -- see downloads.ts's isDownloadStale.
   useEffect(() => {
