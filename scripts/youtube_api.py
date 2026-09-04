@@ -6,6 +6,8 @@ Refreshes itself silently, so this never prompts RC again.
     python3 scripts/youtube_api.py channel
     python3 scripts/youtube_api.py list [--max N]        # includes PRIVATE videos
     python3 scripts/youtube_api.py get <videoId>
+    python3 scripts/youtube_api.py upload <file> --title T [--description D] [--tags a,b]
+    python3 scripts/youtube_api.py thumbnail <videoId> <file>
     python3 scripts/youtube_api.py quota                 # what today's calls cost
 
 QUOTA, because it is the real constraint and it is easy to burn silently:
@@ -59,9 +61,17 @@ def cmd_channel(yt, _):
         print(f"  handle    : {s.get('customUrl','(none set)')}")
         print(f"  videos    : {st.get('videoCount','?')}   views: {st.get('viewCount','?')}   subs: {st.get('subscriberCount','?')}")
         print(f"  uploads pl: {c['contentDetails']['relatedPlaylists']['uploads']}")
-        # A channel that is not phone-verified silently fails thumbnail uploads,
-        # so surface it here rather than after a confusing 403 mid-batch.
-        print(f"  can upload custom thumbnails: {c.get('status',{}).get('longUploadsStatus','unknown')}")
+        # MISLABELLED until 2026-09-04: this printed longUploadsStatus under the
+        # heading "can upload custom thumbnails". Those are two different
+        # permissions. longUploadsStatus governs uploads over 15 minutes;
+        # custom thumbnails need channel PHONE VERIFICATION, which the API does
+        # not expose as a field at all. The channel reads "eligible" here and
+        # still 403s on thumbnails.set -- exactly the confusing outcome this
+        # line was added to prevent. Report both honestly instead of implying
+        # one answers the other.
+        print(f"  long uploads (>15 min): {c.get('status',{}).get('longUploadsStatus','unknown')}")
+        print("  custom thumbnails     : not reported by the API -- needs channel")
+        print("                          phone verification; thumbnails.set 403s without it")
     print("\n  cost: 1 unit")
 
 def cmd_list(yt, args):
@@ -154,6 +164,68 @@ def cmd_update(yt, args):
     print(f"  updated {args.video_id}: {', '.join(k for k in spec)}")
     print("  cost: 50 units")
 
+def cmd_upload(yt, args):
+    """Upload a video as PRIVATE. There is deliberately no --public flag.
+
+    Publishing is outward-facing and effectively irreversible once public, so
+    this tool can only ever stage a video; RC flips it public in YouTube Studio
+    after watching it. Matches how every existing FlyRegs video is stored
+    (video_index.md lists both as private).
+
+    Resumable upload, because these files are large -- FR Search.mp4 is 255 MB,
+    and a non-resumable POST that dies at 90% has to start over.
+    """
+    from googleapiclient.http import MediaFileUpload
+    if not os.path.exists(args.file):
+        sys.exit(f"No such file: {args.file}")
+    size_mb = os.path.getsize(args.file) / (1024 * 1024)
+    tags = [t.strip() for t in (args.tags or "").split(",") if t.strip()]
+    body = {
+        "snippet": {
+            "title": args.title,
+            "description": args.description or "",
+            "tags": tags,
+            # 27 = Education. The channel is tutorials, not entertainment;
+            # category drives recommendation surface and is annoying to change
+            # in bulk later.
+            "categoryId": "27",
+        },
+        "status": {
+            "privacyStatus": "private",
+            "selfDeclaredMadeForKids": False,
+        },
+    }
+    media = MediaFileUpload(args.file, chunksize=8 * 1024 * 1024, resumable=True)
+    req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
+    print(f"  uploading {os.path.basename(args.file)} ({size_mb:.0f} MB) as PRIVATE...")
+    resp = None
+    last = -1
+    while resp is None:
+        status, resp = req.next_chunk()
+        if status:
+            pct = int(status.progress() * 100)
+            if pct >= last + 10:
+                print(f"    {pct}%")
+                last = pct
+    vid = resp["id"]
+    print(f"  DONE  videoId={vid}  privacy=private")
+    print(f"  watch: https://www.youtube.com/watch?v={vid}")
+    print("  quota spent: 1,600 units (videos.insert)")
+    return vid
+
+
+def cmd_thumbnail(yt, args):
+    """Set a custom thumbnail. Requires a phone-verified channel; if the channel
+    is not verified this fails rather than silently doing nothing."""
+    from googleapiclient.http import MediaFileUpload
+    if not os.path.exists(args.file):
+        sys.exit(f"No such file: {args.file}")
+    yt.thumbnails().set(videoId=args.video_id,
+                        media_body=MediaFileUpload(args.file)).execute()
+    print(f"  thumbnail set on {args.video_id}")
+    print("  quota spent: 50 units (thumbnails.set)")
+
+
 def cmd_quota(yt, _):
     print("  YouTube Data API v3 default: 10,000 units/day, resets midnight Pacific")
     print("    videos.insert (upload)   1,600   -> ~6 uploads/day")
@@ -171,6 +243,10 @@ def main():
     p = sub.add_parser("get"); p.add_argument("video_id")
     p = sub.add_parser("captions"); p.add_argument("video_id"); p.add_argument("--download", default=None)
     p = sub.add_parser("update"); p.add_argument("video_id"); p.add_argument("spec")
+    p = sub.add_parser("upload")
+    p.add_argument("file"); p.add_argument("--title", required=True)
+    p.add_argument("--description", default=""); p.add_argument("--tags", default="")
+    p = sub.add_parser("thumbnail"); p.add_argument("video_id"); p.add_argument("file")
     sub.add_parser("quota")
     args = ap.parse_args()
     if args.cmd == "quota":
@@ -178,7 +254,8 @@ def main():
     yt = service()
     try:
         {"channel": cmd_channel, "list": cmd_list, "get": cmd_get,
-         "captions": cmd_captions, "update": cmd_update}[args.cmd](yt, args)
+         "captions": cmd_captions, "update": cmd_update,
+         "upload": cmd_upload, "thumbnail": cmd_thumbnail}[args.cmd](yt, args)
     except Exception as e:
         msg = str(e)
         if "insufficientPermissions" in msg or "insufficient authentication scopes" in msg:
