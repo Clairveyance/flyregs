@@ -12,6 +12,7 @@ import {
   syncPushBookmark,
   syncPushFolder,
   syncPushFolderItems,
+  blockedFolderItemIds,
   syncPushNote,
   reportSyncError,
 } from '@/lib/syncPush'
@@ -298,7 +299,15 @@ async function mergeFolderItems(userId: string) {
     }
     // Never push up a row that isn't this account's own -- see
     // FolderItem.authorId's comment for why that would duplicate it remotely.
-    const pushUp = fresh.filter((loc) => !loc.authorId && !relevantRemote.some((r) => r.id === loc.id))
+    // Rows the server has already permanently refused (lost write access to a
+    // shared folder) are skipped while their cooldown holds -- otherwise this
+    // filter re-queues them every single cycle, since "not present remotely"
+    // is a condition a permanently-denied row can never stop satisfying. See
+    // syncPush.ts's BLOCKED_ITEMS_KEY comment.
+    const blocked = await blockedFolderItemIds()
+    const pushUp = fresh.filter(
+      (loc) => !loc.authorId && !relevantRemote.some((r) => r.id === loc.id) && !blocked.has(loc.id)
+    )
     await AsyncStorage.setItem(FOLDER_ITEMS_KEY, JSON.stringify([...merged.values()]))
     return pushUp
   })

@@ -23,6 +23,85 @@ export function reportSyncError(context: string, error: { message: string } | nu
   Sentry.captureException(new Error(`sync push failed (${context}): ${error.message}`))
 }
 
+// RC real-device Sentry, build 36 (2026-08-29, still firing on 09-03): a
+// highlight created inside a shared folder this account has since lost write
+// access to is rejected by enforce_folder_item_access, so it never lands
+// remotely -- and mergeFolderItems' pushUp filter is "local row not present
+// remotely", which that row can never satisfy. So it was re-queued and
+// re-rejected on EVERY sync cycle, forever, firing a Sentry event each time.
+// syncPushFolderItems' own header called this out as a known accepted gap;
+// this closes it.
+//
+// Deliberately a COOLDOWN, not a permanent drop. Collaborator access can be
+// re-granted, and abandoning the row outright would silently strand the
+// user's own highlight forever -- the exact data-loss shape this project
+// keeps fixing. A blocked row is skipped for BLOCKED_RETRY_MS and then tried
+// once more; if access came back it syncs and clears, if not it goes quiet
+// again for another week instead of every few minutes. Nothing local is ever
+// deleted: the highlight stays on the device and stays visible either way.
+const BLOCKED_ITEMS_KEY = '@flyregs/sync-blocked-items'
+const BLOCKED_RETRY_MS = 7 * 24 * 60 * 60 * 1000
+
+type BlockedEntry = { at: number; message: string }
+
+async function readBlocked(): Promise<Record<string, BlockedEntry>> {
+  try {
+    const raw = await AsyncStorage.getItem(BLOCKED_ITEMS_KEY)
+    return raw ? (JSON.parse(raw) as Record<string, BlockedEntry>) : {}
+  } catch {
+    return {}
+  }
+}
+
+async function writeBlocked(map: Record<string, BlockedEntry>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(BLOCKED_ITEMS_KEY, JSON.stringify(map))
+  } catch {
+    /* storage unavailable -- worst case we retry next cycle, same as before */
+  }
+}
+
+/** A denial the server will keep issuing no matter how often we retry (RLS
+ * policy / access trigger), as opposed to a transient network or 5xx blip.
+ * Matching on the access-trigger's own message plus Postgres' RLS wording;
+ * anything unrecognised stays in the old retry-forever behaviour rather than
+ * being wrongly given up on. */
+function isPermanentDenial(message: string): boolean {
+  const m = message.toLowerCase()
+  return (
+    m.includes('do not have write access') ||
+    m.includes('violates row-level security') ||
+    m.includes('row-level security policy')
+  )
+}
+
+/** Item ids currently inside their cooldown window -- skipped by this cycle's
+ * push. Exported so sync.ts can filter them out of pushUp before the network
+ * call, not just swallow the error afterwards. */
+export async function blockedFolderItemIds(): Promise<Set<string>> {
+  const map = await readBlocked()
+  const now = Date.now()
+  return new Set(Object.keys(map).filter((id) => now - map[id].at < BLOCKED_RETRY_MS))
+}
+
+async function markBlocked(id: string, message: string): Promise<boolean> {
+  const map = await readBlocked()
+  const first = !map[id]
+  map[id] = { at: Date.now(), message }
+  await writeBlocked(map)
+  return first
+}
+
+async function clearBlocked(ids: string[]): Promise<void> {
+  if (!ids.length) return
+  const map = await readBlocked()
+  let changed = false
+  for (const id of ids) {
+    if (map[id]) { delete map[id]; changed = true }
+  }
+  if (changed) await writeBlocked(map)
+}
+
 // Split out from sync.ts specifically so bookmarks.ts/folders.ts/notes.ts can
 // import push functions without creating a require cycle — this file only
 // needs types (erased at compile time) from those modules, never their
@@ -203,14 +282,39 @@ export async function syncPushFolderItems(items: FolderItem[], force = false) {
   const { error } = await supabase
     .from('synced_folder_items')
     .upsert(items.map((i) => folderItemRow(userId, i)), { onConflict: 'user_id,id' })
-  if (!error) return
+  if (!error) {
+    // A batch that went through proves every id in it is writable again --
+    // clear any cooldown so a re-granted collaborator isn't left waiting out
+    // the rest of a week for a row that would now sync fine.
+    await clearBlocked(items.map((i) => i.id))
+    return
+  }
   reportSyncError('folder item upsert (batch)', error)
+  const succeeded: string[] = []
   for (const item of items) {
     const { error: itemError } = await supabase
       .from('synced_folder_items')
       .upsert(folderItemRow(userId, item), { onConflict: 'user_id,id' })
+    if (!itemError) {
+      succeeded.push(item.id)
+      continue
+    }
+    if (isPermanentDenial(itemError.message)) {
+      // Report the FIRST time only. This used to fire on every sync cycle
+      // forever for the same row, which is what made it visible in Sentry at
+      // all -- the noise was the symptom, the endless retry was the bug.
+      const first = await markBlocked(item.id, itemError.message)
+      if (first) {
+        reportSyncError(`folder item upsert (${item.item_type}:${item.item_id})`, itemError)
+      } else {
+        console.warn(`[sync] skipping ${item.item_type}:${item.item_id} -- still denied, cooling down`)
+      }
+      continue
+    }
+    // Transient/unknown failure: unchanged behaviour, report and retry next cycle.
     reportSyncError(`folder item upsert (${item.item_type}:${item.item_id})`, itemError)
   }
+  await clearBlocked(succeeded)
 }
 
 export async function syncPushFolderItemDeletes(ids: string[], force = false) {
