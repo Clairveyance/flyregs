@@ -155,7 +155,21 @@ def main():
         req("DELETE", f"/storage/v1/object/aircraft-images/{new_path}", key=SERVICE)
         req("DELETE", f"/rest/v1/user_aircraft?id=eq.{acid}", key=SERVICE)
 
-        print("\n=== 5. Do photos still render for everyone? ===")
+        print("\n=== 5. Are the photo buckets bounded? ===")
+        # Both buckets are public and both accepted any size and any type
+        # until 2026-09-04 -- free unauthenticated file hosting on RC's
+        # storage bill for anyone who signs up. Real photos top out around
+        # 400 KB, so a legitimate upload cannot reach these limits.
+        st, body = req("POST", f"/storage/v1/object/avatars/{uid}/big.jpg",
+                       key=ANON, jwt=jwt, raw=b"\0" * (11 * 1024 * 1024),
+                       ctype="image/jpeg")
+        check("an oversized upload is rejected", st >= 400, f"HTTP {st}")
+        st, body = req("POST", f"/storage/v1/object/avatars/{uid}/payload.bin",
+                       key=ANON, jwt=jwt, raw=b"MZ\x90\x00" * 100,
+                       ctype="application/octet-stream")
+        check("a non-image upload is rejected", st >= 400, f"HTTP {st}")
+
+        print("\n=== 6. Do photos still render for everyone? ===")
         # Re-upload, then fetch the public URL with NO credentials at all --
         # the path every avatar and aircraft photo in the app actually uses.
         req("POST", f"/storage/v1/object/avatars/{path}", key=ANON, jwt=jwt,
