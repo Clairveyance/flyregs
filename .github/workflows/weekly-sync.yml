@@ -90,6 +90,21 @@ jobs:
             *)        ./sync.sh ;;
           esac
 
+      # A scraper that dies writes no scraper_runs row at all, so
+      # scraper_freshness_check.py -- which detects absence of evidence --
+      # could not tell a crash from "not Monday yet" for a whole week. That
+      # is how the 2026-08-31 DRS 503 stayed invisible for five days. This
+      # step runs only when the sync above failed, and leaves the trace the
+      # scraper never got to write.
+      - name: Record the failure so it is not invisible
+        if: failure()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python3 sync/record_job_failure.py --corpus AC \
+          --workflow "$GITHUB_WORKFLOW" \
+          --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
       - name: Clean up secrets file
         if: always()
         run: rm -f .env.scraper

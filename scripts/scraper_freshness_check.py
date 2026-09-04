@@ -41,7 +41,7 @@ CORPORA = {
 MAX_AGE_DAYS = 7
 
 def check(max_age=MAX_AGE_DAYS):
-    stale, missing, ok = [], [], []
+    stale, missing, ok, failed = [], [], [], []
     for name, col in CORPORA.items():
         rows = mgmt_sql(f"""select started_at::date d, status,
                               extract(day from now() - started_at)::int age
@@ -50,23 +50,39 @@ def check(max_age=MAX_AGE_DAYS):
         if not rows:
             missing.append(name); continue
         r = rows[0]
-        (stale if r["age"] > max_age else ok).append((name, r["d"], r["age"], r["status"]))
+        if r["status"] == "failed":
+            failed.append((name, r["d"], r["age"], r["status"]))
+        elif r["age"] > max_age:
+            stale.append((name, r["d"], r["age"], r["status"]))
+        else:
+            ok.append((name, r["d"], r["age"], r["status"]))
     for n, d, a, s in sorted(ok, key=lambda x: x[2]):
         print(f"  OK    {n:<7} last run {d} ({a}d ago, {s})")
     for n, d, a, s in stale:
         print(f"  STALE {n:<7} last run {d} ({a}d ago, {s})  <-- over {max_age} days")
+    for n, d, a, s in failed:
+        print(f"  FAILED {n:<6} last run {d} ({a}d ago) DIED -- see notes on that "
+              f"scraper_runs row for the GitHub run URL")
     for n in missing:
         print(f"  NONE  {n:<7} has NEVER recorded a run")
-    return stale, missing
+    return stale, missing, failed
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--max-age-days", type=int, default=MAX_AGE_DAYS)
     args = ap.parse_args()
     print(f"Scraper freshness (threshold {args.max_age_days} days):")
-    stale, missing = check(args.max_age_days)
-    if stale or missing:
-        print(f"\nFAIL: {len(stale)} stale, {len(missing)} never ran. "
+    stale, missing, failed = check(args.max_age_days)
+    if stale or missing or failed:
+        # A recorded failure is the case this check was blind to until
+        # 2026-09-04: a scraper that DIES writes no row at all, so absence
+        # of evidence looked identical to "not Monday yet" for a full week.
+        # sync/record_job_failure.py now writes a status='failed' row from
+        # the workflow's own if: failure() step -- but that row is RECENT,
+        # so without this branch it would have read as a fresh success and
+        # made things worse rather than better.
+        print(f"\nFAIL: {len(stale)} stale, {len(missing)} never ran, "
+              f"{len(failed)} died mid-run. "
               f"A corpus not scraped weekly means What's New cannot report its changes.")
         sys.exit(1)
     print("\nAll corpora scraped within the window.")
