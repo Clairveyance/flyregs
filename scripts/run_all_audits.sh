@@ -9,7 +9,8 @@
 # issues and are not re-runnable diagnostics), and the E2E scripts that spin
 # up real disposable test accounts (aircraft_e2e_test.py, duel_e2e_test.py,
 # folders_e2e_test.py, game_scenarios_test.py, study_lifecycle_test.py,
-# duel_push_target_test.py, downgrade_matrix_test.py,
+# duel_push_target_test.py, downgrade_matrix_test.py, duel_stagnation_test.py,
+# folder_collab_matrix_test.py,
 # rls_write_path_fuzzer.py) -- those are slower and account-mutating, meant
 # to be run deliberately when touching that subsystem (or periodically for
 # rls_write_path_fuzzer.py specifically -- see PROJECT_NOTES's 2026-08-11
