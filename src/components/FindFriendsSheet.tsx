@@ -143,12 +143,17 @@ export function FindFriendsPickerBody({
     const trimmed = manualCallsign.trim()
     if (!trimmed) { setManualCheck('idle'); return }
     setManualCheck('checking')
+    // `live`, not just clearTimeout -- the cleanup cancels the TIMER but not an
+    // already-issued request, so emptying the field after the RPC fired left a
+    // green "found" confirmation on a blank Callsign box. Same fix as the three
+    // sibling copies of this block (folder/[id], my-aircraft/[id], challenges).
+    let live = true
     const t = setTimeout(() => {
       resolveCallsignToUserId(trimmed)
-        .then((userId) => setManualCheck(userId ? 'found' : 'not_found'))
-        .catch(() => setManualCheck('idle'))
+        .then((userId) => { if (live) setManualCheck(userId ? 'found' : 'not_found') })
+        .catch(() => { if (live) setManualCheck('idle') })
     }, 400)
-    return () => clearTimeout(t)
+    return () => { live = false; clearTimeout(t) }
   }, [manualCallsign])
 
   const loadContacts = async () => {

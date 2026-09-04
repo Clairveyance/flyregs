@@ -4,6 +4,7 @@ import type { AcFigure, FormulaRef } from '@/types'
 import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
 import { supabase } from '@/lib/supabase'
 import { removeFromCache } from '@/lib/imageCache'
+import { withLock } from '@/lib/asyncMutex'
 import { getLatestRevision, type RevisionDocType } from '@/lib/whatsChanged'
 
 const KEY = '@flyregs/downloads'
@@ -309,11 +310,21 @@ export async function addDownload(ac: Omit<DownloadedAC, 'downloadedAt'>) {
   // holding every download (~81 KB of JSON per AC, 636 KB at the largest --
   // measured), re-serialised in full on every add, so a write failure here is
   // a genuinely reachable condition, not a theoretical one.
-  const list = await getDownloads()
-  const filtered = list.filter((d) => d.id !== ac.id)
-  const updated = [{ ...ac, downloadedAt: new Date().toISOString() }, ...filtered]
-  await AsyncStorage.setItem(KEY, JSON.stringify(updated))
-  cache = null // invalidate -- see getDownloads' cache comment above
+  // Locked, like bookmarks/folders/notes. This was the one local store doing an
+  // unguarded read-modify-write, and it holds the largest payloads. getDownloads()
+  // is three awaits deep, and a long figure download (up to 378 images) leaves
+  // that window open for tens of seconds while router.push never unmounts the
+  // screen -- so downloading a second document could drop the first one's entry.
+  // The server-side record_offline_download above still ran, so the document
+  // showed "Saved offline" on its own screen and was simply absent from
+  // Saved > Offline. Found on the plane, which is the whole point of offline.
+  await withLock('downloads', async () => {
+    const list = await getDownloads()
+    const filtered = list.filter((d) => d.id !== ac.id)
+    const updated = [{ ...ac, downloadedAt: new Date().toISOString() }, ...filtered]
+    await AsyncStorage.setItem(KEY, JSON.stringify(updated))
+    cache = null // invalidate -- see getDownloads' cache comment above
+  })
 }
 
 
@@ -339,9 +350,11 @@ export async function removeDownload(id: string) {
   // being shown the result of, so a failure must reach the caller rather than
   // leave the row on disk while the UI shows it gone. (The SERVER call below
   // stays best-effort -- that one genuinely should not undo a local removal.)
-  const list = await getDownloads()
-  await AsyncStorage.setItem(KEY, JSON.stringify(list.filter((d) => d.id !== id)))
-  cache = null
+  await withLock('downloads', async () => {
+    const list = await getDownloads()
+    await AsyncStorage.setItem(KEY, JSON.stringify(list.filter((d) => d.id !== id)))
+    cache = null
+  })
   // Reclaim the image bytes this download put on disk. Without this the row
   // vanished from the UI while every cached figure stayed forever -- AC
   // 43.13-1B alone is 378 figures averaging 326 KB (~123 MB, measured), and

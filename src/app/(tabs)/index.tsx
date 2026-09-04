@@ -485,22 +485,35 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!filterVisible) return
     setLiveCountLoading(true)
+    // Same in-flight guard as the cites typeahead below: toggling two chips
+    // ~300ms apart could settle the "N results" readout on the PREVIOUS chip
+    // selection. (applyFilters itself is already sequence-guarded; this is the
+    // live preview count, which was not.)
+    let live = true
     const t = setTimeout(() => {
-      filterResultCount(activeFilterParams).then(setLiveCount).catch(() => setLiveCount(null)).finally(() => setLiveCountLoading(false))
+      filterResultCount(activeFilterParams)
+        .then((c) => { if (live) setLiveCount(c) })
+        .catch(() => { if (live) setLiveCount(null) })
+        .finally(() => { if (live) setLiveCountLoading(false) })
     }, 300)
-    return () => clearTimeout(t)
+    return () => { live = false; clearTimeout(t) }
   }, [filterVisible, activeFilterParams])
 
   useEffect(() => {
     if (citesQuery.trim().length < 2) { setCitesCandidates([]); setCitesLoading(false); return }
     setCitesLoading(true)
+    // `live`: clearTimeout cancels the timer, not an issued request. Without
+    // this, an older query's candidates repopulated a list the typed text no
+    // longer matches -- and picking one sets filterCitesDoc, filtering the
+    // whole corpus by the wrong citation.
+    let live = true
     const t = setTimeout(() => {
       searchCitableDocuments(citesQuery)
-        .then(setCitesCandidates)
-        .catch(() => setCitesCandidates([]))
-        .finally(() => setCitesLoading(false))
+        .then((c) => { if (live) setCitesCandidates(c) })
+        .catch(() => { if (live) setCitesCandidates([]) })
+        .finally(() => { if (live) setCitesLoading(false) })
     }, 250)
-    return () => clearTimeout(t)
+    return () => { live = false; clearTimeout(t) }
   }, [citesQuery])
 
   const load = useCallback(async () => {

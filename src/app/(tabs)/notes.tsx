@@ -95,16 +95,25 @@ export default function NotesScreen() {
   // every other caller of getNotes() (folder resolution, sync, folder
   // counts) genuinely needs those rows too, so the filter belongs here, at
   // the one call site building the "my notes" list, not in getNotes() itself.
-  useEffect(() => {
-    getNotes().then((n) => setNotes(n.filter((x) => !x.authorId))).finally(() => setNotesLoading(false))
-    isSyncEnabled().then(setSyncEnabled)
-  }, [])
-
+  // useFocusEffect, NOT a mount-only useEffect. This is a persistent <Tabs>
+  // screen, so a mount-only read filled `notes` on the first visit and never
+  // refreshed it again for the whole session -- and notes are edited from
+  // OUTSIDE this screen: inline in folder/[id].tsx (BB-080 moved note editing
+  // there) and by sync.ts's mergeNotes pulling another device's edit.
+  //
+  // That was not just a stale list, it was DATA LOSS. openExisting seeds the
+  // editor from this stale state, and handleSave then builds `saved` from that
+  // stale object and maps it over FRESH storage -- so saving a note here
+  // silently overwrote an edit made to the same note in a folder, and
+  // syncPushNote pushed the stale body to the cloud and to collaborators.
+  // Every other persistent tab (Home, Saved, Recents, Search) already refreshes
+  // on focus for this reason; Notes was the one that was missed.
+  //
+  // The sync flag also has to be re-read here: applyRemoteSyncPreference is
+  // fired unawaited from context/auth.tsx on launch, so this screen's first
+  // render can beat it.
   useFocusEffect(useCallback(() => {
-    // The sync flag can change in the background (applyRemoteSyncPreference,
-    // triggered on app launch from context/auth.tsx, isn't awaited there so
-    // this screen's initial mount can render before it finishes) — re-check
-    // on every focus rather than only once on mount.
+    getNotes().then((n) => setNotes(n.filter((x) => !x.authorId))).finally(() => setNotesLoading(false))
     isSyncEnabled().then(setSyncEnabled)
   }, []))
 

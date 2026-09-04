@@ -479,12 +479,20 @@ export default function FolderDetail() {
     const trimmed = inviteCallsign.trim()
     if (!trimmed) { setCallsignCheck('idle'); return }
     setCallsignCheck('checking')
+    // `live`, not just clearTimeout: the cleanup cancels the TIMER but not an
+    // already-issued request. Emptying the field after the RPC fired left the
+    // resolved verdict overwriting the 'idle' reset, so a blank Callsign box
+    // showed a green "found" confirmation -- and on the Duels screen the
+    // submit is gated on callsignCheck === 'found', so a stale verdict decides
+    // whether the tap does anything. Same pattern AircraftFormFields.tsx
+    // already uses for its own debounced lookups.
+    let live = true
     const t = setTimeout(() => {
       resolveCallsignToUserId(trimmed)
-        .then((userId) => setCallsignCheck(userId ? 'found' : 'not_found'))
-        .catch(() => setCallsignCheck('idle'))
+        .then((userId) => { if (live) setCallsignCheck(userId ? 'found' : 'not_found') })
+        .catch(() => { if (live) setCallsignCheck('idle') })
     }, 400)
-    return () => clearTimeout(t)
+    return () => { live = false; clearTimeout(t) }
   }, [inviteCallsign])
   // BB-078: pick several contacts at once instead of sending the invite
   // link one person at a time via the plain OS share sheet.

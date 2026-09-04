@@ -43,11 +43,21 @@ export default function RefPacketTaskScreen() {
   // something a person actually typed -- see refPackSearch.ts's own
   // isAcsSeeded comment for why that distinction matters (a real free-typed
   // search always runs unconstrained).
+  // Sequence-guarded, like every other search surface in the app. Three call
+  // sites feed this with no ordering between them: the heavy load-time
+  // auto-search on the task title, the 300ms debounced type-ahead, and the
+  // bullet-tap handler. searchRefPackTopic awaits expandQuery then a Promise.all
+  // over N sources, so the title query routinely finishes AFTER a query the
+  // user typed later -- leaving the box reading one thing and the results
+  // showing another. The bare .finally also cleared the spinner as soon as the
+  // FIRST request landed, so the stale list looked settled rather than loading.
+  const searchSeq = useRef(0)
   const runSearch = useCallback((q: string, isAcsSeeded = false) => {
+    const mySeq = ++searchSeq.current
     setSearchLoading(true)
     searchRefPackTopic(q, 4, taskRefsRef.current, isAcsSeeded)
-      .then(setGroups)
-      .finally(() => setSearchLoading(false))
+      .then((g) => { if (mySeq === searchSeq.current) setGroups(g) })
+      .finally(() => { if (mySeq === searchSeq.current) setSearchLoading(false) })
   }, [])
 
   // Knowledge/Risk Management/Skills/Task Elements bullets are topic

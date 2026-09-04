@@ -81,33 +81,44 @@ function useRegPreviewContent(route: string | null, onClose: () => void, highlig
   // childRoute.
   const [childRoute, setChildRoute] = useState<string | null>(null)
 
+  // `cancelled`, because unlike the pushed [id] detail screens this component
+  // stays MOUNTED while `route` changes underneath it -- so a slow fetch for
+  // the previously-peeked reg could resolve after a newer one and render its
+  // text, with its bookmark state on the bookmark button. Tapping bookmark
+  // then saved the wrong document. Dismissing the peek mid-flight hit the same
+  // path, since the `!route` early return cleared state without invalidating
+  // the request. Worst on the tablet SplitPane, where selectedRoute changes in
+  // place and two quick taps in the section rail is all it takes.
   useEffect(() => {
-    if (!route) { setData(null); setNotFound(false); setFigures([]); return }
+    let cancelled = false
+    if (!route) { setData(null); setNotFound(false); setFigures([]); return () => { cancelled = true } }
     const parsed = parsePreviewRoute(route)
     if (!parsed) {
       onClose()
       router.push(route as any)
-      return
+      return () => { cancelled = true }
     }
     setData(null)
     setNotFound(false)
     setFigures([])
     setLoading(true)
     fetchRegPreview(parsed.kind, parsed.id).then((d) => {
+      if (cancelled) return
       if (d) {
         setData(d)
-        isBookmarked(d.id).then(setBookmarked)
+        isBookmarked(d.id).then((b) => { if (!cancelled) setBookmarked(b) })
         if (parsed.kind === 'aim') {
           supabase
             .from('aim_figures')
             .select('id, label, caption, image_url')
             .eq('paragraph_number', d.id)
             .order('sort_order')
-            .then(({ data: figRows }) => setFigures(figRows ?? []))
+            .then(({ data: figRows }) => { if (!cancelled) setFigures(figRows ?? []) })
         }
       } else setNotFound(true)
       setLoading(false)
     })
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route])
 

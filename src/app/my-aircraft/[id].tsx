@@ -229,12 +229,20 @@ export default function AircraftDetailScreen() {
     const trimmed = inviteCallsign.trim()
     if (!trimmed) { setCallsignCheck('idle'); return }
     setCallsignCheck('checking')
+    // `live`, not just clearTimeout: the cleanup cancels the TIMER but not an
+    // already-issued request. Emptying the field after the RPC fired left the
+    // resolved verdict overwriting the 'idle' reset, so a blank Callsign box
+    // showed a green "found" confirmation -- and on the Duels screen the
+    // submit is gated on callsignCheck === 'found', so a stale verdict decides
+    // whether the tap does anything. Same pattern AircraftFormFields.tsx
+    // already uses for its own debounced lookups.
+    let live = true
     const t = setTimeout(() => {
       resolveCallsignToUserId(trimmed)
-        .then((userId) => setCallsignCheck(userId ? 'found' : 'not_found'))
-        .catch(() => setCallsignCheck('idle'))
+        .then((userId) => { if (live) setCallsignCheck(userId ? 'found' : 'not_found') })
+        .catch(() => { if (live) setCallsignCheck('idle') })
     }, 400)
-    return () => clearTimeout(t)
+    return () => { live = false; clearTimeout(t) }
   }, [inviteCallsign])
   // RC: "the a/c invite area should also be able to invite new people (of
   // course that invite comes with the Prem paywall to sub)." The Callsign
@@ -1865,16 +1873,26 @@ function PartPickerModal({ visible, editing, onClose, onPicked }: { visible: boo
   const [relatedTo, setRelatedTo] = useState<PartComponentType | null>(null)
   const [searching, setSearching] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Same request guard parts-lookup.tsx already has around this identical
+  // searchParts call. Without it, clearing the box below 2 chars ran
+  // setResults([]) without invalidating the in-flight request, so an older
+  // query's hits repopulated a list the query no longer matches -- and picking
+  // from it files the WRONG part onto the aircraft, which is what AD
+  // applicability is matched against (adNotifications.ts). Two overlapping
+  // typed queries resolve out of order the same way.
+  const seq = useRef(0)
 
   const handleChange = (text: string) => {
     setQuery(text)
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (text.trim().length < 2) { setResults([]); setRelatedTo(null); return }
+    if (text.trim().length < 2) { seq.current++; setResults([]); setRelatedTo(null); setSearching(false); return }
     setSearching(true)
     debounceRef.current = setTimeout(() => {
+      const mySeq = ++seq.current
       searchParts(text).then(({ results: hits, relatedTo: rel }) => {
+        if (mySeq !== seq.current) return
         setResults(hits); setRelatedTo(rel); setSearching(false)
-      }).catch(() => setSearching(false))
+      }).catch(() => { if (mySeq === seq.current) setSearching(false) })
     }, 250)
   }
 
