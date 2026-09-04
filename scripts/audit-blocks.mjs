@@ -1,45 +1,34 @@
 // Audit all ACs for parser anomalies: false-positive sections, empty blocks, TOC leaks, etc.
 import { createClient } from '@supabase/supabase-js'
-import ts from 'typescript'
 import fs from 'fs'
-import os from 'os'
 import path from 'path'
-import { pathToFileURL } from 'url'
 
 const envPath = path.resolve(process.cwd(), '.env.scraper')
 const env = fs.readFileSync(envPath, 'utf8')
 const get = (k) => (env.match(new RegExp(`^\\s*(?:export\\s+)?${k}=(.+)$`, 'm')) || [])[1]?.trim()
 const supabase = createClient(get('SUPABASE_URL'), get('SUPABASE_SERVICE_KEY'))
 
-// acFormat.ts imports './ocrScannedACs' -- transpiling acFormat alone and
-// dropping it into os.tmpdir() left that relative specifier pointing at a
-// module that was never written there, breaking this script entirely
-// (ERR_MODULE_NOT_FOUND). Transpile both files into the SAME fresh tmp
-// directory instead, with the specifier rewritten to the real .mjs
-// filename Node's ESM resolver requires for a relative import.
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-blocks-'))
-const transpile = (relSrcPath) =>
-  ts.transpileModule(fs.readFileSync(path.resolve(relSrcPath), 'utf8'), {
-    compilerOptions: { module: 'ES2020', target: 'ES2020' },
-  }).outputText
-fs.writeFileSync(path.join(tmpDir, 'ocrScannedACs.mjs'), transpile('src/lib/ocrScannedACs.ts'))
-const acFormatJs = transpile('src/lib/acFormat.ts').replace(
-  "from './ocrScannedACs'",
-  "from './ocrScannedACs.mjs'",
-)
-const tmp = path.join(tmpDir, 'acFormat.mjs')
-fs.writeFileSync(tmp, acFormatJs)
-const { parseAC } = await import(pathToFileURL(tmp).href)
+// This audit reads the STORED pdf_blocks -- it does not re-parse anything.
+// It used to transpile acFormat.ts and ocrScannedACs.ts into a temp dir and
+// dynamic-import parseAC, which was never called. Removed 2026-09-04 (RC:
+// "no extraneous junk in the code to slow it down").
+//
+// The bigger cost was pdf_text: the query pulled it for all 780 ACs -- 67 MB
+// over the wire -- and used it for exactly one thing, a line count, and only
+// for ACs that have between 1 and 4 blocks. Those are now fetched in a
+// second pass, for just the handful that qualify. Same checks, same output;
+// 132s -> a fraction of it.
 
 let page = 0
 const PAGE_SIZE = 100
 let totalACs = 0
 const anomalies = []
+const thinBlockACs = []
 
 while (true) {
   const { data, error } = await supabase
     .from('advisory_circulars')
-    .select('document_number, pdf_text, pdf_blocks')
+    .select('document_number, pdf_blocks')
     .eq('status', 'active')
     .not('pdf_text', 'is', null)
     .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
@@ -79,10 +68,11 @@ while (true) {
       .map(([k]) => k.split('|').slice(1).join('|'))
     if (dupes.length > 0) issues.push(`Duplicate sections: ${dupes.slice(0,3).map(([k]) => k).join(', ')}`)
 
-    // Check for very few blocks relative to text size (TOC over-stripping)
-    const textLines = (ac.pdf_text || '').split('\n').length
-    if (blocks.length > 0 && blocks.length < 5 && textLines > 200) {
-      issues.push(`Suspicious: only ${blocks.length} blocks for ${textLines}-line text`)
+    // Check for very few blocks relative to text size (TOC over-stripping).
+    // Needs pdf_text, which is only fetched for the ACs that can possibly
+    // trigger it -- see the second pass below.
+    if (blocks.length > 0 && blocks.length < 5) {
+      thinBlockACs.push({ doc: ac.document_number, blockCount: blocks.length, issues })
     }
 
     if (issues.length > 0) {
@@ -90,6 +80,26 @@ while (true) {
     }
   }
   process.stdout.write(`\rAudited ${totalACs} ACs...`)
+}
+
+// Second pass: pdf_text, but only for the ACs whose block count is low
+// enough for the TOC-over-stripping check to fire at all. Typically a
+// handful of documents instead of all 780.
+if (thinBlockACs.length) {
+  const { data: texts } = await supabase
+    .from('advisory_circulars')
+    .select('document_number, pdf_text')
+    .in('document_number', thinBlockACs.map((a) => a.doc))
+  const byDoc = new Map((texts || []).map((t) => [t.document_number, t.pdf_text || '']))
+  for (const a of thinBlockACs) {
+    const textLines = (byDoc.get(a.doc) || '').split('\n').length
+    if (textLines > 200) {
+      const issue = `Suspicious: only ${a.blockCount} blocks for ${textLines}-line text`
+      const existing = anomalies.find((x) => x.doc === a.doc)
+      if (existing) existing.issues.push(issue)
+      else anomalies.push({ doc: a.doc, issues: [issue] })
+    }
+  }
 }
 
 console.log(`\n\n=== AUDIT COMPLETE: ${totalACs} ACs checked ===`)

@@ -90,6 +90,25 @@ console.log()
 const FIGURE_RE = /\b(FIGURE|Figure|TABLE|Table)\s+([0-9][0-9A-Za-z.\-]*)\b/g
 
 console.log('=== Check 3: Figures/Tables referenced in text with no matching ac_figures row ===')
+
+// One paged read of ac_figures instead of a per-AC query inside the loop
+// below. That loop issued ~780 sequential round-trips for a table small
+// enough to hold in memory, and was most of this script's runtime. Paged
+// because PostgREST caps a response at 1000 rows and ac_figures is well
+// past that -- an unpaged read would have silently truncated and reported
+// figures as missing that are perfectly present.
+const figuresByAC = new Map()
+for (let from = 0; ; from += 1000) {
+  const { data, error } = await supabase
+    .from('ac_figures').select('ac_id, label').range(from, from + 999)
+  if (error) throw error
+  for (const r of data || []) {
+    if (!figuresByAC.has(r.ac_id)) figuresByAC.set(r.ac_id, new Set())
+    figuresByAC.get(r.ac_id).add((r.label || '').trim())
+  }
+  if (!data || data.length < 1000) break
+}
+
 let docsWithGaps = 0
 for (const ac of allACs) {
   if (!ac.pdf_text) continue
@@ -103,9 +122,7 @@ for (const ac of allACs) {
   }
   if (seen.size === 0) continue
 
-  const { data: figRows, error } = await supabase.from('ac_figures').select('label').eq('ac_id', ac.id)
-  if (error) { console.error(`  ${ac.document_number}: ac_figures query failed`, error); continue }
-  const existingLabels = new Set((figRows || []).map((r) => (r.label || '').trim()))
+  const existingLabels = figuresByAC.get(ac.id) || new Set()
 
   const missing = [...seen.keys()].filter((label) => {
     // Tolerant match: exact label, or same label ignoring case/whitespace.
