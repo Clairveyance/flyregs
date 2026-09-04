@@ -396,7 +396,7 @@ export default function AdScreen() {
     setDownloadBusy(true)
     // allSettled, not all: one page image failing to cache must never take
     // down the whole download and lose the reliable text part too.
-    await downloadAllToCache(figures.map((f) => ({ key: f.id, url: f.image_url })))
+    const imgResult = await downloadAllToCache(figures.map((f) => ({ key: f.id, url: f.image_url })))
     try {
       await addDownload({
         id: ad.ad_number,
@@ -411,6 +411,16 @@ export default function AdScreen() {
         })),
       })
       setDownloaded(true)
+      // Tell the user when the offline copy is incomplete. The text is saved
+      // either way (the reliable part, worth keeping), but claiming "Saved
+      // offline" while images are missing is exactly the bug this closes.
+      if (imgResult.failed > 0) {
+        confirm({
+          title: 'Saved, but some images are missing',
+          message: `${imgResult.failed} image${imgResult.failed === 1 ? '' : 's'} couldn't be downloaded. The text is saved offline; the missing images will need a connection.`,
+          cancelLabel: null,
+        })
+      }
     } catch (err) {
       confirm({ title: 'Error', message: "Couldn't save this AD for offline reading. Try again in a moment.", cancelLabel: null })
     }

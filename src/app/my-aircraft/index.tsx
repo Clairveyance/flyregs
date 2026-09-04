@@ -11,12 +11,14 @@ import { useConfirm } from '@/components/ConfirmDialog'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { RetryImage } from '@/components/RetryImage'
 import { InfoPopup } from '@/components/InfoPopup'
 import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
 import { suggestTypeDesignator } from '@/lib/aircraftModels'
-import { backfillAircraftAds, getAircraftAdNotifications, markAdComplied, unmarkAdComplied, type AircraftAdNotification } from '@/lib/adNotifications'
-import { getAircraftReminders, type AircraftReminder } from '@/lib/adParts'
+import { backfillAircraftAds, getAircraftAdNotifications, markAdComplied, unmarkAdComplied, type AircraftAdNotification, type ComplianceKind } from '@/lib/adNotifications'
+import { getAircraftReminders, addAircraftReminder, updateAircraftReminder, setReminderCompliedHobbs, type AircraftReminder } from '@/lib/adParts'
+import { AdComplianceModal } from '@/components/AdComplianceModal'
 import {
   getFleetSummary,
   getMyPendingAircraftInvites,
@@ -1149,6 +1151,18 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   // re-collapsing/re-expanding the same row doesn't re-fetch.
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedDetails, setExpandedDetails] = useState<Record<string, { ads: AircraftAdNotification[]; reminders: AircraftReminder[] } | 'loading'>>({})
+  // The full recurring/note/next-due AD compliance record, shared with
+  // my-aircraft/[id].tsx's identical modal (see AdComplianceModal.tsx's own
+  // header for why: this screen's ring/row/chip taps used to go straight to
+  // a one-shot confirm dialog with none of that, which is what RC hit on a
+  // real device on B39 -- the ring is the single most obvious tap target on
+  // this whole screen, and it never reached the richer flow at all.
+  const [complianceTarget, setComplianceTarget] = useState<{
+    aircraftId: string
+    ad: AircraftAdNotification
+    currentHobbs: number | null
+    existingReminder: AircraftReminder | null
+  } | null>(null)
   // RC, real device: "i changed the ELT reminder date, and the main screen
   // didn't reflect the change. it's also not even listing the other
   // Reminder there." The cache-once-per-aircraft-id design above is correct
@@ -1252,6 +1266,105 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
     })
   }
 
+  // Opens the full recurring/note/next-due record -- see complianceTarget's
+  // own comment for why this exists. existingReminder has to be resolved
+  // BEFORE the modal opens, not after: AdComplianceModal only pre-fills its
+  // fields in the effect that runs when `visible` flips true, so handing it
+  // an existingReminder that arrives a tick later would leave the form
+  // showing empty/wrong values even though the real record loads fine.
+  // expandedDetails already has it cached once a row's been expanded; if
+  // this aircraft was never expanded (the ring/badge path doesn't require
+  // that), fetch it directly instead of forcing an expand first.
+  const openComplianceModal = async (aircraftId: string, ad: AircraftAdNotification) => {
+    const cached = expandedDetails[aircraftId]
+    let reminderList: AircraftReminder[]
+    if (cached && cached !== 'loading') {
+      reminderList = cached.reminders
+    } else {
+      try {
+        reminderList = await getAircraftReminders(aircraftId)
+      } catch (e: any) {
+        confirm({ title: 'Could not load reminders', message: e?.message ?? 'Unknown error', cancelLabel: null })
+        return
+      }
+    }
+    setComplianceTarget({
+      aircraftId,
+      ad,
+      currentHobbs: aircraft.find((a) => a.aircraftId === aircraftId)?.currentHobbsHours ?? null,
+      existingReminder: reminderList.find((r) => r.linkedAdNumber === ad.adNumber) ?? null,
+    })
+  }
+
+  // Byte-identical logic to my-aircraft/[id].tsx's own onSaved (same
+  // reminder-reuse, same placeholder-due-date/no-push guard, same
+  // targetId-not-a-re-lookup fix) -- just scoped to one aircraft out of the
+  // whole fleet instead of a single loaded aircraft, and refetching that one
+  // aircraft's ads+reminders afterward (this screen has no single `load()`
+  // for one row) instead of a whole-screen reload.
+  const saveComplianceRecord = async (input: {
+    kind: ComplianceKind
+    compliedDate: string
+    note: string
+    nextDueDate: string | null
+    nextDueHobbs: number | null
+    compliedHobbs: number | null
+  }) => {
+    if (!complianceTarget || !session?.user?.id) return
+    const { aircraftId, ad, existingReminder } = complianceTarget
+    const { kind, compliedDate, note, nextDueDate, nextDueHobbs, compliedHobbs } = input
+
+    await markAdComplied(ad.id, note, {
+      kind,
+      compliedAt: new Date(compliedDate + 'T12:00:00').toISOString(),
+    })
+
+    if (kind === 'recurring') {
+      const title = existingReminder ? existingReminder.title : `AD ${ad.adNumber}`
+      try {
+        let targetId: string | null = existingReminder?.id ?? null
+        if (existingReminder) {
+          await updateAircraftReminder(
+            existingReminder.id, title, nextDueDate ?? existingReminder.dueDate,
+            ad.adNumber, note || existingReminder.notes,
+            existingReminder.intervalMonths, nextDueHobbs, existingReminder.intervalDays,
+          )
+        } else if (nextDueDate || nextDueHobbs != null) {
+          targetId = await addAircraftReminder(
+            session.user.id, aircraftId, title,
+            nextDueDate ?? new Date(Date.now() + 365 * 864e5).toISOString().slice(0, 10),
+            ad.adNumber, note || null, null, nextDueHobbs, null,
+          )
+          if (!nextDueDate && targetId) {
+            // Checked, not bare -- see my-aircraft/[id].tsx's copy of this
+            // write for why a silent failure here re-arms a false push.
+            const { error: stampError } = await supabase.from('user_aircraft_reminders')
+              .update({ notified_at: new Date().toISOString() })
+              .eq('id', targetId)
+            if (stampError) throw stampError
+          }
+        }
+        if (compliedHobbs != null && targetId) {
+          await setReminderCompliedHobbs(targetId, compliedHobbs)
+        }
+      } catch (e) {
+        await unmarkAdComplied(ad.id).catch(() => {})
+        throw e
+      }
+    }
+
+    const [freshAds, freshReminders] = await Promise.all([
+      getAircraftAdNotifications(aircraftId),
+      getAircraftReminders(aircraftId),
+    ])
+    setExpandedDetails((prev) => ({ ...prev, [aircraftId]: { ads: freshAds, reminders: freshReminders } }))
+    setAircraft((prev) => prev.map((a) => (a.aircraftId === aircraftId ? {
+      ...a,
+      openAdCount: freshAds.filter((x) => !x.compliedAt).length,
+      compliantAdCount: freshAds.filter((x) => !!x.compliedAt).length,
+    } : a)))
+  }
+
   // RC: after building handleToggleCompliedFromList, still couldn't find any
   // way to mark an AD complied on either My Fleet or My Aircraft -- it was
   // there, but only inside the row's EXPAND panel, a step most people never
@@ -1292,8 +1405,13 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
       title: `Open ADs — ${label}`,
       choices: open.map((n) => ({
         label: `AD ${n.adNumber}`,
+        // The ring and the row's own status badge both funnel through here
+        // -- the two most obvious tap targets on this whole screen, per RC
+        // hitting exactly this path on B39 and never reaching the real
+        // compliance form. Opens the full modal now, not the old one-shot
+        // confirm.
         onPress: canEdit
-          ? () => handleToggleCompliedFromList(a.aircraftId, n)
+          ? () => openComplianceModal(a.aircraftId, n)
           : () => router.push(`/ad/${n.adNumber}` as any),
       })),
     })
@@ -1397,7 +1515,12 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
           setExpandedDetails((prev) => ({ ...prev, [openId]: 'loading' }))
           Promise.all([getAircraftAdNotifications(openId), getAircraftReminders(openId)])
             .then(([ads, reminders]) => setExpandedDetails((prev) => ({ ...prev, [openId]: { ads, reminders } })))
-            .catch(() => {})
+            // Clear the key rather than swallowing: leaving 'loading' in state
+            // strands the panel on a spinner forever, because toggleExpand's
+            // re-open guard is `if (!expandedDetails[id])` and 'loading' is
+            // truthy -- so collapsing and re-expanding does NOT retry. Matches
+            // toggleExpand's own catch for this identical fetch.
+            .catch(() => setExpandedDetails((prev) => { const next = { ...prev }; delete next[openId]; return next }))
         }
         // null (not []) on a failed per-aircraft fetch -- an empty list and
         // an unreachable one produce very different overdue counts, and
@@ -2010,9 +2133,9 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                       disabled={a.role !== 'owner'}
                     >
                     <View style={[styles.row, { backgroundColor: tokens.bg2 }]}>
-                      {a.imagePath ? (
+                      {a.imagePath && getAircraftImageUrl(a.imagePath) ? (
                         <Pressable onPress={(e) => { e.stopPropagation(); setZoomedImage(getAircraftImageUrl(a.imagePath)) }}>
-                          <Image source={{ uri: getAircraftImageUrl(a.imagePath) ?? undefined }} style={styles.rowImage} />
+                          <RetryImage uri={getAircraftImageUrl(a.imagePath)!} style={styles.rowImage} />
                         </Pressable>
                       ) : (
                         <View style={[styles.rowIconBadge, { backgroundColor: tokens.bdim }]}>
@@ -2093,15 +2216,28 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                                       // AD page, a dead end for that action.
                                       // Now offers both, right from the list.
                                       if (!canEdit) { router.push(`/ad/${n.adNumber}` as any); return }
+                                      // RC circled this exact chip row on a
+                                      // real B39 device: "you have to make
+                                      // this function be able to be entered
+                                      // from this page w the chips as well,
+                                      // this is how many users will discover
+                                      // it." Same modal as the ring/badge now
+                                      // -- and an already-complied chip gets
+                                      // an actual edit path (it used to only
+                                      // offer Un-mark, no way back into the
+                                      // note/next-due it already has).
                                       confirm({
                                         title: `AD ${n.adNumber}`,
-                                        choices: [
-                                          {
-                                            label: n.compliedAt ? 'Un-mark Complied' : 'Mark Complied',
-                                            onPress: () => handleToggleCompliedFromList(a.aircraftId, n),
-                                          },
-                                          { label: 'View AD Details', onPress: () => router.push(`/ad/${n.adNumber}` as any) },
-                                        ],
+                                        choices: n.compliedAt
+                                          ? [
+                                              { label: 'Edit Compliance Record', onPress: () => openComplianceModal(a.aircraftId, n) },
+                                              { label: 'Un-mark Complied', onPress: () => handleToggleCompliedFromList(a.aircraftId, n) },
+                                              { label: 'View AD Details', onPress: () => router.push(`/ad/${n.adNumber}` as any) },
+                                            ]
+                                          : [
+                                              { label: 'Mark Complied', onPress: () => openComplianceModal(a.aircraftId, n) },
+                                              { label: 'View AD Details', onPress: () => router.push(`/ad/${n.adNumber}` as any) },
+                                            ],
                                       })
                                     }}
                                   >
@@ -2266,10 +2402,19 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
         }}
       />
 
+      <AdComplianceModal
+        visible={complianceTarget !== null}
+        ad={complianceTarget?.ad ?? null}
+        currentHobbs={complianceTarget?.currentHobbs ?? null}
+        existingReminder={complianceTarget?.existingReminder ?? null}
+        onClose={() => setComplianceTarget(null)}
+        onSaved={saveComplianceRecord}
+      />
+
       {/* Full-screen photo viewer -- see zoomedImage's own comment above. */}
       <Modal visible={!!zoomedImage} transparent animationType="fade" onRequestClose={() => setZoomedImage(null)}>
         <Pressable style={styles.zoomBackdrop} onPress={() => setZoomedImage(null)}>
-          {zoomedImage && <Image source={{ uri: zoomedImage }} style={styles.zoomImage} resizeMode="contain" />}
+          {zoomedImage && <RetryImage uri={zoomedImage} style={styles.zoomImage} resizeMode="contain" />}
           <Pressable style={styles.zoomClose} onPress={() => setZoomedImage(null)} hitSlop={12}>
             <Icon name="xmark" size={fs(20)} color="#fff" />
           </Pressable>

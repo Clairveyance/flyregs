@@ -134,7 +134,16 @@ export const USER_TO_FAA: Record<string, string[]> = {
   stall: ['stall', 'spin', 'recovery'],
   spin: ['spin', 'stall', 'recovery'],
   slip: ['slip', 'sideslip'],
-  glide: ['glide', 'gliding'],
+  // RC, support email, 2026-09-03: "what is power off glide distance" found
+  // nothing useful (his own guess at the right answer, FAR 91.205, turned
+  // out to be wrong too -- checked its full text directly, "glide" never
+  // appears in it at all; that section is about required instruments, not
+  // performance). The real corpus content lives in the Aviation Dictionary,
+  // under handbook-sourced glossary terms ("Best glide", "Best glide speed
+  // (best L/D speed)", "Glide ratio") that this entry's old 'gliding' term
+  // shares no words with -- full-text search structurally cannot connect
+  // them without a bridge to the actual term.
+  glide: ['glide', 'gliding', 'best glide', 'glide ratio'],
 
   // ── Emergencies ──────────────────────────────────────────────────────────
   crash: ['accident', 'collision'],

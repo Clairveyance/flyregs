@@ -280,12 +280,20 @@ export async function enableDailyReg(userId: string): Promise<void> {
   // opt them into AC alerts too) -- only default it to false on a brand-new
   // row. upsert() can't express "leave this column alone on conflict, but
   // set it on insert" in one call, so this checks first.
-  const { data: existing } = await supabase
+  // Same read-failure trap ensurePushTokenRegistered documents above:
+  // supabase-js RESOLVES {data: null, error} on a network blip rather than
+  // throwing, so without this guard `existing` is null, the `?? false` below
+  // writes enabled:false, and the upsert SUCCEEDS -- silently turning AC
+  // Update Alerts off while this toggle flips happily on. account.tsx only
+  // reads alertsEnabled on mount, so the switch keeps showing ON and the user
+  // is never told they stopped getting update alerts.
+  const { data: existing, error: existingError } = await supabase
     .from('push_tokens')
     .select('enabled')
     .eq('user_id', userId)
     .eq('expo_push_token', token)
     .maybeSingle()
+  if (existingError) throw existingError
 
   const { error } = await supabase.from('push_tokens').upsert(
     {
@@ -433,12 +441,20 @@ export async function getWordOfTheDay(): Promise<WordOfTheDay | null> {
 export async function enableDailyWord(userId: string): Promise<void> {
   const token = await getOrRequestPushToken()
 
-  const { data: existing } = await supabase
+  // Same read-failure trap ensurePushTokenRegistered documents above:
+  // supabase-js RESOLVES {data: null, error} on a network blip rather than
+  // throwing, so without this guard `existing` is null, the `?? false` below
+  // writes enabled:false, and the upsert SUCCEEDS -- silently turning AC
+  // Update Alerts off while this toggle flips happily on. account.tsx only
+  // reads alertsEnabled on mount, so the switch keeps showing ON and the user
+  // is never told they stopped getting update alerts.
+  const { data: existing, error: existingError } = await supabase
     .from('push_tokens')
     .select('enabled')
     .eq('user_id', userId)
     .eq('expo_push_token', token)
     .maybeSingle()
+  if (existingError) throw existingError
 
   const { error } = await supabase.from('push_tokens').upsert(
     {
@@ -485,12 +501,20 @@ export async function isDailyWordEnabled(userId: string): Promise<boolean> {
 // Expo push call rather than a new deployed function).
 export async function enableDuelNotifications(userId: string): Promise<void> {
   const token = await getOrRequestPushToken()
-  const { data: existing } = await supabase
+  // Same read-failure trap ensurePushTokenRegistered documents above:
+  // supabase-js RESOLVES {data: null, error} on a network blip rather than
+  // throwing, so without this guard `existing` is null, the `?? false` below
+  // writes enabled:false, and the upsert SUCCEEDS -- silently turning AC
+  // Update Alerts off while this toggle flips happily on. account.tsx only
+  // reads alertsEnabled on mount, so the switch keeps showing ON and the user
+  // is never told they stopped getting update alerts.
+  const { data: existing, error: existingError } = await supabase
     .from('push_tokens')
     .select('enabled')
     .eq('user_id', userId)
     .eq('expo_push_token', token)
     .maybeSingle()
+  if (existingError) throw existingError
 
   const { error } = await supabase.from('push_tokens').upsert(
     {

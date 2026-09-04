@@ -42,7 +42,15 @@ const STOPWORDS = new Set([
  * (except a pure number, which is often the whole point -- "8 hours"). */
 function contentTerms(q: string): string[] {
   const all = q.split(/\s+/).filter(Boolean)
-  const kept = all.filter((w) => !STOPWORDS.has(w) && (w.length >= 3 || /^\d+$/.test(w)))
+  // A single letter used to be dropped as noise (same as "a"/"i") -- but
+  // aviation has real, meaning-carrying single-letter vocabulary: airspace
+  // classes (A/B/C/D/E/G), among others. "class G airspace" scored only on
+  // "class" and "airspace" -- the ONE word that says WHICH class was
+  // silently discarded, so Class B/C/D sections (which share those same two
+  // words) ranked exactly as well as anything about Class G specifically.
+  // Safe to allow generally: "a" and "i", the only single-letter ENGLISH
+  // stopwords, are already excluded by STOPWORDS above regardless of length.
+  const kept = all.filter((w) => !STOPWORDS.has(w) && (w.length === 1 || w.length >= 3 || /^\d+$/.test(w)))
   // If a query is nothing BUT stopwords, fall back rather than score nothing.
   return kept.length > 0 ? kept : all
 }

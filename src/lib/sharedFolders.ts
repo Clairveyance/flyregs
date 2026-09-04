@@ -565,11 +565,19 @@ export async function leaveSharedFolder(folderId: string): Promise<void> {
   const { data } = await supabase.auth.getUser()
   const userId = data.user?.id
   if (!userId) return
-  await supabase
+  // Was a bare await: supabase-js RESOLVES {data, error} instead of throwing,
+  // so an RLS/network failure here left the user still a collaborator while
+  // the confirm dialog closed and the screen popped -- indistinguishable from
+  // having left. The folder stayed in Saved > Shared > With Me and the owner's
+  // roster still listed them as active. declineFolderInvite does the identical
+  // left_at write and has always thrown; this was the outlier.
+  // ConfirmDialog.handleConfirm already renders a thrown message in place.
+  const { error } = await supabase
     .from('folder_collaborators')
     .update({ left_at: new Date().toISOString() })
     .eq('folder_id', folderId)
     .eq('user_id', userId)
+  if (error) throw error
 }
 
 export type FolderCollabMode = 'read_only' | 'read_write'

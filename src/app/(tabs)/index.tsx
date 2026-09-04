@@ -29,7 +29,7 @@ import { ScreenHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { REG_TYPE } from '@/lib/regTypes'
 import { rankSearchResults, isPhrasedQuery, extractPhrase, relevanceTier } from '@/lib/searchRank'
-import { searchOtherSources, routeForUnifiedResult, type UnifiedResult } from '@/lib/unifiedSearch'
+import { searchOtherSources, routeForUnifiedResult, type UnifiedResult, type UnifiedResultType } from '@/lib/unifiedSearch'
 import { expandQuery } from '@/lib/searchSynonyms'
 import { collapseDictationDuplicate, normalizeSearchQuery } from '@/lib/dictation'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
@@ -219,7 +219,7 @@ export default function HomeScreen() {
   // FAR/AIM/P-CG/T&F results, kept in a separate list from the AC-specific
   // rankSearchResults pipeline above — see unifiedSearch.ts for why this
   // isn't folded into the same tiering logic.
-  const [otherResults, setOtherResults] = useState<UnifiedResult[]>([])
+  const [otherResults, setOtherResults] = useState<(UnifiedResult & { allTerms: string[] })[]>([])
   const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
   const [searchLoading, setSearchLoading] = useState(false)
   // searchLoading is owned ENTIRELY by the AC pipeline. The other-sources
@@ -752,16 +752,37 @@ export default function HomeScreen() {
         // fix's spinner into a permanent hang instead of a flash.
         return Promise.all(searchTerms.map((t) => searchOtherSources(t, 20, otherTypes, hasPlusAccess, hasPlusAccess))).then((resultSets) => {
           if (seq !== searchSeq.current) return
-          const seen = new Set<string>()
-          const merged: UnifiedResult[] = []
+          const seen = new Map<string, number>()
+          const merged: (UnifiedResult & { allTerms: string[] })[] = []
           resultSets.forEach((set, i) => {
             for (const r of set) {
               const key = `${r.type}-${r.id}`
-              // Remember WHICH term found this. The merge is a concatenation
-              // (literal query's results, then each expansion's), so without
-              // this a bridge-found answer sat behind every weak literal match
-              // -- "flying drunk" put § 91.17 at #26.
-              if (!seen.has(key)) { seen.add(key); merged.push({ ...r, matchedTerm: searchTerms[i] }) }
+              const idx = seen.get(key)
+              if (idx === undefined) {
+                // Remember WHICH term found this. The merge is a
+                // concatenation (literal query's results, then each
+                // expansion's), so without this a bridge-found answer sat
+                // behind every weak literal match -- "flying drunk" put
+                // § 91.17 at #26.
+                seen.set(key, merged.length)
+                merged.push({ ...r, matchedTerm: searchTerms[i], allTerms: [searchTerms[i]] })
+              } else {
+                // A result can be found by MORE than one search term in the
+                // same round -- record every one, not just the first. RC,
+                // real device sweep, 2026-09-03: "seatbelt sign" bridges to
+                // several words; § 91.107 ("Use of safety belts, SHOULDER
+                // harnesses...") was found via both "restraint" (broad --
+                // also matches dozens of unrelated cargo/parachute
+                // sections, so it gets flood-capped below) and "shoulder"
+                // (precise -- matches almost nothing else), but only
+                // "restraint" ever got recorded here, because it happened
+                // to appear in an earlier search round and this used to
+                // just skip every later occurrence. The far better
+                // "shoulder" match was silently discarded before the
+                // scoring step ever got a chance to prefer it -- buried
+                // 91.107 at position 161 for a query about its own subject.
+                merged[idx].allTerms.push(searchTerms[i])
+              }
             }
           })
           setOtherResults(merged)
@@ -1055,7 +1076,23 @@ export default function HomeScreen() {
       // query, and keep the better (lower) tier. A hit via the expansion
       // "alcohol" is a tier-3 title match for that term even though it
       // shares no word with "flying drunk".
-      const direct = relevanceTier(eff, r.id, r.secondary)
+      const directRaw = relevanceTier(eff, r.id, r.secondary)
+      // Same guard as viaTerm's own floor two blocks down, applied to the
+      // user's OWN literal query too -- it previously only covered the
+      // BRIDGE path. RC, real device sweep, 2026-09-03: "sUAS" (the user's
+      // own typed query, no expansion involved) ranked a 2018 Legal
+      // Interpretation FIRST, ahead of the actual P/CG glossary term and
+      // every relevant AIM section, because "suas" is trivially a substring
+      // of that LOI's own slug ("egan-suas-news-2018" -- an author's
+      // surname + the term + a year) and landed tier 2 on THAT alone. A
+      // slug is not a document number a user partial-types; unlike tier 0
+      // (preserved below -- an exact match is still real signal even for a
+      // slug), tiers 1-2 here are pure identifier-string coincidence, not a
+      // match anyone intended.
+      const directIsSlugType = r.type === 'pcg' || r.type === 'dictionary' || r.type === 'loi'
+      const direct = directIsSlugType && directRaw.tier >= 1 && directRaw.tier <= 2
+        ? { ...directRaw, tier: 3 }
+        : directRaw
       // An expansion is a WEAKER signal than what the user actually typed,
       // so it only rescues a result the literal query couldn't place at all
       // (tier 5 = no title match). Letting it win whenever it scored better
@@ -1067,22 +1104,56 @@ export default function HomeScreen() {
       // -> tier 4, which left it at #6; via the bridge term "vfr weather
       // minimums" it is a full tier-3 title match. Still capped at tier 3 so
       // an expansion can never manufacture an exact/number match.
-      const viaTermRaw = direct.tier >= 4 && r.matchedTerm && r.matchedTerm !== eff
-        ? relevanceTier(r.matchedTerm, r.id, r.secondary)
-        : null
-      // relevanceTier's tier 0-2 mean "the identifier itself equals/starts-
-      // with/contains the query" -- built for a user PARTIAL-TYPING a real
-      // document number ("91.1" -> 91.107). P/CG and A/D `id` is a
-      // snake_case SLUG of the term name, not a number anyone types --
-      // "visual" is trivially a substring of VISUAL_CLIMB_OVER_AIRPORT_VCOA's
-      // own slug, so a one-word expansion term was hitting tier 1/2 via the
-      // SLUG itself, bypassing the tier-3 flood cap below entirely (worse
-      // than the case that guard was built for -- these landed ABOVE every
-      // title-match tier, not at tier 3). An expansion the user never typed
-      // can never legitimately claim "this IS the document you numbered" --
-      // floor it at tier 3 regardless of doc type, so the flood check next
-      // can see and demote it like any other over-broad rescue.
-      const viaTerm = viaTermRaw && viaTermRaw.tier < 3 ? { ...viaTermRaw, tier: 3 } : viaTermRaw
+      //
+      // Tries EVERY term this result was found under (allTerms), not just
+      // the first one recorded in the merge step, and keeps the best-
+      // scoring one. A result found via multiple bridge terms used to only
+      // ever be scored against whichever term happened to appear first in
+      // the search order -- RC, real device sweep, 2026-09-03: § 91.107
+      // ("...shoulder harnesses...") was found via both "restraint" (an
+      // earlier search round) and "shoulder" (a later one), but only
+      // "restraint" was ever recorded, so the far more precise "shoulder"
+      // match never got a chance to be scored at all.
+      //
+      // NOTE on a known remaining gap, found and deliberately left alone
+      // this same pass: when a result's candidate terms TIE at the same
+      // tier and one is flood-capped (too generic) while another isn't, a
+      // full fix requires knowing EVERY result's candidates before picking
+      // any one winner (flooding is a global count, not a per-result one).
+      // A first attempt at that global, two-pass version measured a real
+      // regression on other queries ("ATC light gun signals" lost AIM
+      // 4-3-13 to § 91.155) before it ever shipped -- reverted in favor of
+      // this simpler, verified-safe version. Left as a precisely diagnosed
+      // follow-up rather than risking a new regression to chase it further
+      // under time pressure.
+      let viaTerm: { tier: number; titleHits: number; term: string } | null = null
+      if (direct.tier >= 4) {
+        // Defensive: allTerms should always be set by the merge step above,
+        // but a crash here would take down the whole search screen, not
+        // just degrade one result -- confirmed live 2026-09-03 (`r.allTerms
+        // is not iterable`, root cause not yet pinned down). Falling back to
+        // `r.matchedTerm` alone (the pre-allTerms behavior) on the rare row
+        // that's missing it is a safe degrade, not a crash.
+        for (const term of r.allTerms ?? (r.matchedTerm ? [r.matchedTerm] : [])) {
+          if (term === eff) continue
+          const raw = relevanceTier(term, r.id, r.secondary)
+          // relevanceTier's tier 0-2 mean "the identifier itself equals/
+          // starts-with/contains the query" -- built for a user PARTIAL-
+          // TYPING a real document number ("91.1" -> 91.107). P/CG and A/D
+          // `id` is a snake_case SLUG of the term name, not a number anyone
+          // types -- "visual" is trivially a substring of VISUAL_CLIMB_
+          // OVER_AIRPORT_VCOA's own slug, so a one-word expansion term was
+          // hitting tier 1/2 via the SLUG itself, bypassing the tier-3
+          // flood cap below entirely (worse than the case that guard was
+          // built for -- these landed ABOVE every title-match tier, not at
+          // tier 3). An expansion the user never typed can never
+          // legitimately claim "this IS the document you numbered" -- floor
+          // it at tier 3 regardless of doc type, so the flood check next
+          // can see and demote it like any other over-broad rescue.
+          const floored = raw.tier < 3 ? { ...raw, tier: 3 } : raw
+          if (!viaTerm || floored.tier < viaTerm.tier) viaTerm = { ...floored, term }
+        }
+      }
       const scored = viaTerm && viaTerm.tier <= 3 && viaTerm.tier < direct.tier ? viaTerm : direct
       // A concept anchor means the DB matched the QUESTION to the document
       // that answers it, which outranks any lexical tier. Without this,
@@ -1094,7 +1165,11 @@ export default function HomeScreen() {
       // term rather than the user's own query -- used below both to demote
       // flooded expansion terms and to sort a direct (if weaker) match
       // ahead of expansion noise sharing the same numeric tier.
-      return { r, ...scored, tier: r.anchored ? 0 : scored.tier, viaBridge: scored === viaTerm }
+      return {
+        r, ...scored, tier: r.anchored ? 0 : scored.tier,
+        viaBridge: scored === viaTerm,
+        rescueTerm: scored === viaTerm ? viaTerm?.term : undefined,
+      }
     })
 
     // A generic expansion word (bridge output like "vfr"->"visual" or
@@ -1112,15 +1187,20 @@ export default function HomeScreen() {
     // this SPECIFIC expansion term is flooding THIS SPECIFIC search with
     // many same-tier hits, which is what actually means "too generic to
     // trust." Counted per matchedTerm, not guessed at from word count alone.
+    // rescueTerm, not r.matchedTerm -- since a result can now be rescued by
+    // whichever of ITS several matched terms scored best, the term that
+    // actually earned the rescue is the one that has to be counted, or a
+    // broad term could dodge the cap by never being any one result's
+    // first-seen matchedTerm while still flooding every result it rescues.
     const tier3RescueCounts = new Map<string, number>()
     for (const x of otherScoredRaw) {
-      if (x.viaBridge && x.tier === 3 && x.r.matchedTerm) {
-        tier3RescueCounts.set(x.r.matchedTerm, (tier3RescueCounts.get(x.r.matchedTerm) ?? 0) + 1)
+      if (x.viaBridge && x.tier === 3 && x.rescueTerm) {
+        tier3RescueCounts.set(x.rescueTerm, (tier3RescueCounts.get(x.rescueTerm) ?? 0) + 1)
       }
     }
     const FLOOD_THRESHOLD = 3
     const otherScored = otherScoredRaw.map((x) => {
-      if (x.viaBridge && x.tier === 3 && x.r.matchedTerm && (tier3RescueCounts.get(x.r.matchedTerm) ?? 0) > FLOOD_THRESHOLD) {
+      if (x.viaBridge && x.tier === 3 && x.rescueTerm && (tier3RescueCounts.get(x.rescueTerm) ?? 0) > FLOOD_THRESHOLD) {
         // Pushed below every other real signal (anchor/exact/title/body),
         // not just down one tier -- a document that only surfaced because
         // it happens to contain a generic word many OTHER documents also
@@ -1148,8 +1228,47 @@ export default function HomeScreen() {
       // dozen same-tier expansion-flood P/CG hits (see the single-word
       // rescue cap above), since a shared tier alone doesn't say which
       // result actually answers the query the user typed.
+      // Final tiebreak: the SQL engine's OWN relevance score (out_rank),
+      // highest first. Everything above this decides which of six buckets
+      // a result lands in; nothing before this line said anything about
+      // ORDER within a bucket that shares no title/bridge/AD signal at all
+      // -- which meant tier 5 (a body-text-only match, no title overlap
+      // whatsoever) sorted by pure array-insertion order. RC, real device:
+      // searching "TAA" found 61.1 and 61.129 correctly at the SQL layer
+      // (out_rank ~360, comfortably the #1 and #2 hits in the whole FAR
+      // corpus, full-text-scored against "technically advanced airplane
+      // (TAA)" in their own body text) -- but neither section's TITLE
+      // contains "TAA", so both fell to tier 5 and got buried arbitrarily
+      // among every other unrelated body-only hit. A concept anchor now
+      // covers this exact query (see migrations_taa_concept_anchors.sql),
+      // but that fixes one named case; this fixes the general defect so
+      // the NEXT body-only match that deserves to rank first actually can,
+      // without needing its own anchor first.
+      // Secondary tiebreak within a viaBridge tie at the same tier -- RC's
+      // own stated priority, already quoted three lines up for the AD case
+      // specifically: "the majority of AFR query material will come from
+      // FAR, AIM, P/CG... The ADs and LOIs do need to be included... but
+      // hardly the priority result in most cases." That reasoning only ever
+      // got applied to `ad`; extended here to `loi` and `dictionary` too,
+      // for the same reason, on real evidence, not just consistency: a
+      // single generic bridge word can coincidentally full-title-match a
+      // dictionary/LOI entry that has nothing to do with the question,
+      // tying it with a genuinely relevant FAR/AIM/P/CG hit at the same
+      // tier with no way to prefer the real one. RC, real device sweep,
+      // 2026-09-03: "seatbelt sign" bridges to "shoulder" (real signal --
+      // a seatbelt HAS a shoulder strap), which also, coincidentally,
+      // title-matches "MAN-PORTABLE AIR DEFENSE SYSTEMS (MANPADS)" (a
+      // shoulder-fired weapon) -- unrelated, but it only shares that ONE
+      // word with 2 documents total, so the flood cap (which exists
+      // precisely to catch a bridge term matching too MANY documents)
+      // correctly does not fire, and array order decided the tie. Same
+      // shape for "get paid to fly" -> "hire" tying a spurious P/CG
+      // definition against the actual compensation regulation.
+      const isSecondaryType = (t: UnifiedResultType) => t === 'loi' || t === 'dictionary' || t === 'ad'
       const b = otherScored.filter((x) => x.tier === tier)
-        .sort((x, y) => (x.viaBridge ? 1 : 0) - (y.viaBridge ? 1 : 0) || (x.r.type === 'ad' ? 1 : 0) - (y.r.type === 'ad' ? 1 : 0))
+        .sort((x, y) => (x.viaBridge ? 1 : 0) - (y.viaBridge ? 1 : 0)
+          || (x.viaBridge && y.viaBridge ? (isSecondaryType(x.r.type) ? 1 : 0) - (isSecondaryType(y.r.type) ? 1 : 0) : 0)
+          || (x.r.type === 'ad' ? 1 : 0) - (y.r.type === 'ad' ? 1 : 0) || (y.r.rank - x.r.rank))
       const max = Math.max(a.length, b.length)
       for (let i = 0; i < max; i++) {
         if (i < a.length) rows.push({ key: `ac-${a[i].r.id}`, ac: a[i].r, other: null, tier, ord: nextOrd(tier) })
@@ -1844,7 +1963,13 @@ function HobbsHeaderButton() {
       getFleetSummary().then((fresh) => {
         setFleet(fresh)
         AsyncStorage.setItem(FLEET_SUMMARY_CACHE_KEY + uid, JSON.stringify(fresh)).catch(() => {})
-      }).catch(() => setFleet([]))
+      // Keep whatever is already painted. setFleet([]) here made the whole
+      // Hobbs/fleet button vanish from Home on any transient fetch failure --
+      // reading as "my aircraft are gone" -- and it threw away the cache-first
+      // paint two lines above, which exists for exactly this reason. Same
+      // posture as the auth branch above: a failed lookup is not a downgrade,
+      // and it is not an empty fleet either.
+      }).catch(() => {})
       // session?.user?.id, not the raw `session` object -- confirmed live
       // (2026-08-18): onAuthStateChange fires SIGNED_IN repeatedly for the
       // SAME already-signed-in user (identical token, no real change),

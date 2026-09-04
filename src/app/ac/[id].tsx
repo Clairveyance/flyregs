@@ -603,7 +603,7 @@ export default function ACDetailScreen() {
     // meant ~123 MB in flight and a tail that outlived its own 300-second
     // signed URLs -- failing silently, since allSettled swallows it, and
     // telling the user "Saved offline" with figures missing.
-    await downloadAllToCache([
+    const imgResult = await downloadAllToCache([
       ...(figures ?? []).map((f) => ({ key: f.id, url: f.image_url })),
       ...(formulaRefs ?? []).map((f) => ({ key: f.id, url: f.image_url })),
     ])
@@ -622,6 +622,16 @@ export default function ACDetailScreen() {
         formulaRefs: formulaRefs ?? null,
       })
       setDownloaded(true)
+      // Tell the user when the offline copy is incomplete. The text is saved
+      // either way (the reliable part, worth keeping), but claiming "Saved
+      // offline" while images are missing is exactly the bug this closes.
+      if (imgResult.failed > 0) {
+        confirm({
+          title: 'Saved, but some images are missing',
+          message: `${imgResult.failed} image${imgResult.failed === 1 ? '' : 's'} couldn't be downloaded. The text is saved offline; the missing images will need a connection.`,
+          cancelLabel: null,
+        })
+      }
     } catch (err) {
       Sentry.captureException(err)
       confirm({ title: 'Error', message: "Couldn't save this AC for offline reading. Try again in a moment.", cancelLabel: null })

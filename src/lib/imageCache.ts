@@ -388,8 +388,9 @@ export async function removeFromCache(keys: string[]): Promise<void> {
 export async function downloadAllToCache(
   jobs: { key: string; url: string }[],
   concurrency = 4,
-): Promise<void> {
+): Promise<{ failed: number }> {
   let next = 0
+  let failed = 0
   const workers = Array.from({ length: Math.min(concurrency, jobs.length) }, async () => {
     for (;;) {
       const i = next++
@@ -397,8 +398,19 @@ export async function downloadAllToCache(
       // Per-job swallow, matching the allSettled semantics this replaces: one
       // image failing must never take down the whole download and lose the
       // reliable text part too.
-      try { await downloadGatedImageToCache(jobs[i].key, jobs[i].url) } catch {}
+      //
+      // But NOT swallowing the FACT of the failure any more. This used to
+      // return void, so callers could not know and flipped the button to
+      // "Saved offline" regardless -- the exact symptom this function's own
+      // header names as the bug it was written to fix. Worst on an AD, where
+      // ad_figures holds page SCANS: a scan-only AD's offline copy could have
+      // effectively no content while the app insisted it was saved. The
+      // bounded pool reduces the odds; it does not remove them (a 378-figure
+      // AC on a slow link can still outlive its 300-second signed URLs, and
+      // any single 404 still drops that image).
+      try { await downloadGatedImageToCache(jobs[i].key, jobs[i].url) } catch { failed++ }
     }
   })
   await Promise.all(workers)
+  return { failed }
 }
