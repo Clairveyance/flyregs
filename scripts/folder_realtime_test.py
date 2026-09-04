@@ -81,7 +81,15 @@ def join_folder_channel(jwt, folder_id, received, ready_evt):
             ready_evt.set()
         elif msg.get("event") == "postgres_changes":
             received.append(("change", msg.get("payload")))
-        elif msg.get("event") == "phx_error" or msg.get("event") == "system":
+        elif msg.get("event") == "system":
+            # phx_reply "ok" only means the CHANNEL joined. The
+            # postgres_changes subscription is registered asynchronously
+            # after that, and realtime-js itself waits for this system
+            # message before reporting SUBSCRIBED -- see
+            # RealtimeChannel.js's _onMessage handling of "system".
+            received.append(("_system", msg.get("payload", {}).get("status"),
+                             msg.get("payload", {}).get("message")))
+        elif msg.get("event") == "phx_error":
             received.append(("_meta", msg.get("event"), msg.get("payload")))
 
     ws_app = websocket.WebSocketApp(ws_url(), on_open=on_open, on_message=on_message)
@@ -92,6 +100,22 @@ def wait_for(received, predicate, timeout_s):
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         for item in received:
+            if predicate(item):
+                return item
+        time.sleep(0.25)
+    return None
+
+
+def wait_for_after(received, baseline, predicate, timeout_s):
+    """Like wait_for, but only considers events that arrived after `baseline`.
+
+    The original scanned the whole list from index 0, so the item-INSERT
+    check could have been satisfied by the rename's own event and passed
+    without the insert ever pushing anything.
+    """
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        for item in received[baseline:]:
             if predicate(item):
                 return item
         time.sleep(0.25)
@@ -133,16 +157,29 @@ def main():
         check("channel join status is 'ok' (RLS/access_token accepted)",
               bool(join_msg) and join_msg[1] == "ok", str(join_msg))
 
-        if not (joined_ok and join_msg and join_msg[1] == "ok"):
+        # THE reason this test reported a false failure on 2026-09-04: it
+        # fired the rename the instant phx_reply came back, and the rename
+        # genuinely did not arrive -- not because folder renames don't
+        # replicate (they do; verified separately for both the owner and a
+        # collaborator) but because the postgres_changes subscription was
+        # not live yet. A test that races the thing it is testing reports
+        # the app broken when the test is what's wrong, which is worse than
+        # no test on the feature RC cares most about.
+        sub_live = wait_for(received, lambda r: r[0] == "_system", timeout_s=15)
+        check("postgres_changes subscription went live, not just the channel join",
+              bool(sub_live) and sub_live[1] == "ok", str(sub_live))
+
+        if not (joined_ok and join_msg and join_msg[1] == "ok" and sub_live):
             print("  Cannot proceed to push checks -- channel never joined successfully.")
         else:
             print("\n--- OWNER RENAMES THE FOLDER (synced_folders UPDATE) ---")
             baseline = len(received)
             http("PATCH", f"/rest/v1/synced_folders?id=eq.{folder_id}", key=ANON, jwt=owner["jwt"],
                  body={"name": "Renamed Live", "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-            hit = wait_for(received[baseline:] if False else received,
-                            lambda r: r[0] == "change" and r[1].get("data", {}).get("table") == "synced_folders",
-                            timeout_s=8)
+            hit = wait_for_after(received, baseline,
+                                 lambda r: r[0] == "change"
+                                 and r[1].get("data", {}).get("table") == "synced_folders",
+                                 timeout_s=10)
             check("collaborator's socket received a LIVE push for the folder rename "
                   "(not polling)", hit is not None, "no postgres_changes event for synced_folders arrived within 8s")
 
@@ -152,9 +189,10 @@ def main():
                  body={"id": f"{folder_id}-item", "user_id": owner["id"], "folder_id": folder_id,
                        "item_type": "far", "item_id": "91.3", "deleted": False,
                        "added_at": NOW, "updated_at": NOW})
-            hit2 = wait_for(received,
-                             lambda r: r[0] == "change" and r[1].get("data", {}).get("table") == "synced_folder_items",
-                             timeout_s=8)
+            hit2 = wait_for_after(received, baseline2,
+                                  lambda r: r[0] == "change"
+                                  and r[1].get("data", {}).get("table") == "synced_folder_items",
+                                  timeout_s=10)
             check("collaborator's socket received a LIVE push for the new item "
                   "(not polling)", hit2 is not None, "no postgres_changes event for synced_folder_items arrived within 8s")
 
