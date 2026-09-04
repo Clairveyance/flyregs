@@ -350,6 +350,41 @@ export async function downloadGatedImageToCache(key: string, publicUrl: string):
  *
  * Four at a time keeps the connection busy without either problem.
  */
+/**
+ * Delete cached image files (and their map entries) for the given keys.
+ *
+ * Offline downloads were the only thing writing figure images to disk, but
+ * nothing ever deleted them. removeDownload/clearDownloads dropped the
+ * AsyncStorage record and told the user the download was gone while every
+ * cached figure stayed on disk permanently -- AC 43.13-1B alone is 378
+ * figures averaging 326 KB (~123 MB, measured). The reclaim the user was
+ * promised never happened, and no other code path would ever free it.
+ *
+ * Goes through the same serialised map-write chain as setCacheEntry, since
+ * this is another read-modify-write of the one shared MAP_KEY and must not
+ * race a concurrent download's bookkeeping.
+ *
+ * Best-effort per key: a missing file is the desired end state anyway, so a
+ * delete that throws is swallowed rather than aborting the rest of the sweep.
+ */
+export async function removeFromCache(keys: string[]): Promise<void> {
+  if (!keys.length) return
+  const run = mapWriteChain.then(async () => {
+    const map = await getCacheMap()
+    let changed = false
+    for (const key of keys) {
+      const url = map[key]
+      if (url === undefined) continue
+      try { localFileFor(key, url).delete() } catch { /* already gone */ }
+      delete map[key]
+      changed = true
+    }
+    if (changed) await AsyncStorage.setItem(MAP_KEY, JSON.stringify(map))
+  })
+  mapWriteChain = run.catch(() => {})
+  return run
+}
+
 export async function downloadAllToCache(
   jobs: { key: string; url: string }[],
   concurrency = 4,

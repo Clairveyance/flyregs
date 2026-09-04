@@ -3,6 +3,7 @@ import type { ACBlock } from '@/lib/acFormat'
 import type { AcFigure, FormulaRef } from '@/types'
 import { currentUserId, localDataBelongsTo } from '@/lib/syncOwner'
 import { supabase } from '@/lib/supabase'
+import { removeFromCache } from '@/lib/imageCache'
 import { getLatestRevision, type RevisionDocType } from '@/lib/whatsChanged'
 
 const KEY = '@flyregs/downloads'
@@ -315,6 +316,23 @@ export async function addDownload(ac: Omit<DownloadedAC, 'downloadedAt'>) {
   cache = null // invalidate -- see getDownloads' cache comment above
 }
 
+
+/** Image-cache keys this download owns.
+ *
+ * handleDownload() in ac/[id].tsx and ad/[id].tsx cache every figure and
+ * formula-ref image under that row's OWN id, so the stored metadata is
+ * already an exact manifest of what this download put on disk -- no schema
+ * change and no network call needed to work out what to reclaim, which
+ * matters because removal has to work offline. Legacy rows saved before
+ * figures/formulaRefs were stored simply yield nothing and are left alone.
+ */
+function cachedImageKeys(item: DownloadedAC): string[] {
+  return [
+    ...(item.figures ?? []).map((f) => f.id),
+    ...(item.formulaRefs ?? []).map((f) => f.id),
+  ].filter(Boolean)
+}
+
 export async function removeDownload(id: string) {
   const item = await findDownload(id)
   // Same reasoning as addDownload: the LOCAL write is the thing the user is
@@ -324,6 +342,15 @@ export async function removeDownload(id: string) {
   const list = await getDownloads()
   await AsyncStorage.setItem(KEY, JSON.stringify(list.filter((d) => d.id !== id)))
   cache = null
+  // Reclaim the image bytes this download put on disk. Without this the row
+  // vanished from the UI while every cached figure stayed forever -- AC
+  // 43.13-1B alone is 378 figures averaging 326 KB (~123 MB, measured), and
+  // no other code path ever freed them, so "remove" quietly reclaimed
+  // nothing. Best-effort and AFTER the local write, so a delete failure can
+  // never resurrect a row the user has already been shown as gone.
+  if (item) {
+    try { await removeFromCache(cachedImageKeys(item)) } catch {}
+  }
   // Best-effort -- removing is never blocked, and a failure to clear the
   // server-side record shouldn't undo the local removal the user is
   // already looking at (hence the swallowed catch, after the local write
@@ -337,10 +364,16 @@ export async function removeDownload(id: string) {
 }
 
 export async function clearDownloads() {
+  // Read the manifest BEFORE dropping it -- once KEY is gone there is no
+  // record of which image files belonged to downloads, and they would be
+  // orphaned on disk with nothing left able to identify them.
+  let keys: string[] = []
+  try { keys = (await getDownloads()).flatMap(cachedImageKeys) } catch {}
   try {
     await AsyncStorage.removeItem(KEY)
     cache = null
   } catch {}
+  try { await removeFromCache(keys) } catch {}
 }
 
 export function formatBytes(bytes: number): string {
