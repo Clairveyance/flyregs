@@ -106,6 +106,13 @@ run_one "tier_matrix_test (server-side, real accounts)"              python3 scr
 # that silently.
 run_one "storage_enumeration_test (photo buckets, real account)"     python3 scripts/storage_enumeration_test.py
 run_one "stale_question_sweep (questions whose reg text moved)"     python3 scripts/stale_question_sweep.py
+# Content QUALITY, not just correctness. RC, 2026-09-04: flashcards "need to
+# be real and interactive, simple, relevant test-style Q/As, not obscure junk
+# we've had in the past." Both walk the REAL user path -- get_study_queue and
+# the study_facts overlay, and get_study_pool_count -- rather than reading the
+# tables, because the tables still hold plenty a user never sees.
+run_one "study_card_quality (are the cards worth studying?)"        python3 scripts/study_card_quality_audit.py --decks 4
+run_one "filter_box_audit (do the level filters really carve up the bank?)" python3 scripts/filter_box_audit.py
 run_one "scraper_freshness_check (weekly sync actually ran)"        python3 scripts/scraper_freshness_check.py
 
 # --- Layer 3: functional correctness (slower, --full only) ---
