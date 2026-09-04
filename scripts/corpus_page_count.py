@@ -156,8 +156,13 @@ def main():
     print(f"\n  Defensible published claim: {claim:,}+ pages")
     print(f"  (rounded DOWN to the nearest 5,000 -- what goes on the site should")
     print(f"   be a floor the corpus has cleared, not a ceiling it is reaching for)")
-    print(f"\n  The site says 45,000+ -- "
-          f"{'still true, with room to raise it' if claim >= 45000 else 'NO LONGER TRUE, update it'}.")
+    # RC raised the published figure to 60,000+ on 2026-09-04 once the
+    # density was measured rather than estimated. This checks the number the
+    # site actually carries, so a future corpus change that undercuts it
+    # shows up here instead of on the website.
+    PUBLISHED = 60000
+    print(f"\n  The site says {PUBLISHED:,}+ -- "
+          f"{'still true' if claim >= PUBLISHED else 'NO LONGER TRUE, update it'}.")
 
 
 if __name__ == "__main__":

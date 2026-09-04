@@ -249,6 +249,38 @@ export async function resolvePushUserId(force = false): Promise<string | null> {
   return currentUserId(force)
 }
 
+// Pushes for the SAME bookmark id, run in the order they were issued.
+//
+// Found 2026-09-04 by the two-device parity test. addBookmark() and
+// removeManyBookmarks() both fire their push WITHOUT awaiting it -- correct,
+// and deliberate, because a tap must never wait on the network. But the local
+// writes are serialized by withLock('bookmarks') while the network calls that
+// follow them are not, so un-bookmarking and immediately re-bookmarking the
+// same item could land the DELETE after the ADD. The server row is then
+// deleted=true while the local list still has the bookmark.
+//
+// On the device that did it, nothing looks wrong: mergeBookmarks already
+// refuses a remote soft-delete older than the local copy. The damage is
+// everywhere else -- the user's other device never receives the bookmark, and
+// a reinstall loses it for good.
+//
+// Serializing per ID rather than globally keeps the fix cheap: two different
+// bookmarks still push concurrently, and nothing waits on the lock or on an
+// unrelated request. The chain is dropped once it drains so the map cannot
+// grow without bound.
+const pushChains = new Map<string, Promise<void>>()
+
+function inOrder(id: string, work: () => Promise<void>): Promise<void> {
+  const prev = pushChains.get(id) ?? Promise.resolve()
+  // `.catch` on the tail, not on `work`: one failed push must not stop the
+  // next one for the same id from running, but its own error handling still
+  // belongs to the caller.
+  const next = prev.then(work, work)
+  pushChains.set(id, next)
+  next.finally(() => { if (pushChains.get(id) === next) pushChains.delete(id) })
+  return next
+}
+
 export async function syncPushBookmark(b: BookmarkAC, force = false, preResolvedUserId?: string | null) {
   const userId = preResolvedUserId !== undefined ? preResolvedUserId : await currentUserId(force)
   if (!userId) return
@@ -260,6 +292,7 @@ export async function syncPushBookmark(b: BookmarkAC, force = false, preResolved
   // this SECURITY DEFINER RPC does the identical write server-side (user_id
   // taken from auth.uid() internally, never trusted from the caller) so no
   // caller needs table access anymore.
+  return inOrder(b.id, async () => {
   const { error } = await supabase.rpc('push_bookmark', {
     p_id: b.id,
     p_document_number: b.document_number,
@@ -276,6 +309,7 @@ export async function syncPushBookmark(b: BookmarkAC, force = false, preResolved
     p_block_text: b.blockText ?? null,
   })
   reportSyncError('bookmark upsert', error)
+  })
 }
 
 export async function syncPushBookmarkDeletes(ids: string[]) {
@@ -290,9 +324,26 @@ export async function syncPushBookmarkDeletes(ids: string[]) {
   // bookmarks_write_rpc.sql): this plain UPDATE also turned out to need
   // table-level SELECT once that grant was revoked, confirmed live before
   // shipping this change.
-  const { error } = await supabase.rpc('soft_delete_bookmarks', { p_ids: ids })
-  if (error) { await addPendingDeletes('bookmarks', ids); reportSyncError('bookmark delete', error); return }
-  await clearPendingDeletes('bookmarks', ids)
+  // The delete itself has to BE the chain link, not merely wait for the
+  // current one. Waiting first and then firing the RPC leaves the RPC
+  // outside the chain, so a later add for the same id can still overtake it
+  // -- which is exactly what the first version of this fix did, and the
+  // two-device test kept failing identically.
+  //
+  // One RPC still covers the whole batch: the same in-flight promise is
+  // registered as the chain link for every id in it, so nothing is split and
+  // no id can be written around while the delete is running.
+  let settle: () => void = () => {}
+  const gate = new Promise<void>((res) => { settle = res })
+  const waits = ids.map((id) => inOrder(id, () => gate))
+  try {
+    const { error } = await supabase.rpc('soft_delete_bookmarks', { p_ids: ids })
+    if (error) { await addPendingDeletes('bookmarks', ids); reportSyncError('bookmark delete', error); return }
+    await clearPendingDeletes('bookmarks', ids)
+  } finally {
+    settle()
+    await Promise.all(waits).catch(() => {})
+  }
 }
 
 export async function syncPushFolder(f: Folder, force = false) {
