@@ -95,6 +95,16 @@ run_one "audit_reg_formatting (FAR/AIM/AD/49CFR footer bleed + oversized)"   nod
 run_one "unchecked_supabase_errors (failed read -> destructive action)" python3 scripts/audit_unchecked_supabase_errors.py
 run_one "tier_gate_audit (source-level, every gated surface x tier)" node scripts/tier_gate_audit.mjs
 run_one "tier_matrix_test (server-side, real accounts)"              python3 scripts/tier_matrix_test.py
+# Storage RLS, not table RLS -- a separate policy surface that no other
+# check here covers. Added 2026-09-04 after finding that the anon key alone
+# could LIST the avatars and aircraft-images buckets: folder names are user
+# ids, and the objects behind them are people's faces and their aircraft
+# (whose tail numbers resolve through the FAA registry to a name and
+# address). Sits next to tier_matrix_test because it likewise needs a real
+# account -- it also checks the OTHER direction, that a user can still
+# delete and replace their own photo, since over-tightening SELECT breaks
+# that silently.
+run_one "storage_enumeration_test (photo buckets, real account)"     python3 scripts/storage_enumeration_test.py
 run_one "stale_question_sweep (questions whose reg text moved)"     python3 scripts/stale_question_sweep.py
 run_one "scraper_freshness_check (weekly sync actually ran)"        python3 scripts/scraper_freshness_check.py
 
