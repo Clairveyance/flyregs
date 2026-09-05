@@ -550,7 +550,7 @@ export default function FolderDetail() {
       title: 'Invite to this folder',
       choices: [
         { label: 'Invite by Link', onPress: handleInvite },
-        { label: 'Invite by Callsign', onPress: () => { setTimeout(openCallsignInvite, 300) } },
+        { label: 'Invite by Callsign', onPress: openCallsignInvite },
         { label: 'Invite Multiple (Contacts)', onPress: openBulkInvite },
       ],
     })

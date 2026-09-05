@@ -388,11 +388,11 @@ export default function AircraftDetailScreen() {
         // the object it replaces -- each upload now lands on its own
         // content-addressed name (see aircraftImage.ts) rather than
         // overwriting a fixed one, so nothing else would ever reclaim it.
-        { label: 'Take Photo', onPress: () => { setTimeout(() => runAircraftImagePick((onLocalUri) => takeAndUploadAircraftImage(aircraft.id, aircraft.image_path ?? null, onLocalUri)), 300) } },
-        { label: 'Choose from Library', onPress: () => { setTimeout(() => runAircraftImagePick((onLocalUri) => pickAndUploadAircraftImage(aircraft.id, aircraft.image_path ?? null, onLocalUri)), 300) } },
+        { label: 'Take Photo', onPress: () => runAircraftImagePick((onLocalUri) => takeAndUploadAircraftImage(aircraft.id, aircraft.image_path ?? null, onLocalUri)) },
+        { label: 'Choose from Library', onPress: () => runAircraftImagePick((onLocalUri) => pickAndUploadAircraftImage(aircraft.id, aircraft.image_path ?? null, onLocalUri)) },
         ...(aircraft.image_path ? [{
-          label: 'Remove Photo', destructive: true, onPress: () => {
-            setTimeout(async () => {
+          label: 'Remove Photo', destructive: true, onPress: async () => {
+            {
               setPhotoBusy(true)
               try {
                 await removeAircraftImage(aircraft.id, aircraft.image_path ?? null)
@@ -402,7 +402,7 @@ export default function AircraftDetailScreen() {
                 confirm({ title: 'Error', message: 'Could not remove this photo.', cancelLabel: null })
               }
               setPhotoBusy(false)
-            }, 300)
+            }
           },
         }] : []),
       ],
@@ -455,9 +455,9 @@ export default function AircraftDetailScreen() {
     confirm({
       title: 'Share this aircraft',
       choices: [
-        { label: 'Invite by Callsign', onPress: () => { setTimeout(() => { setInviteMethod('callsign'); setShareStep('role') }, 300) } },
-        { label: 'Invite by Link', onPress: () => { setTimeout(() => { setInviteMethod('link'); setShareStep('role') }, 300) } },
-        { label: 'Invite Multiple (Contacts)', onPress: () => { setTimeout(() => { setInviteMethod('multiple'); setShareStep('role') }, 300) } },
+        { label: 'Invite by Callsign', onPress: () => { setInviteMethod('callsign'); setShareStep('role') } },
+        { label: 'Invite by Link', onPress: () => { setInviteMethod('link'); setShareStep('role') } },
+        { label: 'Invite Multiple (Contacts)', onPress: () => { setInviteMethod('multiple'); setShareStep('role') } },
       ],
     })
   }
