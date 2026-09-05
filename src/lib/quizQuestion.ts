@@ -269,56 +269,6 @@ const RULES: Rule[] = [
   },
 ]
 
-/**
- * Builds a short, direct question whose answer is the passage.
- * Never returns the passage itself.
- */
-export function buildQuizQuestion(src: QuizSource): string {
-  // A P/CG entry already has the cleanest possible question: its own term.
-  if (src.type === 'pcg') {
-    const term = tidy(src.documentNumber || src.title || '')
-    if (term) return `What is ${term}?`
-  }
-
-  // An AC's only body text IS its title, so anchoring the question to the
-  // document number produced a tautology -- seen live in Study Mode:
-  //   Q: "What does AC 25.1329-1C say about Approval of Flight Guidance
-  //       Systems, Including Change 2?"
-  //   A: "Approval of Flight Guidance Systems, Including Change 2"
-  // The answer was the question. The document number is the thing worth
-  // recalling, which is exactly the shape a Duel already uses for ACs
-  // (prompt = title, choices = AC numbers).
-  if (src.type === 'ac' && src.title && tidy(src.title).length > 3) {
-    return `Which AC covers ${midSentence(shortTopic(src.title))}?`
-  }
-
-  // A title that is already a question IS the question. 94 FAR sections are
-  // written this way, and wrapping them produced "...for exemption??".
-  if (src.title && isQuestionTitle(src.title)) {
-    const asked = src.title.trim()
-    return `${anchor(src)} — ${asked.charAt(0).toUpperCase()}${asked.slice(1)}`
-  }
-
-  const sentence = firstSentence(src.text)
-  for (const rule of RULES) {
-    const m = sentence.match(rule.test)
-    if (m) {
-      const q = rule.build(m, src)
-      // 160 was far too generous for something meant to read like a game
-      // show prompt; the p90 was 113 characters. Rules that blow past 120
-      // now fall through to the shorter title-based question instead.
-      if (q && q.length <= 120) return q
-    }
-  }
-
-  // Fallback: still a real question, anchored to the document's own topic —
-  // never a raw slab of the regulation.
-  if (src.title && tidy(src.title).length > 3) {
-    return `What does ${anchor(src)} say about ${midSentence(shortTopic(src.title))}?`
-  }
-  return `What does ${anchor(src)} require?`
-}
-
 // ---------------------------------------------------------------------------
 // STUDY CARD FACES — the flashcard contract, set explicitly by RC 2026-07-31:
 //   "The Q has to be one short, single sentence or phrase. The A should just

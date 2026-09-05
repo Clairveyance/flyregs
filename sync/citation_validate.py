@@ -28,6 +28,15 @@ import os
 import re
 
 import requests
+import sys
+
+# Same retry wiring as the three loi_*_citations.py callers that import this
+# module -- see sync/http_retry.py. Its own two requests.get calls run inside
+# the Weekly LOI Sync, where a single transient 5xx fails the whole job.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from http_retry import retrying_session
+requests = retrying_session()
+
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")

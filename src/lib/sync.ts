@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '@/lib/supabase'
 import { getBookmarks } from '@/lib/bookmarks'
@@ -769,7 +770,24 @@ export async function applyRemoteSyncPreference(userId: string, remoteSyncEnable
     // above -- this fires unawaited from auth.tsx on every app launch, so an
     // unguarded throw here would surface as a console warning on any
     // transient blip for no benefit (nothing awaits or reacts to it).
-    supabase.auth.updateUser({ data: { sync_enabled: true } }).catch(() => {})
+    //
+    // The `.catch()` this used to carry never fired: supabase-js's auth
+    // methods RESOLVE {data, error} exactly like its PostgREST ones, so the
+    // comment above described a guard that was not doing anything, and a real
+    // failure to write sync_enabled left the account's metadata disagreeing
+    // with the device forever, silently. This is the state THIS BLOCK EXISTS
+    // to repair -- a remote flag that is null while the device says sync is
+    // on -- so failing to repair it is worth a Sentry line, even though it is
+    // still deliberately not awaited and still never surfaced to the user.
+    void supabase.auth
+      .updateUser({ data: { sync_enabled: true } })
+      .then(({ error }) => {
+        if (error) {
+          Sentry.captureException(error, {
+            tags: { feature: 'sync_state_reconcile' }, extra: { userId },
+          })
+        }
+      })
   } else if (remoteSyncEnabled === true && local) {
     // Steady state: sync already on, both sides agree -- the common case
     // on every normal launch. Nothing reconciled a stuck row here before:

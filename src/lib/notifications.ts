@@ -20,12 +20,6 @@ import * as Sentry from '@sentry/react-native'
 
 export type AlertPermissionState = 'granted' | 'denied' | 'undetermined'
 
-export async function getAlertPermissionState(): Promise<AlertPermissionState> {
-  if (Platform.OS === 'web') return 'denied'
-  const { status } = await Notifications.getPermissionsAsync()
-  return status as AlertPermissionState
-}
-
 // Requests the OS permission (if not already granted) and returns a live
 // Expo push token. Throws PERMISSION_DENIED so callers can show the "enable
 // it in Settings" messaging instead of silently leaving their toggle in a

@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/react-native'
 import * as ImagePicker from 'expo-image-picker'
 import { File } from 'expo-file-system'
 import type { Session } from '@supabase/supabase-js'
@@ -144,7 +145,15 @@ export async function takeAndUploadAvatar(userId: string, onLocalUri?: (uri: str
 // show a broken image.
 export async function removeAvatar(userId: string): Promise<void> {
   const path = `${userId}/avatar.jpg`
-  await supabase.storage.from('avatars').remove([path]).catch(() => {})
+  // NOT .catch() -- supabase-js storage RESOLVES {data, error}; it never
+  // rejects, so a .catch here caught nothing while reading as if it did.
+  // Genuinely best-effort (an orphan nothing points at is harmless), but the
+  // failure is now recorded instead of imagined away. Same fix as
+  // aircraftImage.ts, which is this file's sibling by design.
+  const { error: removeError } = await supabase.storage.from('avatars').remove([path])
+  if (removeError) {
+    Sentry.captureException(removeError, { tags: { feature: 'avatar' }, extra: { path } })
+  }
   const { error } = await supabase.auth.updateUser({ data: { avatar_url: null, avatar_preset: null } })
   if (error) throw error
 }
@@ -155,7 +164,15 @@ export async function removeAvatar(userId: string): Promise<void> {
 // leftover Storage object with nothing pointing at it is harmless.
 export async function selectAvatarPreset(userId: string, presetId: string): Promise<void> {
   const path = `${userId}/avatar.jpg`
-  await supabase.storage.from('avatars').remove([path]).catch(() => {})
+  // NOT .catch() -- supabase-js storage RESOLVES {data, error}; it never
+  // rejects, so a .catch here caught nothing while reading as if it did.
+  // Genuinely best-effort (an orphan nothing points at is harmless), but the
+  // failure is now recorded instead of imagined away. Same fix as
+  // aircraftImage.ts, which is this file's sibling by design.
+  const { error: removeError } = await supabase.storage.from('avatars').remove([path])
+  if (removeError) {
+    Sentry.captureException(removeError, { tags: { feature: 'avatar' }, extra: { path } })
+  }
   const { error } = await supabase.auth.updateUser({ data: { avatar_url: null, avatar_preset: presetId } })
   if (error) throw error
 }

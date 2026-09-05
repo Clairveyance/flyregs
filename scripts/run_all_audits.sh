@@ -104,6 +104,20 @@ run_one "modal_over_modal (a dialog must close before opening another)" python3 
 # first pass only reached the browse lists. A screen missing one of its three
 # pieces still compiles and silently does nothing, so it is checked here.
 run_one "back_to_top_audit (every long list can jump back to the top)" python3 scripts/back_to_top_audit.py
+# Whole-app static sweep for the defect CLASSES this codebase repeats:
+# .catch() on a resolving API, a failed read defaulting to a confident
+# answer before a delete, Alert.alert (a no-op on web), dead lib exports.
+run_one "sweep_static_defects (repeat defect classes, corpus-wide)" python3 scripts/sweep_static_defects.py
+# Live database posture: RLS, what anon and a brand-new FREE account can
+# actually read, writing SECURITY DEFINER RPCs reachable with the public
+# key, and whether every cron job's last run really succeeded.
+run_one "sweep_db_posture (RLS, anon/free probes, cron health)" python3 scripts/sweep_db_posture.py
+# Does the app ever select a column the client has no grant on? That 403s
+# at runtime and supabase-js resolves it as empty -- it has shipped twice.
+run_one "column_grant_audit (every select vs live column grants)" python3 scripts/column_grant_audit.py
+# Show my stats must really hide ratings, coins and streak -- proven with a
+# brand-new free account, the way an attacker would.
+run_one "profile_privacy_gate (Show my stats actually hides)" python3 scripts/profile_privacy_gate_test.py
 # Highlights inside shared folders: RC's read-only vs read/write rule, both
 # directions, and access being revoked. Real user JWTs against the live DB.
 run_one "shared_folder_highlights (RO sees, RW edits, revoke stops it)" python3 scripts/shared_folder_highlights_e2e_test.py

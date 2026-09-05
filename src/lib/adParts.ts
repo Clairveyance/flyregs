@@ -303,18 +303,6 @@ export async function getAdsForPart(partId: string): Promise<PartMentionAd[]> {
   return (data ?? []).map((r: any) => ({ adNumber: r.ad_number, subjectHeading: r.airworthiness_directives?.subject_heading ?? '' }))
 }
 
-export async function suggestPart(name: string, componentType: PartComponentType, manufacturer: string | null, userId: string): Promise<void> {
-  const { error } = await supabase.from('ad_parts').insert({
-    name: name.trim(),
-    component_type: componentType,
-    manufacturer: manufacturer?.trim() || null,
-    source: 'user_suggested',
-    status: 'pending_review',
-    suggested_by: userId,
-  })
-  if (error) throw error
-}
-
 // ─── Equipment tags on a saved aircraft ────────────────────────────────────
 
 export interface AircraftEquipment {

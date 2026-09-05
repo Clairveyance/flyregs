@@ -98,18 +98,6 @@ export interface SharedAircraftSummary {
   ownerLabel: string
 }
 
-// Aircraft shared WITH the current user (not owned) -- combine with the
-// user's own owned aircraft to build the full My Fleet list.
-export async function getMySharedAircraft(): Promise<SharedAircraftSummary[]> {
-  const { data, error } = await supabase.rpc('get_my_shared_aircraft')
-  if (error) throw error
-  return (data ?? []).map((row: any) => ({
-    aircraftId: row.out_aircraft_id, make: row.out_make, model: row.out_model,
-    nickname: row.out_nickname, typeDesignator: row.out_type_designator, year: row.out_year,
-    role: row.out_role, ownerLabel: row.out_owner_label,
-  }))
-}
-
 export interface AircraftCollaborator {
   userId: string
   displayLabel: string

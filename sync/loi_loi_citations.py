@@ -71,6 +71,22 @@ import sys
 
 import requests
 
+# Retries on the Supabase calls below, for the same reason loi_scraper.py got
+# them (see sync/http_retry.py): ONE transient 5xx anywhere in sync_loi.sh
+# fails the entire Weekly LOI Sync, and that job has failed 3 of its last 5
+# scheduled runs. The DRS half was fixed on 2026-09-03; this half -- the three
+# citation passes that run AFTER the scrape -- was still bare `requests.get`
+# with no adapter, so a blip here would still lose the whole week's sync after
+# the expensive part had already succeeded. Found in the 2026-09-05 sweep.
+#
+# `requests` is rebound to a retrying Session, so every existing
+# requests.get/post/delete call in this file gets the policy with no other
+# change -- the Session API is call-compatible for these verbs.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from http_retry import retrying_session
+requests = retrying_session()
+
+
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")

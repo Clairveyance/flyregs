@@ -301,16 +301,3 @@ export function routeForUnifiedResult(r: UnifiedResult): string {
   }
 }
 
-export function labelForUnifiedType(t: UnifiedResultType): string {
-  switch (t) {
-    case 'far': return 'FAR'
-    case 'aim': return 'AIM'
-    case 'pcg': return 'P/CG'
-    case 'ad': return 'AD'
-    case 'figure_ac': return 'T&F'
-    case 'figure_aim': return 'T&F'
-    case 'dictionary': return 'A/D'
-    case 'cfr49': return '49 CFR'
-    case 'loi': return 'LOI'
-  }
-}

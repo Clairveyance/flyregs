@@ -63,47 +63,6 @@ async function _load(): Promise<ACIndexEntry[]> {
   return entries
 }
 
-/** Fast in-memory search over the local index. Returns up to 30 results. */
-export function searchLocal(query: string, index: ACIndexEntry[]): ACIndexEntry[] {
-  const q = query.toLowerCase().trim()
-  if (q.length < 2 || index.length === 0) return []
-
-  const words = q.split(/\s+/).filter((w) => w.length >= 2)
-  const scored: { entry: ACIndexEntry; score: number }[] = []
-
-  for (const entry of index) {
-    const dn = entry.document_number.toLowerCase()
-    const ti = entry.title.toLowerCase()
-    const ds = (entry.description ?? '').toLowerCase()
-    let score = 0
-
-    if (dn === q)                                                    score = 100
-    else if (dn.startsWith(q))                                       score = 90
-    else if (dn.includes(q))                                         score = 72
-    else if (ti === q)                                               score = 68
-    else if (ti.startsWith(q))                                       score = 62
-    else if (ti.includes(q))                                         score = 48
-    else if (words.length > 1 && words.every((w) => ti.includes(w))) score = 38
-    else if (ds.includes(q))                                         score = 24
-    else if (words.length > 1 && words.every((w) => ds.includes(w))) score = 14
-
-    if (score > 0) scored.push({ entry, score })
-  }
-
-  return scored
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 30)
-    .map((s) => s.entry)
-}
-
-/**
- * Returns true when the query looks like an AC number (starts with a digit).
- * For these, prefix/contains queries are sufficient; the full-text RPC adds nothing.
- */
-export function isACQuery(query: string): boolean {
-  return /^\d/.test(query.trim())
-}
-
 // ─── Note body AC auto-linking ──────────────────────────────────────────────
 // Originally local to notes.tsx; moved here so any other read-only note view
 // (e.g. the shared-folder collaborator view) can auto-link the same way

@@ -139,6 +139,11 @@ def main():
     folder_id = f"hltest{secrets.token_hex(4)}"
     AC_ID = "91.103"
     try:
+        mate_callsign = f"HLMATE{secrets.token_hex(2).upper()}"
+        http("POST", "/rest/v1/callsign_registry", key=SERVICE,
+             headers={"Prefer": "resolution=merge-duplicates"},
+             body={"user_id": mate["id"], "callsign": mate_callsign})
+
         st, _ = http("POST", "/rest/v1/synced_folders", key=ANON, jwt=owner["jwt"],
                      body={"id": folder_id, "user_id": owner["id"], "name": "Highlight test",
                            "collab_mode": "read_write", "deleted": False,
@@ -229,6 +234,14 @@ def main():
               bool(mine) and bool(mine[0].get("block_text")), str(mine))
         check("...marked editable (owner of a read_write folder)",
               bool(mine) and mine[0].get("can_edit") is True, str(mine))
+        # The label is what the long-press menu prints ("Remove <name>'s
+        # Highlight"). callsign_registry has RLS on with ZERO policies, so a
+        # SECURITY INVOKER function cannot read it and this silently degrades
+        # to the fallback word for everyone -- checked explicitly because a
+        # wrong-but-plausible label is exactly the kind of thing that ships.
+        check("...labelled with the collaborator's real callsign, not the fallback",
+              bool(mine) and mine[0].get("owner_label") == mate_callsign,
+              f"got {mine[0].get('owner_label') if mine else None!r}, expected {mate_callsign!r}")
         check("...and NOT carrying the caller's own highlight back to them",
               all(r["id"] != own_hl["id"] for r in (rows or [])), str(rows))
 
@@ -279,6 +292,7 @@ def main():
         check("a collaborator who loses Premium loses shared-folder access",
               st == 200 and len(rows or []) == 0, f"{st} {rows}")
     finally:
+        http("DELETE", f"/rest/v1/callsign_registry?user_id=in.({owner['id']},{mate['id']})", key=SERVICE)
         http("DELETE", f"/rest/v1/folder_collaborators?folder_id=eq.{folder_id}", key=SERVICE)
         http("DELETE", f"/rest/v1/synced_folder_items?folder_id=eq.{folder_id}", key=SERVICE)
         http("DELETE", f"/rest/v1/synced_bookmarks?ac_id=eq.{AC_ID}&user_id=in.({owner['id']},{mate['id']})", key=SERVICE)

@@ -301,21 +301,45 @@ def check_github_actions():
     if not target:
         return "WARN", f"no FlyRegs repo among {len(repos)} repos"
     full = target["full_name"]
-    st, runs = gh(f"/repos/{full}/actions/runs?per_page=20")
-    if st != 200:
-        return "WARN", f"{full}: runs HTTP {st}"
-    rs = runs.get("workflow_runs", [])
-    if not rs:
-        return "WARN", f"{full}: no workflow runs at all"
-    latest = {}
-    for r in rs:
-        latest.setdefault(r["name"], r)
-    failed = [f"{n} ({r['conclusion']}, {r['created_at'][:10]})"
-              for n, r in latest.items() if r["conclusion"] not in ("success", None)]
-    newest = max(r["created_at"] for r in rs)[:10]
+
+    # PER WORKFLOW, not the last N runs.
+    #
+    # This used to fetch /actions/runs?per_page=20 and take the newest run per
+    # workflow name. That silently stops working as run volume grows: this repo
+    # has THREE daily workflows and NINE weeklies, so a 20-run window covers
+    # about six days of dailies and then contains no weekly at all. It caught
+    # the 2026-08-31 Weekly LOI Sync failure on 09-05 by roughly two days'
+    # margin, and would have gone blind to it -- and to every future weekly
+    # failure -- within the week. A monitor that quietly stops monitoring is
+    # worse than no monitor, and this project has already been bitten by
+    # exactly that (gotcha_scheduled_jobs_fail_silently).
+    #
+    # Asking each workflow for its own latest run is exact regardless of how
+    # often anything else runs.
+    st, wfs = gh(f"/repos/{full}/actions/workflows?per_page=100")
+    if st != 200 or not isinstance(wfs, dict):
+        return "WARN", f"{full}: workflows HTTP {st}"
+    workflows = [w for w in wfs.get("workflows", []) if w.get("state") == "active"]
+    if not workflows:
+        return "WARN", f"{full}: no active workflows"
+
+    failed, never_run, newest = [], [], ""
+    for w in workflows:
+        st, runs = gh(f"/repos/{full}/actions/workflows/{w['id']}/runs?per_page=1")
+        rs = (runs or {}).get("workflow_runs", []) if st == 200 else []
+        if not rs:
+            never_run.append(w["name"])
+            continue
+        r = rs[0]
+        newest = max(newest, r["created_at"])
+        if r["conclusion"] not in ("success", None):
+            failed.append(f"{w['name']} ({r['conclusion']}, {r['created_at'][:10]})")
+
     if failed:
         return "WARN", f"{full}: last run failed -- {'; '.join(failed)}"
-    return "OK", f"{full}: {len(latest)} workflows, all green, newest {newest}"
+    if never_run:
+        return "WARN", f"{full}: {len(workflows)} workflows; never run: {', '.join(never_run)}"
+    return "OK", f"{full}: all {len(workflows)} workflows green, newest {newest[:10]}"
 
 
 # ---------------------------------------------------------------- the rest

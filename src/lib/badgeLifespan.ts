@@ -20,12 +20,6 @@ export const DEFAULT_BADGE_LIFESPAN_DAYS = 90
 // drift out of sync with each other.
 export const BADGE_LIFESPAN_OPTIONS: number[] = [14, 30, 90, 180]
 
-export async function getBadgeLifespanDays(): Promise<number> {
-  const raw = await AsyncStorage.getItem(BADGE_LIFESPAN_KEY)
-  const n = raw ? Number(raw) : NaN
-  return Number.isFinite(n) && n > 0 ? n : DEFAULT_BADGE_LIFESPAN_DAYS
-}
-
 // Whether a NEW/UPD badge should still show for an AC issued/revised on
 // `dateIssued`, given the user's configured lifespan (in days).
 export function isWithinBadgeLifespan(dateIssued: string | null, days: number): boolean {
