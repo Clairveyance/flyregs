@@ -95,6 +95,11 @@ run_one "audit_reg_formatting (FAR/AIM/AD/49CFR footer bleed + oversized)"   nod
 # read; the same defect then turned up independently in aircraftSharing.ts
 # and notifications.ts, which is why it is a standing check and not a one-off.
 run_one "unchecked_supabase_errors (failed read -> destructive action)" python3 scripts/audit_unchecked_supabase_errors.py
+# The B40 "Mark Complied does nothing and the app freezes" class. iOS refuses
+# to present a Modal while another is presented and fails SILENTLY -- no
+# exception, no Sentry event, just an app that stops responding. Source-level
+# because there is nothing to observe at runtime until a user hits it.
+run_one "modal_over_modal (a dialog must close before opening another)" python3 scripts/audit_modal_over_modal.py
 run_one "tier_gate_audit (source-level, every gated surface x tier)" node scripts/tier_gate_audit.mjs
 run_one "tier_matrix_test (server-side, real accounts)"              python3 scripts/tier_matrix_test.py
 # Storage RLS, not table RLS -- a separate policy surface that no other

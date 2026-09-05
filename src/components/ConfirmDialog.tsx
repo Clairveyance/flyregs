@@ -112,6 +112,12 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   // Support" follow-up is exactly that shape.
   const generation = useRef(0)
 
+  // How long to wait after closing this dialog before presenting anything
+  // else. iOS refuses to present a Modal while another is still dismissing,
+  // and fails SILENTLY -- the app just stops responding.
+  const MODAL_DISMISS_MS = 320
+
+
   const confirm = useCallback((o: ConfirmOptions) => {
     generation.current += 1
     setError(null)
@@ -171,17 +177,40 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const runChoice = async (c: NonNullable<ConfirmOptions['choices']>[number]) => {
-    const gen = generation.current
-    setBusy(true)
-    setError(null)
-    try {
-      await c.onPress()
-      closeIfCurrent(gen)
-    } catch (e: any) {
-      setError(e?.message ?? 'Something went wrong. Please try again.')
-      setBusy(false)
-    }
+  // CLOSE FIRST, then run the choice. This ordering is the whole fix for a
+  // B40 freeze RC hit immediately: My Fleet -> tap an AD chip -> "Mark
+  // Complied" -> nothing happened and the app locked up completely.
+  //
+  // The old order awaited onPress with this dialog STILL MOUNTED (busy
+  // spinner showing) and closed afterwards. That was harmless while every
+  // choice merely navigated or opened another confirm -- and B40 is the first
+  // build where a choice opens a different <Modal> (AdComplianceModal, newly
+  // reachable from the chip menu). Presenting a second Modal on iOS while the
+  // first is still on screen is the classic RN deadlock: the new one never
+  // appears and touch delivery stops. Nothing throws, so there is no Sentry
+  // event either -- which is exactly what we saw.
+  //
+  // A choice is a PICKER selection, not a long-running action, so it loses
+  // nothing by closing first: every call site in the app either navigates,
+  // sets state, or opens another dialog. Errors still surface -- as a fresh
+  // confirm, which `generation` already protects from being wiped by this
+  // dialog's own close (see its comment above).
+  const runChoice = (c: NonNullable<ConfirmOptions['choices']>[number]) => {
+    close()
+    // One frame is not enough on iOS: the dismissal has to actually commit
+    // before another Modal is presented, or the deadlock above still happens.
+    // Matches the dialog's own fade duration with room to spare.
+    setTimeout(async () => {
+      try {
+        await c.onPress()
+      } catch (e: any) {
+        confirm({
+          title: 'Something went wrong',
+          message: e?.message ?? 'Please try again.',
+          cancelLabel: null,
+        })
+      }
+    }, MODAL_DISMISS_MS)
   }
 
   const showCancel = opts?.cancelLabel !== null
