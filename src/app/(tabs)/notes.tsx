@@ -9,6 +9,7 @@ import { SyncInfoPopup } from '@/components/SyncInfoPopup'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { ScreenHeader } from '@/components/ScreenHeader'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import { TabletContainer } from '@/components/TabletContainer'
 import { Icon } from '@/components/Icon'
 import { FolderPicker } from '@/components/FolderPicker'
@@ -72,6 +73,11 @@ export default function NotesScreen() {
   const [syncEnabled, setSyncEnabled] = useState(false)
   const [syncBusy, setSyncBusy] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
+  // Back to top -- RC, 2026-09-05: "anywhere in the app where we have a
+  // long scrolling list of items where the top bar disappears... will want
+  // to have this back to the top button available for people."
+  const [scrollY, setScrollY] = useState(0)
+  const listRef = useRef<FlatList<any> | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [editorNote, setEditorNote] = useState<Note | null>(null)
   const [pickerNote, setPickerNote] = useState<Note | null>(null)
@@ -351,6 +357,13 @@ export default function NotesScreen() {
 
   const rightSlot = hasPlusAccess && !isTablet ? (
     <View style={styles.headerRight}>
+      {/* First child of the header row that was already here, so a screen
+          with an occupied right slot gets the SAME control in the SAME
+          place as every browse list rather than a second affordance. */}
+      <BackToTop
+        visible={scrollY > BACK_TO_TOP_THRESHOLD}
+        onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+      />
       {selectMode && (
         <Pressable onPress={toggleSelectAll} hitSlop={8}>
           <Text style={[styles.selectBtnText, { color: tokens.blu, fontSize: fs(13) }]}>
@@ -466,6 +479,9 @@ export default function NotesScreen() {
             </View>
           ) : (
             <FlatList
+              ref={listRef}
+              onScroll={makeBackToTopScrollHandler(setScrollY)}
+              scrollEventThrottle={16}
               // iPad creative pass: same flexWrap-grid idea as Recents
               // (85f6ed5) and Home's What's New -- a 2-up grid instead of one
               // narrow scrolling column. FlatList's own numColumns needs a

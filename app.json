@@ -15,6 +15,9 @@
       "associatedDomains": ["applinks:flyregs.com"],
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.developer.usernotifications.time-sensitive": true
       }
     },
     "android": {

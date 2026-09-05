@@ -6,6 +6,8 @@ import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
+import { HighlightTag } from '@/components/HighlightTag'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
@@ -59,16 +61,9 @@ interface NoteRow {
 // saved.tsx) -- kept as local constants here too since it isn't a theme
 // token, just matched exactly so a highlight looks the same everywhere it
 // shows up.
-const HIGHLIGHT_BG = 'rgba(255, 213, 0, 0.12)'
-const HIGHLIGHT_BDR = 'rgba(255, 213, 0, 0.4)'
 // #8a6d00 (dark mustard) reads fine against Light's near-white bg (~4.9:1)
 // but measured ~3:1 against Dark's near-black bg -- under WCAG AA's 4.5:1
 // for text this small. Same gap and same fix as saved.tsx's identical tag.
-const HIGHLIGHT_TEXT = '#8a6d00'
-const HIGHLIGHT_TEXT_DARK = '#E0C040'
-const HIGHLIGHT_BG_REDSHIFT = 'rgba(224, 86, 46, 0.16)'
-const HIGHLIGHT_BDR_REDSHIFT = 'rgba(224, 86, 46, 0.45)'
-const HIGHLIGHT_TEXT_REDSHIFT = '#FF9A6B'
 
 // FAR/AIM/P-CG/AD/LOI item, normalized to one shape -- `label` is the
 // short id (section/paragraph number, term, AD number) shown the same way
@@ -122,6 +117,11 @@ export default function SharedFolderDetail() {
   // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  // Back to top -- RC, 2026-09-05: "anywhere in the app where we have a
+  // long scrolling list of items where the top bar disappears... will want
+  // to have this back to the top button available for people."
+  const [scrollY, setScrollY] = useState(0)
+  const listRef = useRef<SectionList<any> | null>(null)
   const ifs = useInputFS()
   const { id } = useLocalSearchParams<{ id: string }>()
   const { session } = useAuth()
@@ -550,9 +550,16 @@ export default function SharedFolderDetail() {
         title={folderName}
         onBack={() => router.back()}
         right={
-          <Pressable onPress={handleLeave} hitSlop={10}>
-            <Icon name="rectangle.portrait.and.arrow.right" size={fs(20)} color={tokens.t3} />
-          </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            {/* Same control, same place as every browse list. RC, 2026-09-05. */}
+            <BackToTop
+              visible={scrollY > BACK_TO_TOP_THRESHOLD}
+              onPress={() => listRef.current?.getScrollResponder()?.scrollTo({ y: 0, animated: true })}
+            />
+            <Pressable onPress={handleLeave} hitSlop={10}>
+              <Icon name="rectangle.portrait.and.arrow.right" size={fs(20)} color={tokens.t3} />
+            </Pressable>
+          </View>
         }
       />
       <View style={[styles.badgeRow, { borderBottomColor: tokens.bdr }]}>
@@ -599,6 +606,9 @@ export default function SharedFolderDetail() {
       ) : (
         <TabletContainer>
         <SectionList
+          ref={listRef}
+          onScroll={makeBackToTopScrollHandler(setScrollY)}
+          scrollEventThrottle={16}
           sections={sections}
           keyExtractor={(item: ACRow | NoteRow | RegRow) => ('regType' in item ? `${item.regType}-${item.id}` : item.id)}
           contentContainerStyle={styles.list}
@@ -641,18 +651,27 @@ export default function SharedFolderDetail() {
                       item.label can be a FAR/cfr49 "§ N.NNN" (up to 17+2
                       chars for a range span) with no cap of its own before. */}
                   <Text style={[styles.rowDoc, { color: tokens.blu, fontSize: fs(13) }]} numberOfLines={1}>{item.label}</Text>
-                  {item.blockText ? (
-                    <View style={[styles.highlightTag, { backgroundColor: redShift ? HIGHLIGHT_BG_REDSHIFT : HIGHLIGHT_BG, borderColor: redShift ? HIGHLIGHT_BDR_REDSHIFT : HIGHLIGHT_BDR }]}>
-                      <Icon name="highlighter" size={fs(11)} color={redShift ? HIGHLIGHT_TEXT_REDSHIFT : resolved === 'dark' ? HIGHLIGHT_TEXT_DARK : HIGHLIGHT_TEXT} />
-                      <Text style={[styles.highlightTagText, { color: redShift ? HIGHLIGHT_TEXT_REDSHIFT : resolved === 'dark' ? HIGHLIGHT_TEXT_DARK : HIGHLIGHT_TEXT, fontSize: fs(10.5) }]} numberOfLines={1}>
-                        {item.blockLabel ? `§ ${item.blockLabel} ` : ''}{item.blockSnippet}
-                      </Text>
-                    </View>
-                  ) : item.regType !== 'pcg' && (
+                  {/* TITLE AND highlight, not title OR highlight.
+                      RC, 2026-09-05 (with a screenshot of this exact screen):
+                      "This reg with some highlights when it shows up on the
+                      screen, it truncates the entire title of the reg so you
+                      don't really even know what it is beyond the number."
+                      In his shot, § 1.1 and § 61.93 carry their titles and
+                      § 61.85 -- the one with a highlight -- shows the yellow
+                      snippet chip and nothing else. That was this ternary:
+                      a highlight REPLACED the title rather than sitting under
+                      it. Saved's own row has always rendered both; this screen
+                      was the odd one out. The title comes first because it is
+                      what identifies the row; the snippet is detail beneath
+                      it. */}
+                  {item.regType !== 'pcg' && !!stripFarPrefix(item.title ?? '').trim() && (
                     <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
                       {stripFarPrefix(item.title)}
                     </Text>
                   )}
+                  {item.blockText ? (
+                    <HighlightTag label={item.blockLabel} snippet={item.blockSnippet} />
+                  ) : null}
                 </View>
                 {canWrite && (
                   <Pressable onPress={() => handleRemoveItem(item.itemRowId, item.label)} hitSlop={8} style={styles.removeBtn}>
@@ -694,18 +713,15 @@ export default function SharedFolderDetail() {
                       )
                     })()}
                   </View>
-                  {item.blockText ? (
-                    <View style={[styles.highlightTag, { backgroundColor: redShift ? HIGHLIGHT_BG_REDSHIFT : HIGHLIGHT_BG, borderColor: redShift ? HIGHLIGHT_BDR_REDSHIFT : HIGHLIGHT_BDR }]}>
-                      <Icon name="highlighter" size={fs(11)} color={redShift ? HIGHLIGHT_TEXT_REDSHIFT : resolved === 'dark' ? HIGHLIGHT_TEXT_DARK : HIGHLIGHT_TEXT} />
-                      <Text style={[styles.highlightTagText, { color: redShift ? HIGHLIGHT_TEXT_REDSHIFT : resolved === 'dark' ? HIGHLIGHT_TEXT_DARK : HIGHLIGHT_TEXT, fontSize: fs(10.5) }]} numberOfLines={1}>
-                        {item.blockLabel ? `§ ${item.blockLabel} ` : ''}{item.blockSnippet}
-                      </Text>
-                    </View>
-                  ) : (
+                  {/* Same fix as the RegRow branch above -- see its comment. */}
+                  {!!stripFarPrefix(item.title ?? '').trim() && (
                     <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14.5) }]} numberOfLines={2}>
                       {stripFarPrefix(item.title)}
                     </Text>
                   )}
+                  {item.blockText ? (
+                    <HighlightTag label={item.blockLabel} snippet={item.blockSnippet} />
+                  ) : null}
                 </View>
                 {canWrite && (
                   <Pressable onPress={() => handleRemoveItem(item.itemRowId, item.document_number)} hitSlop={8} style={styles.removeBtn}>
@@ -1028,19 +1044,6 @@ const styles = StyleSheet.create({
   rowNumBadge: { borderRadius: 5, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 1.5 },
   rowNumBadgeText: { fontWeight: '700', letterSpacing: 0.3 },
   rowTitle: { fontWeight: '500' },
-  highlightTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    marginTop: 2,
-    maxWidth: '100%',
-  },
-  highlightTagText: { fontWeight: '700', flexShrink: 1 },
   typeBadge: {
     borderRadius: 5,
     borderWidth: 1,

@@ -17,6 +17,11 @@ export interface ShareCardContent {
   documentNumber?: string
   title: string
   subtitle?: string
+  /** How many lines of `subtitle` the card may use. Default 2 (a preview
+   *  under an AC title). A shared NOTE passes a large value, because for a
+   *  note the subtitle IS the content -- see subtitleLines' use below and
+   *  shareNote in lib/share.ts. */
+  subtitleLines?: number
   /** Only for kind: 'multi' -- the list of items being shared together. */
   items?: ShareCardItem[]
 }
@@ -122,7 +127,20 @@ export function ShareCardProvider({ children }: { children: ReactNode }) {
               <View style={styles.body}>
                 {content.documentNumber && <Text style={styles.docNumber}>{content.documentNumber}</Text>}
                 <Text style={styles.title} numberOfLines={3}>{content.title}</Text>
-                {content.subtitle ? <Text style={styles.subtitle} numberOfLines={2}>{content.subtitle}</Text> : null}
+                {/* numberOfLines is a PROP, not a constant.
+                    RC, 2026-09-05: "When you share a note directly with
+                    somebody, there's no structure to it. None of the stuff we
+                    designed with our little icon and everything else is
+                    present at all. It literally just sends the body of the
+                    note as a text."
+                    The card was being captured and then thrown away for notes
+                    (see shareNote's own history) because a 2-line subtitle
+                    meant an AirDropped card carried a permanently truncated
+                    note and nothing else. Letting a note ask for the room it
+                    needs removes that reason, so the card can come back. */}
+                {content.subtitle ? (
+                  <Text style={styles.subtitle} numberOfLines={content.subtitleLines ?? 2}>{content.subtitle}</Text>
+                ) : null}
               </View>
             )}
 

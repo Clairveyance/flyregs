@@ -12,6 +12,7 @@ import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { supabase } from '@/lib/supabase'
 import { ScreenHeader } from '@/components/ScreenHeader'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import { TabletContainer } from '@/components/TabletContainer'
 import { Icon } from '@/components/Icon'
 import { getRecents, removeRecent, removeManyRecents, clearRecents, routeForRecent, recentItemType, type RecentAC } from '@/lib/recents'
@@ -339,8 +340,20 @@ export default function RecentsScreen() {
   )
 
   const hasRecents = groups.length > 0
+  // Back to top -- RC, 2026-09-05: "anywhere in the app where we have a
+  // long scrolling list of items where the top bar disappears... will want
+  // to have this back to the top button available for people."
+  const [scrollY, setScrollY] = useState(0)
+  const listRef = useRef<SectionList<any> | null>(null)
   const rightSlot = hasRecents ? (
     <View style={styles.headerRight}>
+      {/* First child of the header row that was already here, so a screen
+          with an occupied right slot gets the SAME control in the SAME
+          place as every browse list rather than a second affordance. */}
+      <BackToTop
+        visible={scrollY > BACK_TO_TOP_THRESHOLD}
+        onPress={() => listRef.current?.getScrollResponder()?.scrollTo({ y: 0, animated: true })}
+      />
       <Pressable onPress={toggleSelect} hitSlop={8}>
         <Text style={[styles.headerBtnText, { color: tokens.blu, fontSize: fs(13) }]}>
           {selectMode ? 'Done' : 'Select'}
@@ -390,6 +403,9 @@ export default function RecentsScreen() {
         </ScrollView>
       ) : (
         <SectionList
+          ref={listRef}
+          onScroll={makeBackToTopScrollHandler(setScrollY)}
+          scrollEventThrottle={16}
           sections={groups}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}

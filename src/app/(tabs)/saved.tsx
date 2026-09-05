@@ -15,6 +15,7 @@ import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { supabase } from '@/lib/supabase'
 import { ScreenHeader } from '@/components/ScreenHeader'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import { TabletContainer } from '@/components/TabletContainer'
 import { Icon } from '@/components/Icon'
 import { getBookmarks, removeBookmark, removeManyBookmarks, routeForBookmark, bookmarkItemType, BookmarkAC } from '@/lib/bookmarks'
@@ -909,8 +910,20 @@ export default function SavedScreen() {
     setFolderSelectMode(false)
   }
 
+  // Back to top -- RC, 2026-09-05: "anywhere in the app where we have a
+  // long scrolling list of items where the top bar disappears... will want
+  // to have this back to the top button available for people." Wired to the
+  // All tab's own list, which is the long one -- the Folders/Shared lists are
+  // short by nature and get no control rather than a dead one.
+  const [scrollY, setScrollY] = useState(0)
+  const savedListRef = useRef<FlatList<any> | null>(null)
   const rightSlot = (
     <View style={styles.headerRight}>
+      {/* Same control, same place as every browse list. RC, 2026-09-05. */}
+      <BackToTop
+        visible={scrollY > BACK_TO_TOP_THRESHOLD}
+        onPress={() => savedListRef.current?.scrollToOffset({ offset: 0, animated: true })}
+      />
       {selectMode && (
         <Pressable onPress={toggleSelectAll} hitSlop={8}>
           <Text style={[styles.selectBtn, { color: tokens.blu, fontSize: fs(13) }]}>
@@ -1063,6 +1076,9 @@ export default function SavedScreen() {
               <EmptyState tokens={tokens} signedIn={!!session} />
             ) : (
               <FlatList
+                ref={savedListRef}
+                onScroll={makeBackToTopScrollHandler(setScrollY)}
+                scrollEventThrottle={16}
                 // iPad creative pass: 2-up grid instead of one narrow column,
                 // same idea already shipped for Recents/Notes. numColumns
                 // needs a `key` change to remount cleanly (RN requirement).

@@ -13,6 +13,8 @@ import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { OverlayHeader } from '@/components/ScreenHeader'
+import { HighlightTag } from '@/components/HighlightTag'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
@@ -67,6 +69,11 @@ export default function FolderDetail() {
   // invisible and untestable in the Browser pane. See ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
+  // Back to top -- RC, 2026-09-05: "anywhere in the app where we have a
+  // long scrolling list of items where the top bar disappears... will want
+  // to have this back to the top button available for people."
+  const [scrollY, setScrollY] = useState(0)
+  const listRef = useRef<SectionList<any> | null>(null)
   const insets = useSafeAreaInsets()
   const ifs = useInputFS()
   // `loading: authLoading` -- every tier gate in this file is guarded with
@@ -869,6 +876,11 @@ export default function FolderDetail() {
 
   const rightSlot = (
     <View style={styles.headerRight}>
+      {/* Same control, same place as every browse list. RC, 2026-09-05. */}
+      <BackToTop
+        visible={scrollY > BACK_TO_TOP_THRESHOLD}
+        onPress={() => listRef.current?.getScrollResponder()?.scrollTo({ y: 0, animated: true })}
+      />
       <Pressable onPress={handleInviteChoice} hitSlop={10} style={styles.headerBtn} disabled={invitingBusy}>
         <Icon name="person.2.fill" size={fs(21)} color={tokens.t2} />
       </Pressable>
@@ -1115,6 +1127,9 @@ export default function FolderDetail() {
       ) : (
         <TabletContainer>
         <SectionList
+          ref={listRef}
+          onScroll={makeBackToTopScrollHandler(setScrollY)}
+          scrollEventThrottle={16}
           sections={sections}
           keyExtractor={(item) => item.folderItem.id}
           contentContainerStyle={styles.list}
@@ -1412,6 +1427,11 @@ function SwipeableACRow({
             {rowTitle(item.document_number, item.title) ? (
               <Text style={[styles.rowTitle, { color: tokens.t1, fontSize: fs(14), lineHeight: fs(14) * 1.43 }]} numberOfLines={2}>{rowTitle(item.document_number, item.title)}</Text>
             ) : null}
+            {/* Your OWN folders showed no highlight chip at all, so a
+                highlighted passage filed here looked identical to a plain
+                bookmark of the same reg -- Saved and shared folders both
+                showed one. Same component in all three now. */}
+            {item.blockText ? <HighlightTag label={item.blockLabel} snippet={item.blockSnippet} /> : null}
             {item.office && (
               <Text style={[styles.rowMeta, { color: tokens.t4, fontSize: fs(11) }]}>{item.office}</Text>
             )}

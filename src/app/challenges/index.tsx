@@ -8,7 +8,7 @@ import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import {
-  getMyChallenges, getChallengeableUsers, createChallenge, respondToChallenge, getDuelStats, sendDuelPush,
+  getMyChallenges, getChallengeableUsers, createChallenge, respondToChallenge, getDuelStats,
   getUnseenCoins, markCoinsSeen, hideChallengeFromHistory, cancelChallenge, forfeitChallenge,
   MyChallenge, ChallengeableUser, DuelStats, DuelItemType, StudyLevel, ALL_STUDY_LEVELS, STUDY_LEVEL_LABELS,
 } from '@/lib/challenges'
@@ -287,7 +287,12 @@ export default function ChallengesScreen() {
     try {
       const id = await createChallenge(selectedOpponents, questionCount, activeTypes, activeLevels, activeCategoryClasses)
       setPickerVisible(false)
-      sendDuelPush(id, 'invited')
+      // NOT sendDuelPush(_, 'invited') any more. The invite push is fired by
+      // the database, inside the transaction that creates the participant row
+      // (trg_notify_duel_invite -- see sync/migrations_duel_push_server_side.sql).
+      // Sending it from here as well would double-notify, and sending it ONLY
+      // from here was the bug: it needed this app to stay awake through two
+      // more round-trips after the screen had already navigated away.
       router.push(`/challenges/${id}` as any)
     } catch (err: any) {
       setCreateError(err?.message ?? 'Could not create the duel.')
@@ -308,7 +313,7 @@ export default function ChallengesScreen() {
       return
     }
     if (accept) {
-      sendDuelPush(c.challengeId, 'accepted')
+      // Fired by trg_notify_duel_accepted on the pending -> active transition.
       router.push(`/challenges/${c.challengeId}` as any)
     } else load()
   }

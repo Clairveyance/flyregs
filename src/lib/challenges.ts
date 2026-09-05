@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/react-native'
+import { sendExpoPushes } from '@/lib/expoPush'
 import { supabase } from '@/lib/supabase'
 import type { CategoryClass, StudyRating } from '@/lib/profileRatings'
 import { STUDY_RATINGS, STUDY_RATING_LABELS } from '@/lib/profileRatings'
@@ -395,35 +396,26 @@ export async function sendDuelPush(challengeId: string, event: 'invited' | 'acce
     if (rows.length === 0) return
     // Fans out to every qualifying participant, not just one -- a group
     // duel (3+ people) can have several pending invitees or several still-
-    // active participants for the same event. The Expo push API accepts a
-    // single POST per message; Promise.all rather than a sequential loop
-    // since these are independent sends to different recipients, and one
-    // recipient's failure shouldn't block another's notification.
-    await Promise.all(rows.map((row: any) =>
-      fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          to: row.expo_push_token,
-          sound: 'default',
-          title: row.title,
-          body: row.body,
-          data: { type: 'duel', challengeId },
-        }),
-      })
-        .then(async (res) => {
-          if (!res.ok) {
-            Sentry.captureMessage('Duel push send failed', {
-              level: 'warning',
-              tags: { feature: 'duel_push' },
-              extra: { challengeId, event, stage: 'send', status: res.status, body: await res.text().catch(() => null) },
-            })
-          }
-        })
-        .catch((err) => {
-          Sentry.captureException(err, { tags: { feature: 'duel_push' }, extra: { challengeId, event, stage: 'fetch' } })
-        })
-    ))
+    // active participants for the same event. One batched POST, and the
+    // TICKETS in its response body are read: this used to check only
+    // `res.ok`, which is 200 even when Expo is telling you the token is not
+    // a registered push credential. RC, 2026-09-05: "the notifications for a
+    // duel challenge on the recipient phone are still not working" -- with
+    // the old check there was no signal anywhere to explain that. See
+    // lib/expoPush.ts.
+    await sendExpoPushes(
+      rows.map((row: any) => ({
+        to: row.expo_push_token,
+        sound: 'default' as const,
+        title: row.title,
+        body: row.body,
+        // A duel is a live, two-person, timed thing -- it is worthless
+        // half an hour late. See ExpoPushMessage.interruptionLevel.
+        interruptionLevel: 'time-sensitive' as const,
+        data: { type: 'duel', challengeId },
+      })),
+      { feature: 'duel_push', extra: { challengeId, event } },
+    )
   } catch (err) {
     Sentry.captureException(err, { tags: { feature: 'duel_push' }, extra: { challengeId, event, stage: 'outer' } })
   }

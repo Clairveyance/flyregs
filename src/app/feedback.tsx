@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Platform, KeyboardAvoidingView, Animated, Keyboard, Image } from 'react-native'
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Platform, KeyboardAvoidingView, Animated, Keyboard, Image, InputAccessoryView } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker'
 import { File } from 'expo-file-system'
@@ -47,6 +47,10 @@ const MESSAGE_PLACEHOLDER: Record<CatKey, string> = {
   other: "What's on your mind?",
   aircraft_part: 'Include the manufacturer, full model name, and type designator if you know it — e.g. "Cirrus SR22T G6" or "Van\'s RV-14" — so we can find the exact right one and get it added for you. Thank you for being a valued subscriber.',
 }
+
+// A stable id tying the TextInput to its accessory bar. Module-level so it
+// can't be regenerated on a re-render, which would silently detach the bar.
+const MESSAGE_ACCESSORY_ID = 'feedback-message-accessory'
 
 export default function FeedbackScreen() {
   const { tokens } = useTheme()
@@ -273,6 +277,25 @@ export default function FeedbackScreen() {
         </View>
 
         <Text style={[styles.label, { color: tokens.t3, marginTop: 18, fontSize: fs(11) }]}>MESSAGE</Text>
+        {/* RC, 2026-09-05: "if you type a very long message, it becomes hard
+            to scroll to the bottom of the message, and the keyboard stays in
+            the way, and it's kind of clunky in terms of getting the keyboard
+            out of the way to get down to the bottom of the page to both
+            attach a photo and hit send."
+
+            Two separate problems, two separate fixes.
+
+            1. The box had a minHeight and NO maximum, so it grew without
+               limit as you typed. A long report pushed "Attach a screenshot"
+               and Send hundreds of points below the fold, and reaching them
+               meant scrolling an outer ScrollView whose content was mostly
+               one enormous text box. Capping the height makes the field
+               scroll INTERNALLY -- the page stays a fixed, short length no
+               matter how long the message is, so Send never moves.
+
+            2. Dismissing the keyboard needed exactly the right gesture. The
+               accessory bar below puts a Done button directly on top of the
+               keyboard, which is the one place it can always be reached. */}
         <TextInput
           style={[
             styles.input,
@@ -285,6 +308,9 @@ export default function FeedbackScreen() {
           multiline
           textAlignVertical="top"
           autoCapitalize="sentences"
+          // iOS only: Android has a system Back-to-dismiss and no
+          // InputAccessoryView, so the prop is simply ignored there.
+          inputAccessoryViewID={Platform.OS === 'ios' ? MESSAGE_ACCESSORY_ID : undefined}
         />
 
         <Text style={[styles.label, { color: tokens.t3, marginTop: 18, fontSize: fs(11) }]}>SCREENSHOT (OPTIONAL)</Text>
@@ -335,6 +361,28 @@ export default function FeedbackScreen() {
           <Text style={[styles.toastText, { color: tokens.t1, fontSize: fs(14.5) }]}>Sent!</Text>
         </Animated.View>
       )}
+      {/* Sits directly on top of the keyboard whenever the message field has
+          focus -- the one control that is always reachable no matter how far
+          down the message has been typed. RC, 2026-09-05: "it's kind of
+          clunky in terms of getting the keyboard out-of-the-way to get down
+          to the bottom of the page to both attach a photo and hit send."
+
+          Deliberately Done-only. A Send button here would be a second, easily
+          mis-tapped send path for a message that cannot be unsent, and Send
+          is already visible the moment the keyboard is down -- which is the
+          whole point of the height cap on the field above. */}
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView nativeID={MESSAGE_ACCESSORY_ID}>
+          <View style={[styles.accessoryBar, { backgroundColor: tokens.bg2, borderTopColor: tokens.bdr }]}>
+            <Text style={[styles.accessoryHint, { color: tokens.t4, fontSize: fs(12) }]} numberOfLines={1}>
+              {message.trim().length > 0 ? `${message.trim().length} characters` : 'Tell us what happened'}
+            </Text>
+            <Pressable onPress={Keyboard.dismiss} hitSlop={10}>
+              <Text style={[styles.accessoryDone, { color: tokens.blu, fontSize: fs(15) }]}>Done</Text>
+            </Pressable>
+          </View>
+        </InputAccessoryView>
+      )}
     </KeyboardAvoidingView>
   )
 }
@@ -364,11 +412,24 @@ const styles = StyleSheet.create({
   // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
   input: {
     minHeight: 140,
+    // See the TextInput's own comment: without a ceiling the field grew
+    // forever and carried Attach/Send off the bottom of the page.
+    maxHeight: 220,
     borderRadius: 12,
     borderWidth: 1,
     padding: 14,
     fontSize: 14.5,
   },
+  accessoryBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  accessoryHint: { flex: 1, marginRight: 12 },
+  accessoryDone: { fontWeight: '700' },
   attachBtn: {
     flexDirection: 'row',
     alignItems: 'center',

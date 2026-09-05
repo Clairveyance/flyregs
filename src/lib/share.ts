@@ -99,6 +99,14 @@ export function useShareActions() {
     }
   }
 
+  // How much of a note's body the branded card will render before it stops.
+  // Not unlimited: the card is captured at a fixed 600px width and grows
+  // downward, so an unbounded note would produce an absurdly tall PNG that no
+  // messaging app renders usefully. 40 lines is roughly a screenful and covers
+  // the overwhelming majority of real notes; anything past it is still carried
+  // in full by the accompanying text.
+  const NOTE_CARD_LINES = 40
+
   const shareNote = async (note: ShareableNote) => {
     try {
       const uri = await capture({
@@ -108,16 +116,28 @@ export function useShareActions() {
         kind: 'note',
         title: note.title || 'Untitled',
         subtitle: note.body,
+        subtitleLines: NOTE_CARD_LINES,
       })
-      if (Platform.OS === 'ios') {
-        // Text-only, no `url: uri` -- see the header comment above for why
-        // (a note's full body must never be at risk of silently vanishing
-        // behind AirDrop's image-only-survives quirk).
+      if (Platform.OS === 'web' || (Platform.OS !== 'ios' && !(await Sharing.isAvailableAsync()))) {
         await Share.share({ title: note.title || 'Note', message: noteLine(note) })
         return
       }
-      if (Platform.OS === 'web' || !(await Sharing.isAvailableAsync())) {
-        await Share.share({ title: note.title || 'Note', message: noteLine(note) })
+      if (Platform.OS === 'ios') {
+        // BOTH, not one or the other.
+        //
+        // RC, 2026-09-05: "there's no structure to it... it literally just
+        // sends the body of the note as a text. This is ridiculous. Fix it."
+        // He is describing exactly what this did: it built the branded card
+        // and then discarded it, sharing bare text.
+        //
+        // The reason it discarded it was real -- AirDrop takes ONLY the
+        // attached file and silently drops the message, so a card carrying a
+        // 2-line truncated note would have been the entire delivered content.
+        // That reason is gone now: the card renders the note body up to
+        // NOTE_CARD_LINES, so even the AirDrop-only case arrives complete for
+        // any normal note. Every other target (Messages, Mail, Notes, Slack)
+        // gets the image AND the full text.
+        await Share.share({ title: note.title || 'Note', message: noteLine(note), url: uri })
         return
       }
       await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: note.title || 'Note' })

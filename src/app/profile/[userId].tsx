@@ -356,7 +356,7 @@ export default function ProfileScreen() {
     setLoading(true)
     const [stats, realVisible, masteryStats] = await Promise.all([
       getDuelStats(userId).catch(() => ({ wins: 0, losses: 0, ties: 0 })),
-      getStatsVisible(userId).catch(() => false),
+      getStatsVisible(userId, isSelf).catch(() => false),
       getStudyMastery(userId).catch(() => null),
     ])
     setDuelStats(stats)
@@ -475,7 +475,16 @@ export default function ProfileScreen() {
                     <InfoPopup
                       id="profile-show-my-stats"
                       title="Show my stats"
-                      body="Lets other players see your ratings, coin count, and current aircraft."
+                      body={[
+                        'Lets other players see your ratings, coin count, and current aircraft.',
+                        // Adriana, 2026-09-05: "\u201cShow my stats\u201d is not working. It
+                        // doesn't change anything that is shown when on or off." It was
+                        // also genuinely broken for other viewers (see getStatsVisible),
+                        // but this half is by design and needs saying: your own profile
+                        // always shows you everything, so from your side the switch looks
+                        // inert no matter which way it is set.
+                        'It only changes what other people see. Your own profile always shows you everything.',
+                      ]}
                       iconSize={15}
                     />
                   </View>

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView, AppState } from 'react-native'
 import { useLocalSearchParams, router, useFocusEffect, useNavigation } from 'expo-router'
 import { useTheme } from '@/context/theme'
@@ -90,6 +91,65 @@ function FilterSummary({ challenge, tokens, fs }: { challenge: MyChallenge; toke
       ))}
     </View>
   )
+}
+
+// THE QUESTION CLOCK IS PERSISTED, not just held in a ref.
+//
+// RC, 2026-09-05: "inside duels, it's still allowing a person to leave to
+// another page in the app and then come back into the duel, and it actually
+// resets the entire timer for them and allows them to essentially start over
+// with the clock."
+//
+// He is right, and the mechanism is this screen unmounting. /challenges/[id]
+// is a pushed route outside (tabs), so tapping any tab pops it; coming back
+// mounts a fresh component, `startedAt` is a new ref at 0, phase resets to
+// 'ready', and the next GO tap sets startedAt = Date.now(). The clock is the
+// tiebreaker between players on the same correct count, so that is a real
+// scoring exploit: stall as long as you like, leave, return, answer instantly.
+//
+// Blocking navigation (below) is the other half, but on its own it is not
+// enough -- it cannot stop the app being backgrounded, the phone being locked,
+// or the app being killed and relaunched. Anchoring the start time to the
+// QUESTION rather than to the screen closes the hole regardless of how the
+// player left: the clock they come back to is the clock they left running.
+//
+// Keyed by challenge question id, so a legitimate next question starts fresh,
+// and cleared as soon as the answer is submitted.
+const questionClockKey = (challengeQuestionId: string) => `@flyregs/duel-clock/${challengeQuestionId}`
+
+async function resumeOrStartQuestionClock(challengeQuestionId: string): Promise<number> {
+  try {
+    const raw = await AsyncStorage.getItem(questionClockKey(challengeQuestionId))
+    const prior = raw ? Number(raw) : NaN
+    // Sanity-bound it: a stored value in the future, or absurdly old, means a
+    // corrupt/clock-changed device rather than a real elapsed time. Falling
+    // back to "now" is the safe direction -- it can only ever favour the
+    // player, never invent a penalty out of a bad read.
+    if (Number.isFinite(prior) && prior > 0 && prior <= Date.now() && Date.now() - prior < 24 * 60 * 60 * 1000) {
+      return prior
+    }
+  } catch { /* storage unavailable -- start fresh, same as a first GO */ }
+  const now = Date.now()
+  try { await AsyncStorage.setItem(questionClockKey(challengeQuestionId), String(now)) } catch { /* not worth failing the tap */ }
+  return now
+}
+
+/** The stored start time for a question, or null if it has none running.
+ *  Read-only -- unlike resumeOrStartQuestionClock it never starts one, so
+ *  merely opening the screen can't put a player on the clock. */
+async function peekQuestionClock(challengeQuestionId: string): Promise<number | null> {
+  try {
+    const raw = await AsyncStorage.getItem(questionClockKey(challengeQuestionId))
+    const prior = raw ? Number(raw) : NaN
+    if (Number.isFinite(prior) && prior > 0 && prior <= Date.now() && Date.now() - prior < 24 * 60 * 60 * 1000) {
+      return prior
+    }
+  } catch { /* storage unavailable -- treat as "no clock running" */ }
+  return null
+}
+
+async function clearQuestionClock(challengeQuestionId: string): Promise<void> {
+  try { await AsyncStorage.removeItem(questionClockKey(challengeQuestionId)) } catch { /* best effort */ }
 }
 
 export default function ChallengeGameScreen() {
@@ -199,6 +259,26 @@ export default function ChallengeGameScreen() {
       const q = await getNextChallengeQuestion(id)
       if (!q) { setPhase('waiting_opponent'); return }
       setQuestion(q)
+      // RC, 2026-09-05: "if you can't stop iOS from preventing backgrounding,
+      // then AT LEAST make sure the Duel timer keeps running. There should
+      // only be ONE way to stop it - by answering a question. OR, forfeiting."
+      //
+      // That is the rule, and it is now enforced here rather than only at the
+      // GO tap. If this question already has a running clock on disk, the
+      // player is mid-question -- they left and came back. Dropping them on
+      // the GO screen would be a lie even with the elapsed time preserved
+      // underneath: it LOOKS stopped, which is the thing he is objecting to.
+      // Put them straight back into 'playing' with the original start time.
+      //
+      // The clock is only ever cleared in two places, and they are exactly
+      // his two: handleChoice (answered) and the forfeit path.
+      const running = await peekQuestionClock(q.questionId)
+      if (running != null) {
+        startedAt.current = running
+        setLiveMs(Date.now() - running)
+        setPhase('playing')
+        return
+      }
       setPhase('ready')
     } catch (err: any) {
       setLoadError(err?.message ?? 'Could not load this duel.')
@@ -286,13 +366,20 @@ export default function ChallengeGameScreen() {
       loadState()
       return
     }
-    if (accept) sendDuelPush(id, 'accepted')
+    // 'accepted' is fired by trg_notify_duel_accepted when respond_to_challenge
+    // flips this participant pending -> active.
     loadState()
   }
 
-  const handleGo = () => {
-    startedAt.current = Date.now()
-    setLiveMs(0)
+  const handleGo = async () => {
+    if (!question) return
+    // Resume, don't restart. See resumeOrStartQuestionClock's comment: a
+    // second GO on the SAME question -- after leaving the screen, being
+    // backgrounded, or a cold relaunch -- picks the original start time back
+    // up instead of handing out a fresh zero.
+    const anchor = await resumeOrStartQuestionClock(question.questionId)
+    startedAt.current = anchor
+    setLiveMs(Date.now() - anchor)
     setPhase('playing')
   }
 
@@ -315,6 +402,9 @@ export default function ChallengeGameScreen() {
       loadState()
       return
     }
+    // The question is answered -- its clock is spent and must not be resumed
+    // by anything (a rematch reusing an id, a stale key surviving a reinstall).
+    void clearQuestionClock(question.questionId)
     setMyTimeMs(timeMs)
     setResult(r)
     // `challenge` was previously set in exactly ONE place (loadState), so
@@ -442,7 +532,8 @@ export default function ChallengeGameScreen() {
         [...(challenge.levels ?? []), ...(challenge.ratings ?? [])],
         challenge.categoryClasses ?? undefined
       )
-      sendDuelPush(newId, 'invited')
+      // Server-side now (trg_notify_duel_invite) -- createChallenge's own
+      // participant insert fires it. See challenges/index.tsx.
       router.replace(`/challenges/${newId}` as any)
     } catch (err: any) {
       confirm({ title: 'Could not start rematch', message: err?.message ?? 'Unknown error', cancelLabel: null })
@@ -477,17 +568,77 @@ export default function ChallengeGameScreen() {
   // Covers iOS, which is the beta target. Android's hardware back still
   // pops without the prompt; closing that needs a BackHandler/usePreventRemove
   // guard on the same condition.
+  //
+  // RC, 2026-09-05, tightening the rule after playing B40: "you created this
+  // forfeit box, but you only put it in one active place which is the upper
+  // left back arrow to leave that page. But the whole point is that the user
+  // cannot leave the screen at all in any way during the duel."
+  //
+  // Two things were wrong, and they are separate:
+  //
+  //   1. The guard hung off handleBack + gestureEnabled, which between them
+  //      only cover the header button and the edge swipe. Anything ELSE that
+  //      pops this route -- a tab tap, a deep link, a router.replace from a
+  //      notification -- walked straight out. That is now a `beforeRemove`
+  //      listener, which is navigation-level: every removal of this screen,
+  //      whatever triggered it, comes through one place.
+  //
+  //   2. `started` began at the first SUBMITTED ANSWER, so the whole first
+  //      question was unguarded -- tap GO, leave, come back, GO again. Locking
+  //      starts at GO now (`phase === 'playing'`).
+  //
+  // What this deliberately does NOT claim to do is stop the app being
+  // backgrounded. iOS gives an app no way to refuse the home swipe, the app
+  // switcher, Control Center or a lock; there is no API for it and there is
+  // no entitlement for it. RC asked for that too ("we also need to block
+  // people from minimizing that app"), and it cannot be built. What makes
+  // backgrounding pointless instead is the persisted question clock above:
+  // the timer they come back to is the timer they left running, so leaving
+  // by any route -- in-app or out -- can only ever cost them time.
   const navigation = useNavigation()
   const started =
     challenge != null && challenge.status === 'active' && challenge.myStatus === 'active' &&
     challenge.myAnsweredCount > 0 && challenge.myAnsweredCount < challenge.questionCount
+  // Locked from GO, not from the first answer.
+  const locked = started || phase === 'playing'
+  // Set by the paths that are ALLOWED to leave (a confirmed forfeit, a
+  // deliberate "leave anyway"), so the beforeRemove listener lets that one
+  // navigation through instead of re-prompting itself in a loop.
+  const allowLeave = useRef(false)
   useEffect(() => {
-    navigation.setOptions({ gestureEnabled: !started })
-  }, [navigation, started])
+    navigation.setOptions({ gestureEnabled: !locked })
+  }, [navigation, locked])
 
-  const handleBack = () => {
-    if (!started || !id) {
-      router.back()
+  useEffect(() => {
+    const sub = navigation.addListener('beforeRemove' as any, (e: any) => {
+      if (!locked || allowLeave.current) return
+      e.preventDefault()
+      promptExit(() => navigation.dispatch(e.data.action))
+    })
+    return sub
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigation, locked, started, challenge, id])
+
+  // One exit prompt, shared by the header button and by beforeRemove, so the
+  // two can never drift into saying different things about the same rule.
+  // `proceed` is what actually leaves -- router.back() for the header, or
+  // re-dispatching the intercepted action for anything else.
+  const promptExit = (proceed: () => void) => {
+    if (!id) { allowLeave.current = true; proceed(); return }
+    if (!started) {
+      // GO tapped, nothing answered yet. forfeit_challenge REFUSES this case
+      // server-side ("You have not answered any questions yet -- cancel the
+      // duel instead of forfeiting it"), verified against the live function
+      // definition, so there is nothing to forfeit and prompting as if there
+      // were would be a lie. What there IS, is a running clock -- and that is
+      // exactly what the player leaving is hoping to escape. Say so.
+      confirm({
+        title: 'Your timer is running',
+        message: 'Leaving this question does not stop or reset the clock — it keeps counting until you answer. Time is the tiebreaker in a duel.',
+        confirmLabel: 'Leave anyway',
+        cancelLabel: 'Keep playing',
+        onConfirm: async () => { allowLeave.current = true; proceed() },
+      })
       return
     }
     // The 1-opponent and 3+-player cases genuinely have different outcomes, so
@@ -509,9 +660,20 @@ export default function ChallengeGameScreen() {
       twoStep: false,
       onConfirm: async () => {
         await forfeitChallenge(id)
-        router.back()
+        // Forfeiting is the OTHER of the two ways a clock is allowed to stop
+        // (RC, 2026-09-05). Without this the stored start time would outlive
+        // the duel and a rematch landing on the same question id would open
+        // with a clock already counting.
+        if (question) await clearQuestionClock(question.questionId)
+        allowLeave.current = true
+        proceed()
       },
     })
+  }
+
+  const handleBack = () => {
+    if (!locked) { router.back(); return }
+    promptExit(() => router.back())
   }
 
   const otherCount = challenge?.others.length ?? 0

@@ -7,6 +7,7 @@ import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getWordOfTheDay, WordOfTheDay } from '@/lib/notifications'
@@ -113,6 +114,12 @@ export default function DictionaryIndexScreen() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  // Back to top -- RC re-raised this on 2026-09-05 after the first
+  // pass only reached the browse lists: "anywhere in the app where we
+  // have a long scrolling list of items... will want to have this back
+  // to the top button available."
+  const [scrollY, setScrollY] = useState(0)
+  const listRef = useRef<FlatList<any> | null>(null)
 
   // search_dictionary matches term OR definition text (senses jsonb is part
   // of its search_vector), not just the headword -- RC: "the dictionary
@@ -191,7 +198,16 @@ export default function DictionaryIndexScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title="Aviation Dictionary" onBack={() => router.back()} />
+      <OverlayHeader
+        title="Aviation Dictionary"
+        onBack={() => router.back()}
+        right={
+          <BackToTop
+            visible={scrollY > BACK_TO_TOP_THRESHOLD}
+            onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          />
+        }
+      />
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
@@ -224,6 +240,9 @@ export default function DictionaryIndexScreen() {
               </View>
             ) : (
               <FlatList
+                ref={listRef}
+                onScroll={makeBackToTopScrollHandler(setScrollY)}
+                scrollEventThrottle={16}
                 style={styles.flatList}
                 data={termHits}
                 keyExtractor={(item) => item.slug}
@@ -267,6 +286,9 @@ export default function DictionaryIndexScreen() {
             )
           ) : (
             <FlatList
+              ref={listRef}
+              onScroll={makeBackToTopScrollHandler(setScrollY)}
+              scrollEventThrottle={16}
               style={styles.flatList}
               data={letters}
               keyExtractor={(l) => l}

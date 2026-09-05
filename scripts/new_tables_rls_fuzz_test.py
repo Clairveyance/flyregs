@@ -133,7 +133,23 @@ def rest(method, path, token=None, body=None, extra_headers=None, raw=False):
             return e.code, out.decode(errors="replace")[:300]
 
 
-def check(label, cond, detail=""):
+def check(label, cond, detail="", expected_fail=False):
+    """`expected_fail=True` marks a check that documents a KNOWN upstream bug.
+
+    It must not turn this whole script red -- a permanently-failing test is
+    the worst kind, because a real regression alongside it is invisible and
+    everyone learns to ignore the exit code. But it must not be silently
+    dropped either: if the upstream bug is ever FIXED, that is news, and this
+    file's comment about it becomes wrong. So an expected failure passing is
+    itself reported as a failure.
+    """
+    if expected_fail:
+        if cond:
+            print(f"  [FIXED] {label} -- this now SUCCEEDS upstream; update the comment above and drop expected_fail")
+            RESULTS.append((label + " (known quirk now fixed -- update this test)", False, detail))
+        else:
+            print(f"  [KNOWN] {label}" + (f"  -- {detail}" if detail else ""))
+        return cond
     status = "PASS" if cond else "FAIL"
     print(f"  [{status}] {label}" + (f"  -- {detail}" if detail and not cond else ""))
     RESULTS.append((label, cond, detail))
@@ -200,8 +216,8 @@ def main():
                          {"user_id": a_id, "user_email": a_email, "category": "bug",
                           "message": "fuzz-test row with RETURNING"},
                          {"Prefer": "return=representation"})
-        check("KNOWN PLATFORM QUIRK (not app-impacting, see comment above): INSERT+RETURNING on this policy shape",
-              st in (200, 201), f"{st} {body}")
+        check("INSERT+RETURNING on this policy shape (known PostgREST/RLS quirk, not app-impacting)",
+              st in (200, 201), f"{st} {body}", expected_fail=True)
         row_id = body[0]["id"] if isinstance(body, list) and body else None
 
         st, body = rest("POST", "rest/v1/feedback_submissions", a_tok,

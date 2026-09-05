@@ -100,6 +100,17 @@ run_one "unchecked_supabase_errors (failed read -> destructive action)" python3 
 # exception, no Sentry event, just an app that stops responding. Source-level
 # because there is nothing to observe at runtime until a user hits it.
 run_one "modal_over_modal (a dialog must close before opening another)" python3 scripts/audit_modal_over_modal.py
+# RC asked for Back to Top twice -- once corpus-wide, then again after the
+# first pass only reached the browse lists. A screen missing one of its three
+# pieces still compiles and silently does nothing, so it is checked here.
+run_one "back_to_top_audit (every long list can jump back to the top)" python3 scripts/back_to_top_audit.py
+# Highlights inside shared folders: RC's read-only vs read/write rule, both
+# directions, and access being revoked. Real user JWTs against the live DB.
+run_one "shared_folder_highlights (RO sees, RW edits, revoke stops it)" python3 scripts/shared_folder_highlights_e2e_test.py
+# The aircraft photo path either side of the native digest call RC hit on B40.
+run_one "aircraft_photo_e2e (upload, render, replace, isolation, caps)" python3 scripts/aircraft_photo_e2e_test.py
+# The beforeSend hook that recovers a PostgrestError message Sentry would drop.
+run_one "sentry_beforesend (db errors stay diagnosable)" node scripts/sentry_beforesend_test.cjs
 run_one "tier_gate_audit (source-level, every gated surface x tier)" node scripts/tier_gate_audit.mjs
 run_one "tier_matrix_test (server-side, real accounts)"              python3 scripts/tier_matrix_test.py
 # Storage RLS, not table RLS -- a separate policy surface that no other

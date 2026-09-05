@@ -1,6 +1,7 @@
 import * as ImagePicker from 'expo-image-picker'
 import { File } from 'expo-file-system'
 import * as Crypto from 'expo-crypto'
+import * as Sentry from '@sentry/react-native'
 import { supabase } from '@/lib/supabase'
 
 // Aircraft photo -- Ryan (Suggest a feature, 2026-08-30, submission
@@ -46,11 +47,32 @@ async function contentVersion(bytes: ArrayBuffer): Promise<string> {
   // mini running B40, and it was in B39 too (landed 2026-08-31, B39 cut
   // 09-03): every aircraft photo set or replaced since then has failed with
   // "Could not update this aircraft's photo."
-  const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new Uint8Array(bytes))
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-    .slice(0, 12)
+  //
+  // AND it is wrapped, because the hash is an OPTIMISATION, not a
+  // requirement. Its only job is to give each distinct image its own object
+  // name so a replacement can't be served from cache. If it throws -- a
+  // future expo-crypto signature change, a platform without the native
+  // module, anything -- the correct outcome is a photo that uploads with a
+  // less elegant version marker, NOT "Could not update this aircraft's
+  // photo." RC lost the entire feature to a failure in a cache-busting
+  // helper, and that trade was wrong however the cast bug got in.
+  //
+  // The fallback is a timestamp: unique per upload, so it still busts the
+  // cache correctly. It merely gives up the "re-picking the identical photo
+  // is a no-op" property, which costs one redundant upload and nothing else.
+  try {
+    const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new Uint8Array(bytes))
+    return Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+      .slice(0, 12)
+  } catch (err) {
+    Sentry.captureException(err, {
+      tags: { feature: 'aircraft_photo', stage: 'content_version' },
+      extra: { byteLength: bytes.byteLength },
+    })
+    return `t${Date.now().toString(36)}`
+  }
 }
 
 export function getAircraftImageUrl(imagePath: string | null): string | null {
@@ -109,7 +131,18 @@ async function uploadAircraftImageAsset(aircraftId: string, uri: string, previou
   // Only after the row genuinely points at the new object -- deleting first
   // would leave a broken image if the update below it failed.
   if (previousPath && previousPath !== path) {
-    await supabase.storage.from('aircraft-images').remove([previousPath]).catch(() => {})
+    // NOT .catch() -- supabase-js storage RESOLVES {data, error}; it does not
+    // reject, so a .catch here caught nothing and only read as if it did.
+    // Genuinely best-effort, but the failure is now recorded rather than
+    // imagined-away: an orphan that nothing points at is harmless, an orphan
+    // nobody knows about accumulates.
+    const { error: removeError } = await supabase.storage.from('aircraft-images').remove([previousPath])
+    if (removeError) {
+      Sentry.captureException(removeError, {
+        tags: { feature: 'aircraft_photo', stage: 'cleanup_previous' },
+        extra: { previousPath },
+      })
+    }
   }
 
   return path
@@ -171,7 +204,14 @@ export async function takeAndUploadAircraftImage(aircraftId: string, previousPat
 // file would show a broken image.
 export async function removeAircraftImage(aircraftId: string, imagePath: string | null): Promise<void> {
   if (imagePath) {
-    await supabase.storage.from('aircraft-images').remove([imagePath]).catch(() => {})
+    // Same non-rejecting API as above -- read the error rather than .catch it.
+    const { error: removeError } = await supabase.storage.from('aircraft-images').remove([imagePath])
+    if (removeError) {
+      Sentry.captureException(removeError, {
+        tags: { feature: 'aircraft_photo', stage: 'remove' },
+        extra: { imagePath },
+      })
+    }
   }
   const { error } = await supabase.from('user_aircraft').update({ image_path: null }).eq('id', aircraftId)
   if (error) throw error

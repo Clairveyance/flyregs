@@ -23,7 +23,8 @@ import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { getLatestRevision, changedParagraphIndices, type ContentRevision } from '@/lib/whatsChanged'
 import { MetaChip, MetaChipRow, DetailSection, DetailActionRow } from '@/components/DetailMeta'
-import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
+import { isBookmarked, toggleBookmark, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
+import { loadHighlightSets, removeSharedHighlight, type SharedHighlightMap } from '@/lib/sharedHighlights'
 import { addRecent } from '@/lib/recents'
 import { consumePendingBreadcrumb } from '@/lib/navBreadcrumb'
 import { getSemanticRelated, mergeRelated } from '@/lib/relatedContent'
@@ -157,9 +158,16 @@ export default function LoiDetailScreen() {
 
   // Passage-level highlighting -- see far/[id].tsx's identical comment.
   const [highlightedBlockTexts, setHighlightedBlockTexts] = useState<Set<string>>(new Set())
+  // Other participants' highlights on this document, keyed by passage.
+  // RC, 2026-09-05: "everybody who has read/write access must be able to
+  // both see the other person's added highlights even after the folder has
+  // been shared." Kept alongside the shaded-passage set rather than merged
+  // into it, because the long-press menu has to be able to tell yours from
+  // theirs -- see handleBlockLongPress.
+  const [sharedHighlights, setSharedHighlights] = useState<SharedHighlightMap>(new Map())
   useEffect(() => {
     if (!slug) return
-    getHighlightsForAC(slug, 'loi').then((hs) => setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!))))
+    loadHighlightSets(slug, 'loi').then(({ texts, shared }) => { setHighlightedBlockTexts(texts); setSharedHighlights(shared) })
   }, [slug])
   // The passage currently under the Copy/Highlight menu -- see
   // PlainTextBody's pendingBlockText comment.
@@ -369,8 +377,9 @@ export default function LoiDetailScreen() {
           blockText: paraText,
         })
       }
-      const highlights = await getHighlightsForAC(loi.slug, 'loi')
-      setHighlightedBlockTexts(new Set(highlights.map((h) => h.blockText!)))
+      const { texts, shared } = await loadHighlightSets(loi.slug, 'loi')
+      setSharedHighlights(shared)
+      setHighlightedBlockTexts(texts)
     } finally {
       toggleInFlight.current = false
     }
@@ -385,6 +394,15 @@ export default function LoiDetailScreen() {
     if (!hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
     setPendingHighlight(paraText)
     const isHighlighted = highlightedBlockTexts.has(paraText)
+    // Someone ELSE'S highlight, shaded the same as your own but not yours to
+    // toggle. Without this branch the menu offered "Remove Highlight", the
+    // local lookup found nothing, and the app happily added a SECOND highlight
+    // of a passage that already looked highlighted -- the user's action doing
+    // the opposite of what its label said. `theirs` is only consulted when the
+    // passage is not one of your own (mineToo below), so a passage you have
+    // both highlighted still behaves as yours.
+    const mineToo = isHighlighted && !sharedHighlights.has(paraText)
+    const theirs = mineToo ? undefined : sharedHighlights.get(paraText)
     confirm({
       title: 'Passage',
       choices: [
@@ -398,10 +416,45 @@ export default function LoiDetailScreen() {
         // concise arrow body, which returns implicitly); these six were the
         // block-bodied copies that silently dropped it.
         { label: 'Copy Text', onPress: () => { setPendingHighlight(null); return handleCopyBlock(paraText) } },
-        {
-          label: isHighlighted ? 'Remove Highlight' : 'Highlight',
-          onPress: () => { setPendingHighlight(null); return handleToggleHighlight(paraText) },
-        },
+        theirs
+          ? theirs.canEdit
+            ? {
+                label: `Remove ${theirs.ownerLabel}'s Highlight`,
+                destructive: true,
+                onPress: () => {
+                  setPendingHighlight(null)
+                  return removeSharedHighlight(theirs.id).then((ok) => {
+                    if (!ok) {
+                      confirm({
+                        title: 'Could not remove it',
+                        message: 'Your access to that shared folder may have changed. Pull to refresh and try again.',
+                        cancelLabel: null,
+                      })
+                      return
+                    }
+                    setSharedHighlights((prev) => {
+                      const next = new Map(prev)
+                      next.delete(paraText)
+                      return next
+                    })
+                    setHighlightedBlockTexts((prev) => {
+                      const next = new Set(prev)
+                      next.delete(paraText)
+                      return next
+                    })
+                  })
+                },
+              }
+            : {
+                // Read-only in that folder. Say whose it is and stop, rather
+                // than showing a control that the database will refuse.
+                label: `Highlighted by ${theirs.ownerLabel}`,
+                onPress: () => { setPendingHighlight(null) },
+              }
+          : {
+              label: isHighlighted ? 'Remove Highlight' : 'Highlight',
+              onPress: () => { setPendingHighlight(null); return handleToggleHighlight(paraText) },
+            },
       ],
       onCancel: () => setPendingHighlight(null),
     })

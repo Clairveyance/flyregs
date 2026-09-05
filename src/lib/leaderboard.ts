@@ -147,11 +147,29 @@ export async function setStatsVisible(_userId: string, visible: boolean): Promis
   if (error) throw error
 }
 
-export async function getStatsVisible(userId: string): Promise<boolean> {
+export async function getStatsVisible(userId: string, isSelf: boolean): Promise<boolean> {
   const { data, error } = await supabase.from('user_streaks').select('stats_visible').eq('user_id', userId).maybeSingle()
   if (error) return false
-  // Same reasoning as getLeaderboardOptIn above.
-  return data?.stats_visible ?? true
+  if (data) return data.stats_visible ?? true
+
+  // NO ROW CAME BACK, and what that means is the opposite for the two callers
+  // -- which is the bug RC and Adriana both reported on 2026-09-05 ("I had
+  // Adriana turn off her show me toggle, which should have immediately unshown
+  // all of her stats, but that didn't work").
+  //
+  // For your OWN profile, `user_streaks_own_rows` (auth.uid() = user_id) means
+  // you can always see your row, so an empty result is genuinely "no row yet"
+  // -- and the default is ON (RC, 2026-09-04: "be seen in the app, so default
+  // is on"). Same reasoning as getLeaderboardOptIn above.
+  //
+  // For SOMEONE ELSE it means precisely the reverse. The only other policy on
+  // that table is `user_streaks_public_stats_read`, verified live against the
+  // DB as USING (stats_visible = true). So RLS filters the row out for exactly
+  // the people who turned their stats OFF -- an empty result IS the "off"
+  // signal, and `?? true` published the stats of every user who opted out. The
+  // toggle looked completely dead from the other side because turning it off
+  // was the thing that made the reader fall through to the default.
+  return isSelf
 }
 
 // Via set_current_aircraft(), NOT a direct upsert -- see setLeaderboardOptIn

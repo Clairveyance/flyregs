@@ -2,7 +2,9 @@ import { Platform } from 'react-native'
 import * as Notifications from 'expo-notifications'
 import Constants from 'expo-constants'
 import { supabase } from '@/lib/supabase'
+import { sendExpoPushes } from '@/lib/expoPush'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import * as Sentry from '@sentry/react-native'
 
 // AC Update Alerts — Premium feature. Two layers are involved, and they're
 // independent of each other:
@@ -619,21 +621,46 @@ export async function sendCollaborationInvitePush(
       p_resource_label: resourceLabel,
       p_token: token,
     })
-    if (error) return
+    // `if (error) return` used to be the whole story here, and between that,
+    // the `.catch(() => {})` on the fetch and the bare `catch (_)` below,
+    // this function could fail at THREE separate points and leave no trace
+    // anywhere. RC, 2026-09-05: "There is zero notification happening when
+    // somebody invites you to a folder." That is exactly the report you get
+    // from a completely silent sender: no way to tell "the RPC refused",
+    // "the recipient has no token" and "Expo rejected the token" apart.
+    // Best-effort delivery is still the right policy -- the invite itself is
+    // durable in Saved > Shared > With Me -- but best-effort must not mean
+    // invisible.
+    if (error) {
+      Sentry.captureException(error, {
+        tags: { feature: 'collab_invite_push', stage: 'rpc' },
+        extra: { resourceType, targetUserId },
+      })
+      return
+    }
     const rows = (data ?? []).filter((r: any) => r?.expo_push_token)
-    if (rows.length === 0) return
-    await Promise.all(rows.map((row: any) =>
-      fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          to: row.expo_push_token,
-          sound: 'default',
-          title: row.title,
-          body: row.body,
-          data: { type: 'collab-invite', token },
-        }),
-      }).catch(() => {})
-    ))
-  } catch (_) { /* best-effort */ }
+    if (rows.length === 0) {
+      Sentry.captureMessage('Collaboration invite push: recipient has no push token', {
+        level: 'info',
+        tags: { feature: 'collab_invite_push', stage: 'no_token' },
+        extra: { resourceType, targetUserId },
+      })
+      return
+    }
+    await sendExpoPushes(
+      rows.map((row: any) => ({
+        to: row.expo_push_token,
+        sound: 'default' as const,
+        title: row.title,
+        body: row.body,
+        // Someone is sitting there having just invited this person and told
+        // "they'll get a notification." See ExpoPushMessage.interruptionLevel.
+        interruptionLevel: 'time-sensitive' as const,
+        data: { type: 'collab-invite', token },
+      })),
+      { feature: 'collab_invite_push', extra: { resourceType, targetUserId } },
+    )
+  } catch (err) {
+    Sentry.captureException(err, { tags: { feature: 'collab_invite_push', stage: 'outer' }, extra: { resourceType, targetUserId } })
+  }
 }

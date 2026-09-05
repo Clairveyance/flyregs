@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { View, Text, FlatList, Pressable, TextInput, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
 import { router } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
+import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getRecents, recentItemType, type RecentAC } from '@/lib/recents'
@@ -104,6 +105,12 @@ export default function AimIndexScreen() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  // Back to top -- RC re-raised this on 2026-09-05 after the first
+  // pass only reached the browse lists: "anywhere in the app where we
+  // have a long scrolling list of items... will want to have this back
+  // to the top button available."
+  const [scrollY, setScrollY] = useState(0)
+  const listRef = useRef<FlatList<any> | null>(null)
 
   // Device-local recently-viewed paragraphs, filtered to AIM -- an honest
   // "most used" proxy without needing any new server-side tracking.
@@ -122,7 +129,16 @@ export default function AimIndexScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: tokens.bg }]}>
-      <OverlayHeader title="Aeronautical Information Manual" onBack={() => router.back()} />
+      <OverlayHeader
+        title="Aeronautical Information Manual"
+        onBack={() => router.back()}
+        right={
+          <BackToTop
+            visible={scrollY > BACK_TO_TOP_THRESHOLD}
+            onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          />
+        }
+      />
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
@@ -207,6 +223,9 @@ export default function AimIndexScreen() {
           </View>
         ) : (
         <FlatList
+          ref={listRef}
+          onScroll={makeBackToTopScrollHandler(setScrollY)}
+          scrollEventThrottle={16}
           keyboardDismissMode="interactive"
           style={styles.flatList}
           data={filteredChapters}

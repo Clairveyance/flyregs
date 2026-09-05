@@ -15,6 +15,7 @@ import { printReg } from '@/lib/printReg'
 import { ACBody, ACBodyHandle } from '@/components/ACBody'
 import { addRecent } from '@/lib/recents'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
+import { loadHighlightSets, removeSharedHighlight, type SharedHighlightMap } from '@/lib/sharedHighlights'
 import { getDownloads, isDownloaded, addDownload, removeDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
 import { downloadGatedImageToCache, downloadAllToCache } from '@/lib/imageCache'
 import { resolveGatedStorageUrl } from '@/lib/gatedStorage'
@@ -217,6 +218,9 @@ export default function ACDetailScreen() {
   const [confirmTick, setConfirmTick] = useState(0)
   const [confirmLabel, setConfirmLabel] = useState('')
   const [highlightedBlockTexts, setHighlightedBlockTexts] = useState<Set<string>>(new Set())
+  // Other participants' highlights on this AC, keyed by passage -- see
+  // lib/sharedHighlights.ts. RC, 2026-09-05.
+  const [sharedHighlights, setSharedHighlights] = useState<SharedHighlightMap>(new Map())
   const [figures, setFigures] = useState<AcFigure[] | null>(null)
   const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
   const [formulaRefs, setFormulaRefs] = useState<FormulaRef[] | null>(null)
@@ -432,7 +436,7 @@ export default function ACDetailScreen() {
       })
     isBookmarked(id).then(setBookmarked)
     isDownloaded(id).then(setDownloaded)
-    getHighlightsForAC(id).then((hs) => setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!))))
+    loadHighlightSets(id, 'ac').then(({ texts, shared }) => { setHighlightedBlockTexts(texts); setSharedHighlights(shared) })
     // Keyed on the ENTITLEMENT too, not just the id. The _gated view
     // returns a truncated/redacted payload for a non-entitled viewer, and
     // hasPlusAccess starts false on cold launch and flips when the entitlement
@@ -559,8 +563,9 @@ export default function ACDetailScreen() {
             blockLabel: meta.label,
             blockSnippet: meta.snippet,
             blockText: contentKey,
-          }).then(() => getHighlightsForAC(ac.id)).then((hs) => {
-            setHighlightedBlockTexts(new Set(hs.map((h) => h.blockText!)))
+          }).then(() => loadHighlightSets(ac.id, 'ac')).then(({ texts, shared }) => {
+            setHighlightedBlockTexts(texts)
+            setSharedHighlights(shared)
           })
         })
       }
@@ -824,8 +829,9 @@ export default function ACDetailScreen() {
         blockText: contentKey,
       })
     }
-    const highlights = await getHighlightsForAC(ac.id)
-    setHighlightedBlockTexts(new Set(highlights.map((h) => h.blockText!)))
+    const { texts, shared } = await loadHighlightSets(ac.id, 'ac')
+    setHighlightedBlockTexts(texts)
+    setSharedHighlights(shared)
     } finally {
       toggleInFlight.current = false
     }
@@ -879,6 +885,13 @@ export default function ACDetailScreen() {
     if (!meta) return
     if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     const isHighlighted = highlightedBlockTexts.has(blockText(block))
+    // Someone ELSE'S highlight -- shaded identically, but not yours to toggle.
+    // Without this the menu offered "Remove Highlight", the local lookup found
+    // nothing, and the app added a SECOND highlight of a passage that already
+    // looked highlighted. See the identical branch on the six reg screens.
+    const passageText = blockText(block)
+    const mineToo = isHighlighted && !sharedHighlights.has(passageText)
+    const theirs = mineToo ? undefined : sharedHighlights.get(passageText)
     // Mark the passage BEFORE the menu opens -- RC: "needs to show the h/l
     // area in the doc before any CTA pops up w/ options." Cleared on every
     // dismiss path (each choice, and Cancel/tap-outside via onCancel) so it
@@ -892,10 +905,32 @@ export default function ACDetailScreen() {
       // web, which meant Copy/Highlight/Share were untestable there.
       choices: [
         { label: 'Copy Text', onPress: () => { setPendingHighlight(null); return handleCopyBlock(block) } },
-        {
-          label: isHighlighted ? 'Remove Highlight' : 'Highlight',
-          onPress: () => { setPendingHighlight(null); return handleToggleHighlight(block) },
-        },
+        theirs
+          ? theirs.canEdit
+            ? {
+                label: `Remove ${theirs.ownerLabel}'s Highlight`,
+                destructive: true,
+                onPress: () => {
+                  setPendingHighlight(null)
+                  return removeSharedHighlight(theirs.id).then((ok) => {
+                    if (!ok) {
+                      confirm({
+                        title: 'Could not remove it',
+                        message: 'Your access to that shared folder may have changed. Pull to refresh and try again.',
+                        cancelLabel: null,
+                      })
+                      return
+                    }
+                    setSharedHighlights((prev) => { const next = new Map(prev); next.delete(passageText); return next })
+                    setHighlightedBlockTexts((prev) => { const next = new Set(prev); next.delete(passageText); return next })
+                  })
+                },
+              }
+            : { label: `Highlighted by ${theirs.ownerLabel}`, onPress: () => { setPendingHighlight(null) } }
+          : {
+              label: isHighlighted ? 'Remove Highlight' : 'Highlight',
+              onPress: () => { setPendingHighlight(null); return handleToggleHighlight(block) },
+            },
         // Reachable by any Plus+ user (the long-press entry point above only
         // checks hasPlusAccess), but handleSharePassage itself requires
         // Premium -- confirmed as a real advertised-but-bounced mismatch: a
@@ -907,7 +942,7 @@ export default function ACDetailScreen() {
       ],
       onCancel: () => setPendingHighlight(null),
     })
-  }, [hasPlusAccess, isPremium, highlightedBlockTexts, handleCopyBlock, handleToggleHighlight, handleSharePassage, authLoading])
+  }, [hasPlusAccess, isPremium, highlightedBlockTexts, sharedHighlights, handleCopyBlock, handleToggleHighlight, handleSharePassage, confirm, authLoading])
 
   // Jump nav between the blocks the "What's New" diff flagged as changed —
   // mirrors the existing in-doc search prev/next pattern below (goToPrev/

@@ -348,7 +348,33 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
       // One ensure-bookmark call total, not one per newly-added folder --
       // addManyBookmarks itself already no-ops if the bookmark exists, this
       // just avoids calling it redundantly N times for N target folders.
-      if (addedOwn.length && acMeta) await addManyBookmarks([{ id: itemId, itemType, ...acMeta }])
+      //
+      // `addedOwn.length || addedShared.length`, NOT `addedOwn.length`.
+      //
+      // RC, 2026-09-05: "The app isn't letting you share a reg to a folder
+      // directly from the reg body itself unless you've already bookmarked or
+      // saved that reg and go over to the saved area and then share it from
+      // there... we need to make sure that pathway also works."
+      //
+      // This line is why. Adding to a SHARED folder skipped creating the local
+      // bookmark, and addExistingItemToSharedFolder's content push is
+      //
+      //     const bm = bookmarks.find((b) => b.id === itemId)
+      //     if (bm) await syncPushBookmark(bm, true)
+      //
+      // -- so with no local bookmark there was nothing to find and nothing to
+      // push. The synced_folder_items POINTER inserted fine (which is why this
+      // reported no error at all), but the row it pointed at never existed, so
+      // the item rendered for nobody, including the person who just added it.
+      // Exactly the failure sharedFolders.ts already documents for the
+      // 2026-08-29 highlight case -- the same gap, one level up, for any item
+      // added straight from a reg body instead of from Saved.
+      //
+      // Ordered BEFORE the Promise.all deliberately: addExistingItemToShared-
+      // Folder reads the bookmark list, so the bookmark has to exist first.
+      if ((addedOwn.length || addedShared.length) && acMeta) {
+        await addManyBookmarks([{ id: itemId, itemType, ...acMeta }])
+      }
       await Promise.all([
         ...addedOwn.map((fid) => addToFolder(fid, itemType, itemId)),
         ...removedOwn.map((fid) => removeFromFolder(fid, itemType, itemId)),
