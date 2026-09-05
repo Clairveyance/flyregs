@@ -112,10 +112,49 @@ def check_no_await_then_modal():
         print("  PASS  no onConfirm handler awaits and then opens a modal")
 
 
+# Native UI that iOS will not present while an RN <Modal> is up. A confirm
+# whose action launches one of these MUST set closeFirst.
+NATIVE_LAUNCHERS = [
+    "confirmSubscribe", "purchaseSubscription", "purchaseUnlock",
+    "restorePurchases", "launchImageLibraryAsync", "launchCameraAsync",
+    "Share.share", "printAsync", "shareAsync",
+]
+
+
+def check_native_launchers_close_first():
+    """RC's second B40 freeze: downgrade to Pro did nothing and wedged the app.
+
+    onConfirm awaited confirmSubscribe() with the dialog still presented, so
+    StoreKit's purchase sheet had nowhere to go. Linking.openSettings is
+    deliberately NOT in the list -- it backgrounds the app entirely rather
+    than presenting over it, and those call sites have always worked.
+    """
+    offenders = []
+    for f in sorted(ROOT.rglob("*.tsx")):
+        text = f.read_text()
+        for m in re.finditer(r"onConfirm:\s*(?:async\s*)?\(\)\s*=>\s*", text):
+            after = text[m.end():]
+            block = after[:200].split("\n")[0] if not after.startswith("{") else body_of(text, text.index("{", m.end()))
+            launcher = next((n for n in NATIVE_LAUNCHERS if re.search(rf"\b{re.escape(n)}\b", block)), None)
+            if not launcher:
+                continue
+            # closeFirst sits in the same options object, just above onConfirm.
+            window = text[max(0, m.start() - 600):m.start()]
+            if "closeFirst: true" not in window and "setTimeout" not in block:
+                line = text[:m.start()].count("\n") + 1
+                offenders.append(f"{f.relative_to(ROOT.parent)}:{line} launches {launcher} without closeFirst")
+    if offenders:
+        for o in offenders:
+            FAILURES.append(f"native UI opened from inside a dialog -- {o}")
+    else:
+        print("  PASS  every confirm that opens native UI closes first")
+
+
 def main():
     print("Modal-over-modal guard (the B40 Mark Complied freeze)\n")
     check_runchoice_closes_first()
     check_no_await_then_modal()
+    check_native_launchers_close_first()
     print()
     if FAILURES:
         print(f"{len(FAILURES)} FAILED:")

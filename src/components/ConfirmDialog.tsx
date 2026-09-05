@@ -80,6 +80,20 @@ export interface ConfirmOptions {
   choices?: { label: string; destructive?: boolean; onPress: () => void | Promise<void> }[]
   /** May be async -- the dialog shows a spinner and stays open until it settles. */
   onConfirm?: () => void | Promise<void>
+  /** Set when onConfirm opens NATIVE UI or another <Modal> -- a StoreKit
+   *  purchase sheet, an image picker, a share sheet.
+   *
+   *  iOS refuses to present anything while this dialog's Modal is still up,
+   *  and it fails SILENTLY: no error, no Sentry event, the app simply stops
+   *  responding. RC hit exactly this on B40 trying to downgrade to Pro --
+   *  "nothing. buttons don't even work... AND it freezes when you try to
+   *  exit." The StoreKit sheet could not present over the confirm.
+   *
+   *  With this set, the dialog closes and finishes dismissing BEFORE
+   *  onConfirm runs. The trade is the spinner: there is no dialog left to
+   *  show progress in, which is correct here -- the native sheet is the
+   *  progress indicator. Errors still surface, as a fresh confirm. */
+  closeFirst?: boolean
   onCancel?: () => void
 }
 
@@ -162,6 +176,24 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       return
     }
     if (!opts?.onConfirm) { close(); return }
+    // See closeFirst's own comment: an action that opens native UI or another
+    // Modal must not run while this one is still presented.
+    if (opts.closeFirst) {
+      const run = opts.onConfirm
+      close()
+      setTimeout(async () => {
+        try {
+          await run()
+        } catch (e: any) {
+          confirm({
+            title: 'Something went wrong',
+            message: e?.message ?? 'Please try again.',
+            cancelLabel: null,
+          })
+        }
+      }, MODAL_DISMISS_MS)
+      return
+    }
     const gen = generation.current
     setBusy(true)
     setError(null)

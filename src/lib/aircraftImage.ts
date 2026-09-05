@@ -33,7 +33,20 @@ import { supabase } from '@/lib/supabase'
 // therefore invalidates nothing, while any genuinely different image moves
 // it.
 async function contentVersion(bytes: ArrayBuffer): Promise<string> {
-  const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes)
+  // new Uint8Array(bytes), NOT the raw ArrayBuffer. expo-crypto's digest()
+  // takes a TYPED ARRAY; handing it an ArrayBuffer throws on iOS at the
+  // native boundary:
+  //
+  //   FunctionCallException: Calling the 'digest' function has failed
+  //   -> ArgumentCastException: The 3rd argument cannot be cast to type TypedArray
+  //
+  // TypeScript accepts it because expo-crypto's signature is loose enough,
+  // and web/Hermes-in-dev never exercised the native cast -- so this passed
+  // every check here and failed on the first real device. RC hit it on a 13
+  // mini running B40, and it was in B39 too (landed 2026-08-31, B39 cut
+  // 09-03): every aircraft photo set or replaced since then has failed with
+  // "Could not update this aircraft's photo."
+  const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new Uint8Array(bytes))
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')

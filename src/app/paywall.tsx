@@ -558,6 +558,10 @@ export default function PaywallScreen() {
         confirmLabel: 'Downgrade',
         destructive: true,
         finalTitle: 'Downgrade to Pro — confirm',
+        // The purchase sheet is native UI and cannot present while this
+        // dialog is up -- see ConfirmDialog's closeFirst. Without it the
+        // downgrade did nothing and wedged the app (RC, B40).
+        closeFirst: true,
         onConfirm: () => confirmSubscribe(),
       })
       return
@@ -576,6 +580,10 @@ export default function PaywallScreen() {
         title: `Switch to ${plan === 'annual' ? 'Annual' : 'Monthly'}?`,
         message: `You'll keep your current ${currentPeriod ?? 'plan'} billing until it renews${whenLabel} -- no charge today. From then on you'll be billed ${plan === 'annual' ? 'annually' : 'monthly'} at the ${plan === 'annual' ? 'annual' : 'monthly'} rate instead. Your tier and access don't change at all during this.`,
         confirmLabel: 'Switch',
+        // The purchase sheet is native UI and cannot present while this
+        // dialog is up -- see ConfirmDialog's closeFirst. Without it the
+        // downgrade did nothing and wedged the app (RC, B40).
+        closeFirst: true,
         onConfirm: () => confirmSubscribe(),
       })
       return
