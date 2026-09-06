@@ -108,6 +108,14 @@ run_one "back_to_top_audit (every long list can jump back to the top)" python3 s
 # .catch() on a resolving API, a failed read defaulting to a confident
 # answer before a delete, Alert.alert (a no-op on web), dead lib exports.
 run_one "sweep_static_defects (repeat defect classes, corpus-wide)" python3 scripts/sweep_static_defects.py
+# Every fire-and-forget async call, classified by whether its callee can
+# actually reject. Proven to catch a planted bare call to a throwing fn.
+run_one "floating_promise_audit (every fire-and-forget call)" python3 scripts/floating_promise_audit.py
+# A failed READ must never render as "not found" -- that is a false claim
+# about the corpus. Checks all four pieces, including that Try Again works.
+run_one "load_error_state_audit (failed load != missing document)" python3 scripts/load_error_state_audit.py
+# Every table, bucket, edge function and writing RPC x six identities.
+run_one "access_matrix_sweep (no key/anon/free/plus/pro/premium)" python3 scripts/access_matrix_sweep.py
 # Live database posture: RLS, what anon and a brand-new FREE account can
 # actually read, writing SECURITY DEFINER RPCs reachable with the public
 # key, and whether every cron job's last run really succeeded.
