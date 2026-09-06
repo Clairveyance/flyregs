@@ -118,6 +118,11 @@ run_one "load_error_state_audit (failed load != missing document)" python3 scrip
 # -- without it, `Fixes REACT-NATIVE-x` in a commit message resolves nothing.
 # Checks it is wired AND that it can never fail a build.
 run_one "eas_build_hook_audit (Sentry commit association is wired)" python3 scripts/eas_build_hook_audit.py
+# Timers, listeners and rAF loops that outlive the screen that made them.
+# Each detector was proven by planting a real leak and watching it get caught.
+run_one "sweep_lifecycle_leaks (timers/listeners/rAF)" python3 scripts/sweep_lifecycle_leaks.py
+# Orphaned rows, migration-file drift, slow statements, unindexed FKs.
+run_one "sweep_data_integrity (orphans, drift, slow queries)" python3 scripts/sweep_data_integrity.py
 # Every table, bucket, edge function and writing RPC x six identities.
 run_one "access_matrix_sweep (no key/anon/free/plus/pro/premium)" python3 scripts/access_matrix_sweep.py
 # Live database posture: RLS, what anon and a brand-new FREE account can
