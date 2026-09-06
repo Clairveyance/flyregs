@@ -157,19 +157,35 @@ def main():
         return
 
     if not WRITE_TOKEN:
-        print("\nCANNOT RESOLVE: no SENTRY_WRITE_TOKEN.")
-        print("  The token in .env.sentry has scopes:", scopes_of(READ_TOKEN))
-        print("  Add a token with event:write + project:write as SENTRY_WRITE_TOKEN")
-        print("  in ac-app/.env.sentry. EAS already holds one for sourcemap upload")
-        print("  (SENTRY_AUTH_TOKEN, production) but EAS secrets cannot be read back.")
+        # Deliberately does NOT tell anyone to go find and edit a dotfile.
+        # RC, standing instruction, repeated: he cannot locate local .env
+        # files and should never be sent to one -- hand the value over and it
+        # gets wired in for him. See memory/feedback_never_ask_rc_to_use_env_files.
+        print("\nCANNOT RESOLVE: no write-capable Sentry token is available here.")
+        print("  The token this project has reports scopes:", scopes_of(READ_TOKEN))
+        print("  A token with event:write (+ project:write) is needed. Once one")
+        print("  exists it belongs in .env.sentry as SENTRY_WRITE_TOKEN= -- but")
+        print("  writing it there is a job for whoever runs this, not for RC.")
         sys.exit(2)
 
+    # Scope introspection is ADVISORY here, not a gate.
+    #
+    # GET /api/0/ reports scopes for a personal token (sntryu_). An
+    # ORGANIZATION token (sntrys_) does not always answer that endpoint the
+    # same way, and refusing to try on the strength of a missing scope list
+    # would block the exact token type most likely to be handed over. So a
+    # missing or read-only-looking scope list is printed as context and the
+    # write is attempted anyway -- the API's own answer is the truth, and it
+    # is reported verbatim below either way.
     sc = scopes_of(WRITE_TOKEN)
-    if sc is not None and not any(s.endswith(":write") or s == "project:admin" for s in sc):
-        print(f"\nCANNOT RESOLVE: SENTRY_WRITE_TOKEN has no write scope -- {sc}")
-        sys.exit(2)
+    if sc is None:
+        print("\n(could not read this token's scopes -- typical for an organization "
+              "token; attempting the write and reporting exactly what Sentry says)")
+    elif not any(x.endswith(":write") or x in ("project:admin", "org:admin") for x in sc):
+        print(f"\n(this token reports scopes {sc}, which look read-only -- "
+              "attempting anyway so the failure is Sentry's answer, not a guess)")
 
-    print(f"\nResolving {len(fixed)} issue(s) with a token holding {sc}...")
+    print(f"\nResolving {len(fixed)} issue(s)...")
     failed = 0
     for i in fixed:
         st, body = api("PUT", f"/issues/{i['id']}/", WRITE_TOKEN, {"status": "resolved"})

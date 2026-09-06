@@ -74,7 +74,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "eas-build-on-success": "node scripts/eas-sentry-set-commits.js"
   },
   "private": true
 }
