@@ -7,6 +7,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { LoadFailed } from '@/components/LoadFailed'
 import { TabletContainer } from '@/components/TabletContainer'
 import { SplitPane } from '@/components/SplitPane'
 import { RegPreviewInline } from '@/components/RegPreviewPane'
@@ -36,6 +37,14 @@ export default function FarPartScreen() {
   const [sections, setSections] = useState<FarSectionRow[]>([])
   const [partLabel, setPartLabel] = useState('')
   const [loading, setLoading] = useState(true)
+  // A fresh fetch that FAILED, told apart from one that returned nothing.
+  // These screens paint cached data first and then refresh. supabase-js
+  // RESOLVES {data: null, error} rather than throwing, so the try/catch
+  // wrapped around the refresh never fired on a query error at all, and
+  // the response's own `error` was never read -- a dead connection looked
+  // exactly like an empty part/letter/year. Only surfaced when there is no
+  // cached data to fall back on: stale content beats an error box.
+  const [loadFailed, setLoadFailed] = useState(false)
   // RC, "Suggest a feature", 2026-09-03: every document-detail screen
   // already had a back-to-top affordance in its header once scrolled far
   // enough; the long PART section lists (this screen -- Part 91 alone runs
@@ -60,6 +69,7 @@ export default function FarPartScreen() {
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   const load = useCallback(async () => {
+    setLoadFailed(false)
     if (!part) return
     setLoading(true)
 
@@ -105,6 +115,7 @@ export default function FarPartScreen() {
       setLoading(false)
 
       AsyncStorage.setItem(FAR_PART_CACHE_KEY_PREFIX + part, JSON.stringify({ sections: freshSections, partLabel: freshLabel }))
+      setLoadFailed(!!secRes.error || !!partRes.error)
     } catch (_) {
       // Network failed -- cached data (if any) stays visible
     } finally {
@@ -205,7 +216,11 @@ export default function FarPartScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
-      ) : isTabletLandscape ? (
+            ) : loadFailed && sections.length === 0 ? (
+        // Only when there is nothing cached to show -- a stale list is
+        // more useful than an error box. See loadFailed's own comment.
+        <LoadFailed onRetry={load} />
+) : isTabletLandscape ? (
         <SplitPane
           storageKey="far"
           rail={sectionList}

@@ -11,6 +11,7 @@ import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/
 import { TabletContainer } from '@/components/TabletContainer'
 import { DictionarySearchBar } from '@/components/DictionarySearchBar'
 import { Icon } from '@/components/Icon'
+import { LoadFailed } from '@/components/LoadFailed'
 
 // Keyed by BOTH letter and uid, unlike this feature's other browse screens
 // (dictionary/index.tsx, pcg/letter/[letter].tsx) -- this is the one query
@@ -47,6 +48,12 @@ export default function DictionaryLetterScreen() {
   const fs = useFS()
   const [terms, setTerms] = useState<DictTermRow[]>([])
   const [loading, setLoading] = useState(true)
+  // A fresh fetch that FAILED, told apart from one that returned nothing --
+  // supabase-js RESOLVES {data: null, error} rather than throwing, so the
+  // try/catch around the refresh never fired on a query error. Only shown
+  // when there is nothing cached to fall back on.
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   // RC, "Suggest a feature": back-to-top on every long list. Missed in the
   // first rollout even though this is the LONGEST list in the app --
   // dictionary letter S is 992 terms, A is 947.
@@ -54,6 +61,7 @@ export default function DictionaryLetterScreen() {
   const listRef = useRef<FlatList<DictTermRow>>(null)
 
   useEffect(() => {
+    setLoadFailed(false)
     if (!letter || !hasPlusAccess) { setLoading(false); return }
     // hasPlusAccess resolves asynchronously after mount (AuthContext's
     // isPro/isPremium/isUnlocked all start false) -- without this, the guard
@@ -86,18 +94,19 @@ export default function DictionaryLetterScreen() {
         // 2026-09-02: letter S is at 992 terms, A at 947. Eight more S-words
         // and this screen would start silently dropping dictionary entries,
         // with nothing anywhere to notice it had happened. Data Is King.
-        const { data } = await supabase.from('dictionary_terms_gated').select('term, slug, category, senses').eq('letter', letter).order('term').range(0, 4999)
+        const { data, error } = await supabase.from('dictionary_terms_gated').select('term, slug, category, senses').eq('letter', letter).order('term').range(0, 4999)
         if (data) {
           setTerms(data as DictTermRow[])
           if (uid) AsyncStorage.setItem(DICTIONARY_LETTER_CACHE_KEY_PREFIX + letter + ':' + uid, JSON.stringify(data)).catch(() => {})
         }
+        setLoadFailed(!!error)
       } catch (_) {
         // Network failed -- cached data (if any) stays visible
       } finally {
         setLoading(false)
       }
     })()
-  }, [letter, hasPlusAccess, session?.user?.id])
+  }, [letter, hasPlusAccess, session?.user?.id, reloadKey])
 
   // RC, 2026-08-10: "Plus gets the A/D, not the Mnemonics." Same
   // whole-screen lock as dictionary/index.tsx.
@@ -148,7 +157,11 @@ export default function DictionaryLetterScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
-      ) : (
+            ) : loadFailed && terms.length === 0 ? (
+        // Only when nothing cached is showing -- stale content beats an
+        // error box. See loadFailed's own comment above.
+        <LoadFailed onRetry={() => setReloadKey((k) => k + 1)} />
+) : (
         <TabletContainer>
           <FlatList
             ref={listRef}

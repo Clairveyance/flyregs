@@ -6,6 +6,7 @@ import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
+import { LoadFailed } from '@/components/LoadFailed'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getRefPacket, getRefPackets, splitPacketTitle, refPackKnowledgeLevel, RefPacketArea, RefPacket } from '@/lib/refPackets'
@@ -32,6 +33,11 @@ export default function RefPacketDetailScreen() {
   const [areas, setAreas] = useState<RefPacketArea[]>([])
   const [expanded, setExpanded] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // getRefPacket returns null both when the pack genuinely has no areas
+  // and when the read failed, so an empty RefPack and a dead connection
+  // rendered identically. Only surfaced with nothing cached to show.
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [siblings, setSiblings] = useState<RefPacket[]>([])
   // ACS task titles run long and get cut off the same way FAR Part titles do
   // -- same hook/card pair as far/index.tsx's own long-press preview.
@@ -42,6 +48,7 @@ export default function RefPacketDetailScreen() {
   useEffect(() => {
     if (!activeCode || !hasPlusAccess) { setLoading(false); return }
     setLoading(true)
+    setLoadFailed(false)
     setExpanded(null)
     ;(async () => {
       try {
@@ -54,7 +61,11 @@ export default function RefPacketDetailScreen() {
       } catch (_) {}
 
       try {
+        // getRefPacket THROWS on a failed read now and returns null only for
+        // a code that genuinely has no document -- so the catch below is the
+        // failure path, and `null` here is a real empty pack.
         const r = await getRefPacket(activeCode)
+        setLoadFailed(false)
         if (r) {
           setTitle(r.title); setAreas(r.areas)
           // Only cache a pack that actually HAS areas. Belt-and-braces
@@ -67,11 +78,12 @@ export default function RefPacketDetailScreen() {
         }
       } catch (_) {
         // Network failed -- cached data (if any) stays visible
+        setLoadFailed(true)
       } finally {
         setLoading(false)
       }
     })()
-  }, [activeCode, hasPlusAccess])
+  }, [activeCode, hasPlusAccess, reloadKey])
 
   // Siblings: other acs_documents rows from the same source PDF (see
   // splitPacketTitle) -- fetched once against the full catalog rather than
@@ -136,6 +148,10 @@ export default function RefPacketDetailScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
+      ) : loadFailed && areas.length === 0 ? (
+        // Nothing cached to fall back on -- say it failed rather than showing
+        // an empty pack. See loadFailed's own comment above.
+        <LoadFailed message="Couldn't load this RefPack." onRetry={() => setReloadKey((k) => k + 1)} />
       ) : (
         <TabletContainer>
           <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.list}>

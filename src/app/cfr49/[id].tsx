@@ -10,6 +10,7 @@ import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { LoadFailed } from '@/components/LoadFailed'
 import { printReg } from '@/lib/printReg'
 import { PlainTextBody, PlainTextBodyHandle } from '@/components/PlainTextBody'
 import { MagicLinkPod } from '@/components/MagicLinkPod'
@@ -102,6 +103,14 @@ export default function Cfr49SectionScreen() {
   const [citationRelated, setCitationRelated] = useState<RelatedItem[]>([])
   const [semanticRelated, setSemanticRelated] = useState<RelatedItem[]>([])
   const [loading, setLoading] = useState(true)
+  // Told apart from "section is null", which this screen used to render as
+  // "not found" no matter WHY it was null. supabase-js resolves
+  // {data: null, error} instead of throwing, so a dead connection left
+  // the user reading a confident, false statement about the corpus.
+  // PostgREST's PGRST116 is the genuine "no such row"; anything else --
+  // network, permission, a 5xx -- is a failure to load, and gets a retry.
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [bookmarked, setBookmarked] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
   const [downloadBusy, setDownloadBusy] = useState(false)
@@ -179,6 +188,7 @@ export default function Cfr49SectionScreen() {
   useEffect(() => {
     if (!id) return
     setLoading(true)
+    setLoadFailed(false)
     // Reset both -- otherwise a fast nav between two sections (Prev/Next)
     // can briefly show the PREVIOUS section's related content under the
     // new one's header while the new fetches are in flight.
@@ -250,6 +260,11 @@ export default function Cfr49SectionScreen() {
           .filter((r) => !(r.cited_type === 'cfr49' && r.cited_id === id))
         setCitationRelated(other)
       }
+      // A failed FETCH is not a missing document. PGRST116 is PostgREST's
+      // own "no rows returned"; anything else -- offline, a 5xx, a permission
+      // change -- means we could not read, and the screen must say that
+      // instead of claiming the document does not exist.
+      setLoadFailed(!!secRes.error && secRes.error.code !== 'PGRST116')
       setLoading(false)
     })
 
@@ -266,7 +281,7 @@ export default function Cfr49SectionScreen() {
     // to the shared auth context. Without refetching, a paying user read a
     // preview slice under a heading that says FULL TEXT, with nothing on
     // screen indicating anything was missing.
-  }, [id, hasPlusAccess])
+  }, [id, hasPlusAccess, reloadKey])
 
   // Opportunistic staleness check -- see downloads.ts's isDownloadStale.
   useEffect(() => {
@@ -566,6 +581,10 @@ export default function Cfr49SectionScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
+      ) : loadFailed && !section ? (
+        // "not found" is a claim about the CORPUS -- only made when the
+        // server actually said so. See loadFailed's own comment above.
+        <LoadFailed onRetry={() => setReloadKey((k) => k + 1)} />
       ) : !section ? (
         <View style={styles.center}>
           <Text style={[styles.empty, { color: tokens.t3, fontSize: fs(15) }]}>Section not found.</Text>

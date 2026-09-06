@@ -177,6 +177,13 @@ export async function getRefPacket(code: string): Promise<{ title: string; areas
   // catch that keeps cached data visible.
   if (areasRes.error) throw areasRes.error
   if (tasksRes.error) throw tasksRes.error
+  // The PRIMARY query needs the same treatment, for the reason the two lines
+  // above already give. Returning null for both "this code does not exist"
+  // and "the read failed" left [code].tsx unable to tell them apart, so a
+  // dead connection rendered as an empty RefPack -- or, once the screen grew
+  // an error state, a real missing code rendered as "couldn't load". PGRST116
+  // is PostgREST's genuine no-rows; anything else is a failure.
+  if (docRes.error && docRes.error.code !== 'PGRST116') throw docRes.error
   if (!docRes.data) return null
   const areas = (areasRes.data ?? []) as { area_number: string; title: string }[]
   const tasks = (tasksRes.data ?? []) as { id: string; area_number: string; task_letter: string; title: string }[]

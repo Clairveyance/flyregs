@@ -7,6 +7,7 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { LoadFailed } from '@/components/LoadFailed'
 import { TabletContainer } from '@/components/TabletContainer'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
@@ -52,6 +53,12 @@ export default function AimChapterScreen() {
   const [paragraphs, setParagraphs] = useState<AimParagraphRow[]>([])
   const [chapterTitle, setChapterTitle] = useState('')
   const [loading, setLoading] = useState(true)
+  // A fresh fetch that FAILED, told apart from one that returned nothing --
+  // supabase-js RESOLVES {data: null, error} rather than throwing, so the
+  // try/catch around the refresh never fired on a query error. Only shown
+  // when there is nothing cached to fall back on.
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   // "Suggest a feature", RC, 2026-09-03 -- see far/part/[part].tsx's own
   // comment for the full context; same pattern, second rollout.
   const [scrollY, setScrollY] = useState(0)
@@ -62,6 +69,7 @@ export default function AimChapterScreen() {
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   useEffect(() => {
+    setLoadFailed(false)
     if (!chapter) return
     let cancelled = false
     // Mirrors far/part/[part].tsx exactly: paint from cache first so the
@@ -106,6 +114,7 @@ export default function AimChapterScreen() {
             JSON.stringify({ paragraphs: freshParagraphs, chapterTitle: freshTitle }),
           ).catch(() => {})
         }
+        setLoadFailed(!!paraRes.error || !!chapRes.error)
       } catch (_) {
         // Network failed -- cached rows (if any) stay on screen. Either way
         // the spinner must stop; this is the branch that used to be missing.
@@ -114,7 +123,7 @@ export default function AimChapterScreen() {
     })()
 
     return () => { cancelled = true }
-  }, [chapter])
+  }, [chapter, reloadKey])
 
   // Group by section_title, preserving already-sorted order.
   const groups: { section: string | null; items: AimParagraphRow[] }[] = []
@@ -142,7 +151,11 @@ export default function AimChapterScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
-      ) : (
+            ) : loadFailed && paragraphs.length === 0 ? (
+        // Only when nothing cached is showing -- stale content beats an
+        // error box. See loadFailed's own comment above.
+        <LoadFailed onRetry={() => setReloadKey((k) => k + 1)} />
+) : (
         <TabletContainer>
         <FlatList
           ref={listRef}

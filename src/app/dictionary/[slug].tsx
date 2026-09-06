@@ -8,6 +8,7 @@ import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { TabletContainer } from '@/components/TabletContainer'
 import { Icon } from '@/components/Icon'
+import { LoadFailed } from '@/components/LoadFailed'
 import { FolderPicker } from '@/components/FolderPicker'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { addRecent } from '@/lib/recents'
@@ -141,6 +142,14 @@ export default function DictionaryTermScreen() {
   const { hasPlusAccess, hasProAccess, loading: authLoading } = useAuth()
   const [entry, setEntry] = useState<DictTerm | null>(null)
   const [loading, setLoading] = useState(true)
+  // Told apart from "entry is null", which this screen used to render as
+  // "not found" no matter WHY it was null. supabase-js resolves
+  // {data: null, error} instead of throwing, so a dead connection left
+  // the user reading a confident, false statement about the corpus.
+  // PostgREST's PGRST116 is the genuine "no such row"; anything else --
+  // network, permission, a 5xx -- is a failure to load, and gets a retry.
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [bookmarked, setBookmarked] = useState(false)
   const [folderPickerVisible, setFolderPickerVisible] = useState(false)
   const [siblingMnemonics, setSiblingMnemonics] = useState<{ slug: string; term: string; mnemonic_group: string | null }[]>([])
@@ -162,13 +171,17 @@ export default function DictionaryTermScreen() {
     // reaching this fetch), non-Pro gets null on mnemonic entries
     // specifically. See gotcha_tier_gate_client_side_only.md.
     supabase.from('dictionary_terms_gated').select('term, senses, source, category, pcg_term_id, pcg_terms(slug, term), see_also_slug').eq('slug', slug).single()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
         // pcg_terms comes back as a plain object for this to-one relation
         // (dictionary_terms.pcg_term_id -> pcg_terms.id is a single FK), but
         // supabase-js's generic .select() typing can't infer that without
         // generated schema types -- same `any` cast already used for this
         // exact shape in adNotifications.ts's airworthiness_directives embed.
         if (data) setEntry(data as any as DictTerm)
+        // A failed FETCH is not a missing document -- PGRST116 is PostgREST's
+        // own "no rows"; anything else means we could not read. See
+        // loadFailed's own comment above.
+        setLoadFailed(!!error && error.code !== 'PGRST116')
         setLoading(false)
       })
     // Bookmark/Recents feature parity pass (2026-08-02) -- RC's audit found
@@ -180,7 +193,7 @@ export default function DictionaryTermScreen() {
     // here since dictionary slugs don't need normalization the way P/CG's
     // did, but keeping the same slug-as-id convention for consistency).
     isBookmarked(slug).then(setBookmarked)
-  }, [slug, hasPlusAccess])
+  }, [slug, hasPlusAccess, reloadKey])
 
   // "See X" cross-reference -- RC: "some (like ultralight) don't have
   // enough of a real explanation." A scripted audit found 79 entries whose
@@ -402,6 +415,10 @@ export default function DictionaryTermScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
+      ) : loadFailed && !entry ? (
+        // "not found" is a claim about the CORPUS -- only made when the
+        // server actually said so. See loadFailed's own comment above.
+        <LoadFailed onRetry={() => setReloadKey((k) => k + 1)} />
       ) : !entry ? (
         <View style={styles.center}>
           <Text style={{ color: tokens.t3, fontSize: fs(14) }}>Term not found.</Text>

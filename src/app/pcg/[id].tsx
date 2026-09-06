@@ -12,6 +12,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { BackToBreadcrumb, PrevNextFooter, OfflineCopyBanner, ChangedBanner } from '@/components/DocNavBar'
 import { getLatestRevision, type ContentRevision } from '@/lib/whatsChanged'
 import { Icon } from '@/components/Icon'
+import { LoadFailed } from '@/components/LoadFailed'
 import { printReg } from '@/lib/printReg'
 import { slugifyPcgTerm } from '@/lib/pcg'
 import { MagicLinkPod } from '@/components/MagicLinkPod'
@@ -161,6 +162,14 @@ export default function PcgTermScreen() {
   const [siblingTerms, setSiblingTerms] = useState<{ slug: string; term: string }[]>([])
   const [backTo, setBackTo] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // Told apart from "term is null", which this screen used to render as
+  // "not found" no matter WHY it was null. supabase-js resolves
+  // {data: null, error} instead of throwing, so a dead connection left
+  // the user reading a confident, false statement about the corpus.
+  // PostgREST's PGRST116 is the genuine "no such row"; anything else --
+  // network, permission, a 5xx -- is a failure to load, and gets a retry.
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [bookmarked, setBookmarked] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
   const [downloadBusy, setDownloadBusy] = useState(false)
@@ -218,6 +227,7 @@ export default function PcgTermScreen() {
   useEffect(() => {
     if (!id) return
     setLoading(true)
+    setLoadFailed(false)
     supabase
       .from('pcg_terms')
       .select('slug, term, definition, frequently_used, see_refs, see_refs_unresolved, external_refs')
@@ -270,9 +280,14 @@ export default function PcgTermScreen() {
           })
           setOfflineCopy(cached)
         }
+        // A failed FETCH is not a missing term. Both live lookups above
+        // return early on success, so reaching here with no term and a
+        // non-PGRST116 error means the read failed, not that the P/CG has
+        // no such entry.
+        setLoadFailed(!!error && error.code !== 'PGRST116')
         setLoading(false)
       })
-  }, [id])
+  }, [id, reloadKey])
 
   // Opportunistic staleness check -- see downloads.ts's isDownloadStale.
   useEffect(() => {
@@ -661,6 +676,10 @@ export default function PcgTermScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
+      ) : loadFailed && !term ? (
+        // "not found" is a claim about the CORPUS -- only made when the
+        // server actually said so. See loadFailed's own comment above.
+        <LoadFailed onRetry={() => setReloadKey((k) => k + 1)} />
       ) : !term ? (
         <View style={styles.center}>
           <Text style={[styles.empty, { color: tokens.t3, fontSize: fs(15) }]}>Term not found.</Text>

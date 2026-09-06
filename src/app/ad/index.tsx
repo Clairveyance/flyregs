@@ -8,6 +8,7 @@ import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { LoadFailed } from '@/components/LoadFailed'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getRecents, recentItemType, type RecentAC } from '@/lib/recents'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
@@ -78,6 +79,11 @@ export default function AdIndexScreen() {
   // all updatable screens." Shared by the mount effect below and the
   // ScrollView's own refreshControl so pulling down re-runs the exact same
   // fetches instead of duplicating them.
+  // A fresh fetch that FAILED, told apart from one that returned nothing --
+  // supabase-js RESOLVES {data: null, error} rather than throwing, so the
+  // try/catch around the refresh never fired on a query error. Only shown
+  // when there is nothing cached to fall back on.
+  const [loadFailed, setLoadFailed] = useState(false)
   const loadRecentAd = useCallback(() => {
     getRecents().then((rs) => setRecentAd(rs.filter((r) => recentItemType(r) === 'ad').slice(0, 10)))
   }, [])
@@ -97,6 +103,7 @@ export default function AdIndexScreen() {
   // missing entirely; skip the fetch too, not just the render, for a
   // free-tier viewer.
   const loadNewAds = useCallback(async () => {
+    setLoadFailed(false)
     if (!hasPlusAccess) {
       // Only actually clear once auth is DONE resolving -- hasPlusAccess
       // starts false for everyone (see context/auth.tsx), and this callback
@@ -146,6 +153,7 @@ export default function AdIndexScreen() {
         AsyncStorage.setItem(AD_NEWADS_CACHE_KEY, JSON.stringify(fresh)).catch(() => {})
       }
       // else: query failed -- cached data (if any) stays visible, don't clear it
+      setLoadFailed(!!error)
     } catch (_) {
       // Network failed -- cached data (if any) stays visible
     }
@@ -376,6 +384,18 @@ export default function AdIndexScreen() {
                     ))}
                   </ScrollView>
                 </View>
+              )}
+
+              {/* The NEW list is the only network-loaded part of this screen --
+                  the rest is local. A failed refresh used to render as "no new
+                  ADs in the last N days", which is a claim about the FAA's
+                  publications, not about our connection. */}
+              {loadFailed && newAds.length === 0 && (
+                <LoadFailed
+                  message="Couldn't load new ADs."
+                  onRetry={loadNewAds}
+                  compact
+                />
               )}
 
               {newAds.length > 0 && (

@@ -18,6 +18,7 @@ import { ScreenHeader } from '@/components/ScreenHeader'
 import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import { TabletContainer } from '@/components/TabletContainer'
 import { Icon } from '@/components/Icon'
+import { LoadFailed } from '@/components/LoadFailed'
 import { getBookmarks, removeBookmark, removeManyBookmarks, routeForBookmark, bookmarkItemType, BookmarkAC } from '@/lib/bookmarks'
 import { highlightSnippet } from '@/lib/acShare'
 import { getDownloads, removeDownload, formatBytes, DownloadedAC, downloadItemType, routeForDownload, isDownloadStale, getStaleDownloadIds } from '@/lib/downloads'
@@ -150,6 +151,10 @@ export default function SavedScreen() {
   // invite silently failed. challenges/index.tsx already has this guard;
   // saved.tsx never did. Found in the post-build-31 sweep.
   const [sharedLoading, setSharedLoading] = useState(true)
+  // Told apart from "you are in no shared folders", which is what a failed
+  // load used to render as.
+  const [sharedFailed, setSharedFailed] = useState(false)
+  const [sharedReloadKey, setSharedReloadKey] = useState(0)
   const [sharedSubTab, setSharedSubTab] = useState<'withMe' | 'fromMe'>('withMe')
   // Callsign invites this account has been sent but not yet accepted. Kept
   // separate from `collaborations` on purpose: an unaccepted invite has no
@@ -339,13 +344,23 @@ export default function SavedScreen() {
         setCollaborations(c)
         setSharedByMe(s)
         setPendingInvites(p)
+        setSharedFailed(false)
+        setSharedLoading(false)
+      }).catch(() => {
+        // There was NO catch here at all. getMySharedFolders() and the
+        // collaborations read both throw on a real failure, and an unhandled
+        // rejection left sharedLoading true FOREVER -- the Shared tab spun
+        // until the app was restarted, with nothing on screen to say why and
+        // no way to retry. The pending-invite fetch already had its own
+        // .catch for exactly this reason; the other two never got one.
+        setSharedFailed(true)
         setSharedLoading(false)
       })
     } else {
       setSharedLoading(false)
       setPendingInvites([])
     }
-  }, [session?.user?.id])
+  }, [session?.user?.id, sharedReloadKey])
 
   // Runs whenever the download list changes (a fresh `load()`, or an
   // add/remove) rather than gating on focus separately -- degrades
@@ -1195,6 +1210,13 @@ export default function SavedScreen() {
               <View style={styles.center}>
                 <ActivityIndicator color={tokens.blu} />
               </View>
+            ) : sharedFailed && collaborations.length === 0 && pendingInvites.length === 0 ? (
+              // "Nobody has shared a folder with you" is a claim about other
+              // people's actions. Only make it when the server actually said so.
+              <LoadFailed
+                message="Couldn't load shared folders."
+                onRetry={() => setSharedReloadKey((k) => k + 1)}
+              />
             ) : collaborations.length === 0 && pendingInvites.length === 0 ? (
               <View style={styles.center}>
                 <Icon name="person.2.fill" size={fs(40)} color={tokens.t4} />

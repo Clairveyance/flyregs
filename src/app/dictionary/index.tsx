@@ -9,6 +9,7 @@ import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import { Icon } from '@/components/Icon'
+import { LoadFailed } from '@/components/LoadFailed'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getWordOfTheDay, WordOfTheDay } from '@/lib/notifications'
 import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
@@ -49,6 +50,14 @@ export default function DictionaryIndexScreen() {
   const ifs = useInputFS()
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
+  // A fresh fetch that FAILED, told apart from one that returned nothing.
+  // These screens paint cached data first and then refresh. supabase-js
+  // RESOLVES {data: null, error} rather than throwing, so the try/catch
+  // wrapped around the refresh never fired on a query error at all, and
+  // the response's own `error` was never read -- a dead connection looked
+  // exactly like an empty part/letter/year. Only surfaced when there is no
+  // cached data to fall back on: stale content beats an error box.
+  const [loadFailed, setLoadFailed] = useState(false)
   const [query, setQuery] = useState('')
   const [termHits, setTermHits] = useState<TermHit[]>([])
   const [searching, setSearching] = useState(false)
@@ -75,6 +84,7 @@ export default function DictionaryIndexScreen() {
   // always open very fast" -- this shows the last-known browse index
   // instantly instead of a blank spinner on every open.
   const load = useCallback(async () => {
+    setLoadFailed(false)
     let lastGoodCounts: Record<string, number> = {}
 
     try {
@@ -106,6 +116,7 @@ export default function DictionaryIndexScreen() {
         counts: freshCounts,
         mnemonics: freshMnemonics,
       })).catch(() => {})
+      setLoadFailed(!!countsRes.error || !!mnemonicsRes.error)
     } catch (_) {
       // Network failed -- cached data (if any) stays visible
     } finally {
@@ -212,7 +223,11 @@ export default function DictionaryIndexScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
-      ) : (
+            ) : loadFailed && Object.keys(counts).length === 0 ? (
+        // Only when there is nothing cached to show -- a stale list is
+        // more useful than an error box. See loadFailed's own comment.
+        <LoadFailed onRetry={load} />
+) : (
         <TabletContainer>
           <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
             <Icon name="magnifyingglass" size={fs(16)} color={tokens.t3} />

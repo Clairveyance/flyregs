@@ -11,6 +11,7 @@ import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { BackToBreadcrumb, ChangedBanner, OfflineCopyBanner } from '@/components/DocNavBar'
 import { Icon } from '@/components/Icon'
+import { LoadFailed } from '@/components/LoadFailed'
 import { printReg } from '@/lib/printReg'
 import { ACBody, ACBodyHandle } from '@/components/ACBody'
 import { addRecent } from '@/lib/recents'
@@ -66,6 +67,17 @@ interface RelatedItem {
 }
 
 export default function ACDetailScreen() {
+  // Declared at the very top of the component ON PURPOSE: the redirect
+  // effect below that sets it runs before the rest of this screen's state,
+  // and a const declared further down is a use-before-declaration.
+  // Told apart from "ac is null", which this screen used to render as
+  // "not found" no matter WHY it was null. supabase-js resolves
+  // {data: null, error} instead of throwing, so a dead connection left
+  // the user reading a confident, false statement about the corpus.
+  // PostgREST's PGRST116 is the genuine "no such row"; anything else --
+  // network, permission, a 5xx -- is a failure to load, and gets a retry.
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const { id, hlId, hlText } = useLocalSearchParams<{ id: string; hlId?: string; hlText?: string }>()
   const { tokens } = useTheme()
   // useConfirm, not Alert.alert -- Alert.alert renders NOTHING on React
@@ -103,7 +115,14 @@ export default function ACDetailScreen() {
         // unresolvable AC number spun forever instead of saying so. Reachable
         // today: 31 document_citations point at 5 AC numbers that exist only
         // as status='cancelled', which both queries here filter out.
-        if (error) { setLoading(false); return }
+        if (error) {
+        // A failed FETCH is not a missing document -- PGRST116 is PostgREST's
+        // own "no rows"; anything else means we could not read. See
+        // loadFailed's own comment above.
+          setLoadFailed(error.code !== 'PGRST116')
+          setLoading(false)
+          return
+        }
         // Regulatory text routinely cites an AC by its base number without
         // the revision letter ("AC 90-66" in running prose, real document
         // is "90-66C") — confirmed live, not a one-off: an exact match
@@ -129,7 +148,7 @@ export default function ACDetailScreen() {
             router.replace(`/ac/${best.id}` as any)
           })
       })
-  }, [id])
+  }, [id, reloadKey])
 
   // Consumed once per screen instance, not on every render -- see
   // navBreadcrumb.ts's single-slot design. Confirmed a real gap: unlike
@@ -432,6 +451,10 @@ export default function ACDetailScreen() {
             setOfflineCopy(cached)
           }
         }
+        // The MAIN content fetch has its own failure path -- the redirect effect
+        // above only covers an unresolvable AC NUMBER. Both have to set this or
+        // half the failures still render as "AC not found."
+        setLoadFailed(!!error && error.code !== 'PGRST116')
         setLoading(false)
       })
     isBookmarked(id).then(setBookmarked)
@@ -445,7 +468,7 @@ export default function ACDetailScreen() {
     // to the shared auth context. Without refetching, a paying user read a
     // preview slice under a heading that says FULL TEXT, with nothing on
     // screen indicating anything was missing.
-  }, [id, hasPlusAccess])
+  }, [id, hasPlusAccess, reloadKey])
 
   // Opportunistic staleness check -- see downloads.ts's isDownloadStale.
   useEffect(() => {
@@ -1164,6 +1187,10 @@ export default function ACDetailScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
+      ) : loadFailed && !ac ? (
+        // "not found" is a claim about the CORPUS -- only made when the
+        // server actually said so. See loadFailed's own comment above.
+        <LoadFailed onRetry={() => setReloadKey((k) => k + 1)} />
       ) : !ac ? (
         <View style={styles.center}>
           <Text style={{ color: tokens.t3, fontSize: fs(14) }}>AC not found.</Text>

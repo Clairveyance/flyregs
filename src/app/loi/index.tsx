@@ -7,6 +7,7 @@ import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
+import { LoadFailed } from '@/components/LoadFailed'
 import { TabletContainer } from '@/components/TabletContainer'
 import { getRecents, recentItemType, type RecentAC } from '@/lib/recents'
 import { humanizeLoiTitle } from '@/lib/titleFormat'
@@ -77,7 +78,13 @@ export default function LoiIndexScreen() {
     getRecents().then((rs) => setRecentLoi(rs.filter((r) => recentItemType(r) === 'loi').slice(0, 10)))
   }, [])
 
+  // A fresh fetch that FAILED, told apart from one that returned nothing --
+  // supabase-js RESOLVES {data: null, error} rather than throwing, so the
+  // try/catch around the refresh never fired on a query error. Only shown
+  // when there is nothing cached to fall back on.
+  const [loadFailed, setLoadFailed] = useState(false)
   const loadYearCounts = useCallback(async () => {
+    setLoadFailed(false)
     // Show cached data immediately so the year-browse grid doesn't pop in a
     // beat after the query resolves -- same reasoning as Home's own
     // REG_OF_DAY_CACHE_KEY comment.
@@ -105,6 +112,7 @@ export default function LoiIndexScreen() {
         AsyncStorage.setItem(LOI_INDEX_CACHE_KEY, JSON.stringify(fresh)).catch(() => {})
       }
       // else: query failed -- cached data (if any) stays visible, don't clear it
+      setLoadFailed(!!error)
     } catch (_) {
       // Network failed -- cached data (if any) stays visible
     }
@@ -282,6 +290,10 @@ export default function LoiIndexScreen() {
               )}
             />
           )
+        ) : loadFailed && yearCounts.length === 0 ? (
+          // Only when nothing cached is showing -- a stale year list beats an
+          // error box. See loadFailed's own comment above.
+          <LoadFailed onRetry={loadYearCounts} />
         ) : (
           <FlatList
             key="browse-years"

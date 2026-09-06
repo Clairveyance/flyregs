@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
+import { LoadFailed } from '@/components/LoadFailed'
 import { TabletContainer } from '@/components/TabletContainer'
 import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
@@ -30,6 +31,14 @@ export default function PcgLetterScreen() {
   const fs = useFS()
   const [terms, setTerms] = useState<PcgTermRow[]>([])
   const [loading, setLoading] = useState(true)
+  // A fresh fetch that FAILED, told apart from one that returned nothing.
+  // These screens paint cached data first and then refresh. supabase-js
+  // RESOLVES {data: null, error} rather than throwing, so the try/catch
+  // wrapped around the refresh never fired on a query error at all, and
+  // the response's own `error` was never read -- a dead connection looked
+  // exactly like an empty part/letter/year. Only surfaced when there is no
+  // cached data to fall back on: stale content beats an error box.
+  const [loadFailed, setLoadFailed] = useState(false)
   // "Suggest a feature", RC, 2026-09-03 -- see far/part/[part].tsx's own comment.
   const [scrollY, setScrollY] = useState(0)
   const listRef = useRef<FlatList<PcgTermRow>>(null)
@@ -41,6 +50,7 @@ export default function PcgLetterScreen() {
   const { preview, previewHeight, setPreviewHeight, showPreview, hidePreview, consumeLongPress } = useLongPressPreview()
 
   const load = useCallback(async () => {
+    setLoadFailed(false)
     if (!letter) return
     try {
       const cached = await AsyncStorage.getItem(PCG_LETTER_CACHE_KEY_PREFIX + letter)
@@ -51,11 +61,12 @@ export default function PcgLetterScreen() {
     } catch (_) {}
 
     try {
-      const { data } = await supabase.from('pcg_terms').select('term, slug, definition').eq('letter', letter).order('term')
+      const { data, error } = await supabase.from('pcg_terms').select('term, slug, definition').eq('letter', letter).order('term')
       if (data) {
         setTerms(data as PcgTermRow[])
         AsyncStorage.setItem(PCG_LETTER_CACHE_KEY_PREFIX + letter, JSON.stringify(data)).catch(() => {})
       }
+      setLoadFailed(!!error)
     } catch (_) {
       // Network failed -- cached data (if any) stays visible
     } finally {
@@ -81,7 +92,11 @@ export default function PcgLetterScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={tokens.blu} />
         </View>
-      ) : (
+            ) : loadFailed && terms.length === 0 ? (
+        // Only when there is nothing cached to show -- a stale list is
+        // more useful than an error box. See loadFailed's own comment.
+        <LoadFailed onRetry={load} />
+) : (
         <TabletContainer>
         <FlatList
           ref={listRef}
