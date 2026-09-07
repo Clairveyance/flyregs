@@ -72,7 +72,13 @@ export type DuelItemType = 'pcg' | 'far' | 'aim' | 'ac' | 'dictionary' | 'cfr49'
 // genuinely spans levels (Part 91, Part 61 Subparts A/B, all of AIM/P-CG)
 // is deliberately left unclassified and always included, rather than
 // guessed into one bucket.
-export type KnowledgeLevel = 'student' | 'private' | 'commercial' | 'atp' | 'cfi' | 'mechanic'
+// 'remote_pilot' added 2026-09-07. Part 107 and its Remote ID (89) and drone
+// registration (48) satellites used to sit inside the manned-pilot levels:
+// the Student box was 310 FAR sections and only 36% of it was Part 61 or 91,
+// the rest largely drone and administrative material. RC: "option 1, give 107
+// its own box." Student is now 173 sections and 64% Part 61/91.
+// See sync/migrations_remote_pilot_level.sql.
+export type KnowledgeLevel = 'student' | 'private' | 'commercial' | 'atp' | 'cfi' | 'mechanic' | 'remote_pilot'
 export const KNOWLEDGE_LEVEL_LABELS: Record<KnowledgeLevel, string> = {
   student: 'Student',
   private: 'Private',
@@ -80,6 +86,7 @@ export const KNOWLEDGE_LEVEL_LABELS: Record<KnowledgeLevel, string> = {
   atp: 'ATP',
   cfi: 'CFI',
   mechanic: 'Mechanic (A&P)',
+  remote_pilot: 'Remote Pilot (107)',
 }
 
 // RC, 2026-08-13, Study Mode screenshot: "in Rating, selecting ALL will
@@ -105,7 +112,7 @@ export const KNOWLEDGE_LEVEL_LABELS: Record<KnowledgeLevel, string> = {
 // (profileRatings.ts) still exist as their own narrow type -- this is
 // just where they're combined for the one shared filter axis.
 export type StudyLevel = KnowledgeLevel | StudyRating
-export const ALL_KNOWLEDGE_LEVELS: KnowledgeLevel[] = ['student', 'private', 'commercial', 'atp', 'cfi', 'mechanic']
+export const ALL_KNOWLEDGE_LEVELS: KnowledgeLevel[] = ['student', 'private', 'commercial', 'atp', 'cfi', 'mechanic', 'remote_pilot']
 export const ALL_STUDY_LEVELS: StudyLevel[] = [...ALL_KNOWLEDGE_LEVELS, ...STUDY_RATINGS]
 export const STUDY_LEVEL_LABELS: Record<StudyLevel, string> = {
   ...KNOWLEDGE_LEVEL_LABELS,

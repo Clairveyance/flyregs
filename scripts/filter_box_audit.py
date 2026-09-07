@@ -56,7 +56,10 @@ SERVICE = re.search(r"^\s*(?:export\s+)?SUPABASE_SERVICE_KEY=(.+)$",
                     open(os.path.join(BASE, ".env.scraper")).read(), re.M).group(1).strip()
 SVC = {"apikey": SERVICE, "Authorization": f"Bearer {SERVICE}"}
 
-LEVELS = ["student", "private", "commercial", "atp", "cfi", "mechanic"]
+# remote_pilot added 2026-09-07 with sync/migrations_remote_pilot_level.sql.
+# It must be listed here or the new box goes unmeasured -- an audit that does
+# not know about a filter cannot tell you when that filter breaks.
+LEVELS = ["student", "private", "commercial", "atp", "cfi", "mechanic", "remote_pilot"]
 TYPES = ["far", "aim", "ac", "pcg", "dictionary", "cfr49"]
 # Below this a level is a puddle, not a box: a 20-card deck would repeat
 # within three sessions.
