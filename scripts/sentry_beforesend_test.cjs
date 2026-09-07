@@ -19,12 +19,27 @@ let code = babel.transformSync(fs.readFileSync(SRC, 'utf8'), {
 }).code
 
 const before = code
+// The Sentry stub is a Proxy, not a fixed object literal: sentry.ts calls
+// integration factories at module top level (reactNavigationIntegration), and
+// a literal stub has to be extended by hand every time one is added. This one
+// answers any property with a no-op that returns an empty object.
+const SENTRY_STUB =
+  'const Sentry = new Proxy({}, { get: () => (() => ({})) });'
 code = code
   .replace(/^import \{ Platform \}.*$/m, 'const Platform = { OS: "ios" };')
-  .replace(/^import \* as Sentry from .*$/m, 'const Sentry = { init(){} };')
-  .replace(/^export function rescuePlainObjectErrors/m, 'function rescuePlainObjectErrors')
-  .replace(/^export function initSentry/m, 'function initSentry')
+  .replace(/^import \* as Sentry from .*$/m, SENTRY_STUB)
+  // Strip `export ` from ANY top-level declaration rather than naming the two
+  // we happen to know about. Enumerating them meant that adding a third --
+  // `export const routingInstrumentation`, part of the navigation-timing fix --
+  // left a bare `export` in the CJS output and the whole audit died with
+  // "SyntaxError: Unexpected token 'export'". The test's job is to exercise the
+  // real file; it should not also be a list of that file's exports.
+  .replace(/^export (?=(?:async )?function |const |let |var |class )/gm, '')
 if (code === before) { console.log('FAIL: source shape changed, stubbing matched nothing'); process.exit(1) }
+if (/^\s*export[ {]/m.test(code)) {
+  console.log('FAIL: an ESM export survived type-stripping -- CJS require would throw')
+  process.exit(1)
+}
 code += '\nmodule.exports = { rescuePlainObjectErrors };\n'
 
 const tmp = path.join(os.tmpdir(), 'fr_sentry_under_test.cjs')

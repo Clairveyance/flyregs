@@ -119,5 +119,16 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: audit-reports
-          path: scripts/audit_reports/*_latest.json
+          # The run log is uploaded alongside the *_latest.json reports, not
+          # instead of them. run_all_audits.sh sends each audit's OUTPUT to
+          # scripts/audit_reports/audit_run_*.log and prints only PASS/FAIL to
+          # stdout -- so the GitHub log says "FAIL (exit 1)" and nothing else.
+          # On 2026-09-07 three audits failed here that pass locally against
+          # the same production database, and the reason was unrecoverable
+          # after the fact: the only artifact was the formatting JSON, and the
+          # log with the actual error had been thrown away with the runner.
+          # A failure you cannot read is a failure you cannot fix.
+          path: |
+            scripts/audit_reports/*_latest.json
+            scripts/audit_reports/audit_run_*.log
           retention-days: 30
