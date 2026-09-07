@@ -1,4 +1,4 @@
-import { Stack, router } from 'expo-router'
+import { Stack, router, useNavigationContainerRef } from 'expo-router'
 import { View, Text, Pressable, StyleSheet, Platform } from 'react-native'
 import * as Sentry from '@sentry/react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
@@ -29,7 +29,7 @@ import { ShareCardProvider } from '@/components/ShareCardCapture'
 import { AircraftDowngradeGate } from '@/components/AircraftDowngradeGate'
 import { ConfirmProvider } from '@/components/ConfirmDialog'
 import { IPadSplitViewExperiment } from '@/components/IPadSplitViewExperiment'
-import { initSentry } from '@/lib/sentry'
+import { initSentry, routingInstrumentation } from '@/lib/sentry'
 
 // Without a handler, expo-notifications DISCARDS any notification that arrives
 // while the app is foregrounded -- no banner, no sound, and nothing for the
@@ -277,6 +277,21 @@ function RootLayoutInner() {
 }
 
 export default function RootLayout() {
+  // Hand expo-router's navigation container to Sentry's routing
+  // instrumentation. Registering the ref is what actually starts screen-load
+  // transactions -- `tracesSampleRate` alone samples nothing, because without
+  // this nothing ever CREATES a transaction to sample. See lib/sentry.ts for
+  // why this was missing and what it cost: RC's repeated "all pages take a
+  // ridiculously long time to open" has never been answerable with a
+  // measurement, only with guesses at the code.
+  //
+  // useNavigationContainerRef() comes from expo-router (it re-exports
+  // react-navigation's), so this stays inside the router's own tree.
+  const navigationRef = useNavigationContainerRef()
+  useEffect(() => {
+    if (navigationRef) routingInstrumentation.registerNavigationContainer(navigationRef)
+  }, [navigationRef])
+
   return (
     <Sentry.ErrorBoundary fallback={RootErrorFallback}>
       <RootLayoutInner />

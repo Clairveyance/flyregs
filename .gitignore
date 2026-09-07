@@ -161,3 +161,4 @@ scripts/.reauthor_vague_id_map.json
 # above; listed explicitly so it is obvious these must never be committed)
 .env.youtube-client.json
 .env.youtube-token.json
+scripts/.sentry_watch_state.json
