@@ -93,7 +93,7 @@ if (reminders.length === 0) {
 // either, so this was silently dropping a Pro+ user's maintenance reminder
 // forever (see the "mark as notified" comment below) unless they'd
 // separately touched an unrelated settings toggle.
-const tokens = await selectAll(sb, 'push_tokens', 'user_id, expo_push_token')
+const tokens = await selectAll(sb, 'push_tokens', 'user_id, expo_push_token', { orderBy: 'user_id' })
 const tokensByUser = new Map()
 for (const t of tokens ?? []) {
   if (!tokensByUser.has(t.user_id)) tokensByUser.set(t.user_id, [])
@@ -114,7 +114,7 @@ for (const t of tokens ?? []) {
 // too, per the spec above -- being unable to edit does not mean you should be
 // surprised by an overdue annual on an aircraft you fly.
 const [acOwners, acCollabs] = await Promise.all([
-  selectAll(sb, 'user_aircraft', 'id, user_id'),
+  selectAll(sb, 'user_aircraft', 'id, user_id', { orderBy: 'id' }),
   selectAll(sb, 'aircraft_collaborators', 'aircraft_id, user_id',
     { tune: (q) => q.is('left_at', null).not('accepted_at', 'is', null), orderBy: 'aircraft_id' }),
 ])

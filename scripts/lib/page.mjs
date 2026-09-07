@@ -19,10 +19,33 @@
 // can happen rather than after. Same 1000-row cap already documented in
 // memory/gotcha_postgrest_1000_row_cap.
 //
-// `.order('id')` is deliberate and not optional: without a stable sort the
-// page boundaries are unspecified, so paging can both duplicate and skip rows.
-// Callers whose table has no `id` pass an explicit orderBy.
-export async function selectAll(sb, table, columns, { tune = (q) => q, orderBy = 'id' } = {}) {
+// A stable sort is not optional: without one the page boundaries are
+// unspecified, so paging can both duplicate and skip rows.
+//
+// `orderBy` is REQUIRED, and deliberately has no default. It used to default
+// to 'id', with a comment telling callers whose table has no `id` to pass
+// their own -- and two of them did not. `push_tokens` is keyed on `user_id`
+// and has no `id` at all, so both push senders threw
+// `push_tokens fetch failed: column push_tokens.id does not exist`:
+//
+//   - send-ad-alerts.mjs   FAILED EVERY RUN. AD alerts -- airworthiness
+//     directives, the safety-relevant path -- were going nowhere. Caught in
+//     the 2026-09-07 CI review (run 34152541018, "Step 4 FAILED").
+//   - send-reminder-alerts.mjs  latent: it early-exits when no reminder is
+//     in its window, so it reported success daily and would have died the
+//     first day a maintenance reminder actually came due.
+//
+// A default that is right for most tables and silently fatal for the rest is
+// the wrong shape for a helper on a path nobody watches. Throwing here makes
+// the bug impossible to reintroduce instead of merely documented against.
+export async function selectAll(sb, table, columns, { tune = (q) => q, orderBy } = {}) {
+  if (!orderBy) {
+    throw new Error(
+      `selectAll(${table}): orderBy is required -- pass the column that stably ` +
+      `orders this table (its primary key). Paging without a stable sort can ` +
+      `duplicate and skip rows.`
+    )
+  }
   const PAGE = 1000
   const rows = []
   for (let from = 0; ; from += PAGE) {

@@ -93,7 +93,7 @@ if (!ads || ads.length === 0) {
 // 1000 rows, and a short `allAircraft` here means aircraft that are simply
 // never matched, with the run still reporting success. See lib/page.mjs.
 const [allAircraft, tokens, equipMentions, equipTags, collabs, entitlements] = await Promise.all([
-  selectAll(sb, 'user_aircraft', 'id, user_id, make, model, type_designator, created_at'),
+  selectAll(sb, 'user_aircraft', 'id, user_id, make, model, type_designator, created_at', { orderBy: 'id' }),
   // NOT filtered on `enabled` -- found in tonight's "built but inert" sweep:
   // `enabled` is specifically the Premium-gated "AC Update Alerts" toggle
   // (the only code path that ever sets it), but faq.tsx tells users AD
@@ -106,7 +106,7 @@ const [allAircraft, tokens, equipMentions, equipTags, collabs, entitlements] = a
   // for a feature with no dedicated switch -- same fix shape already
   // applied to collaboration invites (migrations_collaboration_invite_
   // push_unlink_ac_alerts.sql) and already true of Duels.
-  selectAll(sb, 'push_tokens', 'user_id, expo_push_token'),
+  selectAll(sb, 'push_tokens', 'user_id, expo_push_token', { orderBy: 'user_id' }),
   selectAll(sb, 'ad_part_mentions', 'ad_number, part_id', { tune: (q) => q.in('ad_number', touchedAdNumbers), orderBy: 'ad_number' }),
   selectAll(sb, 'user_aircraft_equipment', 'user_aircraft_id, part_id', { orderBy: 'user_aircraft_id' }),
   // accepted_at NOT NULL as well as left_at NULL -- a pending Callsign
