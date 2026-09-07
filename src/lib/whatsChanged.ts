@@ -22,6 +22,12 @@ export interface ContentRevision {
   addedText: string | null
   removedText: string | null
   revisedAt: string
+  // Present only on rows from getRevisions(), which deliberately does NOT
+  // fetch the diff text -- see that function. The collapsed list row shows
+  // "+N -N" from these; the text itself arrives from getRevisionDiff() when
+  // the user actually expands a row.
+  addedCount?: number
+  removedCount?: number
 }
 
 export function routeForRevision(r: ContentRevision): string {
@@ -84,9 +90,28 @@ export async function getRevisions(sinceDate?: string, limit = 100): Promise<Con
   // that same body text, diffed. See
   // migrations_fix_content_revisions_ungated_leak.sql and
   // migrations_content_revisions_loi_doctype.sql.
+  // NO added_text / removed_text HERE, DELIBERATELY.
+  //
+  // Measured against the live database 2026-09-06: with the text, the 90-day
+  // window is **12.4 MB of JSON and ~10 seconds** on a fast desktop
+  // connection, because one AC revision (29-2C, 2026-09-03) carries 2.9 MB of
+  // diff text on its own. Without it the same request is **8.8 KB and ~0.5 s**
+  // -- 1,412x smaller, 22x faster. On a phone the old shape is RC's
+  // "spinning the wheel and the whole app locked up" (reported 2026-09-06).
+  //
+  // The code did not regress; the DATA did. On 2026-08-03 the same window held
+  // 31 KB of revision text. A 2026-09-03 scrape made it 12 MB. B40 shipped two
+  // days later, which is why a screen that had always been written this way
+  // suddenly read as "B40 is massively slower."
+  //
+  // revision_added_count / revision_removed_count are computed columns on the
+  // GATED view (sync/migrations_revision_para_counts.sql) that mirror
+  // splitParagraphs() exactly -- verified equal on all 29 rows in the live
+  // window -- so the collapsed "+N -N" is unchanged while the text stays on
+  // the server until getRevisionDiff() asks for one specific row.
   let query = supabase
     .from('content_revisions_gated')
-    .select('id, doc_type, doc_key, doc_id, title, added_text, removed_text, revised_at')
+    .select('id, doc_type, doc_key, doc_id, title, revised_at, revision_added_count, revision_removed_count')
     .order('revised_at', { ascending: false })
     .limit(limit)
   if (sinceDate) query = query.gte('revised_at', sinceDate)
@@ -102,10 +127,32 @@ export async function getRevisions(sinceDate?: string, limit = 100): Promise<Con
     docKey: r.doc_key,
     docId: r.doc_id,
     title: r.title,
-    addedText: r.added_text,
-    removedText: r.removed_text,
+    addedText: null,
+    removedText: null,
     revisedAt: r.revised_at,
+    addedCount: r.revision_added_count ?? 0,
+    removedCount: r.revision_removed_count ?? 0,
   }))
+}
+
+/** The diff text for ONE revision, fetched when the user expands that row.
+ *
+ * Split out from getRevisions() so the list does not have to carry megabytes
+ * of text nobody has asked to read yet. Throws on a real fetch error for the
+ * same reason getRevisions() does: a swallowed error here would render as
+ * "this revision has no changes," which is a lie the user cannot tell from
+ * the truth. */
+export async function getRevisionDiff(
+  id: string,
+): Promise<{ addedText: string | null; removedText: string | null }> {
+  const { data, error } = await supabase
+    .from('content_revisions_gated')
+    .select('added_text, removed_text')
+    .eq('id', id)
+    .limit(1)
+  if (error) throw error
+  const r = (data ?? [])[0] as any
+  return { addedText: r?.added_text ?? null, removedText: r?.removed_text ?? null }
 }
 
 // The most recent revision for one document, used by the FAR/AIM detail

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { View, Text, SectionList, Pressable, StyleSheet, ActivityIndicator, ScrollView } from 'react-native'
 import { router } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -16,6 +16,7 @@ import { isOcrScanned } from '@/lib/ocrScannedACs'
 import { getWhatsNewItems, routeForWhatsNewItem, WhatsNewItem } from '@/lib/whatsNew'
 import {
   getRevisions,
+  getRevisionDiff,
   routeForRevision,
   labelForDocType,
   splitParagraphs,
@@ -163,9 +164,25 @@ function patienceWordDiff(a: string[], b: string[]): WordToken[] {
   return result
 }
 
-function paragraphSimilarity(a: string, b: string): number {
-  const wa = new Set(a.toLowerCase().split(/\s+/).filter(Boolean))
-  const wb = new Set(b.toLowerCase().split(/\s+/).filter(Boolean))
+function wordSet(s: string): Set<string> {
+  return new Set(s.toLowerCase().split(/\s+/).filter(Boolean))
+}
+
+// Takes PRE-BUILT word sets, not strings.
+//
+// This used to build both sets itself on every call, inside groupDiff's
+// removed x added cross product. For AC 29-2C (5,689 added paragraphs, 85
+// removed) that is 483,565 calls and ~967,000 Set constructions, each one
+// lowercasing and splitting a paragraph that had already been tokenized
+// thousands of times. Measured on the live data 2026-09-06, the six largest
+// revisions in the 90-day window came to **1,176,188 comparisons** -- run on
+// the JS thread, for COLLAPSED rows nobody had opened. That is the other half
+// of RC's "the whole app locked up."
+//
+// Hoisting the tokenization to once per paragraph gives identical results
+// (same sets, same scores, same threshold) for 5,774 tokenizations instead of
+// ~967,000.
+function similarityOfSets(wa: Set<string>, wb: Set<string>): number {
   if (wa.size === 0 || wb.size === 0) return 0
   let shared = 0
   wa.forEach((w) => { if (wb.has(w)) shared++ })
@@ -184,27 +201,55 @@ type DiffGroup =
 // bar for "not worth flagging."
 const PAIR_SIMILARITY_THRESHOLD = 0.55
 
+// Above this many removed x added comparisons, skip the pairing pass and show
+// every paragraph as a plain add or delete.
+//
+// Pairing is what turns "this paragraph was reworded" into one side-by-side
+// row instead of a separate red block and green block, which is a nicety. It
+// is not worth blocking the UI thread for: the largest real revision in the
+// window would need 483,565 comparisons for that nicety alone. The diff is
+// still complete and correct above the cap -- every added and removed
+// paragraph is shown -- it just stops trying to match them up.
+const MAX_PAIRING_COMPARISONS = 40000
+
+// How many diff rows an expanded card will actually render.
+//
+// AC 43.13-1B's 2026-09-03 revision has 3,043 added paragraphs. Rendering
+// that many Views/Texts at once inside a non-virtualized card blocked the JS
+// thread for seconds and the diff never appeared at all -- measured in the
+// web preview after the fetch and diff costs were already fixed: 9 separate
+// UI-thread stalls, the worst 1,074 ms, and nothing on screen.
+//
+// Nobody reads three thousand paragraphs in a popup card. Show a readable
+// number of them and point at "Open full document", which is already there.
+const MAX_RENDERED_DIFF_GROUPS = 60
+
 function groupDiff(removed: string[], added: string[]): DiffGroup[] {
   const usedAdded = new Set<number>()
-  const pairs: { ri: number; ai: number; score: number }[] = []
-  removed.forEach((r, ri) => {
-    let best = -1, bestScore = 0
-    added.forEach((a, ai) => {
-      if (usedAdded.has(ai)) return
-      const score = paragraphSimilarity(r, a)
-      if (score > bestScore) { bestScore = score; best = ai }
+  const pairs = new Map<number, number>()   // removed index -> added index
+  if (removed.length * added.length <= MAX_PAIRING_COMPARISONS) {
+    // Tokenize each paragraph ONCE, not once per comparison.
+    const removedSets = removed.map(wordSet)
+    const addedSets = added.map(wordSet)
+    removed.forEach((_r, ri) => {
+      let best = -1, bestScore = 0
+      const rs = removedSets[ri]
+      addedSets.forEach((as, ai) => {
+        if (usedAdded.has(ai)) return
+        const score = similarityOfSets(rs, as)
+        if (score > bestScore) { bestScore = score; best = ai }
+      })
+      if (best >= 0 && bestScore >= PAIR_SIMILARITY_THRESHOLD) {
+        pairs.set(ri, best)
+        usedAdded.add(best)
+      }
     })
-    if (best >= 0 && bestScore >= PAIR_SIMILARITY_THRESHOLD) {
-      pairs.push({ ri, ai: best, score: bestScore })
-      usedAdded.add(best)
-    }
-  })
-  const pairedRemoved = new Set(pairs.map((p) => p.ri))
+  }
   const out: DiffGroup[] = []
   removed.forEach((r, ri) => {
-    const pair = pairs.find((p) => p.ri === ri)
-    if (pair) out.push({ kind: 'pair', removed: r, added: added[pair.ai] })
-    else if (!pairedRemoved.has(ri)) out.push({ kind: 'del', text: r })
+    const ai = pairs.get(ri)
+    if (ai !== undefined) out.push({ kind: 'pair', removed: r, added: added[ai] })
+    else out.push({ kind: 'del', text: r })
   })
   added.forEach((a, ai) => {
     if (!usedAdded.has(ai)) out.push({ kind: 'add', text: a })
@@ -665,10 +710,60 @@ function RevisionRow({
   expanded: boolean
   onToggle: () => void
 }) {
-  const added = splitParagraphs(item.addedText)
-  const removed = splitParagraphs(item.removedText)
+  // The diff TEXT is not in the list payload -- see getRevisions(). It is
+  // fetched for this one row the first time the row is expanded, and kept
+  // afterwards so collapsing and re-expanding does not refetch.
+  const [diff, setDiff] = useState<{ addedText: string | null; removedText: string | null } | null>(null)
+  const [diffLoading, setDiffLoading] = useState(false)
+  const [diffError, setDiffError] = useState(false)
+
+  // The "already fetching" flag is a REF, and the dep array is only
+  // [expanded, item.id].
+  //
+  // The first version of this effect listed `diff` and `diffLoading` in its
+  // own deps while ALSO setting diffLoading inside it. Setting the state
+  // re-ran the effect, the re-run's cleanup set `cancelled = true` on the
+  // request that was still in flight, and when that request resolved every
+  // setState was skipped -- so the row sat on a spinner forever. Caught by
+  // looking at the actual screen: the card was expanded, the 1 MB request had
+  // completed, and the spinner was still turning. That is precisely the
+  // symptom this whole change exists to fix, so it must not be reintroduced.
+  const fetchStartedRef = useRef(false)
+  useEffect(() => {
+    if (!expanded || fetchStartedRef.current) return
+    fetchStartedRef.current = true
+    let cancelled = false
+    setDiffLoading(true)
+    setDiffError(false)
+    getRevisionDiff(item.id)
+      .then((d) => { if (!cancelled) { setDiff(d); setDiffLoading(false) } })
+      .catch(() => {
+        if (cancelled) return
+        setDiffError(true)
+        setDiffLoading(false)
+        fetchStartedRef.current = false   // let a retry happen on re-expand
+      })
+    return () => { cancelled = true }
+  }, [expanded, item.id])
+
+  const added = useMemo(() => splitParagraphs(diff?.addedText ?? null), [diff])
+  const removed = useMemo(() => splitParagraphs(diff?.removedText ?? null), [diff])
   const title = item.docType === 'ad' ? stripAdSubjectPrefix(item.title ?? item.docKey) : (item.title ?? item.docKey)
-  const groups = useMemo(() => groupDiff(removed, added), [removed, added])
+
+  // Counts come from the server (computed on the gated view, so a redacted
+  // row still reports 0) -- the collapsed row must not need the text.
+  const addedCount = item.addedCount ?? added.length
+  const removedCount = item.removedCount ?? removed.length
+
+  // Only ever computed for a row the user actually opened. Computing this for
+  // collapsed rows is what locked the app up: 1.18 million paragraph
+  // comparisons across the six largest revisions in the window.
+  const groups = useMemo(
+    () => (expanded && diff ? groupDiff(removed, added) : []),
+    [expanded, diff, removed, added],
+  )
+  const shownGroups = useMemo(() => groups.slice(0, MAX_RENDERED_DIFF_GROUPS), [groups])
+  const hiddenGroupCount = groups.length - shownGroups.length
 
   return (
     <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
@@ -681,17 +776,31 @@ function RevisionRow({
             {title}
           </Text>
           <Text style={[styles.diffCounts, { color: tokens.t4, fontSize: fs(11.5) }]}>
-            {added.length > 0 && `+${added.length}`}{added.length > 0 && removed.length > 0 && ' '}
-            {removed.length > 0 && `−${removed.length}`}
-            {added.length === 0 && removed.length === 0 && 'Revised'}
+            {addedCount > 0 && `+${addedCount}`}{addedCount > 0 && removedCount > 0 && ' '}
+            {removedCount > 0 && `−${removedCount}`}
+            {addedCount === 0 && removedCount === 0 && 'Revised'}
           </Text>
         </View>
         <Icon name={expanded ? 'chevron.up' : 'chevron.down'} size={fs(13)} color={tokens.t3} />
       </Pressable>
 
-      {expanded && (
+      {expanded && diffLoading && (
         <View style={styles.diffBody}>
-          {groups.map((g, i) => {
+          <ActivityIndicator color={tokens.blu} />
+        </View>
+      )}
+
+      {expanded && diffError && (
+        <View style={styles.diffBody}>
+          <Text style={[styles.diffText, { color: tokens.t3, fontSize: fs(13) }]}>
+            Couldn’t load this change. Check your connection and try again.
+          </Text>
+        </View>
+      )}
+
+      {expanded && diff && (
+        <View style={styles.diffBody}>
+          {shownGroups.map((g, i) => {
             if (g.kind === 'add') {
               return (
                 <View key={`g${i}`} style={[styles.diffLine, { backgroundColor: tokens.gdim, borderColor: tokens.gbdr }]}>
@@ -733,6 +842,11 @@ function RevisionRow({
               </View>
             )
           })}
+          {hiddenGroupCount > 0 && (
+            <Text style={[styles.diffText, { color: tokens.t3, fontSize: fs(12.5), paddingHorizontal: 12, paddingTop: 8 }]}>
+              Showing the first {MAX_RENDERED_DIFF_GROUPS} of {groups.length.toLocaleString()} changes — open the full document to read the rest.
+            </Text>
+          )}
           <Pressable
             style={[styles.openBtn, { borderColor: tokens.bdr }]}
             onPress={() => router.push(routeForRevision(item) as any)}
