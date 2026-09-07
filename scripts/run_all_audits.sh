@@ -111,6 +111,9 @@ run_one "sweep_static_defects (repeat defect classes, corpus-wide)" python3 scri
 # Every fire-and-forget async call, classified by whether its callee can
 # actually reject. Proven to catch a planted bare call to a throwing fn.
 run_one "floating_promise_audit (every fire-and-forget call)" python3 scripts/floating_promise_audit.py
+run_one "discarded_supabase_result_audit (lazy builder never sent)" python3 scripts/discarded_supabase_result_audit.py
+run_one "client_server_reference_audit (tables/rpcs/cols/buckets/fns exist)" python3 scripts/client_server_reference_audit.py
+run_one "corpus_parity_audit (does one corpus quietly lack a feature?)" python3 scripts/corpus_parity_audit.py
 # A failed READ must never render as "not found" -- that is a false claim
 # about the corpus. Checks all four pieces, including that Try Again works.
 run_one "load_error_state_audit (failed load != missing document)" python3 scripts/load_error_state_audit.py

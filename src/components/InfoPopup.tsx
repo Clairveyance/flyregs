@@ -6,8 +6,70 @@ import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { supabase } from '@/lib/supabase'
+import * as Sentry from '@sentry/react-native'
 
 const SEEN_KEY_PREFIX = '@flyregs/info-seen/'
+// Set only when a server-side acknowledgment write did NOT land, so the next
+// mount can retry it. Absent in the happy path, which is why the retry costs
+// no extra traffic for the overwhelming majority of mounts.
+const ACK_PENDING_PREFIX = '@flyregs/info-ack-pending/'
+
+/** Record, server-side, that this user pressed "I Understand".
+ *
+ * WHY THIS IS ITS OWN FUNCTION AND WHY IT AWAITS
+ * The original was:
+ *
+ *   supabase.from('disclaimer_acknowledgments').upsert({...}, {...})
+ *
+ * with no await and no .then(). A supabase-js query builder is LAZY -- it is
+ * a thenable, and the HTTP request is only issued when something awaits it or
+ * calls .then(). Nothing did, so the request was never sent at all. Not
+ * rejected, not blocked by RLS: never made. The table held zero rows for the
+ * month it was live, across every real user who added an aircraft, and
+ * nothing anywhere could have reported it, because there was no result to
+ * report on.
+ *
+ * Found by asking which client-written tables had never produced a single
+ * row, then reproducing the whole user path in the web preview with fetch
+ * instrumented: the getUser() call went out and returned 200, and no POST
+ * followed it. scripts/discarded_supabase_result_audit.py now checks the
+ * whole codebase for this shape so it cannot come back. */
+async function logAcknowledgment(id: string): Promise<void> {
+  const markPending = () =>
+    AsyncStorage.setItem(ACK_PENDING_PREFIX + id, '1').catch(() => {})
+  try {
+    const { data, error: authError } = await supabase.auth.getUser()
+    const userId = data?.user?.id
+    // Signed out is not a failure -- there is no account to attach the
+    // acknowledgment to, and there never will be for this press. Anything
+    // else (offline, expired token) is worth retrying on the next mount.
+    if (!userId) {
+      if (authError) await markPending()
+      return
+    }
+    const { error } = await supabase
+      .from('disclaimer_acknowledgments')
+      .upsert(
+        { user_id: userId, disclaimer_id: id, acknowledged_at: new Date().toISOString() },
+        { onConflict: 'user_id,disclaimer_id' },
+      )
+    // supabase-js RESOLVES {data, error} rather than throwing, so this branch
+    // is the only thing standing between a failed legal record and silence.
+    if (error) {
+      await markPending()
+      Sentry.captureException(error, {
+        tags: { feature: 'disclaimer_ack' }, extra: { disclaimer_id: id },
+      })
+      return
+    }
+    await AsyncStorage.removeItem(ACK_PENDING_PREFIX + id)
+  } catch (e) {
+    await markPending()
+    Sentry.captureException(e, {
+      tags: { feature: 'disclaimer_ack' }, extra: { disclaimer_id: id },
+    })
+  }
+}
 
 // RC, real device: "rather than have the paragraphs on screen all the
 // time, we need to just make these info icons bigger and active, so
@@ -88,6 +150,23 @@ export function InfoPopup({ id, title, body, footer, forceOnce = false, iconSize
     return () => { cancelled = true }
   }, [forceOnce, id])
 
+  // Retry an acknowledgment whose server write did not land.
+  //
+  // The local "seen" flag is written FIRST and unconditionally, so the popup
+  // never re-forces -- which means without this, a single failed write (the
+  // user was offline the moment they pressed the button, say) would lose the
+  // record permanently, and RC asked for this specifically for legal
+  // liability. The marker only exists after a failure, so the happy path
+  // reads one AsyncStorage key and sends nothing.
+  useEffect(() => {
+    if (!forceOnce) return
+    let cancelled = false
+    AsyncStorage.getItem(ACK_PENDING_PREFIX + id).then((pending) => {
+      if (!cancelled && pending) void logAcknowledgment(id)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [forceOnce, id])
+
   // RC, real device: "this is popping up multiple times. stop that from
   // happening." (aircraft-model-vs-type, re-shown across separate edit
   // sessions on the same/different aircraft). The write below used to be
@@ -113,16 +192,12 @@ export function InfoPopup({ id, title, body, footer, forceOnce = false, iconSize
     // prompted the ask. Best-effort -- a logged-out session or a transient
     // network failure shouldn't block dismissing the dialog the user just
     // read and agreed to.
-    supabase.auth.getUser().then(({ data }) => {
-      const userId = data.user?.id
-      if (!userId) return
-      supabase.from('disclaimer_acknowledgments').upsert(
-        { user_id: userId, disclaimer_id: id, acknowledged_at: new Date().toISOString() },
-        { onConflict: 'user_id,disclaimer_id' },
-      )
-    })
+    // Dismiss immediately -- the user has read and agreed, and must never
+    // wait on the network to close a dialog. The write runs after, and
+    // records its own failure for the retry on the next mount.
     setForcing(false)
     setVisible(false)
+    void logAcknowledgment(id)
   }
 
   const close = () => {
