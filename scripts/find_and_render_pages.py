@@ -13,7 +13,7 @@ import requests
 import fitz
 
 sys.path.insert(0, os.path.dirname(__file__))
-from extract_figures import SUPABASE_URL, HEADERS
+from extract_figures import SUPABASE_URL, HEADERS, fetch_source_pdf
 
 
 def main():
@@ -29,7 +29,7 @@ def main():
         print(f"{doc_num} not found")
         return
     pdf_url = rows[0].get("pdf_url_cached") or rows[0].get("pdf_url_faa")
-    pdf_bytes = requests.get(pdf_url, timeout=60).content
+    pdf_bytes = fetch_source_pdf(pdf_url).content
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
     out_dir = "/private/tmp/claude-501/-Users-rc-Local-Desktop-COWORK-Apps-AC-app/dda71396-47d8-4940-b2fe-bbaf460c155b/scratchpad/ac_pages"

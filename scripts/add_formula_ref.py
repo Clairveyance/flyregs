@@ -1,3 +1,4 @@
+from extract_figures import fetch_source_pdf
 #!/usr/bin/env python3
 """Flags one page of an AC as containing a formula too complex/structurally
 lost for our OCR+parser pipeline to reliably reproduce as text (nested
@@ -84,7 +85,7 @@ def main():
         print(f"AC {doc_num} has no PDF URL.")
         sys.exit(1)
 
-    pdf_resp = requests.get(pdf_url, timeout=60)
+    pdf_resp = fetch_source_pdf(pdf_url)
     pdf_resp.raise_for_status()
     doc = fitz.open(stream=pdf_resp.content, filetype="pdf")
     if page < 1 or page > len(doc):

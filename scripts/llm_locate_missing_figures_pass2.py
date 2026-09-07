@@ -38,6 +38,7 @@ import requests
 
 sys.path.insert(0, os.path.dirname(__file__))
 from extract_figures import (
+    fetch_source_pdf,
     SUPABASE_URL, HEADERS, normalize_label, slugify, TOC_DOT_LEADER_RE,
     content_version,
 )
@@ -146,7 +147,7 @@ def insert_figure_row(row: dict):
 
 
 def process_doc(client, ac_id: str, doc_num: str, pdf_url: str, dry_run: bool, stats: dict):
-    pdf_resp = requests.get(pdf_url, timeout=60)
+    pdf_resp = fetch_source_pdf(pdf_url)
     pdf_resp.raise_for_status()
     pdf_bytes = pdf_resp.content
 

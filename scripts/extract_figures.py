@@ -63,6 +63,39 @@ SUPABASE_URL = ENV["SUPABASE_URL"]
 SERVICE_KEY = ENV["SUPABASE_SERVICE_KEY"]
 HEADERS = {"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}"}
 
+
+def fetch_source_pdf(url: str, timeout: int = 60):
+    """GET a source PDF, whether it lives in Supabase Storage or at the FAA.
+
+    WHY THIS EXISTS
+    The `advisory-circulars` bucket went PRIVATE in the 2026-08-11 storage
+    lockdown, but `advisory_circulars.pdf_url_cached` still stores the old
+    `/object/public/...` string -- it is an identifier now, not a fetchable
+    URL (see gatedStorage.ts). A plain GET on it returns
+    400 {"statusCode":"404","error":"Bucket not found"}.
+
+    That broke the weekly sync every Monday: any AC touched by the run hit it
+    twice, in `extract_figures` (figure/table sync) and in
+    `llm_locate_missing_figures` (figure coverage check), and the second one
+    raised, failing the whole workflow. Confirmed on run 34138556286
+    (2026-09-07, doc 43-210A).
+
+    `/object/authenticated/` is Storage's direct-fetch counterpart for a
+    private object, checked against RLS, which the service key bypasses --
+    the same swap `audit_figure_miss.py` already made for itself. Verified
+    live: authenticated + service key = 200 and 1,086,532 bytes for 43-210A;
+    the same URL with no auth = 400, so this does not re-open the bucket.
+
+    Non-Supabase URLs (the FAA's own PDF links) pass through untouched and
+    unauthenticated, which is what they need.
+    """
+    if url.startswith(SUPABASE_URL) and "/storage/v1/object/public/" in url:
+        return requests.get(
+            url.replace("/storage/v1/object/public/", "/storage/v1/object/authenticated/", 1),
+            headers=HEADERS, timeout=timeout,
+        )
+    return requests.get(url, timeout=timeout)
+
 # Case-insensitive ("FIGURE 2-1" old-style ALL-CAPS captions, not just modern
 # "Figure 2-1" title-case) and tolerant of a stray "·" in place of "-"/"."
 # between number segments — a common OCR misread of a hyphen glyph on old
@@ -232,7 +265,7 @@ def insert_figure_rows(rows: list):
 
 
 def process_ac(ac_id: str, doc_num: str, pdf_url: str, dry_run: bool = False) -> int:
-    pdf_resp = requests.get(pdf_url, timeout=60)
+    pdf_resp = fetch_source_pdf(pdf_url)
     pdf_resp.raise_for_status()
     pdf_bytes = pdf_resp.content
 

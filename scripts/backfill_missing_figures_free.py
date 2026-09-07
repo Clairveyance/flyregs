@@ -23,6 +23,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 from extract_figures import (
+    fetch_source_pdf,
     SUPABASE_URL, HEADERS, find_captions, render_page, upload_png,
     insert_figure_rows,
 )
@@ -68,7 +69,7 @@ def main():
                 continue
 
             existing = existing_labels(ac["id"])
-            pdf_resp = requests.get(pdf_url, timeout=60)
+            pdf_resp = fetch_source_pdf(pdf_url)
             pdf_resp.raise_for_status()
             pdf_bytes = pdf_resp.content
 

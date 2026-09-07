@@ -101,9 +101,17 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python3 sync/record_job_failure.py --corpus AC \
-          --workflow "$GITHUB_WORKFLOW" \
-          --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        # `run:` MUST be a block scalar here. As a plain scalar YAML folds
+        # these lines into one, turning each `\` into a literal backslash
+        # followed by a space -- bash then passes " --workflow" as an
+        # argument and argparse rejects it. That is exactly what happened on
+        # run 34138556286 (2026-09-07): the step whose whole job is to make a
+        # failure visible failed itself with exit 2, so nothing was recorded.
+        run: |
+          python3 sync/record_job_failure.py \
+            --corpus AC \
+            --workflow "$GITHUB_WORKFLOW" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
       - name: Clean up secrets file
         if: always()
