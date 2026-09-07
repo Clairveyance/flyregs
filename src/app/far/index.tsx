@@ -75,6 +75,9 @@ export default function FarIndexScreen() {
   const [loadError, setLoadError] = useState(false)
   const [query, setQuery] = useState('')
   const [recentFar, setRecentFar] = useState<RecentAC[]>([])
+  // 49 CFR recents, kept separately: they belong to whichever family tab the
+  // section's PART sits in, not to FAR.
+  const [recentCfr49, setRecentCfr49] = useState<RecentAC[]>([])
   const [family, setFamily] = useState<Family>('FAR')
   // RC: "the FAR list has many Part titles that are long and get cut off by
   // the phone screen. tap/hold to have the entire title readable." Same
@@ -177,11 +180,35 @@ export default function FarIndexScreen() {
   // "most used" proxy without needing any new server-side tracking. Loaded
   // once on mount; this screen is a landing page a reader passes through
   // quickly, not one that needs to react to recents changing mid-visit.
-  // FAR-only: cfr49's recents would need a per-family cross-reference this
-  // first pass doesn't build (see far/index.tsx's own build notes).
+  // Both families are loaded. cfr49 recents are matched to the tab they
+  // belong to by their PART -- see recentsForFamily below.
   useEffect(() => {
-    getRecents().then((rs) => setRecentFar(rs.filter((r) => recentItemType(r) === 'far').slice(0, 10)))
+    getRecents().then((rs) => {
+      setRecentFar(rs.filter((r) => recentItemType(r) === 'far').slice(0, 10))
+      setRecentCfr49(rs.filter((r) => recentItemType(r) === 'cfr49'))
+    })
   }, [])
+
+  // RECENTS FOR THE TAB THE USER IS ACTUALLY LOOKING AT.
+  //
+  // This row used to render only for `family === 'FAR'`, so a reader browsing
+  // NTSB, TSA or HMR never saw a Recently Viewed row at all -- and no 49 CFR
+  // section could ever appear in one, on any tab. That is the same gap RC
+  // reported for Advisory Circulars: "unlike the other regs, ACs don't seem to
+  // display their Recents inside the regs own area. I believe every other one
+  // does this."
+  //
+  // A cfr49 recent stores its section number ("830.5", "1544.201"); the part
+  // is the leading segment, and cfr49Parts already carries each part's family,
+  // so no new lookup or migration is needed -- the cross-reference the old
+  // comment said was missing is just this.
+  const recentsForFamily = useMemo(() => {
+    if (family === 'FAR') return recentFar
+    const familyOfPart = new Map(cfr49Parts.map((p) => [p.part, p.family]))
+    return recentCfr49
+      .filter((r) => familyOfPart.get(String(r.document_number ?? r.id).split('.')[0]) === family)
+      .slice(0, 10)
+  }, [family, recentFar, recentCfr49, cfr49Parts])
 
   const trimmedQuery = query.trim()
   const sectionJump = SECTION_NUM_RE.test(trimmedQuery) ? trimmedQuery : null
@@ -274,15 +301,15 @@ export default function FarIndexScreen() {
           </Pressable>
         )}
 
-        {family === 'FAR' && !trimmedQuery && recentFar.length > 0 && (
+        {!trimmedQuery && recentsForFamily.length > 0 && (
           <View style={styles.recentWrap}>
             <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11) }]}>RECENTLY VIEWED</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.recentScroll} contentContainerStyle={styles.recentRow}>
-              {recentFar.map((r) => (
+              {recentsForFamily.map((r) => (
                 <Pressable
                   key={r.id}
                   style={[styles.recentChip, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                  onPress={() => { if (consumeLongPress()) return; router.push(`/far/${r.id}` as any) }}
+                  onPress={() => { if (consumeLongPress()) return; router.push(`${family === 'FAR' ? '/far' : '/cfr49'}/${r.id}` as any) }}
                   // numberOfLines={1} below stops the mid-number wrap, but it
                   // leaves "121.1400-121.14…" with the range's distinguishing
                   // tail cut off and no way to see it -- every LIST row on this

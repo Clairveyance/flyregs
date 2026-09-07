@@ -125,6 +125,43 @@ export default function AimParagraphScreen() {
     () => figures.map((f) => ({ id: f.id, label: f.label ?? '', caption: f.caption, page: 0, image_url: f.image_url })),
     [figures],
   )
+
+  // ONE CARD PER DISTINCT IMAGE, not per figure row.
+  //
+  // RC, 2026-09-06: "look at AIM 2-1-8. it's got several T&Fs that are
+  // repeated. it shows several of them more than once, making it seem like
+  // there are more than there really are."
+  //
+  // reg-tf-images stores whole scanned PAGES, not cropped figures, so two
+  // tables printed on the same page carry the same image_url and the strip
+  // drew the identical picture twice under different labels. AIM 2-1-8's
+  // TBL 2-1-1 and TBL 2-1-2 are both on page 130. 37 AIM paragraphs are
+  // affected, 83 rows in total.
+  //
+  // Grouping keeps every T&F named -- the card is captioned with all of the
+  // labels on that page ("TBL 2-1-1 · TBL 2-1-2") -- while showing the page
+  // once. The count on the toggle bar stays figures.length, because the
+  // number of tables and figures really is 3; only the number of PICTURES is
+  // 2. Tapping opens the first figure on that page, and the viewer's
+  // Prev/Next still walks every individual figure (figuresForViewer above is
+  // deliberately left ungrouped).
+  const figureCards = useMemo(() => {
+    const byImage = new Map<string, { id: string; image_url: string; labels: string[]; caption: string | null }>()
+    for (const f of figures) {
+      const seen = byImage.get(f.image_url)
+      if (seen) {
+        if (f.label && !seen.labels.includes(f.label)) seen.labels.push(f.label)
+      } else {
+        byImage.set(f.image_url, {
+          id: f.id,
+          image_url: f.image_url,
+          labels: f.label ? [f.label] : [],
+          caption: f.caption,
+        })
+      }
+    }
+    return [...byImage.values()]
+  }, [figures])
   const [bookmarked, setBookmarked] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
   const [downloadBusy, setDownloadBusy] = useState(false)
@@ -761,14 +798,14 @@ export default function AimParagraphScreen() {
           {figuresExpanded && figures.length > 0 && (
             <View style={styles.figuresWrap}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.figScrollBox} contentContainerStyle={styles.figScroll}>
-                {figures.map((f) => (
+                {figureCards.map((c) => (
                   <Pressable
-                    key={f.id}
+                    key={c.id}
                     style={[styles.figCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
-                    onPress={() => setViewerFigure({ id: f.id, label: f.label ?? '', caption: f.caption, page: 0, image_url: f.image_url })}
+                    onPress={() => setViewerFigure({ id: c.id, label: c.labels[0] ?? '', caption: c.caption, page: 0, image_url: c.image_url })}
                   >
-                    <FigureThumb id={f.id} imageUrl={f.image_url} style={styles.figThumb} />
-                    <Text style={[styles.figLabel, { color: tokens.t1, fontSize: fs(11.5) }]} numberOfLines={1}>{f.label}</Text>
+                    <FigureThumb id={c.id} imageUrl={c.image_url} style={styles.figThumb} />
+                    <Text style={[styles.figLabel, { color: tokens.t1, fontSize: fs(11.5) }]} numberOfLines={1}>{c.labels.join(' · ')}</Text>
                   </Pressable>
                 ))}
               </ScrollView>

@@ -9,7 +9,7 @@ import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
-import { BackToBreadcrumb, ChangedBanner, OfflineCopyBanner } from '@/components/DocNavBar'
+import { BackToBreadcrumb, ChangedBanner, OfflineCopyBanner, PrevNextFooter } from '@/components/DocNavBar'
 import { Icon } from '@/components/Icon'
 import { LoadFailed } from '@/components/LoadFailed'
 import { printReg } from '@/lib/printReg'
@@ -970,6 +970,55 @@ export default function ACDetailScreen() {
   // Jump nav between the blocks the "What's New" diff flagged as changed —
   // mirrors the existing in-doc search prev/next pattern below (goToPrev/
   // goToNext), just targeting changed_block_indices instead of search matches.
+  // PREV / NEXT WITHIN THE SERIES.
+  //
+  // RC, 2026-09-07: "add the AC p/n footer to match." Every other corpus
+  // detail screen could page to the adjacent document; AC was the only one
+  // that could not (scripts/corpus_parity_audit.py).
+  //
+  // Ordering is compareDocumentNumbers copied from series/[prefix].tsx on
+  // purpose: prev/next MUST walk the list in the same order the series screen
+  // just showed the reader, or "next" lands somewhere they did not expect.
+  // "20-24D" sorts before "20-197" because 24 < 197 -- a plain string sort
+  // gets that backwards, the same trap as the FAR §61.100 comparator bug.
+  const [siblingAcs, setSiblingAcs] = useState<string[]>([])
+  useEffect(() => {
+    const seriesPrefix = ac?.subject_series
+    if (!seriesPrefix) { setSiblingAcs([]); return }
+    let cancelled = false
+    supabase
+      .from('advisory_circulars_gated')
+      .select('document_number')
+      .eq('subject_series', seriesPrefix)
+      .eq('status', 'active')
+      .then(({ data, error }) => {
+        // A failed read must leave the footer absent, never a footer that
+        // pages somewhere wrong.
+        if (cancelled || error || !data) return
+        const RE = /(\d+)/g
+        const seg = (x: string) => x.split(RE)
+        setSiblingAcs(
+          (data as { document_number: string }[])
+            .map((r) => r.document_number)
+            .sort((a, b) => {
+              const ap = seg(a), bp = seg(b)
+              for (let i = 0; i < Math.max(ap.length, bp.length); i++) {
+                const av = ap[i] ?? '', bv = bp[i] ?? ''
+                const an = parseInt(av, 10), bn = parseInt(bv, 10)
+                if (!isNaN(an) && !isNaN(bn)) { if (an !== bn) return an - bn }
+                else if (av !== bv) return av.localeCompare(bv)
+              }
+              return 0
+            }),
+        )
+      })
+    return () => { cancelled = true }
+  }, [ac?.subject_series])
+
+  const siblingIdx = ac ? siblingAcs.indexOf(ac.document_number) : -1
+  const prevAc = siblingIdx > 0 ? siblingAcs[siblingIdx - 1] : null
+  const nextAc = siblingIdx >= 0 && siblingIdx < siblingAcs.length - 1 ? siblingAcs[siblingIdx + 1] : null
+
   const changedList = ac?.changed_block_indices ?? []
   const goToPrevChanged = useCallback(() => {
     if (changedList.length === 0) return
@@ -1461,6 +1510,12 @@ export default function ACDetailScreen() {
               : 'Not yet updated'}
           </Text>
         </ScrollView>
+        <PrevNextFooter
+          prevLabel={prevAc ? `AC ${prevAc}` : null}
+          nextLabel={nextAc ? `AC ${nextAc}` : null}
+          onPrev={() => prevAc && router.replace(`/ac/${prevAc}` as any)}
+          onNext={() => nextAc && router.replace(`/ac/${nextAc}` as any)}
+        />
         </TabletContainer>
       )}
       <FigureViewer figure={viewerFigure} figures={figures ?? undefined} onNavigate={setViewerFigure} onClose={() => setViewerFigure(null)} />

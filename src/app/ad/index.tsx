@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native'
 import { router, useLocalSearchParams } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -10,6 +10,8 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
 import { LoadFailed } from '@/components/LoadFailed'
 import { TabletContainer } from '@/components/TabletContainer'
+import { InfoPopup } from '@/components/InfoPopup'
+import { getFleetSummary, type FleetAircraftSummary } from '@/lib/aircraftSharing'
 import { getRecents, recentItemType, type RecentAC } from '@/lib/recents'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { buildAdSearchPlan } from '@/lib/aircraftSearch'
@@ -50,6 +52,37 @@ const AD_NEWADS_CACHE_KEY = '@flyregs/ad-newads-cache'
 export default function AdIndexScreen() {
   const { tokens } = useTheme()
   const { hasPlusAccess, hasProAccess, loading: authLoading } = useAuth()
+
+  // The caller's own saved aircraft, so the My Aircraft card can name them
+  // instead of inviting someone to save their first one when they already
+  // have three. null = not loaded yet (render neither message), [] = really
+  // has none. Only fetched for a tier that can actually own aircraft, so a
+  // Free viewer costs no request.
+  const [fleet, setFleet] = useState<FleetAircraftSummary[] | null>(null)
+  useEffect(() => {
+    if (authLoading || !hasProAccess) { setFleet(null); return }
+    let cancelled = false
+    getFleetSummary()
+      .then((f) => { if (!cancelled) setFleet(f) })
+      // A failed read must not be rendered as "you have no aircraft" -- that
+      // is the empty-state lie this card is being fixed for. Stay at null and
+      // show nothing rather than something false.
+      .catch(() => { if (!cancelled) setFleet(null) })
+    return () => { cancelled = true }
+  }, [authLoading, hasProAccess])
+
+  const fleetNames = useMemo(() => {
+    if (!fleet || fleet.length === 0) return ''
+    const name = (a: FleetAircraftSummary) =>
+      a.nickname?.trim() || [a.make, a.model].filter(Boolean).join(' ').trim() || a.typeDesignator || 'Aircraft'
+    if (fleet.length <= 2) return fleet.map(name).join(' · ')
+    return `${name(fleet[0])} · ${name(fleet[1])} +${fleet.length - 2} more`
+  }, [fleet])
+
+  const openAdTotal = useMemo(
+    () => (fleet ?? []).reduce((n, a) => n + (a.openAdCount ?? 0), 0),
+    [fleet],
+  )
   const fs = useFS()
   const ifs = useInputFS()
   // `q` -- deep-link from My Aircraft's "widen your search" prompt
@@ -293,13 +326,34 @@ export default function AdIndexScreen() {
                   over time, we may expand the DB further back." Verified
                   the exact cutoff against the live table before writing
                   this (earliest citation_publish_date = 2000-01-12, zero
-                  rows before 2000) rather than assume a round number. */}
-              <View style={[styles.coverageNote, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
-                <Icon name="info.circle" size={fs(13)} color={tokens.t3} />
-                <Text style={[styles.coverageNoteText, { color: tokens.t3, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.39 }]}>
-                  FlyRegs' Airworthiness Directives cover from the year 2000 to the present. We may extend coverage further back over time.
-                </Text>
+                  rows before 2000) rather than assume a round number.
+
+                  RC, 2026-09-06: "we could show this once upon first opening,
+                  but after, it should just be the icon. we don't need to keep
+                  the whole note up all the time." forceOnce is exactly that
+                  -- the full text auto-opens the first time on this device,
+                  and every visit after is the bare icon, tappable any time.
+                  Same treatment he asked for on My Fleet's model-vs-type
+                  hint ("icon only"). */}
+              <View style={styles.coverageRow}>
+                <InfoPopup
+                  id="ad-coverage-window"
+                  title="AD Coverage"
+                  body="FlyRegs' Airworthiness Directives cover from the year 2000 to the present. We may extend coverage further back over time."
+                  forceOnce
+                  iconSize={fs(15)}
+                />
               </View>
+              {/* RC, 2026-09-06: "of course it shouldn't be there at all for
+                  Free/Plus users." The two cards have DIFFERENT gates, so
+                  they hide at different tiers -- parts-lookup.tsx gates on
+                  hasPlusAccess, my-aircraft on hasProAccess. Hiding both at
+                  the same threshold would either keep showing Plus users a
+                  card they can actually use, or hide one they've paid for.
+                  Held until auth resolves: hasPlusAccess is false for
+                  everyone while loading, so rendering on it directly would
+                  flash the cards away from a real subscriber on every open. */}
+              {(authLoading || hasPlusAccess) && (
               <Pressable
                 style={[styles.hubCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}
                 onPress={() => router.push('/parts-lookup' as any)}
@@ -315,6 +369,8 @@ export default function AdIndexScreen() {
                 </View>
                 <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
+              )}
+              {(authLoading || hasProAccess) && (
               <Pressable
                 style={[styles.hubCard, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, marginTop: 8 }]}
                 onPress={() => {
@@ -346,12 +402,23 @@ export default function AdIndexScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.hubTitle, { color: tokens.t1, fontSize: fs(14.5) }]}>My Aircraft</Text>
+                  {/* RC, 2026-09-06: "this says 'save an a/c...' even though i
+                      already have one in my account. it should show the a/c
+                      here." Empty-state copy shown to someone past the empty
+                      state reads as the app not knowing their own data. Name
+                      the fleet when there is one; keep the invitation only
+                      when there genuinely is nothing saved. */}
                   <Text style={[styles.hubSub, { color: tokens.t3, fontSize: fs(12.5), lineHeight: fs(12.5) * 1.36 }]}>
-                    Save an aircraft to get alerted when a new or updated AD applies to it
+                    {fleet === null
+                      ? ' '
+                      : fleet.length === 0
+                        ? 'Save an aircraft to get alerted when a new or updated AD applies to it'
+                        : `${fleetNames}${openAdTotal > 0 ? ` — ${openAdTotal} open AD${openAdTotal === 1 ? '' : 's'}` : ''}`}
                   </Text>
                 </View>
                 <Icon name="chevron.right" size={fs(14)} color={tokens.t4} />
               </Pressable>
+              )}
 
               {recentAd.length > 0 && (
                 <View style={styles.recentWrap}>
@@ -528,6 +595,7 @@ const styles = StyleSheet.create({
   },
   jumpText: { fontWeight: '600' },
 
+  coverageRow: { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 2, paddingBottom: 2 },
   coverageNote: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
     borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, marginTop: 10,
