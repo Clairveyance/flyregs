@@ -1,14 +1,43 @@
 #!/usr/bin/env node
 /**
- * Attach this build's commits to its Sentry release.
+ * Create this build's Sentry release and attach its commits.
  *
  * WHY
  * Sentry can resolve an issue automatically when a commit message says
  * `Fixes REACT-NATIVE-x` -- but only if it knows which commits belong to the
- * release. Every release in this project reported `commitCount: 0`, which is
- * why two commits carrying exactly that line (2026-09-06) resolved nothing.
- * Associating commits also gives Sentry "suspect commit" attribution on every
- * new issue, and makes regressions reopen against the right release.
+ * release. Associating commits also gives Sentry "suspect commit" attribution
+ * on every new issue, and makes regressions reopen against the right release.
+ *
+ * WHY THIS WAS REWRITTEN (2026-09-08)
+ * The first version of this script asked Sentry for its newest release and
+ * assumed that was this build, on the reasoning that "the sourcemap upload has
+ * already created the real release by the time this hook runs."
+ *
+ * That is false, and the live data says so plainly. Every release in this
+ * project was created by the FIRST EVENT FROM A DEVICE, 40 minutes to 13 hours
+ * after its build finished:
+ *
+ *     release  artifacts  commits  dateCreated == firstEvent
+ *     +40      0          0        2026-09-05T03:23:28  (build finished 02:41)
+ *     +39      0          0        2026-09-03T23:47:20  (build finished 17:28)
+ *     +38      0          0        2026-08-31T18:44:32  (build finished 05:19)
+ *
+ * `artifacts=0` is the tell: modern @sentry/react-native uploads sourcemaps
+ * keyed by DEBUG ID, as artifact bundles, which never create a release. So at
+ * on-success time there is no release for this build to find -- the newest one
+ * belongs to the PREVIOUS build, the 180-minute freshness guard correctly
+ * refused to mis-attribute to it, and the script exited 0 having done nothing.
+ * Every build since the hook was added reported commitCount=0.
+ *
+ * So this version CONSTRUCTS the release name and CREATES it. The name must
+ * match what the SDK will report from the device exactly, or we would create a
+ * release nothing ever reports into -- which looks like success and is worse
+ * than doing nothing. @sentry/react-native derives it natively as
+ * `<CFBundleIdentifier>@<CFBundleShortVersionString>+<CFBundleVersion>`, which
+ * is why the build number is read from the GENERATED Info.plist rather than
+ * app.json: this project uses appVersionSource "remote" with autoIncrement, so
+ * app.json has no buildNumber at all and the only truthful source is the plist
+ * that was just compiled into the binary.
  *
  * WHERE IT RUNS
  * `eas-build-on-success`, so it happens on every build with nothing for anyone
@@ -58,6 +87,43 @@ function get(url, token) {
   })
 }
 
+/**
+ * CFBundleVersion out of the Info.plist that prebuild just generated.
+ *
+ * Exported for the unit test, which feeds it a fixture directory -- the real
+ * ios/ tree only exists on the EAS worker (managed workflow, ios/ is not
+ * committed), so this is the only part of the naming that can be checked from
+ * a developer machine.
+ */
+function buildNumberFromIosDir(iosDir) {
+  if (!iosDir || !fs.existsSync(iosDir)) return null
+  for (const entry of fs.readdirSync(iosDir)) {
+    // Skip the test targets -- they carry their own Info.plist with a
+    // CFBundleVersion that is not the app's.
+    if (/tests?$/i.test(entry)) continue
+    const p = path.join(iosDir, entry, 'Info.plist')
+    if (!fs.existsSync(p)) continue
+    const m = fs
+      .readFileSync(p, 'utf8')
+      .match(/<key>CFBundleVersion<\/key>\s*<string>([^<]+)<\/string>/)
+    const v = m && m[1].trim()
+    // A literal build number only. Expo leaves `$(CURRENT_PROJECT_VERSION)` in
+    // some templates; substituting that into a release name would invent one.
+    if (v && /^[0-9][0-9.]*$/.test(v)) return { buildNumber: v, plist: p }
+  }
+  return null
+}
+
+/** `<bundleId>@<version>+<buildNumber>` -- byte-for-byte what the SDK reports. */
+function releaseNameFrom(expo, iosDir) {
+  const bundleId = expo && expo.ios && expo.ios.bundleIdentifier
+  const version = expo && expo.version
+  if (!bundleId || !version) return null
+  const found = buildNumberFromIosDir(iosDir)
+  if (!found) return null
+  return { version: `${bundleId}@${version}+${found.buildNumber}`, from: found.plist }
+}
+
 async function main() {
   // The Sentry org/project live in app.json's plugin config -- the same two
   // values the sourcemap upload already uses. Reading them from there rather
@@ -74,42 +140,47 @@ async function main() {
     log('no Sentry organization/project in app.json -- nothing to do')
     return
   }
-  if (!token) {
+  if (!token && !DRY) {
     log('SENTRY_AUTH_TOKEN is not set. On EAS this is a production secret; if')
     log('this build has no access to it, commits cannot be associated. Skipping.')
     return
   }
 
-  // ASK SENTRY which release this is, rather than reconstructing the name.
-  //
-  // The release is `<bundleId>@<version>+<buildNumber>`, and buildNumber is
-  // auto-incremented by EAS -- so rebuilding that string here means guessing
-  // at a value this script cannot see reliably, and a wrong guess targets a
-  // release that does not exist. The sourcemap upload has already created the
-  // real release by the time this hook runs, so the newest one IS this build.
-  const url = `https://sentry.io/api/0/projects/${org}/${project}/releases/?per_page=5`
-  const { status, json, raw } = await get(url, token)
-  if (status !== 200 || !Array.isArray(json) || json.length === 0) {
-    log(`could not list releases (HTTP ${status}) ${raw || ''} -- skipping`)
-    return
+  // 1. NAME THE RELEASE from the artifact we just built.
+  const iosDir = process.env.SENTRY_IOS_DIR || path.join(__dirname, '..', 'ios')
+  const named = releaseNameFrom(expo, iosDir)
+  let version
+  if (named) {
+    version = named.version
+    log(`release: ${version}`)
+    log(`  (build number read from ${path.relative(path.join(__dirname, '..'), named.from)})`)
+  } else {
+    // FALLBACK, kept deliberately. If prebuild ever stops leaving an Info.plist
+    // where this expects one, guessing a build number would be worse than
+    // reverting to the old discovery -- so fall back, but say so loudly,
+    // because this path cannot work on a build whose release does not exist yet.
+    log('could not read CFBundleVersion from the generated ios/ directory.')
+    log('Falling back to newest-recent-release discovery, which only works if')
+    log('something else already created this build\'s release.')
+    const { status, json, raw } = await get(
+      `https://sentry.io/api/0/projects/${org}/${project}/releases/?per_page=5`,
+      token,
+    )
+    if (status !== 200 || !Array.isArray(json) || json.length === 0) {
+      log(`could not list releases (HTTP ${status}) ${raw || ''} -- skipping`)
+      return
+    }
+    const rel = json[0]
+    const ageMin = (Date.now() - new Date(rel.dateCreated).getTime()) / 60000
+    const maxAgeMin = Number(process.env.SENTRY_SET_COMMITS_MAX_AGE_MIN || 180)
+    if (ageMin > maxAgeMin) {
+      log(`newest release ${rel.version} was created ${Math.round(ageMin)} min ago,`)
+      log(`older than the ${maxAgeMin} min window, so it is not this build. Skipping.`)
+      return
+    }
+    version = rel.version
+    log(`release (discovered): ${version}`)
   }
-
-  const release = json[0]
-  const version = release.version
-  const createdMinutesAgo = (Date.now() - new Date(release.dateCreated).getTime()) / 60000
-  // A release created long ago is not this build's. Attaching commits to it
-  // would be worse than doing nothing -- it would claim this build's history
-  // belongs to something else.
-  // Overridable so this can be dry-run against an existing release, and so a
-  // one-off backfill of an older release is possible without editing the file.
-  const maxAgeMin = Number(process.env.SENTRY_SET_COMMITS_MAX_AGE_MIN || 180)
-  if (createdMinutesAgo > maxAgeMin) {
-    log(`newest release ${version} was created ${Math.round(createdMinutesAgo)} min ago,`)
-    log(`which is older than the ${maxAgeMin} min window, so it is not this build.`)
-    log('Skipping rather than mis-attributing this history to another release.')
-    return
-  }
-  log(`release: ${version} (created ${Math.round(createdMinutesAgo)} min ago)`)
 
   const cli = path.join(__dirname, '..', 'node_modules', '.bin', 'sentry-cli')
   if (!fs.existsSync(cli)) {
@@ -117,7 +188,7 @@ async function main() {
     return
   }
 
-  // Two ways to do this, and which one works depends on something not worth
+  // Two ways to set commits, and which one works depends on something not worth
   // assuming: whether the EAS worker has the .git directory. `--auto` reads
   // local history; if there is none, fall back to naming the repo and this
   // build's commit explicitly, which EAS always provides as
@@ -128,25 +199,37 @@ async function main() {
   const sha = process.env.EAS_BUILD_GIT_COMMIT_HASH
   const repo = process.env.SENTRY_REPO || 'Clairveyance/flyregs'
 
-  let args
+  let setCommits
   if (hasGit) {
-    args = ['releases', 'set-commits', version, '--auto', '--ignore-missing']
+    setCommits = ['releases', 'set-commits', version, '--auto', '--ignore-missing']
     log('using --auto (a .git directory is present)')
   } else if (sha) {
-    args = ['releases', 'set-commits', version, '--commit', `${repo}@${sha}`, '--ignore-missing']
+    setCommits = ['releases', 'set-commits', version, '--commit', `${repo}@${sha}`, '--ignore-missing']
     log(`no .git on this worker -- naming ${repo}@${sha.slice(0, 9)} explicitly`)
   } else {
     log('no .git directory and no EAS_BUILD_GIT_COMMIT_HASH -- cannot associate commits')
     return
   }
 
+  // 2. CREATE THE RELEASE. `releases new` is idempotent, so this is safe
+  //    whether or not a device has already reported into it.
+  const newRelease = ['releases', 'new', version]
+
   const env = { ...process.env, SENTRY_ORG: org, SENTRY_PROJECT: project, SENTRY_AUTH_TOKEN: token }
   if (DRY) {
-    log(`DRY RUN -- would run: sentry-cli ${args.join(' ')}`)
+    log(`DRY RUN -- would run: sentry-cli ${newRelease.join(' ')}`)
+    log(`DRY RUN -- would run: sentry-cli ${setCommits.join(' ')}`)
     return
   }
   try {
-    const out = execFileSync(cli, args, { env, encoding: 'utf8', stdio: 'pipe' })
+    execFileSync(cli, newRelease, { env, encoding: 'utf8', stdio: 'pipe' })
+    log(`created (or confirmed) release ${version}`)
+  } catch (e) {
+    log(`releases new failed: ${(e.stderr || e.message || '').toString().slice(0, 300)}`)
+    log('Continuing to set-commits anyway -- the release may already exist.')
+  }
+  try {
+    const out = execFileSync(cli, setCommits, { env, encoding: 'utf8', stdio: 'pipe' })
     log(out.trim() || 'set-commits completed')
     const after = await get(
       `https://sentry.io/api/0/organizations/${org}/releases/${encodeURIComponent(version)}/`,
@@ -154,7 +237,7 @@ async function main() {
     )
     // Report what actually landed. "The command exited 0" is not the same as
     // "Sentry now has the commits", and this project has been bitten by that
-    // distinction more than once.
+    // distinction more than once -- including by this very script.
     const count = after.json && after.json.commitCount
     log(`Sentry now reports commitCount=${count} for ${version}`)
     if (!count) {
@@ -167,7 +250,11 @@ async function main() {
   }
 }
 
-main()
-  .catch((e) => log(`unexpected: ${e && e.message}`))
-  // Always 0. See the header: this must never fail a build.
-  .finally(() => process.exit(0))
+module.exports = { buildNumberFromIosDir, releaseNameFrom }
+
+if (require.main === module) {
+  main()
+    .catch((e) => log(`unexpected: ${e && e.message}`))
+    // Always 0. See the header: this must never fail a build.
+    .finally(() => process.exit(0))
+}
