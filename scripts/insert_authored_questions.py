@@ -12,10 +12,18 @@ is worse than no question bank -- this project has had three separate
 escalations from RC about bad questions, and all of them were generated rows
 that no one checked against the source.
 
-Idempotent: study_facts has UNIQUE (item_type, item_id, question), so
-re-running cannot duplicate. Rows land as origin='authored', which both
-surfaces already prefer (create_challenge orders by it; study.ts filters on
-it), so they win over the generated bank for the same section.
+Duplicate-checked TWICE, because the DB constraint alone is not enough:
+study_facts has UNIQUE (item_type, item_id, question), but that is an
+EXACT-TEXT unique. On 2026-09-08 three duplicates were found live that it had
+happily accepted -- two differed from an existing row only in capitalisation
+("during the day" vs "during the DAY"), and one authored row exactly repeated a
+live GENERATED question, which the per-item constraint never even looks at
+across origins. So dup_problems() below normalises the text and checks the
+whole live bank, not just this item and not just authored rows.
+
+Rows land as origin='authored', which both surfaces already prefer
+(create_challenge orders by it; study.ts filters on it), so they win over the
+generated bank for the same section.
 """
 import argparse, json, os, re, subprocess, sys
 
@@ -96,6 +104,51 @@ def check(rows, item_type):
     return problems
 
 
+def dup_key(q: str) -> str:
+    """Normalised question text -- what a READER would call 'the same question'.
+
+    Case, punctuation and whitespace all collapse. The DB's UNIQUE
+    (item_type, item_id, question) is exact-text, so without this a single
+    changed capital letter creates a second card a user sees as a repeat.
+    """
+    return re.sub(r"[^a-z0-9]", "", q.lower())
+
+
+def dup_problems(rows, item_type):
+    """Refuse rows whose question already exists anywhere in the LIVE bank.
+
+    Checked across every origin and every item, not just authored rows on this
+    item: an authored question that restates a live generated one is still a
+    duplicate to the person being shown both.
+    """
+    keys = {dup_key(r["question"]): i for i, r in enumerate(rows, 1)}
+    problems = []
+
+    # within the batch itself
+    seen = {}
+    for i, r in enumerate(rows, 1):
+        k = dup_key(r["question"])
+        if k in seen:
+            problems.append(f"#{i} {r['item_id']}: same question as #{seen[k]} in this batch")
+        seen[k] = i
+
+    existing = mgmt(
+        "select item_type, item_id, origin, question from study_facts where status='live'"
+    )
+    for e in existing:
+        k = dup_key(e["question"])
+        if k in keys:
+            i = keys[k]
+            r = rows[i - 1]
+            same_item = e["item_type"] == item_type and e["item_id"] == r["item_id"]
+            where = "this same item" if same_item else f"{e['item_type']}:{e['item_id']}"
+            problems.append(
+                f"#{i} {r['item_id']}: question already live as an "
+                f"{e['origin']} row on {where} -- reword it or drop it"
+            )
+    return problems
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("file")
@@ -104,13 +157,13 @@ def main():
     a = ap.parse_args()
 
     rows = json.load(open(a.file))
-    problems = check(rows, a.item_type)
+    problems = check(rows, a.item_type) + dup_problems(rows, a.item_type)
     if problems:
-        print(f"REFUSING TO INSERT -- {len(problems)} grounding problem(s):")
+        print(f"REFUSING TO INSERT -- {len(problems)} problem(s):")
         for p in problems:
             print("  -", p)
         return 1
-    print(f"  {len(rows)} row(s), all grounded against the live reg text")
+    print(f"  {len(rows)} row(s), all grounded against the live reg text and non-duplicate")
     if a.dry_run:
         print("  --dry-run, nothing written")
         return 0

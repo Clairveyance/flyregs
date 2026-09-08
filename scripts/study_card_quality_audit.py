@@ -95,6 +95,29 @@ def part_of(item_id):
     return item_id.split(".")[0] if "." in item_id else item_id
 
 
+
+def duplicate_cards():
+    """Same question shown twice for one item -- a user-visible repeat.
+
+    Added 2026-09-08. study_facts has UNIQUE (item_type, item_id, question),
+    but that is EXACT text: three duplicates were found live that differed only
+    in capitalisation, or that restated a generated question from an authored
+    row. The unique index cannot see either case, so the bank needs its own
+    normalised check.
+    """
+    from access_matrix_sweep import mgmt as _mgmt
+    rows = _mgmt("""
+        select item_type, item_id, count(*) c,
+               string_agg(distinct origin, '+' order by origin) origins,
+               min(question) q
+        from study_facts where status='live'
+        group by item_type, item_id,
+                 lower(regexp_replace(question, '[^a-z0-9]', '', 'gi'))
+        having count(*) > 1
+        order by c desc""")
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--decks", type=int, default=8)
@@ -184,6 +207,19 @@ def main():
     filtered = [w for w in worst if "no level" not in w[0] and "No filters" not in w[0]]
     bad = [w for w in filtered if w[1] > 10]
     empties = [w for w in worst if w[3] > 0]
+
+    dupes = duplicate_cards()
+    authored_dupes = [d for d in dupes if "authored" in (d["origins"] or "")]
+    print()
+    print("=== Duplicate cards (same question twice on one item) ===")
+    if not dupes:
+        print("  none")
+    else:
+        print(f"  {len(dupes)} item(s) carry a repeated question "
+              f"({len(authored_dupes)} involve an authored row)")
+        for d in dupes[:5]:
+            print(f"    {d['item_type']}:{d['item_id']:12} x{d['c']} [{d['origins']}] "
+                  f"{d['q'][:62]}")
     if bad:
         print("FAIL: a LEVEL-FILTERED deck should not be pulling from parts the ACS "
               "never cites --")
@@ -191,12 +227,14 @@ def main():
             print(f"  {label}: {pct:.1f}%")
     if empties:
         print("FAIL: cards with an empty question or answer reached a deck")
-    if not bad and not empties:
+    if authored_dupes:
+        print("FAIL: an authored row duplicates another live question")
+    if not bad and not empties and not authored_dupes:
         print("Level-filtered decks stay on material the ACS actually tests, and every "
               "card has both a question and an answer.")
         print("Unfiltered decks range wider by design -- that is the user asking for the "
               "whole library, not a defect.")
-    sys.exit(1 if (bad or empties) else 0)
+    sys.exit(1 if (bad or empties or authored_dupes) else 0)
 
 
 if __name__ == "__main__":
