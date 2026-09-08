@@ -15,6 +15,7 @@ import { COIN_BY_CODE, type CoinDef, TROPHY_BY_CODE } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { StudyLevel, ALL_STUDY_LEVELS, STUDY_LEVEL_LABELS, markCoinsSeen } from '@/lib/challenges'
 import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS } from '@/lib/profileRatings'
+import { StudyTopic, STUDY_TOPICS, STUDY_TOPIC_LABELS } from '@/lib/study'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { buildStudyCard, type QuizSourceType } from '@/lib/quizQuestion'
 import { normalizeRegBody } from '@/lib/regTextFormat'
@@ -218,6 +219,7 @@ export default function StudyScreen() {
     levelParam && (ALL_STUDY_LEVELS as string[]).includes(levelParam) ? [levelParam as StudyLevel] : []
   )
   const [activeCategoryClasses, setActiveCategoryClasses] = useState<CategoryClass[]>([])
+  const [activeTopics, setActiveTopics] = useState<StudyTopic[]>([])
 
   // The filter picks were pure React state and were lost on every relaunch --
   // so "selections" did not even survive closing the app on ONE device, let
@@ -237,6 +239,7 @@ export default function StudyScreen() {
       try {
         const v = JSON.parse(raw) as {
           types?: StudyItemType[]; levels?: StudyLevel[]; categoryClasses?: CategoryClass[]
+          topics?: StudyTopic[]
         }
         if (Array.isArray(v.types)) setActiveTypes(v.types.filter((t) => ALL_TYPES.includes(t)))
         if (!levelParam && Array.isArray(v.levels)) {
@@ -244,6 +247,13 @@ export default function StudyScreen() {
         }
         if (Array.isArray(v.categoryClasses)) {
           setActiveCategoryClasses(v.categoryClasses.filter((c) => CATEGORY_CLASSES.includes(c)))
+        }
+        // Filtered against the current vocabulary on the way in: a topic that
+        // has since been renamed would otherwise sit in the saved blob
+        // forever, silently narrowing the deck to nothing with no chip lit up
+        // to explain why.
+        if (Array.isArray(v.topics)) {
+          setActiveTopics(v.topics.filter((t) => STUDY_TOPICS.includes(t)))
         }
       } catch { /* a corrupt blob just means the defaults, which is fine */ }
     })
@@ -257,14 +267,16 @@ export default function StudyScreen() {
     if (!filtersHydrated.current) return
     setSyncedSetting(STUDY_FILTERS_KEY as SyncedSettingKey, JSON.stringify({
       types: activeTypes, levels: activeLevels, categoryClasses: activeCategoryClasses,
+      topics: activeTopics,
     }))
-  }, [activeTypes, activeLevels, activeCategoryClasses])
+  }, [activeTypes, activeLevels, activeCategoryClasses, activeTopics])
 
   // True when the deck is narrowed at all. Used to relabel the mastery
   // counter, which always reports the WHOLE corpus and otherwise appears to
   // contradict the "N items match the filters" line directly beneath it.
   const filtersActive =
-    activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0
+    activeTypes.length > 0 || activeLevels.length > 0 || activeCategoryClasses.length > 0 ||
+    activeTopics.length > 0
 
   // Same "how many dimensions are narrowed" count Home's own filter button
   // badge uses (tabs)/index.tsx's activeFilterCount) -- counts active
@@ -274,7 +286,39 @@ export default function StudyScreen() {
     activeTypes.length > 0,
     activeLevels.length > 0,
     activeCategoryClasses.length > 0,
+    activeTopics.length > 0,
   ].filter(Boolean).length
+
+  // The empty-state copy names the filters that are ACTUALLY set. It used to
+  // say "Content and Knowledge Level" unconditionally, which was fine while
+  // those were the only two dimensions that could empty the deck -- but adding
+  // TOPIC made it a lie in the one case a user is least likely to work out on
+  // their own: an unclassified corpus (AC, P/CG, A/D) plus any topic is always
+  // zero, and the old text sent them off widening the two filters that were
+  // not the problem. Same empty-state-lie shape as the AD screen's "save an
+  // aircraft" card.
+  const unclassifiedOnly =
+    activeTopics.length > 0 &&
+    activeTypes.length > 0 &&
+    activeTypes.every((t) => t === 'ac' || t === 'pcg' || t === 'dictionary')
+  const emptyPoolReason = unclassifiedOnly
+    ? 'Topics only cover the regulations (FAR, AIM, 49 CFR). Clear the Topic filter to study ACs, P/CG or A/D terms.'
+    : (() => {
+        const dims = [
+          activeTypes.length > 0 && 'Content',
+          activeLevels.length > 0 && 'Knowledge Level',
+          activeTopics.length > 0 && 'Topic',
+          activeCategoryClasses.length > 0 && 'Category/Class',
+        ].filter(Boolean) as string[]
+        if (dims.length === 0) return 'Nothing in the corpus matches right now.'
+        const list = dims.length === 1
+          ? dims[0]
+          : dims.slice(0, -1).join(', ') + ' and ' + dims[dims.length - 1]
+        return `Nothing in the corpus matches this ${list} combination. Widen ${dims.length === 1 ? 'it' : 'any of them'} to get a deck.`
+      })()
+
+  const toggleTopic = (t: StudyTopic) =>
+    setActiveTopics((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))
 
   const toggleType = (t: StudyItemType) => {
     setActiveTypes((prev) =>
@@ -299,21 +343,21 @@ export default function StudyScreen() {
   // `load`, and a level tap does not refetch it.
   useEffect(() => {
     let cancelled = false
-    getStudyPoolCountsByLevel(activeTypes, activeCategoryClasses)
+    getStudyPoolCountsByLevel(activeTypes, activeCategoryClasses, activeTopics)
       .then((counts) => { if (!cancelled) setLevelCounts(counts) })
       .catch(() => { if (!cancelled) setLevelCounts({}) })
     return () => { cancelled = true }
-  }, [activeTypes, activeCategoryClasses])
+  }, [activeTypes, activeCategoryClasses, activeTopics])
 
   const load = useCallback(() => {
     const seq = ++loadSeq.current
     setLoading(true)
     setLoadError(null)
     Promise.all([
-      getStudyQueue(sessionSize, activeTypes, activeLevels, activeCategoryClasses),
+      getStudyQueue(sessionSize, activeTypes, activeLevels, activeCategoryClasses, activeTopics),
       getStudyMastery(),
       getCurrency(),
-      getStudyPoolCount(activeTypes, activeLevels, activeCategoryClasses),
+      getStudyPoolCount(activeTypes, activeLevels, activeCategoryClasses, activeTopics),
     ])
       .then(([queue, m, c, pool]) =>
         // Facts are fetched AFTER the deck (not in the same Promise.all --
@@ -354,7 +398,7 @@ export default function StudyScreen() {
         setLoadError(err?.message ?? 'Could not load your study deck.')
       })
       .finally(() => { if (seq === loadSeq.current) setLoading(false) })
-  }, [activeTypes, activeLevels, activeCategoryClasses, sessionSize])
+  }, [activeTypes, activeLevels, activeCategoryClasses, activeTopics, sessionSize])
 
   useEffect(() => {
     if (hasProAccess) load()
@@ -724,8 +768,8 @@ export default function StudyScreen() {
       >
         <Icon name={moreFiltersExpanded ? 'chevron.up' : 'chevron.down'} size={fs(11)} color={tokens.t3} />
         <Text style={[styles.moreFiltersToggleText, { color: tokens.t3, fontSize: fs(11.5) }]}>
-          {moreFiltersExpanded ? 'Fewer filters' : 'More filters (Category/Class)'}
-          {!moreFiltersExpanded && activeCategoryClasses.length > 0 ? ' •' : ''}
+          {moreFiltersExpanded ? 'Fewer filters' : 'More filters (Topic, Category/Class)'}
+          {!moreFiltersExpanded && (activeCategoryClasses.length > 0 || activeTopics.length > 0) ? ' •' : ''}
         </Text>
       </Pressable>
       {moreFiltersExpanded && (
@@ -737,6 +781,60 @@ export default function StudyScreen() {
           FAR/AC/P-CG entries apply to every rating), so unmatched items
           stay visible under any selection -- same "NULL means universal"
           convention as Knowledge Level's own far_knowledge_levels(). */}
+      {/* TOPIC -- what a regulation is ABOUT, as opposed to which corpus it
+          lives in (CONTENT), who needs it (KNOWLEDGE LEVEL) or what it flies
+          (CATEGORY/CLASS). Derived per item by study_topic() in Postgres,
+          not read from study_facts.category: that column is hand-assigned on
+          1,000 of 41,328 rows, so filtering on it alone would collapse the
+          pool to at most 113 and read as broken. The derivation covers 94.3%
+          of the FAR/AIM/49 CFR corpus and is scored against those 1,000
+          hand-labelled rows (352/355 agree, 3 documented divergences).
+
+          Amber, the fourth accent already in the theme (gold is CONTENT, blue is
+          KNOWLEDGE LEVEL, green is CATEGORY/CLASS) -- no new token invented for
+          it, and it keeps its own dim/border triplet like the other three.
+
+          NOTE the different NULL convention. Category/Class treats "no value"
+          as "applies to everything" and keeps such items visible. A topic of
+          NULL means "this item has no topic" -- true of every AC, P/CG and
+          dictionary entry -- and those are EXCLUDED once a topic is picked,
+          which is what the caption below says out loud rather than leaving
+          the reader to notice their AC cards vanished. */}
+      <Text style={[styles.filterGroupLabel, styles.levelFilterRow, { color: tokens.amb, fontSize: fs(10) }]}>TOPIC</Text>
+      <View style={styles.filterRow}>
+        <Pressable
+          style={[
+            styles.filterChip,
+            { backgroundColor: activeTopics.length === 0 ? tokens.adim : tokens.bg2, borderColor: activeTopics.length === 0 ? tokens.amb : tokens.abdr },
+          ]}
+          onPress={() => setActiveTopics([])}
+        >
+          <Text style={[styles.filterChipText, { color: activeTopics.length === 0 ? tokens.amb : tokens.t3, fontSize: fs(11.5) }]}>ALL</Text>
+        </Pressable>
+        {STUDY_TOPICS.map((t) => {
+          const active = activeTopics.includes(t)
+          return (
+            <Pressable
+              key={t}
+              style={[
+                styles.filterChip,
+                { backgroundColor: active ? tokens.adim : tokens.bg2, borderColor: active ? tokens.amb : tokens.abdr },
+              ]}
+              onPress={() => toggleTopic(t)}
+            >
+              <Text style={[styles.filterChipText, { color: active ? tokens.amb : tokens.t3, fontSize: fs(11.5) }]}>
+                {STUDY_TOPIC_LABELS[t] ?? t}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
+      {activeTopics.length > 0 && (
+        <Text style={[styles.filterGroupLabel, styles.levelFilterRow, { color: tokens.t3, fontSize: fs(10), textTransform: 'none' }]}>
+          Topics cover the regulations (FAR, AIM, 49 CFR). ACs, P/CG and A/D terms are set aside while a topic is selected.
+        </Text>
+      )}
+
       <Text style={[styles.filterGroupLabel, styles.levelFilterRow, { color: tokens.grn, fontSize: fs(10) }]}>CATEGORY / CLASS</Text>
       <View style={styles.filterRow}>
         <Pressable
@@ -914,7 +1012,7 @@ export default function StudyScreen() {
           </Text>
           <Text style={[styles.emptySub, { color: tokens.t3, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>
             {poolCount === 0
-              ? 'Nothing in the corpus matches this Content and Knowledge Level combination. Widen either one to get a deck.'
+              ? emptyPoolReason
               : deck.length === 0
                 ? "You've reviewed everything that's due. Check back later, or come back tomorrow for more."
                 : 'Come back tomorrow — cards you missed will resurface sooner than the ones you know cold.'}
@@ -945,6 +1043,7 @@ export default function StudyScreen() {
             Studying: {activeTypes.length === 0 ? 'All content' : activeTypes.map((t) => TYPE_LABEL[t]).join(', ')}
             {activeLevels.length > 0 ? ` · ${activeLevels.map((l) => STUDY_LEVEL_LABELS[l]).join(', ')}` : ''}
             {activeCategoryClasses.length > 0 ? ` · ${activeCategoryClasses.map((c) => RATING_SHORT_LABELS[c]).join(', ')}` : ''}
+            {activeTopics.length > 0 ? ` · ${activeTopics.map((t) => STUDY_TOPIC_LABELS[t] ?? t).join(', ')}` : ''}
           </Text>
           <View style={styles.progressRow}>
             <Text style={[styles.progress, { color: tokens.t4, fontSize: fs(11.5) }]}>

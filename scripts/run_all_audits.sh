@@ -165,6 +165,20 @@ run_one "stale_question_sweep (questions whose reg text moved)"     python3 scri
 # tables, because the tables still hold plenty a user never sees.
 run_one "study_card_quality (are the cards worth studying?)"        python3 scripts/study_card_quality_audit.py --decks 4
 run_one "filter_box_audit (do the level filters really carve up the bank?)" python3 scripts/filter_box_audit.py
+# The topic axis is DERIVED, so it can drift from the hand-labelled questions
+# silently. --score replays the map against all 1,000 authored rows and exits
+# non-zero on any disagreement that is not in ACCEPTED_DIVERGENCE; the e2e test
+# drives the three RPCs as a real signed-in user, because they are SECURITY
+# DEFINER and return 0 for everything under the service key.
+run_one "study_topic_map (derived topics still match the hand-labelled ones)" \
+  bash -c 'python3 scripts/study_topic_map.py --score <(python3 - <<EOF
+import sys, json, os
+sys.path.insert(0, "scripts")
+from access_matrix_sweep import mgmt
+print(json.dumps(mgmt("select item_type, item_id, string_agg(distinct category, \x27||\x27) as cats from study_facts where origin=\x27authored\x27 group by 1,2")))
+EOF
+)'
+run_one "study_topic_filter_e2e (topic filter, as a real signed-in user)" python3 scripts/study_topic_filter_test.py
 run_one "scraper_freshness_check (weekly sync actually ran)"        python3 scripts/scraper_freshness_check.py
 
 # --- Layer 3: functional correctness (slower, --full only) ---

@@ -5,6 +5,67 @@ export type { CategoryClass, StudyRating } from '@/lib/profileRatings'
 
 export type StudyItemType = 'pcg' | 'far' | 'aim' | 'ac' | 'dictionary' | 'cfr49'
 
+// The TOPIC axis: what a regulation is ABOUT, as opposed to which corpus it
+// lives in (Content), who needs it (Knowledge Level) or what it flies
+// (Category/Class). Derived server-side by study_topic() -- see
+// scripts/study_topic_map.py, which generates that function and is scored
+// against the 1,000 hand-labelled questions.
+//
+// Order is deliberate: the topics a certificate candidate reaches for first,
+// then the specialist ones. Not alphabetical, and not by pool size -- a
+// student should find "Airspace" and "VFR Weather Minimums" without reading
+// the whole row.
+export type StudyTopic = string
+export const STUDY_TOPICS: readonly string[] = [
+  'Airspace',
+  'VFR Weather Minimums',
+  'Altitudes & Speed Limits',
+  'Right-of-Way & Operating Rules',
+  'Required Documents & Equipment',
+  'Fuel, Oxygen & Life Support',
+  'Airport Operations',
+  'ATC Communications & Clearances',
+  'Weather & Safety of Flight',
+  'Navigation',
+  'Flight Planning',
+  'IFR Procedures',
+  'Emergency Procedures',
+  'Accident Reporting',
+  'Certificates & Ratings',
+  'Medical & Fitness',
+  'Logging, Currency & Proficiency',
+  'Knowledge & Practical Tests',
+  'Student Pilot & Solo',
+  'Flight Instructors',
+  'Maintenance & Airworthiness',
+  'Aircraft Registration & Marking',
+  'Aircraft Certification Standards',
+  'Definitions',
+  'Remote Pilot Operations',
+  'Hazardous Materials',
+  'Aviation Security',
+  'Air Carrier & Commercial Operations',
+]
+
+// Shortened labels for the chips -- the full names are section headings, too
+// long to sit in a filter row on a 375pt screen.
+export const STUDY_TOPIC_LABELS: Record<string, string> = {
+  'Right-of-Way & Operating Rules': 'Right-of-Way & Ops',
+  'Required Documents & Equipment': 'Docs & Equipment',
+  'Fuel, Oxygen & Life Support': 'Fuel & Oxygen',
+  'ATC Communications & Clearances': 'ATC & Clearances',
+  'Weather & Safety of Flight': 'Weather',
+  'Logging, Currency & Proficiency': 'Logging & Currency',
+  'Knowledge & Practical Tests': 'Tests',
+  'Maintenance & Airworthiness': 'Maintenance',
+  'Aircraft Registration & Marking': 'Registration & Marks',
+  'Aircraft Certification Standards': 'Certification Stds',
+  'Air Carrier & Commercial Operations': 'Air Carrier Ops',
+  'Remote Pilot Operations': 'Remote Pilot',
+  'VFR Weather Minimums': 'VFR Minimums',
+  'Altitudes & Speed Limits': 'Altitudes & Speed',
+}
+
 export interface StudyCard {
   item_id: string
   item_type: StudyItemType
@@ -28,13 +89,15 @@ export async function getStudyQueue(
   limit = 20,
   itemTypes?: StudyItemType[],
   levels?: StudyLevel[],
-  categoryClasses?: CategoryClass[]
+  categoryClasses?: CategoryClass[],
+  topics?: StudyTopic[]
 ): Promise<StudyCard[]> {
   const { data, error } = await supabase.rpc('get_study_queue', {
     p_limit: limit,
     p_item_types: itemTypes && itemTypes.length > 0 ? itemTypes : null,
     p_levels: levels && levels.length > 0 ? levels : null,
     p_category_classes: categoryClasses && categoryClasses.length > 0 ? categoryClasses : null,
+    p_topics: topics && topics.length > 0 ? topics : null,
   })
   if (error) throw error
   return withSeeRefListItems((data ?? []) as StudyCard[])
@@ -107,12 +170,14 @@ async function withSeeRefListItems(cards: StudyCard[]): Promise<StudyCard[]> {
 export async function getStudyPoolCount(
   itemTypes?: StudyItemType[],
   levels?: StudyLevel[],
-  categoryClasses?: CategoryClass[]
+  categoryClasses?: CategoryClass[],
+  topics?: StudyTopic[]
 ): Promise<number> {
   const { data, error } = await supabase.rpc('get_study_pool_count', {
     p_item_types: itemTypes && itemTypes.length > 0 ? itemTypes : null,
     p_levels: levels && levels.length > 0 ? levels : null,
     p_category_classes: categoryClasses && categoryClasses.length > 0 ? categoryClasses : null,
+    p_topics: topics && topics.length > 0 ? topics : null,
   })
   if (error) throw error
   return (data as number) ?? 0
@@ -126,11 +191,13 @@ export async function getStudyPoolCount(
 // reflects the other chips already set.
 export async function getStudyPoolCountsByLevel(
   itemTypes?: StudyItemType[],
-  categoryClasses?: CategoryClass[]
+  categoryClasses?: CategoryClass[],
+  topics?: StudyTopic[]
 ): Promise<Partial<Record<StudyLevel, number>>> {
   const { data, error } = await supabase.rpc('get_study_pool_counts_by_level', {
     p_item_types: itemTypes && itemTypes.length > 0 ? itemTypes : null,
     p_category_classes: categoryClasses && categoryClasses.length > 0 ? categoryClasses : null,
+    p_topics: topics && topics.length > 0 ? topics : null,
   })
   if (error) throw error
   const out: Partial<Record<StudyLevel, number>> = {}
