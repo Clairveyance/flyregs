@@ -170,6 +170,8 @@ def main():
     ap.add_argument("--sample", action="store_true", help="show examples per rule and exit")
     ap.add_argument("--apply", action="store_true", help="flag the hits (snapshot first)")
     ap.add_argument("--limit-sample", type=int, default=6)
+    ap.add_argument("--fail-on-hits", action="store_true",
+                    help="exit non-zero if anything inane is live (for run_all_audits.sh)")
     a = ap.parse_args()
 
     rows, off = [], 0
@@ -200,6 +202,14 @@ def main():
             print()
     print("\n  %-24s %5d distinct row(s) -- %.1f%% of the live non-authored bank"
           % ("TOTAL", len(total), 100 * len(total) / max(1, len(rows))))
+
+    if a.fail_on_hits:
+        if total:
+            print("\nFAIL: %d inane question(s) are live. Run --sample to see them, "
+                  "--apply to quarantine." % len(total))
+            return 1
+        print("\nNothing inane is being served.")
+        return 0
 
     if not a.apply:
         print("\nReport only. --sample to see examples, --apply to quarantine.")

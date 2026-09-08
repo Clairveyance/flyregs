@@ -179,6 +179,11 @@ print(json.dumps(mgmt("select item_type, item_id, string_agg(distinct category, 
 EOF
 )'
 run_one "study_topic_filter_e2e (topic filter, as a real signed-in user)" python3 scripts/study_topic_filter_test.py
+# Reports any inane question that has become live since the last sweep. The DB
+# trigger blocks six classes on the way in; this is the other three, plus the
+# standing check that the trigger is still doing its job.
+run_one "inane_question_sweep (nothing inane is being served)" \
+  python3 scripts/inane_question_sweep.py --fail-on-hits
 run_one "scraper_freshness_check (weekly sync actually ran)"        python3 scripts/scraper_freshness_check.py
 
 # --- Layer 3: functional correctness (slower, --full only) ---
