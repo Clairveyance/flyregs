@@ -298,12 +298,16 @@ export default function StudyScreen() {
   // zero, and the old text sent them off widening the two filters that were
   // not the problem. Same empty-state-lie shape as the AD screen's "save an
   // aircraft" card.
+  // 'ac' is deliberately NOT in this list any more: Advisory Circulars carry a
+  // topic now (mapped by subject series -- 91.5% of AC study facts), so an
+  // AC + topic combination is a normal, populated deck rather than a guaranteed
+  // dead end. Only the glossary corpora are always empty under a topic.
   const unclassifiedOnly =
     activeTopics.length > 0 &&
     activeTypes.length > 0 &&
-    activeTypes.every((t) => t === 'ac' || t === 'pcg' || t === 'dictionary')
+    activeTypes.every((t) => t === 'pcg' || t === 'dictionary')
   const emptyPoolReason = unclassifiedOnly
-    ? 'Topics only cover the regulations (FAR, AIM, 49 CFR). Clear the Topic filter to study ACs, P/CG or A/D terms.'
+    ? 'Topics do not cover P/CG or A/D glossary terms. Clear the Topic filter to study them.'
     : (() => {
         const dims = [
           activeTypes.length > 0 && 'Content',
@@ -813,8 +817,8 @@ export default function StudyScreen() {
           id="study-topic-null"
           title="How the Topic filter works"
           body={
-            'Topics describe what a regulation is ABOUT, and they cover the regulations themselves — FAR, AIM and 49 CFR.\n\n' +
-            'Advisory Circulars, P/CG entries and A/D terms do not carry a topic, so they are set aside while any topic is selected. Clear the Topic filter to study them again.\n\n' +
+            'Topics describe what a regulation is ABOUT. They cover FAR, AIM, 49 CFR and Advisory Circulars.\n\n' +
+            'P/CG and A/D glossary terms do not carry a topic, so they are set aside while any topic is selected — as are a small number of general-subject ACs. Clear the Topic filter to study them again.\n\n' +
             'This is the opposite of Category/Class, where an item that does not name a category applies to every aircraft and stays in your deck.\n\n' +
             'Tapping a topic ADDS it. Anything you have not selected is left out — so picking Airspace and Weather studies those two and nothing else. Tap ALL to clear the filter.'
           }
@@ -851,7 +855,7 @@ export default function StudyScreen() {
       </View>
       {activeTopics.length > 0 && (
         <Text style={[styles.filterGroupLabel, styles.levelFilterRow, { color: tokens.t3, fontSize: fs(10), textTransform: 'none' }]}>
-          Topics cover FAR, AIM and 49 CFR. ACs, P/CG and A/D terms are set aside while a topic is selected.
+          Topics cover FAR, AIM, 49 CFR and ACs. P/CG and A/D terms are set aside while a topic is selected.
         </Text>
       )}
 

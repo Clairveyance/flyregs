@@ -34,12 +34,16 @@ def norm(s: str) -> str:
 
 
 def body_texts(item_type, ids):
-    tbl, col = {"far": ("far_sections", "section_number"),
-                "aim": ("aim_paragraphs", "paragraph_number"),
-                "cfr49": ("cfr49_sections", "section_number")}[item_type]
+    # ACs ground against pdf_text -- the actual document -- not `description`,
+    # which is a one-line abstract. RC, 2026-09-08: "there's a lot of testable
+    # info in those." There is, but only in the PDF text.
+    tbl, col, txt = {"far": ("far_sections", "section_number", "body_text"),
+                     "aim": ("aim_paragraphs", "paragraph_number", "body_text"),
+                     "cfr49": ("cfr49_sections", "section_number", "body_text"),
+                     "ac": ("advisory_circulars", "document_number", "pdf_text")}[item_type]
     q = ",".join("'%s'" % i.replace("'", "''") for i in sorted(set(ids)))
-    return {r[col]: r["body_text"] for r in
-            mgmt(f"select {col}, body_text from {tbl} where {col} in ({q})")}
+    return {r[col]: r[txt] for r in
+            mgmt(f"select {col}, {txt} as {txt} from {tbl} where {col} in ({q})")}
 
 
 def check(rows, item_type):
@@ -76,7 +80,7 @@ def check(rows, item_type):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("file")
-    ap.add_argument("--item-type", default="far")
+    ap.add_argument("--item-type", default="far", choices=["far", "aim", "cfr49", "ac"])
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 

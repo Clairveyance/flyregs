@@ -218,6 +218,98 @@ FAR_SECTION = {
     "91.421": "Maintenance & Airworthiness",
 }
 
+# ---------------------------------------------------------------- Advisory Circulars
+# RC, 2026-09-08: "what about the ACs? aren't you building Qs in ref to those?
+# there's a lot of testable info in those."
+#
+# ACs were returning NULL, which meant an authored AC question would have been
+# INVISIBLE the moment any topic was selected -- the filter excludes untopiced
+# items by design. So the axis has to cover them before the questions exist.
+#
+# Mapped by SUBJECT SERIES, and deliberately by what the FAA says each series
+# IS rather than by whichever examples I happened to sample. Series 90 is "Air
+# Traffic and General Operating Rules" and series 120 is "Air Carrier and
+# Commercial Operator Operations"; picking a topic from three sampled titles
+# would have filed 90-100A (RNAV) under Navigation and left its siblings on
+# wake vortex and collision avoidance somewhere else.
+#
+# Series 00 ("General") is left NULL on purpose. It really is general -- a
+# quality-control certification program, air medical resource management, the
+# Aviation Safety Reporting Program, software assurance -- and inventing one
+# topic for those would pollute whichever topic it landed in. 21 ACs.
+AC_SERIES = {
+    "20": "Aircraft Certification Standards", "21": "Aircraft Certification Standards",
+    "23": "Aircraft Certification Standards", "25": "Aircraft Certification Standards",
+    "27": "Aircraft Certification Standards", "29": "Aircraft Certification Standards",
+    "33": "Aircraft Certification Standards", "35": "Aircraft Certification Standards",
+    "36": "Aircraft Certification Standards",
+    "39": "Maintenance & Airworthiness", "43": "Maintenance & Airworthiness",
+    "145": "Maintenance & Airworthiness",
+    "45": "Aircraft Registration & Marking", "47": "Aircraft Registration & Marking",
+    "48": "Aircraft Registration & Marking",
+    "61": "Certificates & Ratings", "63": "Certificates & Ratings",
+    "65": "Certificates & Ratings", "67": "Medical & Fitness",
+    "141": "Flight Instructors", "142": "Flight Instructors", "147": "Flight Instructors",
+    "71": "Airspace", "73": "Airspace", "77": "Airspace", "93": "Airspace", "99": "Airspace",
+    "89": "Remote Pilot Operations", "107": "Remote Pilot Operations",
+    "90": "Right-of-Way & Operating Rules",   # FAA series: Air Traffic and General Operating Rules
+    "91": "Right-of-Way & Operating Rules",
+    "103": "Right-of-Way & Operating Rules", "105": "Right-of-Way & Operating Rules",
+    "117": "Air Carrier & Commercial Operations",
+    "119": "Air Carrier & Commercial Operations",
+    "120": "Air Carrier & Commercial Operations",   # FAA series: Air Carrier and Commercial Operator Operations
+    "121": "Air Carrier & Commercial Operations",
+    "125": "Air Carrier & Commercial Operations",
+    "129": "Air Carrier & Commercial Operations",
+    "135": "Air Carrier & Commercial Operations",
+    "136": "Air Carrier & Commercial Operations",
+    "137": "Air Carrier & Commercial Operations",
+    "139": "Airport Operations", "150": "Airport Operations",
+    "170": "Navigation", "171": "Navigation",
+    "60": "Certificates & Ratings",   # FAA series: Airmen
+    "68": "Medical & Fitness",
+    "00": None,     # genuinely general -- see the note above
+    "183": "Certificates & Ratings",
+    "450": None,    # commercial space licensing; no aviation study topic
+}
+
+
+# Document-level overrides, for the same reason FAR_SECTION exists: the series
+# is the right default and the wrong answer for the ACs a pilot actually studies.
+# Series 61 is "Airmen", so 61-98E (flight reviews and IPCs) and 61-107B (high
+# altitude operations) both default to Certificates & Ratings, which is where
+# neither belongs. Series 90 and 91 sweep taxi procedures, non-towered
+# operations and preflight briefings into Right-of-Way & Operating Rules.
+#
+# Keyed on the number WITHOUT its revision letter, so 61-98E and a future 61-98F
+# both match -- an AC's revision letter changes far more often than its subject.
+AC_DOCUMENT = {
+    "61-98": "Logging, Currency & Proficiency",
+    "61-107": "Fuel, Oxygen & Life Support",
+    "61-134": "Right-of-Way & Operating Rules",
+    "61-142": "Certificates & Ratings",
+    "90-23": "Weather & Safety of Flight",
+    "90-66": "Airport Operations",
+    "90-48": "Right-of-Way & Operating Rules",
+    "90-100": "Navigation",
+    "90-105": "Navigation",
+    "90-114": "Navigation",
+    "91-73": "Airport Operations",
+    "91-79": "Airport Operations",
+    "91-92": "Flight Planning",
+    "00-6": "Weather & Safety of Flight",
+    "00-45": "Weather & Safety of Flight",
+    "00-54": "Weather & Safety of Flight",
+    "00-46": "Accident Reporting",
+    "00-63": "Weather & Safety of Flight",
+    "00-34": "Airport Operations",
+    "20-32": "Required Documents & Equipment",
+    "20-113": "Required Documents & Equipment",
+    "43-9": "Maintenance & Airworthiness",
+    "120-12": "Air Carrier & Commercial Operations",
+}
+
+
 # ---------------------------------------------------------------- 49 CFR
 CFR49_PART = {
     "830": "Accident Reporting",
@@ -286,10 +378,18 @@ def topic(item_type: str, item_id: str):
             return FAR_SECTION[item_id]
         part = item_id.split(".")[0]
         return FAR_PART.get(part)
+    if item_type == "ac":
+        # strip the trailing revision letter: "61-98E" -> "61-98"
+        base = re.match(r"^(\d+-\d+)", item_id)
+        if base and base.group(1) in AC_DOCUMENT:
+            return AC_DOCUMENT[base.group(1)]
+        # "61-65K" -> 61 ; "150/5300-18B" -> 150 ; "450.101-1B" -> 450
+        m = re.match(r"^(\d+)", item_id)
+        return AC_SERIES.get(m.group(1)) if m else None
     if item_type == "cfr49":
         part = item_id.split(".")[0]
         return CFR49_PART.get(part)
-    return None                                  # ac / pcg / dictionary
+    return None                                  # pcg / dictionary
 
 
 def q(v):
@@ -315,8 +415,10 @@ def emit_sql():
     L.append("-- filtering on the column alone would collapse the pool to at most 113 for")
     L.append("-- any one topic. This derives the same axis for the whole regulatory corpus")
     L.append("-- (94.3% of FAR/AIM/49 CFR). ac/pcg/dictionary return NULL on purpose: an")
-    L.append("-- Advisory Circular or a glossary term has no place on a regulatory-topic")
-    L.append("-- axis, and inventing one would be worse than leaving it out.")
+    L.append("-- ACs are mapped by SUBJECT SERIES (91.5% of AC facts); series 00 (General)")
+    L.append("-- and 450 (commercial space) stay null because they genuinely have no single")
+    L.append("-- topic. pcg/dictionary stay null: a glossary term has no place on a")
+    L.append("-- regulatory-topic axis, and inventing one would be worse than leaving it out.")
     L.append("--")
     L.append("-- Scored against the 1,000 hand-labelled rows: 352/355 items agree, 3 are")
     L.append("-- documented divergences, 0 unexplained, 0 uncovered.")
@@ -339,6 +441,14 @@ def emit_sql():
         if v is None:
             continue
         L.append("    when p_item_type = 'far' and split_part(p_item_id, '.', 1) = %s then %s"
+                 % (q(k), q(v)))
+    for k, v in sorted(AC_DOCUMENT.items()):
+        L.append("    when p_item_type = 'ac' and substring(p_item_id from '^[0-9]+-[0-9]+') = %s then %s"
+                 % (q(k), q(v)))
+    for k, v in sorted(AC_SERIES.items(), key=lambda kv: (-len(kv[0]), kv[0])):
+        if v is None:
+            continue
+        L.append("    when p_item_type = 'ac' and substring(p_item_id from '^[0-9]+') = %s then %s"
                  % (q(k), q(v)))
     for k, v in sorted(CFR49_PART.items()):
         L.append("    when p_item_type = 'cfr49' and split_part(p_item_id, '.', 1) = %s then %s"

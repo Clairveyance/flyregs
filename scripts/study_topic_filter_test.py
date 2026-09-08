@@ -115,8 +115,31 @@ def main():
           "max topic pool %d vs unfiltered %d" % (max(sizes.values()), legacy))
 
     print()
-    print("=== 3. a topic filter excludes the unclassified corpora ===")
-    for corpus in ("ac", "dictionary", "pcg"):
+    print("=== 3. ACs now carry a topic (RC: \"there's a lot of testable info in those\") ===")
+    ac_all = rpc("get_study_pool_count", {"p_item_types": ["ac"], "p_levels": None,
+                                          "p_category_classes": None})
+    # Not hardcoding one topic: the AC 150 series (airport design and
+    # engineering) is marked not_applicable for knowledge levels, so it never
+    # enters the study pool at all -- which made "ac + Airport Operations"
+    # legitimately zero and the first version of this check a false alarm. What
+    # matters is that SOME topic gives a real AC deck.
+    ac_by_topic = {}
+    for t in ("Aircraft Certification Standards", "Air Carrier & Commercial Operations",
+              "Right-of-Way & Operating Rules", "Maintenance & Airworthiness",
+              "Certificates & Ratings"):
+        ac_by_topic[t] = rpc("get_study_pool_count",
+                             {"p_item_types": ["ac"], "p_levels": None,
+                              "p_category_classes": None, "p_topics": [t]})
+    for t, n in sorted(ac_by_topic.items(), key=lambda kv: -kv[1]):
+        print("        %5d  %s" % (n, t))
+    ac_topic = max(ac_by_topic.values())
+    check("ac + a topic returns a real deck, not zero", ac_topic > 0,
+          "best topic gives %d of %d AC items" % (ac_topic, ac_all))
+    check("ac + topic is still a SUBSET of all ACs", ac_topic < ac_all)
+
+    print()
+    print("=== 4. the glossary corpora are still excluded (they have no topic) ===")
+    for corpus in ("dictionary", "pcg"):
         n = rpc("get_study_pool_count", {"p_item_types": [corpus], "p_levels": None,
                                          "p_category_classes": None, "p_topics": ["Airspace"]})
         base = rpc("get_study_pool_count", {"p_item_types": [corpus], "p_levels": None,
@@ -124,7 +147,7 @@ def main():
         check(f"{corpus}: topic filter yields 0 (unfiltered {base})", n == 0, f"got {n}")
 
     print()
-    print("=== 4. the queue returns cards that really carry the topic ===")
+    print("=== 5. the queue returns cards that really carry the topic ===")
     for t in ("Airspace", "Medical & Fitness", "Hazardous Materials"):
         cards = rpc("get_study_queue", {"p_limit": 8, "p_item_types": None, "p_levels": None,
                                         "p_category_classes": None, "p_topics": [t]})
