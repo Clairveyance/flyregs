@@ -40,12 +40,31 @@ export async function semanticSearch(query: string, contentTypes?: RegType[]): P
     timeout: SEMANTIC_SEARCH_TIMEOUT_MS,
   })
   if (error) {
-    // semantic-search.tsx's own catch already renders err.message inline as
-    // the screen's error state (see its runSearch) -- give that a real
-    // "you can act on this" message instead of invoke()'s generic "Failed
-    // to send a request to the Edge Function," which reads identically for
-    // a timeout as for being offline.
-    if (isEdgeFunctionTimeout(error)) throw new Error('Search timed out. Check your connection and try again.')
+    // semantic-search.tsx renders err.message inline as the screen's error
+    // state, so whatever comes out of here is what the user reads.
+    //
+    // This used to humanize ONLY the timeout and rethrow everything else --
+    // which meant every other fetch failure (offline, DNS, TLS, a dropped
+    // connection mid-request) put invoke()'s raw
+    // "Failed to send a request to the Edge Function" on screen. RC hit
+    // exactly that on B40 2026-09-08 and reported it as "the page wouldn't
+    // even load properly": a string that names an implementation detail,
+    // suggests nothing to do about it, and looks like the app is broken even
+    // when the edge function is healthy (it was -- the same query returned 15
+    // results 40 minutes later).
+    if (isEdgeFunctionTimeout(error)) {
+      throw new Error('Search timed out. Check your connection and try again.')
+    }
+    // Any other FunctionsFetchError is a transport failure: the request never
+    // got an answer. Nothing about the query is wrong, so say so and point at
+    // the one thing the user can actually change.
+    if (error?.name === 'FunctionsFetchError') {
+      throw new Error("Couldn't reach search. Check your connection and try again.")
+    }
+    // A non-2xx from the function itself -- the server was reached and said no.
+    if (error?.name === 'FunctionsHttpError') {
+      throw new Error('Search is temporarily unavailable. Please try again in a moment.')
+    }
     throw error
   }
   if (data?.error) throw new Error(data.error)

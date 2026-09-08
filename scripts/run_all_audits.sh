@@ -184,6 +184,11 @@ run_one "study_topic_filter_e2e (topic filter, as a real signed-in user)" python
 # standing check that the trigger is still doing its job.
 run_one "inane_question_sweep (nothing inane is being served)" \
   python3 scripts/inane_question_sweep.py --fail-on-hits
+# Ask FlyRegs must survive a typo in the one word that matters, and must not
+# bend a real word into an anchor. Second half is the one that matters: it is
+# what keeps the fuzzy pass from ever changing a query that already worked.
+run_one "afr_typo_tolerance (AFR survives a typo, nothing correct regresses)" \
+  python3 scripts/afr_typo_tolerance_test.py
 run_one "scraper_freshness_check (weekly sync actually ran)"        python3 scripts/scraper_freshness_check.py
 
 # --- Layer 3: functional correctness (slower, --full only) ---

@@ -313,8 +313,25 @@ export default function SemanticSearchScreen() {
             </View>
           )}
 
+          {/* A failed search left the user with a sentence and nothing to do --
+              RC's B40 report was a dead screen reading "Failed to send a
+              request to the Edge Function". The message is now written for a
+              human (see semanticSearch.ts), and every transport failure is
+              retryable by definition: the query is still in submittedQuery, so
+              one tap re-runs it rather than making the user retype. */}
           {!searching && error && (
-            <Text style={[styles.errorText, { color: tokens.amb, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>{error}</Text>
+            <View style={styles.errorBlock}>
+              <Text style={[styles.errorText, { color: tokens.amb, fontSize: fs(13.5), lineHeight: fs(13.5) * 1.41 }]}>{error}</Text>
+              {submittedQuery.length > 0 && (
+                <Pressable
+                  onPress={() => runSearch(submittedQuery)}
+                  style={[styles.retryButton, { borderColor: tokens.bdr, backgroundColor: tokens.bg2 }]}
+                  hitSlop={8}
+                >
+                  <Text style={[styles.retryText, { color: tokens.blu, fontSize: fs(13.5) }]}>Try again</Text>
+                </Pressable>
+              )}
+            </View>
           )}
 
           {!searching && !error && submittedQuery.length > 0 && results.length === 0 && (
@@ -438,7 +455,10 @@ const styles = StyleSheet.create({
   // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
   // (StyleSheet.create is module-scope, fs() is a hook), same
   // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
-  errorText: { textAlign: 'center', marginTop: 24 },
+  errorText: { textAlign: 'center' },
+  errorBlock: { marginTop: 24, alignItems: 'center', gap: 14 },
+  retryButton: { borderWidth: 1, borderRadius: 10, paddingVertical: 9, paddingHorizontal: 22 },
+  retryText: { fontWeight: '600' },
   // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
   // (StyleSheet.create is module-scope, fs() is a hook), same
   // fixed-lineHeight-vs-scaled-fontSize fix as the rest of today's sweep.
