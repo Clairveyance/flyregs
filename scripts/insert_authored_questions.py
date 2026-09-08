@@ -24,6 +24,20 @@ sys.path.insert(0, os.path.join(BASE, "scripts"))
 from access_matrix_sweep import mgmt, http, SERVICE, URL   # noqa: E402
 from inane_question_sweep import classify as classify_inane   # noqa: E402
 
+VALID_CATEGORIES = {
+    "Certificates & Ratings", "Weather & Safety of Flight", "Airport Operations",
+    "IFR Procedures", "Airspace", "ATC Communications & Clearances",
+    "Right-of-Way & Operating Rules", "Maintenance & Airworthiness", "Navigation",
+    "Medical & Fitness", "Remote Pilot Operations", "Emergency Procedures",
+    "Logging, Currency & Proficiency", "Aviation Security",
+    "Required Documents & Equipment", "Hazardous Materials", "Student Pilot & Solo",
+    "Flight Instructors", "Aircraft Registration & Marking", "Altitudes & Speed Limits",
+    "Fuel, Oxygen & Life Support", "Flight Planning",
+    "Air Carrier & Commercial Operations", "Accident Reporting", "VFR Weather Minimums",
+    "Knowledge & Practical Tests", "Definitions",
+}
+
+
 MODEL_TAG = "claude-opus-5 (authored in-session, verified against far_sections.body_text)"
 
 
@@ -65,6 +79,11 @@ def check(rows, item_type):
             problems.append(f"#{i} {q['item_id']}: q_type must be recall or scenario")
         if not q.get("category"):
             problems.append(f"#{i} {q['item_id']}: no category (this is the filter box)")
+        elif q["category"] not in VALID_CATEGORIES:
+            problems.append(
+                f"#{i} {q['item_id']}: category {q['category']!r} is not one of the "
+                f"{len(VALID_CATEGORIES)} live filter categories"
+            )
         # RC, 2026-09-07: "def fix any issue that would cause those inane Qs to
         # be allowed into the DB. none of those types can be allowed in." The
         # same classifier that swept 1,195 of them out of the generated bank now
