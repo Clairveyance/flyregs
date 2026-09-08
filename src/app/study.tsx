@@ -16,6 +16,7 @@ import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { StudyLevel, ALL_STUDY_LEVELS, STUDY_LEVEL_LABELS, markCoinsSeen } from '@/lib/challenges'
 import { CategoryClass, CATEGORY_CLASSES, RATING_SHORT_LABELS } from '@/lib/profileRatings'
 import { StudyTopic, STUDY_TOPICS, STUDY_TOPIC_LABELS } from '@/lib/study'
+import { InfoPopup } from '@/components/InfoPopup'
 import { isBookmarked, toggleBookmark } from '@/lib/bookmarks'
 import { buildStudyCard, type QuizSourceType } from '@/lib/quizQuestion'
 import { normalizeRegBody } from '@/lib/regTextFormat'
@@ -800,7 +801,26 @@ export default function StudyScreen() {
           dictionary entry -- and those are EXCLUDED once a topic is picked,
           which is what the caption below says out loud rather than leaving
           the reader to notice their AC cards vanished. */}
-      <Text style={[styles.filterGroupLabel, styles.levelFilterRow, { color: tokens.amb, fontSize: fs(10) }]}>TOPIC</Text>
+      <View style={[styles.levelFilterRow, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
+        <Text style={[styles.filterGroupLabel, { color: tokens.amb, fontSize: fs(10) }]}>TOPIC</Text>
+        {/* RC, 2026-09-07: "if NULL is diff here, add an info icon with that
+            explanation for users." The Topic axis treats "no value" as the
+            OPPOSITE of what Category/Class does -- there it means "applies to
+            everything" and the item stays visible, here it means "this item has
+            no topic" and the item drops out. A user cannot be expected to infer
+            that from their AC cards disappearing, so it is stated. */}
+        <InfoPopup
+          id="study-topic-null"
+          title="How the Topic filter works"
+          body={
+            'Topics describe what a regulation is ABOUT, and they cover the regulations themselves — FAR, AIM and 49 CFR.\n\n' +
+            'Advisory Circulars, P/CG entries and A/D terms do not carry a topic, so they are set aside while any topic is selected. Clear the Topic filter to study them again.\n\n' +
+            'This is the opposite of Category/Class, where an item that does not name a category applies to every aircraft and stays in your deck.\n\n' +
+            'Tapping a topic ADDS it. Anything you have not selected is left out — so picking Airspace and Weather studies those two and nothing else. Tap ALL to clear the filter.'
+          }
+          iconSize={fs(13)}
+        />
+      </View>
       <View style={styles.filterRow}>
         <Pressable
           style={[
@@ -831,7 +851,7 @@ export default function StudyScreen() {
       </View>
       {activeTopics.length > 0 && (
         <Text style={[styles.filterGroupLabel, styles.levelFilterRow, { color: tokens.t3, fontSize: fs(10), textTransform: 'none' }]}>
-          Topics cover the regulations (FAR, AIM, 49 CFR). ACs, P/CG and A/D terms are set aside while a topic is selected.
+          Topics cover FAR, AIM and 49 CFR. ACs, P/CG and A/D terms are set aside while a topic is selected.
         </Text>
       )}
 

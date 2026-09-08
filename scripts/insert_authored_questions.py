@@ -22,6 +22,7 @@ import argparse, json, os, re, subprocess, sys
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(BASE, "scripts"))
 from access_matrix_sweep import mgmt, http, SERVICE, URL   # noqa: E402
+from inane_question_sweep import classify as classify_inane   # noqa: E402
 
 MODEL_TAG = "claude-opus-5 (authored in-session, verified against far_sections.body_text)"
 
@@ -60,6 +61,15 @@ def check(rows, item_type):
             problems.append(f"#{i} {q['item_id']}: q_type must be recall or scenario")
         if not q.get("category"):
             problems.append(f"#{i} {q['item_id']}: no category (this is the filter box)")
+        # RC, 2026-09-07: "def fix any issue that would cause those inane Qs to
+        # be allowed into the DB. none of those types can be allowed in." The
+        # same classifier that swept 1,195 of them out of the generated bank now
+        # stands in front of authoring, so a hand-written question cannot
+        # reintroduce a class we just spent the afternoon removing.
+        bad = classify_inane(q.get("question", ""), q.get("answer", ""))
+        if bad:
+            problems.append(f"#{i} {q['item_id']}: inane ({', '.join(bad)}) -- "
+                            f"rewrite so the ANSWER teaches the rule, not a lookup")
     return problems
 
 
