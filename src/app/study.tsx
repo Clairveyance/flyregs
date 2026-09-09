@@ -10,7 +10,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import * as Sentry from '@sentry/react-native'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
-import { getStudyQueue, getStudyPoolCount, getStudyPoolCountsByLevel, recordStudyReview, getStudyMastery, getCurrency, getStudyFactsForItems, StudyCard, StudyMastery, Currency, StudyItemType, StudyFact } from '@/lib/study'
+import { explanationText, getStudyQueue, getStudyPoolCount, getStudyPoolCountsByLevel, recordStudyReview, getStudyMastery, getCurrency, getStudyFactsForItems, StudyCard, StudyMastery, Currency, StudyItemType, StudyFact } from '@/lib/study'
 import { COIN_BY_CODE, type CoinDef, TROPHY_BY_CODE } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { StudyLevel, ALL_STUDY_LEVELS, STUDY_LEVEL_LABELS, markCoinsSeen } from '@/lib/challenges'
@@ -816,11 +816,21 @@ export default function StudyScreen() {
         <InfoPopup
           id="study-topic-null"
           title="How the Topic filter works"
+          // REWRITTEN 2026-09-09. RC, B42: "It does seem like the info icon
+          // explanation is a bit confusing. part. when you compare the topic
+          // to the C/C filtering method."
+          //
+          // The old copy put the Category/Class contrast in the MIDDLE, phrased
+          // as "this is the opposite of X" -- which asks the reader to hold two
+          // rules at once and mentally invert one before they have finished
+          // learning the first. Reordered so it reads as: what a topic is, how
+          // to use it, what disappears and how to get it back, and only then
+          // the contrast, as a closing aside rather than a puzzle.
           body={
-            'Topics describe what a regulation is ABOUT. They cover FAR, AIM, 49 CFR and Advisory Circulars.\n\n' +
-            'P/CG and A/D glossary terms do not carry a topic, so they are set aside while any topic is selected — as are a small number of general-subject ACs. Clear the Topic filter to study them again.\n\n' +
-            'This is the opposite of Category/Class, where an item that does not name a category applies to every aircraft and stays in your deck.\n\n' +
-            'Tapping a topic ADDS it. Anything you have not selected is left out — so picking Airspace and Weather studies those two and nothing else. Tap ALL to clear the filter.'
+            'Topics describe what a regulation is ABOUT — Airspace, Weather, Medical, and so on. They cover FAR, AIM, 49 CFR and Advisory Circulars.\n\n' +
+            'Tapping a topic ADDS it. Only what you pick is studied, so choosing Airspace and Weather studies those two and nothing else. Tap ALL to clear the filter.\n\n' +
+            'Some cards have no topic at all — P/CG and A/D glossary terms, plus a few general-subject ACs. These are set aside while any topic is selected. If your glossary cards vanish, that is why: tap ALL to bring them back.\n\n' +
+            'Category/Class works the other way round. A card that names no aircraft category applies to every aircraft, so it stays in your deck instead of dropping out.'
           }
           iconSize={fs(13)}
         />
@@ -1418,12 +1428,13 @@ function FlashCard({
           {showCitation && frontText === faces.answer && (
             <Text style={[styles.cardCitation, itemType === 'pcg' && styles.cardCitationItalic, { color: tokens.t4, fontSize: fs(11) }]}>{citationText}</Text>
           )}
-          {/* Only hand-authored questions carry an explanation; generated ones
-              leave it undefined and this renders nothing. Shown on whichever
-              face is currently displaying the ANSWER, never alongside the
-              question -- it frequently gives the answer away. */}
-          {fact?.explanation && frontText === faces.answer && (
-            <Text style={[styles.cardExplain, { color: tokens.t3, fontSize: fs(11.5) }]}>{fact.explanation}</Text>
+          {/* Hand-authored rows carry a written explanation; every other row
+              falls back to quoting its own source text -- see
+              explanationText() in lib/study.ts. Shown on whichever face is
+              currently displaying the ANSWER, never alongside the question --
+              it frequently gives the answer away. */}
+          {explanationText(fact) && frontText === faces.answer && (
+            <Text style={[styles.cardExplain, { color: tokens.t3, fontSize: fs(11.5) }]}>{explanationText(fact)}</Text>
           )}
         </ScrollView>
         <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>Tap to reveal</Text>
@@ -1436,8 +1447,8 @@ function FlashCard({
           {showCitation && backText === faces.answer && (
             <Text style={[styles.cardCitation, itemType === 'pcg' && styles.cardCitationItalic, { color: tokens.t4, fontSize: fs(11) }]}>{citationText}</Text>
           )}
-          {fact?.explanation && backText === faces.answer && (
-            <Text style={[styles.cardExplain, { color: tokens.t3, fontSize: fs(11.5) }]}>{fact.explanation}</Text>
+          {explanationText(fact) && backText === faces.answer && (
+            <Text style={[styles.cardExplain, { color: tokens.t3, fontSize: fs(11.5) }]}>{explanationText(fact)}</Text>
           )}
         </ScrollView>
         <Text style={[styles.cardHint, { color: tokens.t4, fontSize: fs(11) }]}>Tap to flip back</Text>

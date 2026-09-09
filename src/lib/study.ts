@@ -259,12 +259,59 @@ export interface StudyFact {
   question: string
   answer: string
   // Present only on hand-authored questions. `explanation` says WHY the answer
-  // is what it is and which sibling reg it gets confused with -- the thing the
-  // generated bank has no equivalent for (source_quote only quotes the rule
-  // back). Undefined for generated facts, so the UI must render conditionally.
+  // is what it is and which sibling reg it gets confused with.
   explanation?: string
+  // The verbatim reg text the answer came from. Every row has one -- authored
+  // AND generated (33,475 of 33,475 checked live, 2026-09-09) -- which is what
+  // lets the card show SOMETHING under every answer instead of only under the
+  // ~6% that are hand-authored. RC, B42: "though some answers don't have that
+  // explanation ... it would be great to add those to each Q if poss."
+  //
+  // Deliberately fed to the UI as a FALLBACK rather than written into
+  // explanation for all 33k rows: a bulk content write would risk real data to
+  // store something already present in the same row, and would drift the moment
+  // a quote is re-scraped. The render path composes it instead.
+  sourceQuote?: string
   category?: string
   qType?: 'recall' | 'scenario'
+}
+
+/**
+ * What to show under a revealed answer.
+ *
+ * RC, B42: "though some answers don't have that explanation ... it would be
+ * great to add those to each Q if poss." Only the ~2,000 hand-authored rows
+ * carry a written `explanation`; the other 33,475 live rows carry none -- but
+ * every single one of them carries the verbatim reg text the answer came from.
+ *
+ * So a card with no authored explanation falls back to quoting its own source.
+ * That is evidence rather than teaching, and it is labelled as such -- but it
+ * answers the question the missing explanation left open ("says who?"), which
+ * on RC's own example (91.193, "No, it does not") is the whole point: the
+ * source reads "Such authorization does not permit operation of the aircraft
+ * carrying persons or property for compensation or hire."
+ *
+ * Returns undefined when there is nothing worth showing, so the caller can
+ * keep rendering conditionally exactly as before.
+ */
+export function explanationText(fact: StudyFact | undefined): string | undefined {
+  if (!fact) return undefined
+  if (fact.explanation && fact.explanation.trim()) return fact.explanation.trim()
+  // Quotes are scraped, so they arrive with hard newlines and column breaks
+  // mid-sentence (1,590 of them contain a newline). Collapse to one line.
+  const quote = (fact.sourceQuote ?? '').replace(/\s+/g, ' ').trim()
+  // Reject fragments that add nothing the answer did not already say. Length
+  // alone is the wrong test -- "azimuth to 20 degrees" is 21 characters and
+  // genuinely useful, while "Steady white | 20" is 17 and is a table row torn
+  // out of its header. So: drop anything carrying a column separator, and
+  // require a few real words.
+  if (quote.length < 12) return undefined
+  if (quote.includes('|')) return undefined
+  if (quote.split(' ').filter(Boolean).length < 3) return undefined
+  // Many quotes are cut mid-word by the scraper's window ("...for compen").
+  // An ellipsis is honest about that rather than pretending it is a sentence.
+  const ends = /[.!?"\u201d)]$/.test(quote)
+  return `Source: \u201c${quote}${ends ? '' : '\u2026'}\u201d`
 }
 
 // AIM paragraph numbers aren't something pilots memorize -- "Which AIM
@@ -322,7 +369,7 @@ export async function getStudyFactsForItems(
       // correctly by never populating the map for a null pair.
       const { data, error } = await supabase
         .from('study_facts_gated')
-        .select('item_id, question, answer, explanation, category, q_type, origin')
+        .select('item_id, question, answer, explanation, source_quote, category, q_type, origin')
         .eq('item_type', itemType)
         .in('item_id', ids)
       if (error) throw error
@@ -362,6 +409,7 @@ export async function getStudyFactsForItems(
           question: row.question,
           answer: row.answer,
           explanation: (row as any).explanation ?? undefined,
+          sourceQuote: (row as any).source_quote ?? undefined,
           category: (row as any).category ?? undefined,
           qType: (row as any).q_type ?? undefined,
         })
