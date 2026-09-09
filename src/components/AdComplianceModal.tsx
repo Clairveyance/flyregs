@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Modal } from 'react-native'
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Modal, KeyboardAvoidingView, Platform } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -270,7 +270,22 @@ export function AdComplianceModal({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
+      {/* RC, real device, B42: "i can't test the AD compliance flow b/c the
+          damn keyboard won't get out of the way." This card is pinned to the
+          bottom (modalBackdrop is justifyContent: 'flex-end'), so without
+          KeyboardAvoidingView the Hours / Notes inputs and the Save button all
+          sit UNDER the keyboard the moment one is focused, with no way to
+          scroll them up -- the flow is untestable, not merely awkward.
+          Invisible on web, which has no OS keyboard to cover anything, which
+          is exactly why it survived a browser pass.
+          This is the SAME bug, in the same shape, that HobbsUpdateModal.tsx
+          already carries a fix and a comment for. It was fixed there and never
+          swept for elsewhere; scripts/keyboard_avoidance_audit.py now checks
+          every modal with a text input so there is no third time. */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.modalBackdrop}
+      >
         <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, maxHeight: '88%', paddingBottom: Math.max(18, insets.bottom + 8) }]}>
           <View style={styles.modalHeader}>
             <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(17) }]}>AD {ad.adNumber}</Text>
@@ -279,7 +294,16 @@ export function AdComplianceModal({
             </Pressable>
           </View>
 
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 12 }}>
+          {/* keyboardDismissMode: the two NEXT DUE fields use decimal-pad,
+              which on iOS has no return key -- so without a swipe-to-dismiss
+              the only way to see the form again is to tap a non-input, and
+              this form is tall enough that there may not be one in view.
+              Same prop the other eight scrolling forms in this app use. */}
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            contentContainerStyle={{ paddingBottom: 12 }}
+          >
             <Text style={{ color: tokens.t3, fontSize: fs(11), fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 }}>COMPLIANCE TYPE</Text>
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 18 }}>
               {([['one_time', 'One-time'], ['recurring', 'Recurring']] as [ComplianceKind, string][]).map(([k, label]) => (
@@ -390,7 +414,7 @@ export function AdComplianceModal({
             fs={fs}
           />
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   )
 }

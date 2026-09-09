@@ -120,6 +120,7 @@ run_one "load_error_state_audit (failed load != missing document)" python3 scrip
 # The eas-build-on-success hook that attaches commits to each Sentry release
 # -- without it, `Fixes REACT-NATIVE-x` in a commit message resolves nothing.
 # Checks it is wired AND that it can never fail a build.
+run_one "keyboard_avoidance (no modal hides its own input under the keyboard)" python3 scripts/keyboard_avoidance_audit.py
 run_one "eas_build_hook_audit (Sentry commit association really fires)" python3 scripts/eas_build_hook_audit.py
 run_one "eas_sentry_release_name (the hook names the release the SDK reports)" node scripts/eas_sentry_release_name_test.cjs
 # Timers, listeners and rAF loops that outlive the screen that made them.
