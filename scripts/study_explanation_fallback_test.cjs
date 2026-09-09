@@ -29,9 +29,19 @@ for (; i < src.length; i++) {
 }
 const fnSrc = src.slice(start, end)
 
+// explanationText() leans on a module-level STOP_WORDS set, so the extraction
+// has to bring it along or the compile fails with TS2304. Pulled by the same
+// brace-matching rather than duplicated here, for the same reason as the
+// function itself: a copy in this file could drift from what ships.
+const sw = src.indexOf('const STOP_WORDS')
+assert.ok(sw > -1, 'STOP_WORDS is gone from lib/study.ts')
+const swEnd = src.indexOf('\n)', sw) + 2
+const stopSrc = src.slice(sw, swEnd)
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'expl-'))
 fs.writeFileSync(path.join(tmp, 'f.ts'),
-  'export interface StudyFact { question: string; answer: string; explanation?: string; sourceQuote?: string }\n' + fnSrc)
+  'export interface StudyFact { question: string; answer: string; explanation?: string; sourceQuote?: string }\n' +
+  stopSrc + '\n' + fnSrc)
 // cwd is the temp dir on purpose: tsc refuses (TS5112) to take files on the
 // command line while the project's own tsconfig.json is in scope.
 execFileSync(path.join(ROOT, 'node_modules', '.bin', 'tsc'),
@@ -53,17 +63,43 @@ check('an authored explanation is used verbatim and wins over the quote', () => 
   assert.strictEqual(got, '91.155(a). At night it becomes 3 miles.')
 })
 
-check("RC's own 91.193 case now says something", () => {
-  const got = explanationText({ ...base,
-    sourceQuote: 'Such authorization does not permit operation of the aircraft carrying persons or property for compen' })
-  assert.ok(got && got.includes('does not permit'), `got ${got}`)
-  assert.ok(got.startsWith('Source: “'), 'should be labelled as a quote')
-  assert.ok(got.endsWith('…”'), 'a mid-word cut should end in an ellipsis')
+// The exact card RC objected to, with its REAL question and answer text rather
+// than placeholders -- an earlier version of this test used {question:'q',
+// answer:'a'}, which made the quote look informative and passed while the
+// shipped card was still padding. The quote here restates the answer, so the
+// only right behaviour is to show nothing.
+check("RC's 91.193 card: a quote that restates the answer is suppressed", () => {
+  const got = explanationText({
+    question: 'Does a § 91.193 certificate of authorization permit carrying persons or property for hire?',
+    answer: 'No, it does not permit compensation or hire operations',
+    sourceQuote: 'Such authorization does not permit operation of the aircraft carrying persons or property for compensation or hire.',
+  })
+  assert.strictEqual(got, undefined, `should show nothing, got ${got}`)
+})
+
+check('a quote carrying real extra content is still shown', () => {
+  const got = explanationText({
+    question: 'To what altitude must the takeoff path be considered?',
+    answer: '1,500 feet AGL',
+    sourceQuote: 'up to 1,500 feet above ground level, but not less than V1 minimum for airplanes and the associated climb gradient',
+  })
+  assert.ok(got && got.startsWith('Source: \u201c'), `should be shown and labelled, got ${got}`)
+  assert.ok(got.includes('V1 minimum'), 'must carry the part the answer omitted')
+})
+
+check('the labelled quote keeps the mid-word ellipsis', () => {
+  const got = explanationText({
+    question: 'What must the certificate holder disseminate?',
+    answer: 'Runway data',
+    sourceQuote: 'each certificate holder shall provide a system acceptable to the Administrator for disseminating information to the pilot in comm',
+  })
+  assert.ok(got.endsWith('\u2026\u201d'), `mid-word cut should end in an ellipsis, got ${got}`)
 })
 
 check('a complete sentence gets no spurious ellipsis', () => {
-  const got = explanationText({ ...base, sourceQuote: 'Item 18 must include either PBN/A1 or PBN/L1.' })
-  assert.ok(got.endsWith('.”'), `got ${got}`)
+  const got = explanationText({ question: 'Which code is used?', answer: 'PBN/L1',
+    sourceQuote: 'Item 18 must include either PBN/A1 for RNP 10 authorization or PBN/L1 for RNP 4, and the flight plan must show the equipment suffix.' })
+  assert.ok(got && got.endsWith('.\u201d'), `got ${got}`)
 })
 
 check('scraped newlines and column breaks collapse to one line', () => {
@@ -83,9 +119,9 @@ check('undefined fact is safe (card renders before facts land)', () => {
 })
 
 check('an empty authored explanation falls through to the quote', () => {
-  const got = explanationText({ ...base, explanation: '   ',
-    sourceQuote: 'The Administrator may issue a certificate of authorization.' })
-  assert.ok(got && got.includes('Administrator'), `got ${got}`)
+  const got = explanationText({ question: 'Who issues it?', answer: 'The Administrator', explanation: '   ',
+    sourceQuote: 'The Administrator may issue a certificate of authorization if the proposed operation can be safely conducted under the terms of that certificate.' })
+  assert.ok(got && got.includes('safely conducted'), `got ${got}`)
 })
 
 console.log(`\n${pass} passed, ${fails.length} failed`)

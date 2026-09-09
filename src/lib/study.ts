@@ -276,6 +276,15 @@ export interface StudyFact {
   qType?: 'recall' | 'scenario'
 }
 
+// Function words carry no information, so they must not count toward "this
+// quote adds something". Kept deliberately short: anything longer starts
+// discarding real regulatory vocabulary.
+const STOP_WORDS = new Set(
+  ('the a an of to in for or and is are be by on at with that this shall must may each any all ' +
+   'not no from as under section paragraph if when such other than its it what which does do')
+    .split(' '),
+)
+
 /**
  * What to show under a revealed answer.
  *
@@ -303,11 +312,50 @@ export function explanationText(fact: StudyFact | undefined): string | undefined
   // Reject fragments that add nothing the answer did not already say. Length
   // alone is the wrong test -- "azimuth to 20 degrees" is 21 characters and
   // genuinely useful, while "Steady white | 20" is 17 and is a table row torn
-  // out of its header. So: drop anything carrying a column separator, and
-  // require a few real words.
+  // out of its header.
   if (quote.length < 12) return undefined
   if (quote.includes('|')) return undefined
   if (quote.split(' ').filter(Boolean).length < 3) return undefined
+
+  // THE REAL TEST: does the quote actually SAY anything the card did not?
+  //
+  // RC, B42: "the 'fix' you made for 91.193 doesn't really do anything. it
+  // doesn't explain WHY, it just basically repeats the short answer in a long
+  // way." He was right, and the whole bank agreed with him -- measured over all
+  // 33,475 generated rows, 34% of source quotes add ZERO or ONE content word
+  // beyond the question and answer. Those are the restatements he objected to:
+  // answer "An 'essential load'" against quote "is an 'essential load' on the
+  // power supply".
+  //
+  // The bar is FIVE new content words, and it is deliberately strict.
+  //
+  // Two was tried first and failed on RC's own card: quote "Such authorization
+  // does not permit operation of the aircraft carrying persons or property for
+  // compensation or hire" against answer "No, it does not permit compensation
+  // or hire operations" clears a two-word bar on "operation" and "aircraft"
+  // while saying nothing new. Word counting cannot tell restatement from
+  // addition, because a quote of the sentence the answer came FROM is a
+  // restatement by construction.
+  //
+  // At five the survivors are the ones carrying real extra content -- answer
+  // "1,500 feet AGL", quote "up to 1,500 feet above ground level, BUT NOT LESS
+  // THAN V1 MINIMUM FOR AIRPLANES". Measured across all 33,475 generated rows:
+  // 34% add 0-1 words (pure restatement), 38% add 2-4, 28% add 5+.
+  //
+  // This drops coverage from a claimed 98% to about 32%, and that is the right
+  // trade. RC, B42: "we don't just want to duplicate things already there we
+  // want to offer real explanations." Showing nothing is honest; padding an
+  // answer and calling it an explanation is not.
+  //
+  // What this is: GROUNDING -- the regulation's own words, labelled as a quote.
+  // What it is not: an explanation of WHY. That only comes from authoring, and
+  // the ~2,000 hand-authored rows remain the only place it exists.
+  const contentWords = (t: string) =>
+    new Set((t.toLowerCase().match(/[a-z]{4,}/g) ?? []).filter((w) => !STOP_WORDS.has(w)))
+  const known = new Set([...contentWords(fact.question), ...contentWords(fact.answer)])
+  let added = 0
+  for (const w of contentWords(quote)) if (!known.has(w)) added++
+  if (added < 5) return undefined
   // Many quotes are cut mid-word by the scraper's window ("...for compen").
   // An ellipsis is honest about that rather than pretending it is a sentence.
   const ends = /[.!?"\u201d)]$/.test(quote)
