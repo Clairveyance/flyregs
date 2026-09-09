@@ -4,6 +4,7 @@ import { router, usePathname } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
+import { getSubscriptionStatus, syncEntitlements } from '@/lib/revenuecat'
 import { Icon } from '@/components/Icon'
 import { getFleetHiddenCount, getFleetVisibleCap, getOwnedAircraftOldestFirst, keepOnlyAircraft } from '@/lib/aircraftSharing'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
@@ -54,6 +55,20 @@ export function AircraftDowngradeGate() {
   // The cap-0 case: no single aircraft to pick, only "delete all N."
   const [confirmingDeleteAll, setConfirmingDeleteAll] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // NEVER A TRAP. RC, B42: "Pro upgrade paywall didn't work and just locked
+  // the app. hard to restart" and "it locks up and prevents you from closing
+  // it at all. you have to restart the app."
+  //
+  // Both non-dismissible branches below used onRequestClose={() => {}} and
+  // offered only two paywall routes and a destructive Delete All. When the
+  // paywall failed to open, that left NO non-destructive way out of a modal
+  // rendered at app root -- a force-quit was the only exit.
+  //
+  // Dismissing costs nothing: the aircraft are already hidden by RLS, this
+  // component is presentation only (see the check() comment above), and the
+  // gate returns on the next launch. A user who cannot reach the paywall must
+  // still be able to reach Settings, support, or their own account.
+  const [dismissed, setDismissed] = useState(false)
   const [typed, setTyped] = useState('')
   const armed = typed.trim().toUpperCase() === 'DELETE'
   // Aircraft labels (nickname or make/model) can run long and get cut off
@@ -77,6 +92,8 @@ export function AircraftDowngradeGate() {
   // should ever matter here; a token refresh for the same person is not a
   // reason to re-run this.
   const userId = session?.user?.id ?? null
+  // A different account must get its own gate, not inherit a dismissal.
+  useEffect(() => { setDismissed(false) }, [userId])
   const check = useCallback(async () => {
     if (!userId) { setLocked([]); return }
     try {
@@ -95,6 +112,43 @@ export function AircraftDowngradeGate() {
       const hidden = await getFleetHiddenCount()
       if (hidden <= 0) { setLocked([]); return }
       const [owned, visibleCap] = await Promise.all([getOwnedAircraftOldestFirst(), getFleetVisibleCap()])
+
+      // CONTRADICTION VETO -- never show a delete-your-fleet ultimatum to
+      // someone the STORE still says is entitled.
+      //
+      // RC, B42, on his own Premium account: "as soon as i open B42, i get a
+      // popup saying i have to delete an a/c or upgrade to Pro/Prem ... my
+      // account was already Prem. This CANNOT happen to real users."
+      //
+      // Root cause was server-side (sync-entitlements wrote false over his
+      // paid row on a RevenueCat 404 -- fixed there), but this component is
+      // the last thing standing between a bad entitlement row and a user
+      // deleting real aircraft or paying twice, so it must not take that row's
+      // word alone. getSubscriptionStatus() is a FRESH read of the App Store
+      // receipt via RevenueCat, and it reports ok:false rather than "free"
+      // when it cannot be reached -- so a genuine outage still falls through
+      // to the server's answer below and a real downgrade is still caught.
+      //
+      // This is deliberately narrower than the early-bail-out a previous
+      // version had and the comment above rightly warns against: that one
+      // trusted a CLIENT CACHE that only refreshes on session init, so a real
+      // downgrade in Settings was invisible for as long as the app stayed
+      // alive. This is a live receipt check, and it only vetoes when the store
+      // positively contradicts the row.
+      const live = await getSubscriptionStatus()
+      const storeSaysEntitled =
+        live.ok && (live.isPremium || (live.isPro && owned.length <= 1))
+      if (storeSaysEntitled) {
+        console.warn(
+          '[DowngradeGate] server says cap=' + visibleCap + ' with ' + owned.length +
+          ' owned, but the store says premium=' + live.isPremium + ' pro=' + live.isPro +
+          ' -- suppressing the gate and re-syncing entitlements.'
+        )
+        syncEntitlements()
+        setLocked([])
+        return
+      }
+
       setLocked(owned)
       setCap(visibleCap)
     } catch {
@@ -113,7 +167,7 @@ export function AircraftDowngradeGate() {
   // from reaching the very screen that would restore their Premium (or from
   // signing into a different account) would be a trap with no exit.
   const exempt = pathname?.startsWith('/auth') || pathname?.startsWith('/paywall')
-  if (locked.length === 0 || exempt) return null
+  if (locked.length === 0 || exempt || dismissed) return null
 
   const runKeep = async (keep: typeof locked[number]) => {
     setBusy(true)
@@ -256,7 +310,7 @@ export function AircraftDowngradeGate() {
   // fetching) so the pick-one UI doesn't flash first and then swap.
   if (cap === 0) {
     return (
-      <Modal visible transparent animationType="fade" onRequestClose={() => {}}>
+      <Modal visible transparent animationType="fade" onRequestClose={() => setDismissed(true)}>
         <View style={styles.scrim}>
           <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.gold }]}>
             <Icon name="airplane" size={fs(26)} color={tokens.gold} />
@@ -307,6 +361,9 @@ export function AircraftDowngradeGate() {
             <Text style={[styles.footnote, { color: tokens.t4, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.39 }]}>
               Nothing is deleted until you choose. Your aircraft stay locked, not lost — upgrading restores all of them.
             </Text>
+            <Pressable onPress={() => setDismissed(true)} hitSlop={8} style={{ marginTop: 4 }}>
+              <Text style={[styles.cancelText, { color: tokens.t3, fontSize: fs(13.5) }]}>Not now</Text>
+            </Pressable>
           </View>
         </View>
         <LongPressPreviewCard
@@ -320,7 +377,7 @@ export function AircraftDowngradeGate() {
   }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={() => {}}>
+    <Modal visible transparent animationType="fade" onRequestClose={() => setDismissed(true)}>
       <View style={styles.scrim}>
         <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.gold }]}>
           <Icon name="airplane" size={fs(26)} color={tokens.gold} />
@@ -369,6 +426,9 @@ export function AircraftDowngradeGate() {
           <Text style={[styles.footnote, { color: tokens.t4, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.39 }]}>
             Nothing is deleted until you choose. Your aircraft stay locked, not lost — resubscribing restores all of them.
           </Text>
+          <Pressable onPress={() => setDismissed(true)} hitSlop={8} style={{ marginTop: 4 }}>
+            <Text style={[styles.cancelText, { color: tokens.t3, fontSize: fs(13.5) }]}>Not now</Text>
+          </Pressable>
         </View>
       </View>
       <LongPressPreviewCard

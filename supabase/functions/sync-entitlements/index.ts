@@ -72,13 +72,50 @@ Deno.serve(async (req: Request) => {
 
   // RevenueCat's appUserID IS the Supabase user id (see revenuecat.ts's
   // Purchases.configure({ appUserID: userId })) — direct lookup, no mapping
-  // table needed. A brand-new signup who's never opened the native app has
-  // no RevenueCat customer record yet — that's a 404, treated as "no
-  // entitlements" below, which is the correct fail-closed default anyway.
+  // table needed.
   const rcRes = await fetch(
     `https://api.revenuecat.com/v2/projects/${RC_PROJECT_ID}/customers/${userId}`,
     { headers: { Authorization: `Bearer ${rcSecretKey}` } }
   )
+
+  // A 404 MUST NOT DOWNGRADE ANYONE.
+  //
+  // RC, B42, on his own Premium account: "as soon as i open B42, i get a popup
+  // saying i have to delete an a/c or upgrade to Pro/Prem ... my account was
+  // already Prem. This CANNOT happen to real users."
+  //
+  // This function used to treat 404 as "no entitlements" and fall through to
+  // the upsert below, writing is_pro/is_premium/is_unlocked = false over
+  // whatever was there. The old comment called that "the correct fail-closed
+  // default" -- and it is, for a brand-new signup with no row yet. It is not a
+  // default at all for an existing paying customer: merge-duplicates makes it
+  // an overwrite, and fleet_visible_cap() then returns 0, which hides every
+  // aircraft and puts AircraftDowngradeGate in front of a Premium subscriber
+  // demanding they delete their fleet or pay again.
+  //
+  // 404 does NOT mean "this customer has no entitlements" -- RevenueCat
+  // answers 200 with an empty active_entitlements list for a real customer
+  // whose subscription lapsed, and that path below still downgrades correctly.
+  // 404 means "no customer record found at all", which for someone who has
+  // previously paid is an anomaly, never a cancellation signal.
+  //
+  // Nothing is lost by skipping the write: the on_auth_user_created_entitlements
+  // trigger already inserts an all-false row for every new user at signup
+  // (verified live 2026-09-09 -- zero users exist without one), so there is no
+  // case where this write is the thing creating a missing row.
+  //
+  // Same shape as gotcha_failed_read_treated_as_deletion.md: an absent read
+  // treated as an authoritative negative, destroying real state.
+  if (rcRes.status === 404) {
+    console.warn(
+      `RevenueCat has no customer record for ${userId} -- leaving user_entitlements ` +
+      `untouched rather than writing false over a possibly-paid row.`
+    )
+    return new Response(JSON.stringify({ ok: true, skipped: 'rc_customer_not_found' }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
 
   let isPro = false
   let isPremium = false
@@ -92,11 +129,12 @@ Deno.serve(async (req: Request) => {
     isPro = activeIds.has(ENTITLEMENT_PRO)
     isPremium = activeIds.has(ENTITLEMENT_PREMIUM)
     isUnlocked = activeIds.has(ENTITLEMENT_UNLOCKED)
-  } else if (rcRes.status !== 404) {
-    // A real RevenueCat API error (not just "no customer yet") — don't
-    // silently write a false/false/false row over a possibly-still-valid
-    // one; fail loudly instead of downgrading someone's real entitlement
-    // because of a transient RC API hiccup.
+  } else {
+    // A real RevenueCat API error — don't silently write a false/false/false
+    // row over a possibly-still-valid one; fail loudly instead of downgrading
+    // someone's real entitlement because of a transient RC API hiccup. (404 is
+    // already handled and returned above, so anything reaching here is a
+    // genuine error.)
     console.error('RevenueCat lookup failed', rcRes.status, await rcRes.text())
     return new Response('Internal error', { status: 502, headers: corsHeaders })
   }

@@ -59,10 +59,24 @@ async function syncEntitlements(
     isPro = activeIds.has(ENTITLEMENT_PRO)
     isPremium = activeIds.has(ENTITLEMENT_PREMIUM)
     isUnlocked = activeIds.has(ENTITLEMENT_UNLOCKED)
-  } else if (rcRes.status !== 404) {
-    // 404 is a real answer ("RC has no customer record") and correctly means
-    // no entitlements. Anything else is an outage, NOT a downgrade -- falling
-    // through here would write is_pro=false over a paying customer.
+  } else if (rcRes.status === 404) {
+    // 404 MUST NOT DOWNGRADE. This used to fall through to the upsert below on
+    // the reasoning that "404 is a real answer and correctly means no
+    // entitlements" -- it is not. RevenueCat answers 200 with an empty
+    // active_entitlements list for a real customer whose subscription lapsed,
+    // and that is the path that legitimately downgrades. 404 means no customer
+    // record exists AT ALL, which is absurd here: RevenueCat has just sent us
+    // a webhook event about this very customer. Writing false/false/false on
+    // that would strip a paying subscriber's tier -- which is exactly what RC
+    // hit on his own Premium account in B42.
+    // Same fix and same reasoning as sync-entitlements/index.ts.
+    console.warn(
+      `webhook: RevenueCat has no customer record for ${userId} despite sending an ` +
+      `event for them -- leaving user_entitlements untouched rather than downgrading.`
+    )
+    return false
+  } else {
+    // Any other status is an outage, NOT a downgrade.
     console.error('webhook: RevenueCat re-fetch failed', rcRes.status, await rcRes.text())
     return false
   }
