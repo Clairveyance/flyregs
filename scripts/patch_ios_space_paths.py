@@ -26,7 +26,14 @@ import re
 import sys
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PBX = os.path.join(BASE, "ios", "FlyRegs.xcodeproj", "project.pbxproj")
+# BOTH generated projects. The app's own project comes from `expo prebuild`; the
+# Pods project from `pod install`. ios/ is gitignored in its entirety -- including
+# ios/Podfile -- so a post_install hook there is NOT durable either, which is why
+# every fix lives in this tracked script instead.
+PROJECTS = [
+    os.path.join(BASE, "ios", "FlyRegs.xcodeproj", "project.pbxproj"),
+    os.path.join(BASE, "ios", "Pods", "Pods.xcodeproj", "project.pbxproj"),
+]
 
 # The pbxproj stores each script as ONE escaped string, so `"` appears as \" .
 #
@@ -38,18 +45,36 @@ PBX = os.path.join(BASE, "ios", "FlyRegs.xcodeproj", "project.pbxproj")
 # spaces, so quote them all.
 BACKTICK = re.compile(r"`([^`\n]+)`")
 
+# The other shape, from expo-constants:
+#     bash -l -c "$PODS_TARGET_SRCROOT/../scripts/get-app-config-ios.sh"
+# `bash -c` re-parses the string AFTER the shell expands the variable, so the
+# space splits it there too. Single-quote the path: the outer double quotes
+# still expand it, the single quotes survive the second parse. Any VAR=value
+# prefix must stay outside the quotes to remain an assignment.
+# `(?<!')` is load-bearing: without it a SECOND run matches its own output and
+# produces ''$VAR...'' , which is broken. This script runs before every build,
+# so a non-idempotent rule would corrupt the project on build number two.
+BASH_LC = re.compile(r'''(bash -l -c \\")([^"]*?)((?<!')\$[A-Z_]+[^"]*?)(\\")''')
+
 
 def main():
-    if not os.path.exists(PBX):
-        print(f"SKIP: no {PBX} (run `expo prebuild` first)")
-        return 0
-    src = open(PBX, encoding="utf-8").read()
-    fixed, n = BACKTICK.subn(lambda m: '\\"$(' + m.group(1) + ')\\"', src)
-    if n == 0:
+    total = 0
+    for pbx in PROJECTS:
+        if not os.path.exists(pbx):
+            print(f"  skip (absent): {os.path.relpath(pbx, BASE)}")
+            continue
+        src = open(pbx, encoding="utf-8").read()
+        fixed, a = BACKTICK.subn(lambda m: '\\"$(' + m.group(1) + ')\\"', src)
+        fixed, b = BASH_LC.subn(
+            lambda m: m.group(1) + m.group(2) + "'" + m.group(3) + "'" + m.group(4), fixed)
+        if a + b:
+            open(pbx, "w", encoding="utf-8").write(fixed)
+        total += a + b
+        print(f"  {os.path.relpath(pbx, BASE)}: {a} backtick, {b} bash -l -c")
+    if total == 0:
         print("already quoted (or upstream fixed it) -- nothing to do")
-        return 0
-    open(PBX, "w", encoding="utf-8").write(fixed)
-    print(f"quoted {n} unquoted command substitution(s) in the RN bundle phase")
+    else:
+        print(f"quoted {total} unquoted path expansion(s)")
     return 0
 
 
