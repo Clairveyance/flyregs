@@ -2067,7 +2067,9 @@ function PartTrackingModal({
               </Pressable>
             </View>
 
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10 }}>
+            {/* flexShrink so the fields, and not the pinned Save footer
+                below, are what gives up height at the card's maxHeight. */}
+            <ScrollView style={{ flexShrink: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10 }}>
               <Text style={{ color: tokens.t3, fontSize: fs(13) }}>
                 How often does this part need inspection or replacement? Leave blank if it's just tagged for AD
                 matching.
@@ -2122,12 +2124,21 @@ function PartTrackingModal({
                 </Pressable>
               )}
 
+            </ScrollView>
+
+            {/* Pinned below the ScrollView, not the last row inside it: the
+                capped card above keeps the CARD on screen once the keyboard
+                is up, which is not the same as keeping the primary ACTION on
+                screen -- as the last row of a scrolling form, Save sat below
+                the card's own fold and the user had to know to scroll for
+                it. Same fix, same reason, as AdComplianceModal's own footer. */}
+            <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.bdr, paddingTop: 12 }}>
               <Pressable style={[styles.addButton, { backgroundColor: tokens.blu }]} onPress={handleSave} disabled={saving}>
                 {saving ? <ActivityIndicator color="#fff" /> : (
                   <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Save</Text>
                 )}
               </Pressable>
-            </ScrollView>
+            </View>
           </View>
         </KeyboardAvoidingView>
         {/* Child of THIS Modal, not a sibling after it -- see

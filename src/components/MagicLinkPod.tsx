@@ -253,8 +253,15 @@ const PREVIEW_GAP_ABOVE_TOUCH = 48
 const PREVIEW_FALLBACK_HEIGHT = 180
 
 // (table, key column, title column) for every cited_type that has one --
-// pcg deliberately excluded, its cited_id is already the human-readable
-// term (see the fetch effect below).
+// pcg was previously excluded here on the reasoning that "its cited_id is
+// already the human-readable term". True, but that made its elaboration
+// line the SAME STRING as its primary line: every P/CG row rendered the
+// term twice, once in t2 and again in t4 underneath (found on a real
+// device, § 61.89 -> "PILOT IN COMMAND / PILOT IN COMMAND"). The term is
+// the primary line's job; the elaboration line's job is the definition,
+// which is what the other types put there. pcg_terms.definition is
+// SELECT-granted to anon AND authenticated (P/CG is free-tier corpus), so
+// this needs no _gated view and changes no gating behavior.
 // Found 2026-08-12 during the post-create_challenge-fix QA re-sweep: ac/ad/
 // loi were pointed at their RAW tables, but (per the Storage Buckets Gated
 // security fix) those raw tables have zero SELECT grant for anon/
@@ -278,6 +285,7 @@ const TITLE_SOURCE: Partial<Record<string, [string, string, string]>> = {
   // Free tier, same as far/aim above -- no _gated view needed (see
   // migrations_cfr49_schema.sql's own tier-decision comment).
   cfr49: ['cfr49_sections', 'section_number', 'title'],
+  pcg: ['pcg_terms', 'slug', 'definition'],
 }
 
 // Extraction coverage genuinely improving (see the 2026-08-17 MagicLink
@@ -376,13 +384,23 @@ function PodRow({
   }, [expanded, bar.items])
 
   const titleFor = (item: RelatedItem): string | null => {
-    if (item.cited_type === 'pcg') return item.cited_id.replace(/_/g, ' ')
     const title = titles[`${item.cited_type}-${item.cited_id}`] ?? null
     return title && item.cited_type === 'ad' ? stripAdSubjectPrefix(title) : title
   }
 
   const primaryFor = (item: RelatedItem): string =>
     item.cited_type === 'loi' ? (titleFor(item) ?? item.cited_id) : item.label ?? item.cited_id
+
+  // The elaboration line only earns its space when it actually elaborates.
+  // A type whose title source happens to return the same string as the
+  // primary label (how the P/CG duplicate above shipped) would otherwise
+  // render the row's text twice; this makes that impossible for EVERY
+  // type, not just the one that was caught.
+  const elaborationFor = (item: RelatedItem): string | null => {
+    const title = titleFor(item)
+    if (!title) return null
+    return title.trim().toLowerCase() === primaryFor(item).trim().toLowerCase() ? null : title
+  }
 
   // RC, real device: "these don't have the 'press/hold...' working like
   // the others" (Related LOIs specifically). Every OTHER type's primary
@@ -395,7 +413,10 @@ function PodRow({
   // OTHER types' shape, false for LOI's), silently no-opping the gesture
   // for every LOI row regardless of whether its title was cut off.
   const showPreview = (item: RelatedItem, e: GestureResponderEvent) => {
-    const title = item.cited_type === 'loi' ? primaryFor(item) : titleFor(item)
+    // elaborationFor, not titleFor: a row whose elaboration line was
+    // suppressed as a duplicate has nothing extra to show, so the card
+    // would just repeat the line already on screen.
+    const title = item.cited_type === 'loi' ? primaryFor(item) : elaborationFor(item)
     if (!title) return // nothing extra to elaborate on, or not loaded yet -- don't show an empty card
     longPressFired.current = true
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
@@ -442,9 +463,9 @@ function PodRow({
                 <Text style={[styles.expandedLabel, { color: tokens.t2, fontSize: fs(12.5) }]} numberOfLines={1}>
                   {primaryFor(item)}
                 </Text>
-                {item.cited_type !== 'loi' && !!titleFor(item) && (
+                {item.cited_type !== 'loi' && !!elaborationFor(item) && (
                   <Text style={[styles.expandedTitle, { color: tokens.t4, fontSize: fs(11) }]} numberOfLines={1}>
-                    {titleFor(item)}
+                    {elaborationFor(item)}
                   </Text>
                 )}
               </View>

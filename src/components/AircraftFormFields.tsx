@@ -609,10 +609,19 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: {
               style={[styles.input, { color: tokens.t1, fontSize: ifs(14.5), borderColor: tokens.bdr }]}
             />
           </View>
-          <Pressable style={[styles.addButton, { backgroundColor: tokens.blu, marginTop: 14 }]} onPress={handleSave} disabled={saving}>
-            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Save Changes</Text>}
-          </Pressable>
           </ScrollView>
+
+          {/* Pinned below the ScrollView, not the last row inside it. The
+              scroll cap above was added so the keyboard could never push the
+              X out of reach; it does nothing for Save, which as the last row
+              of a 5-field form simply fell below the card's own fold once the
+              keypad was up. Same fix, same reason, as AdComplianceModal's
+              own footer. */}
+          <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.bdr, paddingTop: 12 }}>
+            <Pressable style={[styles.addButton, { backgroundColor: tokens.blu }]} onPress={handleSave} disabled={saving}>
+              {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={[styles.addButtonText, { fontSize: fs(14.5) }]}>Save Changes</Text>}
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
       <YearPickerModal

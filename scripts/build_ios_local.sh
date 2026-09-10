@@ -96,6 +96,26 @@ if [ -z "$APP" ] || [ ! -f "$APP/Info.plist" ]; then
 fi
 echo "==> Built: $APP"
 
+# expo-constants ships a build phase that is supposed to write app.config into
+# EXConstants.bundle. It silently no-ops here (get-app-config-ios.sh early-exits
+# unless `basename $PROJECT_DIR` == "Pods", and exits 0 when it does not), so a
+# RELEASE build launches and then dies instantly with:
+#   Error: expo-linking needs access to the expo-constants manifest
+# DEBUG never notices, because expo-constants reads the manifest from the Metro
+# dev server at runtime instead of from the bundle.
+#
+# Generating it here rather than fighting the pod phase: the generator itself
+# works fine when invoked directly, and a Release build that cannot launch is
+# useless for testing what users actually run.
+CONSTANTS_BUNDLE="$APP/EXConstants.bundle"
+if [ -d "$CONSTANTS_BUNDLE" ] && [ ! -f "$CONSTANTS_BUNDLE/app.config" ]; then
+  echo "==> Generating the expo-constants manifest (the pod phase no-ops here)"
+  node "$PROJ_DIR/node_modules/expo-constants/scripts/getAppConfig.js" \
+    "$PROJ_DIR" "$CONSTANTS_BUNDLE" >/dev/null 2>&1 \
+    && echo "==> app.config written" \
+    || echo "==> WARNING: could not generate app.config; a Release build will crash at launch"
+fi
+
 xcrun simctl boot "$SIM_UDID" 2>/dev/null || true
 xcrun simctl install "$SIM_UDID" "$APP"
 echo "==> Installed to simulator $SIM_UDID"

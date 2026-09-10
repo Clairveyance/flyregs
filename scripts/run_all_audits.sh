@@ -121,6 +121,9 @@ run_one "load_error_state_audit (failed load != missing document)" python3 scrip
 # -- without it, `Fixes REACT-NATIVE-x` in a commit message resolves nothing.
 # Checks it is wired AND that it can never fail a build.
 run_one "keyboard_avoidance (no modal hides its own input under the keyboard)" python3 scripts/keyboard_avoidance_audit.py
+# The one above proves the CARD moves; this one proves the BUTTON is reachable.
+# Both were needed: AdComplianceModal passed the first and still hid its Save.
+run_one "modal_primary_action (no modal scrolls its own primary action away)" python3 scripts/modal_primary_action_reachability_audit.py
 run_one "modal_escape (no modal swallows its own dismiss gesture)" python3 scripts/modal_escape_audit.py
 run_one "study_explanation_fallback (every answer says something)" node scripts/study_explanation_fallback_test.cjs
 run_one "eas_build_hook_audit (Sentry commit association really fires)" python3 scripts/eas_build_hook_audit.py

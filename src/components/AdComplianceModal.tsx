@@ -387,23 +387,37 @@ export function AdComplianceModal({
               </Text>
             )}
 
+            <Text style={{ color: tokens.t4, fontSize: fs(11.5), marginTop: 12, lineHeight: fs(11.5) * 1.45 }}>
+              FlyRegs records what you enter here. It does not independently verify compliance — your own maintenance records remain the official source.
+            </Text>
+          </ScrollView>
+
+          {/* Pinned OUTSIDE the ScrollView, not the last row inside it.
+              The KeyboardAvoidingView above already lifts the card clear of
+              the keyboard, but that only guarantees the CARD is visible --
+              the Save button was the last item in a form long enough to
+              scroll, so with the keyboard up it sat below the card's own
+              fold and the user had to know to scroll for it (real device,
+              both entry points). A pinned footer makes the primary action
+              reachable at every scroll position and every keyboard state,
+              which is the only arrangement that cannot regress into this
+              again. (HobbsUpdateModal never hit this only because its form
+              is short enough not to scroll at all -- it is not a pattern
+              this one could have copied.) */}
+          <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: tokens.bdr, paddingTop: 12 }}>
             <Pressable
               onPress={save}
               disabled={!canSave}
               style={{
                 backgroundColor: canSave ? tokens.blu : tokens.bdim,
-                borderRadius: 12, paddingVertical: 15, alignItems: 'center', marginTop: 4,
+                borderRadius: 12, paddingVertical: 15, alignItems: 'center',
               }}
             >
               {saving
                 ? <ActivityIndicator size="small" color="#fff" />
                 : <Text style={{ color: canSave ? '#fff' : tokens.t4, fontSize: fs(15.5), fontWeight: '700' }}>Save compliance record</Text>}
             </Pressable>
-
-            <Text style={{ color: tokens.t4, fontSize: fs(11.5), marginTop: 12, lineHeight: fs(11.5) * 1.45 }}>
-              FlyRegs records what you enter here. It does not independently verify compliance — your own maintenance records remain the official source.
-            </Text>
-          </ScrollView>
+          </View>
 
           <DatePickerModal
             visible={picking !== null}

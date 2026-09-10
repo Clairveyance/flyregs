@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useRef, useState } from 'react'
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -348,16 +348,38 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
             ) : (
               <View style={styles.actions}>
                 {opts?.choices
-                  ? opts.choices.map((c) => (
-                      <Pressable
-                        key={c.label}
-                        style={[styles.btn, { backgroundColor: c.destructive ? tokens.red : tokens.blu }]}
-                        onPress={() => runChoice(c)}
-                        accessibilityRole="button"
-                      >
-                        <Text style={[styles.btnText, { fontSize: fs(14.5) }]}>{c.label}</Text>
-                      </Pressable>
-                    ))
+                  ? (
+                    /* A choice list has no fixed length -- my-aircraft's AD
+                       badge passes one entry per OPEN AD, which for an
+                       ordinary Skyhawk is 17. Rendered as a plain column
+                       inside a card with no height cap, that overflowed the
+                       screen in BOTH directions: the title scrolled off
+                       above the status bar and Cancel off the bottom, so
+                       the dialog could not be read or dismissed -- picking
+                       an AD was the only way out (real device, 2026-09-10).
+                       Capping the card and scrolling ONLY the choices keeps
+                       the title and Cancel pinned and reachable at any
+                       count. The list also uses its own tighter gap: the
+                       22pt in `actions` exists to separate a primary button
+                       from Cancel, and repeating it between every row is
+                       what made the overflow this severe. */
+                    <ScrollView
+                      style={styles.choiceScroll}
+                      contentContainerStyle={styles.choiceList}
+                      showsVerticalScrollIndicator
+                    >
+                      {opts.choices.map((c) => (
+                        <Pressable
+                          key={c.label}
+                          style={[styles.btn, { backgroundColor: c.destructive ? tokens.red : tokens.blu }]}
+                          onPress={() => runChoice(c)}
+                          accessibilityRole="button"
+                        >
+                          <Text style={[styles.btnText, { fontSize: fs(14.5) }]}>{c.label}</Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  )
                   : onFinalStep && wantsTwoStep ? null : confirmButton}
                 {showCancel && (
                   <Pressable
@@ -382,7 +404,10 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
 
 const styles = StyleSheet.create({
   scrim: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 26, backgroundColor: 'rgba(0,0,0,0.7)' },
-  card: { width: '100%', maxWidth: 360, borderRadius: 18, borderWidth: 1, padding: 22, alignItems: 'center', gap: 9 },
+  // maxHeight: without it the card grows to whatever its children need and
+  // then centers, so anything taller than the screen bleeds off BOTH edges
+  // with no way to scroll it back (see the choice-list comment above).
+  card: { width: '100%', maxWidth: 360, maxHeight: '100%', borderRadius: 18, borderWidth: 1, padding: 22, alignItems: 'center', gap: 9 },
   title: { fontWeight: '700', textAlign: 'center' },
   // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
   // (StyleSheet.create is module-scope, fs() is a hook), same
@@ -403,7 +428,12 @@ const styles = StyleSheet.create({
   // gesture. gap widened and Cancel given its own bordered button shape --
   // both add real separation AND make Cancel's actual tappable area
   // obvious rather than implicit in a thin text label.
-  actions: { alignSelf: 'stretch', alignItems: 'center', gap: 22, marginTop: 6 },
+  actions: { alignSelf: 'stretch', alignItems: 'center', gap: 22, marginTop: 6, flexShrink: 1 },
+  // flexShrink lets the choice list -- and only the choice list -- give up
+  // height once the card hits its cap, so the title above and Cancel below
+  // keep their full size instead of being pushed off-screen.
+  choiceScroll: { alignSelf: 'stretch', flexShrink: 1 },
+  choiceList: { gap: 10 },
   btn: { alignSelf: 'stretch', borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
   btnText: { color: '#fff', fontWeight: '700' },
   cancelBtn: { alignSelf: 'stretch', borderRadius: 12, borderWidth: 1, paddingVertical: 11, alignItems: 'center' },
