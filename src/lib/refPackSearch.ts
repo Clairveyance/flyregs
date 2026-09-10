@@ -157,6 +157,10 @@ export async function getCuratedTaskLinks(
     .select('cited_type, cited_id, rank, source')
     .eq('doc_code', docCode).eq('area_number', areaNumber).eq('task_letter', taskLetter)
     .order('rank')
+  // SILENT-EMPTY-OK: null here means LOOKUP FAILED and is distinct from the
+  // `[]` returned below for a genuinely empty result. The caller branches on
+  // exactly that difference -- null falls back to keyword search, [] renders
+  // the 'no directly applicable regulations' copy.
   if (error) return null
   const rows = (data ?? []) as { cited_type: string; cited_id: string; rank: number; source: string }[]
   if (rows.length === 0) return []

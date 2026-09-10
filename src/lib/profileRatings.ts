@@ -140,7 +140,18 @@ export async function getMyRatings(userId: string): Promise<RatingCode[]> {
     .from('user_profile_ratings')
     .select('rating_code')
     .eq('user_id', userId)
-  if (error) return []
+  // THROW, don't return []. `if (error) return []` made a failed read
+  // indistinguishable from "this pilot holds no ratings": your badges vanished
+  // from Account with no message, and because handleToggleRating reads that
+  // same empty list, tapping a rating you already hold looked like ADDING it
+  // (the insert comes back 23505 and is treated as a harmless no-op). Nothing
+  // was destroyed, but the screen lied about your own data.
+  //
+  // The three callers each already have a `.catch()`, so they decide what a
+  // failure looks like -- Account now distinguishes it from "empty" and says
+  // so. Same family as the acs_task_reg_links 403 that hid all night: an error
+  // that returns an empty value cannot be seen by anyone.
+  if (error) throw error
   return (data ?? []).map((r) => r.rating_code as RatingCode)
 }
 

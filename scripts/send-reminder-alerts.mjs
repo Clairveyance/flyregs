@@ -51,7 +51,12 @@ const allReminders = await selectAll(
   sb,
   'user_aircraft_reminders',
   'id, user_id, user_aircraft_id, title, due_date, linked_ad_number, user_aircraft:user_aircraft_id(make, model, nickname)',
-  { tune: (q) => q.is('notified_at', null).lte('due_date', windowEndStr) },
+  // orderBy is REQUIRED and has no default (see lib/page.mjs). This call was
+  // missed when that guard went in on 2026-09-07 -- the other three selectAll
+  // calls in this same file were updated, this one was not -- and the workflow
+  // then failed every day from 2026-09-08, so no maintenance or AD reminder
+  // reached a user until 2026-09-10.
+  { tune: (q) => q.is('notified_at', null).lte('due_date', windowEndStr), orderBy: 'id' },
 )
 
 // selectAll() THROWS on a query error (table name included), and an unhandled

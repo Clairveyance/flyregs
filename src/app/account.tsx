@@ -38,7 +38,6 @@ import {
   enableDuelNotifications,
   disableDuelNotifications,
 } from '@/lib/notifications'
-import { getMyRatings, addRating, removeRating, RATING_CODES, RATING_LABELS, RATING_SHORT_LABELS, RATING_GROUPS, RatingCode } from '@/lib/profileRatings'
 import { getLeaderboardOptIn, setLeaderboardOptIn } from '@/lib/leaderboard'
 import { getFleetSummary } from '@/lib/aircraftSharing'
 import { getAircraftReminders } from '@/lib/adParts'
@@ -160,8 +159,7 @@ export default function AccountScreen() {
   const [dailyWordBusy, setDailyWordBusy] = useState(false)
   const [duelNotifEnabled, setDuelNotifEnabled] = useState(false)
   const [duelNotifBusy, setDuelNotifBusy] = useState(false)
-  const [myRatings, setMyRatings] = useState<RatingCode[]>([])
-  const [ratingBusy, setRatingBusy] = useState<RatingCode | null>(null)
+
   const [ratingPickerOpen, setRatingPickerOpen] = useState(false)
   const [leaderboardOptIn, setLeaderboardOptInState] = useState(false)
   const [leaderboardBusy, setLeaderboardBusy] = useState(false)
@@ -387,15 +385,14 @@ export default function AccountScreen() {
     return () => sub.remove()
   }, [loadFleetStatus])
 
-  // Ratings are visible to anyone (public SELECT policy) but only load/edit
-  // them for the signed-in owner here -- not gated on isPro for *reading*
-  // your own list back, only for adding a new one (see handleToggleRating).
+  // Ratings moved to Profile (see components/RatingPicker.tsx) -- Account kept
+  // a full copy of the loader, three state vars and a 25-line toggle handler
+  // that NOTHING rendered. Removed 2026-09-10; the leaderboard opt-in below is
+  // all this effect was still doing.
   useEffect(() => {
     if (session?.user?.id) {
-      getMyRatings(session.user.id).then(setMyRatings)
       getLeaderboardOptIn(session.user.id).then(setLeaderboardOptInState)
     } else {
-      setMyRatings([])
       setLeaderboardOptInState(false)
     }
   }, [session?.user?.id])
@@ -431,25 +428,6 @@ export default function AccountScreen() {
       confirm({ title: 'Error', message: err?.message ?? 'Could not update leaderboard visibility.', cancelLabel: null })
     }
     setLeaderboardBusy(false)
-  }
-
-  const handleToggleRating = async (code: RatingCode) => {
-    if (!session?.user?.id) return
-    const has = myRatings.includes(code)
-    if (!has && !hasProAccess) { if (!authLoading) router.push('/paywall?tier=pro'); return }
-    setRatingBusy(code)
-    try {
-      if (has) {
-        await removeRating(session.user.id, code)
-        setMyRatings((prev) => prev.filter((r) => r !== code))
-      } else {
-        await addRating(session.user.id, code)
-        setMyRatings((prev) => [...prev, code])
-      }
-    } catch (err: any) {
-      confirm({ title: 'Error', message: err?.message ?? 'Could not update your ratings.', cancelLabel: null })
-    }
-    setRatingBusy(null)
   }
 
   const handleToggleAlerts = async (v: boolean) => {

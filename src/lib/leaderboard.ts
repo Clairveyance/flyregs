@@ -122,6 +122,8 @@ export async function getLeaderboardOptIn(userId: string): Promise<boolean> {
     .select('leaderboard_opt_in')
     .eq('user_id', userId)
     .maybeSingle()
+  // SILENT-EMPTY-OK: see the note immediately below -- failing closed on a
+  // VISIBILITY setting is deliberate.
   if (error) return false
   // `?? true` on a MISSING row, not `?? false`. RC, 2026-09-04: these default
   // ON now (migrations_default_account_toggles_on.sql), and a user_streaks row
@@ -149,6 +151,8 @@ export async function setStatsVisible(_userId: string, visible: boolean): Promis
 
 export async function getStatsVisible(userId: string, isSelf: boolean): Promise<boolean> {
   const { data, error } = await supabase.from('user_streaks').select('stats_visible').eq('user_id', userId).maybeSingle()
+  // SILENT-EMPTY-OK: fail CLOSED on a visibility setting -- showing less than
+  // the truth is the safe direction to be wrong in.
   if (error) return false
   if (data) return data.stats_visible ?? true
 
@@ -189,6 +193,8 @@ export async function setCurrentAircraft(_userId: string, aircraft: string): Pro
 
 export async function getCurrentAircraft(userId: string): Promise<string> {
   const { data, error } = await supabase.from('user_streaks').select('current_aircraft').eq('user_id', userId).maybeSingle()
+  // SILENT-EMPTY-OK: a cosmetic display string. Nothing branches on it and no
+  // write derives from it, so an empty render on failure is the whole cost.
   if (error) return ''
   return data?.current_aircraft ?? ''
 }

@@ -16,12 +16,21 @@ export function RatingPicker({
   visible,
   userId,
   ratings,
+  loadFailed = false,
   onClose,
   onChange,
 }: {
   visible: boolean
   userId: string
   ratings: RatingCode[]
+  /**
+   * True when the ratings READ failed, so `ratings` is empty because we could
+   * not load it -- not because the pilot holds none. Editing against that list
+   * is what made an already-held rating read as an ADD (insert -> 23505 ->
+   * swallowed -> the list collapsed to the one just tapped, so the others
+   * looked deleted). When set, the sheet explains itself and does not write.
+   */
+  loadFailed?: boolean
   onClose: () => void
   /** Called with the new full list after a successful add/remove. */
   onChange: (next: RatingCode[]) => void
@@ -31,7 +40,7 @@ export function RatingPicker({
   const [busy, setBusy] = useState<RatingCode | null>(null)
 
   const toggle = async (code: RatingCode) => {
-    if (busy) return
+    if (busy || loadFailed) return
     setBusy(code)
     try {
       if (ratings.includes(code)) {
@@ -42,7 +51,9 @@ export function RatingPicker({
         onChange([...ratings, code])
       }
     } catch {
-      // Leave the list as-is; the row simply doesn't flip.
+      // Leave the list as-is; the row simply doesn't flip. Safe now that a
+      // failed LOAD can no longer reach here -- previously this also swallowed
+      // the 23505 that told us the rating was already held.
     }
     setBusy(null)
   }
@@ -58,8 +69,9 @@ export function RatingPicker({
           </Pressable>
         </View>
         <Text style={[styles.help, { color: tokens.t3, fontSize: fs(12), lineHeight: fs(12) * 1.42 }]}>
-          Self-reported — shown alongside your callsign wherever it appears to other players.
-          Not verified by FlyRegs.
+          {loadFailed
+            ? 'Your ratings could not be loaded, so they can’t be changed right now. Check your connection and reopen this screen.'
+            : 'Self-reported — shown alongside your callsign wherever it appears to other players. Not verified by FlyRegs.'}
         </Text>
         <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.body}>
           {RATING_GROUPS.map((group) => (
@@ -72,9 +84,9 @@ export function RatingPicker({
                 return (
                   <Pressable
                     key={code}
-                    style={[styles.row, { borderBottomColor: tokens.bdr }]}
+                    style={[styles.row, { borderBottomColor: tokens.bdr, opacity: loadFailed ? 0.4 : 1 }]}
                     onPress={() => toggle(code)}
-                    disabled={busy === code}
+                    disabled={busy === code || loadFailed}
                   >
                     <Text style={[styles.rowText, { color: tokens.t1, fontSize: fs(14.5) }]}>
                       {RATING_LABELS[code]}

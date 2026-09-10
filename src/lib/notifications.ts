@@ -285,6 +285,9 @@ export async function isAcUpdateAlertsEnabled(userId: string): Promise<boolean> 
     .eq('user_id', userId)
     .eq('enabled', true)
     .limit(1)
+  // SILENT-EMPTY-OK: fail CLOSED. 'We could not check' must not render as
+  // 'notifications are on' -- the toggle writes an absolute value, never a
+  // flip of what was read, so a wrong read cannot corrupt the stored setting.
   if (error) return false
   return (data?.length ?? 0) > 0
 }
@@ -355,6 +358,9 @@ export async function isDailyRegEnabled(userId: string): Promise<boolean> {
     .eq('user_id', userId)
     .eq('reg_of_day_enabled', true)
     .limit(1)
+  // SILENT-EMPTY-OK: fail CLOSED. 'We could not check' must not render as
+  // 'notifications are on' -- the toggle writes an absolute value, never a
+  // flip of what was read, so a wrong read cannot corrupt the stored setting.
   if (error) return false
   return (data?.length ?? 0) > 0
 }
@@ -522,6 +528,9 @@ export async function isDailyWordEnabled(userId: string): Promise<boolean> {
     .eq('user_id', userId)
     .eq('word_of_day_enabled', true)
     .limit(1)
+  // SILENT-EMPTY-OK: fail CLOSED. 'We could not check' must not render as
+  // 'notifications are on' -- the toggle writes an absolute value, never a
+  // flip of what was read, so a wrong read cannot corrupt the stored setting.
   if (error) return false
   return (data?.length ?? 0) > 0
 }
@@ -586,6 +595,9 @@ export async function isDuelNotificationsEnabled(userId: string): Promise<boolea
     .eq('user_id', userId)
     .eq('duel_notifications_enabled', true)
     .limit(1)
+  // SILENT-EMPTY-OK: fail CLOSED. 'We could not check' must not render as
+  // 'notifications are on' -- the toggle writes an absolute value, never a
+  // flip of what was read, so a wrong read cannot corrupt the stored setting.
   if (error) return false
   return (data?.length ?? 0) > 0
 }

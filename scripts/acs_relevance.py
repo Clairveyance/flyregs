@@ -141,7 +141,17 @@ def score_candidate(task_terms_w: dict, cand_title: str, cand_body: str,
             if i >= median_idf:
                 specific = True
     # Whether ANY task term reached the candidate's own TITLE. See
-    # `title_overlap_required` below for why this is reported separately.
+    # `passes_evidence`'s require_title for why this is reported separately.
+    #
+    # MEASURED AND REJECTED, 2026-09-10: requiring that title term to also be
+    # SPECIFIC (IDF >= median) collapsed the corpus from 8,037 links to 541 and
+    # emptied 461 tasks, taking the BEST links with it -- 61.3, 61.23, 91.155,
+    # AIM 7-1-5 "Preflight Briefing", AIM 4-3-13 "Traffic Control Light
+    # Signals". This is the same trap the header already warns about: the words
+    # that make a title obviously right ("weather", "certificate", "signals")
+    # are common across an aviation corpus, so an IDF floor rejects exactly the
+    # matches a human would pick first. Do not try it again without re-reading
+    # this. Plain require_title (any term) is the version that works.
     title_hit = bool(matched & t_title)
     return score, len(matched), specific, title_hit
 

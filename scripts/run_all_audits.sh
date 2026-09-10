@@ -220,6 +220,13 @@ run_one "acs_reg_links (ACS tasks link only to genuinely relevant regs)" \
 # what keeps the fuzzy pass from ever changing a query that already worked.
 run_one "afr_typo_tolerance (AFR survives a typo, nothing correct regresses)" \
   python3 scripts/afr_typo_tolerance_test.py
+# 2026-09-10: scraper_freshness_check detects the ABSENCE of scraper evidence
+# in the database, which says nothing about a push sender or the master audit
+# itself. "Daily Reminder Alerts" -- maintenance and AD-due notifications to
+# real users -- had been failing for two days and nothing here noticed, because
+# nothing here looked at CI at all.
+run_one "workflow_health (no scheduled GitHub job is sitting red)" \
+  python3 scripts/workflow_health_audit.py
 run_one "scraper_freshness_check (weekly sync actually ran)"        python3 scripts/scraper_freshness_check.py
 
 # --- Layer 3: functional correctness (slower, --full only) ---

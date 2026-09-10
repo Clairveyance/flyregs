@@ -53,6 +53,8 @@ DOC_LEVEL = [
 ]
 
 
+
+
 def doc_level(title):
     t = (title or "").lower()
     for needle, lvl in DOC_LEVEL:

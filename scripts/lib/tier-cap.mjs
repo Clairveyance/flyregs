@@ -78,7 +78,11 @@ export async function fetchHiddenAircraftIds(sb) {
   // and a short user_aircraft list here means aircraft that are wrongly
   // treated as visible (or hidden) by the tier cap. See ./page.mjs.
   const [allAircraft, entitlements] = await Promise.all([
-    selectAll(sb, 'user_aircraft', 'id, user_id, created_at'),
+    // orderBy is required (see ./page.mjs); missed by the same 2026-09-07 pass
+    // that added the guard. fetchHiddenAircraftIds is reached from
+    // send-reminder-alerts.mjs, so this would have thrown the moment the
+    // caller above it got past its own missing orderBy.
+    selectAll(sb, 'user_aircraft', 'id, user_id, created_at', { orderBy: 'id' }),
     selectAll(sb, 'user_entitlements', 'user_id, is_pro, is_premium', { orderBy: 'user_id' }),
   ])
   return hiddenAircraftIds(allAircraft, entitlements)

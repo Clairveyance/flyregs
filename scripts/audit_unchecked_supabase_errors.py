@@ -42,6 +42,50 @@ SRC = BASE / "src"
 READ_RE = re.compile(r"const \{\s*data[^}]*\}\s*=\s*await supabase")
 DESTRUCTIVE = (".delete(", "deleted: true", "removeMany", "remove(")
 
+# NOT `\b` at the end: a word boundary after `]` or `'` requires a word char to
+# FOLLOW, so `return []` and `return ''` at end-of-line never matched and this
+# check silently passed on the very bug it was written for. Caught by
+# reintroducing that bug and watching the audit say PASS.
+SILENT_EMPTY_RE = re.compile(
+    r"""if \(error\) return (\[\]|null|\{\}|''|""|false|0)(?![A-Za-z0-9_])""")
+
+
+def silent_empty_sites():
+    """The SECOND shape, added 2026-09-10 after this audit missed a real bug.
+
+    Everything above looks for a read that IGNORES `error`. `getMyRatings` did
+    not ignore it -- it wrote `if (error) return []`, seeing the error and
+    throwing it away. The result was a read failure indistinguishable from
+    "this pilot holds no ratings": your badges vanished, and because the editor
+    decided add-vs-remove from that same empty list, tapping a rating you
+    already held read as an ADD (insert -> 23505 -> swallowed -> the list
+    collapsed to just that one, so the rest looked deleted).
+
+    Several sites in this codebase do the same thing DELIBERATELY and are
+    right to: notification and visibility reads fail CLOSED, because "we could
+    not check" must never render as "you are publicly visible". Those are not
+    defects, so this does not ban the pattern -- it requires the choice to be
+    stated, with a `// SILENT-EMPTY-OK: <reason>` marker on or just above the
+    line. An unmarked one is a decision nobody made on purpose.
+    """
+    bad = []
+    for f in sorted(SRC.rglob("*.ts*")):
+        lines = f.read_text().split("\n")
+        for i, ln in enumerate(lines):
+            # Skip COMMENT lines. The note explaining why this pattern is wrong
+            # quotes `if (error) return []` verbatim, and matching inside it made
+            # the audit fail on its own documentation.
+            stripped = ln.strip()
+            if stripped.startswith("//") or stripped.startswith("*"):
+                continue
+            if not SILENT_EMPTY_RE.search(ln):
+                continue
+            context = "\n".join(lines[max(0, i - 6):i + 1])
+            if "SILENT-EMPTY-OK" not in context:
+                bad.append((str(f.relative_to(BASE)), i + 1, ln.strip()[:100]))
+    return bad
+
+
 def main() -> int:
     destructive, readonly = [], []
     for f in sorted(SRC.rglob("*.ts*")):
@@ -60,8 +104,19 @@ def main() -> int:
 
     print(f"INFO: {len(readonly)} unchecked-error supabase reads on read-only paths "
           f"(an empty render on failure -- degraded, not destructive)")
+    unmarked = silent_empty_sites()
+    if unmarked:
+        print(f"\nFAIL: {len(unmarked)} read(s) discard `error` and return an empty value "
+              f"with no `// SILENT-EMPTY-OK: <reason>` marker.\n")
+        for path, line, src in unmarked:
+            print(f"  {path}:{line}\n      {src}")
+        print("\n  A caller cannot tell this from 'there is no data'. Either throw so the\n"
+              "  failure is visible, or state why failing empty is correct here.")
+        return 1
+
     if not destructive:
-        print("PASS: no unchecked-error read feeds a destructive decision.")
+        print("PASS: no unchecked-error read feeds a destructive decision, and every\n"
+              "      error-discarding read states why (SILENT-EMPTY-OK).")
         return 0
     print(f"\nFAIL: {len(destructive)} unchecked-error read(s) feed a delete/remove:\n")
     for path, line, src in destructive:

@@ -303,6 +303,9 @@ export default function ProfileScreen() {
   const [duelStats, setDuelStats] = useState<DuelStats | null>(null)
   const [mastery, setMastery] = useState<StudyMastery | null>(null)
   const [ratings, setRatings] = useState<RatingCode[]>([])
+  // True only when the ratings READ failed -- NOT the same as ratings.length
+  // === 0, which legitimately means this pilot has not added any yet.
+  const [ratingsLoadFailed, setRatingsLoadFailed] = useState(false)
   // Ratings are edited HERE now, not on Account — see RatingPicker.tsx.
   const [ratingPickerOpen, setRatingPickerOpen] = useState(false)
   const [coins, setCoins] = useState<EarnedCoin[]>([])
@@ -368,8 +371,19 @@ export default function ProfileScreen() {
         .catch(() => setOtherAvatar({ avatarUrl: null, avatarPresetId: null, connected: false }))
     }
     if (isSelf || realVisible) {
+      // `getMyRatings(...).catch(() => [])` made a failed read look exactly
+      // like "this pilot holds no ratings". On your OWN profile that is worse
+      // than a blank badge row: RatingPicker decides add-vs-remove from this
+      // same list, so tapping a rating you already hold read as an ADD, the
+      // insert came back 23505 (already there), RatingPicker swallowed it, and
+      // the row list collapsed to just that one -- your other ratings looked
+      // deleted. Nothing was actually destroyed, but the screen lied.
+      //
+      // Track the failure instead, and let the editor refuse to act on a list
+      // it knows is wrong. Same family as the acs_task_reg_links 403.
       const [r, c, a] = await Promise.all([
-        getMyRatings(userId).catch(() => []),
+        getMyRatings(userId).then((v) => { setRatingsLoadFailed(false); return v })
+          .catch(() => { setRatingsLoadFailed(true); return [] as RatingCode[] }),
         getCoinsForUser(userId).catch(() => []),
         getCurrentAircraft(userId).catch(() => ''),
       ])
@@ -945,6 +959,7 @@ export default function ProfileScreen() {
       </Modal>
       {isSelf && session?.user.id && (
         <RatingPicker
+          loadFailed={ratingsLoadFailed}
           visible={ratingPickerOpen}
           userId={session.user.id}
           ratings={ratings}
