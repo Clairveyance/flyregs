@@ -17,11 +17,28 @@ echo "==> Xcode: $(xcodebuild -version | head -1)"
 echo "==> Swift: $("$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift" --version | head -1)"
 
 cd "$PROJ_DIR/ios"
-SCHEME="$(xcodebuild -list -json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["workspace"]["schemes"][0])')"
+# Ask the WORKSPACE explicitly. With both a .xcodeproj and a .xcworkspace in
+# this directory, a bare `xcodebuild -list` describes the PROJECT, so the JSON
+# has a "project" key and not "workspace" -- the first version indexed
+# ["workspace"] and died on a KeyError before building anything.
+WS="$(ls -d *.xcworkspace | head -1)"
+# Pick the APP scheme by name, never schemes[0]. CocoaPods puts ~150 schemes in
+# this workspace and the first alphabetically is "EXApplication", an Expo pod --
+# building that got as far as "Available destinations: macOS Catalyst only"
+# before failing, which reads like a simulator problem and is not one.
+APP_SCHEME="${APP_SCHEME:-${WS%.xcworkspace}}"
+SCHEME="$(xcodebuild -list -json -workspace "$WS" 2>/dev/null \
+  | APP_SCHEME="$APP_SCHEME" python3 -c 'import json, os, sys
+d = json.load(sys.stdin)
+schemes = (d.get("workspace") or d["project"])["schemes"]
+want = os.environ["APP_SCHEME"]
+if want not in schemes:
+    sys.exit(f"scheme {want!r} not in the workspace; have {schemes[:5]}...")
+print(want)')"
 echo "==> Scheme: $SCHEME"
 
 xcodebuild \
-  -workspace *.xcworkspace \
+  -workspace "$WS" \
   -scheme "$SCHEME" \
   -configuration Debug \
   -sdk iphonesimulator \

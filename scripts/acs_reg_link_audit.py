@@ -129,6 +129,30 @@ def main():
             continue
         rt = t["references_text"] or ""
         parts, named, aim = cited_far_parts(rt), cited_acs(rt), cites_aim(rt)
+        curated = l.get("source") == "curated"
+
+        # A CURATED link is hand-verified against the regulation's own text, so
+        # it is exempt from the PROVENANCE checks below -- those all ask "did
+        # the ACS cite this?", and the whole point of a curated link is that the
+        # ACS did not, wrongly. § 61.185(a)(1) enumerates the six
+        # fundamentals-of-instructing subjects by name while the FOI tasks'
+        # References list only handbooks.
+        #
+        # It is NOT exempt from resolvability or certificate level: a curated
+        # link that points at a section which does not exist, or at the wrong
+        # certificate, is a defect no matter who wrote it.
+        if curated:
+            pool = {"far": far_ids, "ac": ac_ids, "aim": aim_ids}.get(l["cited_type"])
+            if pool is not None and l["cited_id"] not in pool:
+                fails.append(f"{key} CURATED {l['cited_type']} {l['cited_id']}: does not exist in the corpus")
+                continue
+            if l["cited_type"] == "far":
+                want = doc_level(doc_titles.get(l["doc_code"]))
+                sl = far_lvl.get(l["cited_id"]) or set()
+                if want and sl and sl != {"not_applicable"} and want not in sl:
+                    fails.append(f"{key} CURATED far {l['cited_id']}: level {sorted(sl)} "
+                                 f"excludes doc level '{want}'")
+            continue
 
         # (1) handbook-only task must carry no links at all
         if not parts and not named and not aim:

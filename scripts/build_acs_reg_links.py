@@ -78,6 +78,61 @@ def cited_acs(rt):
             for m in re.finditer(r"\bAC\s+(\d[\w./-]*)", rt or "", re.I)]
 
 
+# ---------------------------------------------------------------- CURATED
+# RC, 2026-09-10: "are you sure there are NO regs that deal at all with
+# Behavior/Human learning? While the FOI in general is not why most users are
+# here, for the CFIs, it's important."
+#
+# He was right, and the handbook-only guard was too blunt. The ACS References
+# field lists STUDY MATERIALS, not the regulatory basis. For Fundamentals of
+# Instructing the FAA points you at the Aviation Instructor's Handbook -- but
+# the reg that makes FOI examinable is § 61.185(a)(1), which enumerates the six
+# FOI subjects BY NAME, one-for-one with the Area I task list:
+#
+#     (i) The learning process;            -> "Learning Process"
+#     (ii) Elements of effective teaching; -> "Elements of Effective Teaching..."
+#     (iii) Student evaluation and testing;-> "Student Evaluation, Assessment..."
+#     (iv) Course development;             -> "Course Development, Lesson Plans..."
+#     (v) Lesson planning; and             -> (same task)
+#     (vi) Classroom training techniques.  -> (same task)
+#
+# and § 61.183(d) requires "a logbook endorsement ... on the fundamentals of
+# instructing listed in § 61.185".
+#
+# WHY THIS IS A HAND-WRITTEN MAP AND NOT MORE SCORING. I tried scoring these
+# tasks against part 61 subpart H (an 11-section pool, small enough to be safe).
+# It ranked § 61.195 "Flight instructor limitations and qualifications" first
+# for every single FOI task -- it is simply the longest section in the subpart
+# and matches the most terms -- while § 61.185 did not surface at all for
+# "Learning Process". The 1:1 correspondence above is a fact about the
+# regulation's text, not a ranking outcome, so it is recorded as a fact.
+#
+# Applies to all six flight-instructor documents that carry an FOI area
+# (ACS-25/27/28/29/31 and the rotorcraft PTS 8081-7C-1), keyed on TASK TITLE
+# because their task lettering differs.
+FOI_AREA_LINKS = [
+    ("far", "61.185", "enumerates the six fundamentals-of-instructing subjects by name"),
+    ("far", "61.183", "requires the logbook endorsement on the FOI subjects in 61.185"),
+]
+# Narrower: only the tasks actually about human behaviour and risk.
+FOI_TASK_LINKS = [
+    (r"human behavior|risk management|accident prevention",
+     [("ac", "60-22", "ADM: how personal attitudes influence decision making, stress "
+                      "management, and methods for TEACHING ADM -- its own stated purpose")]),
+]
+
+
+def foi_area_codes(tasks):
+    """(doc_code, area_number) pairs whose area is Fundamentals of Instructing.
+
+    Detected from CONTENT -- an area containing a task titled "learning
+    process" -- rather than assuming Area I, so a document that renumbers its
+    areas does not silently lose these links.
+    """
+    return {(t["doc_code"], t["area_number"]) for t in tasks
+            if re.search(r"learning process", t["title"] or "", re.I)}
+
+
 def resolve_ac(num, ac_index):
     """Map an ACS citation like "AC 61-65" onto the document the corpus
     actually holds, "61-65K".
@@ -160,7 +215,10 @@ def main():
 
     links, stats = [], {"far": 0, "ac": 0, "aim": 0, "tasks_with_far": 0,
                         "tasks_empty": 0, "level_filtered": 0,
-                        "ac_unresolved": 0}
+                        "ac_unresolved": 0, "curated": 0}
+
+    foi_areas = foi_area_codes(tasks)
+    print(f"  {len(foi_areas)} Fundamentals-of-Instructing area(s) get curated links")
 
     for t in tasks:
         elements = by_task.get(t["id"], [])
@@ -177,6 +235,25 @@ def main():
         named = cited_acs(t["references_text"])
         want_aim = cites_aim(t["references_text"])
         key = dict(doc_code=t["doc_code"], area_number=t["area_number"], task_letter=t["task_letter"])
+
+        # ---- CURATED first. These are hand-verified against the regulation's
+        # own text, so they outrank anything scored and are the only links
+        # allowed on a task whose References cite no regulatory source.
+        # rank -1 keeps them above the ACS-cited items (rank 0+).
+        if (t["doc_code"], t["area_number"]) in foi_areas:
+            for typ, cid, why in FOI_AREA_LINKS:
+                links.append(dict(**key, cited_type=typ, cited_id=cid, rank=-1,
+                                  score=None, source="curated"))
+                stats[typ] += 1
+                stats["curated"] += 1
+            for pattern, entries in FOI_TASK_LINKS:
+                if not re.search(pattern, t["title"] or "", re.I):
+                    continue
+                for typ, cid, why in entries:
+                    links.append(dict(**key, cited_type=typ, cited_id=cid, rank=-1,
+                                      score=None, source="curated"))
+                    stats[typ] += 1
+                    stats["curated"] += 1
 
         # ---- FAR: hard-gated to the parts the ACS itself cites, then to the
         # certificate level the ACS document is for. Without the level gate a

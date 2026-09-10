@@ -184,9 +184,17 @@ export async function getCuratedTaskLinks(
   const out: RefPackSearchResult[] = []
   for (const r of rows) {
     // rank ascending = better, so invert into the descending `rank` the rest of
-    // this module and the screen's sort both assume. Explicitly-cited items
-    // (source 'cited') are the FAA's own words and always outrank scored ones.
-    const score = (r.source === 'cited' ? 10000 : 1000) - r.rank
+    // this module and the screen's sort both assume.
+    //
+    // Three tiers, best first:
+    //   curated -- hand-verified against the regulation's own text, and the
+    //     only thing shown on a task whose References cite no reg at all (the
+    //     Fundamentals of Instructing areas: § 61.185(a)(1) enumerates the six
+    //     FOI subjects by name while the ACS lists only handbooks)
+    //   cited   -- the FAA's own References field
+    //   scored  -- our TF-IDF match, the weakest evidence
+    const TIER: Record<string, number> = { curated: 100000, cited: 10000 }
+    const score = (TIER[r.source] ?? 1000) - r.rank
     if (r.cited_type === 'far') {
       const title = farTitle.get(r.cited_id)
       if (!title) continue
