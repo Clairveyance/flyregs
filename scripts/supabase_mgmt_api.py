@@ -8,11 +8,18 @@ Usage:
   python3 scripts/supabase_mgmt_api.py status
   python3 scripts/supabase_mgmt_api.py query "select 1;"
 """
+import os
 import sys
 import json
 import urllib.request
 
-ENV_PATH = "/Users/rc/Local Desktop/COWORK/Apps/AC app/ac-app/.env.supabase-mgmt"
+# Resolved from THIS FILE's location, never a hardcoded absolute path.
+# `/Users/rc/...` here meant every mgmt()-backed audit died on the CI
+# runner with FileNotFoundError, so the Weekly Master Audit had been
+# structurally unable to run its whole database-facing half -- 13 of 51
+# audits -- while still reporting a total. Found 2026-09-10.
+ENV_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env.supabase-mgmt")
 
 
 def load_env():

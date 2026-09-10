@@ -9,6 +9,7 @@ Credentials (.env.asc, gitignored) + private key live in this project already:
   ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY_PATH (relative to ac-app/), ASC_APP_ID.
 See PROJECT_NOTES/account_reference.md for the non-secret IDs (App ID, etc).
 """
+import os
 import sys
 import time
 import json
@@ -16,7 +17,8 @@ import urllib.request
 
 import jwt
 
-ENV_PATH = "/Users/rc/Local Desktop/COWORK/Apps/AC app/ac-app/.env.asc"
+_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENV_PATH = os.path.join(_BASE, ".env.asc")
 BASE = "https://api.appstoreconnect.apple.com"
 
 
@@ -33,7 +35,7 @@ def load_env():
 
 
 def make_token(env):
-    key_path = "/Users/rc/Local Desktop/COWORK/Apps/AC app/ac-app/" + env["ASC_PRIVATE_KEY_PATH"]
+    key_path = os.path.join(_BASE, env["ASC_PRIVATE_KEY_PATH"])
     with open(key_path) as f:
         private_key = f.read()
     now = int(time.time())

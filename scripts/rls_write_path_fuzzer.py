@@ -28,6 +28,7 @@ run_all_audits.sh chains all of them together.
 
 Usage: python3 scripts/rls_write_path_fuzzer.py
 """
+import os
 import datetime
 import json
 import subprocess
@@ -35,7 +36,7 @@ import sys
 import urllib.error
 import urllib.request
 
-BASE = "/Users/rc/Local Desktop/COWORK/Apps/AC app/ac-app"
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 env = {}
 with open(f"{BASE}/.env") as f:
     for line in f:

@@ -22,13 +22,14 @@ same convention as rls_write_path_fuzzer.py).
 
 Usage: python3 scripts/new_tables_rls_fuzz_test.py
 """
+import os
 import json
 import subprocess
 import sys
 import urllib.error
 import urllib.request
 
-BASE = "/Users/rc/Local Desktop/COWORK/Apps/AC app/ac-app"
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def load_env(path):

@@ -10,7 +10,7 @@ import subprocess
 import json
 import os
 
-BASE = "/Users/rc/Local Desktop/COWORK/Apps/AC app"
+BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .../AC app
 DOCS_FILE = f"{BASE}/PROJECT_NOTES/flyregs_thin_parse_backlog.txt"
 MGMT_API = f"{BASE}/ac-app/scripts/supabase_mgmt_api.py"
 

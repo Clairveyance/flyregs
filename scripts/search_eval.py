@@ -23,13 +23,15 @@ Usage:
     python3 scripts/search_eval.py            # summary only
     python3 scripts/search_eval.py --verbose  # per-query top-5 with titles
 """
+import os
 import json
 import sys
 import time
 import urllib.request
 
-ENV_PATH = "/Users/rc/Local Desktop/COWORK/Apps/AC app/ac-app/.env"
-SCRAPER_ENV_PATH = "/Users/rc/Local Desktop/COWORK/Apps/AC app/ac-app/.env.scraper"
+_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENV_PATH = os.path.join(_BASE, ".env")
+SCRAPER_ENV_PATH = os.path.join(_BASE, ".env.scraper")
 
 
 def load_env(path):

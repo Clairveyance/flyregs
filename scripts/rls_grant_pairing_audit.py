@@ -30,7 +30,7 @@ grants, and only for tables the client source actually reads by name.
 """
 import os
 import re
-import subprocess
+import pathlib
 import sys
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,33 +46,24 @@ def client_tables():
     policy, and that is exactly right -- a user submits feedback and must not
     read anyone else's. Flagging them would be a false alarm, and a noisy audit
     gets ignored. So only relations the client actually reads are checked.
+
+    Read in Python rather than shelled out to grep. The first version used
+    `grep -rhoE` with a fixed-width match window, and BSD grep (macOS) and GNU
+    grep (the CI runner) disagreed: 50 relations locally, **30** in CI. An audit
+    that silently checks 40% less on the machine that gates the merge is worse
+    than no audit. No shell, no platform difference.
     """
-    out = subprocess.run(
-        ["grep", "-rhoE", r"\.from\('[a-z0-9_]+'\)[^;]{0,120}", os.path.join(BASE, "src")],
-        capture_output=True, text=True).stdout
     reads, all_named = set(), set()
-    for line in out.splitlines():
-        m = re.match(r"\.from\('([a-z0-9_]+)'\)(.*)", line, re.S)
-        if not m:
-            continue
-        name, rest = m.group(1), m.group(2)
-        all_named.add(name)
-        if ".select(" in rest:
-            reads.add(name)
-    # A `.from(x)` whose `.select()` sits on the next line still counts as a
-    # read: grep's 120-char window can miss it, so fall back to a whole-file
-    # scan for the same table followed by a select within a few lines.
-    out2 = subprocess.run(
-        ["grep", "-rhoE", "-A3", r"\.from\('[a-z0-9_]+'\)", os.path.join(BASE, "src")],
-        capture_output=True, text=True).stdout
-    cur = None
-    for line in out2.splitlines():
-        m = re.search(r"\.from\('([a-z0-9_]+)'\)", line)
-        if m:
-            cur = m.group(1)
-        elif cur and ".select(" in line:
-            reads.add(cur)
-            cur = None
+    call = re.compile(r"\.from\(['\"]([a-z0-9_]+)['\"]\)")
+    for path in sorted(pathlib.Path(BASE, "src").rglob("*.ts*")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for m in call.finditer(text):
+            all_named.add(m.group(1))
+            # The builder chain continues until the statement ends. Look ahead a
+            # bounded slice rather than to a delimiter, because these chains are
+            # freely wrapped across lines and often contain `;` inside a filter.
+            if ".select(" in text[m.end():m.end() + 400]:
+                reads.add(m.group(1))
     return sorted(reads), sorted(all_named)
 
 

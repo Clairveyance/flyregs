@@ -18,13 +18,15 @@ Usage:
         -> deletes the user by id (cascades to every app table via each
            table's ON DELETE CASCADE on user_id -> auth.users(id))
 """
+import os
 import sys
 import time
 import json
 import secrets
 import urllib.request
 
-ENV_PATH = "/Users/rc/Local Desktop/COWORK/Apps/AC app/ac-app/.env.scraper"
+ENV_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env.scraper")
 
 
 def load_env():

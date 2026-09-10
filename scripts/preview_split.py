@@ -11,7 +11,7 @@ import json
 import os
 import sys
 
-BASE = "/Users/rc/Local Desktop/COWORK/Apps/AC app"
+BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .../AC app
 MGMT_API = f"{BASE}/ac-app/scripts/supabase_mgmt_api.py"
 
 CH = re.compile(r"^(?:CHAPTER|Chapter)\s+[0-9IVXLC]+\.\s*.*$")

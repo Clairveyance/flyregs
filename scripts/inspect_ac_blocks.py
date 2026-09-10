@@ -2,9 +2,10 @@
 """Fetch pdf_blocks for a doc and print each block's kind/label/title +
 first/last ~80 chars of its text/body, with its index, so the exact block
 containing a swallowed section can be located precisely. Read-only."""
+import os
 import subprocess, json, sys
 
-BASE = "/Users/rc/Local Desktop/COWORK/Apps/AC app"
+BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .../AC app
 MGMT_API = f"{BASE}/ac-app/scripts/supabase_mgmt_api.py"
 
 
