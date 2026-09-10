@@ -35,6 +35,21 @@ PROJECTS = [
     os.path.join(BASE, "ios", "Pods", "Pods.xcodeproj", "project.pbxproj"),
 ]
 
+# A fourth instance of the same defect, this one inside a node_modules script.
+# @sentry/react-native's sentry-xcode.sh ends with:
+#     /bin/sh -c "$REACT_NATIVE_XCODE"
+# `sh -c` re-parses after expansion, so a path with spaces splits and the
+# RELEASE build dies with `/bin/sh: /Users/rc/Local: No such file or directory`.
+# DEBUG never reaches it -- that config sets SKIP_BUNDLING=1 and skips the
+# bundler entirely -- which is why a local Release build was impossible while
+# Debug looked fine. node_modules is wiped by npm install, so like everything
+# else here this is re-applied on every build rather than patched once.
+SHELL_SCRIPTS = [(
+    os.path.join(BASE, "node_modules", "@sentry", "react-native", "scripts", "sentry-xcode.sh"),
+    '/bin/sh -c "$REACT_NATIVE_XCODE"',
+    '/bin/sh -c "\\"$REACT_NATIVE_XCODE\\""',
+)]
+
 # The pbxproj stores each script as ONE escaped string, so `"` appears as \" .
 #
 # Deliberately general: match ANY backtick command substitution, not just
@@ -71,6 +86,20 @@ def main():
             open(pbx, "w", encoding="utf-8").write(fixed)
         total += a + b
         print(f"  {os.path.relpath(pbx, BASE)}: {a} backtick, {b} bash -l -c")
+    for path, old, new in SHELL_SCRIPTS:
+        if not os.path.exists(path):
+            print(f"  skip (absent): {os.path.relpath(path, BASE)}")
+            continue
+        src = open(path, encoding="utf-8").read()
+        if new in src:
+            print(f"  {os.path.relpath(path, BASE)}: already quoted")
+        elif old in src:
+            open(path, "w", encoding="utf-8").write(src.replace(old, new))
+            total += 1
+            print(f"  {os.path.relpath(path, BASE)}: quoted the sh -c re-parse")
+        else:
+            print(f"  {os.path.relpath(path, BASE)}: pattern not found (upstream changed?)")
+
     if total == 0:
         print("already quoted (or upstream fixed it) -- nothing to do")
     else:

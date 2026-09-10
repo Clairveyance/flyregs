@@ -12,6 +12,24 @@ export DEVELOPER_DIR=/Applications/Xcode-26.3.app/Contents/Developer
 PROJ_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SIM_UDID="${SIM_UDID:-DBE4D72A-390A-472E-AD4C-FCAEA0B8C84E}"   # iPhone 13 mini, RC's device class
 DERIVED="$PROJ_DIR/build/DerivedData"
+# Debug is the default (fast, hot-reload via Metro). Release embeds the JS
+# bundle and drops expo-dev-client's floating gear overlay -- which sits over
+# the top-right of EVERY screen and silently eats taps there, so a UI sweep
+# must use Release or it will mis-click its way to false findings.
+CONFIG="${CONFIG:-Debug}"
+echo "==> Configuration: $CONFIG"
+
+# A local Release build otherwise dies in "Bundle React Native code and images":
+#   error: Auth token is required for this request. Please run `sentry-cli login`
+# @sentry/react-native's Xcode phase tries to upload source maps and treats a
+# missing token as fatal. EAS injects that token, so production builds are fine
+# -- but it makes a local Release build impossible, which is exactly the
+# configuration you want when testing what users actually run.
+#
+# Source maps only matter for a build whose crashes get symbolicated in Sentry.
+# A simulator build is never that, so opt out rather than handing sentry-cli a
+# real credential just to compile.
+export SENTRY_DISABLE_AUTO_UPLOAD=true
 
 echo "==> Xcode: $(xcodebuild -version | head -1)"
 echo "==> Swift: $("$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift" --version | head -1)"
@@ -55,7 +73,7 @@ set +e
 xcodebuild \
   -workspace "$WS" \
   -scheme "$SCHEME" \
-  -configuration Debug \
+  -configuration "$CONFIG" \
   -sdk iphonesimulator \
   -destination "id=$SIM_UDID" \
   -derivedDataPath "$DERIVED" \
