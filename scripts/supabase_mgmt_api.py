@@ -11,6 +11,8 @@ Usage:
 import os
 import sys
 import json
+import time
+import urllib.error
 import urllib.request
 
 # Resolved from THIS FILE's location, never a hardcoded absolute path.
@@ -43,11 +45,42 @@ def request(path, body=None):
         data = json.dumps(body).encode()
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method="POST" if body else "GET")
-    try:
-        with urllib.request.urlopen(req) as resp:
-            return resp.read().decode()
-    except urllib.error.HTTPError as e:
-        return f"HTTP {e.code}: {e.read().decode()}"
+
+    # Retry on 429, and on the 5xx family. The Management API is rate limited
+    # per token, and `run_all_audits.sh` fires dozens of queries per audit
+    # across 51 audits.
+    #
+    # This only started biting on 2026-09-10, and the reason is worth keeping:
+    # the mgmt()-backed audits used to die INSTANTLY on a hardcoded-path
+    # FileNotFoundError, so on CI they made zero API calls. Fixing the path made
+    # them actually run, and together they blew the limit -- four audits failed
+    # with `ThrottlerException: Too Many Requests`. Locally the same sweep passes
+    # only because ~850ms of round-trip latency per call throttles it by
+    # accident; the runner is faster and has no such luck.
+    #
+    # Honour Retry-After when the server sends one, otherwise back off
+    # exponentially. Returning the error string unretried made a transient
+    # limit look identical to a broken query.
+    delays = [1, 2, 4, 8, 16]
+    for attempt in range(len(delays) + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                return resp.read().decode()
+        except urllib.error.HTTPError as e:
+            body_text = e.read().decode()
+            retryable = e.code == 429 or 500 <= e.code < 600
+            if not retryable or attempt == len(delays):
+                return f"HTTP {e.code}: {body_text}"
+            wait = delays[attempt]
+            hdr = e.headers.get("Retry-After") if e.headers else None
+            if hdr:
+                try:
+                    wait = max(wait, min(60, int(float(hdr))))
+                except ValueError:
+                    pass
+            print(f"[supabase_mgmt_api] HTTP {e.code}; retrying in {wait}s "
+                  f"(attempt {attempt + 1}/{len(delays)})", file=sys.stderr)
+            time.sleep(wait)
 
 
 if __name__ == "__main__":

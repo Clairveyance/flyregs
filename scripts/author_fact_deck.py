@@ -25,6 +25,7 @@ Usage:
   python3 scripts/author_fact_deck.py --poll           # check status / ingest results when done
   python3 scripts/author_fact_deck.py --verify         # second pass: grade pending facts (run on Haiku)
 """
+import time
 import argparse, json, os, re, sys, time, urllib.error, urllib.request
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -61,10 +62,27 @@ def mgmt_sql(query):
         headers={"Authorization": f"Bearer {MGMT['SUPABASE_MANAGEMENT_TOKEN']}",
                  "Content-Type": "application/json", "User-Agent": "curl/8.0"},
         method="POST")
-    try:
-        return json.loads(urllib.request.urlopen(req, timeout=120).read().decode())
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"mgmt SQL failed: {e.code} {e.read().decode()[:2000]}")
+    # Retry 429/5xx. Same reason as scripts/supabase_mgmt_api.py's own loop --
+    # the Management API is rate limited per token, and a full audit sweep
+    # exceeds it on a fast runner. Without this, `stale_question_sweep` failed
+    # in CI with ThrottlerException while passing locally.
+    delays = [1, 2, 4, 8, 16]
+    for attempt in range(len(delays) + 1):
+        try:
+            return json.loads(urllib.request.urlopen(req, timeout=120).read().decode())
+        except urllib.error.HTTPError as e:
+            text = e.read().decode()
+            if (e.code == 429 or 500 <= e.code < 600) and attempt < len(delays):
+                wait = delays[attempt]
+                hdr = e.headers.get("Retry-After") if e.headers else None
+                if hdr:
+                    try:
+                        wait = max(wait, min(60, int(float(hdr))))
+                    except ValueError:
+                        pass
+                time.sleep(wait)
+                continue
+            raise RuntimeError(f"mgmt SQL failed: {e.code} {text[:2000]}")
 
 
 def rest(method, path, *, body=None, prefer=None):
