@@ -195,27 +195,53 @@ Deno.serve(async (req: Request) => {
       }),
     })
 
-  let rpcRes: Response
+  // 2026-09-10: the comment above guessed wrong about the failure mode, and the
+  // live log says so. `afr_typo_tolerance_test.py` hard-failed mid-sweep with
+  //   hybrid_search RPC error (attempt 1) 500 {"code":"57014", ...
+  //     "canceling statement due to statement timeout"}
+  //   hybrid_search RPC error (attempt 2, giving up) 500 {"code":"57014", ...
+  // -- i.e. BOTH attempts were the statement timeout, not a random blip. The
+  // same query passed 3/3 immediately afterwards.
+  //
+  // Why: `authenticated` carries statement_timeout=8s, and content_chunks'
+  // HNSW index is 488 MB. After twenty minutes of the audit sweep hammering
+  // the database, that index is no longer in cache, and the first vector
+  // search that follows pays cold-page reads for all of it. The retry fired
+  // INSTANTLY, so it raced the first attempt's own eviction and timed out too.
+  //
+  // Backoff is the whole fix. Attempt 1 pulls index pages into cache even when
+  // it is cancelled; waiting lets that settle instead of competing with it. A
+  // third attempt costs nothing on the normal path (it is never reached) and
+  // is the difference between a warm retry and a dead end for a paying user.
+  const RETRY_BACKOFF_MS = [400, 1200]
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+  // NOTE: `new Response(null, { status: 0 })` THROWS -- the Response constructor
+  // only accepts 200-599, so status 0 is a RangeError, not a sentinel. The old
+  // code got away with it because it sat inside catch blocks that never ran;
+  // hoisting it to the declaration took the whole function down with a bare
+  // "Internal Server Error" the moment it deployed. Track the outcome in plain
+  // locals instead and never construct a fake Response.
+  let rpcRes: Response | null = null
+  let rpcStatus = 0
   let rpcErrText = ''
-  try {
-    rpcRes = await callHybridSearch()
-    if (!rpcRes.ok) rpcErrText = await rpcRes.text()
-  } catch (err) {
-    rpcRes = new Response(null, { status: 0 })
-    rpcErrText = String(err)
-  }
-  if (!rpcRes.ok) {
-    console.error('hybrid_search RPC error (attempt 1)', rpcRes.status, rpcErrText)
+  for (let attempt = 1; attempt <= RETRY_BACKOFF_MS.length + 1; attempt++) {
+    if (attempt > 1) await sleep(RETRY_BACKOFF_MS[attempt - 2])
     try {
-      rpcRes = await callHybridSearch()
-      if (!rpcRes.ok) rpcErrText = await rpcRes.text()
+      const res = await callHybridSearch()
+      rpcStatus = res.status
+      if (res.ok) { rpcRes = res; break }
+      rpcErrText = await res.text()
     } catch (err) {
-      rpcRes = new Response(null, { status: 0 })
+      rpcStatus = 0
       rpcErrText = String(err)
     }
+    // Log every failed attempt with its number, so the edge log shows whether
+    // a user hit one slow query or a genuinely sick database.
+    console.error(`hybrid_search RPC error (attempt ${attempt})`, rpcStatus, rpcErrText)
   }
-  if (!rpcRes.ok) {
-    console.error('hybrid_search RPC error (attempt 2, giving up)', rpcRes.status, rpcErrText)
+  if (!rpcRes) {
+    console.error('hybrid_search RPC error (all attempts exhausted, giving up)', rpcStatus, rpcErrText)
     return jsonResponse({ error: 'Search failed.' }, 500)
   }
   const rawResults: Array<{

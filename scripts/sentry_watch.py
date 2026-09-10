@@ -100,6 +100,30 @@ def release_sessions(version, period):
     return 0, None
 
 
+def accepted_transactions(period):
+    """How many transactions Sentry itself says it ACCEPTED in the window.
+
+    This is the ground truth for "did the SDK send anything", and it is read
+    from a completely different endpoint than the timings query. On
+    2026-09-09 that difference mattered: the timings query returned zero rows
+    and the watcher reported "tracing is broken", while Sentry had in fact
+    accepted 14 transactions that same day from B42. The query was wrong, not
+    the app. Never again blame the app for an empty result without checking
+    this first. Returns None if the counter itself could not be read.
+    """
+    q = urllib.parse.urlencode({
+        "statsPeriod": period, "interval": "1d", "field": "sum(quantity)",
+        "category": "transaction", "groupBy": "outcome",
+    })
+    data = api(f"/organizations/{ORG}/stats_v2/?{q}")
+    if not isinstance(data, dict) or "groups" not in data:
+        return None
+    for g in data.get("groups", []):
+        if g.get("by", {}).get("outcome") == "accepted":
+            return g.get("totals", {}).get("sum(quantity)", 0)
+    return 0
+
+
 def parse_ts(value):
     """Sentry timestamps, tolerant of 'Z' vs '+00:00'. None if unparseable.
 
@@ -242,11 +266,29 @@ def main():
         print()
 
     # ------------------------------------------------------------- performance
+    #
+    # READ THE SPANS DATASET, NOT `event.type:transaction`.
+    #
+    # This org is on Sentry's span-based (EAP) backend. There, the legacy
+    # `discover`/`transactions` datasets return ZERO ROWS for every query --
+    # not an error, just an empty list -- while the same data reads fine from
+    # `dataset=spans`. Verified 2026-09-09 by running all four variants side
+    # by side against live data: discover 0 rows, transactions 0 rows, spans
+    # 7 rows totalling exactly the 14 transactions the stats API said had
+    # been accepted.
+    #
+    # `is_transaction:true` keeps only the segment span of each trace, i.e.
+    # one row per screen open; without it the counts include every child span
+    # and the "how many opens" number is meaningless. `transaction.duration`
+    # does not exist in this dataset (it is a string field there and the API
+    # rejects it inside p95) -- the duration field is `span.duration`.
     q = urllib.parse.urlencode({
-        "field": ["transaction", "count()", "p95(transaction.duration)"],
+        "field": ["transaction", "count()", "p95(span.duration)"],
         "statsPeriod": args.days,
-        "query": "event.type:transaction",
-        "sort": "-p95_transaction_duration",
+        "query": "is_transaction:true",
+        "dataset": "spans",
+        "project": project_id() or "",
+        "sort": "-p95_span_duration",
         "per_page": "10",
     }, doseq=True)
     perf = api(f"/organizations/{ORG}/events/?{q}")
@@ -263,17 +305,27 @@ def main():
         # "shipped and still blind" (a real pipeline failure).
         built = parse_ts(newest_created)
         pre_instrumentation = bool(built) and built < parse_ts(INSTRUMENTATION_COMMITTED)
+        accepted = accepted_transactions(args.days)
         if pre_instrumentation:
             print("    None yet — the newest release predates the navigation")
             print("    instrumentation, so it cannot produce transactions. Expected;")
             print("    recheck once the next build ships.")
+        elif accepted:
+            # The app sent data and Sentry kept it; only the read came back
+            # empty. Blaming the SDK here is what went wrong on 2026-09-09.
+            print(f"    Query returned nothing, but Sentry ACCEPTED {accepted:.0f} transactions")
+            print("    in this window. The app is reporting — this script's query is")
+            print("    wrong (dataset/field names change under it). Fix the query.")
+            findings.append(
+                f"timings query returned 0 rows while Sentry accepted {accepted:.0f} "
+                "transactions — the watcher's query is broken, not the app")
         else:
             print("    NO TRANSACTION DATA, and the newest release DOES include the")
             print("    navigation instrumentation. Tracing is broken — investigate.")
             findings.append("no performance data despite an instrumented build — tracing is broken")
     else:
         for r in rows:
-            p95 = r.get("p95(transaction.duration)") or 0
+            p95 = r.get("p95(span.duration)") or 0
             flag = "   <-- SLOW" if p95 > 2000 else ""
             print(f"    {str(r.get('transaction'))[:44]:<46} n={r.get('count()'):<5} p95={p95:>8.0f} ms{flag}")
             if p95 > 2000:

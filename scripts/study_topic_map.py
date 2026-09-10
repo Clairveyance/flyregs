@@ -60,7 +60,9 @@ AIM_PARAGRAPH = {
 # ---------------------------------------------------------------- FAR
 FAR_PART = {
     "1": "Definitions",
-    "13": None, "16": None,                    # enforcement procedure: no study topic
+    # 13/16 also appear in ADMINISTRATIVE_PARTS below; kept here so the
+    # generated SQL emits no branch for them either.
+    "13": None, "16": None,
     "21": "Aircraft Certification Standards",
     "23": "Aircraft Certification Standards", "25": "Aircraft Certification Standards",
     "26": "Aircraft Certification Standards", "27": "Aircraft Certification Standards",
@@ -102,11 +104,31 @@ FAR_PART = {
     "133": "Air Carrier & Commercial Operations",# rotorcraft external-load ops
     "153": "Airport Operations",                 # ASI access to airports
     "170": "Navigation",                         # NAVAID establishment criteria
-    # Left deliberately unmapped (they return NULL): 11 rulemaking, 13/14/15/16/17
-    # enforcement, claims and protests, 22, 185/187 fees, 193 voluntarily
-    # submitted info, 198 insurance. These are administrative law, not study
-    # material -- inventing a topic for them would only pollute a real one.
+    # 2026-09-10: two parts that WERE unmapped but are genuine study material,
+    # found when every FAR section acquired a hand-assigned category and these
+    # two turned out to be the only unmapped ones a pilot would ever study:
+    "22": "Aircraft Certification Standards",     # light-sport airworthiness
+    "189": "ATC Communications & Clearances",     # FSS message handling
     "194": "Air Carrier & Commercial Operations",
+}
+
+# Parts that deliberately have NO study topic. Administrative law -- rulemaking
+# procedure, enforcement, claims, protests, fees, insurance. A student never
+# studies them, and filing them under the nearest real chip only buries the
+# content someone actually opened that chip to find.
+#
+# This is DATA, not a comment, because build_study_item_topics.py needs the
+# same list: authoring assigned these sections a category (the 27-term gate has
+# no way to say "not a study topic"), and taking that at face value would put
+# 37 part-11 rulemaking sections into "Required Documents & Equipment" and 27
+# part-17 procurement sections into "Air Carrier Ops". Kept here so the two
+# files cannot drift.
+ADMINISTRATIVE_PARTS = {
+    "11",                                # rulemaking procedure
+    "13", "14", "15", "16", "17",        # enforcement, claims, protests
+    "185", "187",                        # fees
+    "193",                               # voluntarily submitted information
+    "198",                               # aviation insurance
 }
 
 # Section-level overrides, matched on the exact section number. Only parts 61

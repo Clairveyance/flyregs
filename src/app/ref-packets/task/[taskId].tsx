@@ -11,7 +11,7 @@ import { Icon } from '@/components/Icon'
 import { REG_TYPE } from '@/lib/regTypes'
 import { getRefPacketTask, RefPacketTask, RefPacketElement } from '@/lib/refPackets'
 import { linkifyText } from '@/lib/crossRefLinks'
-import { searchRefPackTopic, cleanAcsTaskTitleQuery, RefPackSearchGroup } from '@/lib/refPackSearch'
+import { searchRefPackTopic, getCuratedTaskLinks, cleanAcsTaskTitleQuery, RefPackSearchGroup } from '@/lib/refPackSearch'
 import { splitIntoDisplayParagraphs } from '@/lib/regTextFormat'
 import { highlightSpans } from '@/lib/searchHighlight'
 
@@ -27,6 +27,12 @@ export default function RefPacketTaskScreen() {
   const [query, setQuery] = useState('')
   const [groups, setGroups] = useState<RefPackSearchGroup[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
+  // True only when the CURATED lookup succeeded and legitimately returned no
+  // links -- i.e. this ACS task cites no regulatory source at all (Area I of
+  // the CFI ACS references only FAA-H handbooks). Without this flag the
+  // section renders as an unexplained blank, because the existing empty-state
+  // copy is gated on the user having typed a query.
+  const [curatedEmpty, setCuratedEmpty] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollRef = useRef<ScrollView>(null)
   const searchSectionY = useRef(0)
@@ -105,14 +111,41 @@ export default function RefPacketTaskScreen() {
       // "Regulatory Requiremedical certificatemen"). The box must render
       // its real placeholder and start with an actually-empty value; the
       // title-seeded results still populate below via runSearch alone.
+      // The default "Related Regulations" now come from the CURATED link
+      // table (scripts/build_acs_reg_links.py), not a live keyword search.
+      // A title is only a handful of words, so one shared generic word used
+      // to carry an entire match -- that is how "Effects of Human Behavior
+      // and Communication on the Learning Process" surfaced AC 90-117 "Data
+      // Link Communications". The curated links are scored offline against
+      // the task's full Knowledge/Risk/Skill text and gated on the parts the
+      // ACS itself cites, so a task with no regulatory subject correctly
+      // shows nothing at all.
+      //
+      // null means the LOOKUP FAILED (not "no links") -- fall back to the
+      // old search so a network blip degrades to the previous behaviour
+      // instead of silently claiming a task has no related regs.
       if (t) {
-        runSearch(cleanAcsTaskTitleQuery(t.title), true)
+        setSearchLoading(true)
+        getCuratedTaskLinks(t.docCode, t.areaNumber, t.taskLetter)
+          .then((curated) => {
+            if (curated === null) {
+              runSearch(cleanAcsTaskTitleQuery(t.title), true)
+            } else {
+              setGroups(curated)
+              setCuratedEmpty(curated.length === 0)
+              setSearchLoading(false)
+            }
+          })
+          .catch(() => runSearch(cleanAcsTaskTitleQuery(t.title), true))
       }
     })
   }, [taskId, runSearch, hasPlusAccess])
 
   const handleQueryChange = (v: string) => {
     setQuery(v)
+    // Once the user searches, the results below are theirs, not the curated
+    // set -- the handbook-only explanation no longer describes what they see.
+    setCuratedEmpty(false)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => runSearch(v), 300)
   }
@@ -227,6 +260,13 @@ export default function RefPacketTaskScreen() {
                 />
                 {searchLoading && <ActivityIndicator size="small" color={tokens.t3} />}
               </View>
+
+              {!searchLoading && groups.length === 0 && curatedEmpty && query.trim().length < 2 && (
+                <Text style={[styles.emptySub, { color: tokens.t4, fontSize: fs(12.5) }]}>
+                  This task has no directly applicable regulations — the ACS cites only FAA handbooks for it.
+                  Search above for any regulatory topic you want alongside it.
+                </Text>
+              )}
 
               {!searchLoading && groups.length === 0 && query.trim().length >= 2 && (
                 <Text style={[styles.emptySub, { color: tokens.t4, fontSize: fs(12.5) }]}>

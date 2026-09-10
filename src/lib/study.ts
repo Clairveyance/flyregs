@@ -7,9 +7,11 @@ export type StudyItemType = 'pcg' | 'far' | 'aim' | 'ac' | 'dictionary' | 'cfr49
 
 // The TOPIC axis: what a regulation is ABOUT, as opposed to which corpus it
 // lives in (Content), who needs it (Knowledge Level) or what it flies
-// (Category/Class). Derived server-side by study_topic() -- see
-// scripts/study_topic_map.py, which generates that function and is scored
-// against the 1,000 hand-labelled questions.
+// (Category/Class). Resolved server-side by study_topic(), which reads the
+// materialized study_item_topics table -- see scripts/build_study_item_topics.py.
+// The hand-assigned study_facts.category wins wherever a human assigned one
+// (now every FAR section with regulatory text); scripts/study_topic_map.py
+// derives the rest. Guarded by scripts/study_topic_axis_audit.py.
 //
 // Order is deliberate: the topics a certificate candidate reaches for first,
 // then the specialist ones. Not alphabetical, and not by pool size -- a

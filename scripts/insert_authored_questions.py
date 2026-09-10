@@ -68,7 +68,68 @@ def body_texts(item_type, ids):
             mgmt(f"select {col}, {txt} as {txt} from {tbl} where {col} in ({q})")}
 
 
+# 2026-09-09: a stray CJK character ("每") slipped into a 65.47 distractor and
+# reached the live bank -- nothing in the gate looked at the characters
+# themselves, only at the numbers and the phrasing. A card that renders as
+# mojibake on a phone is a defect the reader sees before they read the words.
+# Everything an aviation regulation needs is ASCII plus a short list of
+# typographic and technical marks; anything else is a typo or a paste artifact.
+# The allow list is deliberately the set that actually appears in the live
+# corpus: a sweep of all 36,197 live rows found 332 with non-ASCII characters
+# and every one was legitimate reg text (fractions, a true minus sign, pi, a
+# superscript two). Widening it to those keeps the guard from fighting quoted
+# regulation text while it still catches CJK, Cyrillic, emoji and mojibake.
+ALLOWED_NON_ASCII = set("\u2018\u2019\u201c\u201d\u2013\u2014\u2026\u2010"  # quotes, dashes, ellipsis
+                        "\u00b0\u00a7\u00b1\u00b5\u2032\u2033\u00ba"        # degree, section, +/-, micro, prime, ordinal
+                        "\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e\u2044"  # fractions
+                        "\u00b2\u00b3\u2212\u00d7\u00f7\u2264\u2265\u221a\u00b7"  # superscripts, minus, math
+                        "\u2022\u25cf\u00ae\u2122\u00a9\u2020\u2021"            # bullets, marks, daggers
+                        "\u2070\u00b9\u2074\u2075\u2076\u2077\u2078\u2079\u207b"  # superscript digits, minus
+                        "\u2011\u2219\u2218\u2206"                              # nb-hyphen, dot/ring operators, increment
+                        "\u00e9\u00e8\u00fc\u00f6\u00e4\u00f1\u00f3")        # accents in proper nouns
+# Greek letters are ordinary engineering notation in these corpora (theta,
+# sigma, beta, delta, omega, pi all appear in real reg and handbook text).
+ALLOWED_NON_ASCII |= {chr(c) for c in range(0x0370, 0x0400)}
+
+# Invisible characters are NEVER legitimate: a zero-width space or a
+# non-breaking space is always a paste artifact, and it breaks word-matching
+# and search silently because nobody can see it. One live dictionary row had a
+# zero-width space in it, which is how this list came to exist.
+ALWAYS_BAD = set("\u200b\u200c\u200d\u2060\ufeff\u00a0\u202f\u2009\u00ad")
+
+
+def strip_invisible(t):
+    """Remove zero-width and soft-hyphen artifacts. These come from the source
+    PDFs themselves (one AC hyphenates "ex[soft hyphen]haust"), so a quote
+    containing them is accurate -- but it renders as "ex haust" on a phone.
+    Clean the stored card rather than refusing a correct quote."""
+    if not isinstance(t, str):
+        return t
+    return "".join(ch for ch in t if ch not in ALWAYS_BAD or ch in (" ",))
+
+
+def stray_chars(*texts):
+    """Return the non-ASCII characters that are not on the allow list."""
+    bad = set()
+    for t in texts:
+        for ch in str(t or ""):
+            if ord(ch) > 127 and ch not in ALLOWED_NON_ASCII:
+                bad.add(ch)
+    return sorted(bad)
+
+
+def clean_rows(rows):
+    for q in rows:
+        for k in ("question", "answer", "explanation", "source_quote"):
+            if k in q:
+                q[k] = strip_invisible(q[k])
+        if q.get("distractors"):
+            q["distractors"] = [strip_invisible(d) for d in q["distractors"]]
+    return rows
+
+
 def check(rows, item_type):
+    clean_rows(rows)
     bodies = body_texts(item_type, [r["item_id"] for r in rows])
     problems = []
     for i, q in enumerate(rows, 1):
@@ -76,8 +137,24 @@ def check(rows, item_type):
         if not b:
             problems.append(f"#{i} {q['item_id']}: section not in the corpus"); continue
         nb = norm(b)
-        if norm(q["source_quote"]) not in nb:
+        nq = norm(q["source_quote"])
+        if nq not in nb:
             problems.append(f"#{i} {q['item_id']}: source_quote not found verbatim in the live text")
+        else:
+            # "Appears in the text" is not enough: a quote lifted from a truncated
+            # dump ("...cause premature dis") is a valid substring and still reads
+            # as a bug to the Pro user who sees it. 81 such rows went live before
+            # this check existed -- see source_quote_truncation_audit.py.
+            p = nb.find(nq)
+            before = nb[p - 1] if p > 0 else " "
+            after = nb[p + len(nq)] if p + len(nq) < len(nb) else " "
+            for edge, adj, side in ((nq[0], before, "starts"), (nq[-1], after, "ends")):
+                same_class = ((edge.isalpha() and adj.isalpha())
+                              or (edge.isdigit() and adj.isdigit()))
+                if same_class:
+                    problems.append(
+                        f"#{i} {q['item_id']}: source_quote {side} mid-word "
+                        f"-- extend it to the word boundary")
         for n in set(re.findall(r"\b\d[\d,]*\b", q["answer"])):
             if n.replace(",", "") not in nb.replace(",", ""):
                 problems.append(f"#{i} {q['item_id']}: answer contains '{n}', absent from the reg text")
@@ -101,6 +178,12 @@ def check(rows, item_type):
         if bad:
             problems.append(f"#{i} {q['item_id']}: inane ({', '.join(bad)}) -- "
                             f"rewrite so the ANSWER teaches the rule, not a lookup")
+        stray = stray_chars(q.get("question"), q.get("answer"),
+                            q.get("explanation"), q.get("source_quote"),
+                            *(q.get("distractors") or []))
+        if stray:
+            problems.append(f"#{i} {q['item_id']}: stray character(s) "
+                            f"{''.join(stray)!r} -- typo or paste artifact, not regulation text")
     return problems
 
 

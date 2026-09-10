@@ -128,6 +128,81 @@ export function cleanAcsTaskTitleQuery(title: string): string {
   return q
 }
 
+
+/** Curated ACS task -> regulation links, built offline by
+ * scripts/build_acs_reg_links.py into `acs_task_reg_links`.
+ *
+ * This replaces the live keyword search as the DEFAULT "Related Regulations"
+ * for a task. RC, 2026-09-09: CFI Task I.A "Effects of Human Behavior and
+ * Communication on the Learning Process" was showing AC 90-117 "Data Link
+ * Communications" -- ts_rank 104.4, ranked #1, matched purely on the word
+ * "communication". The task is teaching psychology; the AC is datalink
+ * avionics. A rank floor cannot separate those (this file's own older comments
+ * work through why), so relevance is now computed offline against the task's
+ * FULL text -- title + objective + every Knowledge/Risk/Skill element -- and
+ * gated on the FAR parts the ACS itself cites plus the certificate level the
+ * ACS document is for.
+ *
+ * Returns null on a QUERY FAILURE so the caller can fall back to search, and
+ * [] when the task genuinely has no regulatory content (1,028 of 1,885 tasks
+ * -- handbook-only subjects where asserting a citation is the bug). Those two
+ * cases must never be conflated: treating a failed read as "no results" is the
+ * same class of mistake as treating it as a deletion.
+ */
+export async function getCuratedTaskLinks(
+  docCode: string, areaNumber: string, taskLetter: string,
+): Promise<RefPackSearchGroup[] | null> {
+  const { data, error } = await supabase
+    .from('acs_task_reg_links')
+    .select('cited_type, cited_id, rank, source')
+    .eq('doc_code', docCode).eq('area_number', areaNumber).eq('task_letter', taskLetter)
+    .order('rank')
+  if (error) return null
+  const rows = (data ?? []) as { cited_type: string; cited_id: string; rank: number; source: string }[]
+  if (rows.length === 0) return []
+
+  const ids = (t: string) => rows.filter((r) => r.cited_type === t).map((r) => r.cited_id)
+  const [farRes, acRes, aimRes] = await Promise.all([
+    ids('far').length
+      ? supabase.from('far_sections').select('section_number, title').in('section_number', ids('far'))
+      : Promise.resolve({ data: [] as any[] }),
+    ids('ac').length
+      ? supabase.from('advisory_circulars').select('document_number, title').in('document_number', ids('ac'))
+      : Promise.resolve({ data: [] as any[] }),
+    ids('aim').length
+      ? supabase.from('aim_paragraphs').select('paragraph_number, title').in('paragraph_number', ids('aim'))
+      : Promise.resolve({ data: [] as any[] }),
+  ])
+  const farTitle = new Map((farRes.data ?? []).map((r: any) => [r.section_number, r.title]))
+  const acTitle = new Map((acRes.data ?? []).map((r: any) => [r.document_number, r.title]))
+  const aimTitle = new Map((aimRes.data ?? []).map((r: any) => [r.paragraph_number, r.title]))
+
+  const out: RefPackSearchResult[] = []
+  for (const r of rows) {
+    // rank ascending = better, so invert into the descending `rank` the rest of
+    // this module and the screen's sort both assume. Explicitly-cited items
+    // (source 'cited') are the FAA's own words and always outrank scored ones.
+    const score = (r.source === 'cited' ? 10000 : 1000) - r.rank
+    if (r.cited_type === 'far') {
+      const title = farTitle.get(r.cited_id)
+      if (!title) continue
+      out.push({ type: 'far', id: r.cited_id, route: `/far/${r.cited_id}`, primary: title, secondary: '', rank: score })
+    } else if (r.cited_type === 'ac') {
+      const title = acTitle.get(r.cited_id)
+      if (!title) continue
+      out.push({ type: 'ac', id: r.cited_id, route: `/ac/${r.cited_id}`, primary: `AC ${r.cited_id} \u2014 ${title}`, secondary: '', rank: score })
+    } else if (r.cited_type === 'aim') {
+      const title = aimTitle.get(r.cited_id)
+      if (!title) continue
+      out.push({ type: 'aim', id: r.cited_id, route: `/aim/${r.cited_id}`, primary: title, secondary: '', rank: score })
+    }
+  }
+  const order: RegType[] = ['far', 'aim', 'ac', 'pcg']
+  return order
+    .map((type) => ({ type, results: out.filter((r) => r.type === type).sort((a, b) => b.rank - a.rank) }))
+    .filter((g) => g.results.length > 0)
+}
+
 export async function searchRefPackTopic(
   query: string,
   limitPerType = 5,
@@ -272,8 +347,15 @@ export async function searchRefPackTopic(
   // results and the same honest "may only be covered in other FAA
   // materials" empty state this screen already shows for a literal
   // zero-result query.
+  // ACs used to be EXEMPTED here (`filter(r => r.type === 'ac')`), on the
+  // theory that MIN_AC_RANK already protected them. It does not: AC ranks for
+  // these queries come back in the HUNDREDS, so a 0.15 floor is never reached
+  // from below. That exemption is exactly how AC 90-117 "Data Link
+  // Communications" reached CFI Task I.A. If the task's own References field
+  // names no FAR part and no AC, the FAA is telling us the subject is not
+  // regulatory at all, and that applies to ACs no less than to FAR.
   if (isAcsSeeded && farParts.length === 0 && namedAcs.length === 0) {
-    filtered = filtered.filter((r) => r.type === 'ac')
+    filtered = []
   }
 
   const order: RegType[] = ['far', 'aim', 'ac', 'pcg']

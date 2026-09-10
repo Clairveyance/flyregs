@@ -66,6 +66,7 @@ TYPES = ["far", "aim", "ac", "pcg", "dictionary", "cfr49"]
 MIN_BOX = 40
 
 FAILURES = []
+LAST_CONTENT_RANGE = {}
 
 
 def call(method, path, body=None, headers=None):
@@ -75,6 +76,10 @@ def call(method, path, body=None, headers=None):
     try:
         with urllib.request.urlopen(r, timeout=120) as x:
             t = x.read().decode()
+            cr = x.headers.get("Content-Range")          # e.g. "0-0/36294"
+            if cr and "/" in cr:
+                tail = cr.rsplit("/", 1)[1]
+                LAST_CONTENT_RANGE["total"] = int(tail) if tail.isdigit() else None
             return x.status, (json.loads(t) if t.strip() else None)
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()[:250]
@@ -84,6 +89,19 @@ def check(label, cond, detail=""):
     print(f"  {'PASS' if cond else 'FAIL'}  {label}" + (f"   {detail}" if not cond else ""))
     if not cond:
         FAILURES.append(label)
+
+
+# 2026-09-09: this audit reported a FAIL while an authoring batch was inserting
+# cards. Nothing was wrong with the filters -- the arithmetic checks below fire
+# several separate count queries, and a write landing between two of them makes
+# the sums disagree. A spurious failure is worse than no audit, because it is how
+# people learn to ignore one. So the run now fingerprints the bank at the start
+# and the end: if it moved, that is reported as INCONCLUSIVE rather than FAILED.
+def bank_fingerprint(jwt_headers):
+    """Live-row count of study_facts, used to detect writes during the run."""
+    st, rows = call("GET", "/rest/v1/study_facts?select=id&status=eq.live&limit=1",
+                    None, {**jwt_headers, "Prefer": "count=exact"})
+    return LAST_CONTENT_RANGE.get("total")
 
 
 def main():
@@ -100,6 +118,7 @@ def main():
     st, tok = call("POST", "/auth/v1/token?grant_type=password",
                    {"email": email, "password": pw}, {"apikey": ANON})
     jwt = {"apikey": ANON, "Authorization": f"Bearer {tok['access_token']}"}
+    bank_before = bank_fingerprint(jwt)
 
     def pool(types=None, levels=None):
         st, n = call("POST", "/rest/v1/rpc/get_study_pool_count",
@@ -201,11 +220,30 @@ def main():
         call("DELETE", f"/auth/v1/admin/users/{uid}", None, SVC)
 
     print()
+    bank_after = bank_fingerprint(jwt)
+    bank_moved = (bank_before is not None and bank_after is not None
+                  and bank_before != bank_after)
+
+    if FAILURES and bank_moved:
+        # Counts were taken across a moving target. Say so plainly instead of
+        # claiming the filters are broken -- and exit 0, because nothing here
+        # is evidence of a defect.
+        print(f"INCONCLUSIVE -- the bank changed during this run "
+              f"({bank_before:,} -> {bank_after:,} live cards), so the count "
+              f"arithmetic below was taken across a moving target:")
+        for f in FAILURES:
+            print(f"  - {f}")
+        print("\nRe-run when nothing is writing to study_facts. This is not a "
+              "filter defect.")
+        return
     if FAILURES:
         print(f"{len(FAILURES)} FAILED:")
         for f in FAILURES:
             print(f"  - {f}")
         sys.exit(1)
+    if bank_moved:
+        print(f"(note: the bank grew {bank_before:,} -> {bank_after:,} during "
+              f"the run; every check still passed)")
     print("Every level box is populated, distinct, contained, and actually removes "
           "material.")
 

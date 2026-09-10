@@ -161,6 +161,21 @@ def r_deep(q, a):
     return bool(re.search(r"\([a-z]\)\s*\(\d+\)\s*\((?:i|v|x)+\)", q))
 
 
+@rule("boundary_coordinate", "a boundary vertex is a chart lookup; nobody navigates from memorised latitudes")
+def r_coord(q, a):
+    """Found 2026-09-09 while authoring part 95. The mountainous-area and ADIZ
+    sections are pure coordinate lists, and the generator dutifully turned their
+    vertices into questions: "What is the southernmost latitude/longitude vertex
+    listed in the Eastern US Mountainous Area?" -> "32 deg 30' N., 86 deg 25' W."
+
+    No pilot recalls a boundary corner; they read it off a chart. What IS worth
+    knowing about those sections -- that the whole State of Alaska is designated
+    mountainous, that designation raises IFR obstacle clearance from 1,000 to
+    2,000 feet -- is a different question entirely, and is being hand-authored.
+    """
+    return bool(re.search(r"\d{1,3}\s*°\s*\d{1,2}\s*[\u2032']?\s*[NSEW]\b", str(a)))
+
+
 def classify(q, a):
     return [n for n, _, fn in RULES if fn(q or "", str(a or ""))]
 

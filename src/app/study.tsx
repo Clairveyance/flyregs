@@ -788,12 +788,17 @@ export default function StudyScreen() {
           convention as Knowledge Level's own far_knowledge_levels(). */}
       {/* TOPIC -- what a regulation is ABOUT, as opposed to which corpus it
           lives in (CONTENT), who needs it (KNOWLEDGE LEVEL) or what it flies
-          (CATEGORY/CLASS). Derived per item by study_topic() in Postgres,
-          not read from study_facts.category: that column is hand-assigned on
-          1,000 of 41,328 rows, so filtering on it alone would collapse the
-          pool to at most 113 and read as broken. The derivation covers 94.3%
-          of the FAR/AIM/49 CFR corpus and is scored against those 1,000
-          hand-labelled rows (352/355 agree, 3 documented divergences).
+          (CATEGORY/CLASS). Resolved per item by study_topic() in Postgres,
+          which reads the materialized study_item_topics table rather than
+          filtering study_facts.category directly -- one card is one ITEM, and
+          an item's several facts can disagree.
+
+          Until 2026-09-10 that table did not exist and study_topic() was a
+          generated CASE over PART-grain rules, which is why § 135.267 (flight
+          time limits) sat under Air Carrier Ops rather than Logging &
+          Currency. A part is not a topic. Authoring now covers every FAR
+          section with regulatory text, so the human's category wins and the
+          derivation only fills the ~645 items nobody labelled.
 
           Amber, the fourth accent already in the theme (gold is CONTENT, blue is
           KNOWLEDGE LEVEL, green is CATEGORY/CLASS) -- no new token invented for

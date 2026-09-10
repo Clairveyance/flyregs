@@ -169,25 +169,52 @@ run_one "stale_question_sweep (questions whose reg text moved)"     python3 scri
 # tables, because the tables still hold plenty a user never sees.
 run_one "study_card_quality (are the cards worth studying?)"        python3 scripts/study_card_quality_audit.py --decks 4
 run_one "filter_box_audit (do the level filters really carve up the bank?)" python3 scripts/filter_box_audit.py
-# The topic axis is DERIVED, so it can drift from the hand-labelled questions
-# silently. --score replays the map against all 1,000 authored rows and exits
-# non-zero on any disagreement that is not in ACCEPTED_DIVERGENCE; the e2e test
-# drives the three RPCs as a real signed-in user, because they are SECURITY
-# DEFINER and return 0 for everything under the service key.
-run_one "study_topic_map (derived topics still match the hand-labelled ones)" \
-  bash -c 'python3 scripts/study_topic_map.py --score <(python3 - <<EOF
-import sys, json, os
-sys.path.insert(0, "scripts")
-from access_matrix_sweep import mgmt
-print(json.dumps(mgmt("select item_type, item_id, string_agg(distinct category, \x27||\x27) as cats from study_facts where origin=\x27authored\x27 group by 1,2")))
-EOF
-)'
+# 2026-09-10: the gate here used to be `study_topic_map.py --score`, which
+# scored a PART-grain derivation against the hand-assigned categories. Once
+# authoring covered every FAR section the oracle grew from 355 items to 4,472
+# and the derivation disagreed on 2,552 -- not a regression, a design limit: a
+# part is not a topic, and the derivation never reads the section text. The
+# axis is now materialized in study_item_topics (human label wins, derivation
+# fills the rest) and the audit guards that instead. The e2e test drives the
+# three RPCs as a real signed-in user, because they are SECURITY DEFINER and
+# return 0 for everything under the service key.
+run_one "study_topic_axis (topics complete, reachable, human-labelled)" \
+  python3 scripts/study_topic_axis_audit.py
 run_one "study_topic_filter_e2e (topic filter, as a real signed-in user)" python3 scripts/study_topic_filter_test.py
 # Reports any inane question that has become live since the last sweep. The DB
 # trigger blocks six classes on the way in; this is the other three, plus the
 # standing check that the trigger is still doing its job.
 run_one "inane_question_sweep (nothing inane is being served)" \
   python3 scripts/inane_question_sweep.py --fail-on-hits
+
+# 2026-09-09: filter_box_audit reported a FAIL purely because an authoring batch
+# was writing while it ran -- its count arithmetic spans several queries. It now
+# reports INCONCLUSIVE instead. This proves that branch is live AND that a real
+# defect on a stable bank still fails.
+run_one "filter_box_audit_concurrency (a write mid-run != a filter defect)" \
+  python3 scripts/filter_box_audit_concurrency_test.py
+
+# 2026-09-09: a CJK character I mistyped reached a live 65.47 distractor, and
+# sweeping the corpus found 12 more rows with mojibake and invisible artifacts.
+# Authoring is now guarded at insert; this catches anything arriving by any
+# other path.
+run_one "stray_character_sweep (no card renders as broken text)" \
+  python3 scripts/stray_character_sweep.py
+# The grounding gate only asks whether source_quote APPEARS in the reg text, not
+# whether it appears at word boundaries -- so quotes built from truncated text
+# dumps went live reading "...cause premature dis". 81 found corpus-wide
+# 2026-09-09; repair_truncated_source_quotes.py extends them back out.
+run_one "source_quote_truncation (no card quotes the reg mid-word)" \
+  python3 scripts/source_quote_truncation_audit.py
+
+# 2026-09-10: acs_task_reg_links had its RLS policy but NO grant, so every real
+# user got a 403 and the client silently fell back to keyword search -- the
+# curated-links feature was dead in the app while every audit passed, because
+# they all query as service_role. This checks the pairing corpus-wide.
+run_one "rls_grant_pairing (every table the client reads, it can actually read)" \
+  python3 scripts/rls_grant_pairing_audit.py
+run_one "acs_reg_links (ACS tasks link only to genuinely relevant regs)" \
+  python3 scripts/acs_reg_link_audit.py
 # Ask FlyRegs must survive a typo in the one word that matters, and must not
 # bend a real word into an anchor. Second half is the one that matters: it is
 # what keeps the fuzzy pass from ever changing a query that already worked.
