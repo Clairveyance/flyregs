@@ -126,6 +126,12 @@ run_one "keyboard_avoidance (no modal hides its own input under the keyboard)" p
 run_one "modal_primary_action (no modal scrolls its own primary action away)" python3 scripts/modal_primary_action_reachability_audit.py
 # And this one proves the modal GOES AWAY when its screen does.
 run_one "screen_modal (no modal outlives the screen that opened it)" python3 scripts/screen_modal_audit.py
+# RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
+# stored preference every time the app foregrounded while the entitlement row
+# was stale. A permission check may refuse or filter; it may not rewrite what
+# the user chose.
+run_one "preference_integrity (nothing but the user changes a user setting)" \
+  python3 scripts/preference_integrity_audit.py
 run_one "modal_escape (no modal swallows its own dismiss gesture)" python3 scripts/modal_escape_audit.py
 run_one "study_explanation_fallback (every answer says something)" node scripts/study_explanation_fallback_test.cjs
 run_one "eas_build_hook_audit (Sentry commit association really fires)" python3 scripts/eas_build_hook_audit.py
