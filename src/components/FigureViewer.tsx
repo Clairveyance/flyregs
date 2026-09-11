@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Modal, View, Text, Image, Pressable, ScrollView, StyleSheet, ActivityIndicator, useWindowDimensions } from 'react-native'
+import { View, Text, Image, Pressable, ScrollView, StyleSheet, ActivityIndicator, useWindowDimensions } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -81,7 +82,7 @@ export function FigureViewer({
   const boxHeight = height - insets.top - 56 - (showNav ? 52 : 0)
 
   return (
-    <Modal
+    <ScreenModal
       visible={!!figure}
       transparent
       animationType="fade"
@@ -188,7 +189,7 @@ export function FigureViewer({
         onLayoutHeight={setPreviewHeight}
         onDismiss={hidePreview}
       />
-    </Modal>
+    </ScreenModal>
   )
 }
 

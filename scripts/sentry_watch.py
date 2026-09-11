@@ -124,6 +124,34 @@ def accepted_transactions(period):
     return 0
 
 
+def device_split(version, period):
+    """(transactions from physical devices, transactions from simulators).
+
+    A locally built app run in the iOS Simulator registers its own Sentry
+    release, and `/releases/` sorts by date created -- so on 2026-09-10 a
+    simulator build (1.0.0+1, Xcode's default build number) became "newest
+    release" and hid the actually-shipped B42 from the silence check. It also
+    poisoned the timings: simulator cold starts ran 93s against 0.9s on real
+    hardware, and the watcher reported three fake SLOW screens.
+
+    `device.simulator` is populated on transaction (segment) rows, so this is
+    the cheap way to tell a shipped build from a laptop one. Returns None if
+    the query itself failed -- never conflate that with a real zero.
+    """
+    counts = {}
+    for label, sim in (("real", "false"), ("sim", "true")):
+        q = urllib.parse.urlencode({
+            "field": ["count()"], "statsPeriod": period, "dataset": "spans",
+            "query": f'is_transaction:true device.simulator:{sim} release:"{version}"',
+            "project": project_id() or "",
+        }, doseq=True)
+        data = api(f"/organizations/{ORG}/events/?{q}")
+        if not isinstance(data, dict) or "data" not in data:
+            return None, None
+        counts[label] = sum(r.get("count()", 0) for r in data.get("data", []))
+    return counts["real"], counts["sim"]
+
+
 def parse_ts(value):
     """Sentry timestamps, tolerant of 'Z' vs '+00:00'. None if unparseable.
 
@@ -238,7 +266,26 @@ def main():
     newest_created = None
     releases = api(f"/organizations/{ORG}/releases/?per_page=5")
     if isinstance(releases, list) and releases:
-        newest = releases[0]
+        # Skip releases that ONLY ever ran in the Simulator. Those are local
+        # builds from this machine; treating one as "the newest release"
+        # silently stops watching the build real users are on. A release with
+        # no transactions at all is NOT skipped -- that is the silent-build
+        # case this section exists to catch.
+        newest, skipped = releases[0], []
+        for cand in releases:
+            v = cand.get("version", "?")
+            real, sim = device_split(v, args.days)
+            # Skip ONLY on positive evidence of simulator-only traffic. A
+            # release with nothing at all (real == sim == 0) is the silent
+            # shipped build this section exists to catch -- never skip it.
+            # A failed query (None) is not evidence either; keep the release.
+            if real == 0 and sim:
+                skipped.append((v, sim))
+                continue
+            newest = cand
+            break
+        for v, sim in skipped:
+            print(f"  skipping {v} — {sim:.0f} simulator transactions, 0 from a real device (local build)")
         ver, created, last = newest.get("version", "?"), newest.get("dateCreated", ""), newest.get("lastEvent")
         newest_created = created
         print(f"  newest release {ver}")
@@ -282,10 +329,18 @@ def main():
     # and the "how many opens" number is meaningless. `transaction.duration`
     # does not exist in this dataset (it is a string field there and the API
     # rejects it inside p95) -- the duration field is `span.duration`.
+    #
+    # `device.simulator:false` is REQUIRED, not a nicety. On 2026-09-10 a
+    # local Simulator build shared this project and dragged __root's p95 to
+    # 50s (93s cold start) while every physical device was under 1.1s -- three
+    # fake SLOW findings. Written as an inclusive `:false` rather than
+    # `!device.simulator:true` on purpose: the negated form also keeps rows
+    # where the field is null, which is how child spans arrive, so it would
+    # let simulator traffic back in the moment the field stops propagating.
     q = urllib.parse.urlencode({
         "field": ["transaction", "count()", "p95(span.duration)"],
         "statsPeriod": args.days,
-        "query": "is_transaction:true",
+        "query": "is_transaction:true device.simulator:false",
         "dataset": "spans",
         "project": project_id() or "",
         "sort": "-p95_span_duration",
@@ -294,7 +349,7 @@ def main():
     perf = api(f"/organizations/{ORG}/events/?{q}")
     failed = isinstance(perf, dict) and "_err" in perf
     rows = [] if failed else (perf.get("data", []) if isinstance(perf, dict) else [])
-    print("  slowest screen opens (p95):")
+    print("  slowest screen opens (p95, physical devices only):")
     if failed:
         # An errored query returns no rows too. Reporting that as "no
         # performance data" would blame the app for a broken API call.
@@ -306,7 +361,22 @@ def main():
         built = parse_ts(newest_created)
         pre_instrumentation = bool(built) and built < parse_ts(INSTRUMENTATION_COMMITTED)
         accepted = accepted_transactions(args.days)
-        if pre_instrumentation:
+        # The simulator filter can legitimately empty this result: if the only
+        # traffic in the window came from a laptop build, that is "nobody ran
+        # the shipped app", not "tracing is broken". Check before alarming --
+        # otherwise the filter added above becomes a new source of false
+        # alarms, which is the bug it was meant to remove.
+        sim_only = api(f"/organizations/{ORG}/events/?" + urllib.parse.urlencode({
+            "field": ["count()"], "statsPeriod": args.days, "dataset": "spans",
+            "query": "is_transaction:true device.simulator:true",
+            "project": project_id() or "",
+        }, doseq=True))
+        sim_rows = sim_only.get("data", []) if isinstance(sim_only, dict) else []
+        sim_n = sum(r.get("count()", 0) for r in sim_rows)
+        if sim_n and not pre_instrumentation:
+            print(f"    None from physical devices, but {sim_n:.0f} simulator transactions")
+            print("    arrived. Tracing works; nobody ran the shipped build in this window.")
+        elif pre_instrumentation:
             print("    None yet — the newest release predates the navigation")
             print("    instrumentation, so it cannot produce transactions. Expected;")
             print("    recheck once the next build ships.")

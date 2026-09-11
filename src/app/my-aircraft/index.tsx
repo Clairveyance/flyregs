@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import Reanimated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, useReducedMotion, interpolateColor,
 } from 'react-native-reanimated'
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Modal, Image, KeyboardAvoidingView, Platform, AppState } from 'react-native'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Image, KeyboardAvoidingView, Platform, AppState } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { router, useFocusEffect, useIsFocused } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useTheme, type ThemeTokens } from '@/context/theme'
@@ -2446,14 +2447,14 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
       />
 
       {/* Full-screen photo viewer -- see zoomedImage's own comment above. */}
-      <Modal visible={!!zoomedImage} transparent animationType="fade" onRequestClose={() => setZoomedImage(null)}>
+      <ScreenModal visible={!!zoomedImage} transparent animationType="fade" onRequestClose={() => setZoomedImage(null)}>
         <Pressable style={styles.zoomBackdrop} onPress={() => setZoomedImage(null)}>
           {zoomedImage && <RetryImage uri={zoomedImage} style={styles.zoomImage} resizeMode="contain" />}
           <Pressable style={styles.zoomClose} onPress={() => setZoomedImage(null)} hitSlop={12}>
             <Icon name="xmark" size={fs(20)} color="#fff" />
           </Pressable>
         </Pressable>
-      </Modal>
+      </ScreenModal>
     </KeyboardAvoidingView>
   )
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { View, Text, Pressable, TextInput, Modal, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native'
+import { View, Text, Pressable, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -100,7 +101,7 @@ export function HobbsUpdateModal({
   onSaved: (hours: number | null) => void
 }) {
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent>
+    <ScreenModal visible={visible} animationType="slide" onRequestClose={onClose} transparent>
       {/* RC, real device: the numeric keypad covered the input box AND the
           Save button entirely, leaving only the bare keypad on screen --
           this Modal pins its content to the bottom via justifyContent:
@@ -120,7 +121,7 @@ export function HobbsUpdateModal({
           />
         )}
       </KeyboardAvoidingView>
-    </Modal>
+    </ScreenModal>
   )
 }
 

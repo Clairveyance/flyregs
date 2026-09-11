@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { View, Text, Pressable, Modal, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
@@ -59,7 +60,7 @@ export function RatingPicker({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <ScreenModal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <Pressable style={styles.scrim} onPress={onClose} />
       <View style={[styles.sheet, { backgroundColor: tokens.bg }]}>
         <View style={[styles.header, { borderBottomColor: tokens.bdr }]}>
@@ -105,7 +106,7 @@ export function RatingPicker({
           ))}
         </ScrollView>
       </View>
-    </Modal>
+    </ScreenModal>
   )
 }
 

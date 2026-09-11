@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { View, Text, Modal, Pressable, TextInput, SectionList, FlatList, StyleSheet, ActivityIndicator, Platform, Share, KeyboardAvoidingView } from 'react-native'
+import { View, Text, Pressable, TextInput, SectionList, FlatList, StyleSheet, ActivityIndicator, Platform, Share, KeyboardAvoidingView } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
@@ -494,14 +495,14 @@ export function FindFriendsSheet({
   const insets = useSafeAreaInsets()
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <ScreenModal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.backdrop}>
         <Pressable style={styles.scrim} onPress={onClose} />
         <View style={[styles.card, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: Math.max(0, insets.bottom + 8) }]}>
           {visible && <FindFriendsPickerBody onClose={onClose} onSelect={onSelect} />}
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </ScreenModal>
   )
 }
 

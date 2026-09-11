@@ -271,6 +271,14 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   return (
     <ConfirmContext.Provider value={confirm}>
       {children}
+      {/* The ONLY raw <Modal> left in src/ -- every screen-owned one is a
+          <ScreenModal>, which hides itself while its screen is blurred (see
+          that component for the bug that motivated it). This one is
+          deliberately exempt: ConfirmProvider wraps <Stack> in _layout.tsx,
+          so it belongs to the app, not to any screen, and there is no
+          screen whose focus should be able to hide the app's only confirm
+          dialog. scripts/screen_modal_audit.py allowlists exactly this file
+          and fails on any other raw <Modal>. */}
       <Modal visible={!!opts} transparent animationType="fade" onRequestClose={close}>
         {/* This dialog's card is vertically centered, not bottom-pinned, so
             most confirms never come near the keyboard -- but requireTyped

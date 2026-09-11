@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Modal, View, Text, FlatList, Pressable, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native'
+import { View, Text, FlatList, Pressable, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -140,7 +141,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <ScreenModal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.avoidingView}
@@ -259,7 +260,7 @@ export function FolderSelectSheet({ visible, title = 'Add to Folder', onConfirm,
         onLayoutHeight={setPreviewHeight}
         onDismiss={hidePreview}
       />
-    </Modal>
+    </ScreenModal>
   )
 }
 

@@ -1,4 +1,5 @@
-import { Modal, View, Text, Image, Pressable, ActivityIndicator, StyleSheet, Platform, ScrollView } from 'react-native'
+import { View, Text, Image, Pressable, ActivityIndicator, StyleSheet, Platform, ScrollView } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
@@ -46,7 +47,7 @@ export function AvatarEditModal({
   const hasAvatar = !!avatarUrl || !!preset
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDone}>
+    <ScreenModal visible={visible} transparent animationType="fade" onRequestClose={onDone}>
       <View style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.bdr, maxHeight: '85%' }]}>
           <View style={[styles.header, { borderBottomColor: tokens.bdr }]}>
@@ -151,7 +152,7 @@ export function AvatarEditModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </ScreenModal>
   )
 }
 

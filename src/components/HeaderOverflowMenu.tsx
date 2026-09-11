@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { View, Text, Pressable, StyleSheet, Modal, InteractionManager } from 'react-native'
+import { View, Text, Pressable, StyleSheet, InteractionManager } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -58,7 +59,7 @@ export function HeaderOverflowMenu({
           <Icon name="ellipsis" size={fs(21)} color={tokens.t2} />
         </Pressable>
       )}
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+      <ScreenModal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)}>
           <View
             style={[
@@ -107,7 +108,7 @@ export function HeaderOverflowMenu({
             ))}
           </View>
         </Pressable>
-      </Modal>
+      </ScreenModal>
     </>
   )
 }

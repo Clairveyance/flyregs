@@ -1,4 +1,5 @@
-import { View, Text, Pressable, StyleSheet, Modal, Dimensions } from 'react-native'
+import { View, Text, Pressable, StyleSheet, Dimensions } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
 
@@ -32,7 +33,7 @@ export function LongPressPreviewCard({
     // silently clipped by any ancestor with overflow:hidden (a card list,
     // a rounded container, etc.) the instant it renders above that
     // ancestor's own edge.
-    <Modal visible={!!preview} transparent animationType="none">
+    <ScreenModal visible={!!preview} transparent animationType="none">
       <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss}>
         {preview && (
           <View
@@ -90,7 +91,7 @@ export function LongPressPreviewCard({
           </View>
         )}
       </Pressable>
-    </Modal>
+    </ScreenModal>
   )
 }
 

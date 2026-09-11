@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
-import { Modal, View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -300,10 +301,10 @@ function RegPreviewChrome({ route, onClose, variant, highlightQuery }: RegPrevie
   }
 
   return (
-    <Modal visible={route !== null} animationType="slide" transparent onRequestClose={onClose}>
+    <ScreenModal visible={route !== null} animationType="slide" transparent onRequestClose={onClose}>
       <Pressable style={styles.scrim} onPress={onClose} />
       <View style={[styles.sheet, { backgroundColor: tokens.bg }]}>{body}</View>
-    </Modal>
+    </ScreenModal>
   )
 }
 

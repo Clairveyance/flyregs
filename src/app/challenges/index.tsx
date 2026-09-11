@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, Modal, ScrollView, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native'
+import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, ScrollView, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
@@ -535,7 +536,7 @@ export default function ChallengesScreen() {
           content, while this environment's web preview (no real keyboard
           animation to race against) never could have caught it. Matched to
           the proven-working pattern rather than left as the one outlier. */}
-      <Modal visible={pickerVisible} transparent animationType="slide" onRequestClose={() => setPickerVisible(false)}>
+      <ScreenModal visible={pickerVisible} transparent animationType="slide" onRequestClose={() => setPickerVisible(false)}>
         {/* RC, real device: "can't access. k/b pops up covering everything
             and the box doesn't adjust up" -- the Callsign search input is
             new to this sheet (it never had a text field before), and the
@@ -854,7 +855,7 @@ export default function ChallengesScreen() {
             )}
           </View>
         </KeyboardAvoidingView>
-      </Modal>
+      </ScreenModal>
       <CoinRevealModal
         // Without the TROPHY_BY_CODE fallback a trophy code here yielded a null
         // coin, CoinRevealModal returned null, onClose never fired, and

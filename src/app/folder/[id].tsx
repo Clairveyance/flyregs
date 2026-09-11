@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import * as Sentry from '@sentry/react-native'
-import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Platform, RefreshControl, Modal, KeyboardAvoidingView, ActivityIndicator, Keyboard, AppState } from 'react-native'
+import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Platform, RefreshControl, KeyboardAvoidingView, ActivityIndicator, Keyboard, AppState } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import * as Clipboard from 'expo-clipboard'
@@ -1214,7 +1215,7 @@ export default function FolderDetail() {
           since a folder's per-invitee access already has its own
           default+override mechanism (NEW INVITES GET + setCollaboratorMode
           after they join), unlike aircraft's viewer/editor choice. */}
-      <Modal visible={callsignModalVisible} animationType="slide" transparent onRequestClose={() => setCallsignModalVisible(false)}>
+      <ScreenModal visible={callsignModalVisible} animationType="slide" transparent onRequestClose={() => setCallsignModalVisible(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
           {/* RC, real device: same "invite box sits too low, competing with
               the home-indicator gesture bar" fix as the aircraft screen's
@@ -1273,7 +1274,7 @@ export default function FolderDetail() {
             )}
           </View>
         </KeyboardAvoidingView>
-      </Modal>
+      </ScreenModal>
       <BulkInviteContactPicker
         visible={bulkInviteVisible}
         onClose={() => setBulkInviteVisible(false)}

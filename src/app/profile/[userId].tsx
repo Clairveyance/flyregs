@@ -3,7 +3,8 @@ import * as Sentry from '@sentry/react-native'
 import Reanimated, {
   useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, useReducedMotion,
 } from 'react-native-reanimated'
-import { View, Text, Image, ScrollView, Pressable, TextInput, Switch, StyleSheet, ActivityIndicator, Modal } from 'react-native'
+import { View, Text, Image, ScrollView, Pressable, TextInput, Switch, StyleSheet, ActivityIndicator } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { useLocalSearchParams, router } from 'expo-router'
 import { useTheme, darkTokens } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -792,7 +793,7 @@ export default function ProfileScreen() {
         </TabletContainer>
       )}
 
-      <Modal visible={!!coinDetail} animationType="fade" transparent onRequestClose={() => setCoinDetail(null)}>
+      <ScreenModal visible={!!coinDetail} animationType="fade" transparent onRequestClose={() => setCoinDetail(null)}>
         <Pressable style={styles.coinScrim} onPress={() => setCoinDetail(null)}>
           {coinDetail && (() => {
             const earned = coins.some((c) => c.code === coinDetail.code)
@@ -956,7 +957,7 @@ export default function ProfileScreen() {
             )
           })()}
         </Pressable>
-      </Modal>
+      </ScreenModal>
       {isSelf && session?.user.id && (
         <RatingPicker
           loadFailed={ratingsLoadFailed}

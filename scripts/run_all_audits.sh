@@ -124,6 +124,8 @@ run_one "keyboard_avoidance (no modal hides its own input under the keyboard)" p
 # The one above proves the CARD moves; this one proves the BUTTON is reachable.
 # Both were needed: AdComplianceModal passed the first and still hid its Save.
 run_one "modal_primary_action (no modal scrolls its own primary action away)" python3 scripts/modal_primary_action_reachability_audit.py
+# And this one proves the modal GOES AWAY when its screen does.
+run_one "screen_modal (no modal outlives the screen that opened it)" python3 scripts/screen_modal_audit.py
 run_one "modal_escape (no modal swallows its own dismiss gesture)" python3 scripts/modal_escape_audit.py
 run_one "study_explanation_fallback (every answer says something)" node scripts/study_explanation_fallback_test.cjs
 run_one "eas_build_hook_audit (Sentry commit association really fires)" python3 scripts/eas_build_hook_audit.py

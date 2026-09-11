@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
-import { Modal, View, Text, Pressable, StyleSheet } from 'react-native'
+import { View, Text, Pressable, StyleSheet } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence } from 'react-native-reanimated'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -41,7 +42,7 @@ export function CoinRevealModal({ coin, onClose }: { coin: CoinDef | null; onClo
   if (!coin) return null
 
   return (
-    <Modal visible={!!coin} animationType="fade" transparent onRequestClose={onClose}>
+    <ScreenModal visible={!!coin} animationType="fade" transparent onRequestClose={onClose}>
       <View style={styles.scrim}>
         <Reanimated.View style={medalStyle}>
           <CoinMedal tier={coin.tier} icon={coin.icon} earned size={96} />
@@ -53,7 +54,7 @@ export function CoinRevealModal({ coin, onClose }: { coin: CoinDef | null; onClo
           <Text style={[styles.btnText, { fontSize: fs(15) }]}>Nice!</Text>
         </Pressable>
       </View>
-    </Modal>
+    </ScreenModal>
   )
 }
 

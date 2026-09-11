@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Modal, View, Text, FlatList, Pressable, TextInput, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native'
+import { View, Text, FlatList, Pressable, TextInput, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { router } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -409,7 +410,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
   }
 
   return (
-    <Modal
+    <ScreenModal
       visible={visible}
       transparent
       animationType="slide"
@@ -580,7 +581,7 @@ export function FolderPicker({ visible, itemType, itemId, onClose, onAdded, acMe
         onLayoutHeight={setPreviewHeight}
         onDismiss={hidePreview}
       />
-    </Modal>
+    </ScreenModal>
   )
 }
 

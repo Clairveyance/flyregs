@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, ActivityIndicator, Modal, Keyboard, KeyboardAvoidingView, Platform } from 'react-native'
+import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -367,7 +368,7 @@ export function YearPickerModal({
   const wheelHeight = YEAR_ROW_HEIGHT * YEAR_VISIBLE_ROWS
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <ScreenModal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
         <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, paddingBottom: Math.max(18, insets.bottom + 8) }]}>
           <View style={styles.modalHeader}>
@@ -415,7 +416,7 @@ export function YearPickerModal({
           </View>
         </View>
       </View>
-    </Modal>
+    </ScreenModal>
   )
 }
 
@@ -520,7 +521,7 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: {
   }
 
   return (
-    <Modal visible={!!aircraft} animationType="slide" transparent onRequestClose={onClose}>
+    <ScreenModal visible={!!aircraft} animationType="slide" transparent onRequestClose={onClose}>
       {/* Corpus-wide keyboard-avoidance sweep, RC/Adriana real-device
           report ("Plane brands options are weird... not clickable"): this
           card is bottom-pinned (modalBackdrop's justifyContent: 'flex-end')
@@ -632,7 +633,7 @@ export function EditAircraftModal({ aircraft, onClose, onSaved }: {
         tokens={tokens}
         fs={fs}
       />
-    </Modal>
+    </ScreenModal>
   )
 }
 

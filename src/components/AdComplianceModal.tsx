@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Modal, KeyboardAvoidingView, Platform } from 'react-native'
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -269,7 +270,7 @@ export function AdComplianceModal({
   if (!ad) return null
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <ScreenModal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       {/* RC, real device, B42: "i can't test the AD compliance flow b/c the
           damn keyboard won't get out of the way." This card is pinned to the
           bottom (modalBackdrop is justifyContent: 'flex-end'), so without
@@ -429,7 +430,7 @@ export function AdComplianceModal({
           />
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </ScreenModal>
   )
 }
 

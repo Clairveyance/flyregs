@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { View, Text, TextInput, Image, Pressable, ScrollView, StyleSheet, ActivityIndicator, Platform, Linking, Switch, Modal, PanResponder, AppState } from 'react-native'
+import { View, Text, TextInput, Image, Pressable, ScrollView, StyleSheet, ActivityIndicator, Platform, Linking, Switch, PanResponder, AppState } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'

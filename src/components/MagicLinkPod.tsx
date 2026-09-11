@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { View, Text, Pressable, StyleSheet, Modal, Dimensions, GestureResponderEvent } from 'react-native'
+import { View, Text, Pressable, StyleSheet, Dimensions, GestureResponderEvent } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { router } from 'expo-router'
 import Reanimated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -491,7 +492,7 @@ function PodRow({
           rotating border), which would silently clip a same-tree popup
           the instant it tried to render above the pod's own top edge, the
           most common case for a row near the top of the expanded list. */}
-      <Modal visible={!!preview} transparent animationType="none">
+      <ScreenModal visible={!!preview} transparent animationType="none">
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setPreview(null)}>
           {preview && (
             <View
@@ -540,7 +541,7 @@ function PodRow({
             </View>
           )}
         </Pressable>
-      </Modal>
+      </ScreenModal>
     </View>
   )
 }

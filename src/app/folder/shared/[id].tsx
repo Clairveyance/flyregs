@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, Modal, ScrollView, TextInput, RefreshControl, KeyboardAvoidingView, Platform, AppState } from 'react-native'
+import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, ScrollView, TextInput, RefreshControl, KeyboardAvoidingView, Platform, AppState } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import * as Sentry from '@sentry/react-native'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
@@ -774,7 +775,7 @@ export default function SharedFolderDetail() {
         </TabletContainer>
       )}
 
-      <Modal visible={!!openNote} transparent animationType="fade" onRequestClose={() => setOpenNote(null)}>
+      <ScreenModal visible={!!openNote} transparent animationType="fade" onRequestClose={() => setOpenNote(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <View style={[styles.modalBackdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
           <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr }]}>
@@ -943,9 +944,9 @@ export default function SharedFolderDetail() {
           </View>
         </View>
         </KeyboardAvoidingView>
-      </Modal>
+      </ScreenModal>
 
-      <Modal visible={addNoteVisible} transparent animationType="fade" onRequestClose={() => setAddNoteVisible(false)}>
+      <ScreenModal visible={addNoteVisible} transparent animationType="fade" onRequestClose={() => setAddNoteVisible(false)}>
         {/* BB-085, RC real-device beta report: "the note/text input box is
             locked/stuck on the screen. it can't adjust, the k/b blocks part
             of it, you can't move or hide the k/b, and can't even get to the
@@ -998,7 +999,7 @@ export default function SharedFolderDetail() {
             </View>
           </View>
         </KeyboardAvoidingView>
-      </Modal>
+      </ScreenModal>
       <LongPressPreviewCard
         preview={preview}
         previewHeight={previewHeight}

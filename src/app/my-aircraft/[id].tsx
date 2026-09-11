@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Modal, Share, Image, Linking, KeyboardAvoidingView, Platform, Keyboard, AppState } from 'react-native'
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Share, Image, Linking, KeyboardAvoidingView, Platform, Keyboard, AppState } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import * as Sentry from '@sentry/react-native'
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -1771,7 +1772,7 @@ export default function AircraftDetailScreen() {
         onClose={() => setHobbsModalVisible(false)}
         onSaved={() => { setHobbsModalVisible(false); load() }}
       />
-      <Modal visible={shareStep !== 'closed'} animationType="slide" transparent onRequestClose={closeShareModal}>
+      <ScreenModal visible={shareStep !== 'closed'} animationType="slide" transparent onRequestClose={closeShareModal}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
           {/* RC, real device: "move the whole 'invite' box up more off the
               bottom of the phone screen. it's so low it's getting buried and
@@ -1862,7 +1863,7 @@ export default function AircraftDetailScreen() {
             )}
           </View>
         </KeyboardAvoidingView>
-      </Modal>
+      </ScreenModal>
       <BulkInviteContactPicker
         visible={bulkInviteVisible}
         onClose={() => setBulkInviteVisible(false)}
@@ -1912,7 +1913,7 @@ function PartPickerModal({ visible, editing, onClose, onPicked }: { visible: boo
   }
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <ScreenModal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={[styles.modalRoot, { backgroundColor: tokens.bg }]}>
         <OverlayHeader title={editing ? 'Change Equipment' : 'Add Equipment'} onBack={onClose} />
         <View style={[styles.searchWrap, { backgroundColor: tokens.inp, borderColor: tokens.bdr2 }]}>
@@ -1960,7 +1961,7 @@ function PartPickerModal({ visible, editing, onClose, onPicked }: { visible: boo
           </ScrollView>
         )}
       </View>
-    </Modal>
+    </ScreenModal>
   )
 }
 
@@ -2046,7 +2047,7 @@ function PartTrackingModal({
 
   return (
     <>
-      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <ScreenModal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalBackdrop}>
           {/* RC, real device: this card has more stacked fields than any
               other bottom sheet in the file (interval, due-hobbs, an
@@ -2152,7 +2153,7 @@ function PartTrackingModal({
           tokens={tokens}
           fs={fs}
         />
-      </Modal>
+      </ScreenModal>
     </>
   )
 }
@@ -2327,7 +2328,7 @@ function ReminderFormModal({
 
   return (
     <>
-      <Modal visible={visible} animationType="slide" onRequestClose={onClose} transparent>
+      <ScreenModal visible={visible} animationType="slide" onRequestClose={onClose} transparent>
         {/* RC, real device: the tach/hobbs decimal-pad keypad (and the
             title/notes fields' own keypads) covered the input box AND the
             Save button, same root cause as HobbsUpdateModal.tsx -- this
@@ -2485,9 +2486,9 @@ function ReminderFormModal({
           tokens={tokens}
           fs={fs}
         />
-      </Modal>
+      </ScreenModal>
 
-      <Modal visible={adPickerVisible} animationType="slide" transparent onRequestClose={() => setAdPickerVisible(false)}>
+      <ScreenModal visible={adPickerVisible} animationType="slide" transparent onRequestClose={() => setAdPickerVisible(false)}>
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalCard, { backgroundColor: tokens.bg, borderColor: tokens.bdr, maxHeight: '70%', paddingBottom: Math.max(18, insets.bottom + 8) }]}>
             <View style={styles.modalHeader}>
@@ -2530,7 +2531,7 @@ function ReminderFormModal({
           onLayoutHeight={setAdPickerPreviewHeight}
           onDismiss={hideAdPickerPreview}
         />
-      </Modal>
+      </ScreenModal>
     </>
   )
 }

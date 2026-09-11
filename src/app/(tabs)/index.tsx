@@ -12,10 +12,10 @@ import {
   Platform,
   Animated,
   useWindowDimensions,
-  Modal,
   KeyboardAvoidingView,
   RefreshControl,
 } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -2018,7 +2018,7 @@ function HobbsHeaderButton() {
           where Modal is just a DOM overlay). One Modal, swapped content --
           the editor still appears "directly and immediately", just without
           ever mounting two native modal presentations at once. */}
-      <Modal
+      <ScreenModal
         visible={pickerVisible || !!editing}
         animationType="slide"
         transparent
@@ -2088,7 +2088,7 @@ function HobbsHeaderButton() {
             </View>
           </View>
         )}
-      </Modal>
+      </ScreenModal>
     </>
   )
 }

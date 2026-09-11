@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Modal, View, Text, Image, Pressable, ScrollView, StyleSheet, ActivityIndicator, useWindowDimensions } from 'react-native'
+import { View, Text, Image, Pressable, ScrollView, StyleSheet, ActivityIndicator, useWindowDimensions } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useFS } from '@/context/fontScale'
@@ -59,7 +60,7 @@ export function FormulaRefViewer({
   const boxHeight = height - insets.top - 90
 
   return (
-    <Modal
+    <ScreenModal
       visible={!!formulaRef}
       transparent
       animationType="fade"
@@ -148,7 +149,7 @@ export function FormulaRefViewer({
         onLayoutHeight={setPreviewHeight}
         onDismiss={hidePreview}
       />
-    </Modal>
+    </ScreenModal>
   )
 }
 

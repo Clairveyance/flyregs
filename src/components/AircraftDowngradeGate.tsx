@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native'
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, KeyboardAvoidingView, Platform } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import { router, usePathname } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
@@ -212,7 +213,7 @@ export function AircraftDowngradeGate() {
     const going = pending ? locked.filter((a) => a.aircraftId !== pending.aircraftId) : locked
     const closeThis = () => { setPending(null); setConfirmingDeleteAll(false) }
     return (
-      <Modal visible transparent animationType="fade" onRequestClose={closeThis}>
+      <ScreenModal visible transparent animationType="fade" onRequestClose={closeThis}>
         {/* Corpus-wide keyboard-avoidance sweep, RC real-device report. This
             card's height is unbounded (a body message plus a per-aircraft
             list that grows with `going.length`, plus the typed-DELETE input
@@ -300,7 +301,7 @@ export function AircraftDowngradeGate() {
           onLayoutHeight={setPreviewHeight}
           onDismiss={hidePreview}
         />
-      </Modal>
+      </ScreenModal>
     )
   }
 
@@ -310,7 +311,7 @@ export function AircraftDowngradeGate() {
   // fetching) so the pick-one UI doesn't flash first and then swap.
   if (cap === 0) {
     return (
-      <Modal visible transparent animationType="fade" onRequestClose={() => setDismissed(true)}>
+      <ScreenModal visible transparent animationType="fade" onRequestClose={() => setDismissed(true)}>
         <View style={styles.scrim}>
           <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.gold }]}>
             <Icon name="airplane" size={fs(26)} color={tokens.gold} />
@@ -372,12 +373,12 @@ export function AircraftDowngradeGate() {
           onLayoutHeight={setPreviewHeight}
           onDismiss={hidePreview}
         />
-      </Modal>
+      </ScreenModal>
     )
   }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={() => setDismissed(true)}>
+    <ScreenModal visible transparent animationType="fade" onRequestClose={() => setDismissed(true)}>
       <View style={styles.scrim}>
         <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.gold }]}>
           <Icon name="airplane" size={fs(26)} color={tokens.gold} />
@@ -437,7 +438,7 @@ export function AircraftDowngradeGate() {
         onLayoutHeight={setPreviewHeight}
         onDismiss={hidePreview}
       />
-    </Modal>
+    </ScreenModal>
   )
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Modal, View, Text, Pressable, StyleSheet, ScrollView, type NativeSyntheticEvent, type NativeScrollEvent } from 'react-native'
+import { View, Text, Pressable, StyleSheet, ScrollView, type NativeSyntheticEvent, type NativeScrollEvent } from 'react-native'
+import { ScreenModal } from '@/components/ScreenModal'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useTheme } from '@/context/theme'
@@ -232,7 +233,7 @@ export function InfoPopup({ id, title, body, footer, forceOnce = false, iconSize
       <Pressable onPress={() => setVisible(true)} hitSlop={10} style={styles.trigger}>
         <Icon name="info.circle" size={iconSize ?? fs(18)} color={tokens.t3} />
       </Pressable>
-      <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
+      <ScreenModal visible={visible} transparent animationType="fade" onRequestClose={close}>
         <Pressable style={styles.backdrop} onPress={close}>
           {/* RC, real device (13 mini): "this CTA is still way too big for
               the screen." The card had no height cap and nothing inside it
@@ -308,7 +309,7 @@ export function InfoPopup({ id, title, body, footer, forceOnce = false, iconSize
             )}
           </Pressable>
         </Pressable>
-      </Modal>
+      </ScreenModal>
     </>
   )
 }
