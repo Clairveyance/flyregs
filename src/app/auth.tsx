@@ -237,6 +237,23 @@ export default function AuthScreen() {
         // hit (rate_limit_email_sent), which is a server capacity condition,
         // not anything the user did wrong.
         setFormError("We couldn't send your confirmation email right now. Please try again in a few minutes.")
+      } else if (/unable to validate email address|invalid format/i.test(raw)) {
+        // GoTrue's own words are "Unable to validate email address: invalid
+        // format" -- server-speak, and it landed in formError, which renders
+        // BELOW the password field, so the message pointed at the wrong input.
+        // Caught on the simulator 2026-09-10 by typing a bare word into the
+        // signup form: the very first screen a new user ever sees, which is
+        // the worst place in the app to leak a backend string. Same treatment
+        // the rate-limit branch above already argues for ("never show GoTrue's
+        // raw ... to a stranger"), and the same field-level shape as the
+        // callsign error RC specified: red border on the field at fault, short
+        // message under it.
+        setEmailError("That doesn't look like an email address.")
+      } else if (/password/i.test(raw) && /(at least|should be|6 characters|too short)/i.test(raw)) {
+        // Same leak, same screen, other field: GoTrue returns "Password should
+        // be at least 6 characters." verbatim. Attach it to the password input
+        // instead of the form, so the red border lands where the problem is.
+        setPasswordError('Use at least 6 characters.')
       } else {
         setFormError(raw || 'Something went wrong. Please try again.')
       }
