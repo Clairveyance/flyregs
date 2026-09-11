@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/react-native'
 import { supabase } from '@/lib/supabase'
 import type { FolderItemType } from '@/lib/folders'
 import { getHighlightsForAC } from '@/lib/bookmarks'
+import { currentUserId } from '@/lib/syncOwner'
 
 // Other participants' highlights on the document you are reading.
 //
@@ -52,6 +53,22 @@ export async function getSharedHighlightsForDoc(
   itemType: FolderItemType,
 ): Promise<SharedHighlightMap> {
   if (!acId) return EMPTY
+  // A signed-out reader has no session, therefore no shared folder, therefore
+  // no collaborator highlights -- the answer is EMPTY before the network is
+  // touched. Asking anyway is not merely wasted: get_shared_highlights is
+  // granted to `authenticated` and REVOKED from `anon` on purpose (see
+  // sync/migrations_shared_highlights.sql), so PostgREST answers anon with
+  // 401 / 42501 "permission denied for function get_shared_highlights", the
+  // error branch below fires Sentry, and every signed-out open of ANY of the
+  // eight document screens (far/aim/ac/ad/pcg/loi/cfr49) reports an error for
+  // a question that could never have had an answer. Found 2026-09-11 by the
+  // Sentry watch, on a real device, from the shipped build.
+  //
+  // The guard belongs HERE and not on the server: the revoke is the correct
+  // posture and must not be loosened to quiet a client that should not be
+  // calling. This is the one caller of the RPC, so one check covers all eight
+  // screens -- and currentUserId() reads the stored session, not the network.
+  if (!(await currentUserId())) return EMPTY
   try {
     const { data, error } = await supabase.rpc('get_shared_highlights', {
       p_item_type: itemType,
