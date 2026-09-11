@@ -321,6 +321,21 @@ def parse_ad_text(raw_text: str, document_number: str) -> dict | None:
     title_match = re.search(r"Airworthiness Directives;[^\n]+", single_line)
     subject_heading = title_match.group(0).strip() if title_match else None
 
+    # Fallback when the PDF has no "Airworthiness Directives; ..." line at all.
+    # Three ADs reached production with an empty subject_heading (2011-13-03,
+    # 2016-25-21, 2019-22-02) and were only found on 2026-09-10, by the
+    # reg-badge composition audit -- their Ask FlyRegs card had no title, so it
+    # fell back to the AD number and printed the number as BOTH the badge and
+    # the title. `make` comes from the same header match below and is populated
+    # in all three cases, and "Airworthiness Directives; <make>" is exactly the
+    # form the other 5,621 headings already take (825 of them are the
+    # character-identical "Airworthiness Directives; The Boeing Company
+    # Airplanes"), so this reconstructs the real heading rather than inventing
+    # one. Fixed here as well as in the data, or the next weekly sync would
+    # write the empty string straight back.
+    if not subject_heading and make and make.strip():
+        subject_heading = f"Airworthiness Directives; {make.strip()}"
+
     summary_match = re.search(r"SUMMARY:\s*(.+?)(?=\nDATES:|\nADDRESSES:)", text, re.DOTALL)
     summary = re.sub(r"\s+", " ", summary_match.group(1)).strip() if summary_match else None
 

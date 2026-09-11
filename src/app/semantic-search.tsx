@@ -9,7 +9,7 @@ import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { semanticSearch, type SemanticSearchResult } from '@/lib/semanticSearch'
 import { routeForCitedItem } from '@/lib/citedItems'
-import { REG_TYPE } from '@/lib/regTypes'
+import { REG_TYPE, regIdentifierLabel, composeRegBadge, composeRegTitle } from '@/lib/regTypes'
 import { getRecentSearches, addRecentSearch, removeRecentSearch, clearRecentSearches } from '@/lib/recentSearches'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
@@ -20,20 +20,6 @@ import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 // replacement for it. Plus-gated (same tier line as "Unlimited search
 // results" in paywall.tsx) since every real query costs a real, if tiny,
 // OpenAI API call -- unlike every other free-tier search in this app.
-
-// null means "no extra identifier beyond the REG_TYPE badge itself" -- for
-// P/CG and LOI the real title (rendered separately below) IS the
-// identifying info; concatenating the type name again just repeated it
-// ("P/CG P/CG", "LOI LOI", confirmed live).
-function formatSourceLabel(type: SemanticSearchResult['sourceType'], id: string): string | null {
-  switch (type) {
-    case 'far': return `§ ${id}`
-    case 'aim': return `¶ ${id}`
-    case 'ad': return `AD ${id}`
-    case 'ac': return `AC ${id}`
-    default: return null
-  }
-}
 
 // LOI titles are raw scraped filenames ("Bacon_2011_Legal_Interpretation")
 // -- same cleanup MagicLinkPod.tsx already applies for LOI display titles,
@@ -221,6 +207,18 @@ export default function SemanticSearchScreen() {
                   setQueryText(query)
                 }
               }}
+              // Every other search field in this app already sets this --
+              // Home's SmartSearch, DictionarySearchBar, InDocSearchBar,
+              // ConfirmDialog and AircraftDowngradeGate -- and Ask FlyRegs
+              // was the one that didn't. Caught live on the simulator
+              // 2026-09-10: typing "BasicMed" produced "Basic med" in the
+              // box, and the query that actually ran was the corrected one.
+              // iOS autocorrect has no model for aviation terms of art
+              // (BasicMed, METAR, NOTAM, ADS-B, Mode C) and mangles exactly
+              // the words that carry the query. Nothing is lost by turning it
+              // off: real typos are already handled server-side, which is
+              // what scripts/afr_typo_tolerance_test.py exists to prove.
+              autoCorrect={false}
               returnKeyType="search"
               multiline={allowMultiline}
             />
@@ -344,6 +342,19 @@ export default function SemanticSearchScreen() {
             <ScrollView contentContainerStyle={{ paddingBottom: 24 }} keyboardDismissMode="interactive">
               {results.map((r, i) => {
                 const meta = REG_TYPE[r.sourceType]
+                // Computed once and reused by the badge, the title and the
+                // long-press card, so the three can't drift apart -- calling
+                // regIdentifierLabel four separate times inline is how the
+                // badge ended up printing "AC AC 68-1A" while the title line
+                // beside it was fine.
+                const sourceLabel = regIdentifierLabel(r.sourceType, r.sourceId)
+                const badgeText = composeRegBadge(r.sourceType, sourceLabel)
+                // No `|| sourceLabel || meta.label` fallback: both of those
+                // are already on the badge line, so falling back to them
+                // printed the same string twice (see composeRegTitle). An
+                // empty title just means no title line -- the snippet below
+                // still carries the content.
+                const titleText = composeRegTitle(formatResultTitle(r.sourceType, r.title), sourceLabel)
                 return (
                   <Pressable
                     key={`${r.sourceType}-${r.sourceId}-${i}`}
@@ -353,15 +364,15 @@ export default function SemanticSearchScreen() {
                       router.push(routeForCitedItem(r.sourceType, r.sourceId) as any)
                     }}
                     onLongPress={(e) => showPreview(
-                      formatResultTitle(r.sourceType, r.title) || formatSourceLabel(r.sourceType, r.sourceId) || meta.label,
+                      titleText || badgeText,
                       e,
-                      // formatSourceLabel() already returns null for P/CG and
+                      // regIdentifierLabel() already returns null for P/CG and
                       // LOI (see its own comment -- there's no extra
                       // identifier beyond the badge for those), so this
                       // naturally omits the number line for exactly the two
                       // types that don't have one, same as every other
                       // caller of it in this file.
-                      formatSourceLabel(r.sourceType, r.sourceId) ?? undefined,
+                      sourceLabel ?? undefined,
                     )}
                     onPressOut={hidePreview}
                     delayLongPress={350}
@@ -369,16 +380,18 @@ export default function SemanticSearchScreen() {
                     <View style={styles.resultHeader}>
                       <Icon name={meta.icon} size={fs(13)} color={tokens.blu} />
                       <Text style={[styles.resultBadge, { color: tokens.blu, fontSize: fs(11.5) }]}>
-                        {meta.label}{formatSourceLabel(r.sourceType, r.sourceId) ? ` ${formatSourceLabel(r.sourceType, r.sourceId)}` : ''}
+                        {badgeText}
                       </Text>
                       <View style={{ flex: 1 }} />
                       <Text style={[styles.resultSimilarity, { color: tokens.t4, fontSize: fs(10.5) }]}>
                         {Math.round(r.similarity * 100)}% match
                       </Text>
                     </View>
-                    <Text style={[styles.resultTitle, { color: tokens.t1, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.31 }]} numberOfLines={2}>
-                      {formatResultTitle(r.sourceType, r.title) || formatSourceLabel(r.sourceType, r.sourceId) || meta.label}
-                    </Text>
+                    {titleText ? (
+                      <Text style={[styles.resultTitle, { color: tokens.t1, fontSize: fs(14.5), lineHeight: fs(14.5) * 1.31 }]} numberOfLines={2}>
+                        {titleText}
+                      </Text>
+                    ) : null}
                     <Text style={[styles.resultSnippet, { color: tokens.t2, fontSize: fs(13), lineHeight: fs(13) * 1.38 }]} numberOfLines={3}>
                       {r.chunkText}
                     </Text>

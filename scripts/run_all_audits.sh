@@ -220,6 +220,11 @@ run_one "rls_grant_pairing (every table the client reads, it can actually read)"
   python3 scripts/rls_grant_pairing_audit.py
 run_one "acs_reg_links (ACS tasks link only to genuinely relevant regs)" \
   python3 scripts/acs_reg_link_audit.py
+# RC, via the in-app bug report: "the reg identifier was listed twice." This
+# runs the REAL composition functions over the REAL corpus, so it measures
+# what a user would read rather than re-stating the rule in a second place.
+run_one "reg_badge_composition (no result row says its type or number twice)" \
+  python3 scripts/reg_badge_composition_audit.py
 # Ask FlyRegs must survive a typo in the one word that matters, and must not
 # bend a real word into an anchor. Second half is the one that matters: it is
 # what keeps the fuzzy pass from ever changing a query that already worked.
