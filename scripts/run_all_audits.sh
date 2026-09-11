@@ -132,6 +132,11 @@ run_one "screen_modal (no modal outlives the screen that opened it)" python3 scr
 # the user chose.
 run_one "preference_integrity (nothing but the user changes a user setting)" \
   python3 scripts/preference_integrity_audit.py
+# A ticket is Expo saying "accepted", not APNs saying "delivered". Every sender
+# used to stop at the ticket and print "Done.", which is why "notifications are
+# fixed" could never be verified.
+run_one "push_receipts (a sender must learn whether the push arrived)" \
+  python3 scripts/push_receipt_audit.py
 run_one "modal_escape (no modal swallows its own dismiss gesture)" python3 scripts/modal_escape_audit.py
 run_one "study_explanation_fallback (every answer says something)" node scripts/study_explanation_fallback_test.cjs
 run_one "eas_build_hook_audit (Sentry commit association really fires)" python3 scripts/eas_build_hook_audit.py

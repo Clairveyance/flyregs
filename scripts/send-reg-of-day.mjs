@@ -15,6 +15,7 @@ import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
 import path from 'path'
 import { canReceiveProPush } from './lib/tier-cap.mjs'
+import { sendExpoPush } from './lib/expo-push.mjs'
 
 const envPath = path.resolve(process.cwd(), '.env.scraper')
 if (!fs.existsSync(envPath)) {
@@ -117,23 +118,14 @@ const messages = eligible.map((t) => ({
   data: { type: 'reg_of_day', slug: today.slug, sourceType: today.source_type },
 }))
 
-const BATCH = 100
-for (let i = 0; i < messages.length; i += BATCH) {
-  const chunk = messages.slice(i, i + BATCH)
-  const res = await fetch('https://exp.host/--/api/v2/push/send', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(chunk),
-  })
-  if (!res.ok) {
-    console.error(`Expo push API returned ${res.status} for batch starting at ${i}`)
-    continue
-  }
-  const json = await res.json()
-  const errors = (json.data ?? []).filter((r) => r.status === 'error')
-  if (errors.length) {
-    console.error(`${errors.length} of ${chunk.length} messages in batch failed:`, errors.slice(0, 3))
-  }
-}
+// Delivery is verified, not assumed: sendExpoPush fetches Expo's
+// RECEIPTS, not just the send-time tickets. A ticket only means Expo
+// accepted the message; whether APNs took it is a separate answer this
+// sender never used to ask, which is why "Done." could be printed for a
+// push nobody received. See scripts/lib/expo-push.mjs.
+const pushSummary = await sendExpoPush(messages, { sb, label: 'DailyReg' })
 
-console.log('Done.')
+// Exit non-zero on a SYSTEMIC failure (bad credentials / sender mismatch):
+// one dead handset is normal, every push failing is not, and a green run
+// that delivered nothing is precisely the lie this replaces.
+if (pushSummary.systemic) process.exit(1)

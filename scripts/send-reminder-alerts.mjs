@@ -223,6 +223,11 @@ const sentReminderIds = new Set()
 // for any recipient holds the whole row back for tomorrow's retry: a duplicate
 // nudge is recoverable, a missed annual is not.
 const failedReminderIds = new Set()
+// ticket id -> reminder id, so a RECEIPT failure can hold the same row
+// back for retry that a ticket failure already does. A ticket only means
+// Expo accepted it; an annual that APNs silently dropped was being
+// stamped notified_at and never re-sent.
+const ticketReminder = new Map()
 const BATCH = 100
 for (let i = 0; i < messages.length; i += BATCH) {
   const chunk = messages.slice(i, i + BATCH)
@@ -259,6 +264,7 @@ for (let i = 0; i < messages.length; i += BATCH) {
     // far as we can deliver it.
     if (r.status !== 'error' || r.details?.error === 'DeviceNotRegistered') {
       sentReminderIds.add(m._reminderId)
+      if (r.id) ticketReminder.set(r.id, m._reminderId)
     } else {
       failedReminderIds.add(m._reminderId)
     }
@@ -281,6 +287,35 @@ for (let i = 0; i < messages.length; i += BATCH) {
   const errors = results.filter((r) => r.status === 'error')
   if (errors.length) {
     console.error(`${errors.length} of ${chunk.length} messages in batch failed:`, errors.slice(0, 3))
+  }
+}
+
+// --- receipts ---
+// Added 2026-09-11, after RC went weeks with no notifications while every run
+// reported success. A ticket is Expo saying "accepted"; only a RECEIPT says
+// APNs took it. Same conservative rule this file already applies to tickets:
+// a real delivery failure for ANY recipient holds the whole reminder back for
+// tomorrow, because a duplicate nudge is recoverable and a missed annual is
+// not. DeviceNotRegistered stays terminal -- that device is gone, and
+// retrying it daily forever helps nobody.
+if (ticketReminder.size) {
+  const { checkExpoReceipts } = await import('./lib/expo-push.mjs')
+  const verdicts = await checkExpoReceipts([...ticketReminder.keys()], { label: 'Reminders' })
+  const deadFromReceipts = new Set()
+  for (const [ticketId, verdict] of verdicts) {
+    if (verdict.status !== 'error') continue
+    const reminderId = ticketReminder.get(ticketId)
+    if (verdict.code === 'DeviceNotRegistered') {
+      const msg = messages.find((m) => m._reminderId === reminderId)
+      if (msg) deadFromReceipts.add(msg.to)
+      continue
+    }
+    if (reminderId) { sentReminderIds.delete(reminderId); failedReminderIds.add(reminderId) }
+  }
+  if (deadFromReceipts.size) {
+    const { error: delErr } = await sb.from('push_tokens').delete().in('expo_push_token', [...deadFromReceipts])
+    if (delErr) console.error('Failed to prune tokens revoked per receipt:', delErr.message)
+    else console.log(`Pruned ${deadFromReceipts.size} token(s) revoked per receipt.`)
   }
 }
 

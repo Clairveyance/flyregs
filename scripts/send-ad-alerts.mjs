@@ -480,6 +480,8 @@ for (const [userId, keys] of matchKeysByUser) {
 // undelivered if it succeeded on another. Upgrades to 'sent' on any 'ok'
 // ticket; otherwise records the last real error seen.
 const pushResultByUser = new Map()
+// ticket id -> { userId, token }, so a receipt failure can be attributed.
+const ticketOwners = new Map()
 
 const BATCH = 100
 for (let i = 0; i < messages.length; i += BATCH) {
@@ -535,6 +537,12 @@ for (let i = 0; i < messages.length; i += BATCH) {
     const userId = chunk[idx]._userId
     if (ticket.status === 'ok') {
       pushResultByUser.set(userId, { status: 'sent', error: null })
+      // A ticket is Expo saying "accepted", not APNs saying "delivered".
+      // Keep the id so the receipt pass below can tell those apart -- this
+      // sender never retries (see the incremental-scrape note above), so an
+      // undelivered AD alert is a Pro owner never hearing about an AD on
+      // their own aircraft, and it must not be recorded as 'sent'.
+      if (ticket.id) ticketOwners.set(ticket.id, { userId, token: chunk[idx].to })
     } else {
       const prev = pushResultByUser.get(userId)
       if (!prev || prev.status !== 'sent') {
@@ -542,6 +550,40 @@ for (let i = 0; i < messages.length; i += BATCH) {
       }
     }
   })
+}
+
+// --- receipts: the step that decides 'sent' from 'silently discarded' ---
+// Added 2026-09-11. Everything above only ever knew Expo had ACCEPTED the
+// message. RC went weeks without notifications while every run reported
+// success, because nothing ever asked APNs what happened next.
+if (ticketOwners.size) {
+  const { checkExpoReceipts } = await import('./lib/expo-push.mjs')
+  const verdicts = await checkExpoReceipts([...ticketOwners.keys()], { label: 'AD alerts' })
+  // Resolve PER USER, not per ticket: someone with a phone and an iPad has two
+  // tickets, and one dead handset must not mark them un-notified when the
+  // other device got it. A user is downgraded only if NONE of their tickets
+  // came back ok. A 'pending' receipt is not a delivery, but it is not a
+  // failure either, so it neither rescues nor condemns.
+  const dead = new Set()
+  const perUser = new Map()   // userId -> { delivered, failed, lastCode }
+  for (const [ticketId, verdict] of verdicts) {
+    const owner = ticketOwners.get(ticketId)
+    if (!owner) continue
+    if (verdict.code === 'DeviceNotRegistered') dead.add(owner.token)
+    const agg = perUser.get(owner.userId) ?? { delivered: 0, failed: 0, lastCode: null }
+    if (verdict.status === 'ok') agg.delivered += 1
+    else if (verdict.status === 'error') { agg.failed += 1; agg.lastCode = verdict.code }
+    perUser.set(owner.userId, agg)
+  }
+  for (const [userId, agg] of perUser) {
+    if (agg.delivered > 0 || agg.failed === 0) continue
+    pushResultByUser.set(userId, { status: 'error', error: `not delivered: ${agg.lastCode}` })
+  }
+  if (dead.size) {
+    const { error } = await sb.from('push_tokens').delete().in('expo_push_token', [...dead])
+    console.log(error ? `Could not prune ${dead.size} revoked token(s): ${error.message}`
+                      : `Pruned ${dead.size} token(s) APNs has revoked.`)
+  }
 }
 
 // Fold delivery results back into the durable log so "was this aircraft's
