@@ -74,6 +74,34 @@ def main():
         check("B's entitlement is now Pro, not Premium (live DB state)",
               ue and ue[0]["is_pro"] is True and ue[0]["is_premium"] is False, str(ue))
 
+        # ...and must still be NOTIFIED. A tier check on the push path is the
+        # same softlock one layer over: B may legally keep playing, but if the
+        # "Your Move" push is suppressed because B lapsed, B never learns it is
+        # their turn and the duel stalls for BOTH players. Added 2026-09-11
+        # after exactly that check was briefly introduced into
+        # get_duel_push_target and caught here before any build shipped.
+        http("POST", "/rest/v1/push_tokens", key=SERVICE, body={
+            "user_id": b["id"],
+            "expo_push_token": f"ExponentPushToken[DOWNGRADE-{b['id'][:8]}]",
+            "enabled": True, "duel_notifications_enabled": True,
+        })
+        # Probe at a FULL lapse, not the Pro downgrade this test otherwise uses.
+        # A push-path check written as has_pro_access() is `is_pro OR is_premium`,
+        # so the Pro downgrade above sails straight through it and would make
+        # this assertion vacuous -- the first version of it did exactly that and
+        # passed against the very code it was meant to catch. A real expired
+        # subscription drops to no entitlement at all, which is the state that
+        # actually discriminates.
+        http("PATCH", f"/rest/v1/user_entitlements?user_id=eq.{b['id']}", key=SERVICE,
+             body={"is_premium": False, "is_pro": False, "is_unlocked": False})
+        targets = rpc("get_duel_push_target", a["jwt"],
+                      {"p_challenge_id": cid, "p_event": "answered"})
+        check("fully-lapsed B is STILL a duel push target (participation authorizes "
+              "the notification; tier was enforced at create/accept)",
+              any(b["id"][:8] in (t.get("expo_push_token") or "") for t in (targets or [])),
+              str(targets))
+        downgrade_to_pro(b["id"])  # back to this test's own scenario
+
         # B (now lapsed) must still be able to fetch/answer remaining
         # questions -- no gate here by design, or A's duel would freeze.
         q = rpc("get_next_challenge_question", b["jwt"], {"p_challenge_id": cid})
