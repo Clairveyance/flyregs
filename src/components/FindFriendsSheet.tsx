@@ -8,7 +8,8 @@ import { useAuth } from '@/context/auth'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
 import { AvatarCircle } from '@/components/AvatarCircle'
-import { getDeviceContacts, matchContactsToCallsigns, requestContactsPermission, presentContactsAccessPicker, resolveCallsignToUserId, getVisibleUsers, getMyPhoneNumber, setMyPhoneNumber, DeviceContact, VisibleUser } from '@/lib/contactMatch'
+import { getDeviceContacts, matchContactsToCallsigns, requestContactsPermission, presentContactsAccessPicker, getVisibleUsers, getMyPhoneNumber, setMyPhoneNumber, DeviceContact, VisibleUser } from '@/lib/contactMatch'
+import { ContactSearchField } from '@/components/ContactSearchField'
 import { APP_NAME, APP_STORE_URL } from '@/lib/appInfo'
 
 const PHONE_PROMPT_DISMISSED_KEY = '@flyregs/phone-prompt-dismissed'
@@ -120,8 +121,7 @@ export function FindFriendsPickerBody({
   // manual Callsign search that works independent of contacts. Same
   // debounced validate-as-you-type pattern as those, reused here rather
   // than re-derived -- see challenges/index.tsx's own identical block.
-  const [manualCallsign, setManualCallsign] = useState('')
-  const [manualCheck, setManualCheck] = useState<'idle' | 'checking' | 'found' | 'not_found'>('idle')
+
 
   // RC: "if all 'visible' users show up in RR, then that should be
   // another way of searching/finding someone - so, along w/ 'search
@@ -139,23 +139,6 @@ export function FindFriendsPickerBody({
       .catch(() => setVisibleUsers([]))
       .finally(() => setVisibleUsersLoading(false))
   }, [])
-
-  useEffect(() => {
-    const trimmed = manualCallsign.trim()
-    if (!trimmed) { setManualCheck('idle'); return }
-    setManualCheck('checking')
-    // `live`, not just clearTimeout -- the cleanup cancels the TIMER but not an
-    // already-issued request, so emptying the field after the RPC fired left a
-    // green "found" confirmation on a blank Callsign box. Same fix as the three
-    // sibling copies of this block (folder/[id], my-aircraft/[id], challenges).
-    let live = true
-    const t = setTimeout(() => {
-      resolveCallsignToUserId(trimmed)
-        .then((userId) => { if (live) setManualCheck(userId ? 'found' : 'not_found') })
-        .catch(() => { if (live) setManualCheck('idle') })
-    }, 400)
-    return () => { live = false; clearTimeout(t) }
-  }, [manualCallsign])
 
   const loadContacts = async () => {
     let deviceContacts: DeviceContact[]
@@ -299,34 +282,18 @@ export function FindFriendsPickerBody({
 
       {state !== 'loading' && (
         <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+          {/* Same field as the Duels / folder / aircraft invite surfaces. This
+              box used to accept a Callsign only, which made it the weakest
+              search in the app now that its three callers take a phone number
+              or an email too. onSelect hands back a callsign string, so
+              requireCallsign keeps a callsign-less match from being picked. */}
           <Text style={[styles.groupLabel, { color: tokens.t3, fontSize: fs(11), paddingHorizontal: 0, paddingTop: 0 }]}>
-            OR SEARCH BY CALLSIGN
+            OR SEARCH BY CALLSIGN, PHONE, OR EMAIL
           </Text>
-          <View style={[styles.searchWrap, { backgroundColor: tokens.bg2, borderColor: manualCheck === 'not_found' ? tokens.red : tokens.bdr, marginHorizontal: 0 }]}>
-            <Icon name="magnifyingglass" size={fs(14)} color={tokens.t3} />
-            <TextInput
-              value={manualCallsign}
-              onChangeText={setManualCallsign}
-              placeholder="Their Callsign"
-              placeholderTextColor={tokens.t4}
-              autoCapitalize="none"
-              style={[styles.searchInput, { color: tokens.t1, fontSize: ifs(14) }]}
-            />
-          </View>
-          {manualCheck === 'checking' && (
-            <Text style={{ color: tokens.t3, fontSize: fs(12.5), marginTop: 4 }}>Checking…</Text>
-          )}
-          {manualCheck === 'not_found' && (
-            <Text style={{ color: tokens.red, fontSize: fs(12.5), marginTop: 4 }}>No FlyRegs user with this Callsign</Text>
-          )}
-          {manualCheck === 'found' && (
-            <Pressable
-              style={{ marginTop: 6, alignSelf: 'flex-start' }}
-              onPress={() => { onSelect(manualCallsign.trim()); onClose() }}
-            >
-              <Text style={{ color: tokens.gold, fontSize: fs(13), fontWeight: '700' }}>Add {manualCallsign.trim()}</Text>
-            </Pressable>
-          )}
+          <ContactSearchField
+            requireCallsign
+            onSelect={(u) => { if (u.callsign) { onSelect(u.callsign); onClose() } }}
+          />
         </View>
       )}
 

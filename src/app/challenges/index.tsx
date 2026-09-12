@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, ScrollView, TextInput, Keyboard, KeyboardAvoidingView, Platform } from 'react-native'
+import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, ScrollView, Keyboard, KeyboardAvoidingView, Platform } from 'react-native'
 import { ScreenModal } from '@/components/ScreenModal'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { router, useFocusEffect } from 'expo-router'
 import { useTheme } from '@/context/theme'
-import { useFS, useInputFS } from '@/context/fontScale'
+import { useFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { OverlayHeader } from '@/components/ScreenHeader'
 import { Icon } from '@/components/Icon'
@@ -22,6 +22,7 @@ import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { resolveCallsignToUserId } from '@/lib/contactMatch'
+import { ContactSearchField } from '@/components/ContactSearchField'
 import { FindFriendsPickerBody } from '@/components/FindFriendsSheet'
 import { AvatarCircle } from '@/components/AvatarCircle'
 
@@ -44,7 +45,6 @@ export default function ChallengesScreen() {
   // See components/ConfirmDialog.tsx.
   const confirm = useConfirm()
   const fs = useFS()
-  const ifs = useInputFS()
   const { session, isPremium, loading: authLoading } = useAuth()
   const [challenges, setChallenges] = useState<MyChallenge[]>([])
   const [myStats, setMyStats] = useState<DuelStats | null>(null)
@@ -75,29 +75,6 @@ export default function ChallengesScreen() {
   const [step, setStep] = useState<'filters' | 'opponents' | 'findFriends'>('filters')
   const [opponents, setOpponents] = useState<ChallengeableUser[]>([])
   const [selectedOpponents, setSelectedOpponents] = useState<string[]>([])
-  // Callsign search, same debounced validate-as-you-type pattern already
-  // proven in the aircraft/folder Invite by Callsign flows.
-  const [newOppCallsign, setNewOppCallsign] = useState('')
-  const [callsignCheck, setCallsignCheck] = useState<'idle' | 'checking' | 'found' | 'not_found'>('idle')
-  useEffect(() => {
-    const trimmed = newOppCallsign.trim()
-    if (!trimmed) { setCallsignCheck('idle'); return }
-    setCallsignCheck('checking')
-    // `live`, not just clearTimeout: the cleanup cancels the TIMER but not an
-    // already-issued request. Emptying the field after the RPC fired left the
-    // resolved verdict overwriting the 'idle' reset, so a blank Callsign box
-    // showed a green "found" confirmation -- and on the Duels screen the
-    // submit is gated on callsignCheck === 'found', so a stale verdict decides
-    // whether the tap does anything. Same pattern AircraftFormFields.tsx
-    // already uses for its own debounced lookups.
-    let live = true
-    const t = setTimeout(() => {
-      resolveCallsignToUserId(trimmed)
-        .then((userId) => { if (live) setCallsignCheck(userId ? 'found' : 'not_found') })
-        .catch(() => { if (live) setCallsignCheck('idle') })
-    }, 400)
-    return () => { live = false; clearTimeout(t) }
-  }, [newOppCallsign])
   const [questionCount, setQuestionCount] = useState(5)
   const [activeTypes, setActiveTypes] = useState<DuelItemType[]>([])
   const [activeLevels, setActiveLevels] = useState<StudyLevel[]>([])
@@ -265,15 +242,20 @@ export default function ChallengesScreen() {
   // duelled before. Folded into the SAME list/selection state as the
   // existing opponents rather than a separate "new" section, so the cap
   // check and Start Duel button both just work unchanged.
-  const addOpponent = (userId: string, displayLabel: string) => {
+  const addOpponent = (
+    userId: string,
+    displayLabel: string,
+    avatarUrl: string | null = null,
+    avatarPreset: string | null = null,
+  ) => {
     if (selectedOpponents.length >= MAX_OPPONENTS && !selectedOpponents.includes(userId)) {
       confirm({ title: 'Duel is full', message: `Duels support up to ${MAX_OPPONENTS + 1} total participants.`, cancelLabel: null })
       return
     }
-    setOpponents((prev) => (prev.some((o) => o.userId === userId) ? prev : [...prev, { userId, displayLabel, avatarUrl: null, avatarPreset: null }]))
+    // The search already returned the avatar, so pass it through -- otherwise a
+    // just-added opponent renders as a blank circle beside everyone else's.
+    setOpponents((prev) => (prev.some((o) => o.userId === userId) ? prev : [...prev, { userId, displayLabel, avatarUrl, avatarPreset }]))
     setSelectedOpponents((prev) => (prev.includes(userId) ? prev : [...prev, userId]))
-    setNewOppCallsign('')
-    setCallsignCheck('idle')
     Keyboard.dismiss()
   }
 
@@ -758,29 +740,16 @@ export default function ChallengesScreen() {
                 sheet -- both feed the same addOpponent(), so a match from
                 either path just appears in the list below, pre-selected. */}
             <Text style={[styles.modalLabel, { color: tokens.t3, fontSize: fs(11) }]}>ADD SOMEONE NEW</Text>
-            <TextInput
-              value={newOppCallsign}
-              onChangeText={setNewOppCallsign}
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder="Their Callsign"
-              placeholderTextColor={tokens.t4}
-              style={[styles.inviteInput, { color: tokens.t1, borderColor: callsignCheck === 'not_found' ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
-              onSubmitEditing={() => {
-                if (callsignCheck === 'found') resolveCallsignToUserId(newOppCallsign.trim()).then((id) => id && addOpponent(id, newOppCallsign.trim())).catch(() => {})
-              }}
+            {/* RC, 2026-09-11: "some users may not know another's callsign, but
+                have their phone." This used to be a Callsign-only box, so a CFI
+                holding a student's number had no way to duel them. One field
+                now takes a callsign, a phone number or an email. */}
+            <ContactSearchField
+              placeholder="Callsign, phone, or email"
+              requireDuelReady
+              excludeUserIds={opponents.map((o) => o.userId)}
+              onSelect={(u) => addOpponent(u.userId, u.callsign ?? 'Pilot', u.avatarUrl, u.avatarPreset)}
             />
-            {callsignCheck === 'checking' && <Text style={{ color: tokens.t3, fontSize: fs(12.5), marginTop: 4 }}>Checking…</Text>}
-            {callsignCheck === 'not_found' && <Text style={{ color: tokens.red, fontSize: fs(12.5), marginTop: 4 }}>No FlyRegs user with this Callsign</Text>}
-            {callsignCheck === 'found' && (
-              <Pressable
-                style={[styles.addByCallsignBtn, { backgroundColor: tokens.goldlt, borderColor: tokens.goldbdr }]}
-                onPress={() => resolveCallsignToUserId(newOppCallsign.trim()).then((id) => id && addOpponent(id, newOppCallsign.trim())).catch(() => {})}
-              >
-                <Icon name="plus" size={fs(13)} color={tokens.gold} />
-                <Text style={{ color: tokens.gold, fontSize: fs(13), fontWeight: '700' }}>Add {newOppCallsign.trim()}</Text>
-              </Pressable>
-            )}
             <Pressable
               style={styles.findFriendsLink}
               hitSlop={10}
@@ -1052,12 +1021,7 @@ const styles = StyleSheet.create({
   },
   checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   opponentText: { fontWeight: '500', flex: 1 },
-  inviteInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontWeight: '600' },
   findFriendsLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 8, paddingVertical: 6 },
-  addByCallsignBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    borderRadius: 10, borderWidth: 1, paddingVertical: 9, marginTop: 8,
-  },
   createError: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     borderRadius: 12, borderWidth: 1, padding: 11, marginTop: 14,

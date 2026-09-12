@@ -196,6 +196,58 @@ export async function resolveCallsignToUserId(callsign: string): Promise<string 
   return data?.[0]?.out_user_id ?? null
 }
 
+/** One searchable contact, however they were found. */
+export interface InviteSearchResult {
+  userId: string
+  callsign: string | null
+  avatarUrl: string | null
+  avatarPreset: string | null
+  /** How the query matched -- lets the UI say "found by phone number". */
+  matchKind: 'callsign' | 'phone' | 'email'
+  /** Whether create_challenge will actually accept this person as an opponent:
+   *  leaderboard opt-in AND Premium, mirroring that function's own gate. It is
+   *  NOT about push preferences -- someone with duel notifications off can be
+   *  duelled fine, they just find out when they next open the app. Returned so
+   *  a caller can say WHY someone is unavailable instead of guessing; the old
+   *  Duels copy blamed "hasn't enabled Duel challenges", a setting that does
+   *  not exist. scripts/invite_search_audit.py fails if this ever drifts from
+   *  the real gate. */
+  duelReady: boolean
+}
+
+// RC, 2026-09-11: "we need the 'invite' search popup for all places (duels,
+// folders, a/c, etc) capable of searching everything in the one search bar --
+// Callsign, phone number, email... some users may not know another's callsign,
+// but have their phone."
+//
+// One call for all three. Phone formatting is handled server-side by
+// normalize_phone(), so "5551234567", "555-123-4567", "555 123 4567",
+// "(555) 123-4567" and "+1 555 123 4567" are all the same key -- the client
+// deliberately does NOT try to pre-format, because the normalising rule has to
+// match what is STORED, and that rule lives in the database.
+//
+// Email and phone are exact-match only, server-side, on purpose: a prefix
+// search over either is an enumeration oracle. A callsign is a public handle
+// (Ready Room already lists it) so prefixing that discloses nothing new.
+export async function searchUsersForInvite(query: string): Promise<InviteSearchResult[]> {
+  const q = query.trim()
+  if (q.length < 2) return []
+  const { data, error } = await supabase.rpc('find_users_for_invite', { p_query: q })
+  // Thrown, not swallowed into []: "nobody by that name" and "the lookup
+  // failed" are different answers, and showing the first when the second is
+  // true is how an invite silently looks impossible. See
+  // gotcha_error_discarded_returns_empty.md.
+  if (error) throw error
+  return (data ?? []).map((r: any) => ({
+    userId: r.user_id,
+    callsign: r.callsign ?? null,
+    avatarUrl: r.avatar_url ?? null,
+    avatarPreset: r.avatar_preset ?? null,
+    matchKind: r.match_kind,
+    duelReady: !!r.duel_ready,
+  }))
+}
+
 export interface VisibleUser {
   userId: string
   displayLabel: string

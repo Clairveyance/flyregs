@@ -55,7 +55,9 @@ import { BulkInviteContactPicker } from '@/components/BulkInviteContactPicker'
 import { FindFriendsPickerBody } from '@/components/FindFriendsSheet'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { sendCollaborationInvitePush } from '@/lib/notifications'
-import { resolveCallsignToUserId } from '@/lib/contactMatch'
+import { type InviteSearchResult } from '@/lib/contactMatch'
+import { ContactSearchField } from '@/components/ContactSearchField'
+import { AvatarCircle } from '@/components/AvatarCircle'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 
 // ── Unified entry for the mixed-content list ──────────────────────────────────
@@ -488,31 +490,17 @@ export default function FolderDetail() {
   // handing out a link anyone could redeem, which is what makes the
   // pending/greyed "INVITED" roster state below possible at all.
   const [callsignModalVisible, setCallsignModalVisible] = useState(false)
-  const [inviteCallsign, setInviteCallsign] = useState('')
+  // The invitee is now PICKED from ContactSearchField (callsign, phone or
+  // email) rather than typed as a raw callsign, so there is no verdict to
+  // debounce any more -- a row only exists because the server matched it.
+  // inviteCallsign stays the submit input: inviteCollaboratorByCallsign is
+  // unchanged, and a phone/email match hands back the callsign anyway, which
+  // is the whole point of the search (RC: "a way of learning callsigns of
+  // someone you may only have a number for").
+  const [invitee, setInvitee] = useState<InviteSearchResult | null>(null)
+  const inviteCallsign = invitee?.callsign ?? ''
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [callsignBusy, setCallsignBusy] = useState(false)
-  // Mirrors my-aircraft/[id].tsx's identical fix (RC, real device,
-  // 2026-08-15) -- see that file's comment for the full rationale.
-  const [callsignCheck, setCallsignCheck] = useState<'idle' | 'checking' | 'found' | 'not_found'>('idle')
-  useEffect(() => {
-    const trimmed = inviteCallsign.trim()
-    if (!trimmed) { setCallsignCheck('idle'); return }
-    setCallsignCheck('checking')
-    // `live`, not just clearTimeout: the cleanup cancels the TIMER but not an
-    // already-issued request. Emptying the field after the RPC fired left the
-    // resolved verdict overwriting the 'idle' reset, so a blank Callsign box
-    // showed a green "found" confirmation -- and on the Duels screen the
-    // submit is gated on callsignCheck === 'found', so a stale verdict decides
-    // whether the tap does anything. Same pattern AircraftFormFields.tsx
-    // already uses for its own debounced lookups.
-    let live = true
-    const t = setTimeout(() => {
-      resolveCallsignToUserId(trimmed)
-        .then((userId) => { if (live) setCallsignCheck(userId ? 'found' : 'not_found') })
-        .catch(() => { if (live) setCallsignCheck('idle') })
-    }, 400)
-    return () => { live = false; clearTimeout(t) }
-  }, [inviteCallsign])
   // BB-078: pick several contacts at once instead of sending the invite
   // link one person at a time via the plain OS share sheet.
   const [bulkInviteVisible, setBulkInviteVisible] = useState(false)
@@ -610,7 +598,7 @@ export default function FolderDetail() {
 
   const openCallsignInvite = () => {
     if (!isPremium) { if (!authLoading) router.push('/paywall?tier=premium'); return }
-    setInviteCallsign('')
+    setInvitee(null)
     setInviteError(null)
     setFindFriendsStep(false)
     setCallsignModalVisible(true)
@@ -1230,7 +1218,13 @@ export default function FolderDetail() {
               <View style={{ maxHeight: 420 }}>
                 <FindFriendsPickerBody
                   onClose={() => setFindFriendsStep(false)}
-                  onSelect={(callsign) => { setInviteCallsign(callsign); setInviteError(null); setFindFriendsStep(false) }}
+                  onSelect={(callsign) => {
+                    // Contacts matching resolves to a callsign, not a full
+                    // search row; the rest of the row is unused by submit.
+                    setInvitee({ userId: '', callsign, avatarUrl: null, avatarPreset: null, matchKind: 'callsign', duelReady: false })
+                    setInviteError(null)
+                    setFindFriendsStep(false)
+                  }}
                 />
               </View>
             ) : (
@@ -1239,28 +1233,42 @@ export default function FolderDetail() {
                   <Pressable onPress={() => setCallsignModalVisible(false)} hitSlop={10}>
                     <Text style={{ color: tokens.t3, fontSize: fs(14.5) }}>Cancel</Text>
                   </Pressable>
-                  <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Invite by Callsign</Text>
-                  <Pressable onPress={submitCallsignInvite} hitSlop={10} disabled={callsignBusy || callsignCheck !== 'found'}>
+                  <Text style={[styles.modalTitle, { color: tokens.t1, fontSize: fs(16) }]}>Invite a Pilot</Text>
+                  <Pressable onPress={submitCallsignInvite} hitSlop={10} disabled={callsignBusy || !invitee}>
                     {callsignBusy ? <ActivityIndicator color={tokens.blu} /> : (
-                      <Text style={{ color: callsignCheck === 'found' ? tokens.blu : tokens.t4, fontWeight: '700', fontSize: fs(14.5) }}>Invite</Text>
+                      <Text style={{ color: invitee ? tokens.blu : tokens.t4, fontWeight: '700', fontSize: fs(14.5) }}>Invite</Text>
                     )}
                   </Pressable>
                 </View>
                 <Text style={{ color: tokens.t3, fontSize: fs(13) }}>
-                  Their Callsign, exactly as it appears in FlyRegs. They'll need their own Premium subscription and a Callsign set to join.
+                  Search by Callsign, phone number, or email. They'll need their own
+                  Premium subscription and a Callsign set to join.
                 </Text>
-                <TextInput
-                  value={inviteCallsign}
-                  onChangeText={setInviteCallsign}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholder="Callsign"
-                  placeholderTextColor={tokens.t4}
-                  style={[styles.inviteInput, { color: tokens.t1, borderColor: inviteError || callsignCheck === 'not_found' ? tokens.red : tokens.bdr, fontSize: ifs(15) }]}
-                />
-                {callsignCheck === 'checking' && <Text style={{ color: tokens.t3, fontSize: fs(12.5) }}>Checking…</Text>}
-                {callsignCheck === 'found' && <Text style={{ color: tokens.grn, fontSize: fs(12.5) }}>Callsign found</Text>}
-                {callsignCheck === 'not_found' && <Text style={{ color: tokens.red, fontSize: fs(12.5) }}>No FlyRegs user with this Callsign</Text>}
+                {invitee ? (
+                  // Picked. Show who, and an obvious way back to the search --
+                  // a chosen name that can't be un-chosen is how people end up
+                  // cancelling the whole modal to fix a mis-tap.
+                  <View style={[styles.inviteeRow, { borderColor: tokens.bdr, backgroundColor: tokens.bg2 }]}>
+                    <AvatarCircle
+                      imageUri={invitee.avatarUrl}
+                      presetId={invitee.avatarPreset}
+                      fallbackLabel={invitee.callsign ?? '?'}
+                      size={fs(30)}
+                    />
+                    <Text style={{ color: tokens.t1, fontSize: fs(14.5), fontWeight: '600', flex: 1 }} numberOfLines={1}>
+                      {invitee.callsign}
+                    </Text>
+                    <Pressable onPress={() => { setInvitee(null); setInviteError(null) }} hitSlop={10}>
+                      <Icon name="xmark.circle.fill" size={fs(18)} color={tokens.t4} />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <ContactSearchField
+                    requireCallsign
+                    excludeUserIds={collaborators.map((c) => c.userId)}
+                    onSelect={(u) => { setInvitee(u); setInviteError(null); Keyboard.dismiss() }}
+                  />
+                )}
                 {inviteError && <Text style={{ color: tokens.red, fontSize: fs(12.5) }}>{inviteError}</Text>}
                 <Pressable
                   style={styles.findFriendsLink}
@@ -1626,7 +1634,10 @@ const styles = StyleSheet.create({
   modalCard: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, padding: 18, gap: 10 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   modalTitle: { fontWeight: '700' },
-  inviteInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontWeight: '600' },
+  inviteeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+  },
   findFriendsLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 4, paddingVertical: 6 },
   collabRow: {
     flexDirection: 'row',

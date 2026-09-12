@@ -137,6 +137,14 @@ run_one "preference_integrity (nothing but the user changes a user setting)" \
 # fixed" could never be verified.
 run_one "push_receipts (a sender must learn whether the push arrived)" \
   python3 scripts/push_receipt_audit.py
+# The invite search predicts whether someone can be duelled so the list can
+# grey them out. The first version predicted it from a PUSH preference and from
+# has_pro_access (pro OR premium) while the real gate is leaderboard opt-in AND
+# premium -- wrong in both directions at once, including on RC's own account.
+# Also proves email/phone stay exact-match: a prefix search over either turns
+# one lookup into a sweep of the userbase.
+run_one "invite_search (duel_ready matches the real gate; no enumeration)" \
+  python3 scripts/invite_search_audit.py
 run_one "modal_escape (no modal swallows its own dismiss gesture)" python3 scripts/modal_escape_audit.py
 run_one "study_explanation_fallback (every answer says something)" node scripts/study_explanation_fallback_test.cjs
 run_one "eas_build_hook_audit (Sentry commit association really fires)" python3 scripts/eas_build_hook_audit.py
