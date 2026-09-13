@@ -5,7 +5,7 @@ import { router, usePathname } from 'expo-router'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
-import { getSubscriptionStatus, syncEntitlements } from '@/lib/revenuecat'
+import { getSubscriptionStatus, getEntitlementGrace, syncEntitlements } from '@/lib/revenuecat'
 import { Icon } from '@/components/Icon'
 import { getFleetHiddenCount, getFleetVisibleCap, getOwnedAircraftOldestFirst, keepOnlyAircraft } from '@/lib/aircraftSharing'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
@@ -29,6 +29,39 @@ import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
 // protection in those cases of temp lapsed payment, etc." Nothing is
 // deleted and nothing is auto-picked while it waits -- re-subscribing
 // dismisses it with every aircraft untouched.
+// RC, 2026-09-12, on his iPad: "i was getting a whole popup about my a/c
+// count... i couldn't really do anything, then it locked up."
+//
+// Measured on a 360x780 screen with this file's own style values: the cap-0
+// card is 742pt at default Text Size with 4 aircraft (10pt over the 732pt the
+// scrim leaves), 918pt at Text Size 1.3x and 1266pt at 1.75x. The scrim only
+// CENTERS the card, and only the inner aircraft list scrolled -- so past that
+// point the title clipped off the top and "Not now", the sole non-destructive
+// exit, sat 46pt (1.3x) to 220pt (1.75x) BELOW the screen with no way to
+// scroll to it. The two remaining reachable controls were the paywall and
+// Delete All. That is the lockup, and it is why it reads fine on a short list
+// at default text size and traps someone who has raised their font.
+//
+// Same defect ConfirmDialog.tsx had (an unbounded choice list pushing its own
+// title and Cancel off-screen), in a second component. The card is now bounded
+// by the viewport and scrolls as one piece, so every control is reachable at
+// any Text Size and any fleet size. `modal_card_bounded_audit.py` now guards
+// the shape corpus-wide rather than leaving it to be found a third time.
+function GateCard({ children, borderColor, tokens }: { children: React.ReactNode; borderColor: string; tokens: any }) {
+  return (
+    <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor }]}>
+      <ScrollView
+        contentContainerStyle={styles.cardContent}
+        showsVerticalScrollIndicator
+        // Let a tap on a button still register while the list is scrollable.
+        keyboardShouldPersistTaps="handled"
+      >
+        {children}
+      </ScrollView>
+    </View>
+  )
+}
+
 export function AircraftDowngradeGate() {
   const { tokens } = useTheme()
   const fs = useFS()
@@ -139,10 +172,34 @@ export function AircraftDowngradeGate() {
       const live = await getSubscriptionStatus()
       const storeSaysEntitled =
         live.ok && (live.isPremium || (live.isPro && owned.length <= 1))
-      if (storeSaysEntitled) {
+
+      // SECOND VETO -- between billing periods is not the same as gone.
+      //
+      // RC, 2026-09-12, iPad: "my ipad prompted me to 'add' Prem today, even
+      // though my iphone (same account) already had it... that could turn into
+      // double billling." He opened the app at 18:07 UTC; his subscription's
+      // next period started at 18:09. For those two minutes he held a paid,
+      // auto-renewing subscription with no ACTIVE entitlement, so the veto
+      // above -- which reads only entitlements.active -- had nothing to veto
+      // with, and a paying customer was shown a delete-your-fleet ultimatum
+      // and a purchase button.
+      //
+      // A real user sits in that window far longer: Apple retries a failed
+      // card for up to 60 days. getEntitlementGrace reads entitlements.ALL,
+      // which keeps the expired record and the reason it ended, so a billing
+      // issue or a renewal in flight suppresses this modal while a deliberate
+      // cancellation still triggers it normally.
+      //
+      // Costs nothing to be generous: over-cap aircraft are already hidden by
+      // the RLS cap, so this modal is presentation only (see check()'s comment
+      // above). Withholding it from someone genuinely lapsed loses nothing;
+      // showing it to someone who paid is the bug.
+      const grace = await getEntitlementGrace()
+      if (storeSaysEntitled || grace.inGrace) {
         console.warn(
           '[DowngradeGate] server says cap=' + visibleCap + ' with ' + owned.length +
           ' owned, but the store says premium=' + live.isPremium + ' pro=' + live.isPro +
+          (grace.inGrace ? ' (in grace: ' + grace.reason + ')' : '') +
           ' -- suppressing the gate and re-syncing entitlements.'
         )
         syncEntitlements()
@@ -223,7 +280,7 @@ export function AircraftDowngradeGate() {
             back into view. Same fix as ConfirmDialog.tsx's own requireTyped
             case. */}
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.scrim}>
-          <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.red }]}>
+          <GateCard borderColor={tokens.red} tokens={tokens}>
             <Icon name="exclamationmark.triangle" size={fs(26)} color={tokens.red} />
             <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>
               {pending ? `Keep ${label(pending)} only?` : `Delete all ${going.length} aircraft?`}
@@ -293,7 +350,7 @@ export function AircraftDowngradeGate() {
                 </Pressable>
               </>
             )}
-          </View>
+          </GateCard>
         </KeyboardAvoidingView>
         <LongPressPreviewCard
           preview={preview}
@@ -313,7 +370,7 @@ export function AircraftDowngradeGate() {
     return (
       <ScreenModal visible transparent animationType="fade" onRequestClose={() => setDismissed(true)}>
         <View style={styles.scrim}>
-          <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.gold }]}>
+          <GateCard borderColor={tokens.gold} tokens={tokens}>
             <Icon name="airplane" size={fs(26)} color={tokens.gold} />
             <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>
               Your plan doesn't include Aircraft Manager
@@ -334,7 +391,7 @@ export function AircraftDowngradeGate() {
               <Text style={[styles.primaryBtnText, { color: tokens.gold, fontSize: fs(14.5) }]}>Upgrade to Pro (keep 1)</Text>
             </Pressable>
 
-            <ScrollView style={styles.list} contentContainerStyle={{ gap: 8 }}>
+            <View style={styles.list}>
               {locked.map((a) => (
                 <View key={a.aircraftId} style={[styles.row, { borderColor: tokens.bdr }]}>
                   <Icon name="airplane" size={fs(13)} color={tokens.t3} />
@@ -350,7 +407,7 @@ export function AircraftDowngradeGate() {
                   </Pressable>
                 </View>
               ))}
-            </ScrollView>
+            </View>
 
             <Pressable
               style={[styles.primaryBtn, { backgroundColor: tokens.red, marginTop: 8 }]}
@@ -365,7 +422,7 @@ export function AircraftDowngradeGate() {
             <Pressable onPress={() => setDismissed(true)} hitSlop={8} style={{ marginTop: 4 }}>
               <Text style={[styles.cancelText, { color: tokens.t3, fontSize: fs(13.5) }]}>Not now</Text>
             </Pressable>
-          </View>
+          </GateCard>
         </View>
         <LongPressPreviewCard
           preview={preview}
@@ -380,7 +437,7 @@ export function AircraftDowngradeGate() {
   return (
     <ScreenModal visible transparent animationType="fade" onRequestClose={() => setDismissed(true)}>
       <View style={styles.scrim}>
-        <View style={[styles.card, { backgroundColor: tokens.bg2, borderColor: tokens.gold }]}>
+        <GateCard borderColor={tokens.gold} tokens={tokens}>
           <Icon name="airplane" size={fs(26)} color={tokens.gold} />
           <Text style={[styles.title, { color: tokens.t1, fontSize: fs(17) }]}>
             Choose the aircraft you keep
@@ -402,7 +459,7 @@ export function AircraftDowngradeGate() {
             <Text style={[styles.primaryBtnText, { fontSize: fs(14.5) }]}>Stay with Premium</Text>
           </Pressable>
 
-          <ScrollView style={styles.list} contentContainerStyle={{ gap: 8 }}>
+          <View style={styles.list}>
             {locked.map((a) => (
               <Pressable
                 key={a.aircraftId}
@@ -422,7 +479,7 @@ export function AircraftDowngradeGate() {
                 <Text style={[styles.rowAction, { color: tokens.blu, fontSize: fs(12.5) }]}>Keep this</Text>
               </Pressable>
             ))}
-          </ScrollView>
+          </View>
 
           <Text style={[styles.footnote, { color: tokens.t4, fontSize: fs(11.5), lineHeight: fs(11.5) * 1.39 }]}>
             Nothing is deleted until you choose. Your aircraft stay locked, not lost — resubscribing restores all of them.
@@ -430,7 +487,7 @@ export function AircraftDowngradeGate() {
           <Pressable onPress={() => setDismissed(true)} hitSlop={8} style={{ marginTop: 4 }}>
             <Text style={[styles.cancelText, { color: tokens.t3, fontSize: fs(13.5) }]}>Not now</Text>
           </Pressable>
-        </View>
+        </GateCard>
       </View>
       <LongPressPreviewCard
         preview={preview}
@@ -458,8 +515,12 @@ const styles = StyleSheet.create({
   errorText: { textAlign: 'center', marginTop: 4 },
   card: {
     width: '100%', maxWidth: 380, borderRadius: 18, borderWidth: 1,
-    padding: 22, alignItems: 'center', gap: 10,
+    // Bounded by the scrim, which is the viewport minus its own padding. The
+    // card used to have no cap at all, so it simply grew past the screen and
+    // took its own dismiss control with it.
+    maxHeight: '100%',
   },
+  cardContent: { padding: 22, alignItems: 'center', gap: 10 },
   title: { fontWeight: '700', textAlign: 'center' },
   // lineHeight NOT set here -- always overridden inline with fs(13.5) * 1.41
   // (StyleSheet.create is module-scope, fs() is a hook), same
@@ -467,7 +528,12 @@ const styles = StyleSheet.create({
   body: { textAlign: 'center' },
   primaryBtn: { borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12, marginTop: 4 },
   primaryBtnText: { color: '#000', fontWeight: '700' },
-  list: { alignSelf: 'stretch', maxHeight: 240, marginTop: 4 },
+  // Plain stretch, no maxHeight and no scroller of its own: the CARD scrolls
+  // now, and a second vertical ScrollView nested inside it would fight the
+  // outer one for the same gesture. A long fleet simply makes the card's own
+  // scroll longer, which also puts Delete All further from the thumb -- no
+  // bad thing for an irreversible action.
+  list: { alignSelf: 'stretch', marginTop: 4, gap: 8 },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 9,
     borderRadius: 10, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 12,

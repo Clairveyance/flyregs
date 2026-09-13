@@ -29,6 +29,12 @@ from datetime import datetime, timezone
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE = os.path.join(BASE, "scripts", ".sentry_watch_state.json")
 
+# Screen-open budget, ms. A screen open over this is worth looking at.
+# Overridable from the command line so a change to the detector can be PROVED
+# to have narrowed it rather than silenced it: drop it to 500 and every real
+# row must still fire.
+SLOW_MS = 2000
+
 
 def load_env(name):
     env = {}
@@ -198,7 +204,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", default="14d", help="stats period (24h or 14d)")
     ap.add_argument("--no-save", action="store_true", help="do not update the state file")
+    ap.add_argument("--slow-ms", type=float, default=SLOW_MS,
+                    help="screen-open budget in ms (default 2000)")
     args = ap.parse_args()
+    slow_ms = args.slow_ms
 
     if not TOKEN:
         print("SENTRY: no token in .env.sentry -- cannot run", file=sys.stderr)
@@ -337,8 +346,18 @@ def main():
     # `!device.simulator:true` on purpose: the negated form also keeps rows
     # where the field is null, which is how child spans arrive, so it would
     # let simulator traffic back in the moment the field stops propagating.
+    #
+    # p50 IS READ ALONGSIDE p95 SO ONE BAD LAUNCH CANNOT MASQUERADE AS A
+    # REGRESSION. With n=8 samples, p95 IS essentially the max, so a single
+    # slow open becomes the headline. On 2026-09-12 `__root` reported p95
+    # 7,417 ms while p50 was 685 ms: one warm start on RC's phone spent 6.5 s
+    # in pre-main native time (before UIKit init, before any JS), and every
+    # other phase of that same launch dilated proportionally -- a device that
+    # was globally slow for a moment, not a code path that got slower. p50
+    # separates "every open is slow" from "one open was slow". BOTH still
+    # become findings; the classification changes the words, never the alarm.
     q = urllib.parse.urlencode({
-        "field": ["transaction", "count()", "p95(span.duration)"],
+        "field": ["transaction", "count()", "p50(span.duration)", "p95(span.duration)"],
         "statsPeriod": args.days,
         "query": "is_transaction:true device.simulator:false",
         "dataset": "spans",
@@ -349,7 +368,7 @@ def main():
     perf = api(f"/organizations/{ORG}/events/?{q}")
     failed = isinstance(perf, dict) and "_err" in perf
     rows = [] if failed else (perf.get("data", []) if isinstance(perf, dict) else [])
-    print("  slowest screen opens (p95, physical devices only):")
+    print("  slowest screen opens (physical devices only):")
     if failed:
         # An errored query returns no rows too. Reporting that as "no
         # performance data" would blame the app for a broken API call.
@@ -395,11 +414,26 @@ def main():
             findings.append("no performance data despite an instrumented build — tracing is broken")
     else:
         for r in rows:
+            p50 = r.get("p50(span.duration)") or 0
             p95 = r.get("p95(span.duration)") or 0
-            flag = "   <-- SLOW" if p95 > 2000 else ""
-            print(f"    {str(r.get('transaction'))[:44]:<46} n={r.get('count()'):<5} p95={p95:>8.0f} ms{flag}")
-            if p95 > 2000:
-                findings.append(f"{r.get('transaction')} p95 {p95:.0f}ms")
+            name = str(r.get("transaction"))
+            n = r.get("count()") or 0
+            # p50 over the threshold means the TYPICAL open is slow -- that is
+            # the regression this watcher exists to catch. p50 under it with
+            # p95 over means only the tail is slow: still reported, still
+            # exit 1, but named an outlier so a one-off device hiccup is not
+            # mistaken for the app getting slower.
+            if p50 > slow_ms:
+                flag, finding = "   <-- SLOW", f"{name} p50 {p50:.0f}ms (typical open is slow)"
+            elif p95 > slow_ms:
+                flag, finding = "   <-- SLOW TAIL", (
+                    f"{name} p95 {p95:.0f}ms on n={n:.0f} but p50 {p50:.0f}ms "
+                    "— tail only, check whether it repeats")
+            else:
+                flag, finding = "", None
+            print(f"    {name[:36]:<38} n={n:<5.0f} p50={p50:>7.0f}  p95={p95:>7.0f} ms{flag}")
+            if finding:
+                findings.append(finding)
     print()
 
     state["seen"] = seen

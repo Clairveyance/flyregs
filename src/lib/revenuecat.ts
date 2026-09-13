@@ -103,6 +103,68 @@ export async function getSubscriptionStatus(retries = 3): Promise<SubscriptionSt
   return { isPro: false, isPremium: false, isUnlocked: false, ok: false }
 }
 
+// Is this account merely BETWEEN billing periods, rather than actually gone?
+//
+// RC, 2026-09-12, on his iPad: "my ipad prompted me to 'add' Prem today, even
+// though my iphone (same account) already had it... that could turn into
+// double billling." He opened the app at 18:07 UTC; his subscription's next
+// period began at 18:09 UTC. For those two minutes he owned a paid,
+// auto-renewing subscription that had no ACTIVE entitlement, because
+// entitlements.active (the only thing statusFromCustomerInfo reads) contains
+// exactly what is live at this instant and nothing about what is mid-renewal.
+//
+// A real user hits the same window for much longer and much more often:
+//   * Apple billing retry -- up to 60 days of the store re-attempting a card
+//     that failed. billingIssueDetectedAt is set; the customer has not left.
+//   * A renewal in flight, or a receipt that has not refreshed yet.
+// In all of those the person is a paying customer, and telling them to delete
+// their aircraft or buy again is both wrong and the one path that could lead
+// to paying twice.
+//
+// Reading entitlements.all rather than .active is what makes the difference
+// visible: .all keeps the expired record, with WHY it ended.
+//
+// Deliberate cancellation is NOT covered, and must not be: unsubscribeDetectedAt
+// means the user turned auto-renew off themselves and let it run out. That is a
+// real downgrade and the gate should fire for it normally.
+export interface EntitlementGrace {
+  /** False when RevenueCat could not be reached at all -- never "no grace". */
+  ok: boolean
+  /** A paid tier that ended for a reason that is not the user leaving. */
+  inGrace: boolean
+  reason: 'billing_issue' | 'recently_expired' | null
+}
+
+// 16 days matches Apple's own maximum billing grace period. Erring long is
+// safe here and erring short is not: AircraftDowngradeGate is presentation
+// only -- over-cap aircraft are already hidden by the RLS cap, so suppressing
+// the modal withholds nothing from a genuinely lapsed account, while showing
+// it to a paying one is the failure being fixed.
+const GRACE_WINDOW_MS = 16 * 24 * 60 * 60 * 1000
+
+export async function getEntitlementGrace(): Promise<EntitlementGrace> {
+  try {
+    const customerInfo = await Purchases.getCustomerInfo()
+    const all: Record<string, any> = customerInfo.entitlements.all ?? {}
+    const now = Date.now()
+    for (const id of [ENTITLEMENT_PREMIUM, ENTITLEMENT_PRO]) {
+      const ent = all[id]
+      if (!ent || ent.isActive) continue
+      if (ent.billingIssueDetectedAt) return { ok: true, inGrace: true, reason: 'billing_issue' }
+      // They chose to leave: a real downgrade, let the gate do its job.
+      if (ent.unsubscribeDetectedAt) continue
+      const expired = ent.expirationDate ? Date.parse(ent.expirationDate) : NaN
+      if (!Number.isNaN(expired) && now - expired < GRACE_WINDOW_MS) {
+        return { ok: true, inGrace: true, reason: 'recently_expired' }
+      }
+    }
+    return { ok: true, inGrace: false, reason: null }
+  } catch {
+    // Same rule as getSubscriptionStatus: a failed read is not an answer.
+    return { ok: false, inGrace: false, reason: null }
+  }
+}
+
 export interface SubscriptionDetails {
   tier: 'free' | 'pro' | 'premium'
   plan: 'monthly' | 'annual' | null

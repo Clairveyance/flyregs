@@ -81,6 +81,59 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatus & { ok
   }
 }
 
+// Parity with the native getEntitlementGrace (added 2026-09-12). The web build
+// has no store receipt at all, so there is no billing state to be in the middle
+// of -- whatever ?tier= says is the whole truth here. `ok: true` with
+// inGrace:false is therefore the honest answer, not a stub: it lets the
+// downgrade gate behave in the web preview exactly as the selected tier says it
+// should, which is what makes the preview useful for testing that gate.
+//
+// This file must gain an export whenever the native one does. See
+// getSubscriptionStatus above: when that gained `ok` and this did not, every
+// guard in auth.tsx silently failed and the entire web build read as Free.
+// tsc cannot catch it -- it resolves '@/lib/revenuecat' to the native file.
+// The three real store actions, and the product-id map they key off.
+//
+// These are imported by paywall.tsx and account.tsx from '@/lib/revenuecat',
+// which Metro resolves to THIS file on web -- so their absence here was not a
+// no-op, it was `undefined is not a function` the moment anyone tapped
+// Subscribe or Restore Purchases in the web preview. Found by
+// scripts/web_shim_parity_audit.py, which exists because this exact class of
+// gap already shipped once (see getSubscriptionStatus's `ok` flag above).
+export const PRODUCT_IDS = {
+  pro_monthly:     'com.clairveyance.flyregs.pro_monthly',
+  pro_annual:      'com.clairveyance.flyregs.pro_annual',
+  premium_monthly: 'com.clairveyance.flyregs.premium_monthly',
+  premium_annual:  'com.clairveyance.flyregs.premium_annual',
+  unlock:          'com.clairveyance.flyregs.unlock',
+} as const
+
+// There is no App Store on web, so a purchase genuinely cannot happen. Throwing
+// a plain-language error is the honest outcome: paywall.tsx already renders a
+// thrown message inline, so the preview shows why instead of a dead button or a
+// silent success that would make the gate look broken. Use ?tier= to move
+// between tiers in the preview -- that is what it is for.
+export async function purchaseSubscription(): Promise<SubscriptionStatus> {
+  throw new Error('Purchases are only available in the iOS app. Use ?tier= to change tier in the web preview.')
+}
+
+export async function purchaseUnlock(): Promise<SubscriptionStatus> {
+  throw new Error('Purchases are only available in the iOS app. Use ?tier= to change tier in the web preview.')
+}
+
+// Restore is safe to answer for real: it reports what this preview session is
+// entitled to, which is exactly what ?tier= says. account.tsx shows "Purchases
+// Restored" or "Nothing to Restore" off this, and both branches are worth being
+// able to see in the preview.
+export async function restorePurchases(): Promise<SubscriptionStatus> {
+  const { isPro, isPremium, isUnlocked } = await getSubscriptionStatus()
+  return { isPro, isPremium, isUnlocked }
+}
+
+export async function getEntitlementGrace(): Promise<{ ok: boolean; inGrace: boolean; reason: 'billing_issue' | 'recently_expired' | null }> {
+  return { ok: true, inGrace: false, reason: null }
+}
+
 export async function getSubscriptionDetails(): Promise<SubscriptionDetails> {
   const tier = currentTier()
   return {

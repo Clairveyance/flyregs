@@ -94,6 +94,18 @@ export function ContactSearchField({
     return () => clearTimeout(t)
   }, [query, excludeUserIds.join(',')])
 
+  // RC: finding someone by a number you already have is how you learn their
+  // callsign -- and, since 2026-09-12, the rest of their details too ("yes make
+  // it reciprocal"). Show the detail they did NOT search by: someone who typed a
+  // phone number already has the phone number, so the useful new fact is the
+  // email, and vice versa. Only opted-in users reach this list at all.
+  const detail = (r: InviteSearchResult) => {
+    if (r.matchKind === 'phone') return r.email
+    if (r.matchKind === 'email') return r.phoneNumber
+    // Matched by callsign: they already have the handle, so lead with whichever
+    // contact detail exists.
+    return r.phoneNumber || r.email
+  }
   const hint = (r: InviteSearchResult) =>
     r.matchKind === 'phone' ? 'matched by phone number'
     : r.matchKind === 'email' ? 'matched by email'
@@ -166,9 +178,11 @@ export function ContactSearchField({
               <Text style={{ color: tokens.t1, fontSize: fs(14.5), fontWeight: '600' }} numberOfLines={1}>
                 {r.callsign ?? 'Pilot'}
               </Text>
-              {/* RC: finding someone by a number you already have is how you
-                  learn their callsign. Saying WHICH field matched makes that
-                  explicit rather than leaving the user to guess. */}
+              {detail(r) ? (
+                <Text style={{ color: tokens.t2, fontSize: fs(11.5) }} numberOfLines={1}>
+                  {detail(r)}
+                </Text>
+              ) : null}
               {hint(r) ? (
                 <Text style={{ color: tokens.t3, fontSize: fs(11.5) }}>{hint(r)}</Text>
               ) : null}

@@ -1803,7 +1803,7 @@ export default function AircraftDetailScreen() {
                   onSelect={(callsign) => {
                     // Contacts matching resolves to a callsign, not a full
                     // search row; the rest of the row is unused by submit.
-                    setInvitee({ userId: '', callsign, avatarUrl: null, avatarPreset: null, matchKind: 'callsign', duelReady: false })
+                    setInvitee({ userId: '', callsign, avatarUrl: null, avatarPreset: null, matchKind: 'callsign', duelReady: false, email: null, phoneNumber: null })
                     setInviteError(null)
                     setShareStep('callsign')
                   }}

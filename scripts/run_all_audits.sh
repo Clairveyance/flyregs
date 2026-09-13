@@ -126,6 +126,16 @@ run_one "keyboard_avoidance (no modal hides its own input under the keyboard)" p
 run_one "modal_primary_action (no modal scrolls its own primary action away)" python3 scripts/modal_primary_action_reachability_audit.py
 # And this one proves the modal GOES AWAY when its screen does.
 run_one "screen_modal (no modal outlives the screen that opened it)" python3 scripts/screen_modal_audit.py
+# And this one proves the card FITS. Pinning a button inside an unbounded card
+# does not make it reachable -- it just moves where it goes off-screen. RC's
+# iPad, 2026-09-12: the aircraft downgrade gate's card ran 918pt at Text Size
+# 1.3x on a 732pt scrim, putting its only non-destructive exit below the screen.
+run_one "modal_card_bounded (a modal card must fit the screen)" \
+  python3 scripts/modal_card_bounded_audit.py
+# Metro serves foo.web.ts on web; tsc only ever reads foo.ts. An export added to
+# one and not the other cannot fail the typecheck, only the web build.
+run_one "web_shim_parity (.web shims export what their native sibling does)" \
+  python3 scripts/web_shim_parity_audit.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what

@@ -204,6 +204,19 @@ export interface InviteSearchResult {
   avatarPreset: string | null
   /** How the query matched -- lets the UI say "found by phone number". */
   matchKind: 'callsign' | 'phone' | 'email'
+  /**
+   * RC, 2026-09-12: "yes make it reciprocal." Per his original spec, a user who
+   * opted in to being findable discloses the REST of their contact info to
+   * anyone who matched them -- so finding someone by the phone number you
+   * already have also tells you their callsign and email, which is the whole
+   * point ("a way of learning callsigns of someone you may only have a number
+   * for"). Only ever populated for opted-in users, and only reachable by an
+   * EXACT email/phone match, so it confirms someone you already have an
+   * identifier for -- it cannot be swept. Guarded by invite_search_audit.py.
+   */
+  email: string | null
+  /** As the user typed it -- "(555) 867-5309", not normalize_phone's digits. */
+  phoneNumber: string | null
   /** Whether create_challenge will actually accept this person as an opponent:
    *  leaderboard opt-in AND Premium, mirroring that function's own gate. It is
    *  NOT about push preferences -- someone with duel notifications off can be
@@ -245,6 +258,8 @@ export async function searchUsersForInvite(query: string): Promise<InviteSearchR
     avatarPreset: r.avatar_preset ?? null,
     matchKind: r.match_kind,
     duelReady: !!r.duel_ready,
+    email: r.email ?? null,
+    phoneNumber: r.phone_number ?? null,
   }))
 }
 
