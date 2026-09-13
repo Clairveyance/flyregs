@@ -25,6 +25,7 @@ import {
   getMyPendingAircraftInvites,
   joinSharedAircraft,
   leaveSharedAircraft,
+  getFleetHiddenCount,
   type FleetAircraftSummary,
   type PendingAircraftInvite,
 } from '@/lib/aircraftSharing'
@@ -1816,6 +1817,23 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
   // legitimately be sitting on more saved aircraft than the Pro cap allows.
   const aircraftCap = aircraftCapForTier(isPro, isPremium)
   const atProCap = aircraft.length >= aircraftCap
+
+  // Aircraft the tier cap is hiding. AircraftDowngradeGate's blocking modal
+  // normally covers this screen whenever this is non-zero, which is why the
+  // "you have hidden aircraft" copy was removed from the cap card below.
+  // That stopped being true on 2026-09-12: the gate now suppresses itself
+  // while a subscription is merely between billing periods or in Apple's
+  // billing retry, so a paying customer isn't told to delete their fleet over
+  // a renewal gap. Without something here, those users would instead see an
+  // empty My Aircraft with no explanation at all -- a silent loss, which is
+  // worse than the ultimatum it replaced. This banner is the explanation, and
+  // it is non-blocking: it sits in the list rather than over it.
+  const [hiddenCount, setHiddenCount] = useState(0)
+  useEffect(() => {
+    let live = true
+    getFleetHiddenCount().then((n) => { if (live) setHiddenCount(n) }).catch(() => {})
+    return () => { live = false }
+  }, [aircraft.length, aircraftCap])
   const totalOpenAds = aircraft.reduce((sum, a) => sum + a.openAdCount, 0)
   // See overdueByAircraft's own comment: the locally-computed count wins
   // wherever we actually have one, so every overdue number on this screen
@@ -2148,6 +2166,19 @@ export function MyAircraftBody({ embedded = false, onClose }: { embedded?: boole
                   trailing label was explaining a fact with no alternative
                   to distinguish it from, moved into the intro popup above
                   instead of staying permanently on screen. */}
+              {hiddenCount > 0 ? (
+                <View style={[styles.hiddenBanner, { backgroundColor: tokens.bg2, borderColor: tokens.gold }]}>
+                  <Icon name="lock" size={fs(14)} color={tokens.gold} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: tokens.t1, fontSize: fs(13), fontWeight: '700' }}>
+                      {hiddenCount === 1 ? '1 aircraft is hidden' : `${hiddenCount} aircraft are hidden`}
+                    </Text>
+                    <Text style={{ color: tokens.t3, fontSize: fs(12), lineHeight: fs(12) * 1.4 }}>
+                      Nothing has been deleted. They come back as soon as your plan covers them.
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
               <Text style={[styles.aircraftSectionTitle, { color: tokens.t3, fontSize: fs(11.5) }]}>AIRCRAFT</Text>
               <View style={[styles.list, { backgroundColor: tokens.bg2, borderColor: tokens.bdr }]}>
                 {sortedAircraft.map((a, i) => {
@@ -2541,6 +2572,10 @@ const styles = StyleSheet.create({
   keepRowAction: { fontWeight: '700' },
   capFootnote: { marginTop: 2 },
 
+  hiddenBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 12,
+  },
   capCard: {
     borderRadius: 16, borderWidth: 1, padding: 20, marginTop: 20,
     alignItems: 'center', gap: 10,

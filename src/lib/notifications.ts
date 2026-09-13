@@ -602,71 +602,26 @@ export async function isDuelNotificationsEnabled(userId: string): Promise<boolea
   return (data?.length ?? 0) > 0
 }
 
-// Invite by Callsign (aircraft + folder) -- mirrors sendDuelPush's exact
-// shape (own RPC that resolves the actor's callsign label server-side +
-// direct Expo push call, no server-side trigger). RC (real device,
-// 2026-08-15): a callsign invite already resolves to a real user server-side
-// via inviteCollaboratorByCallsign, but used to fall back to the OS share
-// sheet anyway -- "it shouldn't do that at all, with a callsign, that an
-// inside-FR feature and should simply locate the user with that callsign and
-// send them the invite." Deep-links through the same /join/[token] route
-// link-based invites already use (see get_collaboration_invite_push_target's
-// migration comment) rather than a new "pending invites" inbox. Lives here
-// rather than in aircraftSharing.ts/sharedFolders.ts so both can call it
-// without importing each other.
-export async function sendCollaborationInvitePush(
-  targetUserId: string,
-  resourceType: 'aircraft' | 'folder',
-  resourceLabel: string,
-  token: string
-): Promise<void> {
-  try {
-    const { data, error } = await supabase.rpc('get_collaboration_invite_push_target', {
-      p_target_user_id: targetUserId,
-      p_resource_type: resourceType,
-      p_resource_label: resourceLabel,
-      p_token: token,
-    })
-    // `if (error) return` used to be the whole story here, and between that,
-    // the `.catch(() => {})` on the fetch and the bare `catch (_)` below,
-    // this function could fail at THREE separate points and leave no trace
-    // anywhere. RC, 2026-09-05: "There is zero notification happening when
-    // somebody invites you to a folder." That is exactly the report you get
-    // from a completely silent sender: no way to tell "the RPC refused",
-    // "the recipient has no token" and "Expo rejected the token" apart.
-    // Best-effort delivery is still the right policy -- the invite itself is
-    // durable in Saved > Shared > With Me -- but best-effort must not mean
-    // invisible.
-    if (error) {
-      Sentry.captureException(error, {
-        tags: { feature: 'collab_invite_push', stage: 'rpc' },
-        extra: { resourceType, targetUserId },
-      })
-      return
-    }
-    const rows = (data ?? []).filter((r: any) => r?.expo_push_token)
-    if (rows.length === 0) {
-      Sentry.captureMessage('Collaboration invite push: recipient has no push token', {
-        level: 'info',
-        tags: { feature: 'collab_invite_push', stage: 'no_token' },
-        extra: { resourceType, targetUserId },
-      })
-      return
-    }
-    await sendExpoPushes(
-      rows.map((row: any) => ({
-        to: row.expo_push_token,
-        sound: 'default' as const,
-        title: row.title,
-        body: row.body,
-        // Someone is sitting there having just invited this person and told
-        // "they'll get a notification." See ExpoPushMessage.interruptionLevel.
-        interruptionLevel: 'time-sensitive' as const,
-        data: { type: 'collab-invite', token },
-      })),
-      { feature: 'collab_invite_push', extra: { resourceType, targetUserId } },
-    )
-  } catch (err) {
-    Sentry.captureException(err, { tags: { feature: 'collab_invite_push', stage: 'outer' }, extra: { resourceType, targetUserId } })
-  }
-}
+// sendCollaborationInvitePush REMOVED 2026-09-12.
+//
+// The collaboration invite push moved server-side into trg_notify_folder_invite
+// / trg_notify_aircraft_invite (notify_collab_invite), inside the same
+// transaction that writes the collaborator row -- the same move duel invites
+// already made (see challenges/index.tsx: "NOT sendDuelPush(_, 'invited') any
+// more... Sending it from here as well would double-notify").
+//
+// Once that landed, this function could never send anything:
+// get_collaboration_invite_push_target suppresses itself when invite_pushed_at
+// is set, and the trigger sets it unconditionally on every invite. So the call
+// always fell through to its zero-rows branch and logged
+//     "Collaboration invite push: recipient has no push token"
+// to Sentry -- on EVERY collaboration invite, and false every time the
+// recipient did have a token (verified live: SWEEPMATE has one and still got
+// this message). That is dead code emitting misleading telemetry, which is
+// worse than no telemetry: it invents a recipient-side problem that does not
+// exist and buries the real signal.
+//
+// The durable in-app invite (Saved > Shared > With Me) and the server push are
+// both unaffected. See sync/migrations_collab_reinvite_pushes.sql, which also
+// fixed the trigger missing the re-invite path entirely.
+

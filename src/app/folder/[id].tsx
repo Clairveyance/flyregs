@@ -54,7 +54,6 @@ import { NoteEditor } from '@/components/NoteEditor'
 import { BulkInviteContactPicker } from '@/components/BulkInviteContactPicker'
 import { FindFriendsPickerBody } from '@/components/FindFriendsSheet'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
-import { sendCollaborationInvitePush } from '@/lib/notifications'
 import { type InviteSearchResult } from '@/lib/contactMatch'
 import { ContactSearchField } from '@/components/ContactSearchField'
 import { AvatarCircle } from '@/components/AvatarCircle'
@@ -546,7 +545,7 @@ export default function FolderDetail() {
       title: 'Invite to this folder',
       choices: [
         { label: 'Invite by Link', onPress: handleInvite },
-        { label: 'Invite by Callsign', onPress: openCallsignInvite },
+        { label: 'Invite a Pilot', onPress: openCallsignInvite },
         { label: 'Invite Multiple (Contacts)', onPress: openBulkInvite },
       ],
     })
@@ -646,7 +645,11 @@ export default function FolderDetail() {
     // Me now lists the pending invite itself, so the push is a nicety on top
     // of a durable in-app invite rather than the only delivery channel. See
     // getMyPendingFolderInvites in lib/sharedFolders.ts.
-    sendCollaborationInvitePush(invite.userId, 'folder', folder.name, invite.token).catch(() => {})
+    // The invite push is fired by the database, in the same transaction that
+    // writes the collaborator row (trg_notify_folder_invite /
+    // trg_notify_aircraft_invite). Calling it from here as well could only
+    // ever log a false "recipient has no push token" to Sentry -- see
+    // notifications.ts where sendCollaborationInvitePush was removed.
     confirm({
       title: 'Invite sent',
       message: `Sent to @${invite.callsign}. They'll see it under Saved › Shared › With Me, and get a notification if they have them turned on.`,
@@ -997,7 +1000,7 @@ export default function FolderDetail() {
               toggle, same reasoning as that toggle's own comment. */}
           <Pressable style={styles.callsignInviteRow} onPress={openCallsignInvite}>
             <Icon name="at" size={fs(13)} color={tokens.blu} />
-            <Text style={[styles.callsignInviteText, { color: tokens.blu, fontSize: fs(12.5) }]}>Invite by Callsign</Text>
+            <Text style={[styles.callsignInviteText, { color: tokens.blu, fontSize: fs(12.5) }]}>Invite a Pilot</Text>
           </Pressable>
 
           {collabExpanded && (

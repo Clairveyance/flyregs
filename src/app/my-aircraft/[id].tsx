@@ -38,7 +38,6 @@ import {
   type CollaboratorRole, type AircraftCollaborator, type FleetRole } from '@/lib/aircraftSharing'
 import { useLongPressPreview } from '@/lib/useLongPressPreview'
 import { LongPressPreviewCard } from '@/components/LongPressPreviewCard'
-import { sendCollaborationInvitePush } from '@/lib/notifications'
 import { type InviteSearchResult } from '@/lib/contactMatch'
 import { ContactSearchField } from '@/components/ContactSearchField'
 import { AvatarCircle } from '@/components/AvatarCircle'
@@ -439,7 +438,7 @@ export default function AircraftDetailScreen() {
     confirm({
       title: 'Share this aircraft',
       choices: [
-        { label: 'Invite by Callsign', onPress: () => { setInviteMethod('callsign'); setShareStep('role') } },
+        { label: 'Invite a Pilot', onPress: () => { setInviteMethod('callsign'); setShareStep('role') } },
         { label: 'Invite by Link', onPress: () => { setInviteMethod('link'); setShareStep('role') } },
         { label: 'Invite Multiple (Contacts)', onPress: () => { setInviteMethod('multiple'); setShareStep('role') } },
       ],
@@ -540,7 +539,11 @@ export default function AircraftDetailScreen() {
     // shouldn't do that at all, with a callsign... should simply locate
     // the user with that callsign and send them the invite").
     const label = aircraft.nickname || `${aircraft.make} ${aircraft.model}`
-    sendCollaborationInvitePush(invite.userId, 'aircraft', label, invite.token).catch(() => {})
+    // The invite push is fired by the database, in the same transaction that
+    // writes the collaborator row (trg_notify_folder_invite /
+    // trg_notify_aircraft_invite). Calling it from here as well could only
+    // ever log a false "recipient has no push token" to Sentry -- see
+    // notifications.ts where sendCollaborationInvitePush was removed.
     confirm({ title: 'Invite sent', message: `Sent to @${invite.callsign}.`, cancelLabel: null })
     getAircraftCollaborators(aircraft.id).then(setCollaborators).catch(() => {})
     setSharingBusy(false)
@@ -1777,7 +1780,7 @@ export default function AircraftDetailScreen() {
                   <View style={{ width: 50 }} />
                 </View>
                 <Text style={{ color: tokens.t3, fontSize: fs(13) }}>
-                  Invite by Callsign. They'll need their own Premium subscription and a Callsign set to join.
+                  Search by Callsign, phone number, or email. They'll need their own Premium subscription and a Callsign set to join.
                 </Text>
                 <Pressable
                   onPress={() => pickRole('viewer')}
