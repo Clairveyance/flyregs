@@ -136,6 +136,12 @@ run_one "modal_card_bounded (a modal card must fit the screen)" \
 # one and not the other cannot fail the typecheck, only the web build.
 run_one "web_shim_parity (.web shims export what their native sibling does)" \
   python3 scripts/web_shim_parity_audit.py
+# Sentry runs with enableCaptureFailedRequests + attachScreenshot, so a read RPC
+# that RAISES for a state the client already swallows becomes a reported failure
+# (with a screenshot) for a non-event. get_folder_collaborators did exactly that
+# on every folder open by a collaborator.
+run_one "read_rpc_no_raise (a read the client shrugs off must not 400)" \
+  python3 scripts/read_rpc_no_raise_audit.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what

@@ -106,6 +106,44 @@ def release_sessions(version, period):
     return 0, None
 
 
+def release_session_health(version, period):
+    """{session.status: count} for one release, or None if the read failed.
+
+    Why this exists. A crash BEFORE Sentry.init() sends nothing at all — no
+    session, no error — so it is indistinguishable from "nobody launched the
+    build" if you only count arrivals. That ambiguity was being handed back to
+    a human on every silent run.
+
+    The shape of the release's session HISTORY breaks the tie, because the
+    binary is immutable once shipped. A build that has started dying at launch
+    almost always leaves crashed/abnormal sessions from the launches that did
+    get past init before it went quiet. An all-healthy history with nothing
+    arriving since is the unused-build shape, not the dying-build shape.
+
+    This is corroboration, not proof — a pre-init crash that has NEVER let a
+    single launch through would still read as all-healthy zero-sessions, and a
+    conditional onset (e.g. an OS point release) leaves no Sentry trace at all.
+    So it narrows the wording; it does not cancel the finding.
+    """
+    pid = project_id()
+    if not pid:
+        return None
+    q = urllib.parse.urlencode({
+        "field": "sum(session)", "groupBy": "session.status",
+        "query": f'release:"{version}"', "statsPeriod": period,
+        "interval": "1d", "project": pid,
+    })
+    data = api(f"/organizations/{ORG}/sessions/?{q}")
+    if not isinstance(data, dict) or "groups" not in data:
+        return None
+    out = {}
+    for g in data.get("groups", []):
+        status = g.get("by", {}).get("session.status")
+        if status:
+            out[status] = g.get("totals", {}).get("sum(session)", 0) or 0
+    return out or None
+
+
 def accepted_transactions(period):
     """How many transactions Sentry itself says it ACCEPTED in the window.
 
@@ -128,6 +166,75 @@ def accepted_transactions(period):
         if g.get("by", {}).get("outcome") == "accepted":
             return g.get("totals", {}).get("sum(quantity)", 0)
     return 0
+
+
+def ingest_outcomes(period):
+    """Every ingest outcome by category — what Sentry did with what it RECEIVED.
+
+    This is what separates the two readings of a silent build, which the
+    watcher used to hand to a human as "worth confirming which":
+
+      nothing arrived at all   -> every outcome is 0. The SDK is not sending
+                                  because the app is not being launched. Not a
+                                  defect; do not send anyone hunting for one.
+      arrived and was discarded-> a non-accepted outcome is non-zero. The app
+                                  IS reporting and Sentry is throwing it away
+                                  (rate limit, quota, malformed payload). That
+                                  is a REAL pipeline fault and looks exactly
+                                  like the healthy case if you only ever read
+                                  the accepted counter.
+
+    `*_indexed` categories are excluded from the discard signal on purpose:
+    dynamic sampling emits a `filtered transaction_indexed` that mirrors the
+    accepted count one-for-one on a perfectly healthy project, so counting it
+    would raise an alarm on every single run. A watcher that cries wolf gets
+    ignored, which defeats the thing it was built for.
+
+    Returns (day_labels, {(outcome, category): per-day series}) or None.
+    """
+    q = urllib.parse.urlencode({
+        "statsPeriod": period, "interval": "1d", "field": "sum(quantity)",
+        "groupBy": ["outcome", "category"],
+    }, doseq=True)
+    data = api(f"/organizations/{ORG}/stats_v2/?{q}")
+    if not isinstance(data, dict) or "groups" not in data:
+        return None
+    days = [str(i)[:10] for i in data.get("intervals", [])]
+    out = {}
+    for g in data.get("groups", []):
+        by = g.get("by", {})
+        series = g.get("series", {}).get("sum(quantity)", [])
+        if any(series):
+            out[(by.get("outcome"), by.get("category"))] = series
+    return days, out
+
+
+def discard_signal(outcomes, after_day):
+    """(anything_arrived, [discard rows]) counting ONLY days after `after_day`.
+
+    Filtering by explicit date rather than by statsPeriod length is the whole
+    point. The first version of this check sized the window as
+    floor(hours_silent / 24) and promptly cried wolf on its first real run: a
+    5-day window around a last-session-day of 09-12 still *included* 09-12, so
+    3 malformed spans from the build's last live session were reported as an
+    active "pipeline fault". A window meant to cover only silence must start
+    strictly after the last day that had traffic; anything else re-reads the
+    live period and calls it a fault.
+    """
+    if outcomes is None:
+        return None, []
+    days, series_by_key = outcomes
+    idx = [i for i, d in enumerate(days) if after_day is None or d > after_day]
+    totals = {}
+    for key, series in series_by_key.items():
+        total = sum(series[i] for i in idx if i < len(series))
+        if total:
+            totals[key] = total
+    arrived = any(v for (_oc, cat), v in totals.items()
+                  if not str(cat).endswith("_indexed"))
+    discards = [(oc, cat, v) for (oc, cat), v in sorted(totals.items())
+                if oc != "accepted" and not str(cat).endswith("_indexed")]
+    return arrived, discards
 
 
 def device_split(version, period):
@@ -312,9 +419,70 @@ def main():
             age_h = day_age_hours(last_session_day)
             print(f"    {sessions} sessions in {args.days}, most recent {last_session_day}")
             if age_h is not None and age_h > 72:
-                findings.append(f"release {ver} last sent a session {age_h/24:.0f}d ago")
-                print(f"    ^^ no session for {age_h/24:.0f} days — either nobody is running this")
-                print("       build, or it stopped reporting. Worth confirming which.")
+                # Don't stop at "either nobody is running it or it broke" --
+                # decide it. Pull a window comfortably longer than the silence,
+                # then count only the days strictly after the last session day.
+                span_days = max(2, int(age_h // 24) + 2)
+                arrived, discards = discard_signal(
+                    ingest_outcomes(f"{span_days}d"), last_session_day)
+                print(f"    ^^ no session for {age_h/24:.0f} days.")
+                if arrived is None:
+                    findings.append(
+                        f"release {ver} silent {age_h/24:.0f}d; ingest counters unreadable")
+                    print("       Ingest counters unreadable — cause UNKNOWN, treat as blind.")
+                elif discards:
+                    findings.append(
+                        f"release {ver} is reporting but Sentry is DISCARDING it — pipeline fault")
+                    print("       Events ARE arriving and being thrown away — a real fault:")
+                    for oc, cat, v in discards:
+                        print(f"         {oc} {cat}: {v}")
+                elif arrived:
+                    findings.append(
+                        f"release {ver} sent no sessions in {age_h/24:.0f}d but other events arrived")
+                    print("       Other event types still arrived — session tracking specifically")
+                    print("       may be off, rather than the app being unused.")
+                else:
+                    # Deliberately still a finding. "Nothing arrived" rules out
+                    # a broken *transport*, but it cannot separate "nobody
+                    # launched the app" from "the app dies before Sentry.init()
+                    # runs" -- both send exactly zero bytes. So narrow the
+                    # words, never the alarm: report it as low-urgency with the
+                    # one check that settles it, rather than dropping it.
+                    print("       Nothing arrived at all — no accepted events, and nothing")
+                    print("       discarded either, so the transport is not broken.")
+                    health = release_session_health(ver, args.days)
+                    bad = (sum(v for k, v in health.items()
+                               if k in ("crashed", "abnormal", "errored", "unhandled"))
+                           if health else None)
+                    if health:
+                        print("       session history: "
+                              + ", ".join(f"{k} {v}" for k, v in sorted(health.items()) if v)
+                              + (" (all healthy)" if not bad else ""))
+                    if bad is None:
+                        # The health read FAILED. It did not come back clean.
+                        # Falling through to the clean branch here would print
+                        # "every session ended healthy" on the strength of a
+                        # call that never answered — the failed-read-is-good-
+                        # news trap. Say UNKNOWN and keep the old wording.
+                        findings.append(
+                            f"release {ver} silent {age_h/24:.0f}d, nothing discarded "
+                            f"— likely unused, confirm the build still launches")
+                        print("       Could not read session health — cannot tell an unused")
+                        print("       build from one dying at launch. Confirm it still opens.")
+                    elif bad:
+                        findings.append(
+                            f"release {ver} silent {age_h/24:.0f}d and its last live "
+                            f"sessions include {bad} crashed/abnormal — check it still launches")
+                        print("       ^^ this build DID have bad sessions before going quiet.")
+                        print("          That is the dying-build shape, not the unused one.")
+                    else:
+                        findings.append(
+                            f"release {ver} silent {age_h/24:.0f}d, nothing discarded, "
+                            f"session history clean — build is unused, not broken")
+                        print("       Every session this build ever logged ended healthy, so it")
+                        print("       is not dying at launch — nobody has launched it. Still")
+                        print("       reported, because a pre-init crash sends zero bytes and")
+                        print("       would read the same if no launch ever got through.")
             elif not last:
                 print("    reporting fine; no errors yet from this build.")
             else:

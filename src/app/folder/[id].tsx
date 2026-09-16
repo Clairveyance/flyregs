@@ -253,9 +253,20 @@ export default function FolderDetail() {
       setNoteEntries(notesList)
     }
 
-    // Only owned, previously-shared folders have collaborators to show — a
-    // folder that's never been shared has no share_token and this RPC just
-    // returns an empty list, so it's safe to always attempt.
+    // Safe to always attempt -- but NOT for the reason this comment used to
+    // give. It claimed the RPC "just returns an empty list" for a folder with
+    // no sharing. It did not: get_folder_collaborators raised 'Not authorized'
+    // whenever the caller didn't own the synced_folders row, and a
+    // COLLABORATOR never owns one (verified against live data). So every time
+    // someone opened a folder shared with them, this ungated call took a 400 --
+    // invisible to the user thanks to the .catch below, and (checked) not
+    // reported to Sentry either, since failedRequestStatusCodes defaults to
+    // 5xx-only. Just a wasted round trip and a real server error raised on an
+    // entirely ordinary action. Same for a folder deleted server-side, and for
+    // a new folder opened before its sync push lands.
+    // The RPC now returns an empty set instead of raising
+    // (sync/migrations_collab_roster_no_raise.sql), which is what this comment
+    // always assumed, so the call is genuinely safe to make now.
     if (typeof id === 'string') {
       getFolderCollaborators(id).then(setCollaborators).catch(() => setCollaborators([]))
       getFolderCollabMode(id).then(setCollabMode).catch(() => {})

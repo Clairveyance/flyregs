@@ -85,6 +85,22 @@ export function initSentry() {
     // reported even when the app swallows the result -- which is exactly the
     // class RC keeps having to find by hand and report.
     enableCaptureFailedRequests: true,
+    // CAVEAT, verified 2026-09-16 against the installed SDK, not assumed: this
+    // flag alone does NOT cover the class described above. The SDK default is
+    // `failedRequestStatusCodes: [[500, 599]]`
+    // (@sentry/browser/.../httpclient.js), so every 4xx is excluded -- and a
+    // supabase-js failure is overwhelmingly a 4xx: an RLS denial, a 401/403, or
+    // a PostgREST 400 from an RPC that raised. The exact "request fails,
+    // supabase-js resolves {data, error}, app renders as if nothing happened"
+    // shape this was turned on to catch is therefore still mostly invisible.
+    //
+    // NOT widened here on purpose. Doing so before the known 4xx sources are
+    // cleaned up would flood the project -- get_folder_collaborators alone was
+    // raising on every folder open by a collaborator until
+    // sync/migrations_collab_roster_no_raise.sql, and
+    // scripts/read_rpc_no_raise_audit.py now guards that class. Once that has
+    // been quiet for a while, `failedRequestStatusCodes: [[400, 599]]` is the
+    // change that finally delivers what this flag was added for. RC's call.
 
     // SCREENSHOT ON ERROR. RC turned this on deliberately (2026-09-07) after
     // being told exactly what it costs.
