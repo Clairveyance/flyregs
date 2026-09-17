@@ -153,6 +153,11 @@ run_one "rpc_broken_reference (every RPC resolves, for every tier)" \
 # has is 4xx. The config must pass its own httpClientIntegration with a range.
 run_one "sentry_reports_4xx (failed requests actually reach Sentry)" \
   node scripts/sentry_reports_4xx_test.cjs
+# ...and must not report NON-failures. A session expiring is normal; it used to
+# fire a Sentry exception from every sync call in flight. The other half matters
+# more: a real RLS/constraint fault must still report loudly.
+run_one "sync_error_triage (session expiry is quiet, real faults are not)" \
+  node scripts/sync_error_triage_test.cjs
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what

@@ -17,8 +17,35 @@ import type { Note } from '@/lib/notes'
 // failing to sync since, with zero signal anywhere. Surfacing to both
 // console and Sentry means the NEXT constraint/RLS gap (e.g. a future
 // content type) fails loudly instead of silently.
+// A session ENDING is not a defect, and must not be reported as one.
+//
+// Found 2026-09-17 by revoking a live session server-side -- the real-world
+// version of "I changed my password on my other phone", or a session simply
+// expiring. Every sync call in flight then fails with an auth error, and all 15
+// reportSyncError call sites fired a Sentry exception for it. One ordinary
+// session expiry produced a burst of reports reading
+//     "sync push failed (sync preference disable): Session from session_id
+//      claim in JWT does not exist"
+// which describes nothing wrong with the app. The app handles it correctly --
+// it clears the token and drops to the signed-out state, verified.
+//
+// Same lesson as the collaboration-invite push that reported a false "recipient
+// has no push token" on every invite: telemetry that cries wolf about normal
+// events is worse than none, because it buries the reports that matter. This is
+// a direct contributor to the steady Sentry noise.
+//
+// Deliberately matched on the auth failure only. Everything else -- an RLS
+// refusal, a constraint violation, a real 500 -- still reports loudly, which is
+// the entire reason this function exists.
+const SESSION_ENDED = /session from session_id|jwt expired|token is expired|invalid claim|refresh token not found|session not found|jwt is expired/i
+
 export function reportSyncError(context: string, error: { message: string } | null) {
   if (!error) return
+  if (SESSION_ENDED.test(error.message)) {
+    // Still visible while developing; just not a reported fault.
+    console.warn(`[sync] ${context} skipped -- session ended:`, error.message)
+    return
+  }
   console.error(`[sync] ${context} failed:`, error.message)
   Sentry.captureException(new Error(`sync push failed (${context}): ${error.message}`))
 }
