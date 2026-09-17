@@ -1,13 +1,14 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import * as Sentry from '@sentry/react-native'
-import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Platform, RefreshControl, KeyboardAvoidingView, ActivityIndicator, Keyboard, AppState } from 'react-native'
+import { View, Text, SectionList, Pressable, TextInput, Share, StyleSheet, Platform, RefreshControl, KeyboardAvoidingView, ActivityIndicator, Keyboard } from 'react-native'
 import { ScreenModal } from '@/components/ScreenModal'
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated'
 import { GestureDetector, Gesture } from 'react-native-gesture-handler'
 import * as Clipboard from 'expo-clipboard'
-import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
+import { router, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
+import { useSharedScreenRefresh } from '@/lib/useSharedScreenRefresh'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { useAuth } from '@/context/auth'
 import { useBadgeLifespan } from '@/context/badgeLifespan'
@@ -324,11 +325,7 @@ export default function FolderDetail() {
   // case, an edit is picked up within one interval instead of only on the
   // next navigation or app-switch, regardless of whether Realtime happens
   // to still be alive.
-  useFocusEffect(useCallback(() => {
-    load()
-    const interval = setInterval(load, 45_000)
-    return () => clearInterval(interval)
-  }, [load]))
+  useSharedScreenRefresh(load)
 
   // Live push on top of the pull-on-focus above -- sees a collaborator's
   // edit (item add/remove, note create/edit) while this screen is already
@@ -346,12 +343,7 @@ export default function FolderDetail() {
   // that gap for entitlements). Belt-and-suspenders: force a fresh pull the
   // moment the app comes back to the foreground, regardless of whether the
   // realtime socket reconnected cleanly on its own.
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') load()
-    })
-    return () => sub.remove()
-  }, [load])
+  // (foreground refresh is part of useSharedScreenRefresh above)
 
   useEffect(() => {
     // AC-only -- advisory_circulars.id is a uuid column, and a FAR/AIM/P-CG/AD

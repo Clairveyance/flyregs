@@ -219,9 +219,18 @@ export async function removeCollaborator(aircraftId: string, userId: string): Pr
     .eq('user_id', userId)
     .maybeSingle()
 
+  // A SOFT removal -- see sharedFolders.removeCollaborator's comment and
+  // sync/migrations_collaborator_removal_is_soft.sql. The content half of that
+  // write-up does not apply here (everything on an aircraft hangs off
+  // user_aircraft, which the owner owns outright), but the re-join half does,
+  // and worse: proven live, a collaborator demoted to viewer and then removed
+  // walked back in through the still-live share code as an EDITOR, with write
+  // access to maintenance and AD compliance records. has_aircraft_access
+  // filters left_at, so access still ends on the very next request.
+  const now = new Date().toISOString()
   const { error } = await supabase
     .from('aircraft_collaborators')
-    .delete()
+    .update({ left_at: now, removed_at: now })
     .eq('aircraft_id', aircraftId)
     .eq('user_id', userId)
   if (error) throw error

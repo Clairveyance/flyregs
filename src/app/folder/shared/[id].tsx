@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, ScrollView, TextInput, RefreshControl, KeyboardAvoidingView, Platform, AppState } from 'react-native'
+import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet, ScrollView, TextInput, RefreshControl, KeyboardAvoidingView, Platform } from 'react-native'
 import { ScreenModal } from '@/components/ScreenModal'
 import * as Sentry from '@sentry/react-native'
-import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
+import { router, useLocalSearchParams } from 'expo-router'
 import { useTheme } from '@/context/theme'
+import { useSharedScreenRefresh } from '@/lib/useSharedScreenRefresh'
 import { useAuth } from '@/context/auth'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { OverlayHeader } from '@/components/ScreenHeader'
@@ -419,11 +420,7 @@ export default function SharedFolderDetail() {
   // someone is actively reading it. `silent=true` skips those setLoading
   // calls for the periodic tick only; the real focus-triggered load below
   // still shows the normal first-paint spinner.
-  useFocusEffect(useCallback(() => {
-    load()
-    const interval = setInterval(() => load(true), 45_000)
-    return () => clearInterval(interval)
-  }, [load]))
+  useSharedScreenRefresh(load, { periodic: () => load(true) })
 
   // Live push on top of the pull-on-focus above -- sees the owner's edits
   // (or another collaborator's) while this screen is already open, not
@@ -431,18 +428,10 @@ export default function SharedFolderDetail() {
   useFolderRealtime(typeof id === 'string' ? id : undefined, load)
 
   // Bug #5, RC real-device report 2026-08-16: "if the owner edits ... the
-  // receiver can't see" it. Same fix/reasoning as the owner's own
-  // folder/[id].tsx: useFocusEffect only fires on REACT NAVIGATION focus,
-  // never on the OS backgrounding/foregrounding the app while this stays
-  // the topmost route, and this app had zero AppState-driven data refresh
-  // anywhere. Force a fresh pull on foreground regardless of whether the
-  // realtime socket above reconnected cleanly on its own.
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') load()
-    })
-    return () => sub.remove()
-  }, [load])
+  // receiver can't see" it. The foreground pull that answered it now lives in
+  // useSharedScreenRefresh above, together with the focus pull and the 45s
+  // floor -- one hook so a shared screen cannot end up with two of the three,
+  // which is exactly how my-aircraft/[id].tsx lost its floor.
 
   // Clears the unread dot in Saved > Shared > With Me the moment the
   // collaborator actually opens this folder -- fire-and-forget, not

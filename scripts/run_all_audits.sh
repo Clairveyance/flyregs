@@ -158,6 +158,22 @@ run_one "sentry_reports_4xx (failed requests actually reach Sentry)" \
 # more: a real RLS/constraint fault must still report loudly.
 run_one "sync_error_triage (session expiry is quiet, real faults are not)" \
   node scripts/sync_error_triage_test.cjs
+# RC, repeatedly: "owners of shared material giving r/w perms were then unable
+# to see changes made by guests." The server was never the problem. A shared
+# screen needs focus + foreground + realtime + a PERIODIC FLOOR; without the
+# floor, two people sitting on the same screen leave an unbounded window.
+# my-aircraft/[id].tsx had two of the three for 2.5 weeks after the folders were
+# fixed -- now all three come from one hook.
+run_one "shared_screen_refresh (a shared screen refreshes on all four triggers)" \
+  python3 scripts/shared_screen_refresh_audit.py
+# Same sentence of RC's, the other half: "removing them... where they stay or
+# go depending on who sent them." Removing a collaborator used to hard-DELETE
+# the membership row, which (1) made the owner lose the removed person's notes
+# and highlights -- still listed in the folder, no longer openable -- and (2)
+# let that person re-join on the still-live link at the share default, i.e. a
+# HIGHER role than the downgrade they had just been given. Removal is now soft.
+run_one "collaborator_removal (removal ends access, keeps their work, blocks re-entry)" \
+  python3 scripts/folder_collaborator_removal_test.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what

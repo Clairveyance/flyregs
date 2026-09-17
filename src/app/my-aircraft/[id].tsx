@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Share, Image, Linking, KeyboardAvoidingView, Platform, Keyboard, AppState } from 'react-native'
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, ActivityIndicator, Share, Image, Linking, KeyboardAvoidingView, Platform, Keyboard } from 'react-native'
 import { ScreenModal } from '@/components/ScreenModal'
 import * as Sentry from '@sentry/react-native'
-import { useLocalSearchParams, router, useFocusEffect } from 'expo-router'
+import { useLocalSearchParams, router } from 'expo-router'
+import { useSharedScreenRefresh } from '@/lib/useSharedScreenRefresh'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '@/context/theme'
 import { useAuth } from '@/context/auth'
@@ -313,19 +314,21 @@ export default function AircraftDetailScreen() {
   // acceptance land (no refetch, no realtime subscription) until they
   // navigate away and back, which reads as the roster silently not
   // updating even though the join genuinely succeeded server-side.
-  useFocusEffect(useCallback(() => { load() }, [load]))
-
-  // This screen had ONLY the useFocusEffect above -- no AppState listener,
-  // no realtime subscription -- found by a QA sweep testing the same class
-  // of issue RC raised for shared folders (immediate r/w-access-change
-  // propagation). Same two-part fix as both folder screens got earlier:
-  // foreground refresh here, live push via useAircraftRealtime below.
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') load()
-    })
-    return () => sub.remove()
-  }, [load])
+  // Focus + OS foreground + a 45s floor, all three, via the shared hook.
+  //
+  // This screen previously had focus and foreground but NO periodic floor. Its
+  // own comment said it got "the same two-part fix as both folder screens got
+  // earlier" -- and it did, except the folders were later given a THIRD part
+  // (the floor, 2026-08-30) which was never carried across to here.
+  //
+  // That gap is exactly RC's recurring report, 2026-09-17: "owners of shared
+  // material giving r/w perms were then unable to see changes made by guests."
+  // Two people reviewing a shared aircraft sit on THIS screen without
+  // navigating (so focus never re-fires) and without backgrounding (so the
+  // foreground listener never fires); if the realtime socket has quietly died
+  // -- a Wi-Fi handoff is enough -- the owner's window for seeing a guest's new
+  // reminder or AD compliance was UNBOUNDED. Now it is one interval.
+  useSharedScreenRefresh(load)
 
   useAircraftRealtime(typeof id === 'string' ? id : undefined, load)
 

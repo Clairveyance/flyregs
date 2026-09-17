@@ -679,9 +679,24 @@ export async function removeCollaborator(folderId: string, userId: string): Prom
     .eq('user_id', userId)
     .maybeSingle()
 
+  // A SOFT removal -- the row stays as a tombstone. Deleting it outright was
+  // the cause of two defects found 2026-09-17 by
+  // folder_collaborator_removal_test.py; see
+  // sync/migrations_collaborator_removal_is_soft.sql for the full write-up:
+  //   1. the owner LOST the removed person's notes and highlights, because
+  //      is_folder_participant() -- which their read policies are gated on --
+  //      needs this row to exist; the folder still listed the entries but
+  //      could no longer open them;
+  //   2. the removed person could re-join on the still-live folder link at the
+  //      folder's DEFAULT role, which for anyone individually downgraded first
+  //      meant removal handed back MORE access than the downgrade took away.
+  // left_at is what ends access (has_folder_access filters it, so the very
+  // next request is refused); removed_at is what distinguishes this from the
+  // person LEAVING, which may still be undone by tapping the link again.
+  const now = new Date().toISOString()
   const { error } = await supabase
     .from('folder_collaborators')
-    .delete()
+    .update({ left_at: now, removed_at: now })
     .eq('folder_id', folderId)
     .eq('user_id', userId)
   if (error) throw error
