@@ -12,6 +12,7 @@ import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
+import { fetchAcBadgeData } from '@/lib/acBadges'
 import {
   getSharedFolderACItems, getSharedFolderNoteItems, leaveSharedFolder, markSharedFolderViewed,
   getSharedFolderFARItems, getSharedFolderAIMItems, getSharedFolderPCGItems, getSharedFolderADItems, getSharedFolderLOIItems,
@@ -253,18 +254,36 @@ export default function SharedFolderDetail() {
       // fell into the resolveMissingAsHighlights fallback below instead of
       // rendering as a normal AC row. Found live, 2026-08-23 QA sweep; see
       // series/[prefix].tsx's fix for the full repro.
-      const { data: acRows } = await supabase
-        .from('advisory_circulars_gated')
-        .select('id, document_number, title, cancels, changed_block_indices, date_issued')
-        .in('id', acIds)
-      const matched = new Set((acRows ?? []).map((r) => r.id))
+      // One shared lookup (lib/acBadges.ts). item_id here is whatever was
+      // stored when the AC was added to the folder: the row UUID for one
+      // highlighted inside a document, the DOCUMENT NUMBER for one added from a
+      // list. Sending both to `.in('id', ...)` made the whole query 400 on the
+      // document number, so acRows came back empty and EVERY real AC in a
+      // shared folder fell through to the highlight fallback below -- the same
+      // symptom the 2026-08-23 grant fix chased, from a different cause.
+      const { map: acBadgeMap, error: acBadgeError } = await fetchAcBadgeData(acIds)
+      if (acBadgeError) console.warn('[shared folder] AC lookup failed:', acBadgeError)
+      // Deduplicate: the map is keyed by BOTH uuid and document number, so the
+      // same row appears twice.
+      const acRows = [...new Map(
+        acIds.map((i) => acBadgeMap[i]).filter(Boolean).map((r) => [r!.id, r!]),
+      ).values()]
+      // Matched by whichever identifier the folder actually stored.
+      const matched = new Set(acIds.filter((i) => acBadgeMap[i]))
       // Anything left unmatched is a highlight, not a missing AC -- see
       // resolveMissingAsHighlights' own comment for why item_id doesn't
       // resolve directly for those.
       const acHl = await resolveMissingAsHighlights('ac', acIds.filter((i) => !matched.has(i)), () => '')
       if (myGen !== loadGenRef.current) return
       setAcs([
-        ...(acRows ?? []).map((r) => ({ ...r, itemRowId: acItems.find((i) => i.item_id === r.id)?.id ?? '' })),
+        ...acRows.map((r): ACRow => ({
+          ...r,
+          // AcBadgeRow types title as optional (not every caller selects it);
+          // this screen always does, so fall back rather than widen ACRow.
+          title: r.title ?? '',
+          // The folder row may reference this AC by either identifier.
+          itemRowId: acItems.find((i) => i.item_id === r.id || i.item_id === r.document_number)?.id ?? '',
+        })),
         ...acHl.map((h): ACRow => ({
           id: h.id,
           itemRowId: acItems.find((i) => i.item_id === h.id)?.id ?? '',

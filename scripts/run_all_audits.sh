@@ -142,6 +142,17 @@ run_one "web_shim_parity (.web shims export what their native sibling does)" \
 # on every folder open by a collaborator.
 run_one "read_rpc_no_raise (a read the client shrugs off must not 400)" \
   python3 scripts/read_rpc_no_raise_audit.py
+# Calls EVERY server function the app uses, as EVERY tier, and reports any that
+# reference something that does not exist. Found Find Friends-by-phone broken
+# since the day it shipped: a bare digest() against a search_path that has no
+# pgcrypto in it. A deliberate tier refusal (P0001) is not a finding; a missing
+# function always is.
+run_one "rpc_broken_reference (every RPC resolves, for every tier)" \
+  python3 scripts/rpc_broken_reference_audit.py
+# enableCaptureFailedRequests alone only covers 5xx, and every failure this app
+# has is 4xx. The config must pass its own httpClientIntegration with a range.
+run_one "sentry_reports_4xx (failed requests actually reach Sentry)" \
+  node scripts/sentry_reports_4xx_test.cjs
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what

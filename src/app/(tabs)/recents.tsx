@@ -11,6 +11,7 @@ import { useBadgeLifespan } from '@/context/badgeLifespan'
 import { isWithinBadgeLifespan } from '@/lib/badgeLifespan'
 import { getBadgeKind, getBadgeStyle } from '@/lib/acBadge'
 import { supabase } from '@/lib/supabase'
+import { fetchAcBadgeData, type AcBadgeMap } from '@/lib/acBadges'
 import { ScreenHeader } from '@/components/ScreenHeader'
 import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/components/BackToTop'
 import { TabletContainer } from '@/components/TabletContainer'
@@ -83,12 +84,7 @@ export default function RecentsScreen() {
   // AsyncStorage snapshots with no cancels/changed_block_indices, and a
   // "this changed" badge that never refreshes after the first view would
   // defeat its own purpose.
-  const [badgeDataById, setBadgeDataById] = useState<Record<string, {
-    cancels: string[]
-    changed_block_indices: number[] | null
-    date_issued: string | null
-    document_number: string
-  }>>({})
+  const [badgeDataById, setBadgeDataById] = useState<AcBadgeMap>({})
   const [pickerItem, setPickerItem] = useState<RecentAC | null>(null)
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -119,20 +115,15 @@ export default function RecentsScreen() {
       groups.flatMap((g) => g.data).filter((r) => recentItemType(r) === 'ac').map((r) => r.id)
     )]
     if (ids.length === 0) { setBadgeDataById({}); return }
-    // advisory_circulars_gated, not the raw table -- `authenticated` has no
-    // column-level SELECT grant on changed_block_indices, so this 403'd
-    // every time and silently produced an empty badge map (no error branch
-    // below). Found live, 2026-08-23 QA sweep; see series/[prefix].tsx's fix
-    // for the full repro.
-    supabase
-      .from('advisory_circulars_gated')
-      .select('id, document_number, cancels, changed_block_indices, date_issued')
-      .in('id', ids)
-      .then(({ data }) => {
-        const map: Record<string, { cancels: string[]; changed_block_indices: number[] | null; date_issued: string | null; document_number: string }> = {}
-        for (const row of data ?? []) map[row.id] = row
-        setBadgeDataById(map)
-      })
+    // One shared lookup (lib/acBadges.ts). An AC saved from a LIST is stored
+    // under its document number ("61-65K"), one highlighted inside a document
+    // under the real row UUID -- and sending both to `.in('id', ...)` made the
+    // whole query 400 on the document number, wiping the badges for every AC
+    // here, silently. fetchAcBadgeData splits them and keys the result by both.
+    fetchAcBadgeData(ids).then(({ map, error }) => {
+      if (error) console.warn('[recents] AC badge lookup failed:', error)
+      setBadgeDataById(map)
+    })
   }, [groups])
 
   // Reload on focus so newly-viewed ACs appear immediately

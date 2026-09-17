@@ -73,7 +73,34 @@ export function initSentry() {
     // wasteful and unnecessary; 0.1-0.2 is plenty once there is volume.
     tracesSampleRate: 1.0,
     enableAutoSessionTracking: true,
-    integrations: [routingInstrumentation],
+    // httpClientIntegration added BY HAND, with an explicit status range.
+    //
+    // This is the whole point of the `enableCaptureFailedRequests` flag below,
+    // and that flag alone could never deliver it: the RN SDK calls
+    // `httpClientIntegration()` with NO arguments
+    // (integrations/default.js), so it takes the library default of
+    // `failedRequestStatusCodes: [[500, 599]]` -- and there is no top-level
+    // option to widen it. Every 4xx was therefore excluded, which is nearly
+    // every failure this app can actually have: an RLS denial, a 401/403, a
+    // PostgREST 400 from an RPC that raised. Verified 2026-09-17 against the
+    // installed SDK and against the live Sentry issue list, which had none.
+    //
+    // Passing our own instance here is safe: @sentry/core's filterDuplicates
+    // explicitly refuses to let a DEFAULT instance overwrite a USER instance of
+    // the same integration, so this one wins and the SDK's bare default is
+    // dropped rather than both running.
+    //
+    // Safe to widen NOW, and it would not have been a week ago. The known 4xx
+    // sources were real and constant -- get_folder_collaborators raised on
+    // every shared-folder open, match_contacts_by_phone failed for every Pro
+    // and Premium user -- and turning this on over the top of those would have
+    // buried the project in reports of bugs that were already known. Both are
+    // fixed, and a route-by-route sweep of the app as Free, Plus, Pro AND
+    // Premium recorded ZERO failed calls before this was switched on.
+    integrations: [
+      routingInstrumentation,
+      Sentry.httpClientIntegration({ failedRequestStatusCodes: [[400, 599]] }),
+    ],
 
     // FAILED NETWORK REQUESTS. Off by default, and the single biggest gap in
     // what this project was reporting.
@@ -85,22 +112,10 @@ export function initSentry() {
     // reported even when the app swallows the result -- which is exactly the
     // class RC keeps having to find by hand and report.
     enableCaptureFailedRequests: true,
-    // CAVEAT, verified 2026-09-16 against the installed SDK, not assumed: this
-    // flag alone does NOT cover the class described above. The SDK default is
-    // `failedRequestStatusCodes: [[500, 599]]`
-    // (@sentry/browser/.../httpclient.js), so every 4xx is excluded -- and a
-    // supabase-js failure is overwhelmingly a 4xx: an RLS denial, a 401/403, or
-    // a PostgREST 400 from an RPC that raised. The exact "request fails,
-    // supabase-js resolves {data, error}, app renders as if nothing happened"
-    // shape this was turned on to catch is therefore still mostly invisible.
-    //
-    // NOT widened here on purpose. Doing so before the known 4xx sources are
-    // cleaned up would flood the project -- get_folder_collaborators alone was
-    // raising on every folder open by a collaborator until
-    // sync/migrations_collab_roster_no_raise.sql, and
-    // scripts/read_rpc_no_raise_audit.py now guards that class. Once that has
-    // been quiet for a while, `failedRequestStatusCodes: [[400, 599]]` is the
-    // change that finally delivers what this flag was added for. RC's call.
+    // Kept alongside the explicit integration above: this flag is what tells
+    // the RN SDK the feature is wanted at all, and the integration above is
+    // what makes it cover the failures this app actually produces. Removing
+    // either one silently loses 4xx again.
 
     // SCREENSHOT ON ERROR. RC turned this on deliberately (2026-09-07) after
     // being told exactly what it costs.

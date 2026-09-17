@@ -19,6 +19,7 @@ import { BackToTop, makeBackToTopScrollHandler, BACK_TO_TOP_THRESHOLD } from '@/
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
 import { supabase } from '@/lib/supabase'
+import { fetchAcBadgeData, type AcBadgeMap } from '@/lib/acBadges'
 import {
   getFolders,
   getItemsInFolder,
@@ -103,12 +104,7 @@ export default function FolderDetail() {
   const [acEntries, setAcEntries] = useState<ACEntry[]>([])
   // Same live-lookup as Saved/Recents -- folder items resolve through local
   // bookmark snapshots with no cancels/changed_block_indices of their own.
-  const [badgeDataById, setBadgeDataById] = useState<Record<string, {
-    cancels: string[]
-    changed_block_indices: number[] | null
-    date_issued: string | null
-    document_number: string
-  }>>({})
+  const [badgeDataById, setBadgeDataById] = useState<AcBadgeMap>({})
   const [noteEntries, setNoteEntries] = useState<NoteEntry[]>([])
 
   const [renaming, setRenaming] = useState(false)
@@ -371,20 +367,15 @@ export default function FolderDetail() {
       acEntries.filter((e) => e.folderItem.item_type === 'ac').map((e) => e.data.acId ?? e.data.id)
     )]
     if (ids.length === 0) { setBadgeDataById({}); return }
-    // advisory_circulars_gated, not the raw table -- `authenticated` has no
-    // column-level SELECT grant on changed_block_indices, so this 403'd
-    // every time and silently produced an empty badge map (no error branch
-    // below). Found live, 2026-08-23 QA sweep; see series/[prefix].tsx's fix
-    // for the full repro.
-    supabase
-      .from('advisory_circulars_gated')
-      .select('id, document_number, cancels, changed_block_indices, date_issued')
-      .in('id', ids)
-      .then(({ data }) => {
-        const map: Record<string, { cancels: string[]; changed_block_indices: number[] | null; date_issued: string | null; document_number: string }> = {}
-        for (const row of data ?? []) map[row.id] = row
-        setBadgeDataById(map)
-      })
+    // One shared lookup (lib/acBadges.ts). An AC saved from a LIST is stored
+    // under its document number ("61-65K"), one highlighted inside a document
+    // under the real row UUID -- and sending both to `.in('id', ...)` made the
+    // whole query 400 on the document number, wiping the badges for every AC in
+    // this folder, silently. fetchAcBadgeData splits them and keys by both.
+    fetchAcBadgeData(ids).then(({ map, error }) => {
+      if (error) console.warn('[folder] AC badge lookup failed:', error)
+      setBadgeDataById(map)
+    })
   }, [acEntries])
 
   const startRename = () => {
