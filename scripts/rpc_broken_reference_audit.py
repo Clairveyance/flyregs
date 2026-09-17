@@ -35,6 +35,12 @@ By SQLSTATE, not by reading the message.
 That distinction is the whole design: a tier gate firing correctly is not a
 finding, and a missing function always is.
 
+SAFETY
+Every probe runs inside an explicit transaction that is ROLLED BACK. Several of
+these RPCs write, and the first version of this audit committed -- it left
+'__probe__' rows in study_progress and synced_bookmarks and claimed the callsign
+'__probe__' on a real account before that was noticed and cleaned up.
+
 KNOWN LIMITS, stated rather than papered over:
   * Functions are called with placeholder arguments, so a WRONG-SHAPED probe can
     produce its own error. That is exactly why only the four "doesn't exist"
@@ -138,8 +144,18 @@ def main():
         checked += 1
         for u in users:
             claims = json.dumps({"sub": u["id"], "role": "authenticated"}).replace("'", "''")
-            _, e = mgmt(f"set local role authenticated;\n"
-                        f"set local request.jwt.claims = '{claims}';\n{sel};")
+            # EVERY probe is rolled back. Some of these RPCs WRITE --
+            # record_study_review, set_callsign, push_bookmark -- and the first
+            # version of this audit committed, so a suite run left '__probe__'
+            # rows in study_progress and synced_bookmarks and actually CLAIMED
+            # the callsign '__probe__' on a real account. A tool that hunts for
+            # bugs must not create them; an audit writes nothing, ever.
+            # (Verified through this same API: an explicit rollback does take
+            # effect, so this is a real guarantee and not a hopeful one.)
+            _, e = mgmt(f"begin;\n"
+                        f"set local role authenticated;\n"
+                        f"set local request.jwt.claims = '{claims}';\n{sel};\n"
+                        f"rollback;")
             if not e:
                 continue
             m = re.search(r"ERROR:\s*([0-9A-Z]{5}):\s*(.+?)(?:\\n|\")", e)
