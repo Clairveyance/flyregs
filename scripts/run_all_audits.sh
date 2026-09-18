@@ -316,6 +316,13 @@ run_one "duel_pending_hide_freeze (a hidden/pending duel cannot freeze the list)
 # The detector for the problem this whole block came from.
 run_one "no_orphaned_guards (no test sits in no runner)" \
   python3 scripts/no_orphaned_guards_audit.py
+# The repo must describe the database it deploys. Eight live functions --
+# including expand_search_terms, the query-expansion layer under SmartSearch --
+# had no definition anywhere on disk, created live via the Management API with
+# the .sql never written back. There is no point-in-time recovery here, only
+# daily snapshots, so the repo being incomplete is the part that bites.
+run_one "live_function_has_a_definition (no function exists only in production)" \
+  python3 scripts/live_function_has_a_definition_audit.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what
