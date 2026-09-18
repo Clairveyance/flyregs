@@ -83,7 +83,19 @@ export async function markAdComplied(
   opts?: { kind?: ComplianceKind; compliedAt?: string },
 ): Promise<void> {
   const { data: auth } = await supabase.auth.getUser()
-  const { error } = await supabase
+  // An AD compliance record is the highest-stakes write in the app, so it
+  // verifies that it actually changed something. PostgREST answers an UPDATE
+  // matching ZERO rows with a SUCCESS, so `if (error) throw` alone would let a
+  // refused write resolve cleanly and the screen would then show the AD as
+  // COMPLIED WHEN IT IS NOT -- an airworthiness record the app invented.
+  //
+  // The screens already gate this on canEdit, so this is defence in depth
+  // rather than the only guard -- and it is warranted, because canEdit is read
+  // once when the screen loads. A collaborator demoted from editor to viewer
+  // while sitting on that screen still sees the control until it refreshes,
+  // and RLS (editors_manage_shared_ad_notifications) refuses them. That is the
+  // reachable path. Guard on the side that cannot be stale.
+  const { data, error } = await supabase
     .from('user_ad_notifications')
     .update({
       complied_at: opts?.compliedAt ?? new Date().toISOString(),
@@ -92,15 +104,21 @@ export async function markAdComplied(
       compliance_kind: opts?.kind ?? 'one_time',
     })
     .eq('id', id)
+    .select('id')
   if (error) throw error
+  if (!data?.length) throw new Error("You don't have permission to record compliance on this aircraft.")
 }
 
 export async function unmarkAdComplied(id: number): Promise<void> {
-  const { error } = await supabase
+  // Same reasoning as markAdComplied: silently failing to CLEAR a compliance
+  // record leaves the screen showing it as open while the record stands.
+  const { data, error } = await supabase
     .from('user_ad_notifications')
     .update({ complied_at: null, complied_by: null, complied_note: null, compliance_kind: null })
     .eq('id', id)
+    .select('id')
   if (error) throw error
+  if (!data?.length) throw new Error("You don't have permission to change compliance on this aircraft.")
 }
 
 export async function markAdNotificationRead(id: number): Promise<void> {
@@ -117,11 +135,17 @@ export async function markAdNotificationRead(id: number): Promise<void> {
 // ad_number) constraint is what stops the next backfill/weekly sync from
 // silently re-adding the exact false-positive match the user just removed.
 export async function dismissAdNotification(id: number): Promise<void> {
-  const { error } = await supabase
+  // Same reasoning as markAdComplied. The caller (handleDismissAd) removes the
+  // row from the list optimistically and rolls back on a throw, so a silent
+  // success here is precisely what would make the AD vanish from the screen
+  // and come back on the next load.
+  const { data, error } = await supabase
     .from('user_ad_notifications')
     .update({ dismissed_at: new Date().toISOString() })
     .eq('id', id)
+    .select('id')
   if (error) throw error
+  if (!data?.length) throw new Error("You don't have permission to dismiss this AD.")
 }
 
 // Runs the same match rule scripts/send-ad-alerts.mjs uses, but against

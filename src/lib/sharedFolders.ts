@@ -735,12 +735,23 @@ export async function removeCollaborator(folderId: string, userId: string): Prom
 // folder can have one editor and one viewer at once. Owner-only in
 // practice via RLS's owners_update_collaborator_mode policy.
 export async function setCollaboratorMode(folderId: string, userId: string, mode: FolderCollabMode): Promise<void> {
-  const { error } = await supabase
+  // This is the read/write toggle itself, so a write that changes nothing is
+  // the worst possible silent success: the owner flips someone to read-only,
+  // the roster redraws as read-only, and the server still says read_write --
+  // a revoked permission that was never revoked. PostgREST answers a
+  // zero-row UPDATE with a SUCCESS, so this has to ask.
+  //
+  // Zero rows is reachable without any bug on the owner's part: they can be
+  // looking at a roster row for somebody who has left or been removed since it
+  // was drawn. Telling them so is right; pretending it worked is not.
+  const { data, error } = await supabase
     .from('folder_collaborators')
     .update({ collab_mode: mode })
     .eq('folder_id', folderId)
     .eq('user_id', userId)
+    .select('user_id')
   if (error) throw error
+  if (!data?.length) throw new Error('Could not change their access — they may have already left this folder.')
 }
 
 // This is now only the DEFAULT a NEW collaborator starts at when they join
@@ -750,8 +761,13 @@ export async function setCollaboratorMode(folderId: string, userId: string, mode
 // restricts the underlying UPDATE to auth.uid() = user_id, this just gives
 // it a name.
 export async function setFolderCollabMode(folderId: string, mode: FolderCollabMode): Promise<void> {
-  const { error } = await supabase.from('synced_folders').update({ collab_mode: mode }).eq('id', folderId)
+  // Same as setCollaboratorMode above -- this sets the access level NEW joiners
+  // get, so a silent no-op means the owner believes the folder is now
+  // read-only for future people when it is not.
+  const { data, error } = await supabase
+    .from('synced_folders').update({ collab_mode: mode }).eq('id', folderId).select('id')
   if (error) throw error
+  if (!data?.length) throw new Error('Could not change the folder’s sharing mode. Please try again.')
 }
 
 export async function getFolderCollabMode(folderId: string): Promise<FolderCollabMode> {

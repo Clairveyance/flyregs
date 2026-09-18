@@ -33,9 +33,29 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FAILURES = []
+
+# Named exemptions, each with the reason it is one. These are bookkeeping
+# writes where ZERO ROWS IS THE ORDINARY OUTCOME, not a refusal -- so throwing
+# would turn a normal state into an error in front of the user. Deliberately a
+# list of names rather than a looser pattern: adding to it should be a decision
+# somebody makes and can be argued with, not something a regex quietly absorbs.
+EXEMPT = {
+    # Guarded by .is('read_at', null), so zero rows means "already read".
+    "markAdNotificationRead": "already-read is the normal zero-row case",
+    # last_viewed_at bookkeeping, fire-and-forget, nothing user-visible depends
+    # on it landing; the row may legitimately be gone (left/removed).
+    "markSharedFolderViewed": "last_viewed_at bookkeeping, no user-visible effect",
+    "markSharedAircraftViewed": "last_viewed_at bookkeeping, no user-visible effect",
+}
+# The first version of this list only covered removal verbs, and missed
+# markAdComplied -- which writes an AIRWORTHINESS COMPLIANCE RECORD and, on a
+# refused write, would have left the screen showing an AD as complied when it
+# is not. A destructive-sounding name is not what makes a write consequential;
+# changing a fact the user will act on is.
 VERB = re.compile(
     r"export async function (remove\w*|delete\w*|revoke\w*|leave\w*|unshare\w*|"
-    r"transfer\w*|unlink\w*)\s*\(", re.I)
+    r"transfer\w*|unlink\w*|mark\w*|unmark\w*|dismiss\w*|set\w*Mode\w*|"
+    r"complete\w*|resolve\w*)\s*\(", re.I)
 
 
 def main():
@@ -48,6 +68,9 @@ def main():
             body = txt[m.start(): nxt if nxt > 0 else len(txt)]
             # Only server writes. A local cache clear has nothing to refuse it.
             if not re.search(r"supabase[\s\S]{0,400}?\.(delete|update)\(", body):
+                continue
+            if name in EXEMPT:
+                print(f"  SKIP  {name} — {EXEMPT[name]}")
                 continue
             checked += 1
             line = txt[:m.start()].count("\n") + 1
