@@ -468,3 +468,33 @@ export async function getStudyFactsForItems(
   )
   return map
 }
+
+/**
+ * The percentage the personal Mastery gauge should actually show.
+ *
+ * `pct` from the server is mastered / total_available, and total_available is
+ * the ENTIRE study corpus (12,888 items as of 2026-09-18). A member has to
+ * master 65 things before that rounds off zero, so every visual driven by it
+ * sat frozen: RC's own spec for the gauge is quoted in study.tsx --
+ * "this ring should be a 'duller' color to begin with, and 'grow' gold (and
+ * maybe even shimmer) as you increase your total % of mastery" -- and with a
+ * denominator that size the ring never grew, the shimmer never fired (it is
+ * gated on pct > 0), and the number never left 0. The feature had never worked
+ * for anybody.
+ *
+ * Retention -- mastered / reviewed -- is the number that belongs on a gauge
+ * meant to FILL: it moves on the very first card, it is the honest answer to
+ * "of what I have studied, how much have I got down", and the line under the
+ * gauge already carries the corpus figures ("N mastered of M reviewed · 12,888
+ * items total") so nothing is lost.
+ *
+ * Deliberately NOT used on the Ready Room leaderboard, which shows the mastered
+ * COUNT instead: retention rewards studying little and well, so somebody who
+ * reviewed 2 items and mastered 1 would outrank somebody who mastered 500 of
+ * 2,000. A percentage is right for your own progress; a count is right for
+ * ranking people against each other.
+ */
+export function masteryRetentionPct(m: { mastered: number; seen: number } | null | undefined): number {
+  if (!m || m.seen <= 0) return 0
+  return Math.round((m.mastered / m.seen) * 100)
+}

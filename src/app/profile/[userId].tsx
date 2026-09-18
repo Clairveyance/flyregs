@@ -17,7 +17,7 @@ import { RatingPicker } from '@/components/RatingPicker'
 import { TabletContainer } from '@/components/TabletContainer'
 import { useIsTablet } from '@/context/responsive'
 import { getDuelStats, type DuelStats } from '@/lib/challenges'
-import { getStudyMastery, type StudyMastery } from '@/lib/study'
+import { getStudyMastery, type StudyMastery, masteryRetentionPct} from '@/lib/study'
 import { getMyRatings, RATING_SHORT_LABELS, type RatingCode } from '@/lib/profileRatings'
 import { getCoinsForUser, COIN_BY_CODE, COIN_CATALOG, TROPHY_CATALOG, RE_EARNABLE_CODES, type EarnedCoin, type CoinDef } from '@/lib/coins'
 import { CoinMedal } from '@/components/CoinMedal'
@@ -618,10 +618,20 @@ export default function ProfileScreen() {
                     <Text style={[styles.sectionTitle, { color: tokens.t3, fontSize: fs(11) }]}>OVERALL MASTERY</Text>
                   </View>
                   <Text style={{ color: tokens.t1 }}>
-                    <Text style={[styles.statHeadlineNum, { fontSize: fs(23) }]}>{mastery!.pct}%</Text>
+                    {/* Count, not pct -- this is somebody else's profile, so it
+                        is comparative, and pct (mastered/12,888) reads 0% for
+                        everyone. Matches the Ready Room leaderboard. */}
+                    <Text style={[styles.statHeadlineNum, { fontSize: fs(23) }]}>{mastery!.mastered}</Text>
                     <Text style={[styles.statHeadlineSub, { color: tokens.t3, fontSize: fs(13.5) }]}> · {mastery!.mastered} terms mastered</Text>
                   </Text>
-                  <MasteryBar pct={mastery!.pct} tokens={tokens} redShift={redShift} />
+                  {/* Retention drives the BAR -- a progress bar that can never
+                      fill is worse than no bar. Its own comment below worries
+                      about "a real but tiny %" rendering as an invisible sliver;
+                      with the corpus denominator the value was not tiny, it was
+                      exactly 0 for everyone. The headline number beside it stays
+                      the mastered COUNT, because this is someone else's profile
+                      and that is the comparable figure. */}
+                  <MasteryBar pct={masteryRetentionPct(mastery)} tokens={tokens} redShift={redShift} />
                 </Pressable>
               ) : null
 

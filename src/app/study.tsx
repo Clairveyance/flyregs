@@ -10,7 +10,7 @@ import { OverlayHeader } from '@/components/ScreenHeader'
 import * as Sentry from '@sentry/react-native'
 import { Icon } from '@/components/Icon'
 import { TabletContainer } from '@/components/TabletContainer'
-import { explanationText, getStudyQueue, getStudyPoolCount, getStudyPoolCountsByLevel, recordStudyReview, getStudyMastery, getCurrency, getStudyFactsForItems, StudyCard, StudyMastery, Currency, StudyItemType, StudyFact } from '@/lib/study'
+import { explanationText, getStudyQueue, getStudyPoolCount, getStudyPoolCountsByLevel, recordStudyReview, getStudyMastery, getCurrency, getStudyFactsForItems, StudyCard, StudyMastery, Currency, StudyItemType, StudyFact, masteryRetentionPct} from '@/lib/study'
 import { COIN_BY_CODE, type CoinDef, TROPHY_BY_CODE } from '@/lib/coins'
 import { CoinRevealModal } from '@/components/CoinRevealModal'
 import { StudyLevel, ALL_STUDY_LEVELS, STUDY_LEVEL_LABELS, markCoinsSeen } from '@/lib/challenges'
@@ -142,13 +142,20 @@ export default function StudyScreen() {
   // of mastery."
   const masteryGlow = useSharedValue(0)
   useEffect(() => {
-    if (!mastery || mastery.pct <= 0) { masteryGlow.value = 0; return }
+    // Gated on RETENTION, not corpus pct -- see masteryRetentionPct. The old
+    // gate was `mastery.pct <= 0`, and pct is mastered/12,888, so it was
+    // effectively `0 <= 0` for every user and the shimmer RC asked for never
+    // fired once.
+    if (!mastery || masteryRetentionPct(mastery) <= 0) { masteryGlow.value = 0; return }
     masteryGlow.value = withRepeat(withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.sin) }), -1, true)
-  }, [mastery?.pct])
+  }, [mastery?.mastered, mastery?.seen])
   // Hooks can't be called conditionally, so this reads unconditionally at
   // the top level (unlike the JSX below, which only renders once `mastery`
   // is loaded) -- pct falls back to 0 pre-load, which just means no glow.
-  const masteryPct = mastery?.pct ?? 0
+  // Retention, not the corpus pct: this drives the glow's OPACITY, so with
+  // pct (mastered/12,888) the shadow was multiplied by ~0 and the shimmer was
+  // invisible even in the moment it was allowed to run.
+  const masteryPct = masteryRetentionPct(mastery)
   const masteryGlowStyle = useAnimatedStyle(() => ({ shadowOpacity: masteryGlow.value * (masteryPct / 100) * 0.75 }))
   const [currency, setCurrency] = useState<Currency | null>(null)
   const [poolCount, setPoolCount] = useState<number | null>(null)
@@ -977,7 +984,10 @@ export default function StudyScreen() {
                   styles.gaugeBadge,
                   {
                     backgroundColor: tokens.bg,
-                    borderColor: lerpColor(MASTERY_RING_DULL, tokens.gold, mastery.pct / 100),
+                    // Grows gold with retention. With the corpus pct this lerp
+                    // was always at 0, so the ring was permanently "dull to
+                    // begin with" and never began.
+                    borderColor: lerpColor(MASTERY_RING_DULL, tokens.gold, masteryRetentionPct(mastery) / 100),
                     shadowColor: tokens.gold,
                     shadowRadius: 9,
                     shadowOffset: { width: 0, height: 0 },
@@ -985,7 +995,7 @@ export default function StudyScreen() {
                   masteryGlowStyle,
                 ]}
               >
-                <Text style={[styles.gaugeNum, { color: tokens.t1, fontSize: fs(19) }]}>{mastery.pct}</Text>
+                <Text style={[styles.gaugeNum, { color: tokens.t1, fontSize: fs(19) }]}>{masteryRetentionPct(mastery)}</Text>
                 <Text style={[styles.gaugeUnit, { color: tokens.t4, fontSize: fs(8.5) }]}>PCT</Text>
               </Reanimated.View>
               <View style={styles.gaugeMeta}>

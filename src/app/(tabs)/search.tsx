@@ -661,7 +661,10 @@ function IdentityStats({
   const chips = useMemo(() => {
     const out: { icon: string; value: string; color: string }[] = []
     if (mastery && mastery.seen > 0) {
-      out.push({ icon: 'graduationcap.fill', value: `${mastery.pct}%`, color: tokens.blu })
+      // The COUNT, not pct. pct is mastered/12,888 and reads 0% until 65 items
+      // -- and this chip sits beside a streak ("3d") and a W/L ("1-1"), both of
+      // which are counts. See masteryRetentionPct in lib/study.ts.
+      out.push({ icon: 'graduationcap.fill', value: `${mastery.mastered}`, color: tokens.blu })
     }
     if (currency && currency.currentStreak > 0) {
       out.push({ icon: 'flame.fill', value: `${currency.currentStreak}d`, color: tokens.amb })

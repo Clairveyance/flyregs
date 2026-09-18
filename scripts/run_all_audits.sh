@@ -253,6 +253,12 @@ run_one "paywall_price_matches_appstore (offline fallback == what Apple charges)
 # compared the N.
 run_one "shared_highlights_refresh (reader screens keep collaborators' highlights current)" \
   python3 scripts/shared_highlights_refresh_audit.py
+# Mastery pct is mastered / the ENTIRE study corpus (12,888 items), so it read
+# 0 for every user until 65 items -- freezing the leaderboard, two profile
+# chips, a progress bar, and the Study Mode gauge whose ring and shimmer are
+# driven BY that number. RC's own spec for that ring had never once run.
+run_one "mastery_number_is_reachable (a number the user sees must be able to move)" \
+  python3 scripts/mastery_number_is_reachable_audit.py
 # These four guard the sync engine -- where this project's worst incident lives
 # (2026-08-26, real user data destroyed). They existed and were in NO runner:
 # not in this script, and not in the deliberate-exclusion list at the top
