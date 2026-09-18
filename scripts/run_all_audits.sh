@@ -267,6 +267,55 @@ run_one "two_device_sync (adds/deletes/edits reconcile both ways, idempotently)"
   npx tsx scripts/two_device_sync_test.ts
 run_one "async_mutex (concurrent writes on one key lose nothing)" \
   npx tsx scripts/async_mutex_test.ts
+# ORPHANS, 2026-09-18. A sweep for "test/audit scripts this runner never
+# mentions" returned 25. All of the access-control ones below still pass, but
+# so did nobody know -- and the sync guard found in the same sweep had been
+# broken for months precisely because nothing ran it. These are the ones that
+# guard a class that has actually shipped a bug, so they run every time now.
+# The search/relevance evaluation harnesses are slower and judgement-based;
+# they went under --full instead. youtube_description_audit is not app health
+# and is deliberately still out.
+run_one "aircraft_cap_rls (the fleet cap holds at the database, not just the UI)" \
+  python3 scripts/aircraft_cap_rls_test.py
+run_one "folder_cap_rls (the folder cap holds at the database)" \
+  python3 scripts/folder_cap_rls_test.py
+run_one "three_gap_rls (the three known RLS gap shapes stay closed)" \
+  python3 scripts/three_gap_rls_test.py
+run_one "new_tables_rls_fuzz (recently added tables leak nothing)" \
+  python3 scripts/new_tables_rls_fuzz_test.py
+run_one "keep_newest_write (a merge never loses the newer copy)" \
+  python3 scripts/keep_newest_write_test.py
+run_one "aircraft_sharing_e2e (invite, join, roles, revoke)" \
+  python3 scripts/aircraft_sharing_e2e_test.py
+run_one "aircraft_collaborator_role_change (viewer<->editor, no self-escalation)" \
+  python3 scripts/aircraft_collaborator_role_change_test.py
+run_one "shared_folder_invite_e2e (the invite path end to end)" \
+  python3 scripts/shared_folder_invite_e2e_test.py
+run_one "readonly_folder_pathway (read-only really is read-only)" \
+  python3 scripts/readonly_folder_pathway_test.py
+run_one "folder_collaborator_downgrade (access re-checks live entitlement)" \
+  python3 scripts/folder_collaborator_downgrade_test.py
+run_one "backup_sync_pro_gate (Back-up & Sync stays behind its tier)" \
+  python3 scripts/backup_sync_pro_gate_test.py
+run_one "account_findfriends_e2e (Find Friends, end to end)" \
+  python3 scripts/account_findfriends_e2e_test.py
+run_one "content_search_bookmarks_magiclink_tier (those four, per tier)" \
+  python3 scripts/content_search_bookmarks_magiclink_tier_test.py
+run_one "fleet_sweep_regression (the fleet screen's known regressions stay fixed)" \
+  python3 scripts/fleet_sweep_regression_test.py
+run_one "folder_realtime (a folder change really does push live)" \
+  python3 scripts/folder_realtime_test.py
+run_one "dictionary_duel_e2e (a dictionary duel plays through)" \
+  python3 scripts/dictionary_duel_e2e_test.py
+run_one "duel_delete_history (deleting a duel does not corrupt either player's stats)" \
+  python3 scripts/duel_delete_history_test.py
+run_one "duel_downgrade_midmatch (losing your tier mid-duel)" \
+  python3 scripts/duel_downgrade_midmatch_test.py
+run_one "duel_pending_hide_freeze (a hidden/pending duel cannot freeze the list)" \
+  python3 scripts/duel_pending_hide_freeze_test.py
+# The detector for the problem this whole block came from.
+run_one "no_orphaned_guards (no test sits in no runner)" \
+  python3 scripts/no_orphaned_guards_audit.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what
@@ -404,6 +453,13 @@ if [[ $FULL -eq 1 ]]; then
   run_one "filter_matrix_test (Study/Flashcard/Duel filters)" python3 scripts/filter_matrix_test.py all
   run_one "search_eval"                                        python3 scripts/search_eval.py
   run_one "semantic_search_breadth_test"                       python3 scripts/semantic_search_breadth_test.py
+  # Also orphaned until 2026-09-18 -- judgement-based relevance harnesses, so
+  # they belong here rather than in the every-run set.
+  run_one "search_rank_eval"                                   python3 scripts/search_rank_eval.py
+  run_one "search_relevance_eval"                              python3 scripts/search_relevance_eval.py
+  run_one "search_anchor_gap_sweep"                            python3 scripts/search_anchor_gap_sweep.py
+  run_one "realistic_question_sweep"                           python3 scripts/realistic_question_sweep.py
+  run_one "search_rank_sweep"                                  python3 scripts/search_rank_sweep.py
 fi
 
 echo "==========================================" | tee -a "$REPORT"
