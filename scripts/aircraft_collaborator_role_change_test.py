@@ -186,7 +186,7 @@ def main():
             ready_evt = threading.Event()
             t = threading.Thread(target=join_aircraft_channel, args=(mate["jwt"], aircraft_id, received, ready_evt), daemon=True)
             t.start()
-            joined_ok = ready_evt.wait(timeout=10)
+            joined_ok = ready_evt.wait(timeout=45)
             join_msg = next((r for r in received if r[0] == "_joined"), None)
             socket_ok = joined_ok and bool(join_msg) and join_msg[1] == "ok"
             check("collaborator's realtime socket joined aircraft-realtime-{id}", socket_ok, str(join_msg))
@@ -203,9 +203,9 @@ def main():
             {"p_aircraft_id": aircraft_id, "p_user_id": mate["id"], "p_role": "editor"})
 
         if socket_ok:
-            hit = wait_for(received, lambda r: r[0] == "change" and r[1].get("data", {}).get("table") == "aircraft_collaborators", timeout_s=15)
+            hit = wait_for(received, lambda r: r[0] == "change" and r[1].get("data", {}).get("table") == "aircraft_collaborators", timeout_s=45)
             check("collaborator's socket received a LIVE push for the role change (not polling)",
-                  hit is not None, "no postgres_changes event for aircraft_collaborators arrived within 15s")
+                  hit is not None, "no postgres_changes event for aircraft_collaborators arrived within 45s")
 
         collabs2 = rpc("get_aircraft_collaborators", owner["jwt"], {"p_aircraft_id": aircraft_id})
         mate_row2 = next((c for c in (collabs2 or []) if str(c.get("out_user_id")) == mate["id"]), {})

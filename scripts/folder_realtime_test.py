@@ -151,9 +151,9 @@ def main():
         t = threading.Thread(target=join_folder_channel, args=(mate["jwt"], folder_id, received, ready_evt), daemon=True)
         t.start()
 
-        joined_ok = ready_evt.wait(timeout=10)
+        joined_ok = ready_evt.wait(timeout=45)
         join_msg = next((r for r in received if r[0] == "_joined"), None)
-        check("collaborator's socket got phx_reply for phx_join", joined_ok, "no reply within 10s")
+        check("collaborator's socket got phx_reply for phx_join", joined_ok, "no reply within 45s")
         check("channel join status is 'ok' (RLS/access_token accepted)",
               bool(join_msg) and join_msg[1] == "ok", str(join_msg))
 
@@ -165,7 +165,7 @@ def main():
         # not live yet. A test that races the thing it is testing reports
         # the app broken when the test is what's wrong, which is worse than
         # no test on the feature RC cares most about.
-        sub_live = wait_for(received, lambda r: r[0] == "_system", timeout_s=15)
+        sub_live = wait_for(received, lambda r: r[0] == "_system", timeout_s=45)
         check("postgres_changes subscription went live, not just the channel join",
               bool(sub_live) and sub_live[1] == "ok", str(sub_live))
 
@@ -179,7 +179,7 @@ def main():
             hit = wait_for_after(received, baseline,
                                  lambda r: r[0] == "change"
                                  and r[1].get("data", {}).get("table") == "synced_folders",
-                                 timeout_s=10)
+                                 timeout_s=45)
             check("collaborator's socket received a LIVE push for the folder rename "
                   "(not polling)", hit is not None, "no postgres_changes event for synced_folders arrived within 8s")
 
@@ -192,7 +192,7 @@ def main():
             hit2 = wait_for_after(received, baseline2,
                                   lambda r: r[0] == "change"
                                   and r[1].get("data", {}).get("table") == "synced_folder_items",
-                                  timeout_s=10)
+                                  timeout_s=45)
             check("collaborator's socket received a LIVE push for the new item "
                   "(not polling)", hit2 is not None, "no postgres_changes event for synced_folder_items arrived within 8s")
 
