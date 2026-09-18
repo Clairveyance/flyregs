@@ -17,6 +17,16 @@
 # rls_write_path_fuzzer.py specifically -- see PROJECT_NOTES's 2026-08-11
 # app-wide cleanup entry), not as part of every quick health check.
 #
+# AMENDED 2026-09-18. That exclusion is now applied more narrowly than it
+# reads. Several account-mutating tests ARE included below -- the sharing,
+# deletion, subscription-lifecycle and sync ones -- because each guards a
+# defect class that has actually shipped, and each creates and deletes its own
+# disposable accounts in a finally block. The script is slower for it. The
+# trade was made deliberately after a day in which four sync guards turned out
+# to be in NO runner at all (not here, not in the list above), and one of them
+# had been silently broken for months. Speed is worth less than a guard that
+# runs.
+#
 # Usage: ./scripts/run_all_audits.sh [--full]
 #   (no args)  Layer 1 (data integrity) + Layer 2 (tier gating) only -- fast.
 #   --full     Also runs Layer 3 search/filter eval harnesses (slower, hits
@@ -243,6 +253,20 @@ run_one "paywall_price_matches_appstore (offline fallback == what Apple charges)
 # compared the N.
 run_one "shared_highlights_refresh (reader screens keep collaborators' highlights current)" \
   python3 scripts/shared_highlights_refresh_audit.py
+# These four guard the sync engine -- where this project's worst incident lives
+# (2026-08-26, real user data destroyed). They existed and were in NO runner:
+# not in this script, and not in the deliberate-exclusion list at the top
+# either. Nobody chose to skip them; they were simply never added. One of them
+# (sync_owner_claim_test) had been broken for months by an unstubbed import and
+# nothing noticed, because nothing ran it. A guard nobody runs is not a guard.
+run_one "sync_owner_claim (the two client-side local-data-loss guards)" \
+  npx tsx scripts/sync_owner_claim_test.ts
+run_one "sync_cross_account_destruction (one account cannot delete another's rows)" \
+  python3 scripts/sync_cross_account_destruction_test.py
+run_one "two_device_sync (adds/deletes/edits reconcile both ways, idempotently)" \
+  npx tsx scripts/two_device_sync_test.ts
+run_one "async_mutex (concurrent writes on one key lose nothing)" \
+  npx tsx scripts/async_mutex_test.ts
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what

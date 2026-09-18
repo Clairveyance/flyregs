@@ -112,6 +112,23 @@ Module._load = function (request: string) {
     // the regression guard for the two local-data-loss bugs this file covers
     // had quietly stopped running. Stubbed at the imageCache boundary, which
     // is the only thing syncOwner actually calls into it for.
+    // Added 2026-09-18, and this is the THIRD time this file has been broken
+    // by the same mechanism: sync.ts imports @sentry/react-native, which pulls
+    // in react-native, which tsx cannot transform -- so this test died on a
+    // TransformError that has nothing to do with what it tests, and the
+    // regression guard for the 2026-08-26 real-data-loss incident had quietly
+    // stopped running AGAIN. Nothing ran it, so nothing noticed.
+    //
+    // The root problem is not the stub list, it is that this file was in no
+    // runner at all. It is now in run_all_audits.sh, so the next unstubbed
+    // import fails loudly on the next audit run instead of years later.
+    case '@sentry/react-native':
+      return {
+        captureException: () => {},
+        captureMessage: () => {},
+        addBreadcrumb: () => {},
+        withScope: (fn: any) => fn({ setTag: () => {}, setExtra: () => {}, setContext: () => {} }),
+      }
     case '@/lib/imageCache':
       return { removeFromCache: async () => {} }
     case '@/lib/appSettings':
