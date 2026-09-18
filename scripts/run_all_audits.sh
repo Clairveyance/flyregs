@@ -180,6 +180,11 @@ run_one "collaborator_removal (removal ends access, keeps their work, blocks re-
 # re-registration on every foreground must never resurrect a deliberate OFF.
 run_one "notification_defaults (new accounts all-ON, a deliberate OFF stays off)" \
   python3 scripts/notification_defaults_audit.py
+# Everything else about sharing tested TWO people, which cannot distinguish
+# "changed this person" from "changed the folder" -- and cannot ask whether a
+# guest can add members to someone else's folder behind the owner's back.
+run_one "group_share_matrix (four people, three access levels, changing independently)" \
+  python3 scripts/group_share_matrix_test.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what
