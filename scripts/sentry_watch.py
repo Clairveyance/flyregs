@@ -144,6 +144,50 @@ def release_session_health(version, period):
     return out or None
 
 
+def releases_active_after(exclude_version, day, period):
+    """[(release, sessions)] for OTHER releases that sent sessions after `day`.
+
+    Why this exists. The ingest counters read by ingest_outcomes() are
+    PROJECT-WIDE: they cannot tell you which release an event came from. So
+    "this release went quiet but events still arrived" was being printed on
+    the strength of events belonging to a DIFFERENT build, and the wording
+    ("session tracking specifically may be off") invented a reporting fault
+    that was not there. On 2026-09-17 B42 read as a pipeline problem when the
+    plain truth was that the device had gone back to B40, which was still
+    sending sessions two days earlier.
+
+    A build nobody is running any more is the ordinary explanation for a
+    silent build, and it is the one the project-wide counters are structurally
+    incapable of seeing. So attribute the traffic per release before blaming
+    the pipeline. Days are counted STRICTLY AFTER `day` — the last day this
+    release was alive is not part of its own silence window.
+
+    Returns None if the read failed, so an unanswered call is never mistaken
+    for "no other build is running".
+    """
+    pid = project_id()
+    if not pid or not day:
+        return None
+    q = urllib.parse.urlencode({
+        "field": "sum(session)", "groupBy": "release", "statsPeriod": period,
+        "interval": "1d", "project": pid,
+    })
+    data = api(f"/organizations/{ORG}/sessions/?{q}")
+    if not isinstance(data, dict) or "groups" not in data:
+        return None
+    days = [d[:10] for d in data.get("intervals", [])]
+    out = []
+    for g in data.get("groups", []):
+        rel = g.get("by", {}).get("release")
+        if not rel or rel == exclude_version:
+            continue
+        series = g.get("series", {}).get("sum(session)", [])
+        after = sum(n or 0 for d, n in zip(days, series) if d > day)
+        if after:
+            out.append((rel, after))
+    return sorted(out, key=lambda r: -r[1])
+
+
 def accepted_transactions(period):
     """How many transactions Sentry itself says it ACCEPTED in the window.
 
@@ -296,6 +340,99 @@ def day_age_hours(day):
 INSTRUMENTATION_COMMITTED = "2026-09-05T18:42:46+00:00"
 
 
+def testflight_builds(limit=8):
+    """[(build_number, external_state, [group names]), ...], newest first.
+
+    WHY THIS LIVES IN THE SENTRY WATCHER. Sentry can only tell us a release
+    EXISTS. It cannot tell us whether anyone is allowed to install it, and those
+    are different questions -- 2026-09-18: B42 had been sitting at
+    `READY_FOR_BETA_SUBMISSION`, in the Internal group only, for ten days. It was
+    never submitted for external beta, so both real testers were still on B40
+    (cut 2026-09-04) and every fix in between reached nobody. The watcher saw
+    "B42 is not the build in use" and stopped one step short of the cause.
+
+    The second-order cost is the one that hides: tracing landed AFTER B40 was
+    cut, so the only build testers could run emitted no performance data at all.
+    A distribution gap silently becomes a telemetry gap for exactly the people
+    we most need telemetry from.
+
+    Returns None on any failure -- an unreadable ASC is UNKNOWN, never clean,
+    the same discipline the session reads above use. pyjwt / .env.asc missing is
+    a failed read, not evidence of good distribution.
+    """
+    try:
+        sys.path.insert(0, os.path.join(BASE, "scripts"))
+        import asc_api
+        app_id = asc_api.load_env().get("ASC_APP_ID")
+        if not app_id:
+            return None
+        status, text = asc_api.request(
+            "GET", f"/v1/builds?filter[app]={app_id}&limit={limit}&sort=-version"
+            "&include=buildBetaDetail,betaGroups")
+        if status != 200:
+            return None
+        data = json.loads(text)
+    except Exception:
+        return None
+    inc = {(i["type"], i["id"]): i for i in data.get("included", [])}
+    out = []
+    for b in data.get("data", []):
+        rel = b.get("relationships", {})
+        ext = None
+        ref = (rel.get("buildBetaDetail") or {}).get("data")
+        if ref:
+            det = inc.get(("buildBetaDetails", ref["id"]))
+            if det:
+                ext = det["attributes"].get("externalBuildState")
+        groups = [inc.get(("betaGroups", g["id"]), {}).get("attributes", {}).get("name")
+                  for g in ((rel.get("betaGroups") or {}).get("data") or [])]
+        out.append((str(b["attributes"].get("version")), ext, [g for g in groups if g]))
+    return out
+
+
+def distributed_externally(entry):
+    """Is this build actually installable by a non-internal tester?
+
+    Both halves are required. `IN_BETA_TESTING` alone is not enough -- a build
+    can be in beta testing with the Internal group only, which is precisely the
+    state that fooled us.
+    """
+    _, ext, groups = entry
+    return ext == "IN_BETA_TESTING" and any(
+        g and g.lower() != "internal" for g in groups)
+
+
+def report_distribution(newest_version, findings):
+    """Say which build TESTERS can run, not just which build is newest."""
+    builds = testflight_builds()
+    if builds is None:
+        print("  TestFlight distribution UNKNOWN — could not read App Store Connect")
+        print("    (needs pyjwt + ac-app/.env.asc). Not evidence that it is fine.")
+        findings.append("could not read TestFlight distribution state")
+        return
+    if not builds:
+        return
+    # The build number is the part after '+' in com.bundle.id@1.0.0+42.
+    newest_num = str(newest_version).split("+")[-1] if newest_version else None
+    shipped = next((b for b in builds if distributed_externally(b)), None)
+    print("  TestFlight distribution:")
+    for num, ext, groups in builds[:3]:
+        mark = "  <-- testers can install this" if distributed_externally(
+            (num, ext, groups)) else ""
+        print(f"    build {num:<4} external={ext or '?':<28} groups={groups or 'NONE'}{mark}")
+    if shipped is None:
+        findings.append("NO build is distributed to external testers")
+        print("    ^^ no build is externally distributed — testers have nothing to install.")
+        return
+    if newest_num and shipped[0] != newest_num:
+        findings.append(
+            f"build {newest_num} was never distributed externally — "
+            f"testers are still on build {shipped[0]}")
+        print(f"    ^^ build {newest_num} exists but testers cannot get it; the newest build")
+        print(f"       they can install is {shipped[0]}. Every fix in between reaches nobody.")
+        print("       Submitting or cutting a build is RC's call — report it, never do it.")
+
+
 def read_state():
     try:
         return json.load(open(STATE))
@@ -407,6 +544,11 @@ def main():
         print(f"  newest release {ver}")
         print(f"    created {created[:16]}   last error event {str(last)[:16] if last else 'NEVER'}")
 
+        # Ask this BEFORE interpreting any silence below. "Nobody is running the
+        # newest build" and "nobody was ever offered the newest build" produce
+        # identical Sentry data, and only one of them is a problem we can act on.
+        report_distribution(ver, findings)
+
         sessions, last_session_day = release_sessions(ver, args.days)
         if sessions is None:
             print("    could not read release health — session liveness UNKNOWN")
@@ -437,10 +579,33 @@ def main():
                     for oc, cat, v in discards:
                         print(f"         {oc} {cat}: {v}")
                 elif arrived:
-                    findings.append(
-                        f"release {ver} sent no sessions in {age_h/24:.0f}d but other events arrived")
-                    print("       Other event types still arrived — session tracking specifically")
-                    print("       may be off, rather than the app being unused.")
+                    # The counters behind `arrived` are project-wide. Before
+                    # calling this a reporting fault, ask the one question they
+                    # cannot answer: did those events belong to a DIFFERENT
+                    # build? A newer release that nobody launches any more is
+                    # silent for an entirely ordinary reason.
+                    others = releases_active_after(ver, last_session_day, f"{span_days}d")
+                    if others:
+                        moved = ", ".join(f"{r} ({n:.0f})" for r, n in others[:3])
+                        findings.append(
+                            f"release {ver} is not the build in use — "
+                            f"{others[0][0]} is still sending sessions")
+                        print("       The events that arrived belong to OTHER builds, not to")
+                        print(f"       {ver}: {moved}.")
+                        print("       So the pipeline is fine and this build is simply not")
+                        print("       being run. Confirm that is deliberate.")
+                    elif others is None:
+                        findings.append(
+                            f"release {ver} sent no sessions in {age_h/24:.0f}d; "
+                            f"could not attribute the events that did arrive")
+                        print("       Other events arrived, but the per-release read failed, so")
+                        print("       they cannot be attributed. Cause UNKNOWN, treat as blind.")
+                    else:
+                        findings.append(
+                            f"release {ver} sent no sessions in {age_h/24:.0f}d but other events arrived")
+                        print("       Other event types still arrived, and no other build is")
+                        print("       sending sessions — session tracking specifically may be")
+                        print("       off, rather than the app being unused.")
                 else:
                     # Deliberately still a finding. "Nothing arrived" rules out
                     # a broken *transport*, but it cannot separate "nobody

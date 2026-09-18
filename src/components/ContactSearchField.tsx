@@ -142,7 +142,15 @@ export function ContactSearchField({
         <Text style={{ color: tokens.red, fontSize: fs(12.5), marginTop: 6 }}>{error}</Text>
       ) : null}
 
-      {!error && searched && results.length === 0 ? (
+      {/* `!busy` matters: `searched` is NOT cleared on a keystroke, so without
+          it the "No FlyRegs user found" line from the PREVIOUS query stayed on
+          screen the whole time someone kept typing -- every partial spelling of
+          a callsign that does exist reads as "this person isn't on FlyRegs".
+          RC, 2026-09-17, on the older raw-Callsign field that had the same
+          shape in red: "hold the callsign error until i stop typing." The
+          debounce above already delays the LOOKUP; this holds the ANSWER, which
+          is the half the user actually reads. */}
+      {!error && searched && !busy && results.length === 0 ? (
         <Text style={{ color: tokens.t3, fontSize: fs(12.5), marginTop: 6 }}>
           No FlyRegs user found. A phone number or email has to match exactly; a callsign
           can be the first few letters.
