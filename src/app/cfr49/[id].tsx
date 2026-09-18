@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Keyboard } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Keyboard, Share } from 'react-native'
 import { useLocalSearchParams, router } from 'expo-router'
 import * as Sentry from '@sentry/react-native'
 import * as Haptics from 'expo-haptics'
@@ -31,6 +31,7 @@ import { getSemanticRelated, mergeRelated } from '@/lib/relatedContent'
 import { getLatestRevision, changedParagraphIndices, type ContentRevision } from '@/lib/whatsChanged'
 import { normalizeRegBody } from '@/lib/regTextFormat'
 import { fetchMnemonicAnchors, MnemonicAnchor } from '@/lib/regMnemonics'
+import { buildRegShareLink } from '@/lib/regShare'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { naturalCompare } from '@/lib/naturalSort'
 
@@ -39,11 +40,13 @@ import { naturalCompare } from '@/lib/naturalSort'
 // tables, prev/next, MagicLink cross-refs) per RC's standing "every
 // feature behaves identically everywhere" rule, see
 // sync/migrations_cfr49_schema.sql's header for the build's full context.
-// Deliberately different from far/[id].tsx in two ways:
-//   - No Share button: buildRegShareLink/toRegShareType (regShare.ts)
-//     require a website-side VALID_TYPES update this pass doesn't include;
-//     bookmark/highlight/folder/download/print all work independently.
+// Deliberately different from far/[id].tsx in one way:
 //   - No tablet SplitPane path: iPad is paused until after beta.
+// (Share was the other one, for months: buildRegShareLink/toRegShareType
+// needed a website-side VALID_TYPES update that shipped 2026-09-18, so this
+// screen is now at full parity. share_types_in_sync_audit.py compares the
+// app's RegShareType against the website's two lists on every audit run, so
+// the next content type cannot land on one side alone.)
 // Cross-ref bars and semantic-related will read empty until the citation-
 // extraction and embeddings passes (search/MagicLink wiring) land -- same
 // "0 is a real, always-shown state" convention as every other type here.
@@ -499,6 +502,27 @@ export default function Cfr49SectionScreen() {
     setDownloadBusy(false)
   }
 
+  const handleShare = async () => {
+    // Share/export is a PLUS feature, not Premium -- same gate and same
+    // paywall target as far/[id].tsx's handleShare, deliberately copied
+    // rather than re-derived so the two cannot drift.
+    //
+    // This screen shipped WITHOUT a Share button because the website's
+    // reg/index.php did not list 'cfr49', and a link for a type that page
+    // does not know never hands off to the app at all. Both sides landed
+    // 2026-09-18; share_types_in_sync_audit.py now keeps them together.
+    if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
+    if (!section) return
+    try {
+      await Share.share({
+        title: `§ ${section.section_number}`,
+        message: buildRegShareLink('cfr49', section.section_number, `§ ${section.section_number}`, section.title ?? undefined),
+      })
+    } catch {
+      // User cancelled or share unavailable
+    }
+  }
+
   const handlePrint = async () => {
     if (!hasPlusAccess) { if (!authLoading) router.push('/paywall?tier=plus'); return }
     if (!section) return
@@ -528,6 +552,7 @@ export default function Cfr49SectionScreen() {
       <HeaderOverflowMenu
         items={[
           { icon: 'printer', label: 'Print', onPress: handlePrint, disabled: !hasPlusAccess },
+          { icon: 'square.and.arrow.up', label: 'Share', onPress: handleShare, disabled: !hasPlusAccess },
           { icon: 'folder.badge.plus', label: 'Add to Folder', onPress: handleOpenFolderPicker, disabled: !hasPlusAccess },
         ]}
       />

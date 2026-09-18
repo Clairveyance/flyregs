@@ -224,6 +224,12 @@ run_one "test_email_hygiene (harnesses send no real mail; no real address suppre
 # changed nothing -- the screen showed it gone, the next refresh brought it back.
 run_one "write_verifies_it_changed_something (no silent no-op reported as success)" \
   python3 scripts/write_verifies_it_changed_something_audit.py
+# The app and flyregs.com/reg/ must agree on every shareable type. A type the
+# app can link but the site does not know never hands off to the app at all --
+# the page bails before attempting the deep link, so the link looks fine to the
+# sender and silently fails for the receiver. This pair has drifted three times.
+run_one "share_types_in_sync (app RegShareType == website TYPE_NAMES/VALID_TYPES)" \
+  python3 scripts/share_types_in_sync_audit.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what

@@ -17,7 +17,7 @@ import type { FolderItemType } from '@/lib/folders'
 // every non-'ac' bookmark through buildRegShareLink, and dictionary terms
 // are bookmarkable; it was previously reaching here anyway via an unchecked
 // `as RegShareType` cast, which is what let the mismatch go unnoticed.
-export type RegShareType = 'far' | 'aim' | 'pcg' | 'ad' | 'loi' | 'dictionary'
+export type RegShareType = 'far' | 'aim' | 'pcg' | 'ad' | 'loi' | 'dictionary' | 'cfr49'
 
 export function buildRegShareLink(type: RegShareType, id: string, label: string, title?: string): string {
   const params = new URLSearchParams({ type, id, label })
@@ -47,6 +47,12 @@ export function toRegShareType(t: FolderItemType): RegShareType | null {
     case 'ad':
     case 'loi':
     case 'dictionary':
+    // 'cfr49' landed 2026-09-18, when the website's $TYPE_NAMES/VALID_TYPES
+    // finally gained it. It had been the mirror image of the loi/dictionary
+    // drift: withheld here rather than shipped broken, which was the safer
+    // choice but still left 49 CFR as the only reader screen in the app with
+    // no Share button. share_types_in_sync_audit.py now compares both files.
+    case 'cfr49':
       return t
     // Has its own dedicated landing page + link builder (flyregs.com/ac/,
     // buildACShareLink) because it alone carries a highlight snippet.
@@ -55,12 +61,6 @@ export function toRegShareType(t: FolderItemType): RegShareType | null {
     // Shared as plain text by shareNote(); a note is user-authored content
     // with no public URL to hand off to.
     case 'note':
-      return null
-    // Not yet in RegShareType/the website's VALID_TYPES -- adding 'cfr49'
-    // there is a real website deploy, deliberately not bundled into this
-    // pass. Share disabled for cfr49 until that lands (Print/bookmark/
-    // highlight/folder/download all work independently of this).
-    case 'cfr49':
       return null
     default: {
       const _exhaustive: never = t
