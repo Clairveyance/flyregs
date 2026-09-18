@@ -81,6 +81,7 @@ def main():
     folder_id = "del-" + secrets.token_hex(6)
     ac_id = None
     reminder_id = None
+    compliance_id = None
     owner_note = f"{folder_id}-note-owner"
     mate_note = f"{folder_id}-note-mate"
     mate_hl = f"{folder_id}-hl-mate"
@@ -147,6 +148,23 @@ def main():
         check("the guest added a maintenance reminder to the owner's aircraft",
               bool(reminder_id), f"HTTP {st}: {rb}")
 
+        # AND THE HIGHEST-STAKES ONE: an AD compliance record. user_ad_notifications
+        # carries complied_at/complied_by/complied_note -- an airworthiness record --
+        # and hangs off BOTH the user (cascade) and someone else's aircraft.
+        st, adrows = http("GET", "/rest/v1/airworthiness_directives?select=ad_number&limit=1",
+                          key=SERVICE)
+        ad_number = (adrows or [{}])[0].get("ad_number")
+        st, cb = http("POST", "/rest/v1/user_ad_notifications", key=SERVICE,
+                      body={"user_id": mate["id"], "user_aircraft_id": ac_id,
+                            "ad_number": ad_number, "matched_via": "airframe",
+                            "complied_at": NOW, "complied_by": mate["id"],
+                            "complied_note": "signed off by the guest",
+                            "compliance_kind": "one_time"},
+                      headers={"Prefer": "return=representation"})
+        compliance_id = (cb or [{}])[0].get("id")
+        check("the guest marked an AD complied on the owner's aircraft",
+              bool(compliance_id), f"HTTP {st}: {cb}")
+
         before = items_in(folder_id)
         check("the folder holds everything both people filed",
               {"91.155", mate_note, owner_note} <= set(before), str(before))
@@ -173,6 +191,17 @@ def main():
               owner_note in after,
               f"folder now holds {after}; the note itself still exists: "
               f"{exists('synced_notes', f'id=eq.{owner_note}')}")
+        check("THE AD COMPLIANCE RECORD the guest signed off on the owner's "
+              "aircraft survives, and now belongs to the owner",
+              exists("user_ad_notifications",
+                     f"id=eq.{compliance_id}&user_id=eq.{owner['id']}"),
+              str(http("GET", f"/rest/v1/user_ad_notifications?id=eq.{compliance_id}"
+                              f"&select=user_id,complied_by,complied_note", key=SERVICE)[1]))
+        check("...and it still records WHO actually complied, not the new owner",
+              (http("GET", f"/rest/v1/user_ad_notifications?id=eq.{compliance_id}"
+                           f"&select=complied_by", key=SERVICE)[1] or [{}])[0]
+              .get("complied_by") == mate["id"],
+              "complied_by must be a record of the person, not of the row's owner")
         check("THE MAINTENANCE REMINDER the guest added to the owner's aircraft "
               "survives, and now belongs to the owner",
               exists("user_aircraft_reminders",
@@ -221,6 +250,7 @@ def main():
             http("DELETE", f"/rest/v1/synced_notes?id=eq.{nid}", key=SERVICE)
         http("DELETE", f"/rest/v1/synced_bookmarks?id=eq.{mate_hl}", key=SERVICE)
         if ac_id:
+            http("DELETE", f"/rest/v1/user_ad_notifications?user_aircraft_id=eq.{ac_id}", key=SERVICE)
             http("DELETE", f"/rest/v1/user_aircraft_reminders?user_aircraft_id=eq.{ac_id}", key=SERVICE)
             http("DELETE", f"/rest/v1/aircraft_collaborators?aircraft_id=eq.{ac_id}", key=SERVICE)
             http("DELETE", f"/rest/v1/user_aircraft?id=eq.{ac_id}", key=SERVICE)
