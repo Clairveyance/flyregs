@@ -212,6 +212,12 @@ run_one "device_claim_wired (every session-start path claims the device)" \
 # NOT "no entitlements", and writing false on it stripped RC's own Premium in B42.
 run_one "subscription_lifecycle (purchase grants, lapse downgrades, an outage never strips a payer)" \
   python3 scripts/subscription_lifecycle_test.py
+# Bounce rate, not quota, is what damages a sending domain -- and a throttled
+# domain means brand-new users never get their confirmation email, which at
+# beta scale is indistinguishable from "the app is broken." Every non-delivery
+# in the last 100 sends was our own test traffic.
+run_one "test_email_hygiene (harnesses send no real mail; no real address suppressed)" \
+  python3 scripts/test_email_hygiene_audit.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what
