@@ -397,8 +397,15 @@ export async function removeAircraftEquipment(id: string): Promise<void> {
     .eq('id', id)
     .maybeSingle()
   if (readErr) throw readErr
-  const { error } = await supabase.from('user_aircraft_equipment').delete().eq('id', id)
+  // The .select() above is a READ-BEFORE (it fetches user_aircraft_id for the
+  // prune below) -- it says nothing about whether the DELETE landed. PostgREST
+  // answers a delete matching zero rows with a success, so without asking for
+  // the deleted row back, a viewer (non-editor) removing equipment from
+  // somebody else's aircraft gets a clean "done" and the tag stays.
+  const { data: removed, error } = await supabase
+    .from('user_aircraft_equipment').delete().eq('id', id).select('id')
   if (error) throw error
+  if (!removed?.length) throw new Error("You don't have permission to remove this equipment.")
   if (!row?.user_aircraft_id) return
   const { error: pruneErr } = await supabase.rpc('prune_orphaned_equipment_ad_notifications', {
     p_user_aircraft_id: row.user_aircraft_id,
@@ -508,8 +515,17 @@ export async function setReminderCompliedHobbs(id: string, hours: number | null)
 }
 
 export async function removeAircraftReminder(id: string): Promise<void> {
-  const { error } = await supabase.from('user_aircraft_reminders').delete().eq('id', id)
+  // `.select()` is the point: PostgREST answers a write that matches ZERO rows
+  // with a SUCCESS, so `if (error) throw` alone cannot tell "done" apart from
+  // "RLS silently refused you". Proven live 2026-09-18 -- a read-only
+  // collaborator's remove returned HTTP 204 and changed nothing, so the screen
+  // showed it gone and the next refresh brought it back. Same class as the
+  // aircraft "Remove Access" that reported success while the person kept
+  // access. See memory/gotcha_write_that_changed_nothing_reported_success.md.
+  const { data, error } = await supabase
+    .from('user_aircraft_reminders').delete().eq('id', id).select('id')
   if (error) throw error
+  if (!data?.length) throw new Error("You don't have permission to remove this reminder.")
 }
 
 // NOTE on notified_at: this deliberately does NOT send it. Rolling a

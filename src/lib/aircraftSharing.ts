@@ -265,12 +265,21 @@ export async function leaveSharedAircraft(aircraftId: string): Promise<void> {
   if (authErr) throw authErr
   const userId = data.user?.id
   if (!userId) throw new Error('Not signed in.')
-  const { error } = await supabase
+  // `.select()` is the point: PostgREST answers a write that matches ZERO rows
+  // with a SUCCESS, so `if (error) throw` alone cannot tell "done" apart from
+  // "RLS silently refused you". Proven live 2026-09-18 -- a read-only
+  // collaborator's remove returned HTTP 204 and changed nothing, so the screen
+  // showed it gone and the next refresh brought it back. Same class as the
+  // aircraft "Remove Access" that reported success while the person kept
+  // access. See memory/gotcha_write_that_changed_nothing_reported_success.md.
+  const { data: gone, error } = await supabase
     .from('aircraft_collaborators')
     .delete()
     .eq('aircraft_id', aircraftId)
     .eq('user_id', userId)
+    .select('user_id')
   if (error) throw error
+  if (!gone?.length) throw new Error('Could not leave this aircraft — nothing changed. Please try again.')
 }
 
 export type FleetRole = 'owner' | CollaboratorRole

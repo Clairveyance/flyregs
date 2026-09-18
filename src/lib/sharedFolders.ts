@@ -572,12 +572,21 @@ export async function leaveSharedFolder(folderId: string): Promise<void> {
   // roster still listed them as active. declineFolderInvite does the identical
   // left_at write and has always thrown; this was the outlier.
   // ConfirmDialog.handleConfirm already renders a thrown message in place.
-  const { error } = await supabase
+  // `.select()` is the point: PostgREST answers a write that matches ZERO rows
+  // with a SUCCESS, so `if (error) throw` alone cannot tell "done" apart from
+  // "RLS silently refused you". Proven live 2026-09-18 -- a read-only
+  // collaborator's remove returned HTTP 204 and changed nothing, so the screen
+  // showed it gone and the next refresh brought it back. Same class as the
+  // aircraft "Remove Access" that reported success while the person kept
+  // access. See memory/gotcha_write_that_changed_nothing_reported_success.md.
+  const { data: left, error } = await supabase
     .from('folder_collaborators')
     .update({ left_at: new Date().toISOString() })
     .eq('folder_id', folderId)
     .eq('user_id', userId)
+    .select('user_id')
   if (error) throw error
+  if (!left?.length) throw new Error('Could not leave this folder — nothing changed. Please try again.')
 }
 
 export type FolderCollabMode = 'read_only' | 'read_write'
@@ -770,11 +779,20 @@ export async function getFolderCollabMode(folderId: string): Promise<FolderColla
 //     owners_manage_shared_notes/editors_manage_shared_notes).
 
 export async function removeSharedFolderItem(itemRowId: string): Promise<void> {
-  const { error } = await supabase
+  // `.select()` is the point: PostgREST answers a write that matches ZERO rows
+  // with a SUCCESS, so `if (error) throw` alone cannot tell "done" apart from
+  // "RLS silently refused you". Proven live 2026-09-18 -- a read-only
+  // collaborator's remove returned HTTP 204 and changed nothing, so the screen
+  // showed it gone and the next refresh brought it back. Same class as the
+  // aircraft "Remove Access" that reported success while the person kept
+  // access. See memory/gotcha_write_that_changed_nothing_reported_success.md.
+  const { data, error } = await supabase
     .from('synced_folder_items')
     .update({ deleted: true, updated_at: new Date().toISOString() })
     .eq('id', itemRowId)
+    .select('id')
   if (error) throw error
+  if (!data?.length) throw new Error("You don't have permission to remove this from the folder.")
 }
 
 // BB-082: lets a read_write collaborator add an EXISTING item (an AC/FAR/
@@ -879,11 +897,24 @@ export async function addExistingItemToSharedFolder(folderId: string, itemType: 
 // known synced_folder_items row id), FolderPicker only ever knows the
 // (folder, type, item) triple, same as its own local removeFromFolder.
 export async function removeExistingItemFromSharedFolder(folderId: string, itemType: FolderItemType, itemId: string): Promise<void> {
-  const { error } = await supabase
+  // Same `.select()` reasoning as removeSharedFolderItem above -- a write that
+  // matches zero rows is a SUCCESS as far as PostgREST is concerned. The one
+  // difference is that zero rows is AMBIGUOUS here: it means either "RLS
+  // refused you" or "it was already removed", because this targets a
+  // (folder, type, item) triple rather than a known row id, and the caller
+  // (FolderPicker) legitimately re-fires on a double tap. Already-removed is
+  // the promised idempotent no-op, so it must not throw -- but it must not be
+  // silent either, or a refusal hides inside it.
+  const { data, error } = await supabase
     .from('synced_folder_items')
     .update({ deleted: true, updated_at: new Date().toISOString() })
     .eq('folder_id', folderId).eq('item_type', itemType).eq('item_id', itemId).eq('deleted', false)
+    .select('id')
   if (error) throw error
+  if (!data?.length) {
+    console.warn(`removeExistingItemFromSharedFolder: nothing changed for ` +
+                 `${itemType}:${itemId} in ${folderId} — already removed, or RLS refused it.`)
+  }
 }
 
 // Which of the given foreign folders already contain this item -- lets

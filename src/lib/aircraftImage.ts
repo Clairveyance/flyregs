@@ -213,6 +213,13 @@ export async function removeAircraftImage(aircraftId: string, imagePath: string 
       })
     }
   }
-  const { error } = await supabase.from('user_aircraft').update({ image_path: null }).eq('id', aircraftId)
+  // Zero rows is a success to PostgREST, so this has to ask what it changed:
+  // without it, a non-owner "removing" the photo is told it worked while
+  // image_path survives and the picture comes back on the next load. The
+  // storage object above is already gone by then, which is the worse half --
+  // the row would point at a file that no longer exists.
+  const { data: cleared, error } = await supabase
+    .from('user_aircraft').update({ image_path: null }).eq('id', aircraftId).select('id')
   if (error) throw error
+  if (!cleared?.length) throw new Error("You don't have permission to change this aircraft's photo.")
 }

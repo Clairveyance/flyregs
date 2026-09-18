@@ -23,8 +23,25 @@ import type { BookmarkAC } from '@/lib/bookmarks'
 // that saved.tsx's "Stop Sharing" button can actually surface an error to
 // the user instead of showing success while collaborator rows survive.
 export async function unshareFolder(folderId: string): Promise<void> {
-  const { error: collabError } = await supabase.from('folder_collaborators').delete().eq('folder_id', folderId)
+  // `.select()` is the point: PostgREST answers a write that matches ZERO rows
+  // with a SUCCESS, so `if (error) throw` alone cannot tell "done" apart from
+  // "RLS silently refused you". Proven live 2026-09-18 -- a read-only
+  // collaborator's remove returned HTTP 204 and changed nothing, so the screen
+  // showed it gone and the next refresh brought it back. Same class as the
+  // aircraft "Remove Access" that reported success while the person kept
+  // access. See memory/gotcha_write_that_changed_nothing_reported_success.md.
+  // This function's own comment above promises it surfaces a failure "instead
+  // of showing success while collaborator rows survive" -- which `error` alone
+  // could not deliver. Zero rows is the ordinary case when the folder was never
+  // shared, so that is not an error; it is only checked against what the caller
+  // believed. Here it simply reports how many were revoked.
+  const { data: revoked, error: collabError } = await supabase
+    .from('folder_collaborators').delete().eq('folder_id', folderId).select('user_id')
   if (collabError) throw new Error(`unshare folder (collaborators): ${collabError.message}`)
+  if (revoked && revoked.length === 0) {
+    console.warn(`unshareFolder(${folderId}): no collaborator rows were revoked — ` +
+                 `either it was not shared, or RLS refused the delete.`)
+  }
   const { error: tokenError } = await supabase.from('synced_folders').update({ share_token: null }).eq('id', folderId)
   if (tokenError) throw new Error(`unshare folder (share_token): ${tokenError.message}`)
 }

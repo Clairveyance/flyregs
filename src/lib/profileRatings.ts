@@ -161,10 +161,16 @@ export async function addRating(userId: string, code: RatingCode): Promise<void>
 }
 
 export async function removeRating(userId: string, code: RatingCode): Promise<void> {
-  const { error } = await supabase
+  // See removeSharedFolderItem: zero rows changed is a SUCCESS to PostgREST.
+  // Its addRating counterpart already treats 23505 as "already there", so this
+  // treats zero rows as "already gone" -- the symmetric idempotent case -- and
+  // only says so out loud rather than throwing.
+  const { data, error } = await supabase
     .from('user_profile_ratings')
     .delete()
     .eq('user_id', userId)
     .eq('rating_code', code)
+    .select('rating_code')
   if (error) throw error
+  if (!data?.length) console.warn(`removeRating: ${code} was already absent, or RLS refused it.`)
 }

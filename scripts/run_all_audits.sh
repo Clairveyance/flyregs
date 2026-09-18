@@ -218,6 +218,12 @@ run_one "subscription_lifecycle (purchase grants, lapse downgrades, an outage ne
 # in the last 100 sends was our own test traffic.
 run_one "test_email_hygiene (harnesses send no real mail; no real address suppressed)" \
   python3 scripts/test_email_hygiene_audit.py
+# PostgREST answers a write matching ZERO rows with a SUCCESS, so
+# `if (error) throw` cannot tell "done" apart from "RLS silently refused you".
+# Proven live: a read-only collaborator's "remove item" returned HTTP 204 and
+# changed nothing -- the screen showed it gone, the next refresh brought it back.
+run_one "write_verifies_it_changed_something (no silent no-op reported as success)" \
+  python3 scripts/write_verifies_it_changed_something_audit.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what
