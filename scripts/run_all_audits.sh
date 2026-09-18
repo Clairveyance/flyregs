@@ -230,6 +230,12 @@ run_one "write_verifies_it_changed_something (no silent no-op reported as succes
 # sender and silently fails for the receiver. This pair has drifted three times.
 run_one "share_types_in_sync (app RegShareType == website TYPE_NAMES/VALID_TYPES)" \
   python3 scripts/share_types_in_sync_audit.py
+# The paywall renders hardcoded FALLBACK_PRICING instantly so the purchase
+# screen never opens blank -- which makes those numbers a SECOND copy of a
+# price whose first copy lives in App Store Connect. Change one and the app
+# keeps advertising the other to anyone whose offerings fetch is slow.
+run_one "paywall_price_matches_appstore (offline fallback == what Apple charges)" \
+  python3 scripts/paywall_price_matches_appstore_audit.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what
