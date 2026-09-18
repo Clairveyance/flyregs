@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { View, Text, Image, TextInput, Pressable, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT } from '@/lib/authRules'
 import { useAuth } from '@/context/auth'
 import { useTheme } from '@/context/theme'
 import { Icon } from '@/components/Icon'
@@ -190,6 +191,17 @@ export default function AuthScreen() {
     setEmailError(missingEmail ? 'Enter your email address' : null)
     setPasswordError(missingPassword ? 'Enter your password' : null)
     if (missingEmail || missingPassword) return
+
+    // Sign-UP only. Checking length on sign-IN would lock out anyone who
+    // created their account under the old, shorter rule -- their existing
+    // password still works and always should. This is also the only
+    // client-side length check on this screen: before it, a too-short new
+    // password went all the way to the server and came back as a raw GoTrue
+    // string.
+    if (mode === 'signup' && password.length < PASSWORD_MIN_LENGTH) {
+      setPasswordError(PASSWORD_TOO_SHORT)
+      return
+    }
 
     setLoading(true)
     try {

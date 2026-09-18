@@ -197,6 +197,13 @@ run_one "account_deletion_shared_data (deleting takes your work, not theirs)" \
 # graceful degradation -- it is a different number.
 run_one "price_never_wraps (a price stays on one line at any text size)" \
   python3 scripts/price_never_wraps_audit.py
+# The 2026-08-26 real-data-loss incident: a session started while the device
+# still carried the PREVIOUS account's tag, every guarded local read returned
+# [], and the first write built on that empty list. The claim must run on BOTH
+# session-start paths -- and PASSWORD_RECOVERY is a session start, which is
+# exactly how it was missed the first time.
+run_one "device_claim_wired (every session-start path claims the device)" \
+  python3 scripts/device_claim_wired_audit.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what

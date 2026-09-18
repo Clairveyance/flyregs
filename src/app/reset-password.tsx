@@ -3,6 +3,7 @@ import { View, Text, TextInput, Pressable, ActivityIndicator, StyleSheet, Keyboa
 import { router, useLocalSearchParams } from 'expo-router'
 import * as Linking from 'expo-linking'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT } from '@/lib/authRules'
 import { useTheme } from '@/context/theme'
 import { useFS, useInputFS } from '@/context/fontScale'
 import { Icon } from '@/components/Icon'
@@ -78,8 +79,8 @@ export default function ResetPasswordScreen() {
   }, [token_hash, type, incomingUrl])
 
   const handleSave = async () => {
-    if (password.length < 6) {
-      confirm({ title: 'Password too short', message: 'Use at least 6 characters.', cancelLabel: null })
+    if (password.length < PASSWORD_MIN_LENGTH) {
+      confirm({ title: 'Password too short', message: PASSWORD_TOO_SHORT, cancelLabel: null })
       return
     }
     if (password !== confirmPassword) {
