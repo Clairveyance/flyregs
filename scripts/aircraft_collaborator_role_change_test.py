@@ -102,7 +102,17 @@ def join_aircraft_channel(jwt, aircraft_id, received, ready_evt):
             ready_evt.set()
         elif msg.get("event") == "postgres_changes":
             received.append(("change", msg.get("payload")))
-        elif msg.get("event") in ("phx_error", "system"):
+        elif msg.get("event") == "system":
+            # phx_reply:"ok" only means the CHANNEL joined. The
+            # postgres_changes subscription is registered asynchronously after
+            # that, and realtime-js itself waits for THIS system message before
+            # reporting SUBSCRIBED. Recording it separately is what lets the
+            # test wait for the real signal instead of guessing with a sleep --
+            # see memory/gotcha_realtime_phx_reply_is_not_subscribed.md and
+            # folder_realtime_test.py, which already did it this way.
+            received.append(("_system", msg.get("payload", {}).get("status"),
+                             msg.get("payload", {}).get("message")))
+        elif msg.get("event") == "phx_error":
             received.append(("_meta", msg.get("event"), msg.get("payload")))
 
     ws_app = websocket.WebSocketApp(ws_url(), on_open=on_open, on_message=on_message)
@@ -191,11 +201,22 @@ def main():
             socket_ok = joined_ok and bool(join_msg) and join_msg[1] == "ok"
             check("collaborator's realtime socket joined aircraft-realtime-{id}", socket_ok, str(join_msg))
             if socket_ok:
-                # Known lag: phx_reply:"ok" can land slightly before the
-                # server-side postgres_changes subscription is fully wired
-                # -- see folder_realtime_test.py's own history of the same
-                # class of transient-after-join timing gap.
-                time.sleep(2)
+                # WAS `time.sleep(2)`, and that is why this test was flaky.
+                # phx_reply:"ok" means the channel joined; the postgres_changes
+                # subscription is wired asynchronously afterwards. Two seconds
+                # is enough on an idle machine and not enough inside
+                # run_all_audits.sh, where ~100 checks compete -- the role
+                # change then fired before anything was listening and the push
+                # could never arrive, so the test failed for a reason that had
+                # nothing to do with the feature.
+                #
+                # folder_realtime_test.py already waited for the server's own
+                # "system" message instead of guessing. Same lesson, applied
+                # here at last: wait for the real signal.
+                sub_live = wait_for(received, lambda r: r[0] == "_system", timeout_s=45)
+                check("collaborator's postgres_changes subscription went live "
+                      "(not just the channel join)", sub_live is not None,
+                      "no system message within 45s")
         else:
             print("  (websocket-client not installed -- skipping live push check, still verifying via REST refetch)")
 
