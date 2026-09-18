@@ -192,6 +192,11 @@ run_one "group_share_matrix (four people, three access levels, changing independ
 # folder, and a maintenance reminder off the owner's aircraft.
 run_one "account_deletion_shared_data (deleting takes your work, not theirs)" \
   python3 scripts/account_deletion_shared_data_test.py
+# At the largest text size the app offers, "$24.99" rendered as "$24.9" / "9"
+# on the purchase screen. A price is the one string where reflowing is not a
+# graceful degradation -- it is a different number.
+run_one "price_never_wraps (a price stays on one line at any text size)" \
+  python3 scripts/price_never_wraps_audit.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what

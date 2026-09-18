@@ -829,7 +829,14 @@ export default function PaywallScreen() {
             ]}
           >
             <Text style={[styles.planTitle, { color: tokens.amb, fontSize: fs(12) }]}>PLUS</Text>
-            <Text style={[styles.planPrice, { color: tokens.t1, fontSize: fs(28) }]}>{pricing.plus.oneTime}</Text>
+            <Text
+              style={[styles.planPrice, { color: tokens.t1, fontSize: fs(28) }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.6}
+            >
+              {pricing.plus.oneTime}
+            </Text>
             <Text style={[styles.planPeriod, { color: tokens.t3, fontSize: fs(12) }]}>one-time — yours forever</Text>
           </Pressable>
         ) : (
@@ -1112,8 +1119,31 @@ function PlanCard({
       <Text style={[styles.planTitle, { color: selected ? accentColor : tokens.t2, fontSize: fs(12) }]}>
         {title}
       </Text>
-      <Text style={[styles.planPrice, { color: tokens.t1, fontSize: fs(24) }]}>{price}</Text>
-      <Text style={[styles.planPeriod, { color: tokens.t3, fontSize: fs(12) }]}>{period}</Text>
+      {/* A PRICE MUST NEVER WRAP. At the largest text size (fs() goes to 1.75x)
+          "$24.99" broke across two lines as "$24.9" / "9" on the purchase
+          screen itself -- the one screen where a number that looks wrong costs
+          money. numberOfLines pins it to one line and adjustsFontSizeToFit
+          shrinks it to fit the card instead of reflowing; minimumFontScale
+          stops it shrinking into illegibility. Same treatment on the period
+          below, for the same reason. See
+          memory/gotcha_modal_card_unbounded.md: never judge fit from a
+          default-size screenshot. */}
+      <Text
+        style={[styles.planPrice, { color: tokens.t1, fontSize: fs(24) }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.6}
+      >
+        {price}
+      </Text>
+      <Text
+        style={[styles.planPeriod, { color: tokens.t3, fontSize: fs(12) }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}
+      >
+        {period}
+      </Text>
     </Pressable>
   )
 }
