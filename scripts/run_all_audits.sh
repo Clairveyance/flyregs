@@ -185,6 +185,13 @@ run_one "notification_defaults (new accounts all-ON, a deliberate OFF stays off)
 # guest can add members to someone else's folder behind the owner's back.
 run_one "group_share_matrix (four people, three access levels, changing independently)" \
   python3 scripts/group_share_matrix_test.py
+# Apple requires real in-app account deletion, and every app table cascades off
+# auth.users -- so a deletion reaches into folders and aircraft the deleted
+# person did not own. A folder ENTRY belongs to whoever FILED it, so a guest
+# deleting their account used to take the OWNER's note out of the OWNER's
+# folder, and a maintenance reminder off the owner's aircraft.
+run_one "account_deletion_shared_data (deleting takes your work, not theirs)" \
+  python3 scripts/account_deletion_shared_data_test.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what
