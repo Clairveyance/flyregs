@@ -384,7 +384,20 @@ export default function ReadyRoomScreen() {
                 <Text style={[styles.name, { color: tokens.t1, fontSize: fs(14) }]} numberOfLines={1}>
                   {item.isMe ? 'You' : item.displayLabel}
                 </Text>
-                <Text style={[styles.score, { color: tokens.t3, fontSize: fs(12.5) }]}>{item.pct}%</Text>
+                {/* The COUNT, not the percentage. pct is mastered / the whole
+                    study corpus, and that corpus is 12,888 items -- so a member
+                    must master 65 before the number rounds off 0%. Measured
+                    2026-09-18: the most active account had mastered 10 (0.078%)
+                    and the board read "0%" for every single row, ranked in an
+                    order the user could not see the reason for. Accurate, and
+                    useless: a leaderboard whose every entry reads 0% ranks
+                    nobody. The count moves from the first mastered item, and it
+                    is what the ranking is actually by, so it is the honest
+                    number to show -- and it matches the other two tabs, which
+                    also show raw counts (reviews, W/L) rather than ratios.
+                    pct is still returned by get_mastery_leaderboard if a
+                    percentage is ever wanted back. */}
+                <Text style={[styles.score, { color: tokens.t3, fontSize: fs(12.5) }]}>{item.mastered}</Text>
               </Pressable>
             )}
           />
