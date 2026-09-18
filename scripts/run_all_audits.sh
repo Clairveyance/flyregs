@@ -236,6 +236,13 @@ run_one "share_types_in_sync (app RegShareType == website TYPE_NAMES/VALID_TYPES
 # keeps advertising the other to anyone whose offerings fetch is slow.
 run_one "paywall_price_matches_appstore (offline fallback == what Apple charges)" \
   python3 scripts/paywall_price_matches_appstore_audit.py
+# The reader screens loaded a collaborator's highlights ONCE on mount and never
+# again -- reading a reg while your CFI highlighted a passage in a shared folder
+# meant you never saw it. Same defect as the shared-folder refresh gap, on a
+# different set of screens, for the same reason: N similar files, nobody
+# compared the N.
+run_one "shared_highlights_refresh (reader screens keep collaborators' highlights current)" \
+  python3 scripts/shared_highlights_refresh_audit.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what

@@ -16,6 +16,7 @@ import { printReg } from '@/lib/printReg'
 import { ACBody, ACBodyHandle } from '@/components/ACBody'
 import { addRecent } from '@/lib/recents'
 import { isBookmarked, toggleBookmark, getHighlightsForAC, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
+import { useSharedHighlights } from '@/lib/useSharedHighlights'
 import { loadHighlightSets, removeSharedHighlight, type SharedHighlightMap } from '@/lib/sharedHighlights'
 import { getDownloads, isDownloaded, addDownload, removeDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
 import { downloadGatedImageToCache, downloadAllToCache } from '@/lib/imageCache'
@@ -240,6 +241,15 @@ export default function ACDetailScreen() {
   // Other participants' highlights on this AC, keyed by passage -- see
   // lib/sharedHighlights.ts. RC, 2026-09-05.
   const [sharedHighlights, setSharedHighlights] = useState<SharedHighlightMap>(new Map())
+  // Lifted out of the mount effect above, where it ran exactly once: a
+  // collaborator's highlight added while you sat on this screen never
+  // appeared. Now reloads on focus, on OS foreground, and on a live
+  // synced_folder_items change -- see useSharedHighlights for why that
+  // table and not synced_bookmarks.
+  useSharedHighlights(id, 'ac', ({ texts, shared }) => {
+    setHighlightedBlockTexts(texts)
+    setSharedHighlights(shared)
+  })
   const [figures, setFigures] = useState<AcFigure[] | null>(null)
   const [viewerFigure, setViewerFigure] = useState<AcFigure | null>(null)
   const [formulaRefs, setFormulaRefs] = useState<FormulaRef[] | null>(null)
@@ -459,7 +469,6 @@ export default function ACDetailScreen() {
       })
     isBookmarked(id).then(setBookmarked)
     isDownloaded(id).then(setDownloaded)
-    loadHighlightSets(id, 'ac').then(({ texts, shared }) => { setHighlightedBlockTexts(texts); setSharedHighlights(shared) })
     // Keyed on the ENTITLEMENT too, not just the id. The _gated view
     // returns a truncated/redacted payload for a non-entitled viewer, and
     // hasPlusAccess starts false on cold launch and flips when the entitlement

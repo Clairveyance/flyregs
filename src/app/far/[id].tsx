@@ -22,6 +22,7 @@ import { BackToBreadcrumb, PrevNextFooter, TableNavBar, ChangedBanner, OfflineCo
 import { InDocSearchBar } from '@/components/InDocSearchBar'
 import { useInDocSearch } from '@/lib/useInDocSearch'
 import { isBookmarked, toggleBookmark, findHighlight, addHighlight, removeHighlight } from '@/lib/bookmarks'
+import { useSharedHighlights } from '@/lib/useSharedHighlights'
 import { loadHighlightSets, removeSharedHighlight, type SharedHighlightMap } from '@/lib/sharedHighlights'
 import { isDownloaded, addDownload, removeDownload, findDownload, isDownloadStale, type DownloadedAC } from '@/lib/downloads'
 import { DetailActionRow } from '@/components/DetailMeta'
@@ -182,10 +183,14 @@ export default function FarSectionScreen() {
   // into it, because the long-press menu has to be able to tell yours from
   // theirs -- see handleBlockLongPress.
   const [sharedHighlights, setSharedHighlights] = useState<SharedHighlightMap>(new Map())
-  useEffect(() => {
-    if (!id) return
-    loadHighlightSets(id, 'far').then(({ texts, shared }) => { setHighlightedBlockTexts(texts); setSharedHighlights(shared) })
-  }, [id])
+  // Was a one-shot load on mount: a collaborator's highlight added while
+  // you sat on this screen never appeared. Now reloads on focus, on OS
+  // foreground, and on a live synced_folder_items change -- see
+  // useSharedHighlights for why that table and not synced_bookmarks.
+  useSharedHighlights(id, 'far', ({ texts, shared }) => {
+    setHighlightedBlockTexts(texts)
+    setSharedHighlights(shared)
+  })
   // The passage currently under the Copy/Highlight menu, shown as a
   // "SELECTED" preview -- see PlainTextBody's pendingBlockText comment.
   const [pendingHighlight, setPendingHighlight] = useState<string | null>(null)
