@@ -227,13 +227,22 @@ export async function removeCollaborator(aircraftId: string, userId: string): Pr
   // walked back in through the still-live share code as an EDITOR, with write
   // access to maintenance and AD compliance records. has_aircraft_access
   // filters left_at, so access still ends on the very next request.
+  //
+  // .select() is not decoration: PostgREST answers an UPDATE that matches ZERO
+  // rows with a SUCCESS, so without asking for the changed row back, a missing
+  // RLS policy (which is exactly what this table had -- owners could DELETE a
+  // collaborator row but not UPDATE one) makes "Remove Access" a silent no-op
+  // that reports success while the person keeps full access. Found the first
+  // time the new removal test ran. Fail LOUD instead.
   const now = new Date().toISOString()
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from('aircraft_collaborators')
     .update({ left_at: now, removed_at: now })
     .eq('aircraft_id', aircraftId)
     .eq('user_id', userId)
+    .select('user_id')
   if (error) throw error
+  if (!updated?.length) throw new Error('Could not remove this person — nothing changed. Please try again.')
 
   if (rowErr || (row && !row.invite_token)) {
     const { error: linkErr } = await supabase

@@ -174,6 +174,12 @@ run_one "shared_screen_refresh (a shared screen refreshes on all four triggers)"
 # HIGHER role than the downgrade they had just been given. Removal is now soft.
 run_one "collaborator_removal (removal ends access, keeps their work, blocks re-entry)" \
   python3 scripts/folder_collaborator_removal_test.py
+# RC, 2026-09-04 and again 2026-09-17: "we want all account toggles ON by
+# default... and they can turn off anytime." Both halves are load-bearing --
+# the app must ASK for push on sign-in (no row reads as all-off), and a
+# re-registration on every foreground must never resurrect a deliberate OFF.
+run_one "notification_defaults (new accounts all-ON, a deliberate OFF stays off)" \
+  python3 scripts/notification_defaults_audit.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what

@@ -373,11 +373,20 @@ def main():
               bool(me_row.get("out_joined_at")), str(me_row))
         check("owner sees the collaborator HAS OPENED the folder (last_viewed_at)",
               bool(me_row.get("out_last_viewed_at")), str(me_row))
+        # Updated 2026-09-17, same reason as aircraft_sharing_e2e_test's twin
+        # assertion: migrations_collab_roster_no_raise.sql stopped this RPC
+        # raising for a non-owner and made it return NOTHING. A collaborator
+        # never owns the synced_folders row, so the old raise fired a hard 400
+        # on EVERY shared-folder open -- the bug that cost three sessions
+        # (memory/gotcha_read_rpc_raised_for_normal_state.md). The guarantee
+        # being tested is that a non-owner learns nothing, which is what this
+        # now asserts; the raise was only ever the mechanism.
         try:
-            rpc("get_folder_collaborators", mate["jwt"], {"p_folder_id": folder_id})
-            check("a non-owner cannot list collaborators", False, "call succeeded")
+            roster = rpc("get_folder_collaborators", mate["jwt"], {"p_folder_id": folder_id})
+            check("a non-owner learns nothing from the collaborator roster RPC",
+                  not roster, str(roster))
         except RuntimeError:
-            check("a non-owner cannot list collaborators", True, "")
+            check("a non-owner learns nothing from the collaborator roster RPC", True, "")
 
         print("\n=== LEAVE ===")
         # Mirrors src/lib/sharedFolders.ts leaveSharedFolder(): a soft leave

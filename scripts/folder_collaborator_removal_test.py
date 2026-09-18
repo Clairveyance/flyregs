@@ -123,8 +123,7 @@ def main():
     ac_id = None
     mate_callsign = "RMV" + secrets.token_hex(3).upper()
     http("POST", "/rest/v1/callsign_registry", key=SERVICE,
-         body={"user_id": mate["id"], "callsign": mate_callsign,
-               "callsign_lower": mate_callsign.lower()},
+         body={"user_id": mate["id"], "callsign": mate_callsign},
          headers={"Prefer": "resolution=merge-duplicates"})
     folder_id = "frm-" + secrets.token_hex(6)
     link_token = secrets.token_urlsafe(9)

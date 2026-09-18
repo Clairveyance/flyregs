@@ -202,11 +202,21 @@ def main():
         st, mine = http("GET", f"/rest/v1/user_aircraft?id=eq.{aircraft_id}&select=id",
                         key=ANON, jwt=stranger["jwt"])
         check("a non-collaborator still cannot see it", not mine, str(mine))
+        # Updated 2026-09-17: migrations_collab_roster_no_raise.sql stopped this
+        # RPC raising for a non-owner and made it return NOTHING instead. The
+        # security property under test is unchanged and is what is asserted --
+        # a non-owner learns nothing about who else is on the aircraft. What
+        # changed is that a normal, expected state no longer arrives as a hard
+        # HTTP error the client only swallows (see
+        # memory/gotcha_read_rpc_raised_for_normal_state.md). Asserting the
+        # RAISE rather than the EMPTINESS was testing the mechanism instead of
+        # the guarantee.
         try:
-            rpc("get_aircraft_collaborators", mate["jwt"], {"p_aircraft_id": aircraft_id})
-            check("a non-owner collaborator cannot list the roster", False, "call succeeded")
+            roster = rpc("get_aircraft_collaborators", mate["jwt"], {"p_aircraft_id": aircraft_id})
+            check("a non-owner collaborator learns nothing from the roster RPC",
+                  not roster, str(roster))
         except RuntimeError:
-            check("a non-owner collaborator cannot list the roster", True, "")
+            check("a non-owner collaborator learns nothing from the roster RPC", True, "")
 
         print("\n=== RE-SHARING AS EDITOR UPGRADES THE EXISTING COLLABORATOR ===")
         editor_token = secrets.token_urlsafe(16)

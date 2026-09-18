@@ -693,13 +693,22 @@ export async function removeCollaborator(folderId: string, userId: string): Prom
   // left_at is what ends access (has_folder_access filters it, so the very
   // next request is refused); removed_at is what distinguishes this from the
   // person LEAVING, which may still be undone by tapping the link again.
+  //
+  // .select() for the same reason aircraftSharing.removeCollaborator documents:
+  // an UPDATE matching ZERO rows is a SUCCESS as far as PostgREST and
+  // supabase-js are concerned, so without reading the changed row back a
+  // missing policy turns "Remove Access" into a silent no-op that says it
+  // worked. This table does have the policy; the guard is here so it cannot
+  // quietly stop being true.
   const now = new Date().toISOString()
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from('folder_collaborators')
     .update({ left_at: now, removed_at: now })
     .eq('folder_id', folderId)
     .eq('user_id', userId)
+    .select('user_id')
   if (error) throw error
+  if (!updated?.length) throw new Error('Could not remove this person — nothing changed. Please try again.')
 
   if (rowErr || (row && !row.invite_token)) {
     const { error: linkErr } = await supabase
