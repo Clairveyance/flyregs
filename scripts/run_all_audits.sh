@@ -204,6 +204,14 @@ run_one "price_never_wraps (a price stays on one line at any text size)" \
 # exactly how it was missed the first time.
 run_one "device_claim_wired (every session-start path claims the device)" \
   python3 scripts/device_claim_wired_audit.py
+# Tapping Buy needs StoreKit on a device -- but tapping Buy is not what grants
+# a tier. The RevenueCat webhook is, and so is every state after it: renewal,
+# cancellation, expiry, Apple's billing-retry grace. All of that is reachable
+# with the RevenueCat V2 key and the webhook secret. Case 3 is the one that has
+# already cost real money: a 404 from RevenueCat means "no customer record",
+# NOT "no entitlements", and writing false on it stripped RC's own Premium in B42.
+run_one "subscription_lifecycle (purchase grants, lapse downgrades, an outage never strips a payer)" \
+  python3 scripts/subscription_lifecycle_test.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what
