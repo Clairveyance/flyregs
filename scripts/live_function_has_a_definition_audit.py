@@ -27,41 +27,30 @@ Usage: python3 scripts/live_function_has_a_definition_audit.py
 import json
 import pathlib
 import re
-import string
-import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+from supabase_mgmt_api import request                            # noqa: E402
+
 FAILURES = []
 
 
 def live_functions():
-    """Paged deliberately: apply_migration.py truncates its output at 2000
-    characters (memory/gotcha_apply_migration_2000char_truncation.md), and a
-    single string_agg of ~180 names silently exceeds that -- which would make
-    this audit under-report, i.e. pass when it should not."""
-    names, buckets = set(), list(string.ascii_lowercase) + ["_"]
-    for i in range(0, len(buckets), 4):
-        grp = buckets[i:i + 4]
-        cond = " or ".join(f"p.proname like '{c}%'" for c in grp)
-        sql = (f"select string_agg(p.proname, ' ' order by p.proname) as fns "
-               f"from pg_proc p join pg_namespace n on n.oid=p.pronamespace "
-               f"where n.nspname='public' and p.prokind='f' and ({cond}) "
-               f"and not exists (select 1 from pg_depend d "
-               f"where d.objid=p.oid and d.deptype='e');")
-        q = ROOT / "scripts/.tmp_livefn_query.sql"
-        q.write_text(sql)
-        try:
-            out = subprocess.run([sys.executable, str(ROOT / "scripts/apply_migration.py"), str(q)],
-                                 capture_output=True, text=True).stdout.strip().splitlines()
-            v = json.loads(out[-1])[0]["fns"]
-            if v:
-                names.update(v.split())
-        except Exception:
-            pass
-        finally:
-            q.unlink(missing_ok=True)
-    return names
+    """One query, whole result. An earlier version paged alphabetically to stay
+    under apply_migration.py's 2000-character output cap (its line 35) -- but
+    supabase_mgmt_api.request() does not truncate at all, and already retries
+    429/5xx with Retry-After backoff. That second part matters: this audit runs
+    inside run_all_audits.sh alongside every other Management API caller, and
+    the paged version swallowed rate-limit failures into an empty result, which
+    would make it UNDER-REPORT and therefore pass when it should not."""
+    raw = request("/database/query", {"query":
+        "select p.proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace "
+        "where n.nspname='public' and p.prokind='f' "
+        "and not exists (select 1 from pg_depend d where d.objid=p.oid and d.deptype='e');"})
+    if raw.startswith("HTTP "):
+        raise RuntimeError(f"live function query failed: {raw[:160]}")
+    return {r["proname"] for r in json.loads(raw)}
 
 
 def on_disk():

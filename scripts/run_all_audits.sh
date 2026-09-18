@@ -323,6 +323,12 @@ run_one "no_orphaned_guards (no test sits in no runner)" \
 # daily snapshots, so the repo being incomplete is the part that bites.
 run_one "live_function_has_a_definition (no function exists only in production)" \
   python3 scripts/live_function_has_a_definition_audit.py
+# Same question for the thing that actually enforces security. 33 RLS policies
+# existed only in production -- including the per-user isolation on notes and
+# bookmarks, and most of the folder-sharing rules. The repo could not answer
+# "who can read this table".
+run_one "live_policy_has_a_definition (no RLS policy exists only in production)" \
+  python3 scripts/live_policy_has_a_definition_audit.py
 # RC's Duel Alerts turned themselves off: a BEFORE-UPDATE trigger rewrote his
 # stored preference every time the app foregrounded while the entitlement row
 # was stale. A permission check may refuse or filter; it may not rewrite what
