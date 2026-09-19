@@ -8,6 +8,7 @@ knowledge -- scored no better. Phrase containment fixes that: the query bigram
 "private pilot" IS inside "Subpart E-Private Pilots" and is NOT inside
 Subpart H's title.
 """
+import os
 import sys, json, time
 sys.path.insert(0, "scripts")
 from search_rank_eval import evaluate
@@ -20,7 +21,7 @@ CONFIGS = [
     ("+subphrase300+titlephrase350",             {"w_sub":180,"w_doc":240,"w_subphrase":300,"w_titlephrase":350}),
     ("+subphrase200+titlephrase200 doc120",      {"w_sub":180,"w_doc":120,"w_subphrase":200,"w_titlephrase":200}),
 ]
-OUT = "/private/tmp/claude-501/-Users-rc-Local-Desktop-COWORK-Apps-AC-app/0ab87012-7429-47e2-9684-e807b919fea7/sweep3.json"
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'scripts', 'audit_reports', 'sweep3.json')
 
 if __name__ == "__main__":
     out = []

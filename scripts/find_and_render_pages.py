@@ -32,7 +32,7 @@ def main():
     pdf_bytes = fetch_source_pdf(pdf_url).content
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
-    out_dir = "/private/tmp/claude-501/-Users-rc-Local-Desktop-COWORK-Apps-AC-app/dda71396-47d8-4940-b2fe-bbaf460c155b/scratchpad/ac_pages"
+    out_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'scripts', 'audit_reports', 'ac_pages')
     os.makedirs(out_dir, exist_ok=True)
 
     for anchor in anchors:

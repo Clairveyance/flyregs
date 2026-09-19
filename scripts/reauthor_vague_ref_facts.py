@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """One-off: re-author the 531 fact cards flagged 2026-08-28 for the "this AC"/
 "this section" vague-self-reference bug (see author_fact_deck.py's
@@ -16,7 +17,7 @@ import json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import author_fact_deck as afd
 
-TARGET_LIST = "/private/tmp/claude-501/-Users-rc-Local-Desktop-COWORK-Apps-AC-app/dda71396-47d8-4940-b2fe-bbaf460c155b/scratchpad/vague_ref_items.json"
+TARGET_LIST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'scripts', 'audit_reports', 'vague_ref_items.json')
 STATE_PATH = os.path.join(afd.BASE, "scripts", ".reauthor_vague_batch_state.json")
 ID_MAP_PATH = os.path.join(afd.BASE, "scripts", ".reauthor_vague_id_map.json")
 

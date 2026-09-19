@@ -1,6 +1,7 @@
 """Consolidated sequential sweep. Recall is deterministic, so the 69.1%/0.526
 control measured in sweep1 stands as the comparison point and is not re-run.
 """
+import os
 import sys, json, time
 sys.path.insert(0, "scripts")
 from search_rank_eval import evaluate
@@ -14,7 +15,7 @@ CONFIGS = [
     ("+sp300+tp200 doc120",                   {"w_sub":180,"w_doc":120,"w_subphrase":300,"w_titlephrase":200}),
     ("+sp300+tp200 and120",                   {"w_sub":180,"w_doc":240,"w_subphrase":300,"w_titlephrase":200,"w_and":120}),
 ]
-OUT = "/private/tmp/claude-501/-Users-rc-Local-Desktop-COWORK-Apps-AC-app/0ab87012-7429-47e2-9684-e807b919fea7/final.json"
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'scripts', 'audit_reports', 'final.json')
 
 if __name__ == "__main__":
     out = []

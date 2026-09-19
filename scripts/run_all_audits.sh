@@ -17,6 +17,18 @@
 # rls_write_path_fuzzer.py specifically -- see PROJECT_NOTES's 2026-08-11
 # app-wide cleanup entry), not as part of every quick health check.
 #
+# search_rank_sweep.py is excluded DELIBERATELY, added 2026-09-18 after I
+# wrongly registered it: it is a weight-TUNING EXPERIMENT, not a health check.
+# Its own docstring says "Control (w_sub=0) is production as it ships today.
+# Everything else is a candidate" -- it scores seven candidate ranking
+# configurations side by side for a human to choose between, and has no notion
+# of passing. It is also heavy (7 configs x 317 cases = ~112 Management API
+# calls) and goes through author_fact_deck.mgmt_sql, which has no retry, so at
+# the tail of this suite it fails on a rate limit rather than on anything about
+# search. Run it by hand when tuning ranking weights. Its siblings
+# search_rank_eval / search_relevance_eval / search_anchor_gap_sweep /
+# realistic_question_sweep DO assert and stay in the --full layer.
+#
 # AMENDED 2026-09-18. That exclusion is now applied more narrowly than it
 # reads. Several account-mutating tests ARE included below -- the sharing,
 # deletion, subscription-lifecycle and sync ones -- because each guards a
@@ -328,6 +340,13 @@ run_one "duel_pending_hide_freeze (a hidden/pending duel cannot freeze the list)
 # The detector for the problem this whole block came from.
 run_one "no_orphaned_guards (no test sits in no runner)" \
   python3 scripts/no_orphaned_guards_audit.py
+# A committed script must run on somebody else's machine. This already cost 13
+# of 51 audits once (a hardcoded /Users/rc/... killed every mgmt()-backed audit
+# on CI while the suite still printed a total). Found again 2026-09-18: nine
+# scripts wrote into an assistant session's temp directory, four of them a
+# session dead for weeks.
+run_one "no_machine_specific_paths (no script hardcodes one machine or session)" \
+  python3 scripts/no_machine_specific_paths_audit.py
 # The repo must describe the database it deploys. Eight live functions --
 # including expand_search_terms, the query-expansion layer under SmartSearch --
 # had no definition anywhere on disk, created live via the Management API with
@@ -484,7 +503,6 @@ if [[ $FULL -eq 1 ]]; then
   run_one "search_relevance_eval"                              python3 scripts/search_relevance_eval.py
   run_one "search_anchor_gap_sweep"                            python3 scripts/search_anchor_gap_sweep.py
   run_one "realistic_question_sweep"                           python3 scripts/realistic_question_sweep.py
-  run_one "search_rank_sweep"                                  python3 scripts/search_rank_sweep.py
 fi
 
 echo "==========================================" | tee -a "$REPORT"

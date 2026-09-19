@@ -20,7 +20,7 @@ import path from 'path'
 import { execSync } from 'child_process'
 import { pathToFileURL } from 'url'
 
-const REPO = '/Users/rc/Local Desktop/COWORK/Apps/AC app/ac-app'
+const REPO = new URL('..', import.meta.url).pathname.replace(/\/$/, '')
 process.chdir(REPO)
 
 const envPath = path.resolve('.env.scraper')
@@ -142,7 +142,7 @@ console.log(`ACs with at least one block kind change: ${acsWithKindChange}`)
 console.log(`Blocks that changed kind: ${blocksChangedKind}`)
 console.log(`Kind-flip breakdown:`, flipCounts)
 
-const OUT = '/private/tmp/claude-501/-Users-rc-Local-Desktop-COWORK-Apps-AC-app/dda71396-47d8-4940-b2fe-bbaf460c155b/scratchpad'
+const OUT = new URL('./audit_reports/', import.meta.url).pathname
 fs.writeFileSync(`${OUT}/ac_secitem_kindchanges.json`, JSON.stringify(kindChangeSamples, null, 1))
 fs.writeFileSync(`${OUT}/ac_secitem_count_mismatches.json`, JSON.stringify(countMismatchDocs, null, 1))
 fs.writeFileSync(`${OUT}/ac_secitem_content_mismatches.json`, JSON.stringify(contentMismatchDocs, null, 1))

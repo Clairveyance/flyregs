@@ -10,6 +10,7 @@ query nobody has ever reported.
 
 Baseline is the currently-shipped config (w_sub=180, w_doc=240) with no anchors.
 """
+import os
 import sys, json, time
 sys.path.insert(0, "scripts")
 from search_rank_eval import evaluate
@@ -27,7 +28,7 @@ CONFIGS = [
     ("general 120 + cite 40",   cfg(w_general=120, w_cite=40)),
     ("general 60 + cite 80",    cfg(w_general=60, w_cite=80)),
 ]
-OUT = "/private/tmp/claude-501/-Users-rc-Local-Desktop-COWORK-Apps-AC-app/0ab87012-7429-47e2-9684-e807b919fea7/sweep5.json"
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'scripts', 'audit_reports', 'sweep5.json')
 
 if __name__ == "__main__":
     out = []

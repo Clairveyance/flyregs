@@ -3,6 +3,7 @@
 Control (w_sub=0) is production as it ships today. Everything else is a
 candidate. Nothing here writes to the DB.
 """
+import os
 import sys, json, time
 sys.path.insert(0, "scripts")
 from search_rank_eval import evaluate
@@ -26,4 +27,4 @@ if __name__ == "__main__":
                     "recall": hits/n, "mrr": mrr,
                     "ranks": {str(k): v for k, v in ranks.items()}})
         print(f"{name:<34} recall@10 {hits:>3}/{n} = {hits/n*100:5.1f}%   MRR {mrr:.3f}   ({time.time()-t:.0f}s)", flush=True)
-        json.dump(out, open("/private/tmp/claude-501/-Users-rc-Local-Desktop-COWORK-Apps-AC-app/0ab87012-7429-47e2-9684-e807b919fea7/scratchpad/sweep.json", "w"), indent=1)
+        json.dump(out, open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'scripts', 'audit_reports', 'sweep.json'), "w"), indent=1)

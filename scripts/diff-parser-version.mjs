@@ -10,7 +10,7 @@ import path from 'path'
 import { execSync } from 'child_process'
 import { pathToFileURL } from 'url'
 
-const REPO = '/Users/rc/Local Desktop/COWORK/Apps/AC app/ac-app'
+const REPO = new URL('..', import.meta.url).pathname.replace(/\/$/, '')
 process.chdir(REPO)
 
 const envPath = path.resolve('.env.scraper')
@@ -98,7 +98,7 @@ console.log(`ACs with at least one changed item block: ${acsWithChanges}`)
 console.log(`Item blocks changed: ${itemsChanged}`)
 console.log(`Item blocks unchanged: ${itemsUnchanged}`)
 
-const OUT = '/private/tmp/claude-501/-Users-rc-Local-Desktop-COWORK-Apps-AC-app/dda71396-47d8-4940-b2fe-bbaf460c155b/scratchpad'
+const OUT = new URL('./audit_reports/', import.meta.url).pathname
 fs.writeFileSync(`${OUT}/ac_splitheading_all.json`, JSON.stringify(samples, null, 1))
 console.log(`\nWrote all ${samples.length} changed items to ac_splitheading_all.json`)
 // Evenly-spaced sample across the WHOLE run (not just the first few docs)

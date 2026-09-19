@@ -7,6 +7,7 @@ section matching 1 of 4 terms competes with one matching 4 of 4. w_doc scores
 the fraction of query lexemes present anywhere in the stored search_vector,
 which is the cheap way to say "this document is actually about all of this".
 """
+import os
 import sys, json, time
 sys.path.insert(0, "scripts")
 from search_rank_eval import evaluate
@@ -19,7 +20,7 @@ CONFIGS = [
     ("sub180 + doc 240 + ts 60",         {"w_sub": 180, "w_doc": 240, "w_ts": 60}),
     ("sub240 + doc 240",                 {"w_sub": 240, "w_doc": 240}),
 ]
-OUT = "/private/tmp/claude-501/-Users-rc-Local-Desktop-COWORK-Apps-AC-app/0ab87012-7429-47e2-9684-e807b919fea7/sweep2.json"
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'scripts', 'audit_reports', 'sweep2.json')
 
 if __name__ == "__main__":
     out = []
