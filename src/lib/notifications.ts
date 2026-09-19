@@ -415,8 +415,45 @@ export function dailyRegCitation(item: Pick<DailyReg, 'slug' | 'sourceType'>): s
 // inline regardless of whether the user has the push toggle on. Not gated
 // by tier: the underlying content (P/CG, FAR, AIM) is freely browsable,
 // this is just a discovery surface for something already free to read.
+
+/**
+ * Today's date as the DEVICE sees it, 'YYYY-MM-DD'.
+ *
+ * RC, 2026-09-18: "the DW/DR popup alerts are diff from the ones being
+ * displayed in the app. They should be the same."
+ *
+ * They were the same function -- get_reg_of_the_day() / get_word_of_the_day(),
+ * shared deliberately between the push sender and the app so the picks could
+ * not diverge. What diverged was the DATE. Both sides called the RPC with no
+ * argument, so both got `CURRENT_DATE`, and CURRENT_DATE is the DATABASE's
+ * date, which is UTC.
+ *
+ * The push goes out at 13:00 UTC, which is the morning of the same calendar
+ * date across the Americas. But UTC rolls over at 17:00 Pacific / 20:00
+ * Eastern -- so from late afternoon until local midnight, the app asked for
+ * "today", was handed TOMORROW's date, and showed a completely different item
+ * from the push received that morning. Reproduced live at 17:07 PDT: the
+ * database was already on the next day and returned a different reg.
+ *
+ * Passing the device's own date fixes it for every user whose morning push and
+ * local date agree, which is the whole Americas -- and it is strictly better
+ * than UTC everywhere else, because "today" should mean the user's today.
+ *
+ * Built by hand rather than from toISOString() (which is UTC, i.e. the bug) or
+ * a locale format (which is not guaranteed to be YYYY-MM-DD).
+ */
+export function deviceLocalDate(d: Date = new Date()): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 export async function getDailyReg(): Promise<DailyReg | null> {
-  const { data, error } = await supabase.rpc('get_reg_of_the_day')
+  // for_date is the DEVICE's date -- see deviceLocalDate. Omitting it gave the
+  // database's UTC date, which is why the app and the push disagreed all
+  // evening.
+  const { data, error } = await supabase.rpc('get_reg_of_the_day', { for_date: deviceLocalDate() })
   if (error) throw error
   const row = data?.[0]
   return row ? { slug: row.slug, term: row.term, definition: row.definition, sourceType: row.source_type } : null
@@ -460,7 +497,8 @@ export interface WordOfTheDay {
 // same tier that gets the DW itself" -- enableDailyWord below gates Plus,
 // not copied blind from DailyReg's Pro gate.
 export async function getWordOfTheDay(): Promise<WordOfTheDay | null> {
-  const { data, error } = await supabase.rpc('get_word_of_the_day')
+  // Same device-local date as getDailyReg -- see deviceLocalDate.
+  const { data, error } = await supabase.rpc('get_word_of_the_day', { for_date: deviceLocalDate() })
   if (error) throw error
   const row = data?.[0]
   return row ? { slug: row.slug, term: row.term, definition: row.definition, category: row.category } : null

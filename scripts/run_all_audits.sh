@@ -259,6 +259,12 @@ run_one "shared_highlights_refresh (reader screens keep collaborators' highlight
 # driven BY that number. RC's own spec for that ring had never once run.
 run_one "mastery_number_is_reachable (a number the user sees must be able to move)" \
   python3 scripts/mastery_number_is_reachable_audit.py
+# RC: "the DW/DR popup alerts are diff from the ones being displayed in the
+# app." Both sides already SHARED the picker function -- what diverged was the
+# date. CURRENT_DATE is the DATABASE's date (UTC), which rolls over at 17:00
+# Pacific, so all evening the app showed tomorrow's pick against a morning push.
+run_one "daily_pick_matches_push (the app asks for the USER's date, not UTC)" \
+  python3 scripts/daily_pick_matches_push_audit.py
 # These four guard the sync engine -- where this project's worst incident lives
 # (2026-08-26, real user data destroyed). They existed and were in NO runner:
 # not in this script, and not in the deliberate-exclusion list at the top
